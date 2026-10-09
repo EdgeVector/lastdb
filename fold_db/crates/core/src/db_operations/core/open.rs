@@ -228,13 +228,13 @@ impl DbOperations {
             hash_key_codec,
         )
         .with_resident_graph(Arc::clone(&resident))
-        .with_namespaced_store(Arc::clone(&store))
+        .with_namespaced_store(Arc::clone(store))
         .with_molecule_keys(molecule_keys.clone())
         .with_keep_small_persist(Arc::new(TypedKvStore::new(keep_small_kv)))
         .resolve_boot_encoding()
         .await?;
         atom_store
-            .recover_catalog_atom_ref_transitions(&db_catalog)
+            .recover_catalog_atom_ref_transitions(db_catalog)
             .await
             .map_err(|error| {
                 crate::storage::StorageError::BackendError(format!(
