@@ -36,20 +36,23 @@ impl AtomStore {
                 }
             }
         }
+        let tip_keys: Vec<String> = tips.keys().cloned().collect();
+        let barriers = self.winning_delete_barriers(&tip_keys).await?;
+        let eligible_keys: Vec<String> = tip_keys
+            .into_iter()
+            .filter(|key| {
+                !barriers
+                    .get(key)
+                    .is_some_and(|barrier| barrier.blocks_tip(&tips[key].entry))
+            })
+            .collect();
+        // Keep this key order for the batch result. A blocked tip must not
+        // read its durable value, even when that value is malformed.
+        let durable_tips = self.delete_target_tips(&eligible_keys).await?;
         let mut accepted_slots = std::collections::HashSet::new();
         let mut accepted_tip_edges = std::collections::HashSet::new();
-        for (key, incoming) in tips {
-            if self
-                .winning_delete_barrier(&key)
-                .await?
-                .is_some_and(|barrier| barrier.blocks_tip(&incoming.entry))
-            {
-                continue;
-            }
-            let durable: Option<PerKeyRecord> =
-                self.main_store.get_item(&key).await.map_err(|error| {
-                    SchemaError::InvalidData(format!("read durable tip winner {key}: {error}"))
-                })?;
+        for (key, durable) in eligible_keys.into_iter().zip(durable_tips) {
+            let incoming = tips.remove(&key).expect("eligible tip must exist");
             if durable.as_ref().is_some_and(|current| {
                 let legacy_last_write =
                     is_legacy_zero_clock(&incoming.entry) && is_legacy_zero_clock(&current.entry);
