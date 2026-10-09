@@ -93,8 +93,13 @@ impl MutationManager {
             // slot. The persist worker only commits. A one-record complement
             // walk on the worker froze LastgitCiStatus for ~328 s and 503'd
             // every merge writer (2026-09-04).
-            let atom_ref_cutover =
-                super::super::super::purge::atom_ref_cutover_ready(&self.db_ops, &schema).await?;
+            // Plain Delete only converges tips. It never needs the atom-ref
+            // manifest or its history upgrade before the resident tombstone.
+            let atom_ref_cutover = if verb == super::super::super::purge::HardEraseVerb::Delete {
+                false
+            } else {
+                super::super::super::purge::atom_ref_cutover_ready(&self.db_ops, &schema).await?
+            };
             let guarded_complement_retained =
                 if verb != super::super::super::purge::HardEraseVerb::Delete && !atom_ref_cutover {
                     let keys: Vec<crate::schema::types::KeyValue> = schema_erasures
