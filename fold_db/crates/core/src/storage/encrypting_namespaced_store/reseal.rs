@@ -104,12 +104,26 @@ impl EncryptingNamespacedStore {
             report.next_cursor = None;
         }
 
+        self.reseal_record_progress(&inner, &options, &collection, stored, report)
+            .await
+    }
+
+    /// Persist the outcome of one reseal pass: a dry run only reports a
+    /// would-be checkpoint; a real pass flushes, then advances the durable one.
+    async fn reseal_record_progress(
+        &self,
+        inner: &Arc<dyn KvStore>,
+        options: &ResealAtRestOptions,
+        collection: &str,
+        stored: Option<ResealAtRestCheckpoint>,
+        mut report: ResealAtRestReport,
+    ) -> StorageResult<ResealAtRestReport> {
         if options.dry_run {
             report.checkpoint = Some(ResealAtRestCheckpoint {
                 version: RESEAL_CHECKPOINT_VERSION,
                 target: options.target,
                 format_version: RESEAL_TARGET_FORMAT_VERSION,
-                collection: collection.clone(),
+                collection: collection.to_string(),
                 cursor: report.next_cursor.clone(),
                 rows_scanned_total: report.rows_scanned,
                 rows_converted_total: 0,
@@ -131,7 +145,7 @@ impl EncryptingNamespacedStore {
             version: RESEAL_CHECKPOINT_VERSION,
             target: options.target,
             format_version: RESEAL_TARGET_FORMAT_VERSION,
-            collection: collection.clone(),
+            collection: collection.to_string(),
             cursor: None,
             rows_scanned_total: 0,
             rows_converted_total: 0,

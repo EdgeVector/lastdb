@@ -411,7 +411,7 @@ impl BackupProgressTracker {
     ///
     /// It does, however, *raise* the streak when the drain itself lost every
     /// unit of work it attempted — see the comment on `drain_lost_everything`.
-    pub fn observe(&mut self, sample: BackupCycleSample) {
+    pub fn observe(&mut self, sample: &BackupCycleSample) {
         if !self.enabled {
             return;
         }

@@ -158,6 +158,58 @@ impl DbOperations {
         };
         let db_catalog = DbCatalogStore::new(db_catalog_store);
         let molecule_keys = MoleculeKeyStore::new(molecule_keys_store, molecule_wrap_key);
+        let (atom_store, resident) = Self::open_atom_store(
+            &store,
+            main_store,
+            schema_index_store,
+            keep_small_kv,
+            atom_content_key,
+            hash_key_codec,
+            &molecule_keys,
+            &db_catalog,
+            admit_meter_trust,
+        )
+        .await?;
+        let public_key_store = PublicKeyStore::new(public_keys_typed);
+        let metadata_store = MetadataStore::new(metadata_typed, idempotency_typed);
+        let attribution_ledger = AttributionLedger::new(attribution_ledger_kv).await?;
+        let change_feed = ChangeFeedStore::new(change_feed_kv).await?;
+        let lineage_index = LineageIndex::new(lineage_forward_kv, lineage_reverse_kv);
+
+        Ok(Self {
+            store,
+            schema_store,
+            db_catalog,
+            molecule_keys,
+            atom_store,
+            public_key_store,
+            metadata_store,
+            attribution_ledger,
+            change_feed,
+            lineage_index,
+            resident,
+            unresolved_atom_skips: Arc::new(AtomicU64::new(0)),
+            unresolved_atom_identities: Arc::new(Mutex::new(HashSet::new())),
+            unresolved_identities_capped: Arc::new(AtomicBool::new(false)),
+            unresolved_atom_details: Arc::new(Mutex::new(HashMap::new())),
+            unresolved_details_capped: Arc::new(AtomicBool::new(false)),
+            molecule_gate_hold: Arc::new(MoleculeGateHoldStats::default()),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn open_atom_store(
+        store: &Arc<dyn NamespacedStore>,
+        main_store: Arc<TypedKvStore<dyn KvStore>>,
+        schema_index_store: Arc<TypedKvStore<dyn KvStore>>,
+        keep_small_kv: Arc<dyn KvStore>,
+        atom_content_key: Option<[u8; 32]>,
+        hash_key_codec: crate::atom::MoleculeKeyCodec,
+        molecule_keys: &MoleculeKeyStore,
+        db_catalog: &DbCatalogStore,
+        admit_meter_trust: bool,
+    ) -> Result<(AtomStore, Arc<crate::resident::ResidentGraph>), crate::storage::StorageError>
+    {
         // Resolve the atom body key encoding against the home, not just the
         // environment, and refuse to serve a flat view of a migrated home.
         // Every construction path funnels through here, so this is the one
@@ -211,30 +263,6 @@ impl DbOperations {
                 );
             }
         }
-        let public_key_store = PublicKeyStore::new(public_keys_typed);
-        let metadata_store = MetadataStore::new(metadata_typed, idempotency_typed);
-        let attribution_ledger = AttributionLedger::new(attribution_ledger_kv).await?;
-        let change_feed = ChangeFeedStore::new(change_feed_kv).await?;
-        let lineage_index = LineageIndex::new(lineage_forward_kv, lineage_reverse_kv);
-
-        Ok(Self {
-            store,
-            schema_store,
-            db_catalog,
-            molecule_keys,
-            atom_store,
-            public_key_store,
-            metadata_store,
-            attribution_ledger,
-            change_feed,
-            lineage_index,
-            resident,
-            unresolved_atom_skips: Arc::new(AtomicU64::new(0)),
-            unresolved_atom_identities: Arc::new(Mutex::new(HashSet::new())),
-            unresolved_identities_capped: Arc::new(AtomicBool::new(false)),
-            unresolved_atom_details: Arc::new(Mutex::new(HashMap::new())),
-            unresolved_details_capped: Arc::new(AtomicBool::new(false)),
-            molecule_gate_hold: Arc::new(MoleculeGateHoldStats::default()),
-        })
+        Ok((atom_store, resident))
     }
 }
