@@ -13,6 +13,12 @@ use app_cmds::*;
 #[path = "lastdb/schema_record_cmds.rs"]
 mod schema_record_cmds;
 use schema_record_cmds::*;
+#[path = "lastdb/record_get_cmds.rs"]
+mod record_get_cmds;
+use record_get_cmds::*;
+#[path = "lastdb/version_retention_cmds.rs"]
+mod version_retention_cmds;
+use version_retention_cmds::*;
 #[path = "lastdb/db_cmds.rs"]
 mod db_cmds;
 use db_cmds::*;
