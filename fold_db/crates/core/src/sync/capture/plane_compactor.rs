@@ -196,11 +196,13 @@ impl Drop for CloudOffPauseGuard {
             Ok(handle) => {
                 // lint:spawn-bare-ok abort-path restore of a compact Cloud Sync
                 // pause — Drop cannot await the tokio Mutex.
-                std::mem::drop(handle.spawn(async move {
+                let restore = handle.spawn(async move {
                     *slot.lock().await = previous;
-                }));
+                });
+                cloud_off_restore::track(restore);
             }
             Err(_) => {
+                cloud_off_restore::mark_failed();
                 tracing::error!(
                     target: "fold_db::sync::mutation_log",
                     "cloud-off compact pause could not restore: slot locked and no runtime"
@@ -388,6 +390,7 @@ impl PlaneCompactor {
     }
 }
 
+pub(crate) mod cloud_off_restore;
 mod large;
 mod locator;
 mod photograph;
