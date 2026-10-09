@@ -121,29 +121,38 @@ impl MutationManager {
                 continue;
             }
 
-            let source_molecules: HashSet<String> = source_schema
+            let source_molecules: Vec<String> = source_schema
                 .runtime_fields
                 .values()
                 .filter_map(|field| field.common().molecule_uuid().cloned())
+                .collect::<HashSet<_>>()
+                .into_iter()
                 .collect();
             if source_molecules.is_empty() {
                 continue;
             }
 
-            let mut proteins = Vec::new();
-            for molecule_uuid in source_molecules {
-                let Some(protein_uuid) = self
-                    .db_ops
-                    .atoms()
-                    .protein_of_molecule(&molecule_uuid)
-                    .await?
-                else {
-                    continue;
-                };
-                if let Some(protein) = self.db_ops.atoms().protein_get(&protein_uuid).await? {
-                    proteins.push(protein);
-                }
+            let mut protein_uuids: Vec<String> = self
+                .db_ops
+                .atoms()
+                .protein_of_molecules(&source_molecules)
+                .await?
+                .into_iter()
+                .flatten()
+                .collect();
+            protein_uuids.sort_unstable();
+            protein_uuids.dedup();
+            if protein_uuids.is_empty() {
+                continue;
             }
+            let proteins: Vec<_> = self
+                .db_ops
+                .atoms()
+                .protein_get_many(&protein_uuids)
+                .await?
+                .into_iter()
+                .flatten()
+                .collect();
             if proteins.is_empty() {
                 continue;
             }
