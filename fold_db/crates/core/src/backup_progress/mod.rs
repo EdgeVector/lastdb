@@ -416,9 +416,9 @@ impl BackupProgressTracker {
             return;
         }
 
-        self.apply_drain_health(&sample);
-        self.record_cycle_delta(&sample);
-        self.update_rates(&sample);
+        self.apply_drain_health(sample);
+        self.record_cycle_delta(sample);
+        self.update_rates(sample);
 
         // A cut naming manifest chunks with no local candidate is NOT complete,
         // however many candidates the drain got present. Every candidate can be
