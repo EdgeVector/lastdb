@@ -71,6 +71,7 @@ pub struct DeliverySlicePayload {
 }
 
 mod approve;
+mod filters;
 mod legs;
 mod publish;
 mod stage;

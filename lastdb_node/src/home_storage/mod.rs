@@ -74,6 +74,7 @@ pub struct HomeStorageTotals {
 }
 
 mod attribution;
+mod paths;
 mod reconcile;
 mod report;
 
