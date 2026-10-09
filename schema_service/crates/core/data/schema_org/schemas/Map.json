@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "Map",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "map_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "map_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "map_type": "Indicates the kind of Map, from the MapCategoryType Enumeration."
+  },
+  "field_types": {
+    "identifier": "String",
+    "map_type": "String"
+  },
+  "fields": [
+    "identifier",
+    "map_type"
+  ],
+  "identity_hash": "e6125bd6922203a7a85e890c4acff227d30e67e23c2ecfd8cdcbeafdf6d818a1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e6125bd6922203a7a85e890c4acff227d30e67e23c2ecfd8cdcbeafdf6d818a1",
+  "purpose_statement": "Map",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

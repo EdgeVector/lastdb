@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "Book",
+  "field_classifications": {
+    "abridged": [
+      "word"
+    ],
+    "book_edition": [
+      "word"
+    ],
+    "book_format": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "illustrator": [
+      "word"
+    ],
+    "isbn": [
+      "word"
+    ],
+    "number_of_pages": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "abridged": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "book_edition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "book_format": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "illustrator": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "isbn": {
+      "data_domain": "document",
+      "sensitivity_level": 0
+    },
+    "number_of_pages": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "abridged": "Indicates whether the book is an abridged edition.",
+    "book_edition": "The edition of the book.",
+    "book_format": "The format of the book.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "illustrator": "The illustrator of the book.",
+    "isbn": "The ISBN of the book.",
+    "number_of_pages": "The number of pages in the book."
+  },
+  "field_types": {
+    "abridged": "Boolean",
+    "book_edition": "String",
+    "book_format": "String",
+    "identifier": "String",
+    "illustrator": "String",
+    "isbn": "String",
+    "number_of_pages": "Integer"
+  },
+  "fields": [
+    "abridged",
+    "book_edition",
+    "book_format",
+    "identifier",
+    "illustrator",
+    "isbn",
+    "number_of_pages"
+  ],
+  "identity_hash": "bc0a4c3ea5df297b93cce9805a08419479d0e67ac6f7e156e181d8a5616eebaf",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bc0a4c3ea5df297b93cce9805a08419479d0e67ac6f7e156e181d8a5616eebaf",
+  "purpose_statement": "Book",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

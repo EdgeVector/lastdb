@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "BoardingPolicyType",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "ab44a3c5b43a31eeb24961521c3716d0e19bbb99eb29c83d4189f8c451db8947",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ab44a3c5b43a31eeb24961521c3716d0e19bbb99eb29c83d4189f8c451db8947",
+  "purpose_statement": "BoardingPolicyType",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

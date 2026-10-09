@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Car",
+  "field_classifications": {
+    "acriss_code": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "roof_load": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "acriss_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "roof_load": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "acriss_code": "The ACRISS Car Classification Code is a code used by many car rental companies, for classifying vehicles. ACRISS stands for Association of Car Rental Industry Systems and Standards.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "roof_load": "The permitted total weight of cargo and installations (e.g. a roof rack) on top of the vehicle.\\n\\nTypical unit code(s): KGM for kilogram, LBR for pound\\n\\n* Note 1: You can indicate additional information in the [[name]] of the [[QuantitativeValue]] node.\\n* Note 2: You may also link to a [[QualitativeValue]] node that provides additional information using [[valueReference]]\\n* Note 3: Note that you can use [[minValue]] and [[maxValue]] to indicate ranges."
+  },
+  "field_types": {
+    "acriss_code": "String",
+    "identifier": "String",
+    "roof_load": "String"
+  },
+  "fields": [
+    "acriss_code",
+    "identifier",
+    "roof_load"
+  ],
+  "identity_hash": "3356c7a7c486e5121fd28df6b89877b0077919f52a3d1160ce5a61ff5d2fd4b0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3356c7a7c486e5121fd28df6b89877b0077919f52a3d1160ce5a61ff5d2fd4b0",
+  "purpose_statement": "Car",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

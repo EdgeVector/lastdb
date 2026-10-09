@@ -1,0 +1,102 @@
+{
+  "descriptive_name": "SoftwareSourceCode",
+  "field_classifications": {
+    "code_repository": [
+      "word"
+    ],
+    "code_sample_type": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "programming_language": [
+      "word"
+    ],
+    "runtime": [
+      "word"
+    ],
+    "runtime_platform": [
+      "word"
+    ],
+    "sample_type": [
+      "word"
+    ],
+    "target_product": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "code_repository": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "code_sample_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "programming_language": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "runtime": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "runtime_platform": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sample_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "target_product": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "code_repository": "Link to the repository where the un-compiled, human readable code and related code is located (SVN, GitHub, CodePlex).",
+    "code_sample_type": "What type of code sample: full (compile ready) solution, code snippet, inline code, scripts, template.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "programming_language": "The computer programming language.",
+    "runtime": "Runtime platform or script interpreter dependencies (example: Java v1, Python 2.3, .NET Framework 3.0).",
+    "runtime_platform": "Runtime platform or script interpreter dependencies (example: Java v1, Python 2.3, .NET Framework 3.0).",
+    "sample_type": "What type of code sample: full (compile ready) solution, code snippet, inline code, scripts, template.",
+    "target_product": "Target Operating System / Product to which the code applies.  If applies to several versions, just the product name can be used."
+  },
+  "field_types": {
+    "code_repository": "String",
+    "code_sample_type": "String",
+    "identifier": "String",
+    "programming_language": "String",
+    "runtime": "String",
+    "runtime_platform": "String",
+    "sample_type": "String",
+    "target_product": "String"
+  },
+  "fields": [
+    "code_repository",
+    "code_sample_type",
+    "identifier",
+    "programming_language",
+    "runtime",
+    "runtime_platform",
+    "sample_type",
+    "target_product"
+  ],
+  "identity_hash": "61f8d68f3b5f23f6eecbbdf3c4359434512180dff9476112055e1f03fb1f26f9",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "61f8d68f3b5f23f6eecbbdf3c4359434512180dff9476112055e1f03fb1f26f9",
+  "purpose_statement": "SoftwareSourceCode",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

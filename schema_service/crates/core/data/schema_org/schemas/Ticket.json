@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "Ticket",
+  "field_classifications": {
+    "date_issued": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "issued_by": [
+      "word"
+    ],
+    "price_currency": [
+      "word"
+    ],
+    "ticket_number": [
+      "word"
+    ],
+    "ticket_token": [
+      "word"
+    ],
+    "ticketed_seat": [
+      "word"
+    ],
+    "total_price": [
+      "number"
+    ],
+    "under_name": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "date_issued": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "issued_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "price_currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "ticket_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "ticket_token": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "ticketed_seat": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "total_price": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "under_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "date_issued": "The date the ticket was issued.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "issued_by": "The organization issuing the item, for example a [[Permit]], [[Ticket]], or [[Certification]].",
+    "price_currency": "The currency of the price, or a price component when attached to [[PriceSpecification]] and its subtypes.\\n\\nUse standard formats: [ISO 4217 currency format](http://en.wikipedia.org/wiki/ISO_4217), e.g. \"USD\"; [Ticker symbol](https://en.wikipedia.org/wiki/List_of_cryptocurrencies) for cryptocurrencies, e.g. \"BTC\"; well known names for [Local Exchange Trading Systems](https://en.wikipedia.org/wiki/Local_exchange_trading_system) (LETS) and other currency types, e.g. \"Ithaca HOUR\".",
+    "ticket_number": "The unique identifier for the ticket.",
+    "ticket_token": "Reference to an asset (e.g., Barcode, QR code image or PDF) usable for entrance.",
+    "ticketed_seat": "The seat associated with the ticket.",
+    "total_price": "The total price for the reservation or ticket, including applicable taxes, shipping, etc.\\n\\nUsage guidelines:\\n\\n* Use values from 0123456789 (Unicode 'DIGIT ZERO' (U+0030) to 'DIGIT NINE' (U+0039)) rather than superficially similar Unicode symbols.\\n* Use '.' (Unicode 'FULL STOP' (U+002E)) rather than ',' to indicate a decimal point. Avoid using these symbols as a readability separator.",
+    "under_name": "The person or organization the reservation or ticket is for."
+  },
+  "field_types": {
+    "date_issued": "String",
+    "identifier": "String",
+    "issued_by": "String",
+    "price_currency": "String",
+    "ticket_number": "String",
+    "ticket_token": "String",
+    "ticketed_seat": "String",
+    "total_price": "Float",
+    "under_name": "String"
+  },
+  "fields": [
+    "date_issued",
+    "identifier",
+    "issued_by",
+    "price_currency",
+    "ticket_number",
+    "ticket_token",
+    "ticketed_seat",
+    "total_price",
+    "under_name"
+  ],
+  "identity_hash": "ab57137627fab58e446dd673bc42bd6815e60d880a2056d11163c01aec7016af",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ab57137627fab58e446dd673bc42bd6815e60d880a2056d11163c01aec7016af",
+  "purpose_statement": "Ticket",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

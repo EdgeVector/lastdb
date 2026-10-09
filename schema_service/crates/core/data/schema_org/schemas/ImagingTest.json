@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "ImagingTest",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "imaging_technique": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "imaging_technique": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "imaging_technique": "Imaging technique used."
+  },
+  "field_types": {
+    "identifier": "String",
+    "imaging_technique": "String"
+  },
+  "fields": [
+    "identifier",
+    "imaging_technique"
+  ],
+  "identity_hash": "ee59966608f1ab2cabeb96fca8a6743df9305e3b8755a5f689e653c18dc931da",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ee59966608f1ab2cabeb96fca8a6743df9305e3b8755a5f689e653c18dc931da",
+  "purpose_statement": "ImagingTest",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

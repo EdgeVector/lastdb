@@ -1,0 +1,102 @@
+{
+  "descriptive_name": "LearningResource",
+  "field_classifications": {
+    "assesses": [
+      "word"
+    ],
+    "competency_required": [
+      "word"
+    ],
+    "educational_alignment": [
+      "word"
+    ],
+    "educational_level": [
+      "word"
+    ],
+    "educational_use": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "learning_resource_type": [
+      "word"
+    ],
+    "teaches": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "assesses": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "competency_required": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "educational_alignment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "educational_level": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "educational_use": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "learning_resource_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "teaches": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "assesses": "The item being described is intended to assess the competency or learning outcome defined by the referenced term.",
+    "competency_required": "Knowledge, skill, ability or personal attribute that must be demonstrated by a person or other entity in order to do something such as earn an Educational Occupational Credential or understand a LearningResource.",
+    "educational_alignment": "An alignment to an established educational framework.\n\nThis property should not be used where the nature of the alignment can be described using a simple property, for example to express that a resource [[teaches]] or [[assesses]] a competency.",
+    "educational_level": "The level in terms of progression through an educational or training context. Examples of educational levels include 'beginner', 'intermediate' or 'advanced', and formal sets of level indicators.",
+    "educational_use": "The purpose of a work in the context of education; for example, 'assignment', 'group work'.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "learning_resource_type": "The predominant type or kind characterizing the learning resource. For example, 'presentation', 'handout'.",
+    "teaches": "The item being described is intended to help a person learn the competency or learning outcome defined by the referenced term."
+  },
+  "field_types": {
+    "assesses": "String",
+    "competency_required": "String",
+    "educational_alignment": "String",
+    "educational_level": "String",
+    "educational_use": "String",
+    "identifier": "String",
+    "learning_resource_type": "String",
+    "teaches": "String"
+  },
+  "fields": [
+    "assesses",
+    "competency_required",
+    "educational_alignment",
+    "educational_level",
+    "educational_use",
+    "identifier",
+    "learning_resource_type",
+    "teaches"
+  ],
+  "identity_hash": "d41d7872f2845b7da758b2cfe21182214cedd5de69e69724e51a91c0cc3539d7",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d41d7872f2845b7da758b2cfe21182214cedd5de69e69724e51a91c0cc3539d7",
+  "purpose_statement": "LearningResource",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

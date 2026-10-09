@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "LodgingReservation",
+  "field_classifications": {
+    "checkin_time": [
+      "word"
+    ],
+    "checkout_time": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "lodging_unit_description": [
+      "word"
+    ],
+    "lodging_unit_type": [
+      "word"
+    ],
+    "num_adults": [
+      "number"
+    ],
+    "num_children": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "checkin_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "checkout_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "lodging_unit_description": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "lodging_unit_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "num_adults": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "num_children": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "checkin_time": "The earliest someone may check into a lodging establishment.",
+    "checkout_time": "The latest someone may check out of a lodging establishment.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "lodging_unit_description": "A full description of the lodging unit.",
+    "lodging_unit_type": "Textual description of the unit type (including suite vs. room, size of bed, etc.).",
+    "num_adults": "The number of adults staying in the unit.",
+    "num_children": "The number of children staying in the unit."
+  },
+  "field_types": {
+    "checkin_time": "String",
+    "checkout_time": "String",
+    "identifier": "String",
+    "lodging_unit_description": "String",
+    "lodging_unit_type": "String",
+    "num_adults": "Integer",
+    "num_children": "Integer"
+  },
+  "fields": [
+    "checkin_time",
+    "checkout_time",
+    "identifier",
+    "lodging_unit_description",
+    "lodging_unit_type",
+    "num_adults",
+    "num_children"
+  ],
+  "identity_hash": "c91725fd1008aef70d9eea4d78864dd96bbedb80db052aaf621ea17e0d92cf4b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c91725fd1008aef70d9eea4d78864dd96bbedb80db052aaf621ea17e0d92cf4b",
+  "purpose_statement": "LodgingReservation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "NightClub",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "94d25096dc21fade8076c88654b19b20d322789529efd79bd44851f7a3702cd8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "94d25096dc21fade8076c88654b19b20d322789529efd79bd44851f7a3702cd8",
+  "purpose_statement": "NightClub",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

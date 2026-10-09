@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "FoodEstablishment",
+  "field_classifications": {
+    "accepts_reservations": [
+      "word"
+    ],
+    "has_menu": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "menu": [
+      "word"
+    ],
+    "serves_cuisine": [
+      "word"
+    ],
+    "star_rating": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "accepts_reservations": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_menu": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "menu": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "serves_cuisine": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "star_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "accepts_reservations": "Indicates whether a FoodEstablishment accepts reservations. Values can be Boolean, an URL at which reservations can be made or (for backwards compatibility) the strings ```Yes``` or ```No```.",
+    "has_menu": "Either the actual menu as a structured representation, as text, or a URL of the menu.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "menu": "Either the actual menu as a structured representation, as text, or a URL of the menu.",
+    "serves_cuisine": "The cuisine of the restaurant.",
+    "star_rating": "An official rating for a lodging business or food establishment, e.g. from national associations or standards bodies. Use the author property to indicate the rating organization, e.g. as an Organization with name such as (e.g. HOTREC, DEHOGA, WHR, or Hotelstars)."
+  },
+  "field_types": {
+    "accepts_reservations": "Boolean",
+    "has_menu": "String",
+    "identifier": "String",
+    "menu": "String",
+    "serves_cuisine": "String",
+    "star_rating": "String"
+  },
+  "fields": [
+    "accepts_reservations",
+    "has_menu",
+    "identifier",
+    "menu",
+    "serves_cuisine",
+    "star_rating"
+  ],
+  "identity_hash": "68abde27c5990ae1f4312041d27a7dfd1013c304e872e4ae0a1aa8d05910be10",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "68abde27c5990ae1f4312041d27a7dfd1013c304e872e4ae0a1aa8d05910be10",
+  "purpose_statement": "FoodEstablishment",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "ComicIssue",
+  "field_classifications": {
+    "artist": [
+      "word"
+    ],
+    "colorist": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "inker": [
+      "word"
+    ],
+    "letterer": [
+      "word"
+    ],
+    "penciler": [
+      "word"
+    ],
+    "variant_cover": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "artist": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "colorist": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "inker": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "letterer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "penciler": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "variant_cover": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "artist": "The primary artist for a work\n    \tin a medium other than pencils or digital line art--for example, if the\n    \tprimary artwork is done in watercolors or digital paints.",
+    "colorist": "The individual who adds color to inked drawings.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "inker": "The individual who traces over the pencil drawings in ink after pencils are complete.",
+    "letterer": "The individual who adds lettering, including speech balloons and sound effects, to artwork.",
+    "penciler": "The individual who draws the primary narrative artwork.",
+    "variant_cover": "A description of the variant cover\n    \tfor the issue, if the issue is a variant printing. For example, \"Bryan Hitch\n    \tVariant Cover\" or \"2nd Printing Variant\"."
+  },
+  "field_types": {
+    "artist": "String",
+    "colorist": "String",
+    "identifier": "String",
+    "inker": "String",
+    "letterer": "String",
+    "penciler": "String",
+    "variant_cover": "String"
+  },
+  "fields": [
+    "artist",
+    "colorist",
+    "identifier",
+    "inker",
+    "letterer",
+    "penciler",
+    "variant_cover"
+  ],
+  "identity_hash": "04a68cd03b8b0b54ae8ab785f0d0833839ca9a2a0790147955fa8976f210695c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "04a68cd03b8b0b54ae8ab785f0d0833839ca9a2a0790147955fa8976f210695c",
+  "purpose_statement": "ComicIssue",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

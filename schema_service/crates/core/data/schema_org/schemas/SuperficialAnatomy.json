@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "SuperficialAnatomy",
+  "field_classifications": {
+    "associated_pathophysiology": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "related_anatomy": [
+      "word"
+    ],
+    "related_condition": [
+      "word"
+    ],
+    "related_therapy": [
+      "word"
+    ],
+    "significance": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "associated_pathophysiology": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "related_anatomy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "related_condition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "related_therapy": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "significance": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "associated_pathophysiology": "If applicable, a description of the pathophysiology associated with the anatomical system, including potential abnormal changes in the mechanical, physical, and biochemical functions of the system.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "related_anatomy": "Anatomical systems or structures that relate to the superficial anatomy.",
+    "related_condition": "A medical condition associated with this anatomy.",
+    "related_therapy": "A medical therapy related to this anatomy.",
+    "significance": "The significance associated with the superficial anatomy; as an example, how characteristics of the superficial anatomy can suggest underlying medical conditions or courses of treatment."
+  },
+  "field_types": {
+    "associated_pathophysiology": "String",
+    "identifier": "String",
+    "related_anatomy": "String",
+    "related_condition": "String",
+    "related_therapy": "String",
+    "significance": "String"
+  },
+  "fields": [
+    "associated_pathophysiology",
+    "identifier",
+    "related_anatomy",
+    "related_condition",
+    "related_therapy",
+    "significance"
+  ],
+  "identity_hash": "f1700326a45746d4e178a7768ccae216e1f8da876bf131b569294d0845427620",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f1700326a45746d4e178a7768ccae216e1f8da876bf131b569294d0845427620",
+  "purpose_statement": "SuperficialAnatomy",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

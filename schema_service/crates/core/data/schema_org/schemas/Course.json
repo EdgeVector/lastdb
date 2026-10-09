@@ -1,0 +1,132 @@
+{
+  "descriptive_name": "Course",
+  "field_classifications": {
+    "available_language": [
+      "word"
+    ],
+    "course_code": [
+      "word"
+    ],
+    "course_prerequisites": [
+      "word"
+    ],
+    "educational_credential_awarded": [
+      "word"
+    ],
+    "financial_aid_eligible": [
+      "word"
+    ],
+    "has_course_instance": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "number_of_credits": [
+      "number"
+    ],
+    "occupational_credential_awarded": [
+      "word"
+    ],
+    "syllabus_sections": [
+      "word"
+    ],
+    "total_historical_enrollment": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "available_language": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "course_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "course_prerequisites": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "educational_credential_awarded": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "financial_aid_eligible": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "has_course_instance": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "number_of_credits": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "occupational_credential_awarded": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "syllabus_sections": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "total_historical_enrollment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "available_language": "A language someone may use with or at the item, service or place. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[inLanguage]].",
+    "course_code": "The identifier for the [[Course]] used by the course [[provider]] (e.g. CS101 or 6.001).",
+    "course_prerequisites": "Requirements for taking the Course. May be completion of another [[Course]] or a textual description like \"permission of instructor\". Requirements may be a pre-requisite competency, referenced using [[AlignmentObject]].",
+    "educational_credential_awarded": "A description of the qualification, award, certificate, diploma or other educational credential awarded as a consequence of successful completion of this course or program.",
+    "financial_aid_eligible": "A financial aid type or program which students may use to pay for tuition or fees associated with the program.",
+    "has_course_instance": "An offering of the course at a specific time and place or through specific media or mode of study or to a specific section of students.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "number_of_credits": "The number of credits or units awarded by a Course or required to complete an EducationalOccupationalProgram.",
+    "occupational_credential_awarded": "A description of the qualification, award, certificate, diploma or other occupational credential awarded as a consequence of successful completion of this course or program.",
+    "syllabus_sections": "Indicates (typically several) Syllabus entities that lay out what each section of the overall course will cover.",
+    "total_historical_enrollment": "The total number of students that have enrolled in the history of the course."
+  },
+  "field_types": {
+    "available_language": "String",
+    "course_code": "String",
+    "course_prerequisites": "String",
+    "educational_credential_awarded": "String",
+    "financial_aid_eligible": "String",
+    "has_course_instance": "String",
+    "identifier": "String",
+    "number_of_credits": "Integer",
+    "occupational_credential_awarded": "String",
+    "syllabus_sections": "String",
+    "total_historical_enrollment": "Integer"
+  },
+  "fields": [
+    "available_language",
+    "course_code",
+    "course_prerequisites",
+    "educational_credential_awarded",
+    "financial_aid_eligible",
+    "has_course_instance",
+    "identifier",
+    "number_of_credits",
+    "occupational_credential_awarded",
+    "syllabus_sections",
+    "total_historical_enrollment"
+  ],
+  "identity_hash": "62a5ea83fdcfd64e9062768fba4d970ace72e2de5d3baf9c0102ea4ec54ca981",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "62a5ea83fdcfd64e9062768fba4d970ace72e2de5d3baf9c0102ea4ec54ca981",
+  "purpose_statement": "Course",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

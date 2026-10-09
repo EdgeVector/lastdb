@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "Error",
+  "field_classifications": {
+    "error_code": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "error_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "error_code": "Application or platform dependant error code.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "error_code": "Integer",
+    "identifier": "String"
+  },
+  "fields": [
+    "error_code",
+    "identifier"
+  ],
+  "identity_hash": "ea4319cf8f9a145dddd763ba6a658ad8085c9522a33a511f62beee5de962ba00",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ea4319cf8f9a145dddd763ba6a658ad8085c9522a33a511f62beee5de962ba00",
+  "purpose_statement": "Error",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

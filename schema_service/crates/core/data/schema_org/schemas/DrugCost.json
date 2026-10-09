@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "DrugCost",
+  "field_classifications": {
+    "applicable_location": [
+      "word"
+    ],
+    "cost_category": [
+      "word"
+    ],
+    "cost_currency": [
+      "word"
+    ],
+    "cost_origin": [
+      "word"
+    ],
+    "cost_per_unit": [
+      "number"
+    ],
+    "drug_unit": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "applicable_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "cost_category": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "cost_currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "cost_origin": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "cost_per_unit": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "drug_unit": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "applicable_location": "The location in which the status applies.",
+    "cost_category": "The category of cost, such as wholesale, retail, reimbursement cap, etc.",
+    "cost_currency": "The currency (in 3-letter) of the drug cost. See: http://en.wikipedia.org/wiki/ISO_4217.",
+    "cost_origin": "Additional details to capture the origin of the cost data. For example, 'Medicare Part B'.",
+    "cost_per_unit": "The cost per unit of the drug.",
+    "drug_unit": "The unit in which the drug is measured, e.g. '5 mg tablet'.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "applicable_location": "String",
+    "cost_category": "String",
+    "cost_currency": "String",
+    "cost_origin": "String",
+    "cost_per_unit": "Float",
+    "drug_unit": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "applicable_location",
+    "cost_category",
+    "cost_currency",
+    "cost_origin",
+    "cost_per_unit",
+    "drug_unit",
+    "identifier"
+  ],
+  "identity_hash": "15899cc4eff25a6d5adc59d2293d624bd335259107c66c817c54c4e61556d9a7",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "15899cc4eff25a6d5adc59d2293d624bd335259107c66c817c54c4e61556d9a7",
+  "purpose_statement": "DrugCost",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

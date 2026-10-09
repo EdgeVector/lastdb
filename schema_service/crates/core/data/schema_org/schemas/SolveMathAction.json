@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "SolveMathAction",
+  "field_classifications": {
+    "edu_question_type": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "edu_question_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "edu_question_type": "For questions that are part of learning resources (e.g. Quiz), eduQuestionType indicates the format of question being given. Example: \"Multiple choice\", \"Open ended\", \"Flashcard\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "edu_question_type": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "edu_question_type",
+    "identifier"
+  ],
+  "identity_hash": "aa81ae60e4e9bcdf8c91fffb4897143befe612a6e557b6d11f5f9cb3b50769df",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "aa81ae60e4e9bcdf8c91fffb4897143befe612a6e557b6d11f5f9cb3b50769df",
+  "purpose_statement": "SolveMathAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

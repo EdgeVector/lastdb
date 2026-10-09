@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Hackathon",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "bc6233e941ab67119d8800a24ec2524095b7f4dc7bfd3ae494081fb8bc67f592",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bc6233e941ab67119d8800a24ec2524095b7f4dc7bfd3ae494081fb8bc67f592",
+  "purpose_statement": "Hackathon",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "JoinAction",
+  "field_classifications": {
+    "event": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "event": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "event": "Upcoming or past event associated with this place, organization, or action.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "event": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "event",
+    "identifier"
+  ],
+  "identity_hash": "232f5293159ef7d34d25b0b38b3bf4a1b7d9afe7b9ef360c4dd5e1a9f7538d79",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "232f5293159ef7d34d25b0b38b3bf4a1b7d9afe7b9ef360c4dd5e1a9f7538d79",
+  "purpose_statement": "JoinAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

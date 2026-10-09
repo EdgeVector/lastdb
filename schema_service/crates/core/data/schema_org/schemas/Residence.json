@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Residence",
+  "field_classifications": {
+    "accommodation_floor_plan": [
+      "word"
+    ],
+    "floor_level": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "accommodation_floor_plan": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "floor_level": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "accommodation_floor_plan": "A floorplan of some [[Accommodation]].",
+    "floor_level": "The floor level for an [[Accommodation]] in a multi-storey building. Since counting\n  systems [vary internationally](https://en.wikipedia.org/wiki/Storey#Consecutive_number_floor_designations), the local system should be used where possible.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "accommodation_floor_plan": "String",
+    "floor_level": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "accommodation_floor_plan",
+    "floor_level",
+    "identifier"
+  ],
+  "identity_hash": "f5a2dca080085210a98fa03ce974f89a0f457d7351d401a212008cccfde26a89",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f5a2dca080085210a98fa03ce974f89a0f457d7351d401a212008cccfde26a89",
+  "purpose_statement": "Residence",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

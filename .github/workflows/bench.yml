@@ -1,0 +1,133 @@
+name: Bench
+
+# Performance-regression guard for the fold_db criterion benches
+# (fold_db/crates/core/benches/{query_path_bench,db_operations_bench,
+# encrypt_scan_bench}.rs). db_operations_bench includes storage metering
+# attribution coverage.
+#
+# DELIBERATELY OFF THE MERGE-QUEUE CRITICAL PATH. The benches seed up to 120K
+# records per case and take many minutes; putting them on every PR / in the
+# merge queue would re-inflate the queue build time that #959 + #964 just
+# halved (see project_fold_ci_build_time). So this workflow NEVER triggers on
+# `pull_request` / `merge_group` and is NOT a member of the `ci-required`
+# umbrella in ci.yml — it cannot block a merge.
+#
+# It runs instead:
+#   - on a weekly schedule (catches drift that lands without the label), and
+#   - on demand, when a maintainer adds the `run-benches` label to a PR
+#     (opt-in perf check for a change that's expected to move the curves), or
+#   - via manual workflow_dispatch.
+#
+# It runs the benches, then scripts/lints/bench-compare.py compares the fresh
+# criterion medians against the committed baseline
+# (fold_db/crates/core/benches/baseline/baseline.json) and FAILS on a >2x
+# regression of a guarded case (FLAT point-lookups guarded tighter at 1.6x).
+# Because it's not a required check, that failure is a loud signal to a human,
+# not a merge block.
+
+on:
+  schedule:
+    # Mondays 08:00 UTC — a quiet window; weekly is enough for drift detection.
+    - cron: "0 8 * * 1"
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One bench run per ref; a newer push/label supersedes an in-flight one.
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: fold_db benches + regression guard
+    # On a PR, run ONLY when the `run-benches` label was just added — every
+    # other label event is a no-op. (schedule / workflow_dispatch have no
+    # label, so the guard is PR-event-specific.)
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.label.name == 'run-benches'
+    runs-on: ubuntu-latest
+    # The benches seed up to 120K-record corpora across several cardinalities for
+    # multiple groups; allow ample headroom on a shared runner.
+    timeout-minutes: 90
+    env:
+      # Match the rest of the workspace's CI: no debuginfo, cap link parallelism.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install Rust
+        run: rustup show active-toolchain
+
+      - name: Configure git for private dependencies
+        # Org-level GH_PAT — see gbrain preferences/edgevector-gh-pat.
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-bench"
+
+      - name: Reset criterion output
+        run: rm -rf target/criterion
+
+      # Run benches. Criterion writes per-case estimates under
+      # target/criterion/<group>/<id>/new/estimates.json, which the guard reads.
+      # The query-path bench is split by guarded group so one long process cannot
+      # starve late-suite guarded cases before the regression guard runs.
+      # FOLD_BENCH_FAST_GUARD keeps the scheduled guard bounded; local full
+      # benchmark runs keep Criterion's default warmup/measurement windows.
+      - name: Run benches
+        run: |
+          for query_group in \
+            indexed_point_lookup \
+            point_lookup_vs_schema_count \
+            realistic_message_lookup \
+            indexed_full_read \
+            value_filter_scan \
+            hashrange_page_list_vs_N \
+            count_rows_vs_field_count \
+            count_rows_vs_row_count \
+            concurrent_list_reads \
+            concurrent_mixed_read_write
+          do
+            echo "::group::query_path_bench ${query_group}"
+            FOLD_BENCH_FAST_GUARD=1 cargo bench -p fold_db \
+              --bench query_path_bench -- "${query_group}"
+            echo "::endgroup::"
+          done
+          FOLD_BENCH_FAST_GUARD=1 cargo bench -p fold_db \
+            --bench db_operations_bench
+          cargo bench -p fold_db --bench encrypt_scan_bench
+          # (api_query_latency_bench was deleted with the fold_db_node crate
+          # in the Mini-only cutover, 2026-07-12.)
+
+      - name: Regression guard (vs committed baseline)
+        run: python3 scripts/lints/bench-compare.py
+
+      # Keep the raw criterion output as an artifact so a maintainer can inspect
+      # the full report / HTML when the guard flags a regression.
+      - name: Upload criterion report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: criterion-report
+          path: target/criterion
+          retention-days: 14
+          if-no-files-found: ignore

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "ReturnAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "recipient": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "recipient": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "recipient": "A sub property of participant. The participant who is at the receiving end of the action."
+  },
+  "field_types": {
+    "identifier": "String",
+    "recipient": "String"
+  },
+  "fields": [
+    "identifier",
+    "recipient"
+  ],
+  "identity_hash": "e5056cd514eb75b9407b5bb9c67fb47b99b55c6176437cf500e276e061f438c2",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e5056cd514eb75b9407b5bb9c67fb47b99b55c6176437cf500e276e061f438c2",
+  "purpose_statement": "ReturnAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

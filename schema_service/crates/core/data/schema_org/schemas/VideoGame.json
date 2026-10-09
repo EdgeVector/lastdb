@@ -1,0 +1,152 @@
+{
+  "descriptive_name": "VideoGame",
+  "field_classifications": {
+    "actor": [
+      "word"
+    ],
+    "actors": [
+      "word"
+    ],
+    "cheat_code": [
+      "word"
+    ],
+    "director": [
+      "word"
+    ],
+    "directors": [
+      "word"
+    ],
+    "game_edition": [
+      "word"
+    ],
+    "game_platform": [
+      "word"
+    ],
+    "game_server": [
+      "word"
+    ],
+    "game_tip": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "music_by": [
+      "word"
+    ],
+    "play_mode": [
+      "word"
+    ],
+    "trailer": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "actor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "actors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "cheat_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "director": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "directors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "game_edition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "game_platform": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "game_server": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "game_tip": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "music_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "play_mode": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "trailer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "actor": "An actor (individual or a group), e.g. in TV, radio, movie, video games etc., or in an event. Actors can be associated with individual items or with a series, episode, clip.",
+    "actors": "An actor, e.g. in TV, radio, movie, video games etc. Actors can be associated with individual items or with a series, episode, clip.",
+    "cheat_code": "Cheat codes to the game.",
+    "director": "A director of e.g. TV, radio, movie, video gaming etc. content, or of an event. Directors can be associated with individual items or with a series, episode, clip.",
+    "directors": "A director of e.g. TV, radio, movie, video games etc. content. Directors can be associated with individual items or with a series, episode, clip.",
+    "game_edition": "The edition of a video game.",
+    "game_platform": "The electronic systems used to play <a href=\"http://en.wikipedia.org/wiki/Category:Video_game_platforms\">video games</a>.",
+    "game_server": "The server on which  it is possible to play the game.",
+    "game_tip": "Links to tips, tactics, etc.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "music_by": "The composer of the soundtrack.",
+    "play_mode": "Indicates whether this game is multi-player, co-op or single-player.  The game can be marked as multi-player, co-op and single-player at the same time.",
+    "trailer": "The trailer of a movie or TV/radio series, season, episode, etc."
+  },
+  "field_types": {
+    "actor": "String",
+    "actors": "String",
+    "cheat_code": "String",
+    "director": "String",
+    "directors": "String",
+    "game_edition": "String",
+    "game_platform": "String",
+    "game_server": "String",
+    "game_tip": "String",
+    "identifier": "String",
+    "music_by": "String",
+    "play_mode": "String",
+    "trailer": "String"
+  },
+  "fields": [
+    "actor",
+    "actors",
+    "cheat_code",
+    "director",
+    "directors",
+    "game_edition",
+    "game_platform",
+    "game_server",
+    "game_tip",
+    "identifier",
+    "music_by",
+    "play_mode",
+    "trailer"
+  ],
+  "identity_hash": "4e8221c2848ae38aef084dc03b96accc7bf4646e1642414494400b54c7b2f32b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4e8221c2848ae38aef084dc03b96accc7bf4646e1642414494400b54c7b2f32b",
+  "purpose_statement": "VideoGame",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

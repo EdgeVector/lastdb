@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Waterfall",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "d92bbe9b0a3d9f394d2a9fa1a329f06a0dec3e104e86a4dfbc08e19c285cd480",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d92bbe9b0a3d9f394d2a9fa1a329f06a0dec3e104e86a4dfbc08e19c285cd480",
+  "purpose_statement": "Waterfall",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

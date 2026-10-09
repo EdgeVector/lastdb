@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "InvestmentFund",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "1ef44f27cbb8149ed75602db199a1e09c78b95efaf5c1a12fab423c9995db6ac",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1ef44f27cbb8149ed75602db199a1e09c78b95efaf5c1a12fab423c9995db6ac",
+  "purpose_statement": "InvestmentFund",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

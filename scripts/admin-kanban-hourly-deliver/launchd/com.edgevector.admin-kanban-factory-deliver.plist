@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Admin Kanban Factory publisher — every 60s, slim full-board slice → Exemem.
+
+  Install (after writing config):
+    cp scripts/admin-kanban-hourly-deliver/launchd/com.edgevector.admin-kanban-factory-deliver.plist \
+       ~/Library/LaunchAgents/
+    # edit WorkingDirectory + ProgramArguments paths if needed
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.edgevector.admin-kanban-factory-deliver.plist
+
+  Config (factory profile):
+    python3 scripts/admin-kanban-hourly-deliver/deliver.py \
+      --write-example-config ~/.lastdb/admin-kanban-factory-deliver.json
+    # set recipient secret_id / LASTDB_ADMIN_DELIVER_RECIPIENT_JSON
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.edgevector.admin-kanban-factory-deliver</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/YOU/code/edgevector/fold/scripts/admin-kanban-hourly-deliver/deliver.py</string>
+    <string>--config</string>
+    <string>/Users/YOU/.lastdb/admin-kanban-factory-deliver.json</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU/code/edgevector/fold</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/YOU</string>
+    <key>PATH</key>
+    <string>/Users/YOU/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>LASTDB_SOCKET_PATH</key>
+    <string>/Users/YOU/.lastdb/data/folddb.sock</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>60</integer>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/Library/Logs/admin-kanban-factory-deliver.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/Library/Logs/admin-kanban-factory-deliver.err.log</string>
+</dict>
+</plist>

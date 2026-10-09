@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "BookSeries",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "8d769415ae92a95b21cd1e4ee34b0953cf50e2692f7b0d1700ed5447defbd8e3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8d769415ae92a95b21cd1e4ee34b0953cf50e2692f7b0d1700ed5447defbd8e3",
+  "purpose_statement": "BookSeries",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

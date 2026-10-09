@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "ChooseAction",
+  "field_classifications": {
+    "action_option": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "option": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "action_option": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "option": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "action_option": "A sub property of object. The options subject to this action.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "option": "A sub property of object. The options subject to this action."
+  },
+  "field_types": {
+    "action_option": "String",
+    "identifier": "String",
+    "option": "String"
+  },
+  "fields": [
+    "action_option",
+    "identifier",
+    "option"
+  ],
+  "identity_hash": "8db44b5022539b0fd4af29c74ba0d2a7ef39e58041222e1f4d89faefc97ca34e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8db44b5022539b0fd4af29c74ba0d2a7ef39e58041222e1f4d89faefc97ca34e",
+  "purpose_statement": "ChooseAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

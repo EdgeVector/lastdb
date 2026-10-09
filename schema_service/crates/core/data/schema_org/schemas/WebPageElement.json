@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "WebPageElement",
+  "field_classifications": {
+    "css_selector": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "xpath": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "css_selector": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "xpath": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "css_selector": "A CSS selector, e.g. of a [[SpeakableSpecification]] or [[WebPageElement]]. In the latter case, multiple matches within a page can constitute a single conceptual \"Web page element\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "xpath": "An XPath, e.g. of a [[SpeakableSpecification]] or [[WebPageElement]]. In the latter case, multiple matches within a page can constitute a single conceptual \"Web page element\"."
+  },
+  "field_types": {
+    "css_selector": "String",
+    "identifier": "String",
+    "xpath": "String"
+  },
+  "fields": [
+    "css_selector",
+    "identifier",
+    "xpath"
+  ],
+  "identity_hash": "89a8ce6af7b93eb7646571b63087add3a5b160f9ce46a9c8536b01fe578b1a46",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "89a8ce6af7b93eb7646571b63087add3a5b160f9ce46a9c8536b01fe578b1a46",
+  "purpose_statement": "WebPageElement",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "DoseSchedule",
+  "field_classifications": {
+    "dose_unit": [
+      "word"
+    ],
+    "dose_value": [
+      "number"
+    ],
+    "frequency": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "target_population": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "dose_unit": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "dose_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "frequency": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "target_population": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "dose_unit": "The unit of the dose, e.g. 'mg'.",
+    "dose_value": "The value of the dose, e.g. 500.",
+    "frequency": "How often the dose is taken, e.g. 'daily'.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "target_population": "Characteristics of the population for which this is intended, or which typically uses it, e.g. 'adults'."
+  },
+  "field_types": {
+    "dose_unit": "String",
+    "dose_value": "Float",
+    "frequency": "String",
+    "identifier": "String",
+    "target_population": "String"
+  },
+  "fields": [
+    "dose_unit",
+    "dose_value",
+    "frequency",
+    "identifier",
+    "target_population"
+  ],
+  "identity_hash": "39b014ccfb3fcd8d2d774e6804137e67e1b3e32e32daa0944e719f4628758566",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "39b014ccfb3fcd8d2d774e6804137e67e1b3e32e32daa0944e719f4628758566",
+  "purpose_statement": "DoseSchedule",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "TVClip",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "part_of_tv_series": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "part_of_tv_series": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "part_of_tv_series": "The TV series to which this episode or season belongs."
+  },
+  "field_types": {
+    "identifier": "String",
+    "part_of_tv_series": "String"
+  },
+  "fields": [
+    "identifier",
+    "part_of_tv_series"
+  ],
+  "identity_hash": "7ca711cc259345339076d64cfc759bf3f29a813c1afadc59956f6472704a66e8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7ca711cc259345339076d64cfc759bf3f29a813c1afadc59956f6472704a66e8",
+  "purpose_statement": "TVClip",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

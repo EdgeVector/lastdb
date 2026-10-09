@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "UserPlusOnes",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "f6a064dc75c2bef2227bd8bfb84e04f33b14c94340c6b757c85856f7b3030399",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f6a064dc75c2bef2227bd8bfb84e04f33b14c94340c6b757c85856f7b3030399",
+  "purpose_statement": "UserPlusOnes",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

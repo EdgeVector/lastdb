@@ -1,0 +1,172 @@
+{
+  "descriptive_name": "RadioSeries",
+  "field_classifications": {
+    "actor": [
+      "word"
+    ],
+    "actors": [
+      "word"
+    ],
+    "contains_season": [
+      "word"
+    ],
+    "director": [
+      "word"
+    ],
+    "directors": [
+      "word"
+    ],
+    "episode": [
+      "word"
+    ],
+    "episodes": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "music_by": [
+      "word"
+    ],
+    "number_of_episodes": [
+      "number"
+    ],
+    "number_of_seasons": [
+      "number"
+    ],
+    "production_company": [
+      "word"
+    ],
+    "season": [
+      "word"
+    ],
+    "seasons": [
+      "word"
+    ],
+    "trailer": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "actor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "actors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "contains_season": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "director": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "directors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "episode": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "episodes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "music_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_episodes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_seasons": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "production_company": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "season": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "seasons": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "trailer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "actor": "An actor (individual or a group), e.g. in TV, radio, movie, video games etc., or in an event. Actors can be associated with individual items or with a series, episode, clip.",
+    "actors": "An actor, e.g. in TV, radio, movie, video games etc. Actors can be associated with individual items or with a series, episode, clip.",
+    "contains_season": "A season that is part of the media series.",
+    "director": "A director of e.g. TV, radio, movie, video gaming etc. content, or of an event. Directors can be associated with individual items or with a series, episode, clip.",
+    "directors": "A director of e.g. TV, radio, movie, video games etc. content. Directors can be associated with individual items or with a series, episode, clip.",
+    "episode": "An episode of a TV, radio or game media within a series or season.",
+    "episodes": "An episode of a TV/radio series or season.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "music_by": "The composer of the soundtrack.",
+    "number_of_episodes": "The number of episodes in this season or series.",
+    "number_of_seasons": "The number of seasons in this series.",
+    "production_company": "The production company or studio responsible for the item, e.g. series, video game, episode etc.",
+    "season": "A season in a media series.",
+    "seasons": "A season in a media series.",
+    "trailer": "The trailer of a movie or TV/radio series, season, episode, etc."
+  },
+  "field_types": {
+    "actor": "String",
+    "actors": "String",
+    "contains_season": "String",
+    "director": "String",
+    "directors": "String",
+    "episode": "String",
+    "episodes": "String",
+    "identifier": "String",
+    "music_by": "String",
+    "number_of_episodes": "Integer",
+    "number_of_seasons": "Integer",
+    "production_company": "String",
+    "season": "String",
+    "seasons": "String",
+    "trailer": "String"
+  },
+  "fields": [
+    "actor",
+    "actors",
+    "contains_season",
+    "director",
+    "directors",
+    "episode",
+    "episodes",
+    "identifier",
+    "music_by",
+    "number_of_episodes",
+    "number_of_seasons",
+    "production_company",
+    "season",
+    "seasons",
+    "trailer"
+  ],
+  "identity_hash": "0537fe04be2081e77217b8269edf920b526ea9568e5072177a966482c1a98147",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "0537fe04be2081e77217b8269edf920b526ea9568e5072177a966482c1a98147",
+  "purpose_statement": "RadioSeries",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

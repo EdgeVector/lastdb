@@ -1,0 +1,17 @@
+[package]
+name = "lastdb_identity"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The ONE node-identity root shared by every LastDB node binary: the plaintext `identity.key` Ed25519 seed file under the node home (the keyfile-root decision), plus the seed→pubkey→user_hash derivation. A leaf crate (fold_db only) so `fold_db_node` and the minimal `lastdb_node` daemon resolve the SAME identity from the SAME node home without depending on each other."
+
+[lints]
+workspace = true
+
+[dependencies]
+fold_db = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

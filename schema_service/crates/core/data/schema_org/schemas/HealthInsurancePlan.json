@@ -1,0 +1,122 @@
+{
+  "descriptive_name": "HealthInsurancePlan",
+  "field_classifications": {
+    "benefits_summary_url": [
+      "word"
+    ],
+    "contact_point": [
+      "word"
+    ],
+    "health_plan_drug_option": [
+      "word"
+    ],
+    "health_plan_drug_tier": [
+      "word"
+    ],
+    "health_plan_id": [
+      "word"
+    ],
+    "health_plan_marketing_url": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "includes_health_plan_formulary": [
+      "word"
+    ],
+    "includes_health_plan_network": [
+      "word"
+    ],
+    "uses_health_plan_id_standard": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "benefits_summary_url": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "contact_point": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "health_plan_drug_option": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "health_plan_drug_tier": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "health_plan_id": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "health_plan_marketing_url": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "includes_health_plan_formulary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "includes_health_plan_network": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "uses_health_plan_id_standard": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "benefits_summary_url": "The URL that goes directly to the summary of benefits and coverage for the specific standard plan or plan variation.",
+    "contact_point": "A contact point for a person or organization.",
+    "health_plan_drug_option": "TODO.",
+    "health_plan_drug_tier": "The tier(s) of drugs offered by this formulary or insurance plan.",
+    "health_plan_id": "The 14-character, HIOS-generated Plan ID number. (Plan IDs must be unique, even across different markets.)",
+    "health_plan_marketing_url": "The URL that goes directly to the plan brochure for the specific standard plan or plan variation.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "includes_health_plan_formulary": "Formularies covered by this plan.",
+    "includes_health_plan_network": "Networks covered by this plan.",
+    "uses_health_plan_id_standard": "The standard for interpreting the Plan ID. The preferred is \"HIOS\". See the Centers for Medicare & Medicaid Services for more details."
+  },
+  "field_types": {
+    "benefits_summary_url": "String",
+    "contact_point": "String",
+    "health_plan_drug_option": "String",
+    "health_plan_drug_tier": "String",
+    "health_plan_id": "String",
+    "health_plan_marketing_url": "String",
+    "identifier": "String",
+    "includes_health_plan_formulary": "String",
+    "includes_health_plan_network": "String",
+    "uses_health_plan_id_standard": "String"
+  },
+  "fields": [
+    "benefits_summary_url",
+    "contact_point",
+    "health_plan_drug_option",
+    "health_plan_drug_tier",
+    "health_plan_id",
+    "health_plan_marketing_url",
+    "identifier",
+    "includes_health_plan_formulary",
+    "includes_health_plan_network",
+    "uses_health_plan_id_standard"
+  ],
+  "identity_hash": "1ffb788db8ce134ea367573099a191703ea8ab865c4d31669a60dcaf78d3b948",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1ffb788db8ce134ea367573099a191703ea8ab865c4d31669a60dcaf78d3b948",
+  "purpose_statement": "HealthInsurancePlan",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

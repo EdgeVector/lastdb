@@ -1,0 +1,242 @@
+{
+  "descriptive_name": "MedicalCondition",
+  "field_classifications": {
+    "associated_anatomy": [
+      "word"
+    ],
+    "cause": [
+      "word"
+    ],
+    "differential_diagnosis": [
+      "word"
+    ],
+    "drug": [
+      "word"
+    ],
+    "epidemiology": [
+      "word"
+    ],
+    "expected_prognosis": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "natural_progression": [
+      "word"
+    ],
+    "pathophysiology": [
+      "word"
+    ],
+    "possible_complication": [
+      "word"
+    ],
+    "possible_treatment": [
+      "word"
+    ],
+    "primary_prevention": [
+      "word"
+    ],
+    "risk_factor": [
+      "word"
+    ],
+    "secondary_prevention": [
+      "word"
+    ],
+    "sign_or_symptom": [
+      "word"
+    ],
+    "stage": [
+      "word"
+    ],
+    "stage_as_number": [
+      "number"
+    ],
+    "status": [
+      "word"
+    ],
+    "sub_stage_suffix": [
+      "word"
+    ],
+    "typical_test": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "associated_anatomy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "cause": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "differential_diagnosis": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "drug": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "epidemiology": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "expected_prognosis": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "natural_progression": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pathophysiology": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "possible_complication": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "possible_treatment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "primary_prevention": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "risk_factor": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "secondary_prevention": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sign_or_symptom": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "stage": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "stage_as_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sub_stage_suffix": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "typical_test": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "associated_anatomy": "The anatomy of the underlying organ system or structures associated with this entity.",
+    "cause": "The cause of a medical condition.",
+    "differential_diagnosis": "One of a set of differential diagnoses for the condition. Specifically, a closely-related or competing diagnosis typically considered later in the cognitive process whereby this medical condition is distinguished from others most likely responsible for a similar collection of signs and symptoms to reach the most parsimonious diagnosis or diagnoses in a patient.",
+    "drug": "Specifying a drug or medicine used in a medication procedure.",
+    "epidemiology": "The characteristics of associated patients, such as age, gender, race etc.",
+    "expected_prognosis": "The likely outcome in either the short term or long term of the medical condition.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "natural_progression": "The expected progression of the condition if it is not treated and allowed to progress naturally.",
+    "pathophysiology": "Changes in the normal mechanical, physical, and biochemical functions that are associated with this activity or condition.",
+    "possible_complication": "A possible unexpected and unfavorable evolution of a medical condition. Complications may include worsening of the signs or symptoms of the disease, extension of the condition to other organ systems, etc.",
+    "possible_treatment": "A possible treatment to address this condition, sign or symptom.",
+    "primary_prevention": "A preventative therapy used to prevent an initial occurrence of the medical condition, such as vaccination.",
+    "risk_factor": "A modifiable or non-modifiable factor that increases the risk of a patient contracting this condition, e.g. age,  coexisting condition.",
+    "secondary_prevention": "A preventative therapy used to prevent reoccurrence of the medical condition after an initial episode of the condition.",
+    "sign_or_symptom": "A sign or symptom of this condition. Signs are objective or physically observable manifestations of the medical condition while symptoms are the subjective experience of the medical condition.",
+    "stage": "The stage of the condition, if applicable.",
+    "stage_as_number": "The stage represented as a number, e.g. 3.",
+    "status": "The status of the study (enumerated).",
+    "sub_stage_suffix": "The substage, e.g. 'a' for Stage IIIa.",
+    "typical_test": "A medical test typically performed given this condition."
+  },
+  "field_mappers": {
+    "associated_anatomy": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.associated_anatomy",
+    "cause": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.cause",
+    "differential_diagnosis": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.differential_diagnosis",
+    "drug": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.drug",
+    "epidemiology": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.epidemiology",
+    "expected_prognosis": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.expected_prognosis",
+    "identifier": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.identifier",
+    "natural_progression": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.natural_progression",
+    "pathophysiology": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.pathophysiology",
+    "possible_complication": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.possible_complication",
+    "possible_treatment": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.possible_treatment",
+    "primary_prevention": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.primary_prevention",
+    "risk_factor": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.risk_factor",
+    "secondary_prevention": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.secondary_prevention",
+    "sign_or_symptom": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.sign_or_symptom",
+    "stage": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.stage",
+    "status": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.status",
+    "typical_test": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.typical_test"
+  },
+  "field_types": {
+    "associated_anatomy": "String",
+    "cause": "String",
+    "differential_diagnosis": "String",
+    "drug": "String",
+    "epidemiology": "String",
+    "expected_prognosis": "String",
+    "identifier": "String",
+    "natural_progression": "String",
+    "pathophysiology": "String",
+    "possible_complication": "String",
+    "possible_treatment": "String",
+    "primary_prevention": "String",
+    "risk_factor": "String",
+    "secondary_prevention": "String",
+    "sign_or_symptom": "String",
+    "stage": "String",
+    "stage_as_number": "Float",
+    "status": "String",
+    "sub_stage_suffix": "String",
+    "typical_test": "String"
+  },
+  "fields": [
+    "associated_anatomy",
+    "cause",
+    "differential_diagnosis",
+    "drug",
+    "epidemiology",
+    "expected_prognosis",
+    "identifier",
+    "natural_progression",
+    "pathophysiology",
+    "possible_complication",
+    "possible_treatment",
+    "primary_prevention",
+    "risk_factor",
+    "secondary_prevention",
+    "sign_or_symptom",
+    "stage",
+    "status",
+    "typical_test",
+    "stage_as_number",
+    "sub_stage_suffix"
+  ],
+  "identity_hash": "ce988861e43ce43d643c3f28efb58e5b011daf1d6e917f0fb6dd5c12e7995bd2",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ce988861e43ce43d643c3f28efb58e5b011daf1d6e917f0fb6dd5c12e7995bd2",
+  "purpose_statement": "MedicalConditionStage",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

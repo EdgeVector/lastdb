@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "MusicPlaylist",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "num_tracks": [
+      "number"
+    ],
+    "track": [
+      "word"
+    ],
+    "tracks": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "num_tracks": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "track": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tracks": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "num_tracks": "The number of tracks in this album or playlist.",
+    "track": "A music recording (track)&#x2014;usually a single song. If an ItemList is given, the list should contain items of type MusicRecording.",
+    "tracks": "A music recording (track)&#x2014;usually a single song."
+  },
+  "field_types": {
+    "identifier": "String",
+    "num_tracks": "Integer",
+    "track": "String",
+    "tracks": "String"
+  },
+  "fields": [
+    "identifier",
+    "num_tracks",
+    "track",
+    "tracks"
+  ],
+  "identity_hash": "4f2a249bebd011a1e8373e38ad459f995efca2fba66aca34a3e32ae2eac5d66f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4f2a249bebd011a1e8373e38ad459f995efca2fba66aca34a3e32ae2eac5d66f",
+  "purpose_statement": "MusicPlaylist",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

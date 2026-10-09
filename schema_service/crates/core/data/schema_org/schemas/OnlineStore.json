@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "OnlineStore",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "is_store_on": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_store_on": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_store_on": "The eCommerce marketplace this online store is on."
+  },
+  "field_types": {
+    "identifier": "String",
+    "is_store_on": "String"
+  },
+  "fields": [
+    "identifier",
+    "is_store_on"
+  ],
+  "identity_hash": "df6e927bcd99e792522b15be14e3b7b3518783c43b56f0eeb3c763cf51827e45",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "df6e927bcd99e792522b15be14e3b7b3518783c43b56f0eeb3c763cf51827e45",
+  "purpose_statement": "OnlineStore",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

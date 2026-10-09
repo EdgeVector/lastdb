@@ -1,0 +1,21 @@
+{
+  "name": "@lastdb/ingestion-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zero-UI LastDB ingestion sidecar dogfooding @lastdb/app-sdk.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "lastdb-ingestion": "./bin/ingestion-app.mjs"
+  },
+  "scripts": {
+    "status": "node bin/ingestion-app.mjs status --json",
+    "inspect": "node bin/ingestion-app.mjs inspect --json"
+  },
+  "dependencies": {
+    "@lastdb/app-sdk": "file:../../lastdb_app_sdk"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

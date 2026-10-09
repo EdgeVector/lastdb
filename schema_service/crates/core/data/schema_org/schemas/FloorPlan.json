@@ -1,0 +1,152 @@
+{
+  "descriptive_name": "FloorPlan",
+  "field_classifications": {
+    "amenity_feature": [
+      "word"
+    ],
+    "floor_size": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "is_plan_for_apartment": [
+      "word"
+    ],
+    "layout_image": [
+      "word"
+    ],
+    "number_of_accommodation_units": [
+      "word"
+    ],
+    "number_of_available_accommodation_units": [
+      "word"
+    ],
+    "number_of_bathrooms_total": [
+      "number"
+    ],
+    "number_of_bedrooms": [
+      "number"
+    ],
+    "number_of_full_bathrooms": [
+      "number"
+    ],
+    "number_of_partial_bathrooms": [
+      "number"
+    ],
+    "number_of_rooms": [
+      "number"
+    ],
+    "pets_allowed": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "amenity_feature": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "floor_size": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_plan_for_apartment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "layout_image": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_accommodation_units": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_available_accommodation_units": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_bathrooms_total": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_bedrooms": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_full_bathrooms": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_partial_bathrooms": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_rooms": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pets_allowed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "amenity_feature": "An amenity feature (e.g. a characteristic or service) of the Accommodation. This generic property does not make a statement about whether the feature is included in an offer for the main accommodation or available at extra costs.",
+    "floor_size": "The size of the accommodation, e.g. in square meter or squarefoot.\nTypical unit code(s): MTK for square meter, FTK for square foot, or YDK for square yard.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_plan_for_apartment": "Indicates some accommodation that this floor plan describes.",
+    "layout_image": "A schematic image showing the floorplan layout.",
+    "number_of_accommodation_units": "Indicates the total (available plus unavailable) number of accommodation units in an [[ApartmentComplex]], or the number of accommodation units for a specific [[FloorPlan]] (within its specific [[ApartmentComplex]]). See also [[numberOfAvailableAccommodationUnits]].",
+    "number_of_available_accommodation_units": "Indicates the number of available accommodation units in an [[ApartmentComplex]], or the number of accommodation units for a specific [[FloorPlan]] (within its specific [[ApartmentComplex]]). See also [[numberOfAccommodationUnits]].",
+    "number_of_bathrooms_total": "The total integer number of bathrooms in some [[Accommodation]], following real estate conventions as [documented in RESO](https://ddwiki.reso.org/display/DDW17/BathroomsTotalInteger+Field): \"The simple sum of the number of bathrooms. For example for a property with two Full Bathrooms and one Half Bathroom, the Bathrooms Total Integer will be 3.\". See also [[numberOfRooms]].",
+    "number_of_bedrooms": "The total integer number of bedrooms in a some [[Accommodation]], [[ApartmentComplex]] or [[FloorPlan]].",
+    "number_of_full_bathrooms": "Number of full bathrooms - The total number of full and ¾ bathrooms in an [[Accommodation]]. This corresponds to the [BathroomsFull field in RESO](https://ddwiki.reso.org/display/DDW17/BathroomsFull+Field).",
+    "number_of_partial_bathrooms": "Number of partial bathrooms - The total number of half and ¼ bathrooms in an [[Accommodation]]. This corresponds to the [BathroomsPartial field in RESO](https://ddwiki.reso.org/display/DDW17/BathroomsPartial+Field).",
+    "number_of_rooms": "The number of rooms (excluding bathrooms and closets) of the accommodation or lodging business.\nTypical unit code(s): ROM for room or C62 for no unit. The type of room can be put in the unitText property of the QuantitativeValue.",
+    "pets_allowed": "Indicates whether pets are allowed to enter the accommodation or lodging business. More detailed information can be put in a text value."
+  },
+  "field_types": {
+    "amenity_feature": "String",
+    "floor_size": "String",
+    "identifier": "String",
+    "is_plan_for_apartment": "String",
+    "layout_image": "String",
+    "number_of_accommodation_units": "String",
+    "number_of_available_accommodation_units": "String",
+    "number_of_bathrooms_total": "Integer",
+    "number_of_bedrooms": "Float",
+    "number_of_full_bathrooms": "Float",
+    "number_of_partial_bathrooms": "Float",
+    "number_of_rooms": "Float",
+    "pets_allowed": "Boolean"
+  },
+  "fields": [
+    "amenity_feature",
+    "floor_size",
+    "identifier",
+    "is_plan_for_apartment",
+    "layout_image",
+    "number_of_accommodation_units",
+    "number_of_available_accommodation_units",
+    "number_of_bathrooms_total",
+    "number_of_bedrooms",
+    "number_of_full_bathrooms",
+    "number_of_partial_bathrooms",
+    "number_of_rooms",
+    "pets_allowed"
+  ],
+  "identity_hash": "a70729e9472430c826403cadddaf9bf51647d9a7069bd8ace5deec65063db6b3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a70729e9472430c826403cadddaf9bf51647d9a7069bd8ace5deec65063db6b3",
+  "purpose_statement": "FloorPlan",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

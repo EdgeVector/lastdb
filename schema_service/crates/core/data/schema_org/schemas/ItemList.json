@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "ItemList",
+  "field_classifications": {
+    "aggregate_element": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "item_list_element": [
+      "word"
+    ],
+    "item_list_order": [
+      "word"
+    ],
+    "number_of_items": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "aggregate_element": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "item_list_element": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "item_list_order": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_items": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "aggregate_element": "Indicates a prototype of the elements in the list that is used to hold aggregate information (ratings, offers, etc.).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "item_list_element": "For itemListElement values, you can use simple strings (e.g. \"Peter\", \"Paul\", \"Mary\"), existing entities, or use ListItem.\\n\\nText values are best if the elements in the list are plain strings. Existing entities are best for a simple, unordered list of existing things in your data. ListItem is used with ordered lists when you want to provide additional context about the element in that list or when the same item might be in different places in different lists.\\n\\nNote: The order of elements in your mark-up is not sufficient for indicating the order or elements.  Use ListItem with a 'position' property in such cases.",
+    "item_list_order": "Type of ordering (e.g. Ascending, Descending, Unordered).",
+    "number_of_items": "The number of items in an ItemList. Note that some descriptions might not fully describe all items in a list (e.g., multi-page pagination); in such cases, the numberOfItems would be for the entire list."
+  },
+  "field_types": {
+    "aggregate_element": "String",
+    "identifier": "String",
+    "item_list_element": "String",
+    "item_list_order": "String",
+    "number_of_items": "Integer"
+  },
+  "fields": [
+    "aggregate_element",
+    "identifier",
+    "item_list_element",
+    "item_list_order",
+    "number_of_items"
+  ],
+  "identity_hash": "e0fa8449b46974cb0f9bf45ed0a618c3150e45ec0bc1fef1c4c4c96237fed0a5",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e0fa8449b46974cb0f9bf45ed0a618c3150e45ec0bc1fef1c4c4c96237fed0a5",
+  "purpose_statement": "ItemList",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

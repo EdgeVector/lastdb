@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "RentAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "landlord": [
+      "word"
+    ],
+    "real_estate_agent": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "landlord": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "real_estate_agent": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "landlord": "A sub property of participant. The owner of the real estate property.",
+    "real_estate_agent": "A sub property of participant. The real estate agent involved in the action."
+  },
+  "field_types": {
+    "identifier": "String",
+    "landlord": "String",
+    "real_estate_agent": "String"
+  },
+  "fields": [
+    "identifier",
+    "landlord",
+    "real_estate_agent"
+  ],
+  "identity_hash": "312d2afec652cb8fe0ccffbf46d3a42cf2fe9020f17ebdd54d0341df1e174416",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "312d2afec652cb8fe0ccffbf46d3a42cf2fe9020f17ebdd54d0341df1e174416",
+  "purpose_statement": "RentAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

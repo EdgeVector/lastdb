@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "RejectAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "1b35f2c1bd219cd6ecde800a89d9e0939734129ed61bdbe4d95ef779d6fc1708",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1b35f2c1bd219cd6ecde800a89d9e0939734129ed61bdbe4d95ef779d6fc1708",
+  "purpose_statement": "RejectAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

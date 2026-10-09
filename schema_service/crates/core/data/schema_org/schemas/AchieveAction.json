@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "AchieveAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "e9eed5cbe08546e5361d56fe75843b6a8e299377e1288c334bb680ea68fc217c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e9eed5cbe08546e5361d56fe75843b6a8e299377e1288c334bb680ea68fc217c",
+  "purpose_statement": "AchieveAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

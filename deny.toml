@@ -1,0 +1,153 @@
+# cargo-deny configuration for the fold monorepo.
+#
+# Run locally:
+#   cargo deny --workspace check
+#   for d in exemem_service/lambdas/*/; do
+#     [ -f "$d/Cargo.toml" ] || continue
+#     (cd "$d" && cargo deny --manifest-path Cargo.toml check)
+#   done
+#
+# CI: see the `cargo-deny` job in .github/workflows/ci.yml. Advisory-mode
+# for now; promote to required after a couple of clean runs.
+
+[graph]
+all-features = false
+
+# ---------------------------------------------------------------------------
+# Advisories — open RustSec advisories against the dep graph.
+# ---------------------------------------------------------------------------
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+# Each ignore lists the crate, the dep path, and either why the bump is
+# blocked or why we're not exposed. Re-triage these when bumping the
+# anchoring dep (AWS SDK, wasmtime, reqwest, etc.).
+ignore = [
+  # ---- wasmtime 29.0.1 (schema_service_core, fold_db) ----
+  # All ~16 wasmtime advisories below require jumping the major from 29
+  # to 36+ (or 42+/43+). That is an API-breaking bump we deliberately
+  # scope out of this audit PR; tracked as a follow-up.
+  # Our usage: we compile transforms to wasm and run them in-process —
+  # no untrusted guest code is loaded, Winch backend is not enabled,
+  # the WASIp1 surface we expose is narrow.
+  { id = "RUSTSEC-2025-0046", reason = "wasmtime 29.0.1 — fd_renumber panic; needs wasmtime 34+, breaking" },
+  { id = "RUSTSEC-2025-0118", reason = "wasmtime 29.0.1 — shared memory unsoundness; needs wasmtime 36+, breaking" },
+  { id = "RUSTSEC-2026-0006", reason = "wasmtime 29.0.1 — f64.copysign segfault; needs wasmtime 36+, breaking" },
+  { id = "RUSTSEC-2026-0020", reason = "wasmtime 29.0.1 — WASI resource exhaustion; needs wasmtime 36+, breaking" },
+  { id = "RUSTSEC-2026-0021", reason = "wasmtime 29.0.1 — wasi:http/types.fields panic; needs wasmtime 36+, breaking" },
+  { id = "RUSTSEC-2026-0085", reason = "wasmtime 29.0.1 — flags lifting panic; needs wasmtime 36+, breaking" },
+  { id = "RUSTSEC-2026-0086", reason = "wasmtime 29.0.1 — Winch 64-bit table data leakage; we don't use Winch, but bump tracked" },
+  { id = "RUSTSEC-2026-0087", reason = "wasmtime 29.0.1 — f64x2.splat segfault on Cranelift x86-64; needs wasmtime 36+, breaking" },
+  { id = "RUSTSEC-2026-0088", reason = "wasmtime 29.0.1 — pooling allocator leakage; we don't use pooling, but bump tracked" },
+  { id = "RUSTSEC-2026-0089", reason = "wasmtime 29.0.1 — Winch table.fill host panic; we don't use Winch, but bump tracked" },
+  { id = "RUSTSEC-2026-0091", reason = "wasmtime 29.0.1 — OOB write transcoding component model strings; needs wasmtime 36+, breaking" },
+  { id = "RUSTSEC-2026-0092", reason = "wasmtime 29.0.1 — misaligned UTF-16 transcoding panic; needs wasmtime 36+, breaking" },
+  { id = "RUSTSEC-2026-0093", reason = "wasmtime 29.0.1 — heap OOB read in latin1+utf16 transcoding; needs wasmtime 36+, breaking" },
+  { id = "RUSTSEC-2026-0094", reason = "wasmtime 29.0.1 — Winch table.grow return value masking; we don't use Winch, but bump tracked" },
+  { id = "RUSTSEC-2026-0095", reason = "wasmtime 29.0.1 — Winch sandbox escape; we don't use Winch, but bump tracked" },
+  { id = "RUSTSEC-2026-0096", reason = "wasmtime 29.0.1 — aarch64 Cranelift miscompile sandbox escape; needs wasmtime 36+, breaking" },
+
+  # ---- rustls-webpki 0.101.7 (via aws-smithy-http-client legacy-rustls) ----
+  # Three webpki advisories hit the legacy rustls 0.21.x path that
+  # aws-smithy-http-client 1.1.12 still pins via `legacy-rustls`.
+  # Unblocking requires bumping the AWS SDK family past the version
+  # that retires legacy-rustls — scoped out as a follow-up since the
+  # AWS SDK upgrade is its own multi-crate change.
+  # Mitigation: webpki name-constraint paths are not on our request
+  # critical path; the schema_service Lambda terminates TLS at API
+  # Gateway, not at the rustls layer.
+  { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101.7 via aws-smithy-http-client legacy-rustls; needs AWS SDK bump" },
+  { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7 via aws-smithy-http-client legacy-rustls; needs AWS SDK bump" },
+  { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101.7 via aws-smithy-http-client legacy-rustls; needs AWS SDK bump" },
+
+  # ---- lru 0.12.5 (via aws-sdk-s3 1.119.0) ----
+  # The IterMut Stacked-Borrows unsoundness is patched in lru >= 0.16.3,
+  # but aws-sdk-s3 1.119.0 pins lru `^0.12.2`, so the patched line is
+  # unreachable without a breaking AWS SDK bump (same anchor as the
+  # rustls-webpki entries above). We never call IterMut on this cache —
+  # it's the AWS SDK's internal in-memory LRU credential/endpoint cache,
+  # not data we touch. Revisit when the AWS SDK family is bumped to a
+  # version that allows lru >= 0.16.3. (Added 2026-06-18.)
+  { id = "RUSTSEC-2026-0002", reason = "lru 0.12.5 IterMut unsound; patched in lru >=0.16.3 but aws-sdk-s3 1.119.0 pins lru ^0.12.2 — needs AWS SDK bump; transitive in-mem LRU cache we don't IterMut" },
+
+  # ---- Unmaintained / unsound — transitive, no direct consumer in our code ----
+  { id = "RUSTSEC-2026-0105", reason = "core2 yanked; transitive via image → rav1e → bitstream-io; upstream owns the fix" },
+  # Yanked-crate match for core2 (the unmaintained advisory above only
+  # silences the unmaintained warning, not the separate yanked check).
+  { crate = "core2", reason = "core2 0.4.0 yanked; same root cause as RUSTSEC-2026-0105; transitive via image" },
+  { id = "RUSTSEC-2025-0057", reason = "fxhash unmaintained; transitive via fxprof-processed-profile; not on our hot path" },
+  { id = "RUSTSEC-2024-0384", reason = "instant unmaintained; transitive via parking_lot 0.11 in old deps; suggested replacement web-time needs upstream uptake" },
+  { id = "RUSTSEC-2025-0119", reason = "number_prefix unmaintained; transitive via indicatif; cosmetic progress-bar dep" },
+  { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; transitive via macro_rules_attribute; widely used, no security exposure" },
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained; transitive via utoipa-gen; build-time only, no runtime exposure" },
+  { id = "RUSTSEC-2026-0097", reason = "rand unsound only when a custom logger uses rand::rng() in its impl — we don't define such a logger" },
+  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained; transitive via reqwest 0.11; pinned by sentry et al." },
+]
+
+# ---------------------------------------------------------------------------
+# Licenses — workspace policy: permissive only.
+# ---------------------------------------------------------------------------
+[licenses]
+version = 2
+confidence-threshold = 0.93
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "MPL-2.0",
+  "CC0-1.0",
+  # webpki-roots / webpki-root-certs use CDLA-Permissive-2.0 (Mozilla CA
+  # bundle redistribution license — permissive, allows commercial use).
+  "CDLA-Permissive-2.0",
+  # libfuzzer-sys is `(MIT OR Apache-2.0) AND NCSA` — NCSA is the
+  # University of Illinois/NCSA Open Source License (permissive,
+  # BSD-style). Only pulled in by fuzz targets.
+  "NCSA",
+  # xxhash-rust ships under the Boost Software License (permissive,
+  # MIT-ish — explicit attribution + warranty disclaimer).
+  "BSL-1.0",
+]
+exceptions = [
+  # Per-crate license exceptions go here only after legal review, e.g.:
+  #   { allow = ["LGPL-2.1-or-later"], name = "some-crate" },
+]
+
+# All workspace member crates are private / unpublished. Skip them
+# from the license check rather than adding ~14 noisy exceptions.
+[licenses.private]
+ignore = true
+
+# ---------------------------------------------------------------------------
+# Bans — duplicate versions, wildcards, explicitly-forbidden crates.
+# ---------------------------------------------------------------------------
+[bans]
+# Promote to "deny" in a follow-up after the existing duplicates listed
+# in the PR description are unified. Today's lockfile has ~70 duplicates
+# (mostly the windows-sys 0.48 vs 0.52 vs 0.59 split and the hashbrown
+# 0.12/0.14/0.15/0.16 fan-out) — most are transitive and not trivially
+# unifiable.
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace path deps inherit a wildcard version by construction
+# (`fold_db = { path = "..." }` has no explicit version), and the
+# resolver pins them by path. Don't treat those as wildcards.
+allow-wildcard-paths = true
+highlight = "all"
+
+# ---------------------------------------------------------------------------
+# Sources — only crates.io + explicitly allow-listed git remotes.
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# This workspace currently uses no git deps — every dependency resolves
+# via crates.io. Add entries here (with the consuming crate named in a
+# comment) only if a future change pulls in a git dep we vetted.
+allow-git = []

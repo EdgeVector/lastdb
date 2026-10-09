@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "Rating",
+  "field_classifications": {
+    "author": [
+      "word"
+    ],
+    "best_rating": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "rating_explanation": [
+      "word"
+    ],
+    "rating_value": [
+      "number"
+    ],
+    "review_aspect": [
+      "word"
+    ],
+    "worst_rating": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "author": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "best_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "rating_explanation": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "rating_value": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "review_aspect": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "worst_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "author": "The author of this content or rating. Please note that author is special in that HTML 5 provides a special mechanism for indicating authorship via the rel tag. That is equivalent to this and may be used interchangeably.",
+    "best_rating": "The highest value allowed in this rating system.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "rating_explanation": "A short explanation (e.g. one to two sentences) providing background context and other information that led to the conclusion expressed in the rating. This is particularly applicable to ratings associated with \"fact check\" markup using [[ClaimReview]].",
+    "rating_value": "The rating for the content.\\n\\nUsage guidelines:\\n\\n* Use values from 0123456789 (Unicode 'DIGIT ZERO' (U+0030) to 'DIGIT NINE' (U+0039)) rather than superficially similar Unicode symbols.\\n* Use '.' (Unicode 'FULL STOP' (U+002E)) rather than ',' to indicate a decimal point. Avoid using these symbols as a readability separator.",
+    "review_aspect": "This Review or Rating is relevant to this part or facet of the itemReviewed.",
+    "worst_rating": "The lowest value allowed in this rating system."
+  },
+  "field_types": {
+    "author": "String",
+    "best_rating": "Float",
+    "identifier": "String",
+    "rating_explanation": "String",
+    "rating_value": "Float",
+    "review_aspect": "String",
+    "worst_rating": "Float"
+  },
+  "fields": [
+    "author",
+    "best_rating",
+    "identifier",
+    "rating_explanation",
+    "rating_value",
+    "review_aspect",
+    "worst_rating"
+  ],
+  "identity_hash": "ce9c7c345823435b35b0c70a515b9beb46f8ce91b5713897a7fa12563779b53d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ce9c7c345823435b35b0c70a515b9beb46f8ce91b5713897a7fa12563779b53d",
+  "purpose_statement": "Rating",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

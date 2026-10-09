@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "CommentAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "result_comment": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "result_comment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "result_comment": "A sub property of result. The Comment created or sent as a result of this action."
+  },
+  "field_types": {
+    "identifier": "String",
+    "result_comment": "String"
+  },
+  "fields": [
+    "identifier",
+    "result_comment"
+  ],
+  "identity_hash": "34e9b7db256b1644325018aa237f68fafbf32b5387dd215fec03a3fa7951bdbe",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "34e9b7db256b1644325018aa237f68fafbf32b5387dd215fec03a3fa7951bdbe",
+  "purpose_statement": "CommentAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

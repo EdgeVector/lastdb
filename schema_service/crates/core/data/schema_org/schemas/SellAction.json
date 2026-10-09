@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "SellAction",
+  "field_classifications": {
+    "buyer": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "warranty_promise": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "buyer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "warranty_promise": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "buyer": "A sub property of participant. The participant/person/organization that bought the object.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "warranty_promise": "The warranty promise(s) included in the offer."
+  },
+  "field_types": {
+    "buyer": "String",
+    "identifier": "String",
+    "warranty_promise": "String"
+  },
+  "fields": [
+    "buyer",
+    "identifier",
+    "warranty_promise"
+  ],
+  "identity_hash": "84a4adc8d1fd9b1c81d72b6bf1a0980193c6936dce560260df78cdb19c441085",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "84a4adc8d1fd9b1c81d72b6bf1a0980193c6936dce560260df78cdb19c441085",
+  "purpose_statement": "SellAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

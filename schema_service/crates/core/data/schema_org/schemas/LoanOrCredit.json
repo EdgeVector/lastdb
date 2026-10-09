@@ -1,0 +1,122 @@
+{
+  "descriptive_name": "LoanOrCredit",
+  "field_classifications": {
+    "amount": [
+      "number"
+    ],
+    "currency": [
+      "word"
+    ],
+    "grace_period": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "loan_repayment_form": [
+      "word"
+    ],
+    "loan_term": [
+      "word"
+    ],
+    "loan_type": [
+      "word"
+    ],
+    "recourse_loan": [
+      "word"
+    ],
+    "renegotiable_loan": [
+      "word"
+    ],
+    "required_collateral": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 0
+    },
+    "grace_period": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "loan_repayment_form": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "loan_term": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "loan_type": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "recourse_loan": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "renegotiable_loan": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "required_collateral": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "amount": "The amount of money.",
+    "currency": "The currency in which the monetary amount is expressed.\\n\\nUse standard formats: [ISO 4217 currency format](http://en.wikipedia.org/wiki/ISO_4217), e.g. \"USD\"; [Ticker symbol](https://en.wikipedia.org/wiki/List_of_cryptocurrencies) for cryptocurrencies, e.g. \"BTC\"; well known names for [Local Exchange Trading Systems](https://en.wikipedia.org/wiki/Local_exchange_trading_system) (LETS) and other currency types, e.g. \"Ithaca HOUR\".",
+    "grace_period": "The period of time after any due date that the borrower has to fulfil its obligations before a default (failure to pay) is deemed to have occurred.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "loan_repayment_form": "A form of paying back money previously borrowed from a lender. Repayment usually takes the form of periodic payments that normally include part principal plus interest in each payment.",
+    "loan_term": "The duration of the loan or credit agreement.",
+    "loan_type": "The type of a loan or credit.",
+    "recourse_loan": "The only way you get the money back in the event of default is the security. Recourse is where you still have the opportunity to go back to the borrower for the rest of the money.",
+    "renegotiable_loan": "Whether the terms for payment of interest can be renegotiated during the life of the loan.",
+    "required_collateral": "Assets required to secure loan or credit repayments. It may take form of third party pledge, goods, financial instruments (cash, securities, etc.)"
+  },
+  "field_types": {
+    "amount": "Number",
+    "currency": "String",
+    "grace_period": "String",
+    "identifier": "String",
+    "loan_repayment_form": "String",
+    "loan_term": "String",
+    "loan_type": "String",
+    "recourse_loan": "Boolean",
+    "renegotiable_loan": "Boolean",
+    "required_collateral": "String"
+  },
+  "fields": [
+    "amount",
+    "currency",
+    "grace_period",
+    "identifier",
+    "loan_repayment_form",
+    "loan_term",
+    "loan_type",
+    "recourse_loan",
+    "renegotiable_loan",
+    "required_collateral"
+  ],
+  "identity_hash": "f721b88eae0d4444895e6c6d30e236fec8604b207278f18bf7592a8585e66496",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f721b88eae0d4444895e6c6d30e236fec8604b207278f18bf7592a8585e66496",
+  "purpose_statement": "LoanOrCredit",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

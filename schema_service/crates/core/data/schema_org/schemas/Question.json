@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "Question",
+  "field_classifications": {
+    "accepted_answer": [
+      "word"
+    ],
+    "answer_count": [
+      "number"
+    ],
+    "edu_question_type": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "parent_item": [
+      "word"
+    ],
+    "suggested_answer": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "accepted_answer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "answer_count": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "edu_question_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "parent_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suggested_answer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "accepted_answer": "The answer(s) that has been accepted as best, typically on a Question/Answer site. Sites vary in their selection mechanisms, e.g. drawing on community opinion and/or the view of the Question author.",
+    "answer_count": "The number of answers this question has received.",
+    "edu_question_type": "For questions that are part of learning resources (e.g. Quiz), eduQuestionType indicates the format of question being given. Example: \"Multiple choice\", \"Open ended\", \"Flashcard\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "parent_item": "The parent of a question, answer or item in general. Typically used for Q/A discussion threads e.g. a chain of comments with the first comment being an [[Article]] or other [[CreativeWork]]. See also [[comment]] which points from something to a comment about it.",
+    "suggested_answer": "An answer (possibly one of several, possibly incorrect) to a Question, e.g. on a Question/Answer site."
+  },
+  "field_types": {
+    "accepted_answer": "String",
+    "answer_count": "Integer",
+    "edu_question_type": "String",
+    "identifier": "String",
+    "parent_item": "String",
+    "suggested_answer": "String"
+  },
+  "fields": [
+    "accepted_answer",
+    "answer_count",
+    "edu_question_type",
+    "identifier",
+    "parent_item",
+    "suggested_answer"
+  ],
+  "identity_hash": "59366fa4b1616c463071835034e9e62097b32e16e6ac23cc49aaf5043143fe15",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "59366fa4b1616c463071835034e9e62097b32e16e6ac23cc49aaf5043143fe15",
+  "purpose_statement": "Question",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

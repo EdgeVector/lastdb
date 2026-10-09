@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "MedicalClinic",
+  "field_classifications": {
+    "available_service": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "medical_specialty": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "available_service": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "medical_specialty": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "available_service": "A medical service available from this provider.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "medical_specialty": "A medical specialty of the provider."
+  },
+  "field_types": {
+    "available_service": "String",
+    "identifier": "String",
+    "medical_specialty": "String"
+  },
+  "fields": [
+    "available_service",
+    "identifier",
+    "medical_specialty"
+  ],
+  "identity_hash": "7e1d3ecc7e52e426086df7baff4bc7c6e74ee0fa1eb922a218b7f2010cba9995",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7e1d3ecc7e52e426086df7baff4bc7c6e74ee0fa1eb922a218b7f2010cba9995",
+  "purpose_statement": "MedicalClinic",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

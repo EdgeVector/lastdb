@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "SatiricalArticle",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "5af8cd80f24079da1b1011edf368380238a9b0e9a232dbfa4b915626524a5e2d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5af8cd80f24079da1b1011edf368380238a9b0e9a232dbfa4b915626524a5e2d",
+  "purpose_statement": "SatiricalArticle",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

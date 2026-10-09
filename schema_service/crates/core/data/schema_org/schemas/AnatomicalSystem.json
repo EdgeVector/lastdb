@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "AnatomicalSystem",
+  "field_classifications": {
+    "associated_pathophysiology": [
+      "word"
+    ],
+    "comprised_of": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "related_condition": [
+      "word"
+    ],
+    "related_structure": [
+      "word"
+    ],
+    "related_therapy": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "associated_pathophysiology": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "comprised_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "related_condition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "related_structure": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "related_therapy": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "associated_pathophysiology": "If applicable, a description of the pathophysiology associated with the anatomical system, including potential abnormal changes in the mechanical, physical, and biochemical functions of the system.",
+    "comprised_of": "Specifying something physically contained by something else. Typically used here for the underlying anatomical structures, such as organs, that comprise the anatomical system.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "related_condition": "A medical condition associated with this anatomy.",
+    "related_structure": "Related anatomical structure(s) that are not part of the system but relate or connect to it, such as vascular bundles associated with an organ system.",
+    "related_therapy": "A medical therapy related to this anatomy."
+  },
+  "field_types": {
+    "associated_pathophysiology": "String",
+    "comprised_of": "String",
+    "identifier": "String",
+    "related_condition": "String",
+    "related_structure": "String",
+    "related_therapy": "String"
+  },
+  "fields": [
+    "associated_pathophysiology",
+    "comprised_of",
+    "identifier",
+    "related_condition",
+    "related_structure",
+    "related_therapy"
+  ],
+  "identity_hash": "eabc9b00f24f4271c233215c38c5d21c98d6db90368a8c8056ee2f8724f7eadf",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "eabc9b00f24f4271c233215c38c5d21c98d6db90368a8c8056ee2f8724f7eadf",
+  "purpose_statement": "AnatomicalSystem",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

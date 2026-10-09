@@ -1,0 +1,142 @@
+{
+  "descriptive_name": "Episode",
+  "field_classifications": {
+    "actor": [
+      "word"
+    ],
+    "actors": [
+      "word"
+    ],
+    "director": [
+      "word"
+    ],
+    "directors": [
+      "word"
+    ],
+    "duration": [
+      "word"
+    ],
+    "episode_number": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "music_by": [
+      "word"
+    ],
+    "part_of_season": [
+      "word"
+    ],
+    "part_of_series": [
+      "word"
+    ],
+    "production_company": [
+      "word"
+    ],
+    "trailer": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "actor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "actors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "director": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "directors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "episode_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "music_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "part_of_season": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "part_of_series": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "production_company": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "trailer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "actor": "An actor (individual or a group), e.g. in TV, radio, movie, video games etc., or in an event. Actors can be associated with individual items or with a series, episode, clip.",
+    "actors": "An actor, e.g. in TV, radio, movie, video games etc. Actors can be associated with individual items or with a series, episode, clip.",
+    "director": "A director of e.g. TV, radio, movie, video gaming etc. content, or of an event. Directors can be associated with individual items or with a series, episode, clip.",
+    "directors": "A director of e.g. TV, radio, movie, video games etc. content. Directors can be associated with individual items or with a series, episode, clip.",
+    "duration": "The duration of the item (movie, audio recording, event, etc.) in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601).",
+    "episode_number": "Position of the episode within an ordered group of episodes.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "music_by": "The composer of the soundtrack.",
+    "part_of_season": "The season to which this episode belongs.",
+    "part_of_series": "The series to which this episode or season belongs.",
+    "production_company": "The production company or studio responsible for the item, e.g. series, video game, episode etc.",
+    "trailer": "The trailer of a movie or TV/radio series, season, episode, etc."
+  },
+  "field_types": {
+    "actor": "String",
+    "actors": "String",
+    "director": "String",
+    "directors": "String",
+    "duration": "String",
+    "episode_number": "Integer",
+    "identifier": "String",
+    "music_by": "String",
+    "part_of_season": "String",
+    "part_of_series": "String",
+    "production_company": "String",
+    "trailer": "String"
+  },
+  "fields": [
+    "actor",
+    "actors",
+    "director",
+    "directors",
+    "duration",
+    "episode_number",
+    "identifier",
+    "music_by",
+    "part_of_season",
+    "part_of_series",
+    "production_company",
+    "trailer"
+  ],
+  "identity_hash": "d87608671699ce455d5e41a212c90e34f7190abeac6b5c689d046e2487a490b4",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d87608671699ce455d5e41a212c90e34f7190abeac6b5c689d046e2487a490b4",
+  "purpose_statement": "Episode",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

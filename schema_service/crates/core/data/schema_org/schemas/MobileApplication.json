@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MobileApplication",
+  "field_classifications": {
+    "carrier_requirements": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "carrier_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "carrier_requirements": "Specifies specific carrier(s) requirements for the application (e.g. an application may only work on a specific carrier network).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "carrier_requirements": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "carrier_requirements",
+    "identifier"
+  ],
+  "identity_hash": "d424cd975930c5a64bf48e5f52f6fcc32516493e5355eb3c0b75b163732d101f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d424cd975930c5a64bf48e5f52f6fcc32516493e5355eb3c0b75b163732d101f",
+  "purpose_statement": "MobileApplication",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

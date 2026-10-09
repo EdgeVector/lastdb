@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "AnatomicalStructure",
+  "field_classifications": {
+    "associated_pathophysiology": [
+      "word"
+    ],
+    "body_location": [
+      "word"
+    ],
+    "connected_to": [
+      "word"
+    ],
+    "diagram": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "part_of_system": [
+      "word"
+    ],
+    "related_condition": [
+      "word"
+    ],
+    "related_therapy": [
+      "word"
+    ],
+    "sub_structure": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "associated_pathophysiology": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "body_location": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "connected_to": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "diagram": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "part_of_system": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "related_condition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "related_therapy": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "sub_structure": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "associated_pathophysiology": "If applicable, a description of the pathophysiology associated with the anatomical system, including potential abnormal changes in the mechanical, physical, and biochemical functions of the system.",
+    "body_location": "Location in the body of the anatomical structure.",
+    "connected_to": "Other anatomical structures to which this structure is connected.",
+    "diagram": "An image containing a diagram that illustrates the structure and/or its component substructures and/or connections with other structures.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "part_of_system": "The anatomical or organ system that this structure is part of.",
+    "related_condition": "A medical condition associated with this anatomy.",
+    "related_therapy": "A medical therapy related to this anatomy.",
+    "sub_structure": "Component (sub-)structure(s) that comprise this anatomical structure."
+  },
+  "field_types": {
+    "associated_pathophysiology": "String",
+    "body_location": "String",
+    "connected_to": "String",
+    "diagram": "String",
+    "identifier": "String",
+    "part_of_system": "String",
+    "related_condition": "String",
+    "related_therapy": "String",
+    "sub_structure": "String"
+  },
+  "fields": [
+    "associated_pathophysiology",
+    "body_location",
+    "connected_to",
+    "diagram",
+    "identifier",
+    "part_of_system",
+    "related_condition",
+    "related_therapy",
+    "sub_structure"
+  ],
+  "identity_hash": "280fa4e6eaf94f3173f76e9ded00d559340ecb6814ec983ebdf4cda36f728fe0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "280fa4e6eaf94f3173f76e9ded00d559340ecb6814ec983ebdf4cda36f728fe0",
+  "purpose_statement": "AnatomicalStructure",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

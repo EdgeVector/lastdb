@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "InfectiousAgentClass",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "deda26edf4f2fa885e833a461bec6b433dddb2494cdf7ebbb170d339984387f2",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "deda26edf4f2fa885e833a461bec6b433dddb2494cdf7ebbb170d339984387f2",
+  "purpose_statement": "InfectiousAgentClass",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

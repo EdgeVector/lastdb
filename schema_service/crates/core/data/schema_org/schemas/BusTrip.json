@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "BusTrip",
+  "field_classifications": {
+    "arrival_bus_stop": [
+      "word"
+    ],
+    "bus_name": [
+      "word"
+    ],
+    "bus_number": [
+      "word"
+    ],
+    "departure_bus_stop": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "arrival_bus_stop": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "bus_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "bus_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "departure_bus_stop": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "arrival_bus_stop": "The stop or station from which the bus arrives.",
+    "bus_name": "The name of the bus (e.g. Bolt Express).",
+    "bus_number": "The unique identifier for the bus.",
+    "departure_bus_stop": "The stop or station from which the bus departs.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "arrival_bus_stop": "String",
+    "bus_name": "String",
+    "bus_number": "String",
+    "departure_bus_stop": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "arrival_bus_stop",
+    "bus_name",
+    "bus_number",
+    "departure_bus_stop",
+    "identifier"
+  ],
+  "identity_hash": "72b1fc98133cf64f0fa956dd83b18a14fa34b60357fbc9412b05a6a09ecf1926",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "72b1fc98133cf64f0fa956dd83b18a14fa34b60357fbc9412b05a6a09ecf1926",
+  "purpose_statement": "BusTrip",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

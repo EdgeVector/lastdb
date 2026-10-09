@@ -1,0 +1,29 @@
+{
+  "name": "ingestion/ProgressEvent",
+  "descriptive_name": "Ingestion Progress Event",
+  "purpose_statement": "Append-only machine-readable progress emitted by explicit Ingestion sidecar runs.",
+  "schema_type": "Hash",
+  "fields": [
+    "event_id",
+    "run_id",
+    "status",
+    "source_path",
+    "scanned_files",
+    "written_records",
+    "message",
+    "created_at"
+  ],
+  "key": {
+    "hash_field": "event_id"
+  },
+  "field_descriptions": {
+    "event_id": "Stable progress event id.",
+    "run_id": "Owning ingestion/Run id.",
+    "status": "running, succeeded, failed, cancelled, blocked, or skipped.",
+    "source_path": "File or folder currently being processed.",
+    "scanned_files": "Cumulative files scanned by this run.",
+    "written_records": "Cumulative app-owned records written by this run.",
+    "message": "Short agent-readable progress note.",
+    "created_at": "RFC3339 event timestamp."
+  }
+}

@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Last Store · Storage v2 review</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2332;
+    --text: #e7ecf3;
+    --muted: #9aa8bc;
+    --accent: #5b9fd4;
+    --good: #3d9a6a;
+    --warn: #c9a227;
+    --border: #2a3548;
+    --code-bg: #0b0f14;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.55;
+  }
+  header {
+    padding: 2rem 1.5rem 1.25rem; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #152033 0%, var(--bg) 100%);
+  }
+  header h1 { margin: 0 0 0.35rem; font-size: 1.75rem; font-weight: 650; }
+  header p { margin: 0; color: var(--muted); max-width: 52rem; }
+  nav {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0;
+    background: rgba(15,20,25,0.92); backdrop-filter: blur(8px); z-index: 10;
+  }
+  nav a {
+    color: var(--accent); text-decoration: none; font-size: 0.9rem;
+    padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 999px;
+  }
+  nav a:hover { background: var(--panel); }
+  main { max-width: 52rem; margin: 0 auto; padding: 1.5rem; }
+  section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;
+  }
+  h1,h2,h3 { line-height: 1.25; }
+  h2 { font-size: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
+  h3 { font-size: 1.05rem; color: #c5d4e8; }
+  p { margin: 0.65rem 0; }
+  ul { margin: 0.5rem 0 0.75rem 1.2rem; }
+  li { margin: 0.25rem 0; }
+  code, pre { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 0.88em; }
+  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.9rem 1rem; overflow-x: auto; white-space: pre-wrap;
+  }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1rem; font-size: 0.92rem; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }
+  th { background: #121a26; color: #c5d4e8; }
+  .callout {
+    border-left: 4px solid var(--accent); background: #121a26;
+    padding: 0.85rem 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0;
+  }
+  .callout.good { border-left-color: var(--good); }
+  .eli5 {
+    background: #15261c; border: 1px solid #2a4a38; border-radius: 12px;
+    padding: 1rem 1.25rem; margin: 1rem 0;
+  }
+  .eli5 h3 { margin-top: 0; color: #8fd4a8; }
+  .meta { color: var(--muted); font-size: 0.88rem; }
+  footer { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 2rem 1rem 3rem; }
+  ol { margin: 0.5rem 0 0.75rem 1.2rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Last Store · Storage v2 review pack</h1>
+  <p class="meta">For Tom · 2026-07-17 · Nano spike + decision brief + naming (main) + caveats in plain English</p>
+</header>
+<nav>
+  <a href="#eli5">ELI5 caveats</a>
+  <a href="#naming">main vs real names</a>
+  <a href="#spike">Nano spike</a>
+  <a href="#brief">Decision brief</a>
+  <a href="#recommend">What to do</a>
+</nav>
+<main>
+
+<section id="eli5">
+  <h2>Honest caveats — explain like I’m five</h2>
+  <div class="eli5">
+    <h3>1. We put toys away in batches, not one lock per toy</h3>
+    <p>When the store writes, it stacks a few writes, then presses “save to disk” once. That’s fast — like putting several Lego pieces down, then one click that freezes them.</p>
+    <p><strong>Caveat:</strong> if the power cord is yanked <em>before</em> that save, the last few pieces might vanish. We save at the end of each batch of work (a transaction), which is what LastDB already does with sled. We are <em>not</em> locking the box after every single piece.</p>
+  </div>
+  <div class="eli5">
+    <h3>2. One big drawer vs many little drawers</h3>
+    <p>Last Store’s “race mode” uses one drawer per collection (single shard). Great when one person puts toys away in a line. If ten kids dump toys at once, many drawers (multi-shard) can help.</p>
+    <p><strong>Caveat:</strong> our fastest numbers used the single-drawer setup. Nano can still switch to multi-drawer if we need lots of parallel writers.</p>
+  </div>
+  <div class="eli5">
+    <h3>3. Cleaning the room really empties the trash</h3>
+    <p>Old store (sled) often said “I threw it away” but the trash bag stayed full. Last Store’s compact is like taking the trash to the curb — disk use actually shrinks.</p>
+    <p><strong>Caveat:</strong> cleaning takes a moment. You have to run compact; it doesn’t vacuum every second by itself.</p>
+  </div>
+  <div class="eli5">
+    <h3>4. Nano already labels boxes; Mini still has a junk drawer called “main”</h3>
+    <p>Nano puts things in named boxes: schemas, atoms, tips, cloud_kv. Mini still has a big bag labeled <code>main</code> with stickers on keys inside. That’s Mini’s homework later — not Nano’s today.</p>
+    <p><strong>Caveat:</strong> Last Store is ready for named boxes. Emptying Mini’s junk drawer into named boxes is a migration project, not free.</p>
+  </div>
+  <div class="eli5">
+    <h3>5. Don’t move Dad’s real toolbox yet</h3>
+    <p>We proved the new box in the lab (Nano + tests). We have <strong>not</strong> poured Tom’s real brain (<code>~/.lastdb</code>) into it.</p>
+    <p><strong>Caveat:</strong> before primary Mini cutover: copy first, prove green, only then cut over.</p>
+  </div>
+</section>
+
+<section id="naming">
+  <h2>Does Nano use “main”? Should we split names?</h2>
+  <div class="callout good">
+    <p><strong>Good news:</strong> Nano is already split. It does <em>not</em> dump everything into a bag called <code>main</code>.</p>
+  </div>
+  <table>
+    <thead><tr><th>Where</th><th>What it uses today</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Nano</strong> (Storage v2)</td><td><code>schemas</code>, <code>atoms</code>, <code>tips</code>, plus <code>cloud_kv</code> for cloud mirror</td><td>Already meaningful names</td></tr>
+      <tr><td><strong>Last Store</strong></td><td>Any collection string → folder under <code>data/&lt;collection&gt;/</code></td><td>Ready for more names</td></tr>
+      <tr><td><strong>Mini / fold_db</strong></td><td>Sled namespace <code>main</code> holds atoms + molecule tips as key prefixes (<code>atom:</code>, <code>mk:</code>, …)</td><td>This is the junk drawer</td></tr>
+      <tr><td>Other Mini trees</td><td><code>schemas</code>, <code>metadata</code>, <code>native_index</code>, sync, …</td><td>Partly split already</td></tr>
+    </tbody>
+  </table>
+  <h3>Recommendation on naming</h3>
+  <ul>
+    <li><strong>Now (Nano spike):</strong> keep <code>schemas</code> / <code>atoms</code> / <code>tips</code> / <code>cloud_kv</code>. Optional later rename <code>cloud_kv</code> → <code>cloud_mirror</code> (cosmetic).</li>
+    <li><strong>Next (Mini cutover design):</strong> map Mini’s <code>main</code> bag into real collections — at least <code>atoms</code> + <code>tips</code>. Do <em>not</em> invent a new collection still called <code>main</code>.</li>
+    <li><strong>Don’t</strong> rename Mini’s live <code>main</code> in place without a migration plan.</li>
+  </ul>
+  <div class="callout">
+    <p><strong>Short answer:</strong> Nano already left “everything under main.” The big split is for <em>Mini</em> when Storage v2 lands there. Now is the right time to <em>lock target names</em> (schemas · atoms · tips · blobs), not to rename Mini live data.</p>
+  </div>
+</section>
+
+<section id="spike">
+  <h2>Nano spike notes</h2>
+  <h1>Spike: Nano on Last Store</h1>
+<p><strong>Branch:</strong> <code>spike/laststore-engine</code>  </p>
+<p><strong>Status:</strong> green on local <code>cargo test</code> (2026-07-17)  </p>
+<p><strong>Engine crate:</strong> <code>https://github.com/EdgeVector/laststore</code> (path dep <code>../../../laststore</code>)</p>
+<h2>What changed</h2>
+<table><thead><tr><th>Piece</th><th>Role</th></tr></thead><tbody>
+<tr><td><code>lastdb_docstore::LastStoreEngine</code></td><td><code>DocumentStore</code> over <code>laststore::LastStore</code> + AES codec + CAS blobs</td></tr>
+<tr><td><code>store::open_docs</code></td><td>Opens <strong>Last Store</strong> by default</td></tr>
+<tr><td><code>LASTDB_NANO_ENGINE=segment</code></td><td>Fall back to in-tree <code>SegmentStore</code></td></tr>
+<tr><td><code>NanoDb</code> / <code>Store</code></td><td>Hold <code>Arc&lt;dyn DocumentStore + Send + Sync&gt;</code></td></tr>
+</tbody></table>
+<h2>Layout (Last Store home)</h2>
+<pre><code>
+&lt;home&gt;/
+
+  engine.json              # { &quot;engine&quot;: &quot;laststore&quot;, &quot;codec&quot;: &quot;...&quot; }
+
+  laststore/data/&lt;coll&gt;/…  # Last Store segments
+
+  blobs/sha256/…           # CAS (unchanged from SegmentStore)
+
+</code></pre>
+<h2>Known spike differences vs SegmentStore</h2>
+<ul>
+<li><strong>Txn durability:</strong> Last Store group-commit flush at end of <code>transaction</code>, not a separate multi-doc WAL file. Atom+tip still land in one <code>transaction</code> call.</li>
+<li><strong>Default shards:</strong> Last Store default is single-shard (H2H tip); SegmentStore defaults to multi-shard.</li>
+<li><strong>Manifest:</strong> <code>engine.json</code> instead of segment <code>manifest.json</code>.</li>
+</ul>
+<h2>How to try</h2>
+<pre><code>
+cd ~/code/edgevector/lastdb-nano
+
+# default Last Store
+
+cargo test
+
+
+
+# legacy segment engine
+
+LASTDB_NANO_ENGINE=segment cargo test
+
+</code></pre>
+<h2>Next</h2>
+<ul>
+<li>CoW real-data smoke (never primary Mini first)</li>
+<li>Optional: promote Last Store default permanently; thin SegmentStore</li>
+<li>Mini <code>KvStore</code> adapter (separate track)</li>
+</ul>
+</section>
+
+<section id="brief">
+  <h2>Decision brief (Last Store vs sled)</h2>
+  <p class="meta">Source: laststore/docs/DECISION_BRIEF_VS_SLED.md</p>
+  <h1>Storage v2 Decision Brief — <strong>Last Store</strong> vs sled</h1>
+<p>&gt; Engine product name: <strong>Last Store</strong>. Crate: [<code>laststore</code>](https://github.com/EdgeVector/laststore).</p>
+<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>
+<tr><td>Status</td><td><strong>Recommendation: proceed</strong> (2026-07-17)</td></tr>
+<tr><td>Product owner</td><td>Tom</td></tr>
+<tr><td>Engine product name</td><td><strong>Last Store</strong></td></tr>
+<tr><td>Crate / remote</td><td><code>laststore</code> · <code>https://github.com/EdgeVector/laststore</code></td></tr>
+<tr><td>Program</td><td><strong>Storage v2</strong> — three document collections + CAS blobs</td></tr>
+<tr><td>North Star</td><td><code>north-star-lastdb-no-sled-document-store</code></td></tr>
+<tr><td>Product design</td><td>[<code>storage-v2-three-collection-document-store.md</code>](./storage-v2-three-collection-document-store.md)</td></tr>
+<tr><td>Evidence repo</td><td>historical LastGit remote <code>lastdb:///autoresearch-docstore</code> (retired) · branch <code>autoresearch/jul17-lastdb</code></td></tr>
+<tr><td>Head-to-head harness</td><td><code>bench_vs_sled</code> · results <code>results-vs-sled-64.txt</code>, <code>results-vs-sled-1024.txt</code></td></tr>
+<tr><td>Brain run log</td><td><code>reference autoresearch-docstore-run-log</code></td></tr>
+</tbody></table>
+<p><strong>How to use this doc:</strong> point anyone at this file when the question is *“why leave sled / why Storage v2?”* The long product shape lives in the design doc; <strong>this</strong> is the decision brief with evidence.</p>
+<p>---</p>
+<h2>1. Recommendation (one screen)</h2>
+<h3>Proceed with Storage v2, with Last Store as the candidate engine family</h3>
+<p><strong>Yes — continue.</strong> Last Store is not a speculative rewrite: under a <strong>true same-workload</strong> comparison with sled (identical N, value size, atom+tip pairs, flush points, counters), it is <strong>competitive or better</strong> on the metrics that match how LastDB actually uses sled today, and <strong>dramatically better</strong> on the metric that motivated the program (disk reclaim).</p>
+<table><thead><tr><th>Question</th><th>Answer</th></tr></thead><tbody>
+<tr><td>Is the engine idea credible vs sled?</td><td><strong>Yes</strong> — write ≈ sled @ 64 B, <strong>~3× sled</strong> @ 1 KiB; hot gets <strong>~1.6×</strong>; compact disk <strong>~8–22× smaller</strong></td></tr>
+<tr><td>Does it match LastDB’s real durability model?</td><td><strong>Yes</strong> — production already does “batch puts, flush at mutation commit,” not fsync-every-put</td></tr>
+<tr><td>Is it drop-in tomorrow?</td><td><strong>No</strong> — range/paged scans, multi-namespace surface, encrypt, multi-shard, process lock story still needed</td></tr>
+<tr><td>Why go forward anyway?</td><td>The <strong>hard part</strong> (engine competitive + real reclaim) is proven enough to justify product packaging; sled’s freelist hollow and global lock pain will not fix themselves</td></tr>
+</tbody></table>
+<p><strong>Decision frame:</strong> Storage v2 is a <strong>local storage cutover</strong> (documents + CAS + reclaim), not a rewrite of brain/kanban APIs. Last Store is the <strong>engine shape</strong> under that cutover. Keep sled until a CoW/GREEN bar on real data says otherwise.</p>
+<p>---</p>
+<h2>2. Naming</h2>
+<table><thead><tr><th>Name</th><th>What it is</th></tr></thead><tbody>
+<tr><td><strong>Storage v2</strong></td><td>Product program: schemas + atoms + tips + CAS blobs; leave sled as the primary local engine</td></tr>
+<tr><td><strong>Last Store</strong></td><td>Engine family: multi-collection <strong>segment files</strong>, group-commit, in-memory tip index, explicit <strong>compact</strong></td></tr>
+<tr><td><strong>sled</strong></td><td>Today’s embedded engine under <code>SledPool</code> / <code>KvStore</code> (trees ≈ namespaces)</td></tr>
+</tbody></table>
+<p>Say: *“Storage v2 replaces sled with Last Store under the same document product model.”*</p>
+<p>---</p>
+<h2>3. Architecture — side by side</h2>
+<h3>3.1 How LastDB uses sled today</h3>
+<pre><code>
+flowchart TB
+
+  subgraph app [Product edge]
+
+    M[&quot;/api/mutation&quot;]
+
+    Q[&quot;/api/query&quot;]
+
+    CLI[&quot;brain / kanban CLI&quot;]
+
+  end
+
+
+
+  subgraph core [fold_db core]
+
+    MM[Mutation manager]
+
+    DO[DbOperations]
+
+    KV[&quot;KvStore trait&quot;]
+
+    NS[&quot;NamespacedStore&quot;]
+
+  end
+
+
+
+  subgraph sled_layer [sled today]
+
+    SP[&quot;SledPool&lt;br/&gt;lazy open · exclusive OS lock · idle close&quot;]
+
+    DB[&quot;one sled::Db&quot;]
+
+    T1[&quot;Tree: main&lt;br/&gt;atoms + mk: tips mixed&quot;]
+
+    T2[&quot;Tree: schemas / states&quot;]
+
+    T3[&quot;Tree: metadata · native_index · sync · …&quot;]
+
+    T4[&quot;Direct trees&lt;br/&gt;sharing · blob_cas · org&quot;]
+
+  end
+
+
+
+  M --&gt; MM --&gt; DO
+
+  Q --&gt; DO
+
+  CLI --&gt; DO
+
+  DO --&gt; NS --&gt; KV
+
+  KV --&gt; SP --&gt; DB
+
+  DB --&gt; T1 &amp; T2 &amp; T3
+
+  SP --&gt; T4
+
+</code></pre>
+<p><strong>Durability contract (production code, not theory):</strong>  </p>
+<p><code>put</code> / <code>batch_put</code> deliberately <strong>do not</strong> <code>flush</code> every call. Durability comes from sled’s background flusher (~500 ms) plus an explicit <strong>`flush()` at mutation `finalize_batch`</strong>. That is the same *family* as Last Store group-commit.</p>
+<h3>3.2 Storage v2 + Last Store (target shape)</h3>
+<pre><code>
+flowchart TB
+
+  subgraph app2 [Product edge — unchanged]
+
+    M2[&quot;/api/mutation&quot;]
+
+    Q2[&quot;/api/query&quot;]
+
+    CLI2[&quot;brain / kanban CLI&quot;]
+
+  end
+
+
+
+  subgraph core2 [fold_db core — same domain]
+
+    MM2[Mutation manager]
+
+    DO2[DbOperations]
+
+    KV2[&quot;KvStore / collection API&quot;]
+
+  end
+
+
+
+  subgraph seg [Last Store]
+
+    C1[&quot;collection: schemas/&quot;]
+
+    C2[&quot;collection: atoms/&quot;]
+
+    C3[&quot;collection: tips/&quot;]
+
+    SH[&quot;hash-sharded segments&lt;br/&gt;.seg files + tip index&quot;]
+
+    CP[&quot;compact → rewrite live docs&lt;br/&gt;delete old segments&quot;]
+
+    BL[&quot;blobs/ CAS files&quot;]
+
+  end
+
+
+
+  M2 --&gt; MM2 --&gt; DO2 --&gt; KV2
+
+  Q2 --&gt; DO2
+
+  CLI2 --&gt; DO2
+
+  KV2 --&gt; C1 &amp; C2 &amp; C3 --&gt; SH
+
+  SH --&gt; CP
+
+  C2 -.-&gt;|blob_ref| BL
+
+</code></pre>
+<h3>3.3 Physical layout contrast</h3>
+<pre><code>
+flowchart LR
+
+  subgraph sled_disk [sled on disk]
+
+    SDB[&quot;data/db&lt;br/&gt;one opaque tree forest&quot;]
+
+    SF[&quot;freelist / hollow space&lt;br/&gt;du stays large after deletes&quot;]
+
+    SDB --- SF
+
+  end
+
+
+
+  subgraph seg_disk [Last Store on disk]
+
+    A[&quot;data/schemas/…/*.seg&quot;]
+
+    B[&quot;data/atoms/…/*.seg&quot;]
+
+    C[&quot;data/tips/…/*.seg&quot;]
+
+    D[&quot;blobs/sha256/…&quot;]
+
+    E[&quot;compact reclaim&lt;br/&gt;du drops to live data&quot;]
+
+    A &amp; B &amp; C --&gt; E
+
+  end
+
+</code></pre>
+<p>---</p>
+<h2>4. Head-to-head evidence (true same harness)</h2>
+<p><strong>Harness:</strong> <code>bench_vs_sled</code> in <code>autoresearch-docstore</code>  </p>
+<p><strong>Rules:</strong> same N, value size, atom+tip pair workload, flush after write and after churn, reopen for cold get.  </p>
+<p><strong>Counters:</strong> *logical op* = one atom+tip pair; *raw put/get* = each call.</p>
+<p>Machine: Tom’s Mac · tip engine ~<code>1a82a5e</code> lineage · sled <code>0.34</code> HighThroughput · <code>flush_every_ms = None</code> · explicit <code>flush()</code> for both.</p>
+<h3>4.1 Write throughput (raw puts/s)</h3>
+<p>Higher is better.</p>
+<pre><code>
+xychart-beta
+
+    title &quot;Write throughput — raw puts/s (n=10k pairs)&quot;
+
+    x-axis [&quot;64B sled&quot;, &quot;64B Last Store&quot;, &quot;1KiB sled&quot;, &quot;1KiB Last Store&quot;]
+
+    y-axis &quot;raw puts/s&quot; 0 --&gt; 350000
+
+    bar [305461, 305646, 84138, 266622]
+
+</code></pre>
+<p><strong>ASCII (fallback if chart renderer skips xychart):</strong></p>
+<pre><code>
+64B   sled      ████████████████████████████████  ~306k put/s
+
+64B   Last Store  ████████████████████████████████  ~306k put/s   (~1.00×)
+
+1KiB  sled      █████████                         ~84k put/s
+
+1KiB  Last Store  ████████████████████████████      ~267k put/s   (~3.17×)
+
+</code></pre>
+<h3>4.2 Hot read throughput (raw gets/s)</h3>
+<p>Higher is better. Both hold values in-process after the write phase (Last Store value cache; sled page cache / tree).</p>
+<pre><code>
+xychart-beta
+
+    title &quot;Hot get throughput — raw gets/s (n=10k pairs)&quot;
+
+    x-axis [&quot;64B sled&quot;, &quot;64B Last Store&quot;, &quot;1KiB sled&quot;, &quot;1KiB Last Store&quot;]
+
+    y-axis &quot;raw gets/s&quot; 0 --&gt; 6500000
+
+    bar [3600441, 5897240, 3037994, 5102908]
+
+</code></pre>
+<pre><code>
+64B   sled      ████████████████████              ~3.6M get/s
+
+64B   Last Store  ████████████████████████████████  ~5.9M get/s   (~1.64×)
+
+1KiB  sled      █████████████████                 ~3.0M get/s
+
+1KiB  Last Store  ████████████████████████████      ~5.1M get/s   (~1.68×)
+
+</code></pre>
+<h3>4.3 Cold get throughput (after reopen)</h3>
+<p>Higher is better. Closest “not already in the value cache” read path.</p>
+<pre><code>
+xychart-beta
+
+    title &quot;Cold get throughput — gets/s after reopen&quot;
+
+    x-axis [&quot;64B sled&quot;, &quot;64B Last Store&quot;, &quot;1KiB sled&quot;, &quot;1KiB Last Store&quot;]
+
+    y-axis &quot;gets/s&quot; 0 --&gt; 2500000
+
+    bar [2168845, 2339272, 1393680, 1260809]
+
+</code></pre>
+<pre><code>
+64B   sled      ████████████████████████████      ~2.17M get/s
+
+64B   Last Store  ██████████████████████████████    ~2.34M get/s  (~1.08×)
+
+1KiB  sled      ████████████████████              ~1.39M get/s
+
+1KiB  Last Store  ██████████████████                ~1.26M get/s  (~0.90×)
+
+</code></pre>
+<h3>4.4 Disk after churn / compact</h3>
+<p>Lower is better. <strong>This is the original product pain.</strong></p>
+<pre><code>
+xychart-beta
+
+    title &quot;Disk footprint after churn (MiB) — final = compact for Last Store&quot;
+
+    x-axis [&quot;64B sled&quot;, &quot;64B Last Store final&quot;, &quot;1KiB sled&quot;, &quot;1KiB Last Store final&quot;]
+
+    y-axis &quot;MiB&quot; 0 --&gt; 50
+
+    bar [11.82, 0.52, 43.18, 5.10]
+
+</code></pre>
+<pre><code>
+64B   sled after churn     ████████████████████████  11.8 MiB
+
+64B   Last Store after compact █                         0.52 MiB   (~22× smaller)
+
+1KiB  sled after churn     ████████████████████████████████████████  43.2 MiB
+
+1KiB  Last Store after compact █████                      5.1 MiB   (~8.5× smaller)
+
+</code></pre>
+<h3>4.5 Scorecard snapshot</h3>
+<table><thead><tr><th>Dimension</th><th>Winner</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Writes @ 64 B</td><td><strong>Tie</strong></td><td>Same flush-at-end pair workload</td></tr>
+<tr><td>Writes @ 1 KiB</td><td><strong>Last Store</strong> (~3×)</td><td>Larger values favor sequential segment append</td></tr>
+<tr><td>Hot gets</td><td><strong>Last Store</strong> (~1.6×)</td><td>Value cache</td></tr>
+<tr><td>Cold gets</td><td><strong>Roughly even</strong></td><td>Last Store slightly ahead @ 64 B; slightly behind @ 1 KiB</td></tr>
+<tr><td>Disk reclaim</td><td><strong>Last Store (blowout)</strong></td><td>Real compact vs freelist hollow</td></tr>
+<tr><td>Explainable <code>du</code></td><td><strong>Last Store</strong></td><td>Per-collection / per-shard paths</td></tr>
+<tr><td>Mature ecosystem</td><td><strong>sled</strong></td><td>Years of production call sites in fold_db</td></tr>
+<tr><td>Feature surface today</td><td><strong>sled</strong></td><td>Range/paged scans, many trees, pool lock</td></tr>
+</tbody></table>
+<p>---</p>
+<h2>5. API surfaces — what LastDB calls vs what Last Store offers</h2>
+<h3>5.1 Production <code>KvStore</code> (sled) vs Last Store today</h3>
+<pre><code>
+flowchart LR
+
+  subgraph need [LastDB needs today]
+
+    G[get / get_many]
+
+    P[put]
+
+    D[delete]
+
+    SP[scan_prefix · keys-only · paged]
+
+    SR[scan_range · paged]
+
+    BP[batch_put / batch_delete]
+
+    F[flush]
+
+  end
+
+
+
+  subgraph have [Last Store tip today]
+
+    SG[get]
+
+    SP2[put]
+
+    SD[delete]
+
+    LP[list_prefix]
+
+    TX[transaction]
+
+    SF[flush]
+
+    SC[compact]
+
+  end
+
+
+
+  G -.-&gt;|encode keys| SG
+
+  P --&gt; SP2
+
+  D --&gt; SD
+
+  SP -.-&gt;|partial| LP
+
+  SR -.-&gt;|gap| X1[missing]
+
+  BP -.-&gt;|approx via txn| TX
+
+  F --&gt; SF
+
+</code></pre>
+<table><thead><tr><th>Capability</th><th>sled / KvStore today</th><th>Last Store tip</th><th>Verdict</th></tr></thead><tbody>
+<tr><td>Point get/put/delete</td><td>✅</td><td>✅</td><td>Map</td></tr>
+<tr><td>Multi-doc batch + flush at commit</td><td>✅ <code>batch</code> + <code>finalize_batch</code> flush</td><td>✅ <code>transaction</code> / group-commit + <code>flush</code></td><td>Map — <strong>aligned durability model</strong></td></tr>
+<tr><td>Prefix scan</td><td>✅ ordered, paged, keys-only</td><td>⚠️ <code>list_prefix</code> (full values, no page)</td><td><strong>Gap</strong> — must build for query/outbox</td></tr>
+<tr><td>Range scan</td><td>✅</td><td>❌</td><td><strong>Gap</strong></td></tr>
+<tr><td>Many namespaces/trees</td><td>✅</td><td>⚠️ multi-collection API; not full prod set</td><td><strong>Gap</strong> (product, not physics)</td></tr>
+<tr><td>Real compact / reclaim</td><td>❌ hollow freelist</td><td>✅</td><td><strong>Last Store win</strong></td></tr>
+<tr><td>Encrypt at rest</td><td>partial / path-dependent</td><td>❌ on tip (AES path exists in nano spike)</td><td>Required for cutover bar</td></tr>
+<tr><td>Multi-process exclusive pool</td><td>✅ SledPool</td><td>❌</td><td>Redesign or single-writer daemon rule</td></tr>
+<tr><td>CAS large blobs</td><td>tree or files (messy)</td><td>design: files under <code>blobs/</code></td><td>Storage v2 product shape</td></tr>
+</tbody></table>
+<h3>5.2 Where the sled win would have to come from (and usually doesn’t)</h3>
+<pre><code>
+quadrantChart
+
+    title Workload fit — where each engine shines
+
+    x-axis &quot;Batch flush · sequential&quot; --&gt; &quot;Per-key fsync · high contention&quot;
+
+    y-axis &quot;Space reclaim matters&quot; --&gt; &quot;Only peak micro-ops matter&quot;
+
+    quadrant-1 &quot;Neither default&quot;
+
+    quadrant-2 &quot;Last Store home&quot;
+
+    quadrant-3 &quot;sled default today&quot;
+
+    quadrant-4 &quot;sled batch microbench&quot;
+
+    LastDB mutations: &quot;0.35, 0.75&quot;
+
+    Autoresearch H2H: &quot;0.30, 0.70&quot;
+
+    Per-put fsync toy: &quot;0.85, 0.40&quot;
+
+    Hollow disk pain: &quot;0.40, 0.90&quot;
+
+</code></pre>
+<p>LastDB’s <strong>mutation path</strong> sits in Last Store’s home quadrant: many writes, one durability barrier, space after deletes matters.</p>
+<p>---</p>
+<h2>6. Setup &amp; operational model</h2>
+<table><thead><tr><th>Topic</th><th>sled (today)</th><th>Last Store (target)</th></tr></thead><tbody>
+<tr><td>Home layout</td><td>Opaque <code>data/db</code></td><td><code>schemas/</code>, <code>atoms/</code>, <code>tips/</code>, <code>blobs/</code> — <strong>explainable</strong></td></tr>
+<tr><td>Locking</td><td>Global Db lock (pool)</td><td>Design: <strong>per-shard</strong> locks; tip prototype: single shard</td></tr>
+<tr><td>Crash window</td><td>~flush interval / commit flush</td><td>Group-commit dirty window until <code>flush</code></td></tr>
+<tr><td>Reclaim</td><td>Soft (freelist) — <strong>du lies</strong></td><td>Hard compact — <strong>du tells truth</strong></td></tr>
+<tr><td>Migration</td><td>n/a</td><td>Offline export → CoW proof → cutover (standing preference)</td></tr>
+<tr><td>Agent / CLI sharing</td><td>Idle release unlocks path</td><td>Needs explicit multi-process story</td></tr>
+</tbody></table>
+<pre><code>
+sequenceDiagram
+
+  participant M as Mutation
+
+  participant K as KvStore
+
+  participant E as Engine
+
+
+
+  Note over M,E: Both sled today and Last Store target
+
+  M-&gt;&gt;K: put / batch_put × N
+
+  Note right of E: No fsync per put
+
+  M-&gt;&gt;K: flush (finalize_batch)
+
+  Note right of E: Durability barrier
+
+  M-&gt;&gt;M: commit visible
+
+</code></pre>
+<p>---</p>
+<h2>7. Limitations of the evidence (honesty box)</h2>
+<p>1. <strong>Engine microbench ≠ full Mini</strong> — not yet replaying Tom’s real <code>~/.lastdb</code> CoW workload end-to-end on Last Store.  </p>
+<p>2. <strong>Tip is single-shard</strong> — great for sequential H2H; Storage v2 design still wants <strong>hash shards</strong> for concurrent writers and narrower locks. Re-introduce shards with measured regression budgets.  </p>
+<p>3. <strong>Molecule / tip→atom product path</strong> is still expensive when every logical record does multi-doc work + flush; engine H2H does not erase that. Optimize *above* Last Store too.  </p>
+<p>4. <strong>Feature gaps</strong> (range/paged scans, encrypt, SledPool-equivalent, all side trees) are real engineering, not paper cuts.  </p>
+<p>5. <strong>One machine, release builds</strong> — ratios are stable enough for a go decision; re-run H2H in CI on the research repo.</p>
+<p>None of these reverse the recommendation; they <strong>scope</strong> the next milestones.</p>
+<p>---</p>
+<h2>8. Why go forward — the argument in three beats</h2>
+<pre><code>
+flowchart TB
+
+  P[&quot;Pain: sled freelist hollow&lt;br/&gt;live ~GiB content, multi-GiB du&lt;br/&gt;global lock thrash&quot;]
+
+  E[&quot;Evidence: Last Store H2H&lt;br/&gt;writes ≥ sled · hot reads &gt; sled&lt;br/&gt;disk after compact ≪ sled&quot;]
+
+  A[&quot;Alignment: LastDB already&lt;br/&gt;batch-then-flush mutations&lt;br/&gt;document + hop model&quot;]
+
+  R[&quot;Recommendation:&lt;br/&gt;Storage v2 with Last Store family&quot;]
+
+
+
+  P --&gt; R
+
+  E --&gt; R
+
+  A --&gt; R
+
+</code></pre>
+<p>1. <strong>Pain is real and structural</strong> — freelist compact does not return space the way product expects; <code>du</code> on an opaque Db cannot explain “why big?”  </p>
+<p>2. <strong>Evidence is no longer hand-wavy</strong> — same harness, same counters, Last Store wins or ties the load shapes we care about and crushes disk reclaim.  </p>
+<p>3. <strong>Architecture already points here</strong> — three collections + CAS is locked in the product design; Last Store is that design’s natural engine, not a detour.</p>
+<p><strong>Opportunity cost of stopping:</strong> stay on sled, keep paying hollow disk + global lock, and keep bolting document semantics onto trees forever.</p>
+<p><strong>Opportunity cost of continuing:</strong> engineering to close API/ops gaps and a careful CoW migration — <strong>bounded</strong>, with a GREEN bar before primary cutover.</p>
+<p>---</p>
+<h2>9. Go-forward plan (so “yes” is actionable)</h2>
+<table><thead><tr><th>Phase</th><th>Outcome</th><th>Stop / go gate</th></tr></thead><tbody>
+<tr><td><strong>A — Engine harden</strong></td><td>Multi-shard optional; range/prefix paged; binary keys; encrypt-at-rest codec</td><td>H2H still ≥ sled on write/hot; disk reclaim preserved</td></tr>
+<tr><td><strong>B — KvStore adapter</strong></td><td>Implement production <code>KvStore</code> + enough namespaces for mutation/query smoke</td><td>One mutation + one query path green on Last Store</td></tr>
+<tr><td><strong>C — CoW real data</strong></td><td>Offline export or copy of Mini data → Last Store; correctness + size + smoke</td><td>GREEN bar on <strong>copy</strong>, never live first</td></tr>
+<tr><td><strong>D — Side stores</strong></td><td>native_index, sync outbox, sharing, blobs CAS on collections/files</td><td>No remaining “must open sled tree” on critical path</td></tr>
+<tr><td><strong>E — Cutover</strong></td><td>Primary Mini on Last Store; sled retired or standby</td><td>Tom clearance + rollback plan</td></tr>
+</tbody></table>
+<p>Standing guardrails (do not undo):</p>
+<ul>
+<li>Never thrash live <code>~/.lastdb</code> as the first place a new engine fails.  </li>
+<li>Prefer <strong>`lastdb-safe-upgrade` / CoW</strong> patterns for binary + data moves.  </li>
+<li>Product APIs stay document-shaped; no “SQL is the product.”</li>
+</ul>
+<p>---</p>
+<h2>10. What to say in a standup</h2>
+<p>&gt; We’re proceeding with <strong>Storage v2</strong>. The engine exportable engine is <strong>Last Store</strong> (<code>laststore</code>). Under a true head-to-head with sled, Last Store matches writes at 64 B, is ~3× faster at 1 KiB, ~1.6× faster on hot gets, and ~8–22× smaller on disk after compact. That matches how LastDB already writes (batch then flush) and fixes the freelist hollow pain. It’s not a drop-in yet — we still need scans, encrypt, multi-shard, and a CoW migration — but the engine bet is validated enough to build the product packaging.</p>
+<p>---</p>
+<h2>11. References</h2>
+<table><thead><tr><th>Artifact</th><th>Location</th></tr></thead><tbody>
+<tr><td>Product design</td><td><code>fold/docs/designs/storage-v2-three-collection-document-store.md</code></td></tr>
+<tr><td>This decision brief</td><td><code>fold/docs/designs/storage-v2-decision-brief-segstore-vs-sled.md</code></td></tr>
+<tr><td>Research loop</td><td><code>~/code/edgevector/autoresearch-docstore</code> · historical LastGit remote <code>lastdb:///autoresearch-docstore</code> (retired)</td></tr>
+<tr><td>H2H JSON</td><td><code>results-vs-sled-64.txt</code>, <code>results-vs-sled-1024.txt</code></td></tr>
+<tr><td>Iteration log</td><td>brain <code>autoresearch-docstore-run-log</code></td></tr>
+<tr><td>North Star</td><td><code>north-star-lastdb-no-sled-document-store</code></td></tr>
+<tr><td>Spike lineage</td><td><code>fold/spikes/docstore_vs_sled/</code> · Nano / lastdb-nano extraction</td></tr>
+</tbody></table>
+<p>---</p>
+<p>*Document generated 2026-07-17 from measured H2H + fold_db sled usage review. Re-run <code>bench_vs_sled</code> after material engine changes and paste new bars into §4.*</p>
+</section>
+
+<section id="recommend">
+  <h2>What we think you should do</h2>
+  <ol>
+    <li>Review this page (you’re here).</li>
+    <li>Keep Nano spike on Last Store as the lab default.</li>
+    <li>Treat collection names as product law: <strong>schemas · atoms · tips · blobs</strong> (+ explicit side collections; never a catch-all <code>main</code> for new work).</li>
+    <li>When Mini migrates: write a mapping from <code>main</code> prefixes → collections; CoW export before cutover.</li>
+    <li>Do not point primary <code>~/.lastdb</code> at Last Store until that bar is green.</li>
+  </ol>
+</section>
+
+</main>
+<footer>Generated for review · Last Store / Storage v2 · EdgeVector</footer>
+</body>
+</html>

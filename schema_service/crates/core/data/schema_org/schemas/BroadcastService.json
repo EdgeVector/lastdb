@@ -1,0 +1,142 @@
+{
+  "descriptive_name": "BroadcastService",
+  "field_classifications": {
+    "area": [
+      "word"
+    ],
+    "broadcast_affiliate_of": [
+      "word"
+    ],
+    "broadcast_display_name": [
+      "word"
+    ],
+    "broadcast_frequency": [
+      "word"
+    ],
+    "broadcast_timezone": [
+      "word"
+    ],
+    "broadcaster": [
+      "word"
+    ],
+    "call_sign": [
+      "word"
+    ],
+    "has_broadcast_channel": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "in_language": [
+      "word"
+    ],
+    "parent_service": [
+      "word"
+    ],
+    "video_format": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "area": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "broadcast_affiliate_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "broadcast_display_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "broadcast_frequency": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "broadcast_timezone": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "broadcaster": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "call_sign": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_broadcast_channel": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_language": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "parent_service": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "video_format": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    }
+  },
+  "field_descriptions": {
+    "area": "The area within which users can expect to reach the broadcast service.",
+    "broadcast_affiliate_of": "The media network(s) whose content is broadcast on this station.",
+    "broadcast_display_name": "The name displayed in the channel guide. For many US affiliates, it is the network name.",
+    "broadcast_frequency": "The frequency used for over-the-air broadcasts. Numeric values or simple ranges, e.g. 87-99. In addition a shortcut idiom is supported for frequencies of AM and FM radio channels, e.g. \"87 FM\".",
+    "broadcast_timezone": "The timezone in [ISO 8601 format](http://en.wikipedia.org/wiki/ISO_8601) for which the service bases its broadcasts.",
+    "broadcaster": "The organization owning or operating the broadcast service.",
+    "call_sign": "A [callsign](https://en.wikipedia.org/wiki/Call_sign), as used in broadcasting and radio communications to identify people, radio and TV stations, or vehicles.",
+    "has_broadcast_channel": "A broadcast channel of a broadcast service.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_language": "The language of the content or performance or used in an action. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[availableLanguage]].",
+    "parent_service": "A broadcast service to which the broadcast service may belong to such as regional variations of a national channel.",
+    "video_format": "The type of screening or video broadcast used (e.g. IMAX, 3D, SD, HD, etc.)."
+  },
+  "field_types": {
+    "area": "String",
+    "broadcast_affiliate_of": "String",
+    "broadcast_display_name": "String",
+    "broadcast_frequency": "String",
+    "broadcast_timezone": "String",
+    "broadcaster": "String",
+    "call_sign": "String",
+    "has_broadcast_channel": "String",
+    "identifier": "String",
+    "in_language": "String",
+    "parent_service": "String",
+    "video_format": "String"
+  },
+  "fields": [
+    "area",
+    "broadcast_affiliate_of",
+    "broadcast_display_name",
+    "broadcast_frequency",
+    "broadcast_timezone",
+    "broadcaster",
+    "call_sign",
+    "has_broadcast_channel",
+    "identifier",
+    "in_language",
+    "parent_service",
+    "video_format"
+  ],
+  "identity_hash": "7f64f30a6b67e9757ec2ef01883c9434c549e31ed601b95d802d2852fb600daf",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7f64f30a6b67e9757ec2ef01883c9434c549e31ed601b95d802d2852fb600daf",
+  "purpose_statement": "BroadcastService",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

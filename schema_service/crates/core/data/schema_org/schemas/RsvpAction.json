@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "RsvpAction",
+  "field_classifications": {
+    "additional_number_of_guests": [
+      "number"
+    ],
+    "comment": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "rsvp_response": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "additional_number_of_guests": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "comment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "rsvp_response": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    }
+  },
+  "field_descriptions": {
+    "additional_number_of_guests": "If responding yes, the number of guests who will attend in addition to the invitee.",
+    "comment": "Comments, typically from users.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "rsvp_response": "The response (yes, no, maybe) to the RSVP."
+  },
+  "field_types": {
+    "additional_number_of_guests": "Float",
+    "comment": "String",
+    "identifier": "String",
+    "rsvp_response": "String"
+  },
+  "fields": [
+    "additional_number_of_guests",
+    "comment",
+    "identifier",
+    "rsvp_response"
+  ],
+  "identity_hash": "a657c9595a1844c26e0abf0df7b5cbe7cccfbefb240acc90db10ce285d114bd0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a657c9595a1844c26e0abf0df7b5cbe7cccfbefb240acc90db10ce285d114bd0",
+  "purpose_statement": "RsvpAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

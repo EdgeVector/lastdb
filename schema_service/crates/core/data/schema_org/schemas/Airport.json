@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Airport",
+  "field_classifications": {
+    "iata_code": [
+      "word"
+    ],
+    "icao_code": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "iata_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "icao_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "iata_code": "IATA identifier for an airline or airport.",
+    "icao_code": "ICAO identifier for an airport.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "iata_code": "String",
+    "icao_code": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "iata_code",
+    "icao_code",
+    "identifier"
+  ],
+  "identity_hash": "c1bdbb3c7642c0982d8a9a1cfd55b2f447e0eab6bad1654f54fd604f5c7bd5e6",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c1bdbb3c7642c0982d8a9a1cfd55b2f447e0eab6bad1654f54fd604f5c7bd5e6",
+  "purpose_statement": "Airport",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

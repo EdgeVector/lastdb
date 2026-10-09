@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "ServiceChannel",
+  "field_classifications": {
+    "available_language": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "processing_time": [
+      "word"
+    ],
+    "provides_service": [
+      "word"
+    ],
+    "service_location": [
+      "word"
+    ],
+    "service_phone": [
+      "word"
+    ],
+    "service_postal_address": [
+      "word"
+    ],
+    "service_sms_number": [
+      "word"
+    ],
+    "service_url": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "available_language": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "processing_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "provides_service": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "service_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "service_phone": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "service_postal_address": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "service_sms_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "service_url": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "available_language": "A language someone may use with or at the item, service or place. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[inLanguage]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "processing_time": "Estimated processing time for the service using this channel.",
+    "provides_service": "The service provided by this channel.",
+    "service_location": "The location (e.g. civic structure, local business, etc.) where a person can go to access the service.",
+    "service_phone": "The phone number to use to access the service.",
+    "service_postal_address": "The address for accessing the service by mail.",
+    "service_sms_number": "The number to access the service by text message.",
+    "service_url": "The website to access the service."
+  },
+  "field_types": {
+    "available_language": "String",
+    "identifier": "String",
+    "processing_time": "String",
+    "provides_service": "String",
+    "service_location": "String",
+    "service_phone": "String",
+    "service_postal_address": "String",
+    "service_sms_number": "String",
+    "service_url": "String"
+  },
+  "fields": [
+    "available_language",
+    "identifier",
+    "processing_time",
+    "provides_service",
+    "service_location",
+    "service_phone",
+    "service_postal_address",
+    "service_sms_number",
+    "service_url"
+  ],
+  "identity_hash": "911a6d6a8b134d727fd21667952a1a1e60de9640442d1e136ee27659a1f81785",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "911a6d6a8b134d727fd21667952a1a1e60de9640442d1e136ee27659a1f81785",
+  "purpose_statement": "ServiceChannel",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

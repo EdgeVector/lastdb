@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "MedicalTest",
+  "field_classifications": {
+    "affected_by": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "normal_range": [
+      "word"
+    ],
+    "sign_detected": [
+      "word"
+    ],
+    "used_to_diagnose": [
+      "word"
+    ],
+    "uses_device": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "affected_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "normal_range": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sign_detected": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "used_to_diagnose": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "uses_device": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "affected_by": "Drugs that affect the test's results.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "normal_range": "Range of acceptable values for a typical patient, when applicable.",
+    "sign_detected": "A sign detected by the test.",
+    "used_to_diagnose": "A condition the test is used to diagnose.",
+    "uses_device": "Device used to perform the test."
+  },
+  "field_types": {
+    "affected_by": "String",
+    "identifier": "String",
+    "normal_range": "String",
+    "sign_detected": "String",
+    "used_to_diagnose": "String",
+    "uses_device": "String"
+  },
+  "fields": [
+    "affected_by",
+    "identifier",
+    "normal_range",
+    "sign_detected",
+    "used_to_diagnose",
+    "uses_device"
+  ],
+  "identity_hash": "5439af30a1a5846fae9e2c547540fa77b3fdb2a809e12fb4c46e85caba3c68ba",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5439af30a1a5846fae9e2c547540fa77b3fdb2a809e12fb4c46e85caba3c68ba",
+  "purpose_statement": "MedicalTest",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

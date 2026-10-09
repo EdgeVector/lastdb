@@ -1,0 +1,462 @@
+{
+  "descriptive_name": "Event",
+  "field_classifications": {
+    "about": [
+      "word"
+    ],
+    "actor": [
+      "word"
+    ],
+    "aggregate_rating": [
+      "word"
+    ],
+    "attendee": [
+      "word"
+    ],
+    "attendees": [
+      "word"
+    ],
+    "audience": [
+      "word"
+    ],
+    "composer": [
+      "word"
+    ],
+    "contributor": [
+      "word"
+    ],
+    "director": [
+      "word"
+    ],
+    "door_time": [
+      "word"
+    ],
+    "duration": [
+      "word"
+    ],
+    "end_date": [
+      "word"
+    ],
+    "event_attendance_mode": [
+      "word"
+    ],
+    "event_schedule": [
+      "word"
+    ],
+    "event_status": [
+      "word"
+    ],
+    "funder": [
+      "word"
+    ],
+    "funding": [
+      "word"
+    ],
+    "has_participation_offer": [
+      "word"
+    ],
+    "has_sponsorship_offer": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "in_language": [
+      "word"
+    ],
+    "is_accessible_for_free": [
+      "word"
+    ],
+    "keywords": [
+      "word"
+    ],
+    "location": [
+      "word"
+    ],
+    "maximum_attendee_capacity": [
+      "number"
+    ],
+    "maximum_physical_attendee_capacity": [
+      "number"
+    ],
+    "maximum_virtual_attendee_capacity": [
+      "number"
+    ],
+    "offers": [
+      "word"
+    ],
+    "organizer": [
+      "word"
+    ],
+    "performer": [
+      "word"
+    ],
+    "performers": [
+      "word"
+    ],
+    "previous_start_date": [
+      "word"
+    ],
+    "recorded_in": [
+      "word"
+    ],
+    "remaining_attendee_capacity": [
+      "number"
+    ],
+    "review": [
+      "word"
+    ],
+    "sponsor": [
+      "word"
+    ],
+    "start_date": [
+      "word"
+    ],
+    "sub_event": [
+      "word"
+    ],
+    "sub_events": [
+      "word"
+    ],
+    "super_event": [
+      "word"
+    ],
+    "translator": [
+      "word"
+    ],
+    "typical_age_range": [
+      "word"
+    ],
+    "work_featured": [
+      "word"
+    ],
+    "work_performed": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "about": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "actor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "aggregate_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "attendee": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    },
+    "attendees": {
+      "data_domain": "general",
+      "sensitivity_level": 3
+    },
+    "audience": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "composer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "contributor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "director": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "door_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "end_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "event_attendance_mode": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    },
+    "event_schedule": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "event_status": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    },
+    "funder": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "funding": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_participation_offer": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "has_sponsorship_offer": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_language": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_accessible_for_free": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "keywords": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "location": {
+      "data_domain": "location",
+      "sensitivity_level": 2
+    },
+    "maximum_attendee_capacity": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    },
+    "maximum_physical_attendee_capacity": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    },
+    "maximum_virtual_attendee_capacity": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    },
+    "offers": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "organizer": {
+      "data_domain": "general",
+      "sensitivity_level": 2
+    },
+    "performer": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    },
+    "performers": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    },
+    "previous_start_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "recorded_in": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "remaining_attendee_capacity": {
+      "data_domain": "content",
+      "sensitivity_level": 1
+    },
+    "review": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sponsor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "start_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "sub_event": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sub_events": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "super_event": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "translator": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "typical_age_range": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "work_featured": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "work_performed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "about": "The subject matter of an object.",
+    "actor": "An actor (individual or a group), e.g. in TV, radio, movie, video games etc., or in an event. Actors can be associated with individual items or with a series, episode, clip.",
+    "aggregate_rating": "The overall rating, based on a collection of reviews or ratings, of the item.",
+    "attendee": "A person or organization attending the event.",
+    "attendees": "A person attending the event.",
+    "audience": "An intended audience, i.e. a group for whom something was created.",
+    "composer": "The person or organization who wrote a composition, or who is the composer of a work performed at some event.",
+    "contributor": "A secondary contributor to the CreativeWork or Event.",
+    "director": "A director of e.g. TV, radio, movie, video gaming etc. content, or of an event. Directors can be associated with individual items or with a series, episode, clip.",
+    "door_time": "The time admission will commence.",
+    "duration": "The duration of the item (movie, audio recording, event, etc.) in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601).",
+    "end_date": "The end date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601)).",
+    "event_attendance_mode": "The eventAttendanceMode of an event indicates whether it occurs online, offline, or a mix.",
+    "event_schedule": "Associates an [[Event]] with a [[Schedule]]. There are circumstances where it is preferable to share a schedule for a series of\n      repeating events rather than data on the individual events themselves. For example, a website or application might prefer to publish a schedule for a weekly\n      gym class rather than provide data on every event. A schedule could be processed by applications to add forthcoming events to a calendar. An [[Event]] that\n      is associated with a [[Schedule]] using this property should not have [[startDate]] or [[endDate]] properties. These are instead defined within the associated\n      [[Schedule]], this avoids any ambiguity for clients using the data. The property might have repeated values to specify different schedules, e.g. for different months\n      or seasons.",
+    "event_status": "An eventStatus of an event represents its status; particularly useful when an event is cancelled or rescheduled.",
+    "funder": "A person or organization that supports (sponsors) something through some kind of financial contribution.",
+    "funding": "A [[Grant]] that directly or indirectly provide funding or sponsorship for this item. See also [[ownershipFundingInfo]].",
+    "has_participation_offer": "An offer to participate in the event, for example, Call for Proposals, Call for Speakers, or Call for Performers.",
+    "has_sponsorship_offer": "An offer to sponsor the event, for example, Sponsorship Prospectus, Sponsorship Opportunities, or Sponsor Packages.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_language": "The language of the content or performance or used in an action. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[availableLanguage]].",
+    "is_accessible_for_free": "A flag to signal that the item, event, or place is accessible for free.",
+    "keywords": "Keywords or tags used to describe some item. Multiple textual entries in a keywords list are typically delimited by commas, or by repeating the property.",
+    "location": "The location of, for example, where an event is happening, where an organization is located, or where an action takes place.",
+    "maximum_attendee_capacity": "The total number of individuals that may attend an event or venue.",
+    "maximum_physical_attendee_capacity": "The maximum physical attendee capacity of an [[Event]] whose [[eventAttendanceMode]] is [[OfflineEventAttendanceMode]] (or the offline aspects, in the case of a [[MixedEventAttendanceMode]]).",
+    "maximum_virtual_attendee_capacity": "The maximum virtual attendee capacity of an [[Event]] whose [[eventAttendanceMode]] is [[OnlineEventAttendanceMode]] (or the online aspects, in the case of a [[MixedEventAttendanceMode]]).",
+    "offers": "An offer to provide this item&#x2014;for example, an offer to sell a product, rent the DVD of a movie, perform a service, or give away tickets to an event. Use [[businessFunction]] to indicate the kind of transaction offered, i.e. sell, lease, etc. This property can also be used to describe a [[Demand]]. While this property is listed as expected on a number of common types, it can be used in others. In that case, using a second type, such as Product or a subtype of Product, can clarify the nature of the offer.",
+    "organizer": "An organizer of an Event.",
+    "performer": "A performer at the event&#x2014;for example, a presenter, musician, musical group or actor.",
+    "performers": "The main performer or performers of the event&#x2014;for example, a presenter, musician, or actor.",
+    "previous_start_date": "Used in conjunction with eventStatus for rescheduled or cancelled events. This property contains the previously scheduled start date. For rescheduled events, the startDate property should be used for the newly scheduled start date. In the (rare) case of an event that has been postponed and rescheduled multiple times, this field may be repeated.",
+    "recorded_in": "The CreativeWork that captured all or part of this Event.",
+    "remaining_attendee_capacity": "The number of attendee places for an event that remain unallocated.",
+    "review": "A review of the item.",
+    "sponsor": "A person or organization that supports a thing through a pledge, promise, or financial contribution. E.g. a sponsor of a Medical Study or a corporate sponsor of an event.",
+    "start_date": "The start date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601)).",
+    "sub_event": "An Event that is part of this event. For example, a conference event includes many presentations, each of which is a subEvent of the conference.",
+    "sub_events": "Events that are a part of this event. For example, a conference event includes many presentations, each subEvents of the conference.",
+    "super_event": "An event that this event is a part of. For example, a collection of individual music performances might each have a music festival as their superEvent.",
+    "translator": "Organization or person who adapts a creative work to different languages, regional differences and technical requirements of a target market, or that translates during some event.",
+    "typical_age_range": "The typical expected age range, e.g. '7-9', '11-'.",
+    "work_featured": "A work featured in some event, e.g. exhibited in an ExhibitionEvent.\n       Specific subproperties are available for workPerformed (e.g. a play), or a workPresented (a Movie at a ScreeningEvent).",
+    "work_performed": "A work performed in some event, for example a play performed in a TheaterEvent."
+  },
+  "field_types": {
+    "about": "String",
+    "actor": "String",
+    "aggregate_rating": "String",
+    "attendee": "String",
+    "attendees": "String",
+    "audience": "String",
+    "composer": "String",
+    "contributor": "String",
+    "director": "String",
+    "door_time": "String",
+    "duration": "String",
+    "end_date": "String",
+    "event_attendance_mode": "String",
+    "event_schedule": "String",
+    "event_status": "String",
+    "funder": "String",
+    "funding": "String",
+    "has_participation_offer": "String",
+    "has_sponsorship_offer": "String",
+    "identifier": "String",
+    "in_language": "String",
+    "is_accessible_for_free": "Boolean",
+    "keywords": "String",
+    "location": "String",
+    "maximum_attendee_capacity": "Integer",
+    "maximum_physical_attendee_capacity": "Integer",
+    "maximum_virtual_attendee_capacity": "Integer",
+    "offers": "String",
+    "organizer": "String",
+    "performer": "String",
+    "performers": "String",
+    "previous_start_date": "String",
+    "recorded_in": "String",
+    "remaining_attendee_capacity": "Integer",
+    "review": "String",
+    "sponsor": "String",
+    "start_date": "String",
+    "sub_event": "String",
+    "sub_events": "String",
+    "super_event": "String",
+    "translator": "String",
+    "typical_age_range": "String",
+    "work_featured": "String",
+    "work_performed": "String"
+  },
+  "fields": [
+    "about",
+    "actor",
+    "aggregate_rating",
+    "attendee",
+    "attendees",
+    "audience",
+    "composer",
+    "contributor",
+    "director",
+    "door_time",
+    "duration",
+    "end_date",
+    "event_attendance_mode",
+    "event_schedule",
+    "event_status",
+    "funder",
+    "funding",
+    "has_participation_offer",
+    "has_sponsorship_offer",
+    "identifier",
+    "in_language",
+    "is_accessible_for_free",
+    "keywords",
+    "location",
+    "maximum_attendee_capacity",
+    "maximum_physical_attendee_capacity",
+    "maximum_virtual_attendee_capacity",
+    "offers",
+    "organizer",
+    "performer",
+    "performers",
+    "previous_start_date",
+    "recorded_in",
+    "remaining_attendee_capacity",
+    "review",
+    "sponsor",
+    "start_date",
+    "sub_event",
+    "sub_events",
+    "super_event",
+    "translator",
+    "typical_age_range",
+    "work_featured",
+    "work_performed"
+  ],
+  "identity_hash": "ee6febed0c52ea4fc4c202d3d6a72ba7f7957b700ba3c576f3bcf06b74c54e0c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ee6febed0c52ea4fc4c202d3d6a72ba7f7957b700ba3c576f3bcf06b74c54e0c",
+  "purpose_statement": "Event",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

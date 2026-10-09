@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MedicalGuidelineRecommendation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "recommendation_strength": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "recommendation_strength": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "recommendation_strength": "Strength of the guideline's recommendation (e.g. 'class I')."
+  },
+  "field_types": {
+    "identifier": "String",
+    "recommendation_strength": "String"
+  },
+  "fields": [
+    "identifier",
+    "recommendation_strength"
+  ],
+  "identity_hash": "2485fb13a8cf288e8018ee7eff0d2a0e06e79341d351bc7349e47155cb96348a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2485fb13a8cf288e8018ee7eff0d2a0e06e79341d351bc7349e47155cb96348a",
+  "purpose_statement": "MedicalGuidelineRecommendation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

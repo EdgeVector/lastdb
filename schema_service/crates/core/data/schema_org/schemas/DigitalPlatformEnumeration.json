@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "DigitalPlatformEnumeration",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "d2829ca0c1aaf883364a91911f7ec8655d0b034e133819ddb0c080b7948adcea",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d2829ca0c1aaf883364a91911f7ec8655d0b034e133819ddb0c080b7948adcea",
+  "purpose_statement": "DigitalPlatformEnumeration",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

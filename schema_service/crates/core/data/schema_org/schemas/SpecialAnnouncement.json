@@ -1,0 +1,162 @@
+{
+  "descriptive_name": "SpecialAnnouncement",
+  "field_classifications": {
+    "announcement_location": [
+      "word"
+    ],
+    "category": [
+      "word"
+    ],
+    "date_posted": [
+      "word"
+    ],
+    "disease_prevention_info": [
+      "word"
+    ],
+    "disease_spread_statistics": [
+      "word"
+    ],
+    "getting_tested_info": [
+      "word"
+    ],
+    "government_benefits_info": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "news_updates_and_guidelines": [
+      "word"
+    ],
+    "public_transport_closures_info": [
+      "word"
+    ],
+    "quarantine_guidelines": [
+      "word"
+    ],
+    "school_closures_info": [
+      "word"
+    ],
+    "travel_bans": [
+      "word"
+    ],
+    "web_feed": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "announcement_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "category": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "date_posted": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "disease_prevention_info": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "disease_spread_statistics": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "getting_tested_info": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "government_benefits_info": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "news_updates_and_guidelines": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "public_transport_closures_info": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "quarantine_guidelines": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "school_closures_info": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "travel_bans": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "web_feed": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "announcement_location": "Indicates a specific [[CivicStructure]] or [[LocalBusiness]] associated with the SpecialAnnouncement. For example, a specific testing facility or business with special opening hours. For a larger geographic region like a quarantine of an entire region, use [[spatialCoverage]].",
+    "category": "A category for the item. Greater signs or slashes can be used to informally indicate a category hierarchy.",
+    "date_posted": "Publication date of an online listing.",
+    "disease_prevention_info": "Information about disease prevention.",
+    "disease_spread_statistics": "Statistical information about the spread of a disease, either as [[WebContent]], or\n  described directly as a [[Dataset]], or the specific [[Observation]]s in the dataset. When a [[WebContent]] URL is\n  provided, the page indicated might also contain more such markup.",
+    "getting_tested_info": "Information about getting tested (for a [[MedicalCondition]]), e.g. in the context of a pandemic.",
+    "government_benefits_info": "governmentBenefitsInfo provides information about government benefits associated with a SpecialAnnouncement.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "news_updates_and_guidelines": "Indicates a page with news updates and guidelines. This could often be (but is not required to be) the main page containing [[SpecialAnnouncement]] markup on a site.",
+    "public_transport_closures_info": "Information about public transport closures.",
+    "quarantine_guidelines": "Guidelines about quarantine rules, e.g. in the context of a pandemic.",
+    "school_closures_info": "Information about school closures.",
+    "travel_bans": "Information about travel bans, e.g. in the context of a pandemic.",
+    "web_feed": "The URL for a feed, e.g. associated with a podcast series, blog, or series of date-stamped updates. This is usually RSS or Atom."
+  },
+  "field_types": {
+    "announcement_location": "String",
+    "category": "String",
+    "date_posted": "String",
+    "disease_prevention_info": "String",
+    "disease_spread_statistics": "String",
+    "getting_tested_info": "String",
+    "government_benefits_info": "String",
+    "identifier": "String",
+    "news_updates_and_guidelines": "String",
+    "public_transport_closures_info": "String",
+    "quarantine_guidelines": "String",
+    "school_closures_info": "String",
+    "travel_bans": "String",
+    "web_feed": "String"
+  },
+  "fields": [
+    "announcement_location",
+    "category",
+    "date_posted",
+    "disease_prevention_info",
+    "disease_spread_statistics",
+    "getting_tested_info",
+    "government_benefits_info",
+    "identifier",
+    "news_updates_and_guidelines",
+    "public_transport_closures_info",
+    "quarantine_guidelines",
+    "school_closures_info",
+    "travel_bans",
+    "web_feed"
+  ],
+  "identity_hash": "b2d584205fcc0563876ce6fcf1197235f3b377c6e277e8f3556648eb9c0ecb00",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b2d584205fcc0563876ce6fcf1197235f3b377c6e277e8f3556648eb9c0ecb00",
+  "purpose_statement": "SpecialAnnouncement",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

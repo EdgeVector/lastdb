@@ -1,0 +1,132 @@
+{
+  "descriptive_name": "ContactPoint",
+  "field_classifications": {
+    "area_served": [
+      "word"
+    ],
+    "available_language": [
+      "word"
+    ],
+    "contact_option": [
+      "word"
+    ],
+    "contact_type": [
+      "word"
+    ],
+    "email": [
+      "word"
+    ],
+    "fax_number": [
+      "word"
+    ],
+    "hours_available": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "product_supported": [
+      "word"
+    ],
+    "service_area": [
+      "word"
+    ],
+    "telephone": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "area_served": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "available_language": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "contact_option": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "contact_type": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "email": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "fax_number": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "hours_available": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "product_supported": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "service_area": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "telephone": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "area_served": "The geographic area where a service or offered item is provided.",
+    "available_language": "A language someone may use with or at the item, service or place. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[inLanguage]].",
+    "contact_option": "An option available on this contact point (e.g. a toll-free number or support for hearing-impaired callers).",
+    "contact_type": "A person or organization can have different contact points, for different purposes. For example, a sales contact point, a PR contact point and so on. This property is used to specify the kind of contact point.",
+    "email": "Email address.",
+    "fax_number": "The fax number.",
+    "hours_available": "The hours during which this service or contact is available.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "product_supported": "The product or service this support contact point is related to (such as product support for a particular product line). This can be a specific product or product line (e.g. \"iPhone\") or a general category of products or services (e.g. \"smartphones\").",
+    "service_area": "The geographic area where the service is provided.",
+    "telephone": "The telephone number."
+  },
+  "field_types": {
+    "area_served": "String",
+    "available_language": "String",
+    "contact_option": "String",
+    "contact_type": "String",
+    "email": "String",
+    "fax_number": "String",
+    "hours_available": "String",
+    "identifier": "String",
+    "product_supported": "String",
+    "service_area": "String",
+    "telephone": "String"
+  },
+  "fields": [
+    "area_served",
+    "available_language",
+    "contact_option",
+    "contact_type",
+    "email",
+    "fax_number",
+    "hours_available",
+    "identifier",
+    "product_supported",
+    "service_area",
+    "telephone"
+  ],
+  "identity_hash": "e04e0973221ad33fc8d426a0fd0f6986853c686075bff2ed0770f1e254147dd2",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e04e0973221ad33fc8d426a0fd0f6986853c686075bff2ed0770f1e254147dd2",
+  "purpose_statement": "ContactPoint",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

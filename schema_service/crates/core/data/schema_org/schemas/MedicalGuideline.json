@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "MedicalGuideline",
+  "field_classifications": {
+    "evidence_level": [
+      "word"
+    ],
+    "evidence_origin": [
+      "word"
+    ],
+    "guideline_date": [
+      "word"
+    ],
+    "guideline_subject": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "evidence_level": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "evidence_origin": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "guideline_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "guideline_subject": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "evidence_level": "Strength of evidence of the data used to formulate the guideline (enumerated).",
+    "evidence_origin": "Source of the data used to formulate the guidance, e.g. RCT, consensus opinion, etc.",
+    "guideline_date": "Date on which this guideline's recommendation was made.",
+    "guideline_subject": "The medical conditions, treatments, etc. that are the subject of the guideline.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "evidence_level": "String",
+    "evidence_origin": "String",
+    "guideline_date": "String",
+    "guideline_subject": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "evidence_level",
+    "evidence_origin",
+    "guideline_date",
+    "guideline_subject",
+    "identifier"
+  ],
+  "identity_hash": "bffff99fbb7bab97af6f06cb6a63845efcab2d950a85900007ceab613c655fd1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bffff99fbb7bab97af6f06cb6a63845efcab2d950a85900007ceab613c655fd1",
+  "purpose_statement": "MedicalGuideline",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "TelevisionStation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "c8c2646b771d199fac9839d7bc2647e649709b09e2e71d8d9c436780ddb4ed61",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c8c2646b771d199fac9839d7bc2647e649709b09e2e71d8d9c436780ddb4ed61",
+  "purpose_statement": "TelevisionStation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

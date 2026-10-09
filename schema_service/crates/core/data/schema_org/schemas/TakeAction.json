@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "TakeAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "2bce01b80a495bbfef0558d927c5766a25bedf3f9cd61bd9120d0065706e7848",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2bce01b80a495bbfef0558d927c5766a25bedf3f9cd61bd9120d0065706e7848",
+  "purpose_statement": "TakeAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

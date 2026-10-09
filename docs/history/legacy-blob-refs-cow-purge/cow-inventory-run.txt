@@ -1,0 +1,7 @@
+ts=2026-08-05T11:14:48Z
+cow_home=/tmp/lastdb-cow-purge-legacy-blob-refs-16681
+legacy_blob_refs_du=7.4M
+primary_legacy_blob_refs_du=7.4M
+api_purge_ref_blobs=not_found_on_running_mini_bottle
+execute=skipped_pending_merge_of_safe_gate
+primary_writes=none

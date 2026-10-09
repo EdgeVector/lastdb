@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "APIReference",
+  "field_classifications": {
+    "assembly": [
+      "word"
+    ],
+    "assembly_version": [
+      "word"
+    ],
+    "executable_library_name": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "programming_model": [
+      "word"
+    ],
+    "target_platform": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "assembly": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "assembly_version": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "executable_library_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "programming_model": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "target_platform": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "assembly": "Library file name, e.g., mscorlib.dll, system.web.dll.",
+    "assembly_version": "Associated product/technology version. E.g., .NET Framework 4.5.",
+    "executable_library_name": "Library file name, e.g., mscorlib.dll, system.web.dll.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "programming_model": "Indicates whether API is managed or unmanaged.",
+    "target_platform": "Type of app development: phone, Metro style, desktop, XBox, etc."
+  },
+  "field_types": {
+    "assembly": "String",
+    "assembly_version": "String",
+    "executable_library_name": "String",
+    "identifier": "String",
+    "programming_model": "String",
+    "target_platform": "String"
+  },
+  "fields": [
+    "assembly",
+    "assembly_version",
+    "executable_library_name",
+    "identifier",
+    "programming_model",
+    "target_platform"
+  ],
+  "identity_hash": "940fe475f42020742e64d4e1c9c89da2756d65ed030166c527d8ba11542f0ace",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "940fe475f42020742e64d4e1c9c89da2756d65ed030166c527d8ba11542f0ace",
+  "purpose_statement": "APIReference",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

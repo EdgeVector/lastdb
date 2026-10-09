@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "GovernmentService",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "jurisdiction": [
+      "word"
+    ],
+    "service_operator": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "jurisdiction": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "service_operator": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "jurisdiction": "Indicates a legal jurisdiction, e.g. of some legislation, or where some government service is based.",
+    "service_operator": "The operating organization, if different from the provider.  This enables the representation of services that are provided by an organization, but operated by another organization like a subcontractor."
+  },
+  "field_types": {
+    "identifier": "String",
+    "jurisdiction": "String",
+    "service_operator": "String"
+  },
+  "fields": [
+    "identifier",
+    "jurisdiction",
+    "service_operator"
+  ],
+  "identity_hash": "e9d5f0615a488611fb1ba1b33c7b09b76d03e9d2c07b81dccc55f06c64a5edbc",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e9d5f0615a488611fb1ba1b33c7b09b76d03e9d2c07b81dccc55f06c64a5edbc",
+  "purpose_statement": "GovernmentService",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

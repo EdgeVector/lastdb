@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "InsuranceAgency",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "4df72a27bbf067199e5d6c937d662d47e2ce6d15ac2ba64577ead730e2c0e17d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4df72a27bbf067199e5d6c937d662d47e2ce6d15ac2ba64577ead730e2c0e17d",
+  "purpose_statement": "InsuranceAgency",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

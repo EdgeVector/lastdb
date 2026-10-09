@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "MedicalWebPage",
+  "field_classifications": {
+    "aspect": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "medical_audience": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "aspect": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "medical_audience": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "aspect": "An aspect of medical practice that is considered on the page, such as 'diagnosis', 'treatment', 'causes', 'prognosis', 'etiology', 'epidemiology', etc.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "medical_audience": "Medical audience for page."
+  },
+  "field_types": {
+    "aspect": "String",
+    "identifier": "String",
+    "medical_audience": "String"
+  },
+  "fields": [
+    "aspect",
+    "identifier",
+    "medical_audience"
+  ],
+  "identity_hash": "c0dc95dcef318d473fca1a3c064e118be1f37c44c5f16031058fdca1986e4823",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c0dc95dcef318d473fca1a3c064e118be1f37c44c5f16031058fdca1986e4823",
+  "purpose_statement": "MedicalWebPage",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

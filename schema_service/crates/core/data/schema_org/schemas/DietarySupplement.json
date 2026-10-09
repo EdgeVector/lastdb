@@ -1,0 +1,132 @@
+{
+  "descriptive_name": "DietarySupplement",
+  "field_classifications": {
+    "active_ingredient": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "is_proprietary": [
+      "word"
+    ],
+    "legal_status": [
+      "word"
+    ],
+    "maximum_intake": [
+      "word"
+    ],
+    "mechanism_of_action": [
+      "word"
+    ],
+    "non_proprietary_name": [
+      "word"
+    ],
+    "proprietary_name": [
+      "word"
+    ],
+    "recommended_intake": [
+      "word"
+    ],
+    "safety_consideration": [
+      "word"
+    ],
+    "target_population": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "active_ingredient": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_proprietary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legal_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "maximum_intake": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "mechanism_of_action": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "non_proprietary_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "proprietary_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "recommended_intake": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "safety_consideration": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "target_population": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "active_ingredient": "An active ingredient, typically chemical compounds and/or biologic substances.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_proprietary": "True if this item's name is a proprietary/brand name (vs. generic name).",
+    "legal_status": "The drug or supplement's legal status, including any controlled substance schedules that apply.",
+    "maximum_intake": "Recommended intake of this supplement for a given population as defined by a specific recommending authority.",
+    "mechanism_of_action": "The specific biochemical interaction through which this drug or supplement produces its pharmacological effect.",
+    "non_proprietary_name": "The generic name of this drug or supplement.",
+    "proprietary_name": "Proprietary name given to the diet plan, typically by its originator or creator.",
+    "recommended_intake": "Recommended intake of this supplement for a given population as defined by a specific recommending authority.",
+    "safety_consideration": "Any potential safety concern associated with the supplement. May include interactions with other drugs and foods, pregnancy, breastfeeding, known adverse reactions, and documented efficacy of the supplement.",
+    "target_population": "Characteristics of the population for which this is intended, or which typically uses it, e.g. 'adults'."
+  },
+  "field_types": {
+    "active_ingredient": "String",
+    "identifier": "String",
+    "is_proprietary": "Boolean",
+    "legal_status": "String",
+    "maximum_intake": "String",
+    "mechanism_of_action": "String",
+    "non_proprietary_name": "String",
+    "proprietary_name": "String",
+    "recommended_intake": "String",
+    "safety_consideration": "String",
+    "target_population": "String"
+  },
+  "fields": [
+    "active_ingredient",
+    "identifier",
+    "is_proprietary",
+    "legal_status",
+    "maximum_intake",
+    "mechanism_of_action",
+    "non_proprietary_name",
+    "proprietary_name",
+    "recommended_intake",
+    "safety_consideration",
+    "target_population"
+  ],
+  "identity_hash": "4ca71334f1abbf1c17e188a1663e3de09b7b6484c00e1f00784ea5875cc6a905",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4ca71334f1abbf1c17e188a1663e3de09b7b6484c00e1f00784ea5875cc6a905",
+  "purpose_statement": "DietarySupplement",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

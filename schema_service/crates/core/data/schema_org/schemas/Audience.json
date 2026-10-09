@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Audience",
+  "field_classifications": {
+    "audience_type": [
+      "word"
+    ],
+    "geographic_area": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "audience_type": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "geographic_area": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "audience_type": "The target group associated with a given audience (e.g. veterans, car owners, musicians, etc.).",
+    "geographic_area": "The geographic area associated with the audience.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "audience_type": "String",
+    "geographic_area": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "audience_type",
+    "geographic_area",
+    "identifier"
+  ],
+  "identity_hash": "ca7d5c5675fd9eda17957562c307831456c4bb3730dfafab7720019c4e793379",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ca7d5c5675fd9eda17957562c307831456c4bb3730dfafab7720019c4e793379",
+  "purpose_statement": "Audience",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

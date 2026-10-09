@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "RestrictedDiet",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "02176f862ddc9d145bf14f6f20b7ac63d6a8ad37e1117c60fd0c17b09cce05a5",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "02176f862ddc9d145bf14f6f20b7ac63d6a8ad37e1117c60fd0c17b09cce05a5",
+  "purpose_statement": "RestrictedDiet",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

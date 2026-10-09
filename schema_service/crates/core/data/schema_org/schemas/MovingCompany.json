@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MovingCompany",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "7ac094d0e56ab5951468ebc1070b564d158b8d407d70a03d3f18f1b8cca57f95",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7ac094d0e56ab5951468ebc1070b564d158b8d407d70a03d3f18f1b8cca57f95",
+  "purpose_statement": "MovingCompany",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

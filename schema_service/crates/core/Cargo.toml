@@ -1,0 +1,75 @@
+[package]
+name = "schema_service_core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Schema service registry brain — schema dedup, canonical fields, views, transforms. Embedder injected by callers (no fastembed/ONNX dep)."
+
+[features]
+# Local LastStore registry is on by default for server_http / tests / tools.
+# Lambda opts out with `default-features = false` so laststore is not linked
+# into the bootstrap image (diet cut #3).
+default = ["local-store"]
+# Exposes MockEmbeddingModel + ScriptedEmbeddingModel for downstream test suites.
+test-utils = []
+local-store = ["dep:laststore"]
+# Offline generators + dump-parse tests only. The Lambda crate must not
+# enable this: include_str!/include_dir! of the Schema.org JSON-LD and
+# starter-seed snapshots is ~3.85 MiB in the bootstrap zip.
+schema-org-seed-data = ["dep:include_dir"]
+
+[dependencies]
+schema_core_resolver = { workspace = true }
+env_flag = { workspace = true }
+schema_types = { workspace = true }
+# App-identity (app_identity v3.1, Lane B2b): DevCert (ES256) + signed
+# envelope (Ed25519) + JCS verification for `POST /v1/apps` and the
+# `owner_app_id` schema-claim gate on `POST /v1/schemas`.
+app_identity_crypto = { workspace = true }
+base64 = { workspace = true }
+blake3 = { workspace = true }
+hmac = { workspace = true }
+
+# Only linked when `schema-org-seed-data` is on (generators / dump tests).
+include_dir = { version = "0.7", optional = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+semver = { workspace = true }
+tracing = { workspace = true }
+
+sha2 = { workspace = true }
+# Local registry storage (replaces sled). Cloud Lambda uses S3 via External.
+laststore = { workspace = true, optional = true }
+async-trait = { workspace = true }
+# `time` — backoff sleeps + reconciler interval; `sync` — the in-process
+# cross-env mirror queue (mpsc). `rt`/`macros` come from the binaries that
+# spawn the worker + reconciler loops (and from dev-deps for tests).
+# `rt` — ResolverRuntime::spawn_refresh_task + kill-switch clear.
+tokio = { workspace = true, features = ["time", "sync", "rt"] }
+
+# Runtime use: `snapshot::SchemaServiceState::export_snapshot` stamps
+# `captured_at` as RFC 3339 via `chrono::Utc::now()`.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Phase C shadow-mode near-miss audit log: `registration_id` is a UUID
+# v4 minted at the call site so a retried registration won't double-log.
+uuid = { workspace = true, features = ["v4"] }
+
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true }
+serial_test = "3"
+temp-env = "0.3"
+async-trait = { workspace = true }
+tracing-subscriber = { workspace = true }
+# Mint ES256 DevCerts + sign Ed25519 envelopes for the `PUT /v1/apps/{id}`
+# owner-update tests so the signing side is byte-identical to the verifier.
+app_identity_crypto = { workspace = true, features = ["test-utils"] }
+# Promoted to a runtime dep above (snapshot timestamps). Keeping the
+# dev-dependencies entry would shadow the runtime one; the runtime
+# feature set is a superset of what tests need.
+
+[lints]
+workspace = true

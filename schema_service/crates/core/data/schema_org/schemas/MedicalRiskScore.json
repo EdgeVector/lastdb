@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MedicalRiskScore",
+  "field_classifications": {
+    "algorithm": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "algorithm": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "algorithm": "The algorithm or rules to follow to compute the score.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "algorithm": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "algorithm",
+    "identifier"
+  ],
+  "identity_hash": "e2ba9108c1e75ea35035af09454f3c81caf92223b61d89d22fdbd737ba4f4d40",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e2ba9108c1e75ea35035af09454f3c81caf92223b61d89d22fdbd737ba4f4d40",
+  "purpose_statement": "MedicalRiskScore",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

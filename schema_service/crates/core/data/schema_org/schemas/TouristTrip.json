@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "TouristTrip",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "tourist_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "tourist_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "tourist_type": "Attraction suitable for type(s) of tourist. E.g. children, visitors from a particular country, etc."
+  },
+  "field_types": {
+    "identifier": "String",
+    "tourist_type": "String"
+  },
+  "fields": [
+    "identifier",
+    "tourist_type"
+  ],
+  "identity_hash": "4795e3ea15d0a22fb43d9aa9366ebc22569bda1c93eb52e288a09f5190b1da4a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4795e3ea15d0a22fb43d9aa9366ebc22569bda1c93eb52e288a09f5190b1da4a",
+  "purpose_statement": "TouristTrip",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

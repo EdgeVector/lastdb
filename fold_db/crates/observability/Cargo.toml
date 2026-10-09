@@ -1,0 +1,84 @@
+[package]
+name = "observability"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+description = "Shared telemetry substrate for fold_db (tracing layers, W3C propagation, redaction)."
+
+[features]
+default = ["otel"]
+# OpenTelemetry no-op TracerProvider + W3C propagation (reqwest inject).
+# Node / HTTP server / client keep this on (default). Lambda light path
+# uses `default-features = false` for JSON FMT (+ optional Sentry) only.
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-http",
+    "dep:tracing-opentelemetry",
+    "dep:reqwest",
+]
+# Opt-in product/runtime Sentry sink. The default developer/CI lane keeps the
+# local FMT/RING/WEB observability surfaces without compiling Sentry.
+# Sentry's own crate features pull a reqwest transport; our optional `reqwest`
+# dep is only needed for `inject_w3c` on the `otel` path.
+sentry = ["dep:sentry", "dep:sentry-tracing"]
+# Test-only transport helpers used by the Sentry-specific observability tests.
+sentry-test = ["sentry", "sentry/test"]
+
+[dependencies]
+# Single source of truth for the honor-both node-home resolution
+# (`LASTDB_HOME` ▸ `FOLDDB_HOME` ▸ existing `~/.lastdb` ▸ existing `~/.folddb`
+# ▸ new `~/.lastdb`). `default_node_log_path` calls `folddb_home()` so the log
+# writer and the data dir agree on a fresh install — see the cycle note below.
+# `folddb_profile` is a std + `dirs` leaf crate and does NOT depend on
+# `observability`, so this adds no dependency cycle.
+folddb_profile = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json", "fmt"] }
+tracing-appender = "0.2"
+tracing-opentelemetry = { workspace = true, optional = true }
+tracing-log = "0.2"
+
+# `opentelemetry` + `opentelemetry_sdk` back the no-op TracerProvider that
+# stamps W3C `trace_id` / `span_id` onto every span (RING entries and the
+# Sentry layer both lift these ids off the parent span's OtelData
+# extension). `opentelemetry-http` powers the W3C propagator's
+# `HeaderExtractor` consumed by `propagation::extract_parent_context`.
+# All optional — enabled by the default `otel` feature.
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-http = { version = "0.27", optional = true }
+
+# Optional Sentry integration — ERROR-only sink driven by `OBS_SENTRY_DSN`.
+# `default-features = false` opts out of the panic integration (binaries
+# register their own panic handlers) and the heavy `debug-images` feature;
+# we keep `transport` (reqwest) and `contexts` so events carry runtime
+# metadata. The `rustls` feature swaps Sentry's reqwest TLS backend from
+# native-tls (libssl) to pure-Rust rustls, matching the rest of the
+# workspace and unbreaking Lambda cross-compiles where openssl-sys headers
+# aren't available in the build sysroot. `sentry-tracing` is the
+# tracing-subscriber bridge and stays compatible with `tracing-subscriber 0.3`.
+sentry = { workspace = true, optional = true, features = ["backtrace", "contexts", "release-health", "reqwest", "rustls"] }
+sentry-tracing = { version = "0.47", optional = true }
+
+thiserror = { workspace = true }
+once_cell = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+
+http = { workspace = true }
+# Only for `propagation::inject_w3c` (otel feature). Sentry brings its own
+# reqwest transport when the `sentry` feature is enabled.
+reqwest = { version = "0.12", default-features = false, optional = true }
+# `sync` powers the broadcast channel for the WEB layer.
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt"] }
+log = "0.4"
+
+[lints]
+workspace = true

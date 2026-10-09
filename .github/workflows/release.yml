@@ -1,0 +1,609 @@
+# STATUS (2026-09-29): this workflow is DISABLED in the GitHub Actions UI on
+# purpose. EdgeVector/fold is canonical on GitHub again
+# (brain decision-2026-09-29-fold-venue-back-to-github), but stable releases
+# still ship from the last-stack canary chain (docs/RELEASING.md), which
+# creates the public homebrew-lastdb release itself. A `v*` tag pushed to this
+# repo (scripts/release/cut-local-stable.sh --push-tag pushes to origin) would
+# fire this workflow and try to create the same release; the job refuses to
+# clobber, so it fails loudly, but it burns macOS minutes and may publish assets
+# first. Enable only after Tom decides release.yml, not the local chain, owns
+# tag-driven releases. The weekly smoke also needs the org secret GH_PAT for
+# private git dependencies (not verifiable from repo secrets).
+#
+# How to release: see docs/RELEASING.md
+#
+# tl;dr — `git tag -a vX.Y.Z -m "vX.Y.Z" main && git push origin vX.Y.Z`. The
+# tag push fires this workflow, which produces the LastDB Mini tarball on this
+# public EdgeVector/homebrew-lastdb release. The formula bump is NOT made
+# here. Publish it with scripts/release/forge-promote-homebrew-stable.sh
+# --publish. That script opens a GitHub PR on EdgeVector/homebrew-lastdb
+# because LastGit and Forgejo are retired.
+#
+# VENUE (2026-07-10, Tom; restated 2026-09-29): GitHub Actions is the release
+# venue for tag-driven builds. The retired Forgejo release workflow was removed.
+#
+# PACKAGING (2026-07-12): this workflow ships the LastDB MINI channel — the
+# tiny socket/control CLI (`lastdb`) and the daemon (`lastdbd`) from the
+# `lastdb_node` crate, Apple-Silicon-only, matching the forge pipeline and
+# both tap formulas (`lastdb.rb` + the `folddb.rb` alias BOTH install
+# lastdb/lastdbd since the Mini cutover). The previous fold_db_node full-node
+# binary set (`lastdb_server`, `folddb_*`, React frontend, 3-target matrix)
+# is retired here — shipping it again would publish tarballs without
+# `lastdbd` and break both formulas.
+#
+# Triggers:
+# - `push: tags v*` — real release. Builds the Mini tarball, publishes one
+#   GitHub release on EdgeVector/homebrew-lastdb, and REPORTS the formula
+#   bump without publishing it (a GitHub formula PR, run locally).
+# - `workflow_dispatch` — dry-run. Builds binaries against any ref but DOES
+#   NOT publish anything. Use to reproduce a release-tooling bug or test
+#   tooling changes without burning a version number.
+# - `schedule: weekly Sunday 06:00 UTC` — smoke. Same as dispatch, against
+#   `main`. Catches drift between source code and this workflow's binary
+#   list before a real release tries to use it.
+#
+# The `release`, `bump-tap` jobs are gated to fire only on tag-push. The
+# `build` job runs on all triggers but skips the strict "version matches
+# tag" check when there is no tag.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref to build (commit/branch/tag). Defaults to the workflow ref.'
+        required: false
+        type: string
+  schedule:
+    # Sundays at 06:00 UTC. Catches release-pipeline drift weekly without
+    # burning a version. If this fails on a Sunday, fix it before tagging.
+    - cron: '0 6 * * 0'
+
+permissions:
+  contents: write
+
+# SERIALIZE release runs — never cancel an in-flight build (the forge copy
+# learned this the hard way: five ~2h macOS builds were killed mid-job by the
+# next dispatch on 2026-07-04/05). One group, no cancel: later runs QUEUE.
+concurrency:
+  group: release-build
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # Backend Sentry DSN baked into the binaries at compile time via
+  # `option_env!("FOLD_SENTRY_DSN")`. An unset secret bakes an empty DSN,
+  # which keeps backend telemetry permanently inert. It is a write-only
+  # client token, not a confidential secret; user consent still gates
+  # whether the sink actually activates at runtime.
+  FOLD_SENTRY_DSN: ${{ secrets.FOLD_SENTRY_DSN }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon only (2026-07-05, Tom): the brew distribution is
+          # aarch64-darwin-only; nobody consumes Intel-mac or Linux tarballs.
+          # Re-add a matrix entry + formula block if a real consumer appears.
+          - target: aarch64-apple-darwin
+            os: macos-14
+            name: lastdb-aarch64-apple-darwin
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Configure git for private dependencies
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-mini-${{ matrix.target }}
+
+      # LastDB Mini ships only the tiny socket/control CLI (`lastdb`) and the
+      # core daemon (`lastdbd`). Keep the default shipped binary fastembed/ONNX-free. The
+      # artifact also stays structurally free of fold_db_node: no React, HTTP
+      # server, ingestion/media extraction, desktop UI, MCP sidecars, WASM
+      # transforms, face detection, or compatibility binaries (`folddb` on the
+      # formula side is a symlink to `lastdb`, not a shipped binary).
+      - name: Build LastDB Mini release binaries
+        run: |
+          set -euo pipefail
+          export RUSTC_WRAPPER=
+          cargo build --release --target ${{ matrix.target }} \
+            -p lastdb_node \
+            --bin lastdb \
+            --bin lastdbd
+
+
+      # Hard gate: every binary must self-report the pushed tag. Catches the
+      # class of bug where CARGO_PKG_VERSION drifts from the release line
+      # (shipped v0.3.1 binaries once reported 0.1.0 because build.rs was
+      # never wired up).
+      #
+      # Tag-push only — on dispatch/schedule there's no tag to compare to,
+      # so we just smoke-test that the binaries launch in the next step.
+      - name: Verify --version matches tag
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${GITHUB_REF_NAME#v}"
+          for bin in lastdb lastdbd; do
+            actual=$(target/${{ matrix.target }}/release/$bin --version | awk '{print $NF}')
+            echo "$bin --version -> $actual (expected $expected)"
+            if [ "$actual" = "0.1.0" ]; then
+              echo "::error::$bin reports 0.1.0 — FOLDDB_BUILD_VERSION was not stamped from GITHUB_REF_NAME"
+              exit 1
+            fi
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$bin reports '$actual', expected '$expected' from tag $GITHUB_REF_NAME"
+              exit 1
+            fi
+          done
+
+      # Smoke check for non-tag builds (dispatch / schedule). Doesn't compare
+      # to a specific version — just confirms each binary built and launches.
+      # With this running weekly, binary-list drift surfaces before a real
+      # tag attempt (the class of bug that hit v0.3.12).
+      - name: Smoke binaries (non-tag)
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          for bin in lastdb lastdbd; do
+            actual=$(target/${{ matrix.target }}/release/$bin --version | awk '{print $NF}')
+            echo "$bin --version -> $actual"
+          done
+
+      # UPGRADE-DECRYPT GATE (incident 2026-07-13 / v0.22.6):
+      # HARD BREAK for the 0.23 line (Tom 2026-07-24): sled was removed after
+      # public 0.22.9; there are no other production users. Skip predecessor
+      # seed/boot. Re-enable against a laststore-era previous tag when multi-user
+      # in-place upgrade matters again. Script remains for local/manual use.
+      - name: Upgrade-decrypt gate (skipped — 0.23 hard break from sled 0.22.x)
+        if: false
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/release/validate-mini-upgrade-decrypt.sh \
+            --previous-tag v0.22.9 \
+            --candidate-built "target/${{ matrix.target }}/release" \
+            --triple "${{ matrix.target }}" \
+            --report-dir "${RUNNER_TEMP}/upgrade-decrypt-report"
+          echo "upgrade-decrypt report:"
+          cat "${RUNNER_TEMP}/upgrade-decrypt-report/result.txt"
+
+      # Fresh-install / first-run gate: boot candidate lastdbd on a pristine
+      # throwaway home, exercise /api/schemas/declare + /api/apps/declare-schema
+      # (brain/kanban init path), mutation/query, semantic search, restart.
+      - name: Fresh-install first-run gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/release/validate-mini-fresh-install.sh \
+            --built "target/${{ matrix.target }}/release" \
+            --triple "${{ matrix.target }}" \
+            --report-dir "${RUNNER_TEMP}/fresh-install-report"
+          echo "fresh-install report:"
+          cat "${RUNNER_TEMP}/fresh-install-report/report.md"
+
+      # Developer ID codesign + Apple notarize for the macOS CLI binaries.
+      #
+      # WHY: the macOS keychain ACL "Always Allow" grant is bound to the
+      # binary's code signature (its Designated Requirement). A stable
+      # Developer ID Application signature gives every release the same DR,
+      # so an ACL grant survives `brew upgrade`.
+      #
+      # Hardened runtime (`--options runtime`) with NO entitlements file:
+      # a vanilla Rust CLI doesn't JIT, doesn't load arbitrary plugins,
+      # doesn't need DYLD_* env vars. Default-deny is the most secure
+      # stance for a CLI.
+      #
+      # Notarization but NO stapling: `xcrun stapler` cannot staple a bare
+      # Mach-O executable. Brew-installed binaries don't carry the
+      # quarantine bit, so Gatekeeper doesn't gate them; notarization is
+      # included so a direct tarball download still gets a clean
+      # Gatekeeper experience.
+      #
+      # SAFE NO-OP when secrets are absent: prints a warning and exits 0 so
+      # releases keep publishing unsigned binaries. (GitHub restricts secret
+      # references in step conditionals, so the gate is inside the shell.)
+      - name: Codesign + notarize macOS binaries (gated on Apple secrets)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] \
+             || [ -z "${APPLE_CERTIFICATE:-}" ] \
+             || [ -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]; then
+            echo "::warning::Apple signing secrets not set — skipping codesign + notarize. macOS binaries will ship UNSIGNED. See docs/macos-code-signing.md."
+            exit 0
+          fi
+
+          BINS=(lastdb lastdbd)
+          BIN_DIR="target/${TARGET}/release"
+
+          # --- Import the Developer ID Application cert into a temporary keychain ---
+          KEYCHAIN_PATH="${RUNNER_TEMP}/folddb-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          CERT_PATH="${RUNNER_TEMP}/folddb-cert.p12"
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # `-lut 21600` = lock after 6h idle, so a botched cleanup doesn't
+          # leave an unlocked keychain on the runner forever.
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | sed -e 's/^[[:space:]]*//' -e 's/"//g')
+
+          rm -f "$CERT_PATH"
+
+          if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -q "$APPLE_SIGNING_IDENTITY"; then
+            echo "::error::Signing identity '$APPLE_SIGNING_IDENTITY' not found in imported keychain. Check APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY match."
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
+            exit 1
+          fi
+
+          for bin in "${BINS[@]}"; do
+            bin_path="${BIN_DIR}/${bin}"
+            echo "::group::codesign ${bin}"
+            codesign \
+              --force \
+              --options runtime \
+              --timestamp \
+              --keychain "$KEYCHAIN_PATH" \
+              --sign "$APPLE_SIGNING_IDENTITY" \
+              "$bin_path"
+            codesign --verify --strict --verbose=2 "$bin_path"
+            echo "::endgroup::"
+          done
+
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            STAGE_DIR="${RUNNER_TEMP}/notarize-stage"
+            NOTARIZE_ZIP="${RUNNER_TEMP}/folddb-notarize.zip"
+            rm -rf "$STAGE_DIR"
+            mkdir -p "$STAGE_DIR"
+            for bin in "${BINS[@]}"; do
+              cp "${BIN_DIR}/${bin}" "$STAGE_DIR/"
+            done
+            ditto -c -k --keepParent "$STAGE_DIR" "$NOTARIZE_ZIP"
+
+            echo "Submitting to Apple notarytool (synchronous, --wait)…"
+            xcrun notarytool submit "$NOTARIZE_ZIP" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+
+            rm -f "$NOTARIZE_ZIP"
+            rm -rf "$STAGE_DIR"
+          else
+            echo "::warning::APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID not all set — binaries are signed but NOT notarized."
+          fi
+
+          security delete-keychain "$KEYCHAIN_PATH" || true
+
+      - name: Package binaries
+        run: |
+          set -euo pipefail
+          expect_version=""
+          if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+            expect_version="${GITHUB_REF_NAME#v}"
+          fi
+          args=(
+            --target "${{ matrix.target }}"
+            --bin-dir "target/${{ matrix.target }}/release"
+            --out-dir .
+            --git-oid "$GITHUB_SHA"
+          )
+          if [ -n "$expect_version" ]; then
+            args+=(--expect-version "$expect_version")
+          fi
+          bash scripts/release/package-lastdb-bundle.sh "${args[@]}"
+
+      - name: Upload artifact (canonical lastdb-*)
+        uses: actions/upload-artifact@v7
+        with:
+          name: lastdb-${{ matrix.target }}
+          path: |
+            lastdb-${{ matrix.target }}.tar.gz
+            lastdb-${{ matrix.target }}.manifest.json
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    outputs:
+      sha_aarch64_apple_darwin: ${{ steps.sums.outputs.sha_aarch64_apple_darwin }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Guard against re-promoting a demoted final release
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          VERSION_TAG: ${{ github.ref_name }}
+        run: bash scripts/release/guard-release-demotion.sh
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts and generate SHA256SUMS.txt
+        id: sums
+        run: |
+          mkdir -p release
+          find artifacts -type f -name '*.tar.gz' -exec cp {} release/ \;
+          find artifacts -type f -name '*.manifest.json' -exec cp {} release/ \;
+          cd release
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum lastdb-*.tar.gz > SHA256SUMS.txt
+          else
+            shasum -a 256 lastdb-*.tar.gz > SHA256SUMS.txt
+          fi
+          cat SHA256SUMS.txt
+          # Expose the sha256 as a job output so the bump-tap job downstream
+          # doesn't have to re-download the file.
+          {
+            while read -r sha file; do
+              case "$file" in
+                lastdb-aarch64-apple-darwin.tar.gz) echo "sha_aarch64_apple_darwin=$sha" ;;
+              esac
+            done < SHA256SUMS.txt
+          } >> "$GITHUB_OUTPUT"
+
+      # Publish the only release object for this version on the PUBLIC
+      # EdgeVector/homebrew-lastdb repo. EdgeVector/fold stays private and keeps
+      # only the git tag as provenance; Homebrew downloads anonymously from the
+      # public tap release. Do not use `gh release upload --clobber` here:
+      # republishing assets under an existing tag can make the formula sha drift.
+      - name: Create public EdgeVector/homebrew-lastdb release
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          VERSION_TAG: ${{ github.ref_name }}
+          IS_PRERELEASE: ${{ contains(github.ref_name, '-') }}
+        run: |
+          set -euo pipefail
+          cd release
+          NOTES="$(printf '%s\n' \
+            '## LastDB Mini' \
+            '' \
+            '`brew install edgevector/lastdb/lastdb`, or download `lastdb-aarch64-apple-darwin.tar.gz` (Apple Silicon; `lastdb` CLI + `lastdbd` daemon).' \
+            '' \
+            "Public release for \`$VERSION_TAG\`. Source provenance is the matching \`EdgeVector/fold\` git tag.")"
+          MIRROR_ASSETS=(
+            lastdb-aarch64-apple-darwin.tar.gz
+            lastdb-aarch64-apple-darwin.manifest.json
+            SHA256SUMS.txt
+          )
+          if gh release view "$VERSION_TAG" --repo EdgeVector/homebrew-lastdb >/dev/null 2>&1; then
+            echo "::error::homebrew-lastdb release $VERSION_TAG already exists. Refusing to clobber assets; cut a new tag instead."
+            exit 1
+          fi
+          PRERELEASE_FLAG=""
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "$VERSION_TAG" --repo EdgeVector/homebrew-lastdb \
+            --title "$VERSION_TAG" \
+            --notes "$NOTES" \
+            $PRERELEASE_FLAG \
+            "${MIRROR_ASSETS[@]}"
+
+  # Open a PR against EdgeVector/homebrew-lastdb bumping the formula version
+  # and sha256 for this release. Skip on prerelease tags so experimental
+  # builds don't auto-overwrite the stable formula.
+  bump-tap:
+    needs: release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout homebrew-lastdb
+        uses: actions/checkout@v7
+        with:
+          repository: EdgeVector/homebrew-lastdb
+          # Read-only checkout: this job computes and reports the formula
+          # bump but no longer pushes it (GitHub is the mirror, not the SoT).
+          token: ${{ secrets.GH_PAT }}
+          path: tap
+
+      # The surgical bump script lives in THIS repo. Check fold out alongside
+      # the tap so the step below can run it. No `ref:` → defaults to the
+      # release tag, so the tooling that runs matches the tag being shipped.
+      - name: Checkout fold (release tooling)
+        uses: actions/checkout@v7
+        with:
+          path: fold
+
+      - name: Bump formula version + sha256 (surgical)
+        env:
+          VERSION_TAG: ${{ github.ref_name }}
+          SHA_AARCH64_DARWIN: ${{ needs.release.outputs.sha_aarch64_apple_darwin }}
+        run: |
+          set -euo pipefail
+          export VERSION="${VERSION_TAG#v}"
+          # Surgical bump: rewrite ONLY the `version`, `url`, and `sha256`
+          # lines in the EXISTING tap formulas. The formula body is owned on
+          # EdgeVector/homebrew-lastdb (service block, caveats, install steps
+          # survive byte-for-byte — the v0.5.1 from-scratch regeneration once
+          # wiped the service block; never again).
+          #
+          # Bump BOTH formulas: `lastdb.rb` is canonical and `folddb.rb` is
+          # the back-compat alias; both point at the same Mini tarball.
+          for formula in lastdb folddb; do
+            ruby fold/scripts/release/bump-homebrew-formula.rb "tap/Formula/${formula}.rb"
+          done
+
+          # Guard: the bump must touch ONLY version / url / sha256 lines. If
+          # the surgical edit ever goes wrong, fail the release LOUDLY
+          # instead of shipping a broken formula.
+          git -C tap diff -- Formula/lastdb.rb Formula/folddb.rb > /tmp/bump.diff
+          unexpected=$(grep -E '^[+-]' /tmp/bump.diff \
+            | grep -vE '^[+-]{3}|^[+-]\s*(version\s|url\s|sha256\s)' \
+            || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::surgical formula bump touched lines outside version/url/sha256 — failing the release instead of shipping a broken formula. Fix scripts/release/bump-homebrew-formula.rb (+ its test) and re-tag."
+            echo "─── changed lines outside version/url/sha256 ───"
+            echo "$unexpected"
+            echo "─── full diff ───"
+            cat /tmp/bump.diff
+            exit 1
+          fi
+
+      # The formula bump is NOT committed here.
+      #
+      # scripts/release/forge-promote-homebrew-stable.sh owns the publish.
+      # It opens a GitHub PR on EdgeVector/homebrew-lastdb.
+      # LastGit (lastdb:///homebrew-lastdb) and
+      # the Forgejo tap copy are retired
+      # (decision-2026-09-29-retire-lastgit-all-repos-to-github).
+      #
+      # This job only reports the computed diff. Publish locally:
+      #
+      #     scripts/release/forge-promote-homebrew-stable.sh --publish
+      #
+      - name: Report the computed bump (no tap write)
+        env:
+          VERSION_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION_TAG#v}"
+          cd tap
+          if git diff --quiet Formula/lastdb.rb Formula/folddb.rb; then
+            echo "Formulae already up to date for v${VERSION}."
+            exit 0
+          fi
+          echo "Computed formula bump for v${VERSION} (NOT published from CI):"
+          git --no-pager diff -- Formula/lastdb.rb Formula/folddb.rb
+          echo
+          echo "Formula bump is not published from this workflow."
+          echo "Publish it as a GitHub PR on EdgeVector/homebrew-lastdb:"
+          echo "  scripts/release/forge-promote-homebrew-stable.sh --publish"
+
+  # Discord status for tag releases (stable + canary prereleases). Soft-skips
+  # when no webhook secret is configured. Never blocks the release.
+  notify:
+    name: Discord notify (tag release)
+    needs: [build, release]
+    if: always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/release
+          sparse-checkout-cone-mode: false
+
+      - name: Post Discord status
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_RELEASE || secrets.DISCORD_WEBHOOK }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release/notify-discord.sh
+          IS_PRE=false
+          case "$TAG" in
+            *-*) IS_PRE=true ;;
+          esac
+          KIND="stable release"
+          if [ "$IS_PRE" = "true" ]; then
+            KIND="canary/prerelease"
+          fi
+
+          if [ "$BUILD_RESULT" != "success" ] || [ "$RELEASE_RESULT" != "success" ]; then
+            STATUS=failure
+            TITLE="Mini ${KIND} FAILED ${TAG}"
+            BODY="$(printf 'build=%s  release=%s\n\nTag: `%s`\nRun: %s\n\nStable brew formula is unchanged on failure.' \
+              "$BUILD_RESULT" "$RELEASE_RESULT" "$TAG" \
+              "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+          else
+            STATUS=success
+            if [ "$IS_PRE" = "true" ]; then
+              TITLE="Mini canary published ${TAG}"
+              BODY="$(printf 'Prerelease assets on EdgeVector/homebrew-lastdb (formula NOT bumped).\n\nTag: `%s`\nRun: %s\n\nInstall via the canary tarball download, not `brew upgrade`.' \
+                "$TAG" \
+                "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+            else
+              TITLE="Mini stable released ${TAG}"
+              BODY="$(printf 'Public assets published on EdgeVector/homebrew-lastdb.\n\nTag: `%s`\nRun: %s\n\nFormula bump is NOT published from CI — run `scripts/release/forge-promote-homebrew-stable.sh --publish`, then `brew update && brew upgrade lastdb`.' \
+                "$TAG" \
+                "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+            fi
+          fi
+          bash scripts/release/notify-discord.sh --status "$STATUS" --title "$TITLE" --body "$BODY"
+
+  # Discord for weekly smoke / manual dry-run failures (publish path skipped).
+  notify-smoke:
+    name: Discord notify (smoke / dry-run)
+    needs: [build]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/release
+          sparse-checkout-cone-mode: false
+
+      - name: Post Discord status
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_RELEASE || secrets.DISCORD_WEBHOOK }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release/notify-discord.sh
+          EVENT="${{ github.event_name }}"
+          if [ "$BUILD_RESULT" = "success" ]; then
+            # Quiet success for smoke — only noise-worthy is failure.
+            if [ "$EVENT" = "workflow_dispatch" ]; then
+              bash scripts/release/notify-discord.sh \
+                --status success \
+                --title "Mini release dry-run OK" \
+                --body "$(printf 'workflow_dispatch build succeeded (nothing published).\n\nRun: %s' \
+                  "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+            else
+              echo "weekly smoke green — no Discord post (success is quiet)"
+            fi
+          else
+            bash scripts/release/notify-discord.sh \
+              --status failure \
+              --title "Mini release smoke/dry-run FAILED" \
+              --body "$(printf 'event=%s  build=%s\n\nNothing published. Fix before the next real tag.\n\nRun: %s' \
+                "$EVENT" "$BUILD_RESULT" \
+                "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+          fi

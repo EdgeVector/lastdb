@@ -1,0 +1,61 @@
+{
+  "name": "@lastdb/app-sdk",
+  "version": "0.4.0",
+  "description": "Runtime SDK for LastDB apps — connect, request consent, and query/mutate a node's /api/* surface with a capability.",
+  "license": "Apache-2.0",
+  "keywords": [
+    "lastdb",
+    "folddb",
+    "sdk",
+    "consent",
+    "capability",
+    "local-first",
+    "personal-data"
+  ],
+  "homepage": "https://github.com/EdgeVector/lastdb/tree/main/lastdb_app_sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EdgeVector/lastdb.git",
+    "directory": "lastdb_app_sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/EdgeVector/lastdb/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint \"src/**/*.ts\"",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

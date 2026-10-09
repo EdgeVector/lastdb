@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "SubscribeAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "dbe7d900ae3029eea8dde82e42b5ee7131db788fe8f19a59c4b2313d03ab5f15",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "dbe7d900ae3029eea8dde82e42b5ee7131db788fe8f19a59c4b2313d03ab5f15",
+  "purpose_statement": "SubscribeAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

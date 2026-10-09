@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "OrderStatus",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "498a6a49271959df9656e7eceb7bd78c626c2ba2e93c63af7938da770ad0078d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "498a6a49271959df9656e7eceb7bd78c626c2ba2e93c63af7938da770ad0078d",
+  "purpose_statement": "OrderStatus",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

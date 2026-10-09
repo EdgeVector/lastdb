@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "WebContent",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "bcd55eeea112f280fb6d13fa8fb6bfaee238d775016cee7470c2b84e4e165735",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bcd55eeea112f280fb6d13fa8fb6bfaee238d775016cee7470c2b84e4e165735",
+  "purpose_statement": "WebContent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

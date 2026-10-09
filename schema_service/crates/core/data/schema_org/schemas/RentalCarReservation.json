@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "RentalCarReservation",
+  "field_classifications": {
+    "dropoff_location": [
+      "word"
+    ],
+    "dropoff_time": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "pickup_location": [
+      "word"
+    ],
+    "pickup_time": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "dropoff_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "dropoff_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "pickup_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "pickup_time": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "dropoff_location": "Where a rental car can be dropped off.",
+    "dropoff_time": "When a rental car can be dropped off.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "pickup_location": "Where a taxi will pick up a passenger or a rental car can be picked up.",
+    "pickup_time": "When a taxi will pick up a passenger or a rental car can be picked up."
+  },
+  "field_types": {
+    "dropoff_location": "String",
+    "dropoff_time": "String",
+    "identifier": "String",
+    "pickup_location": "String",
+    "pickup_time": "String"
+  },
+  "fields": [
+    "dropoff_location",
+    "dropoff_time",
+    "identifier",
+    "pickup_location",
+    "pickup_time"
+  ],
+  "identity_hash": "6394298b618ebbec2fccd05bf4af6e58d586b16913271979198c3583d93fef1e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6394298b618ebbec2fccd05bf4af6e58d586b16913271979198c3583d93fef1e",
+  "purpose_statement": "RentalCarReservation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

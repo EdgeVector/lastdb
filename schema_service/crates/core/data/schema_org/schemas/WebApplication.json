@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "WebApplication",
+  "field_classifications": {
+    "browser_requirements": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "browser_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "browser_requirements": "Specifies browser requirements in human-readable text. For example, 'requires HTML5 support'.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "browser_requirements": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "browser_requirements",
+    "identifier"
+  ],
+  "identity_hash": "8e1c6e666ef9ccbdcc3ac758599c0beaccb5d221c1830d4012e2784712fe04b5",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8e1c6e666ef9ccbdcc3ac758599c0beaccb5d221c1830d4012e2784712fe04b5",
+  "purpose_statement": "WebApplication",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

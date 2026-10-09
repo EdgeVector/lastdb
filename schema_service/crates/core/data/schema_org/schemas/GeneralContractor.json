@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "GeneralContractor",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "b9e2c5a20fe3fc8e79f18843be57704c0ea086f3b8162a112fbdc508f00d3597",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b9e2c5a20fe3fc8e79f18843be57704c0ea086f3b8162a112fbdc508f00d3597",
+  "purpose_statement": "GeneralContractor",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

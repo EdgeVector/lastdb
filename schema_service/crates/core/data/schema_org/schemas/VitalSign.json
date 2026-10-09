@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "VitalSign",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "e7d556ced777a4849df7a78698253590ec4aeb732c0d70b12dbe4c9398f57511",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e7d556ced777a4849df7a78698253590ec4aeb732c0d70b12dbe4c9398f57511",
+  "purpose_statement": "VitalSign",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,33 @@
+{
+  "name": "ingestion/AppError",
+  "descriptive_name": "Ingestion App Error",
+  "purpose_statement": "Structured operational errors for the zero-UI Ingestion sidecar.",
+  "schema_type": "Hash",
+  "fields": [
+    "error_id",
+    "kind",
+    "message",
+    "run_id",
+    "source_path",
+    "retryable",
+    "next_actions",
+    "resolved",
+    "created_at",
+    "resolved_at"
+  ],
+  "key": {
+    "hash_field": "error_id"
+  },
+  "field_descriptions": {
+    "error_id": "Stable error id.",
+    "kind": "Machine-readable error kind.",
+    "message": "Short agent-readable error message.",
+    "run_id": "Related ingestion/Run id, when available.",
+    "source_path": "File or folder path related to the error.",
+    "retryable": "Whether an agent can retry after repair.",
+    "next_actions": "Machine-readable repair suggestions.",
+    "resolved": "True after an agent or run resolves the error.",
+    "created_at": "RFC3339 creation timestamp.",
+    "resolved_at": "RFC3339 resolution timestamp."
+  }
+}

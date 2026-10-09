@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MobilePhoneStore",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "18ae54b354cf6e4ed84eea85b8f0952a730e64dac8a96792720600d493922780",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "18ae54b354cf6e4ed84eea85b8f0952a730e64dac8a96792720600d493922780",
+  "purpose_statement": "MobilePhoneStore",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

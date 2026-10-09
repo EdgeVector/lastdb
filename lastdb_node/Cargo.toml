@@ -1,0 +1,131 @@
+[package]
+name = "lastdb_node"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "LastDB Mini semantic daemon (`lastdbd`) — the core database host (schema declare/query/mutate + app-identity + cloud sync) served over the owner Unix socket, with NO dependency on fold_db_node: no ingestion, no discovery, no desktop UI. This is the binary the Homebrew `edgevector/lastdb/lastdb` formula ships."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "lastdbd"
+path = "src/main.rs"
+
+[[bin]]
+name = "lastdb-proxy"
+path = "src/bin/lastdb_proxy.rs"
+
+[[bin]]
+name = "lastdb"
+path = "src/bin/lastdb.rs"
+
+[[bin]]
+name = "lastdb_local_maintain"
+path = "src/bin/lastdb_local_maintain/main.rs"
+
+[[bin]]
+name = "lastdb_docstore_smoke"
+path = "src/bin/lastdb_docstore_smoke.rs"
+required-features = ["storage-v2"]
+
+[[bin]]
+name = "lastdb_laststore_empty_home_smoke"
+path = "src/bin/lastdb_laststore_empty_home_smoke.rs"
+
+[[bin]]
+name = "lastdb_restore_probe"
+path = "src/bin/lastdb_restore_probe.rs"
+
+[[bin]]
+name = "lastdb_reseal_atom_content"
+path = "src/bin/lastdb_reseal_atom_content.rs"
+
+[[bin]]
+name = "lastdb_recompress_atom_content"
+path = "src/bin/lastdb_recompress_atom_content.rs"
+
+[[bin]]
+name = "lastdb_atom_ref_v2_proof"
+path = "src/bin/lastdb_atom_ref_v2_proof.rs"
+
+[[bin]]
+name = "lastdb_storage_recovery_rollback_proof"
+path = "src/bin/lastdb_storage_recovery_rollback_proof.rs"
+
+[features]
+# Sentry crash/unclean-exit telemetry is compiled in by default (DSN-gated at
+# runtime: no OBS_SENTRY_DSN ⇒ no client ⇒ every send is a structural no-op),
+# so the shipped daemon can report crashes when a DSN is provisioned while dev
+# / ephemeral nodes stay silent.
+default = ["cloud-sync", "sentry-telemetry", "purging-allocator"]
+sharing = ["fold_db/sharing"]
+cloud-sync = ["fold_db/cloud-sync", "sharing"]
+sentry-telemetry = ["dep:sentry", "observability/sentry"]
+storage-v2 = ["dep:lastdb_docstore"]
+# The shipped daemon uses mimalloc so LRU eviction returns freed pages to the
+# kernel. Disable default features, then re-enable the product features without
+# this one, to build the system-allocator comparison binary.
+purging-allocator = ["dep:mimalloc", "dep:libmimalloc-sys"]
+# Test-only Sentry transport helpers used by the crash-telemetry event tests.
+sentry-test = ["sentry-telemetry", "sentry/test", "observability/sentry-test"]
+
+[dependencies]
+fold_db = { workspace = true }
+env_flag = { workspace = true }
+laststore = { workspace = true }
+rustix = { version = "1", features = ["fs"] }
+observability = { workspace = true, features = ["otel"] }
+lastdb_uds = { workspace = true }
+lastdb_identity = { workspace = true }
+lastdb_host = { workspace = true }
+lastdb_docstore = { workspace = true, optional = true }
+folddb_profile = { workspace = true }
+schema_types = { workspace = true }
+schema_service_client = { workspace = true }
+schema_service_core = { workspace = true }
+app_identity_crypto = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+async-trait = { workspace = true }
+libc = "0.2"
+signal-hook-registry = "1"
+# Optional Sentry client, bound directly (not via the observability tracing
+# stack) so the daemon keeps its stderr logging + launchd rotation. Feature set
+# mirrors the observability crate's so the client can actually transmit.
+sentry = { workspace = true, optional = true, features = ["backtrace", "contexts", "release-health", "reqwest", "rustls"] }
+# `connect` / cloud-sync deps (pinned like fold_db_node's — reqwest/chrono are
+# deliberately not workspace deps, feature sets diverge per member).
+reqwest = { version = "0.12", features = ["json"] }
+chrono = "0.4"
+bip39 = "2"
+hex = "0.4.3"
+# Deliver seal path (mirrors fold_db_node auth_envelope + connection crypto).
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+base64 = "0.22"
+tempfile = { workspace = true }
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+mimalloc = { version = "=0.1.52", optional = true, features = ["extended"] }
+libmimalloc-sys = { version = "=0.1.49", optional = true, features = ["extended"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mach2 = "0.4"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+serde_json = { workspace = true }
+fold_db = { workspace = true }
+lastdb_uds = { workspace = true }
+
+[[bin]]
+name = "csync_e2e_write"
+path = "src/bin/csync_e2e_write.rs"

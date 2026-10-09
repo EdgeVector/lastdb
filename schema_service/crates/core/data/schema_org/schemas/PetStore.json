@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PetStore",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "95953b38e32ec1346e24dd0966f638cb43af58b37675b569197aac0147921076",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "95953b38e32ec1346e24dd0966f638cb43af58b37675b569197aac0147921076",
+  "purpose_statement": "PetStore",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

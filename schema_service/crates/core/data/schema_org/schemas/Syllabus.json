@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Syllabus",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "f5c99853bab2aa907cdd5e742668dd163ee1b8d79706cdd6446cf34b1fb73a35",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f5c99853bab2aa907cdd5e742668dd163ee1b8d79706cdd6446cf34b1fb73a35",
+  "purpose_statement": "Syllabus",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

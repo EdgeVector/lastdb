@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "HomeAndConstructionBusiness",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "97ad22ba2fb261ce59022a0dc51c12fa446213053cf5d1250a250d845743d2f2",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "97ad22ba2fb261ce59022a0dc51c12fa446213053cf5d1250a250d845743d2f2",
+  "purpose_statement": "HomeAndConstructionBusiness",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

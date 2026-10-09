@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "Seat",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "seat_number": [
+      "word"
+    ],
+    "seat_row": [
+      "word"
+    ],
+    "seat_section": [
+      "word"
+    ],
+    "seating_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "seat_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "seat_row": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "seat_section": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "seating_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "seat_number": "The location of the reserved seat (e.g., 27).",
+    "seat_row": "The row location of the reserved seat (e.g., B).",
+    "seat_section": "The section location of the reserved seat (e.g. Orchestra).",
+    "seating_type": "The type/class of the seat."
+  },
+  "field_types": {
+    "identifier": "String",
+    "seat_number": "String",
+    "seat_row": "String",
+    "seat_section": "String",
+    "seating_type": "String"
+  },
+  "fields": [
+    "identifier",
+    "seat_number",
+    "seat_row",
+    "seat_section",
+    "seating_type"
+  ],
+  "identity_hash": "776f43d8ee03eee4c6416b0071c405c5f4f12dea9415f68f50dea1cceced428e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "776f43d8ee03eee4c6416b0071c405c5f4f12dea9415f68f50dea1cceced428e",
+  "purpose_statement": "Seat",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

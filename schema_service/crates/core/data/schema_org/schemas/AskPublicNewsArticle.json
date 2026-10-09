@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "AskPublicNewsArticle",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "e4c54c7fcceec76a20678d58faabce0e4e2e743222367ad98f2ec50f072bb367",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e4c54c7fcceec76a20678d58faabce0e4e2e743222367ad98f2ec50f072bb367",
+  "purpose_statement": "AskPublicNewsArticle",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,252 @@
+{
+  "descriptive_name": "MerchantReturnPolicy",
+  "field_classifications": {
+    "additional_property": [
+      "word"
+    ],
+    "applicable_country": [
+      "word"
+    ],
+    "customer_remorse_return_fees": [
+      "word"
+    ],
+    "customer_remorse_return_label_source": [
+      "word"
+    ],
+    "customer_remorse_return_shipping_fees_amount": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "in_store_returns_offered": [
+      "word"
+    ],
+    "item_condition": [
+      "word"
+    ],
+    "item_defect_return_fees": [
+      "word"
+    ],
+    "item_defect_return_label_source": [
+      "word"
+    ],
+    "item_defect_return_shipping_fees_amount": [
+      "word"
+    ],
+    "merchant_return_days": [
+      "number"
+    ],
+    "merchant_return_link": [
+      "word"
+    ],
+    "refund_type": [
+      "word"
+    ],
+    "restocking_fee": [
+      "number"
+    ],
+    "return_fees": [
+      "word"
+    ],
+    "return_label_source": [
+      "word"
+    ],
+    "return_method": [
+      "word"
+    ],
+    "return_policy_category": [
+      "word"
+    ],
+    "return_policy_country": [
+      "word"
+    ],
+    "return_policy_seasonal_override": [
+      "word"
+    ],
+    "return_shipping_fees_amount": [
+      "word"
+    ],
+    "valid_for_member_tier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "additional_property": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "applicable_country": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "customer_remorse_return_fees": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "customer_remorse_return_label_source": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "customer_remorse_return_shipping_fees_amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_store_returns_offered": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "item_condition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "item_defect_return_fees": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "item_defect_return_label_source": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "item_defect_return_shipping_fees_amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "merchant_return_days": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "merchant_return_link": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "refund_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "restocking_fee": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "return_fees": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "return_label_source": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "return_method": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "return_policy_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "return_policy_country": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "return_policy_seasonal_override": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "return_shipping_fees_amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "valid_for_member_tier": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "additional_property": "A property-value pair representing an additional characteristic of the entity, e.g. a product feature or another characteristic for which there is no matching property in schema.org.\\n\\nNote: Publishers should be aware that applications designed to use specific schema.org properties (e.g. https://schema.org/width, https://schema.org/color, https://schema.org/gtin13, ...) will typically expect such data to be provided using those properties, rather than using the generic property/value mechanism.",
+    "applicable_country": "A country where a particular merchant return policy applies to, for example the two-letter ISO 3166-1 alpha-2 country code.",
+    "customer_remorse_return_fees": "The type of return fees if the product is returned due to customer remorse.",
+    "customer_remorse_return_label_source": "The method (from an enumeration) by which the customer obtains a return shipping label for a product returned due to customer remorse.",
+    "customer_remorse_return_shipping_fees_amount": "The amount of shipping costs if a product is returned due to customer remorse. Applicable when property [[customerRemorseReturnFees]] equals [[ReturnShippingFees]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_store_returns_offered": "Are in-store returns offered? (For more advanced return methods use the [[returnMethod]] property.)",
+    "item_condition": "A predefined value from OfferItemCondition specifying the condition of the product or service, or the products or services included in the offer. Also used for product return policies to specify the condition of products accepted for returns.",
+    "item_defect_return_fees": "The type of return fees for returns of defect products.",
+    "item_defect_return_label_source": "The method (from an enumeration) by which the customer obtains a return shipping label for a defect product.",
+    "item_defect_return_shipping_fees_amount": "Amount of shipping costs for defect product returns. Applicable when property [[itemDefectReturnFees]] equals [[ReturnShippingFees]].",
+    "merchant_return_days": "Specifies either a fixed return date or the number of days (from the delivery date) that a product can be returned. Used when the [[returnPolicyCategory]] property is specified as [[MerchantReturnFiniteReturnWindow]].",
+    "merchant_return_link": "Specifies a Web page or service by URL, for product returns.",
+    "refund_type": "A refund type, from an enumerated list.",
+    "restocking_fee": "Use [[MonetaryAmount]] to specify a fixed restocking fee for product returns, or use [[Number]] to specify a percentage of the product price paid by the customer.",
+    "return_fees": "The type of return fees for purchased products (for any return reason).",
+    "return_label_source": "The method (from an enumeration) by which the customer obtains a return shipping label for a product returned for any reason.",
+    "return_method": "The type of return method offered, specified from an enumeration.",
+    "return_policy_category": "Specifies an applicable return policy (from an enumeration).",
+    "return_policy_country": "The country where the product has to be sent to for returns, for example \"Ireland\" using the [[name]] property of [[Country]]. You can also provide the two-letter [ISO 3166-1 alpha-2 country code](http://en.wikipedia.org/wiki/ISO_3166-1). Note that this can be different from the country where the product was originally shipped from or sent to.",
+    "return_policy_seasonal_override": "Seasonal override of a return policy.",
+    "return_shipping_fees_amount": "Amount of shipping costs for product returns (for any reason). Applicable when property [[returnFees]] equals [[ReturnShippingFees]].",
+    "valid_for_member_tier": "The membership program tier(s) an Offer (or a PriceSpecification, OfferShippingDetails, or MerchantReturnPolicy under an Offer) is valid for."
+  },
+  "field_types": {
+    "additional_property": "String",
+    "applicable_country": "String",
+    "customer_remorse_return_fees": "String",
+    "customer_remorse_return_label_source": "String",
+    "customer_remorse_return_shipping_fees_amount": "String",
+    "identifier": "String",
+    "in_store_returns_offered": "Boolean",
+    "item_condition": "String",
+    "item_defect_return_fees": "String",
+    "item_defect_return_label_source": "String",
+    "item_defect_return_shipping_fees_amount": "String",
+    "merchant_return_days": "Integer",
+    "merchant_return_link": "String",
+    "refund_type": "String",
+    "restocking_fee": "Float",
+    "return_fees": "String",
+    "return_label_source": "String",
+    "return_method": "String",
+    "return_policy_category": "String",
+    "return_policy_country": "String",
+    "return_policy_seasonal_override": "String",
+    "return_shipping_fees_amount": "String",
+    "valid_for_member_tier": "String"
+  },
+  "fields": [
+    "additional_property",
+    "applicable_country",
+    "customer_remorse_return_fees",
+    "customer_remorse_return_label_source",
+    "customer_remorse_return_shipping_fees_amount",
+    "identifier",
+    "in_store_returns_offered",
+    "item_condition",
+    "item_defect_return_fees",
+    "item_defect_return_label_source",
+    "item_defect_return_shipping_fees_amount",
+    "merchant_return_days",
+    "merchant_return_link",
+    "refund_type",
+    "restocking_fee",
+    "return_fees",
+    "return_label_source",
+    "return_method",
+    "return_policy_category",
+    "return_policy_country",
+    "return_policy_seasonal_override",
+    "return_shipping_fees_amount",
+    "valid_for_member_tier"
+  ],
+  "identity_hash": "cfac44276c46971feca8e18dd2901584222c118dbad52fc3641e63b2d0387185",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "cfac44276c46971feca8e18dd2901584222c118dbad52fc3641e63b2d0387185",
+  "purpose_statement": "MerchantReturnPolicy",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

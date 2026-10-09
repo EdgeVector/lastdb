@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "HowToSupply",
+  "field_classifications": {
+    "estimated_cost": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "estimated_cost": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "estimated_cost": "The estimated cost of the supply or supplies consumed when performing instructions.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "estimated_cost": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "estimated_cost",
+    "identifier"
+  ],
+  "identity_hash": "1a9150d1f93767511863ae633d35fc67f8647e96a268ee14a3ae3aa885f98251",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1a9150d1f93767511863ae633d35fc67f8647e96a268ee14a3ae3aa885f98251",
+  "purpose_statement": "HowToSupply",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

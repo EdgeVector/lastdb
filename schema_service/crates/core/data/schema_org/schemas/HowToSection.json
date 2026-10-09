@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "HowToSection",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "steps": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "steps": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "steps": "A single step item (as HowToStep, text, document, video, etc.) or a HowToSection (originally misnamed 'steps'; 'step' is preferred)."
+  },
+  "field_types": {
+    "identifier": "String",
+    "steps": "String"
+  },
+  "fields": [
+    "identifier",
+    "steps"
+  ],
+  "identity_hash": "d01f60922dd3daf347a2709cceae8be829907d66b59e8028062b5928e892abe3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d01f60922dd3daf347a2709cceae8be829907d66b59e8028062b5928e892abe3",
+  "purpose_statement": "HowToSection",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

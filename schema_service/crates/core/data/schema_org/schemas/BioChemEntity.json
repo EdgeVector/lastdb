@@ -1,0 +1,162 @@
+{
+  "descriptive_name": "BioChemEntity",
+  "field_classifications": {
+    "associated_disease": [
+      "word"
+    ],
+    "bio_chem_interaction": [
+      "word"
+    ],
+    "bio_chem_similarity": [
+      "word"
+    ],
+    "biological_role": [
+      "word"
+    ],
+    "funding": [
+      "word"
+    ],
+    "has_bio_chem_entity_part": [
+      "word"
+    ],
+    "has_molecular_function": [
+      "word"
+    ],
+    "has_representation": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "is_encoded_by_bio_chem_entity": [
+      "word"
+    ],
+    "is_involved_in_biological_process": [
+      "word"
+    ],
+    "is_located_in_subcellular_location": [
+      "word"
+    ],
+    "is_part_of_bio_chem_entity": [
+      "word"
+    ],
+    "taxonomic_range": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "associated_disease": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "bio_chem_interaction": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "bio_chem_similarity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "biological_role": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "funding": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_bio_chem_entity_part": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_molecular_function": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_representation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_encoded_by_bio_chem_entity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_involved_in_biological_process": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_located_in_subcellular_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "is_part_of_bio_chem_entity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "taxonomic_range": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "associated_disease": "Disease associated to this BioChemEntity. Such disease can be a MedicalCondition or a URL. If you want to add an evidence supporting the association, please use PropertyValue.",
+    "bio_chem_interaction": "A BioChemEntity that is known to interact with this item.",
+    "bio_chem_similarity": "A similar BioChemEntity, e.g., obtained by fingerprint similarity algorithms.",
+    "biological_role": "A role played by the BioChemEntity within a biological context.",
+    "funding": "A [[Grant]] that directly or indirectly provide funding or sponsorship for this item. See also [[ownershipFundingInfo]].",
+    "has_bio_chem_entity_part": "Indicates a BioChemEntity that (in some sense) has this BioChemEntity as a part.",
+    "has_molecular_function": "Molecular function performed by this BioChemEntity; please use PropertyValue if you want to include any evidence.",
+    "has_representation": "A common representation such as a protein sequence or chemical structure for this entity. For images use schema.org/image.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_encoded_by_bio_chem_entity": "Another BioChemEntity encoding by this one.",
+    "is_involved_in_biological_process": "Biological process this BioChemEntity is involved in; please use PropertyValue if you want to include any evidence.",
+    "is_located_in_subcellular_location": "Subcellular location where this BioChemEntity is located; please use PropertyValue if you want to include any evidence.",
+    "is_part_of_bio_chem_entity": "Indicates a BioChemEntity that is (in some sense) a part of this BioChemEntity.",
+    "taxonomic_range": "The taxonomic grouping of the organism that expresses, encodes, or in some way related to the BioChemEntity."
+  },
+  "field_types": {
+    "associated_disease": "String",
+    "bio_chem_interaction": "String",
+    "bio_chem_similarity": "String",
+    "biological_role": "String",
+    "funding": "String",
+    "has_bio_chem_entity_part": "String",
+    "has_molecular_function": "String",
+    "has_representation": "String",
+    "identifier": "String",
+    "is_encoded_by_bio_chem_entity": "String",
+    "is_involved_in_biological_process": "String",
+    "is_located_in_subcellular_location": "String",
+    "is_part_of_bio_chem_entity": "String",
+    "taxonomic_range": "String"
+  },
+  "fields": [
+    "associated_disease",
+    "bio_chem_interaction",
+    "bio_chem_similarity",
+    "biological_role",
+    "funding",
+    "has_bio_chem_entity_part",
+    "has_molecular_function",
+    "has_representation",
+    "identifier",
+    "is_encoded_by_bio_chem_entity",
+    "is_involved_in_biological_process",
+    "is_located_in_subcellular_location",
+    "is_part_of_bio_chem_entity",
+    "taxonomic_range"
+  ],
+  "identity_hash": "13c16adc900915e01068743f3d3c62b8e73344896ce2644cdc2c3ab700dfeeb7",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "13c16adc900915e01068743f3d3c62b8e73344896ce2644cdc2c3ab700dfeeb7",
+  "purpose_statement": "BioChemEntity",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

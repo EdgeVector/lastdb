@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "SportsOrganization",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "sport": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "sport": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "sport": "A type of sport (e.g. Baseball)."
+  },
+  "field_types": {
+    "identifier": "String",
+    "sport": "String"
+  },
+  "fields": [
+    "identifier",
+    "sport"
+  ],
+  "identity_hash": "5150b27610464206b20286d6cda1152b3d4010694ecbbcbf4fc24c6912768aa1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5150b27610464206b20286d6cda1152b3d4010694ecbbcbf4fc24c6912768aa1",
+  "purpose_statement": "SportsOrganization",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

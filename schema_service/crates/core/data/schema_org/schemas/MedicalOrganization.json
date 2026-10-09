@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "MedicalOrganization",
+  "field_classifications": {
+    "health_plan_network_id": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "is_accepting_new_patients": [
+      "word"
+    ],
+    "medical_specialty": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "health_plan_network_id": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_accepting_new_patients": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "medical_specialty": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "health_plan_network_id": "Name or unique ID of network. (Networks are often reused across different insurance plans.)",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_accepting_new_patients": "Whether the provider is accepting new patients.",
+    "medical_specialty": "A medical specialty of the provider."
+  },
+  "field_types": {
+    "health_plan_network_id": "String",
+    "identifier": "String",
+    "is_accepting_new_patients": "Boolean",
+    "medical_specialty": "String"
+  },
+  "fields": [
+    "health_plan_network_id",
+    "identifier",
+    "is_accepting_new_patients",
+    "medical_specialty"
+  ],
+  "identity_hash": "58895bb828f7064dd1571aebd7597835ac46be2427aa78d5f3b9eb0d61de8f03",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "58895bb828f7064dd1571aebd7597835ac46be2427aa78d5f3b9eb0d61de8f03",
+  "purpose_statement": "MedicalOrganization",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

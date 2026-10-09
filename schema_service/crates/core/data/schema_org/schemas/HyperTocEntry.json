@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "HyperTocEntry",
+  "field_classifications": {
+    "associated_media": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "toc_continuation": [
+      "word"
+    ],
+    "utterances": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "associated_media": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "toc_continuation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "utterances": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "associated_media": "A media object that encodes this CreativeWork. This property is a synonym for encoding.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "toc_continuation": "A [[HyperTocEntry]] can have a [[tocContinuation]] indicated, which is another [[HyperTocEntry]] that would be the default next item to play or render.",
+    "utterances": "Text of an utterances (spoken words, lyrics etc.) that occurs at a certain section of a media object, represented as a [[HyperTocEntry]]."
+  },
+  "field_types": {
+    "associated_media": "String",
+    "identifier": "String",
+    "toc_continuation": "String",
+    "utterances": "String"
+  },
+  "fields": [
+    "associated_media",
+    "identifier",
+    "toc_continuation",
+    "utterances"
+  ],
+  "identity_hash": "e2cab886f6f6b8ea1d4f6488edb2158f355bf39128e40202dc915b48656ea531",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e2cab886f6f6b8ea1d4f6488edb2158f355bf39128e40202dc915b48656ea531",
+  "purpose_statement": "HyperTocEntry",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

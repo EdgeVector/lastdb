@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "SizeSpecification",
+  "field_classifications": {
+    "has_measurement": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "size_group": [
+      "word"
+    ],
+    "size_system": [
+      "word"
+    ],
+    "suggested_age": [
+      "word"
+    ],
+    "suggested_gender": [
+      "word"
+    ],
+    "suggested_measurement": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "has_measurement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "size_group": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "size_system": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suggested_age": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suggested_gender": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suggested_measurement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "has_measurement": "A measurement of an item, For example, the inseam of pants, the wheel size of a bicycle, the gauge of a screw, or the carbon footprint measured for certification by an authority. Usually an exact measurement, but can also be a range of measurements for adjustable products, for example belts and ski bindings.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "size_group": "The size group (also known as \"size type\") for a product's size. Size groups are common in the fashion industry to define size segments and suggested audiences for wearable products. Multiple values can be combined, for example \"men's big and tall\", \"petite maternity\" or \"regular\".",
+    "size_system": "The size system used to identify a product's size. Typically either a standard (for example, \"GS1\" or \"ISO-EN13402\"), country code (for example \"US\" or \"JP\"), or a measuring system (for example \"Metric\" or \"Imperial\").",
+    "suggested_age": "The age or age range for the intended audience or person, for example 3-12 months for infants, 1-5 years for toddlers.",
+    "suggested_gender": "The suggested gender of the intended person or audience, for example \"male\", \"female\", or \"unisex\".",
+    "suggested_measurement": "A suggested range of body measurements for the intended audience or person, for example inseam between 32 and 34 inches or height between 170 and 190 cm. Typically found on a size chart for wearable products."
+  },
+  "field_types": {
+    "has_measurement": "String",
+    "identifier": "String",
+    "size_group": "String",
+    "size_system": "String",
+    "suggested_age": "String",
+    "suggested_gender": "String",
+    "suggested_measurement": "String"
+  },
+  "fields": [
+    "has_measurement",
+    "identifier",
+    "size_group",
+    "size_system",
+    "suggested_age",
+    "suggested_gender",
+    "suggested_measurement"
+  ],
+  "identity_hash": "522e73d5cf772b70bca6f93f2575ea68ed4d569f0b88d63e13b9f44e411e92ad",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "522e73d5cf772b70bca6f93f2575ea68ed4d569f0b88d63e13b9f44e411e92ad",
+  "purpose_statement": "SizeSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

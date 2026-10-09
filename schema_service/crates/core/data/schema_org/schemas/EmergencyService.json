@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "EmergencyService",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "2a3603590a461a0832ab65352dfc8d98155077f298717445eea4b0684820ba21",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2a3603590a461a0832ab65352dfc8d98155077f298717445eea4b0684820ba21",
+  "purpose_statement": "EmergencyService",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

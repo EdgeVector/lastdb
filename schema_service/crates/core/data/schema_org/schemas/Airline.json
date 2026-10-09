@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Airline",
+  "field_classifications": {
+    "boarding_policy": [
+      "word"
+    ],
+    "iata_code": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "boarding_policy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "iata_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "boarding_policy": "The type of boarding policy used by the airline (e.g. zone-based or group-based).",
+    "iata_code": "IATA identifier for an airline or airport.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "boarding_policy": "String",
+    "iata_code": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "boarding_policy",
+    "iata_code",
+    "identifier"
+  ],
+  "identity_hash": "c55a837ce2c7fdc8a05c7aac2467aa838219df5ac9995503b40425c5f670e83f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c55a837ce2c7fdc8a05c7aac2467aa838219df5ac9995503b40425c5f670e83f",
+  "purpose_statement": "Airline",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

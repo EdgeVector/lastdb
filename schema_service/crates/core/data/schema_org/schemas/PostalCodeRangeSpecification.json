@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "PostalCodeRangeSpecification",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "postal_code_begin": [
+      "word"
+    ],
+    "postal_code_end": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "postal_code_begin": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "postal_code_end": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "postal_code_begin": "First postal code in a range (included).",
+    "postal_code_end": "Last postal code in the range (included). Needs to be after [[postalCodeBegin]]."
+  },
+  "field_types": {
+    "identifier": "String",
+    "postal_code_begin": "String",
+    "postal_code_end": "String"
+  },
+  "fields": [
+    "identifier",
+    "postal_code_begin",
+    "postal_code_end"
+  ],
+  "identity_hash": "87713271f076a539250d85ce5e713da00e3ef5f177bf3394e1f9efba44ff2ee0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "87713271f076a539250d85ce5e713da00e3ef5f177bf3394e1f9efba44ff2ee0",
+  "purpose_statement": "PostalCodeRangeSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "ReplyAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "result_comment": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "result_comment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "result_comment": "A sub property of result. The Comment created or sent as a result of this action."
+  },
+  "field_types": {
+    "identifier": "String",
+    "result_comment": "String"
+  },
+  "fields": [
+    "identifier",
+    "result_comment"
+  ],
+  "identity_hash": "87277a5df0e0c55d7fa826bd8d8f79ba9d33efdecd4f07d05406dc222b5cfb35",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "87277a5df0e0c55d7fa826bd8d8f79ba9d33efdecd4f07d05406dc222b5cfb35",
+  "purpose_statement": "ReplyAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

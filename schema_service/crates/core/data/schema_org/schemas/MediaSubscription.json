@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "MediaSubscription",
+  "field_classifications": {
+    "authenticator": [
+      "word"
+    ],
+    "expects_acceptance_of": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "authenticator": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "expects_acceptance_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "authenticator": "The Organization responsible for authenticating the user's subscription. For example, many media apps require a cable/satellite provider to authenticate your subscription before playing media.",
+    "expects_acceptance_of": "An Offer which must be accepted before the user can perform the Action. For example, the user may need to buy a movie before being able to watch it.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "authenticator": "String",
+    "expects_acceptance_of": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "authenticator",
+    "expects_acceptance_of",
+    "identifier"
+  ],
+  "identity_hash": "0aeb96ff49702fac49b1c39d088ac5b9241e80ebe6b5d4727e5a5d0455aba7db",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "0aeb96ff49702fac49b1c39d088ac5b9241e80ebe6b5d4727e5a5d0455aba7db",
+  "purpose_statement": "MediaSubscription",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

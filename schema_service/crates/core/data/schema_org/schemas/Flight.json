@@ -1,0 +1,182 @@
+{
+  "descriptive_name": "Flight",
+  "field_classifications": {
+    "aircraft": [
+      "word"
+    ],
+    "arrival_airport": [
+      "word"
+    ],
+    "arrival_gate": [
+      "word"
+    ],
+    "arrival_terminal": [
+      "word"
+    ],
+    "boarding_policy": [
+      "word"
+    ],
+    "carrier": [
+      "word"
+    ],
+    "departure_airport": [
+      "word"
+    ],
+    "departure_gate": [
+      "word"
+    ],
+    "departure_terminal": [
+      "word"
+    ],
+    "estimated_flight_duration": [
+      "word"
+    ],
+    "flight_distance": [
+      "word"
+    ],
+    "flight_number": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "meal_service": [
+      "word"
+    ],
+    "seller": [
+      "word"
+    ],
+    "web_checkin_time": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "aircraft": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "arrival_airport": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "arrival_gate": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "arrival_terminal": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "boarding_policy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "carrier": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "departure_airport": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "departure_gate": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "departure_terminal": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "estimated_flight_duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "flight_distance": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "flight_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "meal_service": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "seller": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "web_checkin_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "aircraft": "The kind of aircraft (e.g., \"Boeing 747\").",
+    "arrival_airport": "The airport where the flight terminates.",
+    "arrival_gate": "Identifier of the flight's arrival gate.",
+    "arrival_terminal": "Identifier of the flight's arrival terminal.",
+    "boarding_policy": "The type of boarding policy used by the airline (e.g. zone-based or group-based).",
+    "carrier": "'carrier' is an out-dated term indicating the 'provider' for parcel delivery and flights.",
+    "departure_airport": "The airport where the flight originates.",
+    "departure_gate": "Identifier of the flight's departure gate.",
+    "departure_terminal": "Identifier of the flight's departure terminal.",
+    "estimated_flight_duration": "The estimated time the flight will take.",
+    "flight_distance": "The distance of the flight.",
+    "flight_number": "The unique identifier for a flight including the airline IATA code. For example, if describing United flight 110, where the IATA code for United is 'UA', the flightNumber is 'UA110'.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "meal_service": "Description of the meals that will be provided or available for purchase.",
+    "seller": "An entity which offers (sells / leases / lends / loans) the services / goods.  A seller may also be a provider.",
+    "web_checkin_time": "The time when a passenger can check into the flight online."
+  },
+  "field_types": {
+    "aircraft": "String",
+    "arrival_airport": "String",
+    "arrival_gate": "String",
+    "arrival_terminal": "String",
+    "boarding_policy": "String",
+    "carrier": "String",
+    "departure_airport": "String",
+    "departure_gate": "String",
+    "departure_terminal": "String",
+    "estimated_flight_duration": "String",
+    "flight_distance": "String",
+    "flight_number": "String",
+    "identifier": "String",
+    "meal_service": "String",
+    "seller": "String",
+    "web_checkin_time": "String"
+  },
+  "fields": [
+    "aircraft",
+    "arrival_airport",
+    "arrival_gate",
+    "arrival_terminal",
+    "boarding_policy",
+    "carrier",
+    "departure_airport",
+    "departure_gate",
+    "departure_terminal",
+    "estimated_flight_duration",
+    "flight_distance",
+    "flight_number",
+    "identifier",
+    "meal_service",
+    "seller",
+    "web_checkin_time"
+  ],
+  "identity_hash": "3c5c25fa31dfecd837d5fe9a547654a57f207133afb657d6aef59c44c0bbf7f8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3c5c25fa31dfecd837d5fe9a547654a57f207133afb657d6aef59c44c0bbf7f8",
+  "purpose_statement": "Flight",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

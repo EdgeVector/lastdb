@@ -1,0 +1,122 @@
+{
+  "descriptive_name": "Review",
+  "field_classifications": {
+    "associated_claim_review": [
+      "word"
+    ],
+    "associated_media_review": [
+      "word"
+    ],
+    "associated_review": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "item_reviewed": [
+      "word"
+    ],
+    "negative_notes": [
+      "word"
+    ],
+    "positive_notes": [
+      "word"
+    ],
+    "review_aspect": [
+      "word"
+    ],
+    "review_body": [
+      "word"
+    ],
+    "review_rating": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "associated_claim_review": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "associated_media_review": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "associated_review": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "item_reviewed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "negative_notes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "positive_notes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "review_aspect": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "review_body": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "review_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "associated_claim_review": "An associated [[ClaimReview]], related by specific common content, topic or claim. The expectation is that this property would be most typically used in cases where a single activity is conducting both claim reviews and media reviews, in which case [[relatedMediaReview]] would commonly be used on a [[ClaimReview]], while [[associatedClaimReview]] would be used on [[MediaReview]].",
+    "associated_media_review": "An associated [[MediaReview]], related by specific common content, topic or claim. The expectation is that this property would be most typically used in cases where a single activity is conducting both claim reviews and media reviews, in which case [[relatedMediaReview]] would commonly be used on a [[ClaimReview]], while [[associatedClaimReview]] would be used on [[MediaReview]].",
+    "associated_review": "An associated [[Review]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "item_reviewed": "The item that is being reviewed/rated.",
+    "negative_notes": "Provides negative considerations regarding something, most typically in pro/con lists for reviews (alongside [[positiveNotes]]). For symmetry \n\nIn the case of a [[Review]], the property describes the [[itemReviewed]] from the perspective of the review; in the case of a [[Product]], the product itself is being described. Since product descriptions \ntend to emphasise positive claims, it may be relatively unusual to find [[negativeNotes]] used in this way. Nevertheless for the sake of symmetry, [[negativeNotes]] can be used on [[Product]].\n\nThe property values can be expressed either as unstructured text (repeated as necessary), or if ordered, as a list (in which case the most negative is at the beginning of the list).",
+    "positive_notes": "Provides positive considerations regarding something, for example product highlights or (alongside [[negativeNotes]]) pro/con lists for reviews.\n\nIn the case of a [[Review]], the property describes the [[itemReviewed]] from the perspective of the review; in the case of a [[Product]], the product itself is being described.\n\nThe property values can be expressed either as unstructured text (repeated as necessary), or if ordered, as a list (in which case the most positive is at the beginning of the list).",
+    "review_aspect": "This Review or Rating is relevant to this part or facet of the itemReviewed.",
+    "review_body": "The actual body of the review.",
+    "review_rating": "The rating given in this review. Note that reviews can themselves be rated. The ```reviewRating``` applies to rating given by the review. The [[aggregateRating]] property applies to the review itself, as a creative work."
+  },
+  "field_types": {
+    "associated_claim_review": "String",
+    "associated_media_review": "String",
+    "associated_review": "String",
+    "identifier": "String",
+    "item_reviewed": "String",
+    "negative_notes": "String",
+    "positive_notes": "String",
+    "review_aspect": "String",
+    "review_body": "String",
+    "review_rating": "String"
+  },
+  "fields": [
+    "associated_claim_review",
+    "associated_media_review",
+    "associated_review",
+    "identifier",
+    "item_reviewed",
+    "negative_notes",
+    "positive_notes",
+    "review_aspect",
+    "review_body",
+    "review_rating"
+  ],
+  "identity_hash": "70fb70df7f824b7b02593ab8f529700b36e804511a05a3b0cf2e8748c380a2ca",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "70fb70df7f824b7b02593ab8f529700b36e804511a05a3b0cf2e8748c380a2ca",
+  "purpose_statement": "Review",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

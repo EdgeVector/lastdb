@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "LocalBusiness",
+  "field_classifications": {
+    "branch_of": [
+      "word"
+    ],
+    "currencies_accepted": [
+      "word"
+    ],
+    "floor_level": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "opening_hours": [
+      "word"
+    ],
+    "payment_accepted": [
+      "word"
+    ],
+    "price_range": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "branch_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "currencies_accepted": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "floor_level": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "opening_hours": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "payment_accepted": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "price_range": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "branch_of": "The larger organization that this local business is a branch of, if any. Not to be confused with (anatomical) [[branch]].",
+    "currencies_accepted": "The currency accepted.\\n\\nUse standard formats: [ISO 4217 currency format](http://en.wikipedia.org/wiki/ISO_4217), e.g. \"USD\"; [Ticker symbol](https://en.wikipedia.org/wiki/List_of_cryptocurrencies) for cryptocurrencies, e.g. \"BTC\"; well known names for [Local Exchange Trading Systems](https://en.wikipedia.org/wiki/Local_exchange_trading_system) (LETS) and other currency types, e.g. \"Ithaca HOUR\".",
+    "floor_level": "The floor level for an [[Accommodation]] in a multi-storey building. Since counting\n  systems [vary internationally](https://en.wikipedia.org/wiki/Storey#Consecutive_number_floor_designations), the local system should be used where possible.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "opening_hours": "The general opening hours for a business. Opening hours can be specified as a weekly time range, starting with days, then times per day. Multiple days can be listed with commas ',' separating each day. Day or time ranges are specified using a hyphen '-'.\\n\\n* Days are specified using the following two-letter combinations: ```Mo```, ```Tu```, ```We```, ```Th```, ```Fr```, ```Sa```, ```Su```.\\n* Times are specified using 24:00 format. For example, 3pm is specified as ```15:00```, 10am as ```10:00```. \\n* Here is an example: <code>&lt;time itemprop=\"openingHours\" datetime=&quot;Tu,Th 16:00-20:00&quot;&gt;Tuesdays and Thursdays 4-8pm&lt;/time&gt;</code>.\\n* If a business is open 7 days a week, then it can be specified as <code>&lt;time itemprop=&quot;openingHours&quot; datetime=&quot;Mo-Su&quot;&gt;Monday through Sunday, all day&lt;/time&gt;</code>.",
+    "payment_accepted": "Cash, Credit Card, Cryptocurrency, Local Exchange Tradings System, etc.",
+    "price_range": "The price range of the business, for example ```$$$```."
+  },
+  "field_types": {
+    "branch_of": "String",
+    "currencies_accepted": "String",
+    "floor_level": "String",
+    "identifier": "String",
+    "opening_hours": "String",
+    "payment_accepted": "String",
+    "price_range": "String"
+  },
+  "fields": [
+    "branch_of",
+    "currencies_accepted",
+    "floor_level",
+    "identifier",
+    "opening_hours",
+    "payment_accepted",
+    "price_range"
+  ],
+  "identity_hash": "acffb6984642672a6d1aa1d1055644487fa6c2a6cd69f5a0562562061a6e9a0a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "acffb6984642672a6d1aa1d1055644487fa6c2a6cd69f5a0562562061a6e9a0a",
+  "purpose_statement": "LocalBusiness",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "MemberProgram",
+  "field_classifications": {
+    "has_tiers": [
+      "word"
+    ],
+    "hosting_organization": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "has_tiers": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "hosting_organization": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "has_tiers": "The tiers of a member program.",
+    "hosting_organization": "The Organization (airline, travelers' club, retailer, etc.) the membership is made with or which offers the  MemberProgram.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "has_tiers": "String",
+    "hosting_organization": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "has_tiers",
+    "hosting_organization",
+    "identifier"
+  ],
+  "identity_hash": "d360f25635f064bb67ff6f00e171229e662499eaa762515171b688c7aede55a1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d360f25635f064bb67ff6f00e171229e662499eaa762515171b688c7aede55a1",
+  "purpose_statement": "MemberProgram",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@lastdb/app-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turnkey starter for building an app on lastdb with @lastdb/app-sdk: connect -> consent -> mutate -> query.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsc -p tsconfig.json && node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@lastdb/app-sdk": "file:../../lastdb_app_sdk"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

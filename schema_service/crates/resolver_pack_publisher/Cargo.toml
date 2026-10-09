@@ -1,0 +1,39 @@
+[package]
+name = "schema_resolver_pack_publisher"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Local operator CLI for signing and publishing Schema Resolver Packs."
+
+[[bin]]
+name = "schema_resolver_pack_publish"
+path = "src/bin/schema_resolver_pack_publish.rs"
+
+[features]
+default = []
+# Recompute pack embeddings via FastEmbed when the snapshot strips them
+# (production GET /v1/snapshot drops embedding payloads for size).
+recompute-embeddings = [
+    "dep:schema_service_server_shared",
+    "schema_service_server_shared/fastembed",
+]
+
+[dependencies]
+schema_service_core = { path = "../core" }
+schema_service_server_shared = { path = "../server_shared", optional = true }
+app_identity_crypto = { workspace = true }
+schema_types = { workspace = true }
+
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+
+aes-gcm = "0.10"
+base64 = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+clap = { workspace = true, features = ["env"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "EducationalAudience",
+  "field_classifications": {
+    "educational_role": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "educational_role": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "educational_role": "An educationalRole of an EducationalAudience.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "educational_role": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "educational_role",
+    "identifier"
+  ],
+  "identity_hash": "a2568bf941fcc3053c9b74d80e962ab781ec91febc8ba2a453e893b78cef979a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a2568bf941fcc3053c9b74d80e962ab781ec91febc8ba2a453e893b78cef979a",
+  "purpose_statement": "EducationalAudience",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

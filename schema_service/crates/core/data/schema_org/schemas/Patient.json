@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "Patient",
+  "field_classifications": {
+    "diagnosis": [
+      "word"
+    ],
+    "drug": [
+      "word"
+    ],
+    "health_condition": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "diagnosis": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "drug": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "health_condition": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "diagnosis": "One or more alternative conditions considered in the differential diagnosis process as output of a diagnosis process.",
+    "drug": "Specifying a drug or medicine used in a medication procedure.",
+    "health_condition": "Specifying the health condition(s) of a patient, medical study, or other target audience.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "diagnosis": "String",
+    "drug": "String",
+    "health_condition": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "diagnosis",
+    "drug",
+    "health_condition",
+    "identifier"
+  ],
+  "identity_hash": "8f65968d31ab26a98e059eb1d529dfbc127c0b7f36157151cde2cfafb25704eb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8f65968d31ab26a98e059eb1d529dfbc127c0b7f36157151cde2cfafb25704eb",
+  "purpose_statement": "Patient",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

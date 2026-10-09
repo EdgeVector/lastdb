@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "MusicRecording",
+  "field_classifications": {
+    "by_artist": [
+      "word"
+    ],
+    "duration": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "in_album": [
+      "word"
+    ],
+    "in_playlist": [
+      "word"
+    ],
+    "isrc_code": [
+      "word"
+    ],
+    "recording_of": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "by_artist": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_album": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "in_playlist": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "isrc_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "recording_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "by_artist": "The artist that performed this album or recording.",
+    "duration": "The duration of the item (movie, audio recording, event, etc.) in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_album": "The album to which this recording belongs.",
+    "in_playlist": "The playlist to which this recording belongs.",
+    "isrc_code": "The International Standard Recording Code for the recording.",
+    "recording_of": "The composition this track is a recording of."
+  },
+  "field_types": {
+    "by_artist": "String",
+    "duration": "String",
+    "identifier": "String",
+    "in_album": "String",
+    "in_playlist": "String",
+    "isrc_code": "String",
+    "recording_of": "String"
+  },
+  "fields": [
+    "by_artist",
+    "duration",
+    "identifier",
+    "in_album",
+    "in_playlist",
+    "isrc_code",
+    "recording_of"
+  ],
+  "identity_hash": "0985f8f64af50353f23e280221f631746ecddde58150caf16e24d31e7967f7c1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "0985f8f64af50353f23e280221f631746ecddde58150caf16e24d31e7967f7c1",
+  "purpose_statement": "MusicRecording",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

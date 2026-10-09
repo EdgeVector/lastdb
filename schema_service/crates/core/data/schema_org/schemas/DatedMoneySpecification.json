@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "DatedMoneySpecification",
+  "field_classifications": {
+    "amount": [
+      "number"
+    ],
+    "currency": [
+      "word"
+    ],
+    "end_date": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "start_date": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 0
+    },
+    "end_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "start_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "amount": "The amount of money.",
+    "currency": "The currency in which the monetary amount is expressed.\\n\\nUse standard formats: [ISO 4217 currency format](http://en.wikipedia.org/wiki/ISO_4217), e.g. \"USD\"; [Ticker symbol](https://en.wikipedia.org/wiki/List_of_cryptocurrencies) for cryptocurrencies, e.g. \"BTC\"; well known names for [Local Exchange Trading Systems](https://en.wikipedia.org/wiki/Local_exchange_trading_system) (LETS) and other currency types, e.g. \"Ithaca HOUR\".",
+    "end_date": "The end date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601)).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "start_date": "The start date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601))."
+  },
+  "field_types": {
+    "amount": "Number",
+    "currency": "String",
+    "end_date": "String",
+    "identifier": "String",
+    "start_date": "String"
+  },
+  "fields": [
+    "amount",
+    "currency",
+    "end_date",
+    "identifier",
+    "start_date"
+  ],
+  "identity_hash": "ed1656b9169fc780620e71815c5a7999452cda8de9e42bbd6d1160b4edd62190",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ed1656b9169fc780620e71815c5a7999452cda8de9e42bbd6d1160b4edd62190",
+  "purpose_statement": "DatedMoneySpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

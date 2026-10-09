@@ -1,0 +1,542 @@
+name: CI
+
+# Since 2026-09-29 GitHub is fold's gate of record again
+# (decision-2026-09-29-fold-venue-back-to-github). The required merge gate is
+# `.github/workflows/ci-required.yml` (job `ci-required`), which runs on every
+# pull request and every push to main. This file is the heavier full-matrix
+# workflow. It stays manual-only (workflow_dispatch) so the ~2,000 runner-minute
+# matrix does not run on every push; dispatch it for emergencies or a full audit.
+# The release-train workflow (release.yml) is unaffected.
+#
+# This workflow runs NO tests (Tom, 2026-10-09: the tests flaked and gave no
+# signal). It keeps clippy, fmt, lints, supply-chain checks, and builds.
+#
+# Mini-only matrix (2026-07-12 cutover phases 1+2): fold_db_node,
+# file_to_markdown, face-detection, Tauri/DMG, and desktop smoke jobs are
+# gone. Families cover fold_db, schema_service, support crates, and the
+# lastdb_* Mini lane.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    if: github.event_name != 'merge_group'
+    uses: EdgeVector/.github/.github/workflows/check-paths.yml@main
+    secrets: inherit
+
+  # Local override for the heavy Rust build/test suite. The org-wide `changes`
+  # workflow intentionally treats workflow YAML as Rust-affecting because CI
+  # config can change how code is built. This narrower repo policy carves out
+  # only paths where Rust CI cannot add signal: Markdown/docs and selected
+  # release/notification workflows. Keep `.github/workflows/ci.yml` out of the
+  # allowlist so edits to the PR/merge-queue gate still run the full suite.
+  rust_suite_paths:
+    if: github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rust_suite: ${{ steps.filter.outputs.rust_suite }}
+      reason: ${{ steps.filter.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_SHA:-}" ] || [ -z "${HEAD_SHA:-}" ] || [[ "${BASE_SHA}" =~ ^0+$ ]]; then
+            ruby scripts/ci/rust-suite-path-filter.rb --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+            | ruby scripts/ci/rust-suite-path-filter.rb --github-output "$GITHUB_OUTPUT"
+
+  # Fine-grained, fold-specific path filter the COARSE org `changes` filter
+  # (rust/frontend/cdk/docs) can't express. Maps the changed paths onto crate
+  # FAMILIES via the Cargo reverse-dependency graph, then plans the
+  # rust-test / rust-doctest / clippy matrices as the union of the touched
+  # families' shards (scripts/ci/plan-rust-ci-matrices.rb). A family's filter
+  # lists its own crate directories plus every workspace directory it depends
+  # on (verified against `cargo metadata`), so gating is DIRECTIONAL:
+  # lastdb_* (Mini) sits at the top of the graph, so a mini-only PR runs only
+  # mini shards, while a fold_db (base-of-graph) PR still fans out everywhere.
+  # Selection fails closed three ways:
+  # - workspace-level files (manifests, lockfile, toolchain, .cargo/.config,
+  #   nextest/deny config, scripts, workflow YAML) force every family;
+  # - the `rest` complement shard and `fmt` always run with the suite, so a
+  #   newly-added crate is never silently dropped;
+  # - non-Cargo coupling stays inside lastdb_node (the Mini integration
+  #   surface), whose family runs on any dependency's change.
+  #
+  # Underscore name (not `fold-paths`): a hyphen is illegal in the
+  # `needs.<job>.outputs.*` expression dereference the gated jobs use.
+  fold_paths:
+    needs: [changes, rust_suite_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # The fold_db + Mini (lastdb_*) compile closure:
+      # fold_db, lastdb_node/host/uds/identity, schema_service core/client,
+      # observability, app_identity_crypto, folddb_profile. Any
+      # workspace-root manifest / lock / toolchain / cargo-config / CI
+      # workflow / lint-script change that reaches the Rust suite forces it
+      # on (those can shift any in-workspace crate's build).
+      mini: ${{ steps.f.outputs.mini }}
+      fold_db: ${{ steps.f.outputs.fold_db }}
+      schema: ${{ steps.f.outputs.schema }}
+      support: ${{ steps.f.outputs.support }}
+      # Family-gated matrices for the three big matrix jobs. `[]` when no
+      # family is touched (the jobs then run only their always-on shards).
+      test_matrix: ${{ steps.plan.outputs.test_matrix }}
+      doctest_matrix: ${{ steps.plan.outputs.doctest_matrix }}
+      clippy_matrix: ${{ steps.plan.outputs.clippy_matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: f
+        uses: dorny/paths-filter@v4
+        with:
+          # Shared fail-closed globs, repeated per filter because
+          # dorny/paths-filter has no YAML-anchor support in this block:
+          # Cargo.toml, Cargo.lock, rust-toolchain.toml, nextest.toml,
+          # deny.toml, .cargo/**, .config/**, scripts/**,
+          # .github/workflows/**.
+          filters: |
+            mini:
+              - 'lastdb_node/**'
+              - 'lastdb_host/**'
+              - 'lastdb_uds/**'
+              - 'lastdb_identity/**'
+              - 'fold_db/**'
+              - 'schema_service/**'
+              - 'app_identity_crypto/**'
+              - 'folddb_profile/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'nextest.toml'
+              - 'deny.toml'
+              - '.cargo/**'
+              - '.config/**'
+              - 'scripts/**'
+              - '.github/workflows/**'
+            # fold_db family = fold_db + observability, whose workspace deps
+            # are app_identity_crypto and folddb_profile (via observability).
+            fold_db:
+              - 'fold_db/**'
+              - 'app_identity_crypto/**'
+              - 'folddb_profile/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'nextest.toml'
+              - 'deny.toml'
+              - '.cargo/**'
+              - '.config/**'
+              - 'scripts/**'
+              - '.github/workflows/**'
+            # schema family = every schema_service crate; deps reach fold_db,
+            # app_identity_crypto and folddb_profile (via observability).
+            schema:
+              - 'schema_service/**'
+              - 'fold_db/**'
+              - 'app_identity_crypto/**'
+              - 'folddb_profile/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'nextest.toml'
+              - 'deny.toml'
+              - '.cargo/**'
+              - '.config/**'
+              - 'scripts/**'
+              - '.github/workflows/**'
+            # support family = app_identity_crypto, folddb_profile,
+            # generate_* (under schema_service/scripts).
+            support:
+              - 'app_identity_crypto/**'
+              - 'folddb_profile/**'
+              - 'schema_service/**'
+              - 'fold_db/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'nextest.toml'
+              - 'deny.toml'
+              - '.cargo/**'
+              - '.config/**'
+              - 'scripts/**'
+              - '.github/workflows/**'
+      - name: Plan rust matrices
+        id: plan
+        env:
+          FAM_MINI: ${{ steps.f.outputs.mini }}
+          FAM_FOLD_DB: ${{ steps.f.outputs.fold_db }}
+          FAM_SCHEMA: ${{ steps.f.outputs.schema }}
+          FAM_SUPPORT: ${{ steps.f.outputs.support }}
+        run: ruby scripts/ci/plan-rust-ci-matrices.rb --github-output "$GITHUB_OUTPUT"
+
+  # fmt + clippy. This is part of the pre-queue PR gate: compile the
+  # workspace in check mode (incl. benches + examples) and lint it before the
+  # PR is allowed into the merge queue. The matrix comes from the fold_paths
+  # family planner: package-family shards for the touched families, plus the
+  # always-on fmt + rest-complement shards.
+  #
+  # The lints and builds below follow the same pre-queue pattern. The
+  # merge queue itself should only run the `ci-required` umbrella over skipped /
+  # already-green jobs, so queue ejection is trivial and failures are visible on
+  # the PR before enqueue.
+  clippy:
+    name: Clippy + fmt (${{ matrix.shard }})
+    needs: [changes, rust_suite_paths, fold_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    # Runner comes from the matrix planner (scripts/ci/plan-rust-ci-matrices.rb)
+    # so the planned Rust package-family shards stay on the self-hosted Linux
+    # runner without changing check names.
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.fold_paths.outputs.clippy_matrix) }}
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      # Check mode (no codegen/link), so the RAM ceiling that capped the old
+      # combined job at 2 doesn't apply here.
+      CARGO_BUILD_JOBS: "3"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup show active-toolchain
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v3-clippy-${{ matrix.shard }}"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Check formatting
+        if: matrix.shard == 'fmt'
+        run: cargo fmt --all -- --check
+      # fold_dev_node (the dev/test node) is excluded from this shared gate and
+      # runs in its own path-gated `dev-node` job below.
+      - name: Clippy
+        if: matrix.shard != 'fmt'
+        run: |
+          if [ "${{ matrix.args }}" = "dynamic-rest-complement" ]; then
+            mapfile -t packages < <(
+              cargo metadata --no-deps --format-version 1 \
+                | jq -r '.packages[].name' \
+                | grep -Ev '^(fold_db|observability|lastdb_node|lastdb_host|lastdb_uds|lastdb_identity|schema_service_core|schema_service_client|schema_service_server_shared|wasm_compiler|schema_service_server_http|schema_service_server_lambda|schema_service_worker|schema_service_s3|app_identity_crypto|folddb_profile|generate_schema_org_classifications|generate_validated_schema_org_seeds)$' \
+                | sort
+            )
+            if [ "${#packages[@]}" -eq 0 ]; then
+              echo "No unassigned workspace packages selected for clippy rest complement"
+              exit 0
+            fi
+            cmd=(cargo clippy)
+            for package in "${packages[@]}"; do
+              cmd+=(-p "$package")
+            done
+            cmd+=(--all-targets -- -D warnings)
+            "${cmd[@]}"
+          else
+            cargo clippy ${{ matrix.args }} --all-targets -- -D warnings
+          fi
+
+  redaction-lint:
+    name: Redaction Lint
+    needs: [changes, rust_suite_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ripgrep
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo grep -rl 'packages.microsoft.com' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null | xargs -r sudo rm -f
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ripgrep
+          fi
+      - name: Redaction lint (fold_db + schema_service + lastdb_*)
+        run: bash scripts/lints/lint-redaction.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity
+
+  spawn-instrument-lint:
+    name: Spawn Instrument Lint
+    needs: [changes, rust_suite_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ripgrep
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo grep -rl 'packages.microsoft.com' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null | xargs -r sudo rm -f
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ripgrep
+          fi
+      - name: Spawn-instrument lint (schema_service + lastdb_*)
+        run: bash scripts/lints/lint-spawn-instrument.sh --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host
+
+  tracing-egress-lint:
+    name: Tracing Egress Lint
+    needs: [changes, rust_suite_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ripgrep
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo grep -rl 'packages.microsoft.com' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null | xargs -r sudo rm -f
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ripgrep
+          fi
+      - name: Tracing-egress lint --strict (fold_db + schema_service + lastdb_*)
+        run: bash scripts/lints/lint-tracing-egress.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity --strict
+
+  no-hardcoded-urls-lint:
+    name: No Hardcoded URLs Lint
+    needs: [changes, rust_suite_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Hardcoded-URL lint
+        run: bash scripts/lints/lint-no-hardcoded-urls.sh
+
+  workspace-edition-lint:
+    name: Workspace Edition Lint
+    needs: [changes, rust_suite_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Workspace member edition inheritance lint
+        run: bash scripts/lints/lint-workspace-edition-inheritance.sh
+
+  byte-slice-lint:
+    name: Byte Slice Lint
+    needs: [changes, rust_suite_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ripgrep
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo grep -rl 'packages.microsoft.com' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null | xargs -r sudo rm -f
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ripgrep
+          fi
+      - name: UTF-8-safe byte-slice lint (fold_db + schema_service + lastdb_*)
+        run: bash scripts/lints/lint-byte-slice.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity
+
+  # Regression tests for run.sh's process-sweep helpers. They source the
+  # function definitions from run.sh, spawn `sleep`-based stubs that
+  # impersonate `folddb_server` in argv, then assert sweep_orphan_servers
+  # makes the right kill/skip decision. No real binaries built. The host
+  # tools used (pgrep, ps, kill, lsof, mktemp, awk) ship by default on
+  # ubuntu-latest, so no apt step is needed.
+  unused-deps-lint:
+    name: Unused Dependencies (cargo-machete)
+    needs: [changes, rust_suite_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+      - name: Workspace
+        run: cargo-machete --skip-target-dir
+
+  # Supply-chain check: RustSec advisories, license policy, banned crates,
+  # source registries. Config: deny.toml at the workspace root. This is part
+  # of `ci-required`, so supply-chain failures block the merge gate.
+  cargo-deny-lint:
+    name: Supply Chain (cargo-deny)
+    needs: [changes, rust_suite_paths]
+    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Workspace
+        run: cargo deny --workspace check
+
+  # The `examples/app-starter` onboarding starter (a TypeScript app that
+  # path-deps the in-repo `@lastdb/app-sdk`) needs a gate too, or a starter
+  # that stops type-checking against an SDK API change reaches `main` silently
+  # — exactly the drift the path-dep is meant to prevent. Builds the SDK to
+  # `dist/` (the starter imports its compiled output) then typechecks + builds
+  # the starter. Lightweight by design: it does NOT spin up a Rust dev node in
+  # CI (that's the heavy `npm run e2e`, run locally and captured in the PR per
+  # fold's run-the-app rule). Path-gated to the starter + SDK subtrees, so an
+  # unrelated PR runs only the ~2s filter step.
+  app-starter:
+    name: App Starter Build
+    # Skipped in the merge queue (deterministic on a clean tree; green on the PR).
+    if: github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            starter:
+              - 'examples/app-starter/**'
+              - 'lastdb_app_sdk/**'
+
+      - uses: actions/setup-node@v6
+        if: steps.filter.outputs.starter == 'true'
+        with:
+          node-version-file: .nvmrc
+
+      - name: Build @lastdb/app-sdk (dist/)
+        if: steps.filter.outputs.starter == 'true'
+        working-directory: lastdb_app_sdk
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install + typecheck + build the starter
+        if: steps.filter.outputs.starter == 'true'
+        working-directory: examples/app-starter
+        run: |
+          npm install
+          npm run typecheck
+          npm run build
+
+  # Keep CI's structure honest. When adding a new job to this workflow, it
+  # must be covered by `ci-required` and must stay off `merge_group` unless it
+  # is the required umbrella or the merge-queue failure reporter. This catches
+  # missing required coverage at PR time instead of after a silently ungated
+  # test job reaches main.
+  workflow-structure-lint:
+    name: Workflow Structure Lint
+    if: github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: CI fan-out cost caps
+        run: ruby scripts/lints/lint-ci-fanout.rb
+      - name: ci-required coverage
+        run: ruby scripts/lints/lint-ci-required.rb
+
+  # Org-wide convention: every EdgeVector repo exposes a check named
+  # `ci-required` so the org ruleset can require a single uniform check
+  # across all repos. Tolerates `skipped` so path-gated jobs don't fail
+  # the umbrella. On merge_group, all substantive jobs are skipped and this
+  # umbrella is the trivial queue check.
+  ci-required:
+    name: ci-required
+    needs: [changes, rust_suite_paths, fold_paths, clippy, redaction-lint, spawn-instrument-lint, tracing-egress-lint, no-hardcoded-urls-lint, workspace-edition-lint, byte-slice-lint, unused-deps-lint, cargo-deny-lint, app-starter, workflow-structure-lint]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All required jobs must succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: |
+          echo "Required job results: $RESULTS"
+          for r in ${RESULTS//,/ }; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::A required job did not succeed (result: $r)"; exit 1 ;;
+            esac
+          done
+          echo "All required jobs passed."
+
+  # Merge-group failures attach to GitHub's synthetic queue ref, so the PR can
+  # leave the queue with no obvious failed check. Mirror the failed job list
+  # back to the queued PR(s) as an issue comment.
+  merge-queue-failure-report:
+    name: Merge Queue Failure Report
+    needs: ci-required
+    if: always() && github.event_name == 'merge_group' && needs.ci-required.result != 'success'
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comment on affected PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUEUE_REF: ${{ github.event.merge_group.head_ref }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          queue_ref="${QUEUE_REF:-${GITHUB_REF_NAME:-}}"
+          prs="$(printf '%s\n' "$queue_ref" | grep -Eo 'pr-[0-9]+' | cut -d- -f2 | sort -u || true)"
+          if [ -z "$prs" ]; then
+            echo "::warning::Could not infer PR number from merge queue ref: ${queue_ref:-<empty>}"
+            exit 0
+          fi
+
+          jobs_json="$(gh run view "$RUN_ID" --repo "$REPO" --json jobs)"
+          failures="$(jq -r '
+            .jobs[]
+            | select(.conclusion != null and (.conclusion != "success" and .conclusion != "skipped"))
+            | "- \(.name): \(.conclusion)"
+          ' <<<"$jobs_json")"
+          if [ -z "$failures" ]; then
+            failures="- ci-required: failed (open the run for details)"
+          fi
+
+          marker="<!-- merge-queue-failure-report:${RUN_ID} -->"
+          body_file="$(mktemp)"
+          {
+            echo "$marker"
+            echo "Merge queue CI failed for this PR."
+            echo
+            echo "$failures"
+            echo
+            echo "Run: $RUN_URL"
+          } >"$body_file"
+
+          while IFS= read -r pr; do
+            [ -n "$pr" ] || continue
+            comment_id="$(gh api "repos/$REPO/issues/$pr/comments" --paginate \
+              --jq ".[] | select(.body | contains(\"$marker\")) | .id" | tail -n 1)"
+            if [ -n "$comment_id" ]; then
+              gh api -X PATCH "repos/$REPO/issues/comments/$comment_id" -f body="$(cat "$body_file")" >/dev/null
+            else
+              gh pr comment "$pr" --repo "$REPO" --body-file "$body_file"
+            fi
+          done <<<"$prs"

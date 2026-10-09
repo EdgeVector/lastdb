@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Winery",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "f191f1cac5c1494d05ebd2b3a6734e014d7db2a34a63dbd491ef1f4e7d1e981f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f191f1cac5c1494d05ebd2b3a6734e014d7db2a34a63dbd491ef1f4e7d1e981f",
+  "purpose_statement": "Winery",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

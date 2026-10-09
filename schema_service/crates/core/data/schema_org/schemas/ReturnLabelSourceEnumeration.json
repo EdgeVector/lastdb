@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ReturnLabelSourceEnumeration",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "b73e25f0aa98ac2f4dbb59b087622050f1d4e31e39231fd29071242d4e31c495",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b73e25f0aa98ac2f4dbb59b087622050f1d4e31e39231fd29071242d4e31c495",
+  "purpose_statement": "ReturnLabelSourceEnumeration",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

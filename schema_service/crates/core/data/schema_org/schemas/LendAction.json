@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "LendAction",
+  "field_classifications": {
+    "borrower": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "borrower": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "borrower": "A sub property of participant. The person that borrows the object being lent.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "borrower": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "borrower",
+    "identifier"
+  ],
+  "identity_hash": "7287455b68cd62c91ac5e43830ed34a212286f2fa742f14d2921523370c838b0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7287455b68cd62c91ac5e43830ed34a212286f2fa742f14d2921523370c838b0",
+  "purpose_statement": "LendAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "Muscle",
+  "field_classifications": {
+    "antagonist": [
+      "word"
+    ],
+    "blood_supply": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "insertion": [
+      "word"
+    ],
+    "muscle_action": [
+      "word"
+    ],
+    "nerve": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "antagonist": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "blood_supply": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "insertion": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "muscle_action": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "nerve": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "antagonist": "The muscle whose action counteracts the specified muscle.",
+    "blood_supply": "The blood vessel that carries blood from the heart to the muscle.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "insertion": "The place of attachment of a muscle, or what the muscle moves.",
+    "muscle_action": "The movement the muscle generates.",
+    "nerve": "The underlying innervation associated with the muscle."
+  },
+  "field_types": {
+    "antagonist": "String",
+    "blood_supply": "String",
+    "identifier": "String",
+    "insertion": "String",
+    "muscle_action": "String",
+    "nerve": "String"
+  },
+  "fields": [
+    "antagonist",
+    "blood_supply",
+    "identifier",
+    "insertion",
+    "muscle_action",
+    "nerve"
+  ],
+  "identity_hash": "77e0e3cdd25c86f55c63f3490aa9fb17bc3fea11dabcc7be3b1319c01ccced7d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "77e0e3cdd25c86f55c63f3490aa9fb17bc3fea11dabcc7be3b1319c01ccced7d",
+  "purpose_statement": "Muscle",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

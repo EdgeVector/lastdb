@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "UnitPriceSpecification",
+  "field_classifications": {
+    "billing_duration": [
+      "number"
+    ],
+    "billing_increment": [
+      "number"
+    ],
+    "billing_start": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "price_component_type": [
+      "word"
+    ],
+    "price_type": [
+      "word"
+    ],
+    "reference_quantity": [
+      "word"
+    ],
+    "unit_code": [
+      "word"
+    ],
+    "unit_text": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "billing_duration": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "billing_increment": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "billing_start": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "price_component_type": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "price_type": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "reference_quantity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "unit_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "unit_text": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "billing_duration": "Specifies for how long this price (or price component) will be billed. Can be used, for example, to model the contractual duration of a subscription or payment plan. Type can be either a Duration or a Number (in which case the unit of measurement, for example month, is specified by the unitCode property).",
+    "billing_increment": "This property specifies the minimal quantity and rounding increment that will be the basis for the billing. The unit of measurement is specified by the unitCode property.",
+    "billing_start": "Specifies after how much time this price (or price component) becomes valid and billing starts. Can be used, for example, to model a price increase after the first year of a subscription. The unit of measurement is specified by the unitCode property.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "price_component_type": "Identifies a price component (for example, a line item on an invoice), part of the total price for an offer.",
+    "price_type": "Defines the type of a price specified for an offered product, for example a list price, a (temporary) sale price or a manufacturer suggested retail price. If multiple prices are specified for an offer the [[priceType]] property can be used to identify the type of each such specified price. The value of priceType can be specified as a value from enumeration PriceTypeEnumeration or, a UN/EDIFACT 5387 code, or as a free form text string for price types that are not already predefined in PriceTypeEnumeration.",
+    "reference_quantity": "The reference quantity for which a certain price applies, e.g. 1 EUR per 4 kWh of electricity. This property is a replacement for unitOfMeasurement for the advanced cases where the price does not relate to a standard unit.",
+    "unit_code": "The unit of measurement given using the UN/CEFACT Common Code (3 characters) or a URL. Other codes than the UN/CEFACT Common Code may be used with a prefix followed by a colon.",
+    "unit_text": "A string or text indicating the unit of measurement. Useful if you cannot provide a standard unit code for\n<a href='unitCode'>unitCode</a>."
+  },
+  "field_types": {
+    "billing_duration": "Float",
+    "billing_increment": "Float",
+    "billing_start": "Float",
+    "identifier": "String",
+    "price_component_type": "String",
+    "price_type": "String",
+    "reference_quantity": "String",
+    "unit_code": "String",
+    "unit_text": "String"
+  },
+  "fields": [
+    "billing_duration",
+    "billing_increment",
+    "billing_start",
+    "identifier",
+    "price_component_type",
+    "price_type",
+    "reference_quantity",
+    "unit_code",
+    "unit_text"
+  ],
+  "identity_hash": "8deb39bac4742e882d0cba54b668a3e2244b351fd1dcc1f9780651bf713da1b2",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8deb39bac4742e882d0cba54b668a3e2244b351fd1dcc1f9780651bf713da1b2",
+  "purpose_statement": "UnitPriceSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

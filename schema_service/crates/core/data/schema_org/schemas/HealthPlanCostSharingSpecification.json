@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "HealthPlanCostSharingSpecification",
+  "field_classifications": {
+    "health_plan_coinsurance_option": [
+      "word"
+    ],
+    "health_plan_coinsurance_rate": [
+      "number"
+    ],
+    "health_plan_copay": [
+      "word"
+    ],
+    "health_plan_copay_option": [
+      "word"
+    ],
+    "health_plan_pharmacy_category": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "health_plan_coinsurance_option": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "health_plan_coinsurance_rate": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "health_plan_copay": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "health_plan_copay_option": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "health_plan_pharmacy_category": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "health_plan_coinsurance_option": "Whether the coinsurance applies before or after deductible, etc. TODO: Is this a closed set?",
+    "health_plan_coinsurance_rate": "The rate of coinsurance expressed as a number between 0.0 and 1.0.",
+    "health_plan_copay": "The copay amount.",
+    "health_plan_copay_option": "Whether the copay is before or after deductible, etc. TODO: Is this a closed set?",
+    "health_plan_pharmacy_category": "The category or type of pharmacy associated with this cost sharing.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "health_plan_coinsurance_option": "String",
+    "health_plan_coinsurance_rate": "Float",
+    "health_plan_copay": "String",
+    "health_plan_copay_option": "String",
+    "health_plan_pharmacy_category": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "health_plan_coinsurance_option",
+    "health_plan_coinsurance_rate",
+    "health_plan_copay",
+    "health_plan_copay_option",
+    "health_plan_pharmacy_category",
+    "identifier"
+  ],
+  "identity_hash": "d85999b29aac1d27fac7a7e75e1d50baedcee349e892253bf005819d240d594a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d85999b29aac1d27fac7a7e75e1d50baedcee349e892253bf005819d240d594a",
+  "purpose_statement": "HealthPlanCostSharingSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

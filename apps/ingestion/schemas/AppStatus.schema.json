@@ -1,0 +1,29 @@
+{
+  "name": "ingestion/AppStatus",
+  "descriptive_name": "Ingestion App Status",
+  "purpose_statement": "Current readiness and last known state for the zero-UI Ingestion sidecar.",
+  "schema_type": "Hash",
+  "fields": [
+    "app_id",
+    "lifecycle",
+    "node_target",
+    "schema_state",
+    "trust_state",
+    "last_run_id",
+    "updated_at",
+    "error_count"
+  ],
+  "key": {
+    "hash_field": "app_id"
+  },
+  "field_descriptions": {
+    "app_id": "Stable app id; always ingestion.",
+    "lifecycle": "uninitialized, ready, blocked, running, succeeded, or failed.",
+    "node_target": "Node URL or socket target this status describes.",
+    "schema_state": "Machine-readable summary of required and missing schemas.",
+    "trust_state": "Machine-readable dev-trust or capability state.",
+    "last_run_id": "Most recent ingestion/Run id.",
+    "updated_at": "RFC3339 update timestamp.",
+    "error_count": "Count of unresolved ingestion/AppError rows."
+  }
+}

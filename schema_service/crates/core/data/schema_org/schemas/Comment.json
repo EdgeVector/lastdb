@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "Comment",
+  "field_classifications": {
+    "downvote_count": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "parent_item": [
+      "word"
+    ],
+    "shared_content": [
+      "word"
+    ],
+    "upvote_count": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "downvote_count": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "parent_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "shared_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "upvote_count": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "downvote_count": "The number of downvotes this question, answer or comment has received from the community.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "parent_item": "The parent of a question, answer or item in general. Typically used for Q/A discussion threads e.g. a chain of comments with the first comment being an [[Article]] or other [[CreativeWork]]. See also [[comment]] which points from something to a comment about it.",
+    "shared_content": "A CreativeWork such as an image, video, or audio clip shared as part of this posting.",
+    "upvote_count": "The number of upvotes this question, answer or comment has received from the community."
+  },
+  "field_types": {
+    "downvote_count": "Integer",
+    "identifier": "String",
+    "parent_item": "String",
+    "shared_content": "String",
+    "upvote_count": "Integer"
+  },
+  "fields": [
+    "downvote_count",
+    "identifier",
+    "parent_item",
+    "shared_content",
+    "upvote_count"
+  ],
+  "identity_hash": "453e93534dab916df0a5fa09bed4ecbb60280c737254a2ad438efa162b81aebc",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "453e93534dab916df0a5fa09bed4ecbb60280c737254a2ad438efa162b81aebc",
+  "purpose_statement": "Comment",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

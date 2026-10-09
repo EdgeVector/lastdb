@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "LiveBlogPosting",
+  "field_classifications": {
+    "coverage_end_time": [
+      "word"
+    ],
+    "coverage_start_time": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "live_blog_update": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "coverage_end_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "coverage_start_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "live_blog_update": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "coverage_end_time": "The time when the live blog will stop covering the Event. Note that coverage may continue after the Event concludes.",
+    "coverage_start_time": "The time when the live blog will begin covering the Event. Note that coverage may begin before the Event's start time. The LiveBlogPosting may also be created before coverage begins.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "live_blog_update": "An update to the LiveBlog."
+  },
+  "field_types": {
+    "coverage_end_time": "String",
+    "coverage_start_time": "String",
+    "identifier": "String",
+    "live_blog_update": "String"
+  },
+  "fields": [
+    "coverage_end_time",
+    "coverage_start_time",
+    "identifier",
+    "live_blog_update"
+  ],
+  "identity_hash": "0d651af9b486b39a988f42fa52e309c95753546103c18db8fcf05d58eed6a410",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "0d651af9b486b39a988f42fa52e309c95753546103c18db8fcf05d58eed6a410",
+  "purpose_statement": "LiveBlogPosting",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

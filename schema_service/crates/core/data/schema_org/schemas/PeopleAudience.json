@@ -1,0 +1,122 @@
+{
+  "descriptive_name": "PeopleAudience",
+  "field_classifications": {
+    "health_condition": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "required_gender": [
+      "word"
+    ],
+    "required_max_age": [
+      "number"
+    ],
+    "required_min_age": [
+      "number"
+    ],
+    "suggested_age": [
+      "word"
+    ],
+    "suggested_gender": [
+      "word"
+    ],
+    "suggested_max_age": [
+      "number"
+    ],
+    "suggested_measurement": [
+      "word"
+    ],
+    "suggested_min_age": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "health_condition": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "required_gender": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "required_max_age": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "required_min_age": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suggested_age": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suggested_gender": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suggested_max_age": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suggested_measurement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suggested_min_age": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "health_condition": "Specifying the health condition(s) of a patient, medical study, or other target audience.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "required_gender": "Audiences defined by a person's gender.",
+    "required_max_age": "Audiences defined by a person's maximum age.",
+    "required_min_age": "Audiences defined by a person's minimum age.",
+    "suggested_age": "The age or age range for the intended audience or person, for example 3-12 months for infants, 1-5 years for toddlers.",
+    "suggested_gender": "The suggested gender of the intended person or audience, for example \"male\", \"female\", or \"unisex\".",
+    "suggested_max_age": "Maximum recommended age in years for the audience or user.",
+    "suggested_measurement": "A suggested range of body measurements for the intended audience or person, for example inseam between 32 and 34 inches or height between 170 and 190 cm. Typically found on a size chart for wearable products.",
+    "suggested_min_age": "Minimum recommended age in years for the audience or user."
+  },
+  "field_types": {
+    "health_condition": "String",
+    "identifier": "String",
+    "required_gender": "String",
+    "required_max_age": "Integer",
+    "required_min_age": "Integer",
+    "suggested_age": "String",
+    "suggested_gender": "String",
+    "suggested_max_age": "Float",
+    "suggested_measurement": "String",
+    "suggested_min_age": "Float"
+  },
+  "fields": [
+    "health_condition",
+    "identifier",
+    "required_gender",
+    "required_max_age",
+    "required_min_age",
+    "suggested_age",
+    "suggested_gender",
+    "suggested_max_age",
+    "suggested_measurement",
+    "suggested_min_age"
+  ],
+  "identity_hash": "ff79897fc65a4d96558f939ce46fe2bf60499d90ebd33a1e11d7ddf25c89515f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ff79897fc65a4d96558f939ce46fe2bf60499d90ebd33a1e11d7ddf25c89515f",
+  "purpose_statement": "PeopleAudience",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

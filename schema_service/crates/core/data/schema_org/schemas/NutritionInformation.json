@@ -1,0 +1,152 @@
+{
+  "descriptive_name": "NutritionInformation",
+  "field_classifications": {
+    "calories": [
+      "word"
+    ],
+    "carbohydrate_content": [
+      "word"
+    ],
+    "cholesterol_content": [
+      "word"
+    ],
+    "fat_content": [
+      "word"
+    ],
+    "fiber_content": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "protein_content": [
+      "word"
+    ],
+    "saturated_fat_content": [
+      "word"
+    ],
+    "serving_size": [
+      "word"
+    ],
+    "sodium_content": [
+      "word"
+    ],
+    "sugar_content": [
+      "word"
+    ],
+    "trans_fat_content": [
+      "word"
+    ],
+    "unsaturated_fat_content": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "calories": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "carbohydrate_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "cholesterol_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "fat_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "fiber_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "protein_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "saturated_fat_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "serving_size": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sodium_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sugar_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "trans_fat_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "unsaturated_fat_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "calories": "The number of calories.",
+    "carbohydrate_content": "The number of grams of carbohydrates.",
+    "cholesterol_content": "The number of milligrams of cholesterol.",
+    "fat_content": "The number of grams of fat.",
+    "fiber_content": "The number of grams of fiber.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "protein_content": "The number of grams of protein.",
+    "saturated_fat_content": "The number of grams of saturated fat.",
+    "serving_size": "The serving size, in terms of the number of volume or mass.",
+    "sodium_content": "The number of milligrams of sodium.",
+    "sugar_content": "The number of grams of sugar.",
+    "trans_fat_content": "The number of grams of trans fat.",
+    "unsaturated_fat_content": "The number of grams of unsaturated fat."
+  },
+  "field_types": {
+    "calories": "String",
+    "carbohydrate_content": "String",
+    "cholesterol_content": "String",
+    "fat_content": "String",
+    "fiber_content": "String",
+    "identifier": "String",
+    "protein_content": "String",
+    "saturated_fat_content": "String",
+    "serving_size": "String",
+    "sodium_content": "String",
+    "sugar_content": "String",
+    "trans_fat_content": "String",
+    "unsaturated_fat_content": "String"
+  },
+  "fields": [
+    "calories",
+    "carbohydrate_content",
+    "cholesterol_content",
+    "fat_content",
+    "fiber_content",
+    "identifier",
+    "protein_content",
+    "saturated_fat_content",
+    "serving_size",
+    "sodium_content",
+    "sugar_content",
+    "trans_fat_content",
+    "unsaturated_fat_content"
+  ],
+  "identity_hash": "5ea19ecae793c78e6bfba28baf3404adfa0ad81db153dd504095099bfc7093e0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5ea19ecae793c78e6bfba28baf3404adfa0ad81db153dd504095099bfc7093e0",
+  "purpose_statement": "NutritionInformation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

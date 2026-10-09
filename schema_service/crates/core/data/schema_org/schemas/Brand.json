@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "Brand",
+  "field_classifications": {
+    "aggregate_rating": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "logo": [
+      "word"
+    ],
+    "review": [
+      "word"
+    ],
+    "slogan": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "aggregate_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "logo": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "review": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "slogan": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "aggregate_rating": "The overall rating, based on a collection of reviews or ratings, of the item.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "logo": "An associated logo.",
+    "review": "A review of the item.",
+    "slogan": "A slogan or motto associated with the item."
+  },
+  "field_types": {
+    "aggregate_rating": "String",
+    "identifier": "String",
+    "logo": "String",
+    "review": "String",
+    "slogan": "String"
+  },
+  "fields": [
+    "aggregate_rating",
+    "identifier",
+    "logo",
+    "review",
+    "slogan"
+  ],
+  "identity_hash": "b1d82b3173db1e3f2b7e587bee148ca3981f3235e3b7058be4162d8a4fdabd63",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b1d82b3173db1e3f2b7e587bee148ca3981f3235e3b7058be4162d8a4fdabd63",
+  "purpose_statement": "Brand",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

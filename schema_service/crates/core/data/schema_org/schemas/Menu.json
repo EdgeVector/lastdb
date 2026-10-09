@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Menu",
+  "field_classifications": {
+    "has_menu_item": [
+      "word"
+    ],
+    "has_menu_section": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "has_menu_item": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "has_menu_section": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "has_menu_item": "A food or drink item contained in a menu or menu section.",
+    "has_menu_section": "A subgrouping of the menu (by dishes, course, serving time period, etc.).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "has_menu_item": "String",
+    "has_menu_section": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "has_menu_item",
+    "has_menu_section",
+    "identifier"
+  ],
+  "identity_hash": "8a92f2de5a81b39c62a6eb7458508a3874d412a2b4d449a1d3e8428b5d4800e0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8a92f2de5a81b39c62a6eb7458508a3874d412a2b4d449a1d3e8428b5d4800e0",
+  "purpose_statement": "Menu",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,132 @@
+{
+  "descriptive_name": "VideoObject",
+  "field_classifications": {
+    "actor": [
+      "word"
+    ],
+    "actors": [
+      "word"
+    ],
+    "caption": [
+      "word"
+    ],
+    "director": [
+      "word"
+    ],
+    "directors": [
+      "word"
+    ],
+    "embedded_text_caption": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "music_by": [
+      "word"
+    ],
+    "transcript": [
+      "word"
+    ],
+    "video_frame_size": [
+      "word"
+    ],
+    "video_quality": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "actor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "actors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "caption": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "director": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "directors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "embedded_text_caption": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "music_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "transcript": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "video_frame_size": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "video_quality": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    }
+  },
+  "field_descriptions": {
+    "actor": "An actor (individual or a group), e.g. in TV, radio, movie, video games etc., or in an event. Actors can be associated with individual items or with a series, episode, clip.",
+    "actors": "An actor, e.g. in TV, radio, movie, video games etc. Actors can be associated with individual items or with a series, episode, clip.",
+    "caption": "The caption for this object. For downloadable machine formats (closed caption, subtitles etc.) use MediaObject and indicate the [[encodingFormat]].",
+    "director": "A director of e.g. TV, radio, movie, video gaming etc. content, or of an event. Directors can be associated with individual items or with a series, episode, clip.",
+    "directors": "A director of e.g. TV, radio, movie, video games etc. content. Directors can be associated with individual items or with a series, episode, clip.",
+    "embedded_text_caption": "Represents textual captioning from a [[MediaObject]], e.g. text of a 'meme'.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "music_by": "The composer of the soundtrack.",
+    "transcript": "If this MediaObject is an AudioObject or VideoObject, the transcript of that object.",
+    "video_frame_size": "The frame size of the video.",
+    "video_quality": "The quality of the video."
+  },
+  "field_types": {
+    "actor": "String",
+    "actors": "String",
+    "caption": "String",
+    "director": "String",
+    "directors": "String",
+    "embedded_text_caption": "String",
+    "identifier": "String",
+    "music_by": "String",
+    "transcript": "String",
+    "video_frame_size": "String",
+    "video_quality": "String"
+  },
+  "fields": [
+    "actor",
+    "actors",
+    "caption",
+    "director",
+    "directors",
+    "embedded_text_caption",
+    "identifier",
+    "music_by",
+    "transcript",
+    "video_frame_size",
+    "video_quality"
+  ],
+  "identity_hash": "57f6587e092803b41c38b3f84b936e05acd0893f3cda35ab94b12c1cd2dc520a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "57f6587e092803b41c38b3f84b936e05acd0893f3cda35ab94b12c1cd2dc520a",
+  "purpose_statement": "VideoObject",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

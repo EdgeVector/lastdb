@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "ParentAudience",
+  "field_classifications": {
+    "child_max_age": [
+      "number"
+    ],
+    "child_min_age": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "child_max_age": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "child_min_age": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "child_max_age": "Maximal age of the child.",
+    "child_min_age": "Minimal age of the child.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "child_max_age": "Float",
+    "child_min_age": "Float",
+    "identifier": "String"
+  },
+  "fields": [
+    "child_max_age",
+    "child_min_age",
+    "identifier"
+  ],
+  "identity_hash": "1deb50702ba14c5b79254ef930e83025159e381f230acbed539c5565ce388f38",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1deb50702ba14c5b79254ef930e83025159e381f230acbed539c5565ce388f38",
+  "purpose_statement": "ParentAudience",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "Protein",
+  "field_classifications": {
+    "has_bio_polymer_sequence": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "has_bio_polymer_sequence": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "has_bio_polymer_sequence": "A symbolic representation of a BioChemEntity. For example, a nucleotide sequence of a Gene or an amino acid sequence of a Protein.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "has_bio_polymer_sequence": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "has_bio_polymer_sequence",
+    "identifier"
+  ],
+  "identity_hash": "0498dce46aee9557fcf24efe5aa5ca166dc38ac1bc004dcd0a7cb7227f9fa1ac",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "0498dce46aee9557fcf24efe5aa5ca166dc38ac1bc004dcd0a7cb7227f9fa1ac",
+  "purpose_statement": "Protein",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

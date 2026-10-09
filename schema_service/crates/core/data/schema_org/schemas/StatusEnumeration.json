@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "StatusEnumeration",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "3d46581ec0a169fc3cbed135dc6e9a7e8062fb5e16cba81a293734d382803726",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3d46581ec0a169fc3cbed135dc6e9a7e8062fb5e16cba81a293734d382803726",
+  "purpose_statement": "StatusEnumeration",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

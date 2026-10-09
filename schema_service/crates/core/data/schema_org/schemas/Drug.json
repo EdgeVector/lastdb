@@ -1,0 +1,332 @@
+{
+  "descriptive_name": "Drug",
+  "field_classifications": {
+    "active_ingredient": [
+      "word"
+    ],
+    "administration_route": [
+      "word"
+    ],
+    "alcohol_warning": [
+      "word"
+    ],
+    "available_strength": [
+      "word"
+    ],
+    "breastfeeding_warning": [
+      "word"
+    ],
+    "clincal_pharmacology": [
+      "word"
+    ],
+    "clinical_pharmacology": [
+      "word"
+    ],
+    "dosage_form": [
+      "word"
+    ],
+    "dose_schedule": [
+      "word"
+    ],
+    "drug_class": [
+      "word"
+    ],
+    "drug_unit": [
+      "word"
+    ],
+    "food_warning": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "included_in_health_insurance_plan": [
+      "word"
+    ],
+    "interacting_drug": [
+      "word"
+    ],
+    "is_available_generically": [
+      "word"
+    ],
+    "is_proprietary": [
+      "word"
+    ],
+    "label_details": [
+      "word"
+    ],
+    "legal_status": [
+      "word"
+    ],
+    "maximum_intake": [
+      "word"
+    ],
+    "mechanism_of_action": [
+      "word"
+    ],
+    "non_proprietary_name": [
+      "word"
+    ],
+    "overdosage": [
+      "word"
+    ],
+    "pregnancy_category": [
+      "word"
+    ],
+    "pregnancy_warning": [
+      "word"
+    ],
+    "prescribing_info": [
+      "word"
+    ],
+    "prescription_status": [
+      "word"
+    ],
+    "proprietary_name": [
+      "word"
+    ],
+    "related_drug": [
+      "word"
+    ],
+    "rxcui": [
+      "word"
+    ],
+    "warning": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "active_ingredient": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "administration_route": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "alcohol_warning": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "available_strength": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "breastfeeding_warning": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "clincal_pharmacology": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "clinical_pharmacology": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "dosage_form": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "dose_schedule": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "drug_class": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "drug_unit": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "food_warning": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "included_in_health_insurance_plan": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "interacting_drug": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_available_generically": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_proprietary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "label_details": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legal_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "maximum_intake": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "mechanism_of_action": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "non_proprietary_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "overdosage": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pregnancy_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pregnancy_warning": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "prescribing_info": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "prescription_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "proprietary_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "related_drug": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "rxcui": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "warning": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "active_ingredient": "An active ingredient, typically chemical compounds and/or biologic substances.",
+    "administration_route": "A route by which this drug may be administered, e.g. 'oral'.",
+    "alcohol_warning": "Any precaution, guidance, contraindication, etc. related to consumption of alcohol while taking this drug.",
+    "available_strength": "An available dosage strength for the drug.",
+    "breastfeeding_warning": "Any precaution, guidance, contraindication, etc. related to this drug's use by breastfeeding mothers.",
+    "clincal_pharmacology": "Description of the absorption and elimination of drugs, including their concentration (pharmacokinetics, pK) and biological effects (pharmacodynamics, pD).",
+    "clinical_pharmacology": "Description of the absorption and elimination of drugs, including their concentration (pharmacokinetics, pK) and biological effects (pharmacodynamics, pD).",
+    "dosage_form": "A dosage form in which this drug/supplement is available, e.g. 'tablet', 'suspension', 'injection'.",
+    "dose_schedule": "A dosing schedule for the drug for a given population, either observed, recommended, or maximum dose based on the type used.",
+    "drug_class": "The class of drug this belongs to (e.g., statins).",
+    "drug_unit": "The unit in which the drug is measured, e.g. '5 mg tablet'.",
+    "food_warning": "Any precaution, guidance, contraindication, etc. related to consumption of specific foods while taking this drug.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "included_in_health_insurance_plan": "The insurance plans that cover this drug.",
+    "interacting_drug": "Another drug that is known to interact with this drug in a way that impacts the effect of this drug or causes a risk to the patient. Note: disease interactions are typically captured as contraindications.",
+    "is_available_generically": "True if the drug is available in a generic form (regardless of name).",
+    "is_proprietary": "True if this item's name is a proprietary/brand name (vs. generic name).",
+    "label_details": "Link to the drug's label details.",
+    "legal_status": "The drug or supplement's legal status, including any controlled substance schedules that apply.",
+    "maximum_intake": "Recommended intake of this supplement for a given population as defined by a specific recommending authority.",
+    "mechanism_of_action": "The specific biochemical interaction through which this drug or supplement produces its pharmacological effect.",
+    "non_proprietary_name": "The generic name of this drug or supplement.",
+    "overdosage": "Any information related to overdose on a drug, including signs or symptoms, treatments, contact information for emergency response.",
+    "pregnancy_category": "Pregnancy category of this drug.",
+    "pregnancy_warning": "Any precaution, guidance, contraindication, etc. related to this drug's use during pregnancy.",
+    "prescribing_info": "Link to prescribing information for the drug.",
+    "prescription_status": "Indicates the status of drug prescription, e.g. local catalogs classifications or whether the drug is available by prescription or over-the-counter, etc.",
+    "proprietary_name": "Proprietary name given to the diet plan, typically by its originator or creator.",
+    "related_drug": "Any other drug related to this one, for example commonly-prescribed alternatives.",
+    "rxcui": "The RxCUI drug identifier from RXNORM.",
+    "warning": "Any FDA or other warnings about the drug (text or URL)."
+  },
+  "field_types": {
+    "active_ingredient": "String",
+    "administration_route": "String",
+    "alcohol_warning": "String",
+    "available_strength": "String",
+    "breastfeeding_warning": "String",
+    "clincal_pharmacology": "String",
+    "clinical_pharmacology": "String",
+    "dosage_form": "String",
+    "dose_schedule": "String",
+    "drug_class": "String",
+    "drug_unit": "String",
+    "food_warning": "String",
+    "identifier": "String",
+    "included_in_health_insurance_plan": "String",
+    "interacting_drug": "String",
+    "is_available_generically": "Boolean",
+    "is_proprietary": "Boolean",
+    "label_details": "String",
+    "legal_status": "String",
+    "maximum_intake": "String",
+    "mechanism_of_action": "String",
+    "non_proprietary_name": "String",
+    "overdosage": "String",
+    "pregnancy_category": "String",
+    "pregnancy_warning": "String",
+    "prescribing_info": "String",
+    "prescription_status": "String",
+    "proprietary_name": "String",
+    "related_drug": "String",
+    "rxcui": "String",
+    "warning": "String"
+  },
+  "fields": [
+    "active_ingredient",
+    "administration_route",
+    "alcohol_warning",
+    "available_strength",
+    "breastfeeding_warning",
+    "clincal_pharmacology",
+    "clinical_pharmacology",
+    "dosage_form",
+    "dose_schedule",
+    "drug_class",
+    "drug_unit",
+    "food_warning",
+    "identifier",
+    "included_in_health_insurance_plan",
+    "interacting_drug",
+    "is_available_generically",
+    "is_proprietary",
+    "label_details",
+    "legal_status",
+    "maximum_intake",
+    "mechanism_of_action",
+    "non_proprietary_name",
+    "overdosage",
+    "pregnancy_category",
+    "pregnancy_warning",
+    "prescribing_info",
+    "prescription_status",
+    "proprietary_name",
+    "related_drug",
+    "rxcui",
+    "warning"
+  ],
+  "identity_hash": "f03ad0664768b53b804417287b6892dbd5203f3f9c8494a64a391c57a014cc1e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f03ad0664768b53b804417287b6892dbd5203f3f9c8494a64a391c57a014cc1e",
+  "purpose_statement": "Drug",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

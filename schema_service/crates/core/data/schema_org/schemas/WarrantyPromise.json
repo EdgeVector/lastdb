@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "WarrantyPromise",
+  "field_classifications": {
+    "duration_of_warranty": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "warranty_scope": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "duration_of_warranty": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "warranty_scope": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "duration_of_warranty": "The duration of the warranty promise. Common unitCode values are ANN for year, MON for months, or DAY for days.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "warranty_scope": "The scope of the warranty promise."
+  },
+  "field_types": {
+    "duration_of_warranty": "String",
+    "identifier": "String",
+    "warranty_scope": "String"
+  },
+  "fields": [
+    "duration_of_warranty",
+    "identifier",
+    "warranty_scope"
+  ],
+  "identity_hash": "765f0769f59eb6acc1e38106d707842230f1a3418d921a7326ebdd8380d8a466",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "765f0769f59eb6acc1e38106d707842230f1a3418d921a7326ebdd8380d8a466",
+  "purpose_statement": "WarrantyPromise",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Taxi",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "67c12c579dfd339b5d997a8f602c17a7d1d86f59856e5498afb5a9d46878088e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "67c12c579dfd339b5d997a8f602c17a7d1d86f59856e5498afb5a9d46878088e",
+  "purpose_statement": "Taxi",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

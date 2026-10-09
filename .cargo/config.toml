@@ -1,0 +1,36 @@
+# Disable incremental compilation for all fold builds.
+#
+# The dogfood/kanban agent fleet builds dozens of branch variants into a
+# single shared `target/` dir. Incremental-compilation dirs grew to ~29 GB
+# of pure rebuild cache that is useless for the fleet's one-shot builds and
+# is never garbage-collected by cargo. sccache (configured globally as the
+# rustc-wrapper) still caches actual compilation across builds, so turning
+# incremental off costs little build time while removing the whole bucket.
+#
+# Context: project_disk_shared_fold_target memory / machine-hygiene skill.
+[build]
+incremental = false
+
+# Give cargo-run processes — `cargo test` harnesses above all — a stack that
+# fits UNOPTIMIZED handler frames.
+#
+# A debug build inlines nothing, so the node's route futures are far larger on
+# the stack than in release. Threads that take the platform default (2 MiB)
+# abort outright:
+#
+#     thread 'non_mutation_ops_record_no_phases' has overflowed its stack
+#     fatal runtime error: stack overflow, aborting
+#
+# That reproduces on `main` with a test this commit does not touch, and it is
+# the same shape as the debug-built `lastdbd` dying on its first `/api/status`
+# (brain `papercut-lastdbd-uds-worker-stack-overflow-on-debug-status`). The
+# node's own UDS workers now set an explicit `stack_size`, but a libtest
+# thread is spawned by the harness, so it needs this instead.
+#
+# It stayed invisible because the required lane runs `cargo test -p lastdb_node
+# --lib` but no `lastdb_node` INTEGRATION targets, so nothing in CI has ever
+# executed `tests/mutation_phase_instrumentation.rs` to report the abort.
+#
+# Not `force = true`: an explicitly-exported RUST_MIN_STACK still wins.
+[env]
+RUST_MIN_STACK = "16777216"

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PlaceOfWorship",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "c339166e811fe14a3f0b5494d929dd56d6dc156868740b2c447232eba8498f62",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c339166e811fe14a3f0b5494d929dd56d6dc156868740b2c447232eba8498f62",
+  "purpose_statement": "PlaceOfWorship",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

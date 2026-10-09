@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "HowToDirection",
+  "field_classifications": {
+    "after_media": [
+      "word"
+    ],
+    "before_media": [
+      "word"
+    ],
+    "during_media": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "perform_time": [
+      "word"
+    ],
+    "prep_time": [
+      "word"
+    ],
+    "supply": [
+      "word"
+    ],
+    "tool": [
+      "word"
+    ],
+    "total_time": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "after_media": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "before_media": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "during_media": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "perform_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "prep_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "supply": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tool": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "total_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "after_media": "A media object representing the circumstances after performing this direction.",
+    "before_media": "A media object representing the circumstances before performing this direction.",
+    "during_media": "A media object representing the circumstances while performing this direction.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "perform_time": "The length of time it takes to perform instructions or a direction (not including time to prepare the supplies), in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601).",
+    "prep_time": "The length of time it takes to prepare the items to be used in instructions or a direction, in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601).",
+    "supply": "A sub-property of instrument. A supply consumed when performing instructions or a direction.",
+    "tool": "A sub property of instrument. An object used (but not consumed) when performing instructions or a direction.",
+    "total_time": "The total time required to perform instructions or a direction (including time to prepare the supplies), in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601)."
+  },
+  "field_types": {
+    "after_media": "String",
+    "before_media": "String",
+    "during_media": "String",
+    "identifier": "String",
+    "perform_time": "String",
+    "prep_time": "String",
+    "supply": "String",
+    "tool": "String",
+    "total_time": "String"
+  },
+  "fields": [
+    "after_media",
+    "before_media",
+    "during_media",
+    "identifier",
+    "perform_time",
+    "prep_time",
+    "supply",
+    "tool",
+    "total_time"
+  ],
+  "identity_hash": "27293927fc7cd9aa8e69e7327c65faabe9f5e85acab141488af81db5c3a01ed8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "27293927fc7cd9aa8e69e7327c65faabe9f5e85acab141488af81db5c3a01ed8",
+  "purpose_statement": "HowToDirection",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

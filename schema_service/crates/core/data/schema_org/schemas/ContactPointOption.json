@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ContactPointOption",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "4adb547f3ab8f0c9a0399cc20231970b08e55728127e9732fa6473c8f6af8468",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4adb547f3ab8f0c9a0399cc20231970b08e55728127e9732fa6473c8f6af8468",
+  "purpose_statement": "ContactPointOption",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

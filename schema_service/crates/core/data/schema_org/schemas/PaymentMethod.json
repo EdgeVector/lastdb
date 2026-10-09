@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "PaymentMethod",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "payment_method_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "payment_method_type": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "payment_method_type": "The type of a payment method."
+  },
+  "field_types": {
+    "identifier": "String",
+    "payment_method_type": "String"
+  },
+  "fields": [
+    "identifier",
+    "payment_method_type"
+  ],
+  "identity_hash": "9cb7728d8058f3d1c217eeac6000f1e94d62b3fcbf00cce19bc262ee1e032365",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9cb7728d8058f3d1c217eeac6000f1e94d62b3fcbf00cce19bc262ee1e032365",
+  "purpose_statement": "PaymentMethod",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

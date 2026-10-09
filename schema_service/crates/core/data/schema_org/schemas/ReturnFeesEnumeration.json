@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ReturnFeesEnumeration",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "07384d330242e25a5bc47734d6f6157d162448d676f52d6cef7b1d77eba5c7d5",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "07384d330242e25a5bc47734d6f6157d162448d676f52d6cef7b1d77eba5c7d5",
+  "purpose_statement": "ReturnFeesEnumeration",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

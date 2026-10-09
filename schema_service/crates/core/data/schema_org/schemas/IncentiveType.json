@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "IncentiveType",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "9810173dc3d34f23a78e5d6257f94d026a4ab2421f475eecb4303f6907a9ee14",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9810173dc3d34f23a78e5d6257f94d026a4ab2421f475eecb4303f6907a9ee14",
+  "purpose_statement": "IncentiveType",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

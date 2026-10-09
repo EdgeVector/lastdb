@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "DrugLegalStatus",
+  "field_classifications": {
+    "applicable_location": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "applicable_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "applicable_location": "The location in which the status applies.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "applicable_location": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "applicable_location",
+    "identifier"
+  ],
+  "identity_hash": "735207ea8e89718ee389495b55ba8e7ae5bd26f792435d2cb6b03b21082d683a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "735207ea8e89718ee389495b55ba8e7ae5bd26f792435d2cb6b03b21082d683a",
+  "purpose_statement": "DrugLegalStatus",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

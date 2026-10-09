@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MedicalRiskFactor",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "increases_risk_of": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "increases_risk_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "increases_risk_of": "The condition, complication, etc. influenced by this factor."
+  },
+  "field_types": {
+    "identifier": "String",
+    "increases_risk_of": "String"
+  },
+  "fields": [
+    "identifier",
+    "increases_risk_of"
+  ],
+  "identity_hash": "20fef2de785ccd5a81d9da7e46d5690de591b065c9758ce476a1c070396417c8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "20fef2de785ccd5a81d9da7e46d5690de591b065c9758ce476a1c070396417c8",
+  "purpose_statement": "MedicalRiskFactor",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

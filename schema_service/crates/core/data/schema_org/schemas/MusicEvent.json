@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MusicEvent",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "1557b7331c9a862e52f4c3a94cbde94a9babd292a045d5b7805a1891a05bdaf8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1557b7331c9a862e52f4c3a94cbde94a9babd292a045d5b7805a1891a05bdaf8",
+  "purpose_statement": "MusicEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

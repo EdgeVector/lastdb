@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "ProductGroup",
+  "field_classifications": {
+    "has_variant": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "product_group_id": [
+      "word"
+    ],
+    "varies_by": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "has_variant": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "product_group_id": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "varies_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "has_variant": "Indicates a [[Product]] that is a member of this [[ProductGroup]] (or [[ProductModel]]).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "product_group_id": "Indicates a textual identifier for a ProductGroup.",
+    "varies_by": "Indicates the property or properties by which the variants in a [[ProductGroup]] vary, e.g. their size, color etc. Schema.org properties can be referenced by their short name e.g. \"color\"; terms defined elsewhere can be referenced with their URIs."
+  },
+  "field_types": {
+    "has_variant": "String",
+    "identifier": "String",
+    "product_group_id": "String",
+    "varies_by": "String"
+  },
+  "fields": [
+    "has_variant",
+    "identifier",
+    "product_group_id",
+    "varies_by"
+  ],
+  "identity_hash": "4271d2c94b96974433e0333d3545334a48914d74274b50519d6706c13a0ab07c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4271d2c94b96974433e0333d3545334a48914d74274b50519d6706c13a0ab07c",
+  "purpose_statement": "ProductGroup",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

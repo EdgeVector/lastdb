@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "DataCatalog",
+  "field_classifications": {
+    "dataset": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "measurement_method": [
+      "word"
+    ],
+    "measurement_technique": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "dataset": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "measurement_method": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "measurement_technique": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "dataset": "A dataset contained in this catalog.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "measurement_method": "A subproperty of [[measurementTechnique]] that can be used for specifying specific methods, in particular via [[MeasurementMethodEnum]].",
+    "measurement_technique": "A technique, method or technology used in an [[Observation]], [[StatisticalVariable]] or [[Dataset]] (or [[DataDownload]], [[DataCatalog]]), corresponding to the method used for measuring the corresponding variable(s) (for datasets, described using [[variableMeasured]]; for [[Observation]], a [[StatisticalVariable]]). Often but not necessarily each [[variableMeasured]] will have an explicit representation as (or mapping to) an property such as those defined in Schema.org, or other RDF vocabularies and \"knowledge graphs\". In that case the subproperty of [[variableMeasured]] called [[measuredProperty]] is applicable.\n    \nThe [[measurementTechnique]] property helps when extra clarification is needed about how a [[measuredProperty]] was measured. This is oriented towards scientific and scholarly dataset publication but may have broader applicability; it is not intended as a full representation of measurement, but can often serve as a high level summary for dataset discovery. \n\nFor example, if [[variableMeasured]] is: molecule concentration, [[measurementTechnique]] could be: \"mass spectrometry\" or \"nmr spectroscopy\" or \"colorimetry\" or \"immunofluorescence\". If the [[variableMeasured]] is \"depression rating\", the [[measurementTechnique]] could be \"Zung Scale\" or \"HAM-D\" or \"Beck Depression Inventory\". \n\nIf there are several [[variableMeasured]] properties recorded for some given data object, use a [[PropertyValue]] for each [[variableMeasured]] and attach the corresponding [[measurementTechnique]]. The value can also be from an enumeration, organized as a [[MeasurementMethodEnum]]."
+  },
+  "field_types": {
+    "dataset": "String",
+    "identifier": "String",
+    "measurement_method": "String",
+    "measurement_technique": "String"
+  },
+  "fields": [
+    "dataset",
+    "identifier",
+    "measurement_method",
+    "measurement_technique"
+  ],
+  "identity_hash": "30fc201c5c6e3004a9a28e96e22d1f088f28745f879b03ef741fb03eb2a0d010",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "30fc201c5c6e3004a9a28e96e22d1f088f28745f879b03ef741fb03eb2a0d010",
+  "purpose_statement": "DataCatalog",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

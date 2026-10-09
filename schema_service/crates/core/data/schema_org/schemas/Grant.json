@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "Grant",
+  "field_classifications": {
+    "funded_item": [
+      "word"
+    ],
+    "funder": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "sponsor": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "funded_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "funder": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "sponsor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "funded_item": "Indicates something directly or indirectly funded or sponsored through a [[Grant]]. See also [[ownershipFundingInfo]].",
+    "funder": "A person or organization that supports (sponsors) something through some kind of financial contribution.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "sponsor": "A person or organization that supports a thing through a pledge, promise, or financial contribution. E.g. a sponsor of a Medical Study or a corporate sponsor of an event."
+  },
+  "field_types": {
+    "funded_item": "String",
+    "funder": "String",
+    "identifier": "String",
+    "sponsor": "String"
+  },
+  "fields": [
+    "funded_item",
+    "funder",
+    "identifier",
+    "sponsor"
+  ],
+  "identity_hash": "c6bebbd9cb032912dc03525c3953ba840a32d2eccfd9c2e0cb60b1c5b36a145f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c6bebbd9cb032912dc03525c3953ba840a32d2eccfd9c2e0cb60b1c5b36a145f",
+  "purpose_statement": "Grant",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

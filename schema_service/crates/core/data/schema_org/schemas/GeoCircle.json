@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "GeoCircle",
+  "field_classifications": {
+    "geo_midpoint": [
+      "word"
+    ],
+    "geo_radius": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "geo_midpoint": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "geo_radius": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "geo_midpoint": "Indicates the GeoCoordinates at the centre of a GeoShape, e.g. GeoCircle.",
+    "geo_radius": "Indicates the approximate radius of a GeoCircle (metres unless indicated otherwise via Distance notation).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "geo_midpoint": "String",
+    "geo_radius": "Float",
+    "identifier": "String"
+  },
+  "fields": [
+    "geo_midpoint",
+    "geo_radius",
+    "identifier"
+  ],
+  "identity_hash": "d5f2904d7824977e852b7288220f86500677387f0a5f83a8f1017bce2c41d612",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d5f2904d7824977e852b7288220f86500677387f0a5f83a8f1017bce2c41d612",
+  "purpose_statement": "GeoCircle",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

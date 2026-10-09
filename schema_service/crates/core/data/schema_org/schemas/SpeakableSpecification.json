@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "SpeakableSpecification",
+  "field_classifications": {
+    "css_selector": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "xpath": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "css_selector": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "xpath": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "css_selector": "A CSS selector, e.g. of a [[SpeakableSpecification]] or [[WebPageElement]]. In the latter case, multiple matches within a page can constitute a single conceptual \"Web page element\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "xpath": "An XPath, e.g. of a [[SpeakableSpecification]] or [[WebPageElement]]. In the latter case, multiple matches within a page can constitute a single conceptual \"Web page element\"."
+  },
+  "field_types": {
+    "css_selector": "String",
+    "identifier": "String",
+    "xpath": "String"
+  },
+  "fields": [
+    "css_selector",
+    "identifier",
+    "xpath"
+  ],
+  "identity_hash": "4a72cec142f2f8e2ae24e2a4486b520b5f54c23022fd6a81290f0be5acec7417",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4a72cec142f2f8e2ae24e2a4486b520b5f54c23022fd6a81290f0be5acec7417",
+  "purpose_statement": "SpeakableSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

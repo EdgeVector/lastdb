@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Statement",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "7b9b9501a64560806c0cd07a6cb3ee6f5ead82e3117733bd93067315be6d09d1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7b9b9501a64560806c0cd07a6cb3ee6f5ead82e3117733bd93067315be6d09d1",
+  "purpose_statement": "Statement",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

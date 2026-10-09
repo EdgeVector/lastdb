@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "MedicalEntity",
+  "field_classifications": {
+    "code": [
+      "word"
+    ],
+    "funding": [
+      "word"
+    ],
+    "guideline": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "legal_status": [
+      "word"
+    ],
+    "medicine_system": [
+      "word"
+    ],
+    "recognizing_authority": [
+      "word"
+    ],
+    "relevant_specialty": [
+      "word"
+    ],
+    "study": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "funding": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "guideline": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "legal_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "medicine_system": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "recognizing_authority": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "relevant_specialty": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "study": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "code": "A medical code for the entity, taken from a controlled vocabulary or ontology such as ICD-9, DiseasesDB, MeSH, SNOMED-CT, RxNorm, etc.",
+    "funding": "A [[Grant]] that directly or indirectly provide funding or sponsorship for this item. See also [[ownershipFundingInfo]].",
+    "guideline": "A medical guideline related to this entity.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "legal_status": "The drug or supplement's legal status, including any controlled substance schedules that apply.",
+    "medicine_system": "The system of medicine that includes this MedicalEntity, for example 'evidence-based', 'homeopathic', 'chiropractic', etc.",
+    "recognizing_authority": "If applicable, the organization that officially recognizes this entity as part of its endorsed system of medicine.",
+    "relevant_specialty": "If applicable, a medical specialty in which this entity is relevant.",
+    "study": "A medical study or trial related to this entity."
+  },
+  "field_types": {
+    "code": "String",
+    "funding": "String",
+    "guideline": "String",
+    "identifier": "String",
+    "legal_status": "String",
+    "medicine_system": "String",
+    "recognizing_authority": "String",
+    "relevant_specialty": "String",
+    "study": "String"
+  },
+  "fields": [
+    "code",
+    "funding",
+    "guideline",
+    "identifier",
+    "legal_status",
+    "medicine_system",
+    "recognizing_authority",
+    "relevant_specialty",
+    "study"
+  ],
+  "identity_hash": "6a0af5d491d5172ba1b2a6f9df7ad97338e3a9222fbf5e66e436cfd9463603e4",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6a0af5d491d5172ba1b2a6f9df7ad97338e3a9222fbf5e66e436cfd9463603e4",
+  "purpose_statement": "MedicalEntity",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

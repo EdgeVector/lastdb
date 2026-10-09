@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "TaxiReservation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "party_size": [
+      "number"
+    ],
+    "pickup_location": [
+      "word"
+    ],
+    "pickup_time": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "party_size": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pickup_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "pickup_time": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "party_size": "Number of people the reservation should accommodate.",
+    "pickup_location": "Where a taxi will pick up a passenger or a rental car can be picked up.",
+    "pickup_time": "When a taxi will pick up a passenger or a rental car can be picked up."
+  },
+  "field_types": {
+    "identifier": "String",
+    "party_size": "Integer",
+    "pickup_location": "String",
+    "pickup_time": "String"
+  },
+  "fields": [
+    "identifier",
+    "party_size",
+    "pickup_location",
+    "pickup_time"
+  ],
+  "identity_hash": "b80c065f608eaf29019f6da1534e89a199ca43effc76d470fb2eaa96ebd38ebf",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b80c065f608eaf29019f6da1534e89a199ca43effc76d470fb2eaa96ebd38ebf",
+  "purpose_statement": "TaxiReservation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

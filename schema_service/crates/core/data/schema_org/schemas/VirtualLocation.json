@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "VirtualLocation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "49e145d98e588ed27d4f892b33b5902c1a9f48fe914f694d4e47bdf93cce9a55",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "49e145d98e588ed27d4f892b33b5902c1a9f48fe914f694d4e47bdf93cce9a55",
+  "purpose_statement": "VirtualLocation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

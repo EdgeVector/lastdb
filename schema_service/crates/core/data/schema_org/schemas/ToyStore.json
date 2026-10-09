@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ToyStore",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "ef0f557dc88a7ff2847177863d8fccd8fa015031e3c42c23e1b9c1ce8b4db14c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ef0f557dc88a7ff2847177863d8fccd8fa015031e3c42c23e1b9c1ce8b4db14c",
+  "purpose_statement": "ToyStore",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

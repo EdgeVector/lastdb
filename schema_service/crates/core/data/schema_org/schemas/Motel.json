@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Motel",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "051f9fb9d8509e311c573b9ee2d37e11859c82be55d091d83631cb87a7aabb7a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "051f9fb9d8509e311c573b9ee2d37e11859c82be55d091d83631cb87a7aabb7a",
+  "purpose_statement": "Motel",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

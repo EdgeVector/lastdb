@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "BusinessAudience",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "number_of_employees": [
+      "word"
+    ],
+    "yearly_revenue": [
+      "word"
+    ],
+    "years_in_operation": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "number_of_employees": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "yearly_revenue": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "years_in_operation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "number_of_employees": "The number of employees in an organization, e.g. business.",
+    "yearly_revenue": "The size of the business in annual revenue.",
+    "years_in_operation": "The age of the business."
+  },
+  "field_types": {
+    "identifier": "String",
+    "number_of_employees": "String",
+    "yearly_revenue": "String",
+    "years_in_operation": "String"
+  },
+  "fields": [
+    "identifier",
+    "number_of_employees",
+    "yearly_revenue",
+    "years_in_operation"
+  ],
+  "identity_hash": "fa937ecdb3727de69d74218847264d69521df6e1842165814e3d15b17c491678",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "fa937ecdb3727de69d74218847264d69521df6e1842165814e3d15b17c491678",
+  "purpose_statement": "BusinessAudience",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

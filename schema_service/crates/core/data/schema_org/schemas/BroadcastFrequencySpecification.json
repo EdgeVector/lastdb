@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "BroadcastFrequencySpecification",
+  "field_classifications": {
+    "broadcast_frequency_value": [
+      "number"
+    ],
+    "broadcast_signal_modulation": [
+      "word"
+    ],
+    "broadcast_sub_channel": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "broadcast_frequency_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "broadcast_signal_modulation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "broadcast_sub_channel": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "broadcast_frequency_value": "The frequency in MHz for a particular broadcast.",
+    "broadcast_signal_modulation": "The modulation (e.g. FM, AM, etc) used by a particular broadcast service.",
+    "broadcast_sub_channel": "The subchannel used for the broadcast.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "broadcast_frequency_value": "Float",
+    "broadcast_signal_modulation": "String",
+    "broadcast_sub_channel": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "broadcast_frequency_value",
+    "broadcast_signal_modulation",
+    "broadcast_sub_channel",
+    "identifier"
+  ],
+  "identity_hash": "5dfae5e79a83f3259cfd3739b605b35820f7263767ee4bf528871bc508523fa5",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5dfae5e79a83f3259cfd3739b605b35820f7263767ee4bf528871bc508523fa5",
+  "purpose_statement": "BroadcastFrequencySpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

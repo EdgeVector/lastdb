@@ -1,0 +1,30 @@
+pub mod aggregate;
+pub mod aggregate_state;
+pub mod author_clock;
+pub mod cas;
+pub mod data_classification;
+pub mod declarative_schemas;
+pub mod errors;
+pub mod field;
+pub mod field_value_type;
+pub mod key_config;
+pub mod key_value;
+pub mod mutation;
+pub mod operations;
+pub mod schema;
+pub use aggregate::{AggregateFinalize, AggregateRepair, AggregateSet};
+pub use aggregate_state::{AggregateApply, AggregateGuard, AggregateMemberRecord, AggregateWinner};
+pub use author_clock::{MutationAuthorClockState, MUTATION_AUTHOR_SIGNATURE_VERSION};
+pub use cas::CasExpectation;
+pub use data_classification::DataClassification;
+pub use declarative_schemas::{
+    DeclarativeSchemaDefinition, FieldMapper, RecordMapper, SchemaSource, RECORD_SENTINEL,
+};
+pub use errors::SchemaError;
+pub use field::{FieldKind, FieldVariant};
+pub use field_value_type::FieldValueType;
+pub use key_config::KeyConfig;
+pub use key_value::KeyValue;
+pub use mutation::Mutation;
+pub use operations::{MutationType, Operation, Query, SortOrder, ValueFilter};
+pub use schema::{DeclarativeSchemaType as SchemaType, Schema};

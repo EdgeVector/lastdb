@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PreOrderAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "bf2d7b31d1d4d99ff076799da3865fed1ff62f3bb404d038864f8eaecc8dabb2",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bf2d7b31d1d4d99ff076799da3865fed1ff62f3bb404d038864f8eaecc8dabb2",
+  "purpose_statement": "PreOrderAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

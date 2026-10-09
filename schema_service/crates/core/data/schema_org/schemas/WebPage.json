@@ -1,0 +1,132 @@
+{
+  "descriptive_name": "WebPage",
+  "field_classifications": {
+    "breadcrumb": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "last_reviewed": [
+      "word"
+    ],
+    "main_content_of_page": [
+      "word"
+    ],
+    "primary_image_of_page": [
+      "word"
+    ],
+    "related_link": [
+      "word"
+    ],
+    "reviewed_by": [
+      "word"
+    ],
+    "significant_link": [
+      "word"
+    ],
+    "significant_links": [
+      "word"
+    ],
+    "speakable": [
+      "word"
+    ],
+    "specialty": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "breadcrumb": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "last_reviewed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "main_content_of_page": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "primary_image_of_page": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "related_link": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "reviewed_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "significant_link": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "significant_links": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "speakable": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "specialty": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "breadcrumb": "A set of links that can help a user understand and navigate a website hierarchy.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "last_reviewed": "Date on which the content on this web page was last reviewed for accuracy and/or completeness.",
+    "main_content_of_page": "Indicates if this web page element is the main subject of the page.",
+    "primary_image_of_page": "Indicates the main image on the page.",
+    "related_link": "A link related to this web page, for example to other related web pages.",
+    "reviewed_by": "People or organizations that have reviewed the content on this web page for accuracy and/or completeness.",
+    "significant_link": "One of the more significant URLs on the page. Typically, these are the non-navigation links that are clicked on the most.",
+    "significant_links": "The most significant URLs on the page. Typically, these are the non-navigation links that are clicked on the most.",
+    "speakable": "Indicates sections of a Web page that are particularly 'speakable' in the sense of being highlighted as being especially appropriate for text-to-speech conversion. Other sections of a page may also be usefully spoken in particular circumstances; the 'speakable' property serves to indicate the parts most likely to be generally useful for speech.\n\nThe *speakable* property can be repeated an arbitrary number of times, with three kinds of possible 'content-locator' values:\n\n1.) *id-value* URL references - uses *id-value* of an element in the page being annotated. The simplest use of *speakable* has (potentially relative) URL values, referencing identified sections of the document concerned.\n\n2.) CSS Selectors - addresses content in the annotated page, e.g. via class attribute. Use the [[cssSelector]] property.\n\n3.)  XPaths - addresses content via XPaths (assuming an XML view of the content). Use the [[xpath]] property.\n\n\nFor more sophisticated markup of speakable sections beyond simple ID references, either CSS selectors or XPath expressions to pick out document section(s) as speakable. For this\nwe define a supporting type, [[SpeakableSpecification]]  which is defined to be a possible value of the *speakable* property.",
+    "specialty": "One of the domain specialities to which this web page's content applies."
+  },
+  "field_types": {
+    "breadcrumb": "String",
+    "identifier": "String",
+    "last_reviewed": "String",
+    "main_content_of_page": "String",
+    "primary_image_of_page": "String",
+    "related_link": "String",
+    "reviewed_by": "String",
+    "significant_link": "String",
+    "significant_links": "String",
+    "speakable": "String",
+    "specialty": "String"
+  },
+  "fields": [
+    "breadcrumb",
+    "identifier",
+    "last_reviewed",
+    "main_content_of_page",
+    "primary_image_of_page",
+    "related_link",
+    "reviewed_by",
+    "significant_link",
+    "significant_links",
+    "speakable",
+    "specialty"
+  ],
+  "identity_hash": "5c5bc63fcd233d1d4c9dde5ab0c40c0dd1f7bb92458cb5fb036e3ceef5189c03",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5c5bc63fcd233d1d4c9dde5ab0c40c0dd1f7bb92458cb5fb036e3ceef5189c03",
+  "purpose_statement": "WebPage",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "CourseInstance",
+  "field_classifications": {
+    "course_mode": [
+      "word"
+    ],
+    "course_schedule": [
+      "word"
+    ],
+    "course_workload": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "instructor": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "course_mode": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "course_schedule": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "course_workload": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "instructor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "course_mode": "The medium or means of delivery of the course instance or the mode of study, either as a text label (e.g. \"online\", \"onsite\" or \"blended\"; \"synchronous\" or \"asynchronous\"; \"full-time\" or \"part-time\") or as a URL reference to a term from a controlled vocabulary (e.g. https://ceds.ed.gov/element/001311#Asynchronous).",
+    "course_schedule": "Represents the length and pace of a course, expressed as a [[Schedule]].",
+    "course_workload": "The amount of work expected of students taking the course, often provided as a figure per week or per month, and may be broken down by type. For example, \"2 hours of lectures, 1 hour of lab work and 3 hours of independent study per week\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "instructor": "A person assigned to instruct or provide instructional assistance for the [[CourseInstance]]."
+  },
+  "field_types": {
+    "course_mode": "String",
+    "course_schedule": "String",
+    "course_workload": "String",
+    "identifier": "String",
+    "instructor": "String"
+  },
+  "fields": [
+    "course_mode",
+    "course_schedule",
+    "course_workload",
+    "identifier",
+    "instructor"
+  ],
+  "identity_hash": "18bfd4486cccf9381c71d1c6485216448f077a950c063f4671339ca7fcc0c5a4",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "18bfd4486cccf9381c71d1c6485216448f077a950c063f4671339ca7fcc0c5a4",
+  "purpose_statement": "CourseInstance",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

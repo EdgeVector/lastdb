@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "RadioClip",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "8d13ced2455af214c2ffb59a3779511437fc9271079aee0e822d570d711c4ea0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8d13ced2455af214c2ffb59a3779511437fc9271079aee0e822d570d711c4ea0",
+  "purpose_statement": "RadioClip",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MedicalObservationalStudy",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "study_design": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "study_design": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "study_design": "Specifics about the observational study design (enumerated)."
+  },
+  "field_types": {
+    "identifier": "String",
+    "study_design": "String"
+  },
+  "fields": [
+    "identifier",
+    "study_design"
+  ],
+  "identity_hash": "c9f043fcec47a3ba0b7e03fcdaddf46064491608b96ef3696537d2de79190b5a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c9f043fcec47a3ba0b7e03fcdaddf46064491608b96ef3696537d2de79190b5a",
+  "purpose_statement": "MedicalObservationalStudy",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

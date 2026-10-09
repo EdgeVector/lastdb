@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "AnimalShelter",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "77648cf63e718d5dc6af62230c5e4106273107f239493bb418026cc0743d4584",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "77648cf63e718d5dc6af62230c5e4106273107f239493bb418026cc0743d4584",
+  "purpose_statement": "AnimalShelter",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

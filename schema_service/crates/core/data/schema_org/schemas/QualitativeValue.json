@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "QualitativeValue",
+  "field_classifications": {
+    "additional_property": [
+      "word"
+    ],
+    "equal": [
+      "word"
+    ],
+    "greater": [
+      "word"
+    ],
+    "greater_or_equal": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "lesser": [
+      "word"
+    ],
+    "lesser_or_equal": [
+      "word"
+    ],
+    "non_equal": [
+      "word"
+    ],
+    "value_reference": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "additional_property": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "equal": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "greater": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "greater_or_equal": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "lesser": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "lesser_or_equal": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "non_equal": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "value_reference": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "additional_property": "A property-value pair representing an additional characteristic of the entity, e.g. a product feature or another characteristic for which there is no matching property in schema.org.\\n\\nNote: Publishers should be aware that applications designed to use specific schema.org properties (e.g. https://schema.org/width, https://schema.org/color, https://schema.org/gtin13, ...) will typically expect such data to be provided using those properties, rather than using the generic property/value mechanism.",
+    "equal": "This ordering relation for qualitative values indicates that the subject is equal to the object.",
+    "greater": "This ordering relation for qualitative values indicates that the subject is greater than the object.",
+    "greater_or_equal": "This ordering relation for qualitative values indicates that the subject is greater than or equal to the object.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "lesser": "This ordering relation for qualitative values indicates that the subject is lesser than the object.",
+    "lesser_or_equal": "This ordering relation for qualitative values indicates that the subject is lesser than or equal to the object.",
+    "non_equal": "This ordering relation for qualitative values indicates that the subject is not equal to the object.",
+    "value_reference": "A secondary value that provides additional information on the original value, e.g. a reference temperature or a type of measurement."
+  },
+  "field_types": {
+    "additional_property": "String",
+    "equal": "String",
+    "greater": "String",
+    "greater_or_equal": "String",
+    "identifier": "String",
+    "lesser": "String",
+    "lesser_or_equal": "String",
+    "non_equal": "String",
+    "value_reference": "String"
+  },
+  "fields": [
+    "additional_property",
+    "equal",
+    "greater",
+    "greater_or_equal",
+    "identifier",
+    "lesser",
+    "lesser_or_equal",
+    "non_equal",
+    "value_reference"
+  ],
+  "identity_hash": "26babc9030c287c74395f80bf5fb3a4af7d793bdb0e3a225228596a414df9817",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "26babc9030c287c74395f80bf5fb3a4af7d793bdb0e3a225228596a414df9817",
+  "purpose_statement": "QualitativeValue",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

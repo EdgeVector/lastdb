@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "PerformanceRole",
+  "field_classifications": {
+    "character_name": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "character_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "character_name": "The name of a character played in some acting or performing role, i.e. in a PerformanceRole.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "character_name": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "character_name",
+    "identifier"
+  ],
+  "identity_hash": "498082f85daccc40db7ea71be62f05532dfdc192147dfb46b6bcf85d7e52740c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "498082f85daccc40db7ea71be62f05532dfdc192147dfb46b6bcf85d7e52740c",
+  "purpose_statement": "PerformanceRole",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,132 @@
+{
+  "descriptive_name": "MusicComposition",
+  "field_classifications": {
+    "composer": [
+      "word"
+    ],
+    "first_performance": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "included_composition": [
+      "word"
+    ],
+    "iswc_code": [
+      "word"
+    ],
+    "lyricist": [
+      "word"
+    ],
+    "lyrics": [
+      "word"
+    ],
+    "music_arrangement": [
+      "word"
+    ],
+    "music_composition_form": [
+      "word"
+    ],
+    "musical_key": [
+      "word"
+    ],
+    "recorded_as": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "composer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "first_performance": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "included_composition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "iswc_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "lyricist": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "lyrics": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "music_arrangement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "music_composition_form": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "musical_key": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "recorded_as": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "composer": "The person or organization who wrote a composition, or who is the composer of a work performed at some event.",
+    "first_performance": "The date and place the work was first performed.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "included_composition": "Smaller compositions included in this work (e.g. a movement in a symphony).",
+    "iswc_code": "The International Standard Musical Work Code for the composition.",
+    "lyricist": "The person who wrote the words.",
+    "lyrics": "The words in the song.",
+    "music_arrangement": "An arrangement derived from the composition.",
+    "music_composition_form": "The type of composition (e.g. overture, sonata, symphony, etc.).",
+    "musical_key": "The key, mode, or scale this composition uses.",
+    "recorded_as": "An audio recording of the work."
+  },
+  "field_types": {
+    "composer": "String",
+    "first_performance": "String",
+    "identifier": "String",
+    "included_composition": "String",
+    "iswc_code": "String",
+    "lyricist": "String",
+    "lyrics": "String",
+    "music_arrangement": "String",
+    "music_composition_form": "String",
+    "musical_key": "String",
+    "recorded_as": "String"
+  },
+  "fields": [
+    "composer",
+    "first_performance",
+    "identifier",
+    "included_composition",
+    "iswc_code",
+    "lyricist",
+    "lyrics",
+    "music_arrangement",
+    "music_composition_form",
+    "musical_key",
+    "recorded_as"
+  ],
+  "identity_hash": "4bed23fd92b56383519f037376dbd7e62865877853fae19de5b6001e9c8cf771",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4bed23fd92b56383519f037376dbd7e62865877853fae19de5b6001e9c8cf771",
+  "purpose_statement": "MusicComposition",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

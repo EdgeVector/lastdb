@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "apps": [
+    {
+      "app_id": "ingestion",
+      "display_name": "Ingestion",
+      "path": "apps/ingestion",
+      "manifest": "apps/ingestion/folddb.toml",
+      "command": "node apps/ingestion/bin/ingestion-app.mjs",
+      "zero_ui": true,
+      "persistent_ui": false,
+      "owned_outputs": [
+        "ingestion/IngestedFile"
+      ],
+      "status_schema": "ingestion/AppStatus"
+    }
+  ]
+}

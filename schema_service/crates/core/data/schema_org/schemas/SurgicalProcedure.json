@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "SurgicalProcedure",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "e9e4e9048b592775b2ec51f4c5f37c7def5e3eff3a52b34be02285d03cc69f63",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e9e4e9048b592775b2ec51f4c5f37c7def5e3eff3a52b34be02285d03cc69f63",
+  "purpose_statement": "SurgicalProcedure",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

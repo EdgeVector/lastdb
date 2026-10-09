@@ -1,0 +1,142 @@
+{
+  "descriptive_name": "OfferShippingDetails",
+  "field_classifications": {
+    "delivery_time": [
+      "word"
+    ],
+    "depth": [
+      "word"
+    ],
+    "does_not_ship": [
+      "word"
+    ],
+    "has_shipping_service": [
+      "word"
+    ],
+    "height": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "shipping_destination": [
+      "word"
+    ],
+    "shipping_origin": [
+      "word"
+    ],
+    "shipping_rate": [
+      "word"
+    ],
+    "valid_for_member_tier": [
+      "word"
+    ],
+    "weight": [
+      "word"
+    ],
+    "width": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "delivery_time": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "depth": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "does_not_ship": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_shipping_service": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "height": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "shipping_destination": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "shipping_origin": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "shipping_rate": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "valid_for_member_tier": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "weight": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "width": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "delivery_time": "The total delay between the receipt of the order and the goods reaching the final customer.",
+    "depth": "The depth of the item.",
+    "does_not_ship": "Indicates when shipping to a particular [[shippingDestination]] is not available.",
+    "has_shipping_service": "Specification of a shipping service offered by the organization.",
+    "height": "The height of the item.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "shipping_destination": "indicates (possibly multiple) shipping destinations. These can be defined in several ways, e.g. postalCode ranges.",
+    "shipping_origin": "Indicates the origin of a shipment, i.e. where it should be coming from.",
+    "shipping_rate": "The shipping rate is the cost of shipping to the specified destination. Typically, the maxValue and currency values (of the [[MonetaryAmount]]) are most appropriate.",
+    "valid_for_member_tier": "The membership program tier(s) an Offer (or a PriceSpecification, OfferShippingDetails, or MerchantReturnPolicy under an Offer) is valid for.",
+    "weight": "The weight of the product or person.",
+    "width": "The width of the item."
+  },
+  "field_types": {
+    "delivery_time": "String",
+    "depth": "String",
+    "does_not_ship": "Boolean",
+    "has_shipping_service": "String",
+    "height": "String",
+    "identifier": "String",
+    "shipping_destination": "String",
+    "shipping_origin": "String",
+    "shipping_rate": "String",
+    "valid_for_member_tier": "String",
+    "weight": "String",
+    "width": "String"
+  },
+  "fields": [
+    "delivery_time",
+    "depth",
+    "does_not_ship",
+    "has_shipping_service",
+    "height",
+    "identifier",
+    "shipping_destination",
+    "shipping_origin",
+    "shipping_rate",
+    "valid_for_member_tier",
+    "weight",
+    "width"
+  ],
+  "identity_hash": "3f804dc1c05107438febec0a0aab1c371cceec701d80290d3e3b236b13c08af9",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3f804dc1c05107438febec0a0aab1c371cceec701d80290d3e3b236b13c08af9",
+  "purpose_statement": "OfferShippingDetails",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

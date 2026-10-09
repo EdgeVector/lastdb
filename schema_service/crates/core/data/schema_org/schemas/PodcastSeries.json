@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "PodcastSeries",
+  "field_classifications": {
+    "actor": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "web_feed": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "actor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "web_feed": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "actor": "An actor (individual or a group), e.g. in TV, radio, movie, video games etc., or in an event. Actors can be associated with individual items or with a series, episode, clip.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "web_feed": "The URL for a feed, e.g. associated with a podcast series, blog, or series of date-stamped updates. This is usually RSS or Atom."
+  },
+  "field_types": {
+    "actor": "String",
+    "identifier": "String",
+    "web_feed": "String"
+  },
+  "fields": [
+    "actor",
+    "identifier",
+    "web_feed"
+  ],
+  "identity_hash": "7fdf1d936a9bd58c4631ec83d489be99af6ad6df04c5c118370c22f8fd58f5f0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7fdf1d936a9bd58c4631ec83d489be99af6ad6df04c5c118370c22f8fd58f5f0",
+  "purpose_statement": "PodcastSeries",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

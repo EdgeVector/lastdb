@@ -1,0 +1,311 @@
+{
+  "_comment": "Stage-2 canonicalization corpus. Each item carries: a sample `input` (a raw document, kept for reference + future Stage-1 LLM judging), the `proposal` schema that Stage 1 would emit for it, and an `expected_concept` label the scorer groups by. Items sharing a concept SHOULD collapse to one canonical; if they don't, that's dup explosion. NOTE: the service requires `field_descriptions` for every field (used for semantic matching). To grow this to thousands, append items (or generate proposals via the node ingestion LLM and cache them here). An item may ALSO carry `expected_decompose: [conceptA, conceptB, ...]` (>= 2 concepts) when its record SHOULD split across multiple PRE-EXISTING canonicals — e.g. an Order that carries a Customer + a shipping Address + Line Items, each of which is already a registered canonical. Such an item ought to register as a COMPOSED schema that references those component canonicals via SchemaRefs instead of re-inlining a mega-schema; the `composed`/`reuse_rate` metrics measure how close the service gets. Order matters: list each component concept's own item BEFORE the composite so the components exist when the composite is replayed. A composite's `ref_fields` map each nested field to the component canonical it should reuse (e.g. `ship_to -> \"Postal Address\"`) and its `field_descriptions` entry carries that canonical's purpose so the per-component purpose gate (τ_purpose 0.88) fires. The harness scores COMPOSED off the service's authoritative wire marker (`AddSchemaResponse.composed`, set only on the apply path's `SchemaAddOutcome::Composed`), NOT off the mere presence of `ref_fields` — so with the apply path OFF (`--no-compositional`) the same proposal registers as NEW (composed 0/2), the before-state the metric quantifies, vs composed 2/2 with the apply path on.",
+  "items": [
+    {
+      "id": "contacts_addressbook",
+      "expected_concept": "contact",
+      "input": { "name": "Jane Doe", "email": "jane@example.com", "phone": "+1-555-0100" },
+      "proposal": {
+        "name": "AddressBookEntry",
+        "schema_type": "Single",
+        "descriptive_name": "Address Book",
+        "purpose_statement": "People you know and how to reach them.",
+        "fields": ["name", "email", "phone"],
+        "field_descriptions": {
+          "name": "The person's full name",
+          "email": "The person's email address",
+          "phone": "The person's phone number"
+        }
+      }
+    },
+    {
+      "id": "contacts_crm",
+      "expected_concept": "contact",
+      "input": { "full_name": "Acme Corp Sales", "email_address": "sales@acme.com", "phone_number": "+1-555-0111", "company": "Acme" },
+      "proposal": {
+        "name": "CrmContact",
+        "schema_type": "Single",
+        "descriptive_name": "Contacts",
+        "purpose_statement": "Contact records of people and the way to reach them.",
+        "fields": ["full_name", "email_address", "phone_number", "company"],
+        "field_descriptions": {
+          "full_name": "The contact's full name",
+          "email_address": "The contact's email address",
+          "phone_number": "The contact's phone number",
+          "company": "The company the contact works for"
+        }
+      }
+    },
+    {
+      "id": "contacts_minimal",
+      "expected_concept": "contact",
+      "input": { "name": "Bob", "email": "bob@example.com" },
+      "proposal": {
+        "name": "ContactLite",
+        "schema_type": "Single",
+        "descriptive_name": "Contact List",
+        "purpose_statement": "A list of contacts and their email addresses.",
+        "fields": ["name", "email"],
+        "field_descriptions": {
+          "name": "The contact's name",
+          "email": "The contact's email address"
+        }
+      }
+    },
+    {
+      "id": "photos_samename_library",
+      "expected_concept": "photo",
+      "input": { "photo_id": "p-same-1", "url": "s3://b/same-1.jpg", "taken_at": "2026-03-01T00:00:00Z" },
+      "proposal": {
+        "name": "SameNamePhotoLibraryItem",
+        "schema_type": "Single",
+        "descriptive_name": "Photography Archive",
+        "purpose_statement": "Photos a person has taken or saved in their library.",
+        "fields": ["photo_id", "url", "taken_at"],
+        "field_descriptions": {
+          "photo_id": "Unique identifier for the photo",
+          "url": "Storage URL of the image file",
+          "taken_at": "Timestamp the photo was taken"
+        },
+        "field_data_classifications": {
+          "photo_id": { "sensitivity_level": 1, "data_domain": "identity" },
+          "url": { "sensitivity_level": 1, "data_domain": "content" },
+          "taken_at": { "sensitivity_level": 1, "data_domain": "temporal" }
+        }
+      }
+    },
+    {
+      "id": "photos_samename_camera_roll",
+      "expected_concept": "photo",
+      "input": { "id": "img-same-2", "image_url": "s3://b/same-2.jpg", "captured_at": "2026-03-02T00:00:00Z", "camera_model": "Pixel" },
+      "proposal": {
+        "name": "SameNameCameraRollPhoto",
+        "schema_type": "Single",
+        "descriptive_name": "Photography Archive",
+        "purpose_statement": "Pictures captured by the camera with capture metadata.",
+        "fields": ["id", "image_url", "captured_at", "camera_model"],
+        "field_descriptions": {
+          "id": "Unique identifier for the picture",
+          "image_url": "Storage URL of the image file",
+          "captured_at": "Timestamp the picture was captured",
+          "camera_model": "Model of the camera that captured it"
+        },
+        "field_data_classifications": {
+          "id": { "sensitivity_level": 1, "data_domain": "identity" },
+          "image_url": { "sensitivity_level": 1, "data_domain": "content" },
+          "captured_at": { "sensitivity_level": 1, "data_domain": "temporal" },
+          "camera_model": { "sensitivity_level": 1, "data_domain": "general" }
+        }
+      }
+    },
+    {
+      "id": "photos_samename_camera_settings",
+      "expected_concept": "camera_settings",
+      "input": { "aperture": "f/2.8", "shutter_speed": "1/250", "iso": 200, "lens": "50mm" },
+      "proposal": {
+        "name": "SameNameCameraSettings",
+        "schema_type": "Single",
+        "descriptive_name": "Photography Archive",
+        "purpose_statement": "Aperture and shutter-speed settings recorded for a camera body.",
+        "fields": ["aperture", "shutter_speed", "iso", "lens"],
+        "field_descriptions": {
+          "aperture": "Lens aperture value for the exposure",
+          "shutter_speed": "Length of time the shutter stayed open",
+          "iso": "Camera sensor sensitivity setting",
+          "lens": "Lens used for the exposure"
+        },
+        "field_data_classifications": {
+          "aperture": { "sensitivity_level": 1, "data_domain": "general" },
+          "shutter_speed": { "sensitivity_level": 1, "data_domain": "temporal" },
+          "iso": { "sensitivity_level": 1, "data_domain": "general" },
+          "lens": { "sensitivity_level": 1, "data_domain": "general" }
+        }
+      }
+    },
+    {
+      "id": "photos_library",
+      "expected_concept": "photo",
+      "input": { "photo_id": "p1", "url": "s3://b/p1.jpg", "taken_at": "2026-01-01T00:00:00Z" },
+      "proposal": {
+        "name": "PhotoLibraryItem",
+        "schema_type": "Single",
+        "descriptive_name": "Photo Library",
+        "purpose_statement": "Photos a person has taken or saved.",
+        "fields": ["photo_id", "url", "taken_at"],
+        "field_descriptions": {
+          "photo_id": "Unique identifier for the photo",
+          "url": "Storage URL of the image file",
+          "taken_at": "Timestamp the photo was taken"
+        }
+      }
+    },
+    {
+      "id": "photos_cameraroll",
+      "expected_concept": "photo",
+      "input": { "id": "img9", "image_url": "s3://b/img9.jpg", "captured_at": "2026-02-02T00:00:00Z", "camera_model": "Pixel" },
+      "proposal": {
+        "name": "CameraRollPhoto",
+        "schema_type": "Single",
+        "descriptive_name": "Camera Roll",
+        "purpose_statement": "Pictures captured by the camera with capture metadata.",
+        "fields": ["id", "image_url", "captured_at", "camera_model"],
+        "field_descriptions": {
+          "id": "Unique identifier for the picture",
+          "image_url": "Storage URL of the image file",
+          "captured_at": "Timestamp the picture was captured",
+          "camera_model": "Model of the camera that captured it"
+        }
+      }
+    },
+    {
+      "id": "recipes",
+      "expected_concept": "recipe",
+      "input": { "title": "Pancakes", "ingredients": ["flour", "egg"], "steps": ["mix", "cook"], "prep_time": "10m" },
+      "proposal": {
+        "name": "Recipe",
+        "schema_type": "Single",
+        "descriptive_name": "Recipes",
+        "purpose_statement": "Cooking recipes with ingredients and steps.",
+        "fields": ["title", "ingredients", "steps", "prep_time"],
+        "field_descriptions": {
+          "title": "Name of the recipe",
+          "ingredients": "List of ingredients needed",
+          "steps": "Ordered cooking instructions",
+          "prep_time": "How long the recipe takes to prepare"
+        }
+      }
+    },
+    {
+      "id": "tasks",
+      "expected_concept": "task",
+      "input": { "title": "Ship harness", "status": "todo", "due_date": "2026-06-20", "assignee": "tom" },
+      "proposal": {
+        "name": "TaskItem",
+        "schema_type": "Single",
+        "descriptive_name": "Tasks",
+        "purpose_statement": "Things to do, with status and due dates.",
+        "fields": ["title", "status", "due_date", "assignee"],
+        "field_descriptions": {
+          "title": "Short description of the task",
+          "status": "Current status of the task",
+          "due_date": "When the task is due",
+          "assignee": "Who is responsible for the task"
+        }
+      }
+    },
+    {
+      "id": "ecom_customer",
+      "expected_concept": "customer",
+      "input": { "customer_id": "c-100", "name": "Jane Doe", "email": "jane@example.com" },
+      "proposal": {
+        "name": "EcomCustomer",
+        "schema_type": "Single",
+        "descriptive_name": "Customer",
+        "purpose_statement": "A customer of the store — who they are and how to reach them.",
+        "fields": ["customer_id", "name", "email"],
+        "field_descriptions": {
+          "customer_id": "Unique identifier for the customer",
+          "name": "The customer's full name",
+          "email": "The customer's email address"
+        }
+      }
+    },
+    {
+      "id": "ecom_address",
+      "expected_concept": "address",
+      "input": { "line1": "1 Main St", "city": "Springfield", "postal_code": "00001", "country": "US" },
+      "proposal": {
+        "name": "PostalAddress",
+        "schema_type": "Single",
+        "descriptive_name": "Postal Address",
+        "purpose_statement": "A physical mailing address used for shipping and billing.",
+        "fields": ["line1", "city", "postal_code", "country"],
+        "field_descriptions": {
+          "line1": "Street address line",
+          "city": "City name",
+          "postal_code": "Postal or ZIP code",
+          "country": "Country code or name"
+        }
+      }
+    },
+    {
+      "id": "ecom_lineitem",
+      "expected_concept": "line_item",
+      "input": { "sku": "SKU-9", "quantity": 2, "unit_price": "9.99" },
+      "proposal": {
+        "name": "OrderLineItem",
+        "schema_type": "Single",
+        "descriptive_name": "Line Item",
+        "purpose_statement": "A single product line on an order — what was bought, how many, at what price.",
+        "fields": ["sku", "quantity", "unit_price"],
+        "field_descriptions": {
+          "sku": "Stock-keeping unit identifying the product",
+          "quantity": "How many units were ordered",
+          "unit_price": "Price per unit"
+        }
+      }
+    },
+    {
+      "id": "ecom_order_composite",
+      "expected_concept": "order",
+      "expected_decompose": ["customer", "address", "line_item"],
+      "input": {
+        "order_id": "o-555",
+        "placed_at": "2026-06-22T00:00:00Z",
+        "customer": { "customer_id": "c-100", "name": "Jane Doe", "email": "jane@example.com" },
+        "ship_to": { "line1": "1 Main St", "city": "Springfield", "postal_code": "00001", "country": "US" },
+        "items": [{ "sku": "SKU-9", "quantity": 2, "unit_price": "9.99" }]
+      },
+      "proposal": {
+        "name": "CustomerOrder",
+        "schema_type": "Single",
+        "descriptive_name": "Order",
+        "purpose_statement": "A placed order: which customer, where it ships, and what line items it contains.",
+        "fields": ["order_id", "placed_at", "customer", "ship_to", "items"],
+        "field_descriptions": {
+          "order_id": "Unique identifier for the order",
+          "placed_at": "When the order was placed",
+          "customer": "A customer of the store — who they are and how to reach them.",
+          "ship_to": "A physical mailing address used for shipping and billing.",
+          "items": "A single product line on an order — what was bought, how many, at what price."
+        },
+        "ref_fields": {
+          "customer": "Customer",
+          "ship_to": "Postal Address",
+          "items": "Line Item"
+        }
+      }
+    },
+    {
+      "id": "ecom_invoice_composite",
+      "expected_concept": "invoice",
+      "expected_decompose": ["customer", "address", "line_item"],
+      "input": {
+        "invoice_id": "inv-7",
+        "issued_at": "2026-06-22T00:00:00Z",
+        "bill_to": { "name": "Jane Doe", "email": "jane@example.com" },
+        "billing_address": { "line1": "1 Main St", "city": "Springfield", "postal_code": "00001", "country": "US" },
+        "lines": [{ "sku": "SKU-9", "quantity": 2, "unit_price": "9.99" }]
+      },
+      "proposal": {
+        "name": "CustomerInvoice",
+        "schema_type": "Single",
+        "descriptive_name": "Invoice",
+        "purpose_statement": "An invoice billed to a customer at a billing address for a set of line items.",
+        "fields": ["invoice_id", "issued_at", "bill_to", "billing_address", "lines"],
+        "field_descriptions": {
+          "invoice_id": "Unique identifier for the invoice",
+          "issued_at": "When the invoice was issued",
+          "bill_to": "A customer of the store — who they are and how to reach them.",
+          "billing_address": "A physical mailing address used for shipping and billing.",
+          "lines": "A single product line on an order — what was bought, how many, at what price."
+        },
+        "ref_fields": {
+          "bill_to": "Customer",
+          "billing_address": "Postal Address",
+          "lines": "Line Item"
+        }
+      }
+    }
+  ]
+}

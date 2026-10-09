@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "DiagnosticLab",
+  "field_classifications": {
+    "available_test": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "available_test": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "available_test": "A diagnostic test or procedure offered by this lab.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "available_test": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "available_test",
+    "identifier"
+  ],
+  "identity_hash": "5280cd13f7ccfdd8ae38925c7aa1fa95c8c081a104192b95e52fb3b4e51cd645",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5280cd13f7ccfdd8ae38925c7aa1fa95c8c081a104192b95e52fb3b4e51cd645",
+  "purpose_statement": "DiagnosticLab",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

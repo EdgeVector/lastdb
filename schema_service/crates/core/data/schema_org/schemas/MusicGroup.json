@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "MusicGroup",
+  "field_classifications": {
+    "album": [
+      "word"
+    ],
+    "albums": [
+      "word"
+    ],
+    "genre": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "music_group_member": [
+      "word"
+    ],
+    "track": [
+      "word"
+    ],
+    "tracks": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "album": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "albums": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "genre": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "music_group_member": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "track": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tracks": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "album": "A music album.",
+    "albums": "A collection of music albums.",
+    "genre": "Genre of the creative work, broadcast channel or group.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "music_group_member": "A member of a music group&#x2014;for example, John, Paul, George, or Ringo.",
+    "track": "A music recording (track)&#x2014;usually a single song. If an ItemList is given, the list should contain items of type MusicRecording.",
+    "tracks": "A music recording (track)&#x2014;usually a single song."
+  },
+  "field_types": {
+    "album": "String",
+    "albums": "String",
+    "genre": "String",
+    "identifier": "String",
+    "music_group_member": "String",
+    "track": "String",
+    "tracks": "String"
+  },
+  "fields": [
+    "album",
+    "albums",
+    "genre",
+    "identifier",
+    "music_group_member",
+    "track",
+    "tracks"
+  ],
+  "identity_hash": "e50a6aa6ce45f895d9b8052e785964070820976ec617cdf870654d3c61c251aa",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e50a6aa6ce45f895d9b8052e785964070820976ec617cdf870654d3c61c251aa",
+  "purpose_statement": "MusicGroup",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "DDxElement",
+  "field_classifications": {
+    "diagnosis": [
+      "word"
+    ],
+    "distinguishing_sign": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "diagnosis": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "distinguishing_sign": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "diagnosis": "One or more alternative conditions considered in the differential diagnosis process as output of a diagnosis process.",
+    "distinguishing_sign": "One of a set of signs and symptoms that can be used to distinguish this diagnosis from others in the differential diagnosis.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "diagnosis": "String",
+    "distinguishing_sign": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "diagnosis",
+    "distinguishing_sign",
+    "identifier"
+  ],
+  "identity_hash": "1e469ae425f27388e5ce06f89fdcd722b1b30c48b6adeefb5a42c76dc2950c57",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1e469ae425f27388e5ce06f89fdcd722b1b30c48b6adeefb5a42c76dc2950c57",
+  "purpose_statement": "DDxElement",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

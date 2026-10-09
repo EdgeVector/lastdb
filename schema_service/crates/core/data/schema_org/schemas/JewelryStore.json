@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "JewelryStore",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "8492d48bca1c6d841662cd1331f7bd4ac02b12eae3837bb38ddc62b8bb65303e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8492d48bca1c6d841662cd1331f7bd4ac02b12eae3837bb38ddc62b8bb65303e",
+  "purpose_statement": "JewelryStore",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

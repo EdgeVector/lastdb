@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Table",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "6c30da1463b55fe133dc2e79469939387ec32a3ed0ba6261371d65b6720d099d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6c30da1463b55fe133dc2e79469939387ec32a3ed0ba6261371d65b6720d099d",
+  "purpose_statement": "Table",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

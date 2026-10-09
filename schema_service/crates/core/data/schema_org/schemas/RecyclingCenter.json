@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "RecyclingCenter",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "e36f62c9b36e169d3b6befc40680fd06a7cb0fa78e548cfc4e2867ff6bdaa524",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e36f62c9b36e169d3b6befc40680fd06a7cb0fa78e548cfc4e2867ff6bdaa524",
+  "purpose_statement": "RecyclingCenter",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

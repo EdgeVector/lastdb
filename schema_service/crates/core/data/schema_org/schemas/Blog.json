@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "Blog",
+  "field_classifications": {
+    "blog_post": [
+      "word"
+    ],
+    "blog_posts": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "issn": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "blog_post": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "blog_posts": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "issn": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "blog_post": "A posting that is part of this blog.",
+    "blog_posts": "Indicates a post that is part of a [[Blog]]. Note that historically, what we term a \"Blog\" was once known as a \"weblog\", and that what we term a \"BlogPosting\" is now often colloquially referred to as a \"blog\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "issn": "The International Standard Serial Number (ISSN) that identifies this serial publication. You can repeat this property to identify different formats of, or the linking ISSN (ISSN-L) for, this serial publication."
+  },
+  "field_types": {
+    "blog_post": "String",
+    "blog_posts": "String",
+    "identifier": "String",
+    "issn": "String"
+  },
+  "fields": [
+    "blog_post",
+    "blog_posts",
+    "identifier",
+    "issn"
+  ],
+  "identity_hash": "0066476848dcaff0892481b23cadeb1430c25da95172abaf9900f479ec0eca35",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "0066476848dcaff0892481b23cadeb1430c25da95172abaf9900f479ec0eca35",
+  "purpose_statement": "Blog",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

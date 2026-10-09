@@ -1,0 +1,20 @@
+# Excluded from Docker build context. The monorepo is the build context
+# for schema_service/crates/worker/Dockerfile (see schema-infra CDK,
+# DockerImageCode.fromImageAsset(path: "../fold")).
+#
+# Without this, every `docker build` ships our local target/ cache as
+# part of the context (multi-GB) and either OOMs the daemon or makes
+# CDK uploads unusably slow.
+
+target/
+**/target/
+.git/
+.docker-cache/
+**/node_modules/
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.log
+.folddb/
+.folddb-slots/

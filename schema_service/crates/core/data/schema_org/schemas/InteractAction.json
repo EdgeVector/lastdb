@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "InteractAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "d2bc2637bd811650d23e8726b42e3b96791746b2e572c8d2baeb2814b1dc93af",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d2bc2637bd811650d23e8726b42e3b96791746b2e572c8d2baeb2814b1dc93af",
+  "purpose_statement": "InteractAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

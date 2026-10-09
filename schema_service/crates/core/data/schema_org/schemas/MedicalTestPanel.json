@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MedicalTestPanel",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "sub_test": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "sub_test": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "sub_test": "A component test of the panel."
+  },
+  "field_types": {
+    "identifier": "String",
+    "sub_test": "String"
+  },
+  "fields": [
+    "identifier",
+    "sub_test"
+  ],
+  "identity_hash": "8246f5788cbebed21f8b74c71878968689707d77afc0a16d79f39c6f3ce986cf",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8246f5788cbebed21f8b74c71878968689707d77afc0a16d79f39c6f3ce986cf",
+  "purpose_statement": "MedicalTestPanel",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

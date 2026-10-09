@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "DigitalDocument",
+  "field_classifications": {
+    "has_digital_document_permission": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "has_digital_document_permission": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "has_digital_document_permission": "A permission related to the access to this document (e.g. permission to read or write an electronic document). For a public document, specify a grantee with an Audience with audienceType equal to \"public\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "has_digital_document_permission": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "has_digital_document_permission",
+    "identifier"
+  ],
+  "identity_hash": "e9a6f12d7f259f3be3fa26fb665d09e3d75fea1d714180b70abf7444eee42f2c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e9a6f12d7f259f3be3fa26fb665d09e3d75fea1d714180b70abf7444eee42f2c",
+  "purpose_statement": "DigitalDocument",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "SkiResort",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "d15e473e6492a1596ab44ba1d6bd420b259c9b1e776a9b6fec8459d228fa8fa0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d15e473e6492a1596ab44ba1d6bd420b259c9b1e776a9b6fec8459d228fa8fa0",
+  "purpose_statement": "SkiResort",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

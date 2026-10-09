@@ -1,0 +1,372 @@
+{
+  "descriptive_name": "Demand",
+  "field_classifications": {
+    "accepted_payment_method": [
+      "word"
+    ],
+    "advance_booking_requirement": [
+      "word"
+    ],
+    "area_served": [
+      "word"
+    ],
+    "asin": [
+      "word"
+    ],
+    "availability": [
+      "word"
+    ],
+    "availability_ends": [
+      "word"
+    ],
+    "availability_starts": [
+      "word"
+    ],
+    "available_at_or_from": [
+      "word"
+    ],
+    "available_delivery_method": [
+      "word"
+    ],
+    "business_function": [
+      "word"
+    ],
+    "delivery_lead_time": [
+      "word"
+    ],
+    "eligible_customer_type": [
+      "word"
+    ],
+    "eligible_duration": [
+      "word"
+    ],
+    "eligible_quantity": [
+      "word"
+    ],
+    "eligible_region": [
+      "word"
+    ],
+    "eligible_transaction_volume": [
+      "word"
+    ],
+    "gtin": [
+      "word"
+    ],
+    "gtin12": [
+      "word"
+    ],
+    "gtin13": [
+      "word"
+    ],
+    "gtin14": [
+      "word"
+    ],
+    "gtin8": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "includes_object": [
+      "word"
+    ],
+    "ineligible_region": [
+      "word"
+    ],
+    "inventory_level": [
+      "word"
+    ],
+    "item_condition": [
+      "word"
+    ],
+    "item_offered": [
+      "word"
+    ],
+    "mpn": [
+      "word"
+    ],
+    "price_specification": [
+      "word"
+    ],
+    "seller": [
+      "word"
+    ],
+    "serial_number": [
+      "word"
+    ],
+    "sku": [
+      "word"
+    ],
+    "valid_from": [
+      "word"
+    ],
+    "valid_through": [
+      "word"
+    ],
+    "warranty": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "accepted_payment_method": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "advance_booking_requirement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "area_served": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "asin": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "availability": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "availability_ends": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "availability_starts": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "available_at_or_from": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "available_delivery_method": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "business_function": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "delivery_lead_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "eligible_customer_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "eligible_duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "eligible_quantity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "eligible_region": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "eligible_transaction_volume": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "gtin": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "gtin12": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "gtin13": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "gtin14": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "gtin8": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "includes_object": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "ineligible_region": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "inventory_level": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "item_condition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "item_offered": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "mpn": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "price_specification": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "seller": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "serial_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sku": {
+      "data_domain": "commerce",
+      "sensitivity_level": 0
+    },
+    "valid_from": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "valid_through": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "warranty": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "accepted_payment_method": "The payment method(s) that are accepted in general by an organization, or for some specific demand or offer.",
+    "advance_booking_requirement": "The amount of time that is required between accepting the offer and the actual usage of the resource or service.",
+    "area_served": "The geographic area where a service or offered item is provided.",
+    "asin": "An Amazon Standard Identification Number (ASIN) is a 10-character alphanumeric unique identifier assigned by Amazon.com and its partners for product identification within the Amazon organization (summary from [Wikipedia](https://en.wikipedia.org/wiki/Amazon_Standard_Identification_Number)'s article).\n\nNote also that this is a definition for how to include ASINs in Schema.org data, and not a definition of ASINs in general - see documentation from Amazon for authoritative details.\nASINs are most commonly encoded as text strings, but the [asin] property supports URL/URI as potential values too.",
+    "availability": "The availability of this item&#x2014;for example In stock, Out of stock, Pre-order, etc.",
+    "availability_ends": "The end of the availability of the product or service included in the offer.",
+    "availability_starts": "The beginning of the availability of the product or service included in the offer.",
+    "available_at_or_from": "The place(s) from which the offer can be obtained (e.g. store locations).",
+    "available_delivery_method": "The delivery method(s) available for this offer.",
+    "business_function": "The business function (e.g. sell, lease, repair, dispose) of the offer or component of a bundle (TypeAndQuantityNode). The default is http://purl.org/goodrelations/v1#Sell.",
+    "delivery_lead_time": "The typical delay between the receipt of the order and the goods either leaving the warehouse or being prepared for pickup, in case the delivery method is on site pickup.",
+    "eligible_customer_type": "The type(s) of customers for which the given offer is valid.",
+    "eligible_duration": "The duration for which the given offer is valid.",
+    "eligible_quantity": "The interval and unit of measurement of ordering quantities for which the offer or price specification is valid. This allows e.g. specifying that a certain freight charge is valid only for a certain quantity.",
+    "eligible_region": "The ISO 3166-1 (ISO 3166-1 alpha-2) or ISO 3166-2 code, the place, or the GeoShape for the geo-political region(s) for which the offer or delivery charge specification is valid.\\n\\nSee also [[ineligibleRegion]].",
+    "eligible_transaction_volume": "The transaction volume, in a monetary unit, for which the offer or price specification is valid, e.g. for indicating a minimal purchasing volume, to express free shipping above a certain order volume, or to limit the acceptance of credit cards to purchases to a certain minimal amount.",
+    "gtin": "A Global Trade Item Number ([GTIN](https://www.gs1.org/standards/id-keys/gtin)). GTINs identify trade items, including products and services, using numeric identification codes.\n\nA correct [[gtin]] value should be a valid GTIN, which means that it should be an all-numeric string of either 8, 12, 13 or 14 digits, or a \"GS1 Digital Link\" URL based on such a string. The numeric component should also have a [valid GS1 check digit](https://www.gs1.org/services/check-digit-calculator) and meet the other rules for valid GTINs. See also [GS1's GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) and [Wikipedia](https://en.wikipedia.org/wiki/Global_Trade_Item_Number) for more details. Left-padding of the gtin values is not required or encouraged. The [[gtin]] property generalizes the earlier [[gtin8]], [[gtin12]], [[gtin13]], and [[gtin14]] properties.\n\nThe GS1 [digital link specifications](https://www.gs1.org/standards/Digital-Link/) expresses GTINs as URLs (URIs, IRIs, etc.).\nDigital Links should be populated into the [[hasGS1DigitalLink]] attribute.\n\nNote also that this is a definition for how to include GTINs in Schema.org data, and not a definition of GTINs in general - see the GS1 documentation for authoritative details.",
+    "gtin12": "The GTIN-12 code of the product, or the product to which the offer refers. The GTIN-12 is the 12-digit GS1 Identification Key composed of a U.P.C. Company Prefix, Item Reference, and Check Digit used to identify trade items. See [GS1 GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) for more details.",
+    "gtin13": "The GTIN-13 code of the product, or the product to which the offer refers. This is equivalent to 13-digit ISBN codes and EAN UCC-13. Former 12-digit UPC codes can be converted into a GTIN-13 code by simply adding a preceding zero. See [GS1 GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) for more details.",
+    "gtin14": "The GTIN-14 code of the product, or the product to which the offer refers. See [GS1 GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) for more details.",
+    "gtin8": "The GTIN-8 code of the product, or the product to which the offer refers. This code is also known as EAN/UCC-8 or 8-digit EAN. See [GS1 GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) for more details.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "includes_object": "This links to a node or nodes indicating the exact quantity of the products included in  an [[Offer]] or [[ProductCollection]].",
+    "ineligible_region": "The ISO 3166-1 (ISO 3166-1 alpha-2) or ISO 3166-2 code, the place, or the GeoShape for the geo-political region(s) for which the offer or delivery charge specification is not valid, e.g. a region where the transaction is not allowed.\\n\\nSee also [[eligibleRegion]].",
+    "inventory_level": "The current approximate inventory level for the item or items.",
+    "item_condition": "A predefined value from OfferItemCondition specifying the condition of the product or service, or the products or services included in the offer. Also used for product return policies to specify the condition of products accepted for returns.",
+    "item_offered": "An item being offered (or demanded). The transactional nature of the offer or demand is documented using [[businessFunction]], e.g. sell, lease etc. While several common expected types are listed explicitly in this definition, others can be used. Using a second type, such as Product or a subtype of Product, can clarify the nature of the offer.",
+    "mpn": "The Manufacturer Part Number (MPN) of the product, or the product to which the offer refers.",
+    "price_specification": "One or more detailed price specifications, indicating the unit price and delivery or payment charges.",
+    "seller": "An entity which offers (sells / leases / lends / loans) the services / goods.  A seller may also be a provider.",
+    "serial_number": "The serial number or any alphanumeric identifier of a particular product. When attached to an offer, it is a shortcut for the serial number of the product included in the offer.",
+    "sku": "The Stock Keeping Unit (SKU), i.e. a merchant-specific identifier for a product or service, or the product to which the offer refers.",
+    "valid_from": "The date when the item becomes valid.",
+    "valid_through": "The date after when the item is not valid. For example the end of an offer, salary period, or a period of opening hours.",
+    "warranty": "The warranty promise(s) included in the offer."
+  },
+  "field_types": {
+    "accepted_payment_method": "String",
+    "advance_booking_requirement": "String",
+    "area_served": "String",
+    "asin": "String",
+    "availability": "String",
+    "availability_ends": "String",
+    "availability_starts": "String",
+    "available_at_or_from": "String",
+    "available_delivery_method": "String",
+    "business_function": "String",
+    "delivery_lead_time": "String",
+    "eligible_customer_type": "String",
+    "eligible_duration": "String",
+    "eligible_quantity": "String",
+    "eligible_region": "String",
+    "eligible_transaction_volume": "String",
+    "gtin": "String",
+    "gtin12": "String",
+    "gtin13": "String",
+    "gtin14": "String",
+    "gtin8": "String",
+    "identifier": "String",
+    "includes_object": "String",
+    "ineligible_region": "String",
+    "inventory_level": "String",
+    "item_condition": "String",
+    "item_offered": "String",
+    "mpn": "String",
+    "price_specification": "String",
+    "seller": "String",
+    "serial_number": "String",
+    "sku": "String",
+    "valid_from": "String",
+    "valid_through": "String",
+    "warranty": "String"
+  },
+  "fields": [
+    "accepted_payment_method",
+    "advance_booking_requirement",
+    "area_served",
+    "asin",
+    "availability",
+    "availability_ends",
+    "availability_starts",
+    "available_at_or_from",
+    "available_delivery_method",
+    "business_function",
+    "delivery_lead_time",
+    "eligible_customer_type",
+    "eligible_duration",
+    "eligible_quantity",
+    "eligible_region",
+    "eligible_transaction_volume",
+    "gtin",
+    "gtin12",
+    "gtin13",
+    "gtin14",
+    "gtin8",
+    "identifier",
+    "includes_object",
+    "ineligible_region",
+    "inventory_level",
+    "item_condition",
+    "item_offered",
+    "mpn",
+    "price_specification",
+    "seller",
+    "serial_number",
+    "sku",
+    "valid_from",
+    "valid_through",
+    "warranty"
+  ],
+  "identity_hash": "8b49674e30564b98dd515647e7b0341eb8561c60ffe2564b055820adb2adbddb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8b49674e30564b98dd515647e7b0341eb8561c60ffe2564b055820adb2adbddb",
+  "purpose_statement": "Demand",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

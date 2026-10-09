@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "SizeSystemEnumeration",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "4fc752172cbb6a6f59570e16cac02eb8f375616434f967d5a87f2ef89ddd4f15",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4fc752172cbb6a6f59570e16cac02eb8f375616434f967d5a87f2ef89ddd4f15",
+  "purpose_statement": "SizeSystemEnumeration",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

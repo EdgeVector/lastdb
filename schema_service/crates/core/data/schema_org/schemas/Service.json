@@ -1,0 +1,282 @@
+{
+  "descriptive_name": "Service",
+  "field_classifications": {
+    "aggregate_rating": [
+      "word"
+    ],
+    "area_served": [
+      "word"
+    ],
+    "audience": [
+      "word"
+    ],
+    "available_channel": [
+      "word"
+    ],
+    "award": [
+      "word"
+    ],
+    "brand": [
+      "word"
+    ],
+    "broker": [
+      "word"
+    ],
+    "category": [
+      "word"
+    ],
+    "has_certification": [
+      "word"
+    ],
+    "has_offer_catalog": [
+      "word"
+    ],
+    "hours_available": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "is_related_to": [
+      "word"
+    ],
+    "is_similar_to": [
+      "word"
+    ],
+    "logo": [
+      "word"
+    ],
+    "offers": [
+      "word"
+    ],
+    "produces": [
+      "word"
+    ],
+    "provider": [
+      "word"
+    ],
+    "provider_mobility": [
+      "word"
+    ],
+    "review": [
+      "word"
+    ],
+    "service_area": [
+      "word"
+    ],
+    "service_audience": [
+      "word"
+    ],
+    "service_output": [
+      "word"
+    ],
+    "service_type": [
+      "word"
+    ],
+    "slogan": [
+      "word"
+    ],
+    "terms_of_service": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "aggregate_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "area_served": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "audience": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "available_channel": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "award": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "brand": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "broker": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "category": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "has_certification": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_offer_catalog": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "hours_available": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_related_to": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_similar_to": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "logo": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "offers": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "produces": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "provider": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "provider_mobility": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "review": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "service_area": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "service_audience": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "service_output": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "service_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "slogan": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "terms_of_service": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "aggregate_rating": "The overall rating, based on a collection of reviews or ratings, of the item.",
+    "area_served": "The geographic area where a service or offered item is provided.",
+    "audience": "An intended audience, i.e. a group for whom something was created.",
+    "available_channel": "A means of accessing the service (e.g. a phone bank, a web site, a location, etc.).",
+    "award": "An award won by or for this item.",
+    "brand": "The brand(s) associated with a product or service, or the brand(s) maintained by an organization or business person.",
+    "broker": "An entity that arranges for an exchange between a buyer and a seller.  In most cases a broker never acquires or releases ownership of a product or service involved in an exchange.  If it is not clear whether an entity is a broker, seller, or buyer, the latter two terms are preferred.",
+    "category": "A category for the item. Greater signs or slashes can be used to informally indicate a category hierarchy.",
+    "has_certification": "Certification information about a product, organization, service, place, or person.",
+    "has_offer_catalog": "Indicates an OfferCatalog listing for this Organization, Person, or Service.",
+    "hours_available": "The hours during which this service or contact is available.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_related_to": "A pointer to another, somehow related product (or multiple products).",
+    "is_similar_to": "A pointer to another, functionally similar product (or multiple products).",
+    "logo": "An associated logo.",
+    "offers": "An offer to provide this item&#x2014;for example, an offer to sell a product, rent the DVD of a movie, perform a service, or give away tickets to an event. Use [[businessFunction]] to indicate the kind of transaction offered, i.e. sell, lease, etc. This property can also be used to describe a [[Demand]]. While this property is listed as expected on a number of common types, it can be used in others. In that case, using a second type, such as Product or a subtype of Product, can clarify the nature of the offer.",
+    "produces": "The tangible thing generated by the service, e.g. a passport, permit, etc.",
+    "provider": "The service provider, service operator, or service performer; the goods producer. Another party (a seller) may offer those services or goods on behalf of the provider. A provider may also serve as the seller.",
+    "provider_mobility": "Indicates the mobility of a provided service (e.g. 'static', 'dynamic').",
+    "review": "A review of the item.",
+    "service_area": "The geographic area where the service is provided.",
+    "service_audience": "The audience eligible for this service.",
+    "service_output": "The tangible thing generated by the service, e.g. a passport, permit, etc.",
+    "service_type": "The type of service being offered, e.g. veterans' benefits, emergency relief, etc.",
+    "slogan": "A slogan or motto associated with the item.",
+    "terms_of_service": "Human-readable terms of service documentation."
+  },
+  "field_types": {
+    "aggregate_rating": "String",
+    "area_served": "String",
+    "audience": "String",
+    "available_channel": "String",
+    "award": "String",
+    "brand": "String",
+    "broker": "String",
+    "category": "String",
+    "has_certification": "String",
+    "has_offer_catalog": "String",
+    "hours_available": "String",
+    "identifier": "String",
+    "is_related_to": "String",
+    "is_similar_to": "String",
+    "logo": "String",
+    "offers": "String",
+    "produces": "String",
+    "provider": "String",
+    "provider_mobility": "String",
+    "review": "String",
+    "service_area": "String",
+    "service_audience": "String",
+    "service_output": "String",
+    "service_type": "String",
+    "slogan": "String",
+    "terms_of_service": "String"
+  },
+  "fields": [
+    "aggregate_rating",
+    "area_served",
+    "audience",
+    "available_channel",
+    "award",
+    "brand",
+    "broker",
+    "category",
+    "has_certification",
+    "has_offer_catalog",
+    "hours_available",
+    "identifier",
+    "is_related_to",
+    "is_similar_to",
+    "logo",
+    "offers",
+    "produces",
+    "provider",
+    "provider_mobility",
+    "review",
+    "service_area",
+    "service_audience",
+    "service_output",
+    "service_type",
+    "slogan",
+    "terms_of_service"
+  ],
+  "identity_hash": "2afbc79d9b7d56de9ec127f4d8c259bd503aa2417efa61c7dbd6f7f98e2ed834",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2afbc79d9b7d56de9ec127f4d8c259bd503aa2417efa61c7dbd6f7f98e2ed834",
+  "purpose_statement": "Service",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

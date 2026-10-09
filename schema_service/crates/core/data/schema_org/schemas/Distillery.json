@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Distillery",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "c4397b4e36db09c2bb89b128f6f6167a4e6533fde1aa2842a134953d1c73f714",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c4397b4e36db09c2bb89b128f6f6167a4e6533fde1aa2842a134953d1c73f714",
+  "purpose_statement": "Distillery",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

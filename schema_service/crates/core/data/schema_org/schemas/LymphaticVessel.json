@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "LymphaticVessel",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "originates_from": [
+      "word"
+    ],
+    "region_drained": [
+      "word"
+    ],
+    "runs_to": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "originates_from": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "region_drained": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "runs_to": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "originates_from": "The vasculature the lymphatic structure originates, or afferents, from.",
+    "region_drained": "The anatomical or organ system drained by this vessel; generally refers to a specific part of an organ.",
+    "runs_to": "The vasculature the lymphatic structure runs, or efferents, to."
+  },
+  "field_types": {
+    "identifier": "String",
+    "originates_from": "String",
+    "region_drained": "String",
+    "runs_to": "String"
+  },
+  "fields": [
+    "identifier",
+    "originates_from",
+    "region_drained",
+    "runs_to"
+  ],
+  "identity_hash": "85f3764646fdc8f1a64c2cb02f9f708bf0e267ca848508cbfe30510647e0d1ac",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "85f3764646fdc8f1a64c2cb02f9f708bf0e267ca848508cbfe30510647e0d1ac",
+  "purpose_statement": "LymphaticVessel",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

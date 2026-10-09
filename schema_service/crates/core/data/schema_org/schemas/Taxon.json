@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "Taxon",
+  "field_classifications": {
+    "child_taxon": [
+      "word"
+    ],
+    "has_defined_term": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "parent_taxon": [
+      "word"
+    ],
+    "taxon_rank": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "child_taxon": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_defined_term": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "parent_taxon": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "taxon_rank": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "child_taxon": "Closest child taxa of the taxon in question.",
+    "has_defined_term": "A Defined Term contained in this term set.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "parent_taxon": "Closest parent taxon of the taxon in question.",
+    "taxon_rank": "The taxonomic rank of this taxon given preferably as a URI from a controlled vocabulary – typically the ranks from TDWG TaxonRank ontology or equivalent Wikidata URIs."
+  },
+  "field_types": {
+    "child_taxon": "String",
+    "has_defined_term": "String",
+    "identifier": "String",
+    "parent_taxon": "String",
+    "taxon_rank": "String"
+  },
+  "fields": [
+    "child_taxon",
+    "has_defined_term",
+    "identifier",
+    "parent_taxon",
+    "taxon_rank"
+  ],
+  "identity_hash": "28668b9d188464e1f5d542cf33e79edeaf168c9b61715e3c06502b2b9447bc14",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "28668b9d188464e1f5d542cf33e79edeaf168c9b61715e3c06502b2b9447bc14",
+  "purpose_statement": "Taxon",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "SaleEvent",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "139f97e49f3c71f087dbbb62217efc9f4df397bf3931b4fc1a44f51640b425ad",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "139f97e49f3c71f087dbbb62217efc9f4df397bf3931b4fc1a44f51640b425ad",
+  "purpose_statement": "SaleEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

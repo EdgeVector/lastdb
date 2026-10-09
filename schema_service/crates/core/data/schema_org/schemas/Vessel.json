@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Vessel",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "de36091dbd83a1b63d478f4064aec3800dfcf9d8ef96719dc18c21fb79bc189d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "de36091dbd83a1b63d478f4064aec3800dfcf9d8ef96719dc18c21fb79bc189d",
+  "purpose_statement": "Vessel",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

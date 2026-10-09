@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "DigitalDocumentPermission",
+  "field_classifications": {
+    "grantee": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "permission_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "grantee": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "permission_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "grantee": "The person, organization, contact point, or audience that has been granted this permission.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "permission_type": "The type of permission granted the person, organization, or audience."
+  },
+  "field_types": {
+    "grantee": "String",
+    "identifier": "String",
+    "permission_type": "String"
+  },
+  "fields": [
+    "grantee",
+    "identifier",
+    "permission_type"
+  ],
+  "identity_hash": "388b423b6d651a19b9b31b1a04586924f2ca3f9e2441dc3af0d55affe1571cf3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "388b423b6d651a19b9b31b1a04586924f2ca3f9e2441dc3af0d55affe1571cf3",
+  "purpose_statement": "DigitalDocumentPermission",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

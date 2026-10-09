@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PalliativeProcedure",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "22225c8d31cc817dfef19bec4c45bf0c7fab0c18ab95769e464747df02c01c20",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "22225c8d31cc817dfef19bec4c45bf0c7fab0c18ab95769e464747df02c01c20",
+  "purpose_statement": "PalliativeProcedure",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "NGO",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "c037e69b8872f2be5eca96253afd0a6cf9a1d27347dc066359c47d081e5dba4b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c037e69b8872f2be5eca96253afd0a6cf9a1d27347dc066359c47d081e5dba4b",
+  "purpose_statement": "NGO",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

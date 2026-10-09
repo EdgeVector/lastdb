@@ -1,0 +1,102 @@
+{
+  "descriptive_name": "ProgramMembership",
+  "field_classifications": {
+    "hosting_organization": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "member": [
+      "word"
+    ],
+    "members": [
+      "word"
+    ],
+    "membership_number": [
+      "word"
+    ],
+    "membership_points_earned": [
+      "number"
+    ],
+    "program": [
+      "word"
+    ],
+    "program_name": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "hosting_organization": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "member": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "members": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "membership_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "membership_points_earned": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "program": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "program_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "hosting_organization": "The Organization (airline, travelers' club, retailer, etc.) the membership is made with or which offers the  MemberProgram.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "member": "A member of an Organization or a ProgramMembership. Organizations can be members of organizations; ProgramMembership is typically for individuals.",
+    "members": "A member of this organization.",
+    "membership_number": "A unique identifier for the membership.",
+    "membership_points_earned": "The number of membership points earned by the member. If necessary, the unitText can be used to express the units the points are issued in. (E.g. stars, miles, etc.)",
+    "program": "The [MemberProgram](https://schema.org/MemberProgram) associated with a [ProgramMembership](https://schema.org/ProgramMembership).",
+    "program_name": "The program providing the membership. It is preferable to use [:program](https://schema.org/program) instead."
+  },
+  "field_types": {
+    "hosting_organization": "String",
+    "identifier": "String",
+    "member": "String",
+    "members": "String",
+    "membership_number": "String",
+    "membership_points_earned": "Float",
+    "program": "String",
+    "program_name": "String"
+  },
+  "fields": [
+    "hosting_organization",
+    "identifier",
+    "member",
+    "members",
+    "membership_number",
+    "membership_points_earned",
+    "program",
+    "program_name"
+  ],
+  "identity_hash": "1a3476f6320eb38b72404f474d7df2230c408fe7bb1ed302dc509ffe66ab78b0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1a3476f6320eb38b72404f474d7df2230c408fe7bb1ed302dc509ffe66ab78b0",
+  "purpose_statement": "ProgramMembership",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

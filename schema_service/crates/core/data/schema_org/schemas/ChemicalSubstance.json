@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "ChemicalSubstance",
+  "field_classifications": {
+    "chemical_composition": [
+      "word"
+    ],
+    "chemical_role": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "potential_use": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "chemical_composition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "chemical_role": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "potential_use": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "chemical_composition": "The chemical composition describes the identity and relative ratio of the chemical elements that make up the substance.",
+    "chemical_role": "A role played by the BioChemEntity within a chemical context.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "potential_use": "Intended use of the BioChemEntity by humans."
+  },
+  "field_types": {
+    "chemical_composition": "String",
+    "chemical_role": "String",
+    "identifier": "String",
+    "potential_use": "String"
+  },
+  "fields": [
+    "chemical_composition",
+    "chemical_role",
+    "identifier",
+    "potential_use"
+  ],
+  "identity_hash": "be4ccbbbe90ed92d41c66e7e1619fe352bddd1fe8b6788e666f8e21ecb198b15",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "be4ccbbbe90ed92d41c66e7e1619fe352bddd1fe8b6788e666f8e21ecb198b15",
+  "purpose_statement": "ChemicalSubstance",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

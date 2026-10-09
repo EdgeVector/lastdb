@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Library",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "521f0c38c2a4a48d78f2f7932422883fa33d02e96629e2e65deeb1911b02f5c7",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "521f0c38c2a4a48d78f2f7932422883fa33d02e96629e2e65deeb1911b02f5c7",
+  "purpose_statement": "Library",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

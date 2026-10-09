@@ -1,0 +1,192 @@
+{
+  "descriptive_name": "Invoice",
+  "field_classifications": {
+    "account_id": [
+      "word"
+    ],
+    "billing_period": [
+      "word"
+    ],
+    "broker": [
+      "word"
+    ],
+    "category": [
+      "word"
+    ],
+    "confirmation_number": [
+      "word"
+    ],
+    "customer": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "minimum_payment_due": [
+      "word"
+    ],
+    "payment_due": [
+      "word"
+    ],
+    "payment_due_date": [
+      "word"
+    ],
+    "payment_method": [
+      "word"
+    ],
+    "payment_method_id": [
+      "word"
+    ],
+    "payment_status": [
+      "word"
+    ],
+    "provider": [
+      "word"
+    ],
+    "references_order": [
+      "word"
+    ],
+    "scheduled_payment_date": [
+      "word"
+    ],
+    "total_payment_due": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "account_id": {
+      "data_domain": "financial",
+      "sensitivity_level": 4
+    },
+    "billing_period": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "broker": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "category": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "confirmation_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "customer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "minimum_payment_due": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "payment_due": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "payment_due_date": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "payment_method": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "payment_method_id": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "payment_status": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "provider": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "references_order": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "scheduled_payment_date": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "total_payment_due": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "account_id": "The identifier for the account the payment will be applied to.",
+    "billing_period": "The time interval used to compute the invoice.",
+    "broker": "An entity that arranges for an exchange between a buyer and a seller.  In most cases a broker never acquires or releases ownership of a product or service involved in an exchange.  If it is not clear whether an entity is a broker, seller, or buyer, the latter two terms are preferred.",
+    "category": "A category for the item. Greater signs or slashes can be used to informally indicate a category hierarchy.",
+    "confirmation_number": "A number that confirms the given order or payment has been received.",
+    "customer": "Party placing the order or paying the invoice.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "minimum_payment_due": "The minimum payment required at this time.",
+    "payment_due": "The date that payment is due.",
+    "payment_due_date": "The date that payment is due.",
+    "payment_method": "The name of the credit card or other method of payment for the order.",
+    "payment_method_id": "An identifier for the method of payment used (e.g. the last 4 digits of the credit card).",
+    "payment_status": "The status of payment; whether the invoice has been paid or not.",
+    "provider": "The service provider, service operator, or service performer; the goods producer. Another party (a seller) may offer those services or goods on behalf of the provider. A provider may also serve as the seller.",
+    "references_order": "The Order(s) related to this Invoice. One or more Orders may be combined into a single Invoice.",
+    "scheduled_payment_date": "The date the invoice is scheduled to be paid.",
+    "total_payment_due": "The total amount due."
+  },
+  "field_types": {
+    "account_id": "String",
+    "billing_period": "String",
+    "broker": "String",
+    "category": "String",
+    "confirmation_number": "String",
+    "customer": "String",
+    "identifier": "String",
+    "minimum_payment_due": "String",
+    "payment_due": "String",
+    "payment_due_date": "String",
+    "payment_method": "String",
+    "payment_method_id": "String",
+    "payment_status": "String",
+    "provider": "String",
+    "references_order": "String",
+    "scheduled_payment_date": "String",
+    "total_payment_due": "String"
+  },
+  "fields": [
+    "account_id",
+    "billing_period",
+    "broker",
+    "category",
+    "confirmation_number",
+    "customer",
+    "identifier",
+    "minimum_payment_due",
+    "payment_due",
+    "payment_due_date",
+    "payment_method",
+    "payment_method_id",
+    "payment_status",
+    "provider",
+    "references_order",
+    "scheduled_payment_date",
+    "total_payment_due"
+  ],
+  "identity_hash": "2bb89577fb2df1266da270d5f0205c6f448911909e26ca0d29da6b969839a08a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2bb89577fb2df1266da270d5f0205c6f448911909e26ca0d29da6b969839a08a",
+  "purpose_statement": "Invoice",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

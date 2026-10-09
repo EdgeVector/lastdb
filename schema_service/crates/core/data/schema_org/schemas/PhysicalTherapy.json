@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PhysicalTherapy",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "f66b5ec47f92ab59905ed2f16ec56c5e065bc2b2067ec3c5890fdc207efce074",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f66b5ec47f92ab59905ed2f16ec56c5e065bc2b2067ec3c5890fdc207efce074",
+  "purpose_statement": "PhysicalTherapy",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "TravelAction",
+  "field_classifications": {
+    "distance": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "distance": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "distance": "The distance travelled, e.g. exercising or travelling.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "distance": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "distance",
+    "identifier"
+  ],
+  "identity_hash": "308e1330ec7f793f5611c42b3834947bbe42537511d8c5c31ec5562caad27cd5",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "308e1330ec7f793f5611c42b3834947bbe42537511d8c5c31ec5562caad27cd5",
+  "purpose_statement": "TravelAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

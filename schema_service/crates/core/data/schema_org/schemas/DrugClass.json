@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "DrugClass",
+  "field_classifications": {
+    "drug": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "drug": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "drug": "Specifying a drug or medicine used in a medication procedure.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "drug": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "drug",
+    "identifier"
+  ],
+  "identity_hash": "af625e80a4c083de6d738a5396969c5e8fb1c5820711d1e59416e13f675d3131",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "af625e80a4c083de6d738a5396969c5e8fb1c5820711d1e59416e13f675d3131",
+  "purpose_statement": "DrugClass",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

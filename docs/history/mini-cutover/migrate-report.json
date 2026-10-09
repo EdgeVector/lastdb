@@ -1,0 +1,83 @@
+{
+  "ok": true,
+  "main_total_keys": 6049,
+  "main_mapped_keys": 6049,
+  "main_unmapped_keys": 0,
+  "main_collections": [
+    {
+      "name": "atoms",
+      "keys": 1076
+    },
+    {
+      "name": "field_hashrange_complete",
+      "keys": 0
+    },
+    {
+      "name": "field_hashrange_hash_index",
+      "keys": 0
+    },
+    {
+      "name": "field_hashrange_page_index",
+      "keys": 0
+    },
+    {
+      "name": "field_tip_headers",
+      "keys": 106
+    },
+    {
+      "name": "field_tip_versions",
+      "keys": 0
+    },
+    {
+      "name": "field_tips",
+      "keys": 1351
+    },
+    {
+      "name": "field_update_order_count",
+      "keys": 0
+    },
+    {
+      "name": "field_update_order_legacy",
+      "keys": 0
+    },
+    {
+      "name": "field_update_order_log",
+      "keys": 0
+    },
+    {
+      "name": "legacy_blob_refs",
+      "keys": 0
+    },
+    {
+      "name": "legacy_schema_secondary_index",
+      "keys": 1076
+    },
+    {
+      "name": "mutation_history",
+      "keys": 1900
+    },
+    {
+      "name": "schema_atom_index",
+      "keys": 0
+    },
+    {
+      "name": "sync_conflicts",
+      "keys": 540
+    }
+  ],
+  "other_namespaces": [
+    {
+      "name": "public_keys",
+      "keys": 1
+    },
+    {
+      "name": "schemas",
+      "keys": 12
+    }
+  ],
+  "unmapped_key_samples": [],
+  "notes": [
+    "restored 2 non-main namespaces 1:1",
+    "split main: mapped=6049 unmapped=0 total=6049"
+  ]
+}

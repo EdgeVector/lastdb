@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "GameServer",
+  "field_classifications": {
+    "game": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "players_online": [
+      "number"
+    ],
+    "server_status": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "game": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "players_online": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "server_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "game": "Video game which is played on this server.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "players_online": "Number of players on the server.",
+    "server_status": "Status of a game server."
+  },
+  "field_types": {
+    "game": "String",
+    "identifier": "String",
+    "players_online": "Integer",
+    "server_status": "String"
+  },
+  "fields": [
+    "game",
+    "identifier",
+    "players_online",
+    "server_status"
+  ],
+  "identity_hash": "31a89a386f0dab4b7d58911d08224fea1e95fe74c4a61d292c92857d6813c96f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "31a89a386f0dab4b7d58911d08224fea1e95fe74c4a61d292c92857d6813c96f",
+  "purpose_statement": "GameServer",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

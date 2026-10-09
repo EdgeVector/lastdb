@@ -1,0 +1,20 @@
+[package]
+name = "schema_types"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Pure wire/domain schema types for schema_service — no fold_db, storage, or HTTP. Diet cut #3 Lambda decouple."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+app_identity_crypto = { workspace = true }
+# OpenAPI schema derives (same posture as fold_db core wire types).
+utoipa = { version = "4", features = ["actix_extras"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

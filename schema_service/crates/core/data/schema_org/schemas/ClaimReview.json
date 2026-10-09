@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "ClaimReview",
+  "field_classifications": {
+    "claim_reviewed": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "claim_reviewed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "claim_reviewed": "A short summary of the specific claims reviewed in a ClaimReview.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "claim_reviewed": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "claim_reviewed",
+    "identifier"
+  ],
+  "identity_hash": "58657ae12ecaf117318737e991172e6e12b4f68c209f3f72dee2eddf2270a040",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "58657ae12ecaf117318737e991172e6e12b4f68c209f3f72dee2eddf2270a040",
+  "purpose_statement": "ClaimReview",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "EventAttendanceModeEnumeration",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "11a28521986b363386f917149a3f8beb38422cd350a71b200999f2f63ee2a4af",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "11a28521986b363386f917149a3f8beb38422cd350a71b200999f2f63ee2a4af",
+  "purpose_statement": "EventAttendanceModeEnumeration",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,272 @@
+{
+  "descriptive_name": "EducationalOccupationalProgram",
+  "field_classifications": {
+    "application_deadline": [
+      "word"
+    ],
+    "application_start_date": [
+      "word"
+    ],
+    "day_of_week": [
+      "word"
+    ],
+    "educational_credential_awarded": [
+      "word"
+    ],
+    "educational_program_mode": [
+      "word"
+    ],
+    "end_date": [
+      "word"
+    ],
+    "financial_aid_eligible": [
+      "word"
+    ],
+    "has_course": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "maximum_enrollment": [
+      "number"
+    ],
+    "number_of_credits": [
+      "number"
+    ],
+    "occupational_category": [
+      "word"
+    ],
+    "occupational_credential_awarded": [
+      "word"
+    ],
+    "offers": [
+      "word"
+    ],
+    "program_prerequisites": [
+      "word"
+    ],
+    "program_type": [
+      "word"
+    ],
+    "provider": [
+      "word"
+    ],
+    "salary_upon_completion": [
+      "word"
+    ],
+    "start_date": [
+      "word"
+    ],
+    "term_duration": [
+      "word"
+    ],
+    "terms_per_year": [
+      "number"
+    ],
+    "time_of_day": [
+      "word"
+    ],
+    "time_to_complete": [
+      "word"
+    ],
+    "training_salary": [
+      "word"
+    ],
+    "typical_credits_per_term": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "application_deadline": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "application_start_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "day_of_week": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "educational_credential_awarded": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "educational_program_mode": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "end_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "financial_aid_eligible": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "has_course": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "maximum_enrollment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_credits": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "occupational_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "occupational_credential_awarded": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "offers": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "program_prerequisites": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "program_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "provider": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "salary_upon_completion": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "start_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "term_duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "terms_per_year": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "time_of_day": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "time_to_complete": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "training_salary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "typical_credits_per_term": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "application_deadline": "The date on which the program stops collecting applications for the next enrollment cycle. Flexible application deadlines (for example, a program with rolling admissions) can be described in a textual string, rather than as a DateTime.",
+    "application_start_date": "The date at which the program begins collecting applications for the next enrollment cycle.",
+    "day_of_week": "The day of the week for which these opening hours are valid.",
+    "educational_credential_awarded": "A description of the qualification, award, certificate, diploma or other educational credential awarded as a consequence of successful completion of this course or program.",
+    "educational_program_mode": "Similar to courseMode, the medium or means of delivery of the program as a whole. The value may either be a text label (e.g. \"online\", \"onsite\" or \"blended\"; \"synchronous\" or \"asynchronous\"; \"full-time\" or \"part-time\") or a URL reference to a term from a controlled vocabulary (e.g. https://ceds.ed.gov/element/001311#Asynchronous ).",
+    "end_date": "The end date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601)).",
+    "financial_aid_eligible": "A financial aid type or program which students may use to pay for tuition or fees associated with the program.",
+    "has_course": "A course or class that is one of the learning opportunities that constitute an educational / occupational program. No information is implied about whether the course is mandatory or optional; no guarantee is implied about whether the course will be available to everyone on the program.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "maximum_enrollment": "The maximum number of students who may be enrolled in the program.",
+    "number_of_credits": "The number of credits or units awarded by a Course or required to complete an EducationalOccupationalProgram.",
+    "occupational_category": "A category describing the job, preferably using a term from a taxonomy such as [BLS O*NET-SOC](http://www.onetcenter.org/taxonomy.html), [ISCO-08](https://www.ilo.org/public/english/bureau/stat/isco/isco08/) or similar, with the property repeated for each applicable value. Ideally the taxonomy should be identified, and both the textual label and formal code for the category should be provided.\\n\nNote: for historical reasons, any textual label and formal code provided as a literal may be assumed to be from O*NET-SOC.",
+    "occupational_credential_awarded": "A description of the qualification, award, certificate, diploma or other occupational credential awarded as a consequence of successful completion of this course or program.",
+    "offers": "An offer to provide this item&#x2014;for example, an offer to sell a product, rent the DVD of a movie, perform a service, or give away tickets to an event. Use [[businessFunction]] to indicate the kind of transaction offered, i.e. sell, lease, etc. This property can also be used to describe a [[Demand]]. While this property is listed as expected on a number of common types, it can be used in others. In that case, using a second type, such as Product or a subtype of Product, can clarify the nature of the offer.",
+    "program_prerequisites": "Prerequisites for enrolling in the program.",
+    "program_type": "The type of educational or occupational program. For example, classroom, internship, alternance, etc.",
+    "provider": "The service provider, service operator, or service performer; the goods producer. Another party (a seller) may offer those services or goods on behalf of the provider. A provider may also serve as the seller.",
+    "salary_upon_completion": "The expected salary upon completing the training.",
+    "start_date": "The start date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601)).",
+    "term_duration": "The amount of time in a term as defined by the institution. A term is a length of time where students take one or more classes. Semesters and quarters are common units for term.",
+    "terms_per_year": "The number of times terms of study are offered per year. Semesters and quarters are common units for term. For example, if the student can only take 2 semesters for the program in one year, then termsPerYear should be 2.",
+    "time_of_day": "The time of day the program normally runs. For example, \"evenings\".",
+    "time_to_complete": "The expected length of time to complete the program if attending full-time.",
+    "training_salary": "The estimated salary earned while in the program.",
+    "typical_credits_per_term": "The number of credits or units a full-time student would be expected to take in 1 term however 'term' is defined by the institution."
+  },
+  "field_types": {
+    "application_deadline": "String",
+    "application_start_date": "String",
+    "day_of_week": "String",
+    "educational_credential_awarded": "String",
+    "educational_program_mode": "String",
+    "end_date": "String",
+    "financial_aid_eligible": "String",
+    "has_course": "String",
+    "identifier": "String",
+    "maximum_enrollment": "Integer",
+    "number_of_credits": "Integer",
+    "occupational_category": "String",
+    "occupational_credential_awarded": "String",
+    "offers": "String",
+    "program_prerequisites": "String",
+    "program_type": "String",
+    "provider": "String",
+    "salary_upon_completion": "String",
+    "start_date": "String",
+    "term_duration": "String",
+    "terms_per_year": "Float",
+    "time_of_day": "String",
+    "time_to_complete": "String",
+    "training_salary": "String",
+    "typical_credits_per_term": "Integer"
+  },
+  "fields": [
+    "application_deadline",
+    "application_start_date",
+    "day_of_week",
+    "educational_credential_awarded",
+    "educational_program_mode",
+    "end_date",
+    "financial_aid_eligible",
+    "has_course",
+    "identifier",
+    "maximum_enrollment",
+    "number_of_credits",
+    "occupational_category",
+    "occupational_credential_awarded",
+    "offers",
+    "program_prerequisites",
+    "program_type",
+    "provider",
+    "salary_upon_completion",
+    "start_date",
+    "term_duration",
+    "terms_per_year",
+    "time_of_day",
+    "time_to_complete",
+    "training_salary",
+    "typical_credits_per_term"
+  ],
+  "identity_hash": "c45712b630ef9c5bb7c25d785896154badded3f2cb53457aa45dc314169c26c9",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c45712b630ef9c5bb7c25d785896154badded3f2cb53457aa45dc314169c26c9",
+  "purpose_statement": "EducationalOccupationalProgram",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

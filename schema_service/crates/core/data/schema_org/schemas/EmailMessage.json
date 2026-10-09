@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "EmailMessage",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "c4a5ea9243352248be1ddfed61469d765973227991d8341f1cf385f80d648994",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c4a5ea9243352248be1ddfed61469d765973227991d8341f1cf385f80d648994",
+  "purpose_statement": "EmailMessage",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

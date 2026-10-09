@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Answer",
+  "field_classifications": {
+    "answer_explanation": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "parent_item": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "answer_explanation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "parent_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "answer_explanation": "A step-by-step or full explanation about Answer. Can outline how this Answer was achieved or contain more broad clarification or statement about it.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "parent_item": "The parent of a question, answer or item in general. Typically used for Q/A discussion threads e.g. a chain of comments with the first comment being an [[Article]] or other [[CreativeWork]]. See also [[comment]] which points from something to a comment about it."
+  },
+  "field_types": {
+    "answer_explanation": "String",
+    "identifier": "String",
+    "parent_item": "String"
+  },
+  "fields": [
+    "answer_explanation",
+    "identifier",
+    "parent_item"
+  ],
+  "identity_hash": "db13a0c52fce8522515b3496e2ee7608469b20931d84020b5daf0f46c12437ba",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "db13a0c52fce8522515b3496e2ee7608469b20931d84020b5daf0f46c12437ba",
+  "purpose_statement": "Answer",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

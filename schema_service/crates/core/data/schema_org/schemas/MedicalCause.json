@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MedicalCause",
+  "field_classifications": {
+    "cause_of": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "cause_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "cause_of": "The condition, complication, symptom, sign, etc. caused.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "cause_of": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "cause_of",
+    "identifier"
+  ],
+  "identity_hash": "3a9c8fbb971a574565ac608edff0d148dd0347340f4401f377035b07458a5e57",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3a9c8fbb971a574565ac608edff0d148dd0347340f4401f377035b07458a5e57",
+  "purpose_statement": "MedicalCause",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

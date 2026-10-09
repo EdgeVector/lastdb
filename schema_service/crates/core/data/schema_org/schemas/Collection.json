@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "Collection",
+  "field_classifications": {
+    "collection_size": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "collection_size": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "collection_size": "The number of items in the [[Collection]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "collection_size": "Integer",
+    "identifier": "String"
+  },
+  "fields": [
+    "collection_size",
+    "identifier"
+  ],
+  "identity_hash": "a6112d9baa7cf97b05c857f13c05142cb30d376aaa636226742678a9adcf0bd3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a6112d9baa7cf97b05c857f13c05142cb30d376aaa636226742678a9adcf0bd3",
+  "purpose_statement": "Collection",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

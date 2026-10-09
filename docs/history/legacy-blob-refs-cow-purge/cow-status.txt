@@ -1,0 +1,18 @@
+lastdbd: running
+Home:   /tmp/lastdb-cow-purge-legacy-blob-refs-16681
+Socket: /tmp/lastdb-cow-purge-legacy-blob-refs-16681/data/folddb.sock
+Uptime: 1h4m (pid 17372, since 2026-08-05T10:10:26Z)
+Last restart: Previous session ended UNCLEANLY (no clean shutdown record); down for 10m41s before this start.
+Layout: HashGroup key=PartitionPrefix epoch=2 groups=1024 packaging=Plain
+Planes: 28 collections, 8.30 GiB
+  SOT: 6.18 GiB  [tips, atoms, schemas, … (+3)]
+  indexes: 1.19 GiB  [indexes, schema_index, legacy_schema_secondary_index]
+  history-adjacent: 344.4 MiB  [field_update_order_log, field_tip_versions, field_update_order_count]
+  tip-residue: 276.8 KiB  [field_tip_headers]
+  locality: 505.5 MiB  [atom_locators]
+  cold/sync: 80.8 MiB  [change_feed, share_delivery_outbox, legacy_blob_refs, … (+3)]
+  ops: 24.2 MiB  [idempotency, app_identity:consent_requests, org_sync_targets, … (+5)]
+  SOT named: tips=3.47 GiB atoms=2.47 GiB schemas=171.0 MiB cas_blobs=48.1 MiB proteins=29.9 MiB
+  residue: field_tip_headers=276.8 KiB
+  history-adjacent: field_update_order_log=343.4 MiB field_tip_versions=849.0 KiB field_update_order_count=172.0 KiB
+Sampler: unavailable (failed to read response: Resource temporarily unavailable (os error 35))

@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "EngineSpecification",
+  "field_classifications": {
+    "engine_displacement": [
+      "word"
+    ],
+    "engine_power": [
+      "word"
+    ],
+    "engine_type": [
+      "word"
+    ],
+    "fuel_type": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "torque": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "engine_displacement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "engine_power": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "engine_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "fuel_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "torque": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "engine_displacement": "The volume swept by all of the pistons inside the cylinders of an internal combustion engine in a single movement. \\n\\nTypical unit code(s): CMQ for cubic centimeter, LTR for liters, INQ for cubic inches\\n* Note 1: You can link to information about how the given value has been determined using the [[valueReference]] property.\\n* Note 2: You can use [[minValue]] and [[maxValue]] to indicate ranges.",
+    "engine_power": "The power of the vehicle's engine.\n    Typical unit code(s): KWT for kilowatt, BHP for brake horsepower, N12 for metric horsepower (PS, with 1 PS = 735,49875 W)\\n\\n* Note 1: There are many different ways of measuring an engine's power. For an overview, see  [http://en.wikipedia.org/wiki/Horsepower#Engine\\_power\\_test\\_codes](http://en.wikipedia.org/wiki/Horsepower#Engine_power_test_codes).\\n* Note 2: You can link to information about how the given value has been determined using the [[valueReference]] property.\\n* Note 3: You can use [[minValue]] and [[maxValue]] to indicate ranges.",
+    "engine_type": "The type of engine or engines powering the vehicle.",
+    "fuel_type": "The type of fuel suitable for the engine or engines of the vehicle. If the vehicle has only one engine, this property can be attached directly to the vehicle.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "torque": "The torque (turning force) of the vehicle's engine.\\n\\nTypical unit code(s): NU for newton metre (N m), F17 for pound-force per foot, or F48 for pound-force per inch\\n\\n* Note 1: You can link to information about how the given value has been determined (e.g. reference RPM) using the [[valueReference]] property.\\n* Note 2: You can use [[minValue]] and [[maxValue]] to indicate ranges."
+  },
+  "field_types": {
+    "engine_displacement": "String",
+    "engine_power": "String",
+    "engine_type": "String",
+    "fuel_type": "String",
+    "identifier": "String",
+    "torque": "String"
+  },
+  "fields": [
+    "engine_displacement",
+    "engine_power",
+    "engine_type",
+    "fuel_type",
+    "identifier",
+    "torque"
+  ],
+  "identity_hash": "5c8371cfaa75bccf0931595f37e26a84d6c4963da232a69b2e78ad5b467664b2",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5c8371cfaa75bccf0931595f37e26a84d6c4963da232a69b2e78ad5b467664b2",
+  "purpose_statement": "EngineSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

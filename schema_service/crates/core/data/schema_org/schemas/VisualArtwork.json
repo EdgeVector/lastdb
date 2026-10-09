@@ -1,0 +1,172 @@
+{
+  "descriptive_name": "VisualArtwork",
+  "field_classifications": {
+    "art_edition": [
+      "number"
+    ],
+    "art_medium": [
+      "word"
+    ],
+    "artform": [
+      "word"
+    ],
+    "artist": [
+      "word"
+    ],
+    "artwork_surface": [
+      "word"
+    ],
+    "colorist": [
+      "word"
+    ],
+    "depth": [
+      "word"
+    ],
+    "height": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "inker": [
+      "word"
+    ],
+    "letterer": [
+      "word"
+    ],
+    "penciler": [
+      "word"
+    ],
+    "surface": [
+      "word"
+    ],
+    "weight": [
+      "word"
+    ],
+    "width": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "art_edition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "art_medium": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "artform": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "artist": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "artwork_surface": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "colorist": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "depth": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "height": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "inker": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "letterer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "penciler": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "surface": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "weight": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "width": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "art_edition": "The number of copies when multiple copies of a piece of artwork are produced - e.g. for a limited edition of 20 prints, 'artEdition' refers to the total number of copies (in this example \"20\").",
+    "art_medium": "The material used. (E.g. Oil, Watercolour, Acrylic, Linoprint, Marble, Cyanotype, Digital, Lithograph, DryPoint, Intaglio, Pastel, Woodcut, Pencil, Mixed Media, etc.)",
+    "artform": "e.g. Painting, Drawing, Sculpture, Print, Photograph, Assemblage, Collage, etc.",
+    "artist": "The primary artist for a work\n    \tin a medium other than pencils or digital line art--for example, if the\n    \tprimary artwork is done in watercolors or digital paints.",
+    "artwork_surface": "The supporting materials for the artwork, e.g. Canvas, Paper, Wood, Board, etc.",
+    "colorist": "The individual who adds color to inked drawings.",
+    "depth": "The depth of the item.",
+    "height": "The height of the item.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "inker": "The individual who traces over the pencil drawings in ink after pencils are complete.",
+    "letterer": "The individual who adds lettering, including speech balloons and sound effects, to artwork.",
+    "penciler": "The individual who draws the primary narrative artwork.",
+    "surface": "A material used as a surface in some artwork, e.g. Canvas, Paper, Wood, Board, etc.",
+    "weight": "The weight of the product or person.",
+    "width": "The width of the item."
+  },
+  "field_types": {
+    "art_edition": "Integer",
+    "art_medium": "String",
+    "artform": "String",
+    "artist": "String",
+    "artwork_surface": "String",
+    "colorist": "String",
+    "depth": "String",
+    "height": "String",
+    "identifier": "String",
+    "inker": "String",
+    "letterer": "String",
+    "penciler": "String",
+    "surface": "String",
+    "weight": "String",
+    "width": "String"
+  },
+  "fields": [
+    "art_edition",
+    "art_medium",
+    "artform",
+    "artist",
+    "artwork_surface",
+    "colorist",
+    "depth",
+    "height",
+    "identifier",
+    "inker",
+    "letterer",
+    "penciler",
+    "surface",
+    "weight",
+    "width"
+  ],
+  "identity_hash": "b74292bc1cd2a9c4d239c14178a2c2bb016ed0d1319b3c338b18cc52abee5e3b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b74292bc1cd2a9c4d239c14178a2c2bb016ed0d1319b3c338b18cc52abee5e3b",
+  "purpose_statement": "VisualArtwork",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

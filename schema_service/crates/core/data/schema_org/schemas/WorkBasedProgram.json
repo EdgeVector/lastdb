@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "WorkBasedProgram",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "occupational_category": [
+      "word"
+    ],
+    "training_salary": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "occupational_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "training_salary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "occupational_category": "A category describing the job, preferably using a term from a taxonomy such as [BLS O*NET-SOC](http://www.onetcenter.org/taxonomy.html), [ISCO-08](https://www.ilo.org/public/english/bureau/stat/isco/isco08/) or similar, with the property repeated for each applicable value. Ideally the taxonomy should be identified, and both the textual label and formal code for the category should be provided.\\n\nNote: for historical reasons, any textual label and formal code provided as a literal may be assumed to be from O*NET-SOC.",
+    "training_salary": "The estimated salary earned while in the program."
+  },
+  "field_types": {
+    "identifier": "String",
+    "occupational_category": "String",
+    "training_salary": "String"
+  },
+  "fields": [
+    "identifier",
+    "occupational_category",
+    "training_salary"
+  ],
+  "identity_hash": "56ce1872ca2f24372f505aa4ee57887366b5f60a1dcf23e9b54c270476c47123",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "56ce1872ca2f24372f505aa4ee57887366b5f60a1dcf23e9b54c270476c47123",
+  "purpose_statement": "WorkBasedProgram",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

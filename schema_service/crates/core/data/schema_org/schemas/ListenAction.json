@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ListenAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "e99e7d4918188b2bfae8899ba61dc74db5a05270b1eecbfb07f23b33780d5083",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e99e7d4918188b2bfae8899ba61dc74db5a05270b1eecbfb07f23b33780d5083",
+  "purpose_statement": "ListenAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

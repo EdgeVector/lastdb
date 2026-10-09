@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "BuyAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "seller": [
+      "word"
+    ],
+    "vendor": [
+      "word"
+    ],
+    "warranty_promise": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "seller": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vendor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "warranty_promise": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "seller": "An entity which offers (sells / leases / lends / loans) the services / goods.  A seller may also be a provider.",
+    "vendor": "'vendor' is an earlier term for 'seller'.",
+    "warranty_promise": "The warranty promise(s) included in the offer."
+  },
+  "field_types": {
+    "identifier": "String",
+    "seller": "String",
+    "vendor": "String",
+    "warranty_promise": "String"
+  },
+  "fields": [
+    "identifier",
+    "seller",
+    "vendor",
+    "warranty_promise"
+  ],
+  "identity_hash": "a100d29e3e4423c45003e20c88a0389518e251911e96099b1d8ab420b6d70977",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a100d29e3e4423c45003e20c88a0389518e251911e96099b1d8ab420b6d70977",
+  "purpose_statement": "BuyAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

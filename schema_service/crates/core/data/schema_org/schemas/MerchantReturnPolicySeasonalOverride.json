@@ -1,0 +1,122 @@
+{
+  "descriptive_name": "MerchantReturnPolicySeasonalOverride",
+  "field_classifications": {
+    "end_date": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "merchant_return_days": [
+      "number"
+    ],
+    "refund_type": [
+      "word"
+    ],
+    "restocking_fee": [
+      "number"
+    ],
+    "return_fees": [
+      "word"
+    ],
+    "return_method": [
+      "word"
+    ],
+    "return_policy_category": [
+      "word"
+    ],
+    "return_shipping_fees_amount": [
+      "word"
+    ],
+    "start_date": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "end_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "merchant_return_days": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "refund_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "restocking_fee": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "return_fees": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "return_method": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "return_policy_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "return_shipping_fees_amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "start_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "end_date": "The end date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601)).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "merchant_return_days": "Specifies either a fixed return date or the number of days (from the delivery date) that a product can be returned. Used when the [[returnPolicyCategory]] property is specified as [[MerchantReturnFiniteReturnWindow]].",
+    "refund_type": "A refund type, from an enumerated list.",
+    "restocking_fee": "Use [[MonetaryAmount]] to specify a fixed restocking fee for product returns, or use [[Number]] to specify a percentage of the product price paid by the customer.",
+    "return_fees": "The type of return fees for purchased products (for any return reason).",
+    "return_method": "The type of return method offered, specified from an enumeration.",
+    "return_policy_category": "Specifies an applicable return policy (from an enumeration).",
+    "return_shipping_fees_amount": "Amount of shipping costs for product returns (for any reason). Applicable when property [[returnFees]] equals [[ReturnShippingFees]].",
+    "start_date": "The start date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601))."
+  },
+  "field_types": {
+    "end_date": "String",
+    "identifier": "String",
+    "merchant_return_days": "Integer",
+    "refund_type": "String",
+    "restocking_fee": "Float",
+    "return_fees": "String",
+    "return_method": "String",
+    "return_policy_category": "String",
+    "return_shipping_fees_amount": "String",
+    "start_date": "String"
+  },
+  "fields": [
+    "end_date",
+    "identifier",
+    "merchant_return_days",
+    "refund_type",
+    "restocking_fee",
+    "return_fees",
+    "return_method",
+    "return_policy_category",
+    "return_shipping_fees_amount",
+    "start_date"
+  ],
+  "identity_hash": "30a07d1374207836c15cb4acec01b2e9fb04af41423a6446fd76d699ec182b89",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "30a07d1374207836c15cb4acec01b2e9fb04af41423a6446fd76d699ec182b89",
+  "purpose_statement": "MerchantReturnPolicySeasonalOverride",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

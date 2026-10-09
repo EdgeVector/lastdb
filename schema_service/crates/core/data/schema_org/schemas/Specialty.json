@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Specialty",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "ccb9722813ca55353089d0736dbef1122ef1fe3c8c831e7f2b4605b82ff7204a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ccb9722813ca55353089d0736dbef1122ef1fe3c8c831e7f2b4605b82ff7204a",
+  "purpose_statement": "Specialty",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

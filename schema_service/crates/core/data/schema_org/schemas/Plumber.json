@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Plumber",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "d2a8512d79d6e38f5db8d2d10475d5a1412298e24f8baa2e273a6dd3a1aa45b8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d2a8512d79d6e38f5db8d2d10475d5a1412298e24f8baa2e273a6dd3a1aa45b8",
+  "purpose_statement": "Plumber",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

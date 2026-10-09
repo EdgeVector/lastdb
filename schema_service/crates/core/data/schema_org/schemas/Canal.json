@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Canal",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "f5e0ecbf0c4a1732d5b7e9ab410a0d03147044924bf962421eb7e1501498ecec",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f5e0ecbf0c4a1732d5b7e9ab410a0d03147044924bf962421eb7e1501498ecec",
+  "purpose_statement": "Canal",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

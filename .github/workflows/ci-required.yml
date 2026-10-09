@@ -1,0 +1,214 @@
+name: CI required
+
+# Required merge gate on GitHub Actions (decision-2026-09-29-fold-venue-back-to-github).
+# GitHub owns the required gate. The retired Forgejo workflows are absent from
+# this tree. This workflow runs NO tests (Tom, 2026-10-09: the tests flaked and
+# gave no signal), and the tests are deleted. It keeps fmt, clippy, lints, and
+# builds. No lint or CI step requires tests or test coverage.
+# The single required check is the `ci-required` job at the bottom.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-required-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_BUILD_JOBS: "4"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_test:
+    name: fmt + clippy (lastdb_node Mini lane)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Install ripgrep
+        run: sudo apt-get install -y --no-install-recommends ripgrep
+      - name: Install Rust
+        run: |
+          rustup toolchain install --profile minimal --component clippy,rustfmt
+          rustup show active-toolchain
+      - name: Cache cargo and target (build_test)
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fmt-clippy
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Select required Rust clippy scope
+        id: required-clippy-plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_SHA:-}" ] || [ -z "${HEAD_SHA:-}" ] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            ruby scripts/ci/required-clippy-plan.rb --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)"
+          if [ -z "$merge_base" ]; then
+            ruby scripts/ci/required-clippy-plan.rb --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "$merge_base" "$HEAD_SHA" \
+            | ruby scripts/ci/required-clippy-plan.rb --github-output "$GITHUB_OUTPUT"
+          echo "Required clippy mode: $(tail -n 4 "$GITHUB_OUTPUT" | tr '\n' ' ')"
+      - name: Bootstrap Mini-gate step state
+        run: |
+          set -euo pipefail
+          state_dir="${RUNNER_TEMP:-/tmp}/mini-gate"
+          mkdir -p "$state_dir"
+          date +%s >"$state_dir/job_started_at_epoch"
+          echo "unknown-pre-instrumented-step" >"$state_dir/last_step"
+          echo "MINI_GATE_STATE_DIR=$state_dir" >>"$GITHUB_ENV"
+      - name: App registry shelf lint
+        run: bash scripts/ci/mini-gate-step.sh "App registry shelf lint" -- bash scripts/lints/lint-app-registry-shelf.sh
+      - name: No build-artifact blobs in tree
+        run: bash scripts/ci/mini-gate-step.sh "No build-artifact blobs in tree" -- bash scripts/lints/lint-no-build-artifacts.sh --tree HEAD
+      - name: cargo fmt --check
+        run: bash scripts/ci/mini-gate-step.sh "cargo fmt --check" -- cargo fmt --all -- --check
+      - name: lint no write-path syncing store
+        run: bash scripts/ci/mini-gate-step.sh "lint no write-path syncing store" -- bash scripts/lints/lint-no-write-path-syncing-store.sh
+      - name: Workspace fastembed-unification lint
+        run: bash scripts/ci/mini-gate-step.sh "Workspace fastembed-unification lint" -- bash scripts/ci/lint-workspace-fastembed-unification.sh
+      - name: Heavy clippy workspace-coverage lint
+        run: bash scripts/ci/mini-gate-step.sh "Heavy clippy workspace-coverage lint" -- ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb
+      - name: cargo clippy (path-selected required lane)
+        if: steps.required-clippy-plan.outputs.run_clippy == 'true'
+        env:
+          CARGO_BUILD_JOBS: "2"
+          CLIPPY_FAMILY: ${{ steps.required-clippy-plan.outputs.family }}
+          CLIPPY_MODE: ${{ steps.required-clippy-plan.outputs.mode }}
+        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (${CLIPPY_MODE}:${CLIPPY_FAMILY})" -- ruby scripts/ci/required-clippy-plan.rb --run "$CLIPPY_FAMILY"
+      - name: Assert fastembed is NOT compiled in the Mini gate lane
+        run: |
+          bash scripts/ci/mini-gate-step.sh "Assert fastembed is NOT compiled in the Mini gate lane" -- bash -euo pipefail -c '
+          tree="$(cargo tree -p lastdb_node -e no-dev -i fastembed 2>&1 || true)"
+          if printf "%s\n" "$tree" | grep -q "^fastembed v"; then
+            echo "FAIL: fastembed is linked into the default lastdb_node lane:" >&2
+            printf "%s\n" "$tree" >&2
+            echo "lastdb_node product graph must stay fastembed-free; FastEmbed belongs to schema-service tooling only." >&2
+            exit 1
+          fi
+          echo "OK: fastembed is not compiled in the default lastdb_node lane."
+          '
+
+  lastdb_app_sdk_check:
+    name: lastdb_app_sdk typecheck + lint + build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check Node/npm toolchain
+        run: |
+          node --version
+          npm --version
+      - name: npm ci
+        working-directory: lastdb_app_sdk
+        run: npm ci
+      - name: npm run typecheck
+        working-directory: lastdb_app_sdk
+        run: npm run typecheck
+      - name: npm run lint
+        working-directory: lastdb_app_sdk
+        run: npm run lint
+      - name: npm run build
+        working-directory: lastdb_app_sdk
+        run: npm run build
+
+  full_workspace_check:
+    name: full workspace cargo clippy (heavy)
+    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Install ripgrep
+        run: sudo apt-get install -y --no-install-recommends ripgrep
+      - name: Install Rust
+        run: |
+          rustup toolchain install --profile minimal --component clippy,rustfmt
+          rustup show active-toolchain
+      - name: Cache cargo and target (full_workspace_check)
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: heavy
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Workspace fastembed-unification lint
+        run: bash scripts/ci/lint-workspace-fastembed-unification.sh
+      - name: Heavy clippy workspace-coverage lint
+        run: ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb
+      - name: cargo clippy --workspace --all-targets (no ONNX packages)
+        run: |
+          ulimit -n 8192 || true
+          cargo clippy --workspace --all-targets --locked \
+            --exclude generate_validated_schema_org_seeds \
+            --exclude schema_service_worker \
+            -- -D warnings
+      - name: cargo clippy off-lane fastembed bins
+        run: |
+          ulimit -n 8192 || true
+          cargo clippy --locked \
+            -p generate_validated_schema_org_seeds \
+            -p schema_service_worker \
+            --bins \
+            -- -D warnings
+
+  diff_file_size:
+    name: Changed-file size lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Install tree-sitter (pinned)
+        run: python3 -m pip install --quiet tree-sitter==0.23.2 tree-sitter-rust==0.23.2
+      - name: Touched Rust functions stay under the size limit
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/lints/lint-diff-fn-size.py --base "$BASE_SHA" --head "$HEAD_SHA"
+      - name: Changed Rust files stay under the size limit
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/lints/lint-diff-file-size.py --base "$BASE_SHA" --head "$HEAD_SHA"
+
+  ci-required:
+    name: ci-required
+    needs:
+      - build_test
+      - lastdb_app_sdk_check
+      - full_workspace_check
+      - diff_file_size
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: All required jobs must succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: |
+          echo "Required job results: $RESULTS"
+          if [ "$RESULTS" != "success,success,success,success" ]; then
+            echo "A required job did not succeed"
+            exit 1
+          fi
+          echo "All required jobs passed."

@@ -1,0 +1,47 @@
+[package]
+name = "schema_service_server_shared"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Shared HTTP handlers for the schema service — mounted by the actix dev binary and the schema-infra Lambda."
+
+[features]
+default = []
+actix = ["dep:actix-web"]
+# Opt-in local FastEmbed adapter for schema-service binaries that should
+# compute embeddings themselves. Default local/dev/test builds stay
+# no-embedder and rely on resolver packs, imported artifacts, or injected
+# test embedders.
+fastembed = [
+    "dep:fastembed_crate",
+    "fastembed_crate/hf-hub-native-tls",
+    "fastembed_crate/ort-download-binaries",
+]
+# Lambda uses a pre-bundled /opt model layer and must not compile the
+# HuggingFace runtime downloader into the production binary.
+fastembed-layer = ["dep:fastembed_crate", "fastembed_crate/ort-download-binaries"]
+
+[dependencies]
+schema_service_core = { path = "../core", default-features = false }
+# This crate owns the schema-service FastEmbed adapter, but the adapter stays
+# behind explicit features. schema_service_core remains embedder-injected and
+# free of fastembed/ONNX.
+schema_types = { workspace = true }
+fastembed_crate = { package = "fastembed", version = "4", optional = true, default-features = false }
+
+actix-web = { workspace = true, optional = true }
+serde = { workspace = true }
+# App-identity handlers (`POST /v1/apps`, the schema-claim gate) parse the
+# request body as a raw `Value` and emit discriminated JSON error bodies.
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+schema_service_core = { path = "../core", features = ["local-store"] }
+# The dual_signal_only_spike harness (`#[ignore]`d) drives the real
+# canonicalization path with the real fastembed model.
+tokio = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

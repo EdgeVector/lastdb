@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MedicalIndication",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "026c89d5a86b54bf36a28c92ff3cb6e9dd42bb2ed34e590f1d313b09a9f45316",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "026c89d5a86b54bf36a28c92ff3cb6e9dd42bb2ed34e590f1d313b09a9f45316",
+  "purpose_statement": "MedicalIndication",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

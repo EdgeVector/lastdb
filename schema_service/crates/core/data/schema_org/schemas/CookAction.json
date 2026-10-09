@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "CookAction",
+  "field_classifications": {
+    "food_establishment": [
+      "word"
+    ],
+    "food_event": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "recipe": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "food_establishment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "food_event": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "recipe": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "food_establishment": "A sub property of location. The specific food establishment where the action occurred.",
+    "food_event": "A sub property of location. The specific food event where the action occurred.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "recipe": "A sub property of instrument. The recipe/instructions used to perform the action."
+  },
+  "field_types": {
+    "food_establishment": "String",
+    "food_event": "String",
+    "identifier": "String",
+    "recipe": "String"
+  },
+  "fields": [
+    "food_establishment",
+    "food_event",
+    "identifier",
+    "recipe"
+  ],
+  "identity_hash": "76fa943dafef5d53a72b6ea29b970b2420c917a76c0222a908686776eb47c2a0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "76fa943dafef5d53a72b6ea29b970b2420c917a76c0222a908686776eb47c2a0",
+  "purpose_statement": "CookAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

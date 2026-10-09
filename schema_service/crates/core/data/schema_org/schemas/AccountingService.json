@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "AccountingService",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "5de8822edc80849b72aa030fce686951ecd06f2b0ccad94441a8c22fe7a525b1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5de8822edc80849b72aa030fce686951ecd06f2b0ccad94441a8c22fe7a525b1",
+  "purpose_statement": "AccountingService",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

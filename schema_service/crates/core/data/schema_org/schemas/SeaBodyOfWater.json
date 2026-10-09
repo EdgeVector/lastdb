@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "SeaBodyOfWater",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "eeab8105cb832468216092c83f314e63e28e2c488ae2f86f2748944de9142e18",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "eeab8105cb832468216092c83f314e63e28e2c488ae2f86f2748944de9142e18",
+  "purpose_statement": "SeaBodyOfWater",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

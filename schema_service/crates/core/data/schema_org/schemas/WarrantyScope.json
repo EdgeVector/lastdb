@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "WarrantyScope",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "bf2ea0386a44173f5dec52cbd1f15633483b59b0430b9f9552ab915924574cde",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bf2ea0386a44173f5dec52cbd1f15633483b59b0430b9f9552ab915924574cde",
+  "purpose_statement": "WarrantyScope",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

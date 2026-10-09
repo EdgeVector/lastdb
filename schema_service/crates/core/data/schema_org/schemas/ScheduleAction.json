@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ScheduleAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "a3beb2e99723700d13481c6ba5ce9ec1cafff734b330a35e25fa3e1caa2c9f30",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a3beb2e99723700d13481c6ba5ce9ec1cafff734b330a35e25fa3e1caa2c9f30",
+  "purpose_statement": "ScheduleAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

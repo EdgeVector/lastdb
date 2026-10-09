@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "GamePlayMode",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "8a6c2813c095c45a1dd5ab0fcd87da87b19e304923598475b6929070ccbeeddc",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8a6c2813c095c45a1dd5ab0fcd87da87b19e304923598475b6929070ccbeeddc",
+  "purpose_statement": "GamePlayMode",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

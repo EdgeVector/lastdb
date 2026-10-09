@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "3DModel",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "is_resizable": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_resizable": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_resizable": "Whether the 3DModel allows resizing. For example, room layout applications often do not allow 3DModel elements to be resized to reflect reality."
+  },
+  "field_types": {
+    "identifier": "String",
+    "is_resizable": "Boolean"
+  },
+  "fields": [
+    "identifier",
+    "is_resizable"
+  ],
+  "identity_hash": "805c2b11d1bf0d1fba223de9200d79cee313b7cd69d129ae67fb3a276fe2a9db",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "805c2b11d1bf0d1fba223de9200d79cee313b7cd69d129ae67fb3a276fe2a9db",
+  "purpose_statement": "3DModel",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

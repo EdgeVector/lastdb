@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "DataFeed",
+  "field_classifications": {
+    "data_feed_element": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "data_feed_element": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "data_feed_element": "An item within a data feed. Data feeds may have many elements.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "data_feed_element": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "data_feed_element",
+    "identifier"
+  ],
+  "identity_hash": "f957c3337611b3fd029ea77d82978b2dba9bd80dc01abe63b02b32efc0472ba6",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f957c3337611b3fd029ea77d82978b2dba9bd80dc01abe63b02b32efc0472ba6",
+  "purpose_statement": "DataFeed",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

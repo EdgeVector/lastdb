@@ -1,0 +1,142 @@
+{
+  "descriptive_name": "Clip",
+  "field_classifications": {
+    "actor": [
+      "word"
+    ],
+    "actors": [
+      "word"
+    ],
+    "clip_number": [
+      "number"
+    ],
+    "director": [
+      "word"
+    ],
+    "directors": [
+      "word"
+    ],
+    "end_offset": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "music_by": [
+      "word"
+    ],
+    "part_of_episode": [
+      "word"
+    ],
+    "part_of_season": [
+      "word"
+    ],
+    "part_of_series": [
+      "word"
+    ],
+    "start_offset": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "actor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "actors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "clip_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "director": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "directors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "end_offset": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "music_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "part_of_episode": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "part_of_season": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "part_of_series": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "start_offset": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "actor": "An actor (individual or a group), e.g. in TV, radio, movie, video games etc., or in an event. Actors can be associated with individual items or with a series, episode, clip.",
+    "actors": "An actor, e.g. in TV, radio, movie, video games etc. Actors can be associated with individual items or with a series, episode, clip.",
+    "clip_number": "Position of the clip within an ordered group of clips.",
+    "director": "A director of e.g. TV, radio, movie, video gaming etc. content, or of an event. Directors can be associated with individual items or with a series, episode, clip.",
+    "directors": "A director of e.g. TV, radio, movie, video games etc. content. Directors can be associated with individual items or with a series, episode, clip.",
+    "end_offset": "The end time of the clip expressed as the number of seconds from the beginning of the work.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "music_by": "The composer of the soundtrack.",
+    "part_of_episode": "The episode to which this clip belongs.",
+    "part_of_season": "The season to which this episode belongs.",
+    "part_of_series": "The series to which this episode or season belongs.",
+    "start_offset": "The start time of the clip expressed as the number of seconds from the beginning of the work."
+  },
+  "field_types": {
+    "actor": "String",
+    "actors": "String",
+    "clip_number": "Integer",
+    "director": "String",
+    "directors": "String",
+    "end_offset": "Float",
+    "identifier": "String",
+    "music_by": "String",
+    "part_of_episode": "String",
+    "part_of_season": "String",
+    "part_of_series": "String",
+    "start_offset": "Float"
+  },
+  "fields": [
+    "actor",
+    "actors",
+    "clip_number",
+    "director",
+    "directors",
+    "end_offset",
+    "identifier",
+    "music_by",
+    "part_of_episode",
+    "part_of_season",
+    "part_of_series",
+    "start_offset"
+  ],
+  "identity_hash": "7447836b5c10ed4468b3991f5b9df90b29c230436c5268a176b67bcc68176caa",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7447836b5c10ed4468b3991f5b9df90b29c230436c5268a176b67bcc68176caa",
+  "purpose_statement": "Clip",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

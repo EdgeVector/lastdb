@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "MedicalRiskEstimator",
+  "field_classifications": {
+    "estimates_risk_of": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "included_risk_factor": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "estimates_risk_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "included_risk_factor": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "estimates_risk_of": "The condition, complication, or symptom whose risk is being estimated.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "included_risk_factor": "A modifiable or non-modifiable risk factor included in the calculation, e.g. age, coexisting condition."
+  },
+  "field_types": {
+    "estimates_risk_of": "String",
+    "identifier": "String",
+    "included_risk_factor": "String"
+  },
+  "fields": [
+    "estimates_risk_of",
+    "identifier",
+    "included_risk_factor"
+  ],
+  "identity_hash": "1ae1e923ac185d0bd3829556cff9bc3c6459fa29c04f449c45b1d48b66466e5e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1ae1e923ac185d0bd3829556cff9bc3c6459fa29c04f449c45b1d48b66466e5e",
+  "purpose_statement": "MedicalRiskEstimator",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

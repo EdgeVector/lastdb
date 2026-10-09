@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "OpeningHoursSpecification",
+  "field_classifications": {
+    "closes": [
+      "word"
+    ],
+    "day_of_week": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "opens": [
+      "word"
+    ],
+    "valid_from": [
+      "word"
+    ],
+    "valid_through": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "closes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "day_of_week": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "opens": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "valid_from": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "valid_through": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "closes": "The closing hour of the place or service on the given day(s) of the week.",
+    "day_of_week": "The day of the week for which these opening hours are valid.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "opens": "The opening hour of the place or service on the given day(s) of the week.",
+    "valid_from": "The date when the item becomes valid.",
+    "valid_through": "The date after when the item is not valid. For example the end of an offer, salary period, or a period of opening hours."
+  },
+  "field_types": {
+    "closes": "String",
+    "day_of_week": "String",
+    "identifier": "String",
+    "opens": "String",
+    "valid_from": "String",
+    "valid_through": "String"
+  },
+  "fields": [
+    "closes",
+    "day_of_week",
+    "identifier",
+    "opens",
+    "valid_from",
+    "valid_through"
+  ],
+  "identity_hash": "0f9c52f3124c99531c9a375455ae6a1d89019a61a330f0b50fc72abce7878bef",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "0f9c52f3124c99531c9a375455ae6a1d89019a61a330f0b50fc72abce7878bef",
+  "purpose_statement": "OpeningHoursSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

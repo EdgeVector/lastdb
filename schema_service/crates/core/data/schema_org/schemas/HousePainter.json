@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "HousePainter",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "a27c9ed97e3eaf0a58b558a3e4a73f5497c87ffe84a4e9a974717f9d51c72484",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a27c9ed97e3eaf0a58b558a3e4a73f5497c87ffe84a4e9a974717f9d51c72484",
+  "purpose_statement": "HousePainter",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

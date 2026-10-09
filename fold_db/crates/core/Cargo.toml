@@ -1,0 +1,125 @@
+[package]
+name = "fold_db"
+version = "0.3.0"
+edition.workspace = true
+publish = false
+
+[features]
+default = []
+test-utils = []  # Expose test helpers (MockEmbeddingModel, etc.) for integration tests
+# Cross-user sharing and consent-gated delivery are product/host surfaces, not
+# part of the default local kernel compile path.
+sharing = []
+# Compile the cloud-sync engine and its S3/auth store decorators. Local Mini
+# constitution builds keep this off; product hosts opt in explicitly.
+#
+# This must also carry the DEPENDENCIES the sync engine needs, or the gate is
+# cosmetic: `mod sync` disappears but its ~130-crate HTTP/TLS subtree still
+# compiles. `reqwest` has no use outside `sync/`, and fold_db's only `otel`
+# use is the one `inject_w3c` call on sync egress (`sync/auth/http.rs`), so
+# both belong here rather than in the unconditional dependency list.
+cloud-sync = ["sharing", "dep:reqwest", "observability/otel"]
+
+[dependencies]
+# Cryptography
+env_flag = { workspace = true }
+base64.workspace = true
+ed25519-dalek = { version = "2.0", features = ["rand_core", "serde"] }
+aes-gcm = "0.10"
+hkdf = "0.12"
+hmac = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+# gzip for consent-gated delivery JWE plaintext (compress-before-encrypt)
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Storage
+laststore = { path = "../../../vendor/laststore" }
+
+# Core utilities
+uuid = { workspace = true, features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
+
+# Async runtime
+# `rt` is required by `tokio::task::spawn_blocking` (CPU-bound work off the reactor).
+tokio = { workspace = true, features = ["sync", "time", "fs", "io-util", "rt"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+
+# HTTP client. Cloud-sync only: every use lives under `sync/` (the old comment
+# here claimed `schema_client in fold_db_core` — that client is
+# `schema_service/crates/client`, a different crate). Optional so a kernel build
+# without `cloud-sync` does not compile hyper/rustls/aws-lc-sys.
+reqwest = { version = "0.12", optional = true, features = ["json", "multipart", "blocking", "stream"] }
+
+# Shared telemetry crate. `default-features = false` drops its `otel` default:
+# the kernel needs only the always-available `attrs` pieces (the `redact!` /
+# `redact_id!` PII macros). `propagation::inject_w3c` is `#[cfg(feature =
+# "otel")]` and has exactly one caller — `sync/auth/http.rs` — so `otel` is
+# re-enabled by the `cloud-sync` feature instead of unconditionally.
+observability = { path = "../observability", default-features = false }
+# Pure wire schema types (shared with schema_service; no storage).
+schema_types = { workspace = true }
+
+ed25519-compact = "2.2.0"
+aes-gcm-siv = "0.11"
+
+# Unix-socket peer-credential read. Unix-only and unconditional: reading a
+# socket's kernel peer credential is a generic primitive consumed by the dev
+# node's UDS control socket. Non-Unix targets pull in no `libc` peer-cred FFI.
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+sha2 = { workspace = true }
+
+tracing-subscriber = { workspace = true }
+temp-env = "0.3"
+serial_test = "3"
+
+# Statistical micro-benchmark harness for `benches/*` (criterion_main).
+# Pure dev-dependency: never linked into the shipped library. `async_tokio`
+# enables `Bencher::to_async(&runtime)` so the async storage API can be driven
+# directly from the bench routines.
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[lib]
+name = "fold_db"
+path = "src/lib.rs"
+
+# Storage-core micro-benchmarks. `harness = false` hands main() to criterion
+# instead of libtest. Run with `cargo bench -p fold_db --bench db_operations_bench`.
+[[bench]]
+name = "db_operations_bench"
+harness = false
+
+# Indexed query-path benchmarks (full FoldDB: schema + mutations + query).
+# Run with `cargo bench -p fold_db --bench query_path_bench`.
+[[bench]]
+name = "query_path_bench"
+harness = false
+
+# At-rest-encryption bulk-scan overhead (Gap G1 slice d). Measures the per-row
+# AES-256-GCM decrypt cost on the schema-load-at-boot and lineage-style bulk
+# scan paths (encrypted vs. plaintext control on the same corpus). Run with
+# `cargo bench -p fold_db --bench encrypt_scan_bench`.
+[[bench]]
+name = "encrypt_scan_bench"
+harness = false
+
+[lints]
+workspace = true

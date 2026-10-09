@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "TVEpisode",
+  "field_classifications": {
+    "country_of_origin": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "part_of_tv_series": [
+      "word"
+    ],
+    "subtitle_language": [
+      "word"
+    ],
+    "title_eidr": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "country_of_origin": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "part_of_tv_series": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "subtitle_language": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "title_eidr": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "country_of_origin": "The country of origin of something, including products as well as creative  works such as movie and TV content.\n\nIn the case of TV and movie, this would be the country of the principle offices of the production company or individual responsible for the movie. For other kinds of [[CreativeWork]] it is difficult to provide fully general guidance, and properties such as [[contentLocation]] and [[locationCreated]] may be more applicable.\n\nIn the case of products, the country of origin of the product. The exact interpretation of this may vary by context and product type, and cannot be fully enumerated here.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "part_of_tv_series": "The TV series to which this episode or season belongs.",
+    "subtitle_language": "Languages in which subtitles/captions are available, in [IETF BCP 47 standard format](http://tools.ietf.org/html/bcp47).",
+    "title_eidr": "An [EIDR](https://eidr.org/) (Entertainment Identifier Registry) [[identifier]] representing at the most general/abstract level, a work of film or television.\n\nFor example, the motion picture known as \"Ghostbusters\" has a titleEIDR of  \"10.5240/7EC7-228A-510A-053E-CBB8-J\". This title (or work) may have several variants, which EIDR calls \"edits\". See [[editEIDR]].\n\nSince schema.org types like [[Movie]], [[TVEpisode]], [[TVSeason]], and [[TVSeries]] can be used for both works and their multiple expressions, it is possible to use [[titleEIDR]] alone (for a general description), or alongside [[editEIDR]] for a more edit-specific description."
+  },
+  "field_types": {
+    "country_of_origin": "String",
+    "identifier": "String",
+    "part_of_tv_series": "String",
+    "subtitle_language": "String",
+    "title_eidr": "String"
+  },
+  "fields": [
+    "country_of_origin",
+    "identifier",
+    "part_of_tv_series",
+    "subtitle_language",
+    "title_eidr"
+  ],
+  "identity_hash": "3790bc6bc72d621fd58fdbc8e08c3d0d30a99e52e02930d17efd4a0eaba9507c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3790bc6bc72d621fd58fdbc8e08c3d0d30a99e52e02930d17efd4a0eaba9507c",
+  "purpose_statement": "TVEpisode",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

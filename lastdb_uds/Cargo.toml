@@ -1,0 +1,18 @@
+[package]
+name = "lastdb_uds"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Unix-domain-socket transport for the LastDB Mini daemon: socket bind/perms/peer-cred gate (`uds`), HTTP/1.1 framing (`uds_http`), and control-socket route classification (`uds_router`)."
+
+[lints]
+workspace = true
+
+[dependencies]
+fold_db = { workspace = true }
+env_flag = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+libc = "0.2"
+
+[dev-dependencies]

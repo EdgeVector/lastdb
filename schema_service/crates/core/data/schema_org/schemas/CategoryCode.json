@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "CategoryCode",
+  "field_classifications": {
+    "code_value": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "in_code_set": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "code_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_code_set": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "code_value": "A short textual code that uniquely identifies the value.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_code_set": "A [[CategoryCodeSet]] that contains this category code."
+  },
+  "field_types": {
+    "code_value": "String",
+    "identifier": "String",
+    "in_code_set": "String"
+  },
+  "fields": [
+    "code_value",
+    "identifier",
+    "in_code_set"
+  ],
+  "identity_hash": "c4f0106ed936f8047abcedd8b617cea06d185c13e395ef6261fcb3036c77a9d9",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c4f0106ed936f8047abcedd8b617cea06d185c13e395ef6261fcb3036c77a9d9",
+  "purpose_statement": "CategoryCode",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Artery",
+  "field_classifications": {
+    "arterial_branch": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "supply_to": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "arterial_branch": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "supply_to": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "arterial_branch": "The branches that comprise the arterial structure.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "supply_to": "The area to which the artery supplies blood."
+  },
+  "field_types": {
+    "arterial_branch": "String",
+    "identifier": "String",
+    "supply_to": "String"
+  },
+  "fields": [
+    "arterial_branch",
+    "identifier",
+    "supply_to"
+  ],
+  "identity_hash": "f5e33c4bc89661d16578dd664e9df5ae46a656a10d841699dc9ffd10dc5ba14c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f5e33c4bc89661d16578dd664e9df5ae46a656a10d841699dc9ffd10dc5ba14c",
+  "purpose_statement": "Artery",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

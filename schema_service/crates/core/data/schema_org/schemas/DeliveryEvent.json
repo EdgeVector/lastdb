@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "DeliveryEvent",
+  "field_classifications": {
+    "access_code": [
+      "word"
+    ],
+    "available_from": [
+      "word"
+    ],
+    "available_through": [
+      "word"
+    ],
+    "has_delivery_method": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "access_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "available_from": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "available_through": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_delivery_method": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "access_code": "Password, PIN, or access code needed for delivery (e.g. from a locker).",
+    "available_from": "When the item is available for pickup from the store, locker, etc.",
+    "available_through": "After this date, the item will no longer be available for pickup.",
+    "has_delivery_method": "Method used for delivery or shipping.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "access_code": "String",
+    "available_from": "String",
+    "available_through": "String",
+    "has_delivery_method": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "access_code",
+    "available_from",
+    "available_through",
+    "has_delivery_method",
+    "identifier"
+  ],
+  "identity_hash": "a46ebc8b360f9fc6c8637318abb5c5cf63eb5864b5c8a26f711e614745d74e76",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a46ebc8b360f9fc6c8637318abb5c5cf63eb5864b5c8a26f711e614745d74e76",
+  "purpose_statement": "DeliveryEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

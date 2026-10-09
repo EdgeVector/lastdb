@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "GovernmentBenefitsType",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "2c6e0f7b52e8d26fb41798fcaf95df9a9a70fa32694158d176f5106ea79579ac",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2c6e0f7b52e8d26fb41798fcaf95df9a9a70fa32694158d176f5106ea79579ac",
+  "purpose_statement": "GovernmentBenefitsType",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

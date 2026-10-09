@@ -1,0 +1,16 @@
+app_id = "ingestion"
+schemas = ["schemas/*.schema.json"]
+uses = []
+
+[metadata]
+display_name = "Ingestion"
+description = "Zero-UI sidecar app that writes deterministic ingestion runs and file summaries through @lastdb/app-sdk."
+homepage_url = ""
+
+[dev]
+version = 1
+name = "ingestion"
+schemas_dir = "schemas"
+view_file = "view.yaml"
+transform_file = "transform.rs"
+fixtures_dir = "fixtures"

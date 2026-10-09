@@ -1,0 +1,142 @@
+{
+  "descriptive_name": "PropertyValueSpecification",
+  "field_classifications": {
+    "default_value": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "max_value": [
+      "number"
+    ],
+    "min_value": [
+      "number"
+    ],
+    "multiple_values": [
+      "word"
+    ],
+    "readonly_value": [
+      "word"
+    ],
+    "step_value": [
+      "number"
+    ],
+    "value_max_length": [
+      "number"
+    ],
+    "value_min_length": [
+      "number"
+    ],
+    "value_name": [
+      "word"
+    ],
+    "value_pattern": [
+      "word"
+    ],
+    "value_required": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "default_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "max_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "min_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "multiple_values": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "readonly_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "step_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "value_max_length": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "value_min_length": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "value_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "value_pattern": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "value_required": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "default_value": "The default value of the input.  For properties that expect a literal, the default is a literal value, for properties that expect an object, it's an ID reference to one of the current values.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "max_value": "The upper value of some characteristic or property.",
+    "min_value": "The lower value of some characteristic or property.",
+    "multiple_values": "Whether multiple values are allowed for the property.  Default is false.",
+    "readonly_value": "Whether or not a property is mutable.  Default is false. Specifying this for a property that also has a value makes it act similar to a \"hidden\" input in an HTML form.",
+    "step_value": "The stepValue attribute indicates the granularity that is expected (and required) of the value in a PropertyValueSpecification.",
+    "value_max_length": "Specifies the allowed range for number of characters in a literal value.",
+    "value_min_length": "Specifies the minimum allowed range for number of characters in a literal value.",
+    "value_name": "Indicates the name of the PropertyValueSpecification to be used in URL templates and form encoding in a manner analogous to HTML's input@name.",
+    "value_pattern": "Specifies a regular expression for testing literal values according to the HTML spec.",
+    "value_required": "Whether the property must be filled in to complete the action.  Default is false."
+  },
+  "field_types": {
+    "default_value": "String",
+    "identifier": "String",
+    "max_value": "Float",
+    "min_value": "Float",
+    "multiple_values": "Boolean",
+    "readonly_value": "Boolean",
+    "step_value": "Float",
+    "value_max_length": "Float",
+    "value_min_length": "Float",
+    "value_name": "String",
+    "value_pattern": "String",
+    "value_required": "Boolean"
+  },
+  "fields": [
+    "default_value",
+    "identifier",
+    "max_value",
+    "min_value",
+    "multiple_values",
+    "readonly_value",
+    "step_value",
+    "value_max_length",
+    "value_min_length",
+    "value_name",
+    "value_pattern",
+    "value_required"
+  ],
+  "identity_hash": "76e9df34cea787d4ef4fdfa3ae43dbf7a568baa34d5898329d5e71083491fcf6",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "76e9df34cea787d4ef4fdfa3ae43dbf7a568baa34d5898329d5e71083491fcf6",
+  "purpose_statement": "PropertyValueSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

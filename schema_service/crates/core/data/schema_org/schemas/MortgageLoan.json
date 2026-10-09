@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "MortgageLoan",
+  "field_classifications": {
+    "domiciled_mortgage": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "loan_mortgage_mandate_amount": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "domiciled_mortgage": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "loan_mortgage_mandate_amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "domiciled_mortgage": "Whether borrower is a resident of the jurisdiction where the property is located.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "loan_mortgage_mandate_amount": "Amount of mortgage mandate that can be converted into a proper mortgage at a later stage."
+  },
+  "field_types": {
+    "domiciled_mortgage": "Boolean",
+    "identifier": "String",
+    "loan_mortgage_mandate_amount": "String"
+  },
+  "fields": [
+    "domiciled_mortgage",
+    "identifier",
+    "loan_mortgage_mandate_amount"
+  ],
+  "identity_hash": "dd04d82e6c8ef739de3574a1a3a8beb84fe4ae4742b7d27c8bf281d1bce026c3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "dd04d82e6c8ef739de3574a1a3a8beb84fe4ae4742b7d27c8bf281d1bce026c3",
+  "purpose_statement": "MortgageLoan",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

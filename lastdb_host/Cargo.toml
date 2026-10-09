@@ -1,0 +1,27 @@
+[package]
+name = "lastdb_host"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Framework-agnostic LastDB owner-socket host primitives: the wire-shape contract (request parsing, pagination math, response envelope, I4 content-free error mapping, internal-index catalog) shared by BOTH the minimal `lastdbd` daemon (lastdb_node) and the full desktop node (fold_db_node), so the two socket route executors cannot drift."
+
+[lints]
+workspace = true
+
+[dependencies]
+fold_db = { workspace = true }
+env_flag = { workspace = true }
+lastdb_uds = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+# Bounded concurrent fan-out for the per-molecule conflict lookups on the read
+# path (handlers::annotate_conflict_flags).
+futures = { workspace = true }
+# QoS admission gate (qos.rs): async semaphores + deadline timers.
+tokio = { workspace = true, features = ["sync", "time"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

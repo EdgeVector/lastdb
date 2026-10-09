@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "VideoGameClip",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "ee27dbc53cfe4065c2031a94aefc36cb9a6e081a9d43518cbffce03adb545c13",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ee27dbc53cfe4065c2031a94aefc36cb9a6e081a9d43518cbffce03adb545c13",
+  "purpose_statement": "VideoGameClip",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

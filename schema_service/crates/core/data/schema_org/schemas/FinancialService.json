@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "FinancialService",
+  "field_classifications": {
+    "fees_and_commissions_specification": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "fees_and_commissions_specification": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "fees_and_commissions_specification": "Description of fees, commissions, and other terms applied either to a class of financial product, or by a financial service organization.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "fees_and_commissions_specification": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "fees_and_commissions_specification",
+    "identifier"
+  ],
+  "identity_hash": "3ddc5c93120d0c5195296e921444560c3900b5297ead23041cade37488a98e0f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3ddc5c93120d0c5195296e921444560c3900b5297ead23041cade37488a98e0f",
+  "purpose_statement": "FinancialService",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

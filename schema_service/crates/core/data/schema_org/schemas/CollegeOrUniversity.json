@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "CollegeOrUniversity",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "c850e751f742a44e17a0d2ae4e3e56873fea942fc2c4358e816d22b0712cb916",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c850e751f742a44e17a0d2ae4e3e56873fea942fc2c4358e816d22b0712cb916",
+  "purpose_statement": "CollegeOrUniversity",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

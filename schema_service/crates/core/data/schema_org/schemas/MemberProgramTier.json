@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "MemberProgramTier",
+  "field_classifications": {
+    "has_tier_benefit": [
+      "word"
+    ],
+    "has_tier_requirement": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "is_tier_of": [
+      "word"
+    ],
+    "membership_points_earned": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "has_tier_benefit": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_tier_requirement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_tier_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "membership_points_earned": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "has_tier_benefit": "A member benefit for a particular tier of a loyalty program.",
+    "has_tier_requirement": "A requirement for a user to join a membership tier, for example: a CreditCard if the tier requires sign up for a credit card, A UnitPriceSpecification if the user is required to pay a (periodic) fee, or a MonetaryAmount if the user needs to spend a minimum amount to join the tier. If a tier is free to join then this property does not need to be specified.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_tier_of": "The member program this tier is a part of.",
+    "membership_points_earned": "The number of membership points earned by the member. If necessary, the unitText can be used to express the units the points are issued in. (E.g. stars, miles, etc.)"
+  },
+  "field_types": {
+    "has_tier_benefit": "String",
+    "has_tier_requirement": "String",
+    "identifier": "String",
+    "is_tier_of": "String",
+    "membership_points_earned": "Float"
+  },
+  "fields": [
+    "has_tier_benefit",
+    "has_tier_requirement",
+    "identifier",
+    "is_tier_of",
+    "membership_points_earned"
+  ],
+  "identity_hash": "d5720c98bcd73b039216b050d6d5ee85f5b86e23f596184d12806cc254bef261",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d5720c98bcd73b039216b050d6d5ee85f5b86e23f596184d12806cc254bef261",
+  "purpose_statement": "MemberProgramTier",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

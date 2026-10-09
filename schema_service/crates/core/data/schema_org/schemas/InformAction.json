@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "InformAction",
+  "field_classifications": {
+    "event": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "event": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "event": "Upcoming or past event associated with this place, organization, or action.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "event": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "event",
+    "identifier"
+  ],
+  "identity_hash": "6f9a021a7a7803171f117e165700dd1cfb49a32e6ae97e137231bc402a064b48",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6f9a021a7a7803171f117e165700dd1cfb49a32e6ae97e137231bc402a064b48",
+  "purpose_statement": "InformAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

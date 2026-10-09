@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "MusicAlbum",
+  "field_classifications": {
+    "album_production_type": [
+      "word"
+    ],
+    "album_release": [
+      "word"
+    ],
+    "album_release_type": [
+      "word"
+    ],
+    "by_artist": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "album_production_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "album_release": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "album_release_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "by_artist": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "album_production_type": "Classification of the album by its type of content: soundtrack, live album, studio album, etc.",
+    "album_release": "A release of this album.",
+    "album_release_type": "The kind of release which this album is: single, EP or album.",
+    "by_artist": "The artist that performed this album or recording.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "album_production_type": "String",
+    "album_release": "String",
+    "album_release_type": "String",
+    "by_artist": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "album_production_type",
+    "album_release",
+    "album_release_type",
+    "by_artist",
+    "identifier"
+  ],
+  "identity_hash": "a8819d1be1df16f933a74015a66afc4d333aa8bb2b6e93dcda4ef1469fdf9e85",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a8819d1be1df16f933a74015a66afc4d333aa8bb2b6e93dcda4ef1469fdf9e85",
+  "purpose_statement": "MusicAlbum",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

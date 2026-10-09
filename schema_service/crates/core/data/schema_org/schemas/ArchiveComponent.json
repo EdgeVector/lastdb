@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "ArchiveComponent",
+  "field_classifications": {
+    "holding_archive": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "item_location": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "holding_archive": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "item_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "holding_archive": "[[ArchiveOrganization]] that holds, keeps or maintains the [[ArchiveComponent]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "item_location": "Current location of the item."
+  },
+  "field_types": {
+    "holding_archive": "String",
+    "identifier": "String",
+    "item_location": "String"
+  },
+  "fields": [
+    "holding_archive",
+    "identifier",
+    "item_location"
+  ],
+  "identity_hash": "bcd45bd9620b9fded7e1b756eca809e34fb1df5f33b025108923f9850a16691b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bcd45bd9620b9fded7e1b756eca809e34fb1df5f33b025108923f9850a16691b",
+  "purpose_statement": "ArchiveComponent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

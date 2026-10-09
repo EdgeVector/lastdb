@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "FMRadioChannel",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "b67289bdd8eeb0493b43cd8b227d4821d3e632c81ebc233d1d8ba928cc57ee74",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b67289bdd8eeb0493b43cd8b227d4821d3e632c81ebc233d1d8ba928cc57ee74",
+  "purpose_statement": "FMRadioChannel",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

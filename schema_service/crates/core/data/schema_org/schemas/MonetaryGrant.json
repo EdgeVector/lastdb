@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "MonetaryGrant",
+  "field_classifications": {
+    "amount": [
+      "number"
+    ],
+    "funder": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "funder": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "amount": "The amount of money.",
+    "funder": "A person or organization that supports (sponsors) something through some kind of financial contribution.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "amount": "Number",
+    "funder": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "amount",
+    "funder",
+    "identifier"
+  ],
+  "identity_hash": "fa643199799ca5683a945e7667304101ec7c00d8bc088879b6af6216ab54d101",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "fa643199799ca5683a945e7667304101ec7c00d8bc088879b6af6216ab54d101",
+  "purpose_statement": "MonetaryGrant",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

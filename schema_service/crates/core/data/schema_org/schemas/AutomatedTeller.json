@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "AutomatedTeller",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "8147865d160edf76023b21cb11502cff97d892da6c2788623088f6b18a963e7a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8147865d160edf76023b21cb11502cff97d892da6c2788623088f6b18a963e7a",
+  "purpose_statement": "AutomatedTeller",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

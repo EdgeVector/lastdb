@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Pond",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "f25eb14408b4ca860d658424a9af3fbc9f4c395c602d8ba7e11836513929a83f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f25eb14408b4ca860d658424a9af3fbc9f4c395c602d8ba7e11836513929a83f",
+  "purpose_statement": "Pond",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

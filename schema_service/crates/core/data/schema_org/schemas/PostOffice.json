@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PostOffice",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "fd8316a6ae00cfe15fae393a284402cb18e0c87be083171152bc4ad5fa83c527",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "fd8316a6ae00cfe15fae393a284402cb18e0c87be083171152bc4ad5fa83c527",
+  "purpose_statement": "PostOffice",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

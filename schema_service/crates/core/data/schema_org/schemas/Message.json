@@ -1,0 +1,122 @@
+{
+  "descriptive_name": "Message",
+  "field_classifications": {
+    "bcc_recipient": [
+      "word"
+    ],
+    "cc_recipient": [
+      "word"
+    ],
+    "date_read": [
+      "word"
+    ],
+    "date_received": [
+      "word"
+    ],
+    "date_sent": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "message_attachment": [
+      "word"
+    ],
+    "recipient": [
+      "word"
+    ],
+    "sender": [
+      "word"
+    ],
+    "to_recipient": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "bcc_recipient": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "cc_recipient": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "date_read": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "date_received": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "date_sent": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "message_attachment": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "recipient": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "sender": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "to_recipient": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "bcc_recipient": "A sub property of recipient. The recipient blind copied on a message.",
+    "cc_recipient": "A sub property of recipient. The recipient copied on a message.",
+    "date_read": "The date/time at which the message has been read by the recipient if a single recipient exists.",
+    "date_received": "The date/time the message was received if a single recipient exists.",
+    "date_sent": "The date/time at which the message was sent.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "message_attachment": "A CreativeWork attached to the message.",
+    "recipient": "A sub property of participant. The participant who is at the receiving end of the action.",
+    "sender": "A sub property of participant. The participant who is at the sending end of the action.",
+    "to_recipient": "A sub property of recipient. The recipient who was directly sent the message."
+  },
+  "field_types": {
+    "bcc_recipient": "String",
+    "cc_recipient": "String",
+    "date_read": "String",
+    "date_received": "String",
+    "date_sent": "String",
+    "identifier": "String",
+    "message_attachment": "String",
+    "recipient": "String",
+    "sender": "String",
+    "to_recipient": "String"
+  },
+  "fields": [
+    "bcc_recipient",
+    "cc_recipient",
+    "date_read",
+    "date_received",
+    "date_sent",
+    "identifier",
+    "message_attachment",
+    "recipient",
+    "sender",
+    "to_recipient"
+  ],
+  "identity_hash": "ae4100ff51acdf42eccf2ea9712dc2ce935bd1d0551107d901f4da8291f536ee",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ae4100ff51acdf42eccf2ea9712dc2ce935bd1d0551107d901f4da8291f536ee",
+  "purpose_statement": "Message",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

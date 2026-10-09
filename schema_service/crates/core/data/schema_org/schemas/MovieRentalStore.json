@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MovieRentalStore",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "2321e17cde4c24e5cd92336b571c71e784cd8c1747dfda43136761bb55cb8c4b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2321e17cde4c24e5cd92336b571c71e784cd8c1747dfda43136761bb55cb8c4b",
+  "purpose_statement": "MovieRentalStore",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

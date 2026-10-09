@@ -1,0 +1,2642 @@
+{
+  "_comment": "Generated 64 labeled inputs across concepts (gen_corpus --per-concept=8); each item carries a real Stage-1 proposal (PROMPT_VERSION-keyed, claude-haiku-4-5). Self-contained: run.mjs --corpus replays it without --stage1.",
+  "items": [
+    {
+      "id": "contact_01",
+      "expected_concept": "contact",
+      "input": {
+        "name": "Sarah Mitchell",
+        "email": "sarah.mitchell@techcorp.com",
+        "phone": "+1-415-892-3456",
+        "company": "TechCorp Solutions"
+      },
+      "proposal": {
+        "name": "contacts",
+        "schema_type": "Hash",
+        "descriptive_name": "Contacts",
+        "fields": [
+          "name",
+          "email",
+          "phone",
+          "company"
+        ],
+        "field_descriptions": {
+          "name": "Full name of the contact person",
+          "email": "Email address used as the unique identifier for the contact",
+          "phone": "Phone number in international format",
+          "company": "Organization or company the contact is affiliated with"
+        },
+        "purpose_statement": "Stores contact information for individuals to enable communication and relationship management.",
+        "key": {
+          "hash_field": "email",
+          "range_field": "name"
+        }
+      }
+    },
+    {
+      "id": "contact_02",
+      "expected_concept": "contact",
+      "input": {
+        "full_name": "James Chen",
+        "email_address": "j.chen@innovatedesign.io",
+        "mobile": "555-0147",
+        "organization": "Innovate Design Studio",
+        "website": "https://innovatedesign.io"
+      },
+      "proposal": {
+        "name": "contacts",
+        "schema_type": "Hash",
+        "descriptive_name": "Contacts",
+        "fields": [
+          "full_name",
+          "email_address",
+          "mobile",
+          "organization",
+          "website"
+        ],
+        "field_descriptions": {
+          "full_name": "The person's complete name",
+          "email_address": "Primary email address for contact",
+          "mobile": "Mobile phone number",
+          "organization": "Company or organization the person is affiliated with",
+          "website": "Website URL associated with the person or organization"
+        },
+        "purpose_statement": "Stores contact information for individuals and their affiliated organizations for communication and reference.",
+        "key": {
+          "hash_field": "email_address",
+          "range_field": "full_name"
+        }
+      }
+    },
+    {
+      "id": "contact_03",
+      "expected_concept": "contact",
+      "input": {
+        "contact_name": "Maria Rodriguez",
+        "contact_email": "mrodriguez@greenleaf.org",
+        "phone_number": "202-555-8934",
+        "employer": "Greenleaf Consulting"
+      },
+      "proposal": {
+        "name": "contacts",
+        "schema_type": "Hash",
+        "descriptive_name": "Contacts",
+        "fields": [
+          "contact_name",
+          "contact_email",
+          "phone_number",
+          "employer"
+        ],
+        "field_descriptions": {
+          "contact_name": "Full name of the contact person",
+          "contact_email": "Email address of the contact (unique identifier)",
+          "phone_number": "Phone number for reaching the contact",
+          "employer": "Name of the organization where the contact works"
+        },
+        "purpose_statement": "Stores contact information for individuals to enable communication and relationship tracking.",
+        "key": {
+          "hash_field": "contact_email"
+        }
+      }
+    },
+    {
+      "id": "contact_04",
+      "expected_concept": "contact",
+      "input": {
+        "person": "David Patel",
+        "email": "dpatel@financepro.net",
+        "tel": "+44-20-7946-0958",
+        "company_name": "FinancePro Advisors",
+        "linkedin": "https://linkedin.com/in/davidpatel"
+      },
+      "proposal": {
+        "name": "business_contacts",
+        "schema_type": "Hash",
+        "descriptive_name": "Business Contacts",
+        "fields": [
+          "person",
+          "email",
+          "tel",
+          "company_name",
+          "linkedin"
+        ],
+        "field_descriptions": {
+          "person": "Full name of the contact",
+          "email": "Primary email address for the contact",
+          "tel": "Telephone number including country code",
+          "company_name": "Name of the organization the contact works for",
+          "linkedin": "URL to the contact's LinkedIn profile"
+        },
+        "purpose_statement": "Stores contact information and professional profiles for business relationships and networking.",
+        "key": {
+          "hash_field": "email",
+          "range_field": "person"
+        }
+      }
+    },
+    {
+      "id": "contact_05",
+      "expected_concept": "contact",
+      "input": {
+        "name": "Emma Thompson",
+        "email_addr": "emma@creativestudio.co.uk",
+        "phone": "020 3456 7890",
+        "workplace": "Creative Studio London",
+        "profile_url": "https://creativestudio.co.uk/team/emma"
+      },
+      "proposal": {
+        "name": "team_members",
+        "schema_type": "Hash",
+        "descriptive_name": "Team Members",
+        "fields": [
+          "name",
+          "email_addr",
+          "phone",
+          "workplace",
+          "profile_url"
+        ],
+        "field_descriptions": {
+          "name": "Full name of the team member",
+          "email_addr": "Primary email address for contact",
+          "phone": "Phone number for direct communication",
+          "workplace": "Organization or company name where the person works",
+          "profile_url": "Web URL to the person's professional profile or team page"
+        },
+        "purpose_statement": "Records contact information and workplace details for individuals on a team or organization roster.",
+        "key": {
+          "hash_field": "email_addr"
+        }
+      }
+    },
+    {
+      "id": "contact_06",
+      "expected_concept": "contact",
+      "input": {
+        "full_name": "Marcus Johnson",
+        "contact_email": "m.johnson@buildtech.com",
+        "phone_number": "+1-206-555-0123",
+        "company": "BuildTech Engineering",
+        "twitter": "@marcusjtech"
+      },
+      "proposal": {
+        "name": "contacts",
+        "schema_type": "Hash",
+        "descriptive_name": "Contacts",
+        "fields": [
+          "full_name",
+          "contact_email",
+          "phone_number",
+          "company",
+          "twitter"
+        ],
+        "field_descriptions": {
+          "full_name": "The person's full name",
+          "contact_email": "Primary email address for contacting the person",
+          "phone_number": "Phone number in E.164 or standard format",
+          "company": "Name of the company or organization the person is affiliated with",
+          "twitter": "Twitter/X handle or username"
+        },
+        "purpose_statement": "Stores contact information for individuals including their name, email, phone, and associated company or social media handles.",
+        "key": {
+          "hash_field": "contact_email"
+        }
+      }
+    },
+    {
+      "id": "contact_07",
+      "expected_concept": "contact",
+      "input": {
+        "contact_name": "Lisa Wang",
+        "email": "lisa.wang@healthplus.org",
+        "mobile_phone": "650-555-9876",
+        "organization_name": "HealthPlus Medical Group",
+        "office_location": "San Francisco, CA"
+      },
+      "proposal": {
+        "name": "contacts",
+        "schema_type": "Hash",
+        "descriptive_name": "Contacts",
+        "fields": [
+          "contact_name",
+          "email",
+          "mobile_phone",
+          "organization_name",
+          "office_location"
+        ],
+        "field_descriptions": {
+          "contact_name": "Full name of the contact person",
+          "email": "Email address for the contact",
+          "mobile_phone": "Mobile phone number for the contact",
+          "organization_name": "Name of the organization the contact is affiliated with",
+          "office_location": "Physical office location or address of the organization"
+        },
+        "purpose_statement": "Stores contact information for individuals and their affiliated organizations for communication and reference.",
+        "key": {
+          "hash_field": "email",
+          "range_field": "contact_name"
+        }
+      }
+    },
+    {
+      "id": "contact_08",
+      "expected_concept": "contact",
+      "input": {
+        "person_name": "Robert O'Brien",
+        "email_address": "robrien@marketingpulse.io",
+        "phone": "617.555.0198",
+        "employer_name": "Marketing Pulse Inc.",
+        "website_url": "https://marketingpulse.io",
+        "years_experience": 12
+      },
+      "proposal": {
+        "name": "business_contacts",
+        "schema_type": "Hash",
+        "descriptive_name": "Business Contacts",
+        "fields": [
+          "person_name",
+          "email_address",
+          "phone",
+          "employer_name",
+          "website_url",
+          "years_experience"
+        ],
+        "field_descriptions": {
+          "person_name": "Full name of the contact",
+          "email_address": "Primary email address for the contact",
+          "phone": "Phone number for the contact",
+          "employer_name": "Name of the company or organization where the contact works",
+          "website_url": "Website URL associated with the contact's employer or professional presence",
+          "years_experience": "Number of years of professional experience"
+        },
+        "purpose_statement": "Maintains a directory of professional contacts with their employment and communication details for networking and outreach.",
+        "key": {
+          "hash_field": "email_address",
+          "range_field": "person_name"
+        }
+      }
+    },
+    {
+      "id": "photo_01",
+      "expected_concept": "photo",
+      "input": {
+        "id": "photo_001",
+        "url": "https://images.example.com/sunset_beach.jpg",
+        "captured_at": "2024-01-15T18:45:30Z",
+        "camera_model": "Canon EOS R5",
+        "lens": "RF 24-105mm f/4L IS USM"
+      },
+      "proposal": {
+        "name": "photos",
+        "schema_type": "Hash",
+        "descriptive_name": "Photos",
+        "fields": [
+          "id",
+          "url",
+          "captured_at",
+          "camera_model",
+          "lens"
+        ],
+        "field_descriptions": {
+          "id": "Unique identifier for the photo",
+          "url": "Direct URL link to the photo image file",
+          "captured_at": "ISO 8601 timestamp of when the photo was taken",
+          "camera_model": "Make and model of the camera used to capture the photo",
+          "lens": "Lens specification used for the photo"
+        },
+        "purpose_statement": "Records metadata about photographs including when and how they were captured for organization and retrieval.",
+        "key": {
+          "hash_field": "id"
+        }
+      }
+    },
+    {
+      "id": "photo_02",
+      "expected_concept": "photo",
+      "input": {
+        "photo_id": "IMG_2847",
+        "image_link": "https://cdn.photos.io/mountain_peak_dawn.png",
+        "timestamp": "2024-02-22T06:12:00Z",
+        "device": "iPhone 15 Pro Max"
+      },
+      "proposal": {
+        "name": "photos",
+        "schema_type": "Hash",
+        "descriptive_name": "Photos",
+        "fields": [
+          "photo_id",
+          "image_link",
+          "timestamp",
+          "device"
+        ],
+        "field_descriptions": {
+          "photo_id": "Unique identifier for the photo",
+          "image_link": "URL pointing to the photo file",
+          "timestamp": "Date and time when the photo was taken",
+          "device": "Device or camera used to capture the photo"
+        },
+        "purpose_statement": "Stores metadata about photos including their source location, capture time, and device used for retrieval and organization.",
+        "key": {
+          "hash_field": "photo_id"
+        }
+      }
+    },
+    {
+      "id": "photo_03",
+      "expected_concept": "photo",
+      "input": {
+        "identifier": "snap_789456",
+        "source_url": "https://storage.googleapis.com/photos/urban_street_night.jpg",
+        "time_taken": "2024-03-10T21:33:45Z",
+        "camera_info": {
+          "brand": "Nikon",
+          "model": "Z9",
+          "iso": 3200,
+          "aperture": "f/2.8"
+        },
+        "location": "Downtown Seattle"
+      },
+      "proposal": {
+        "name": "photos",
+        "schema_type": "Hash",
+        "descriptive_name": "Photos",
+        "fields": [
+          "identifier",
+          "source_url",
+          "time_taken",
+          "camera_info",
+          "location"
+        ],
+        "field_descriptions": {
+          "identifier": "Unique identifier for the photo record",
+          "source_url": "URL where the photo file is stored",
+          "time_taken": "ISO 8601 timestamp when the photo was captured",
+          "camera_info": "Nested object containing camera make, model, and shooting parameters (brand, model, iso, aperture)",
+          "location": "Geographic location or description of where the photo was taken"
+        },
+        "purpose_statement": "Records metadata about photographs including when and where they were taken, camera settings, and their storage location for organization and retrieval.",
+        "key": {
+          "hash_field": "source_url"
+        }
+      }
+    },
+    {
+      "id": "photo_04",
+      "expected_concept": "photo",
+      "input": {
+        "pic_id": "20240418_forest",
+        "image_uri": "https://photos.s3.amazonaws.com/forest_stream.webp",
+        "shot_time": "2024-04-18T14:22:15Z",
+        "photographer": "Sarah Chen",
+        "focal_length_mm": 85
+      },
+      "proposal": {
+        "name": "photos",
+        "schema_type": "Hash",
+        "descriptive_name": "Photos",
+        "fields": [
+          "pic_id",
+          "image_uri",
+          "shot_time",
+          "photographer",
+          "focal_length_mm"
+        ],
+        "field_descriptions": {
+          "pic_id": "Unique identifier for the photograph",
+          "image_uri": "URL or path to the image file",
+          "shot_time": "ISO 8601 timestamp when the photo was taken",
+          "photographer": "Name of the person who took the photograph",
+          "focal_length_mm": "Focal length of the lens in millimeters"
+        },
+        "purpose_statement": "Stores metadata about photographs including their location, capture time, and technical details for organization and retrieval.",
+        "key": {
+          "hash_field": "pic_id"
+        }
+      }
+    },
+    {
+      "id": "photo_05",
+      "expected_concept": "photo",
+      "input": {
+        "asset_id": "DSC_5521",
+        "link": "https://imagehost.net/gallery/portrait_studio.jpg",
+        "created": "2024-05-05T10:08:22Z",
+        "camera": "Sony A7IV",
+        "shutter_speed": "1/250",
+        "white_balance": "Daylight"
+      },
+      "proposal": {
+        "name": "photos",
+        "schema_type": "Hash",
+        "descriptive_name": "Photos",
+        "fields": [
+          "asset_id",
+          "link",
+          "created",
+          "camera",
+          "shutter_speed",
+          "white_balance"
+        ],
+        "field_descriptions": {
+          "asset_id": "Unique identifier for the photograph",
+          "link": "URL pointing to the hosted image file",
+          "created": "ISO 8601 timestamp when the photo was taken",
+          "camera": "Camera model or device used to capture the photo",
+          "shutter_speed": "Shutter speed setting used during capture",
+          "white_balance": "White balance mode or setting applied during capture"
+        },
+        "purpose_statement": "Stores metadata about photographs including camera settings and technical details for organization and retrieval.",
+        "key": {
+          "hash_field": "asset_id"
+        }
+      }
+    },
+    {
+      "id": "photo_06",
+      "expected_concept": "photo",
+      "input": {
+        "image_id": "vacation_2024_001",
+        "photo_url": "https://api.photoservice.com/v1/images/tropical_beach.jpg",
+        "capture_date": "2024-06-12T16:45:00Z",
+        "device_used": "Google Pixel 8",
+        "resolution": "4032x3024"
+      },
+      "proposal": {
+        "name": "photos",
+        "schema_type": "Hash",
+        "descriptive_name": "Photos",
+        "fields": [
+          "image_id",
+          "photo_url",
+          "capture_date",
+          "device_used",
+          "resolution"
+        ],
+        "field_descriptions": {
+          "image_id": "Unique identifier for the photo",
+          "photo_url": "Direct URL link to the photo file",
+          "capture_date": "ISO 8601 timestamp when the photo was taken",
+          "device_used": "Camera or device model that captured the photo",
+          "resolution": "Image dimensions in pixels (width x height)"
+        },
+        "purpose_statement": "Stores metadata about photos including their source location, capture time, and technical details for organization and retrieval.",
+        "key": {
+          "hash_field": "image_id"
+        }
+      }
+    },
+    {
+      "id": "photo_07",
+      "expected_concept": "photo",
+      "input": {
+        "shot_id": "arch_detail_42",
+        "image_path": "https://cdn2.example.org/architecture/modern_building.jpg",
+        "taken_at": "2024-07-30T09:15:33Z",
+        "camera_make": "Fujifilm",
+        "camera_model_name": "X-T5",
+        "tags": [
+          "architecture",
+          "urban",
+          "detail"
+        ]
+      },
+      "proposal": {
+        "name": "photographs",
+        "schema_type": "Hash",
+        "descriptive_name": "Photographs",
+        "fields": [
+          "shot_id",
+          "image_path",
+          "taken_at",
+          "camera_make",
+          "camera_model_name",
+          "tags"
+        ],
+        "field_descriptions": {
+          "shot_id": "Unique identifier for the photograph",
+          "image_path": "URL or file path to the image file",
+          "taken_at": "ISO 8601 timestamp when the photograph was taken",
+          "camera_make": "Manufacturer of the camera used",
+          "camera_model_name": "Model name of the camera used",
+          "tags": "Array of subject or category tags describing the photograph content"
+        },
+        "purpose_statement": "Stores metadata and location information for photographs to enable searching, organizing, and retrieving images by camera, date, and subject.",
+        "key": {
+          "hash_field": "shot_id"
+        }
+      }
+    },
+    {
+      "id": "photo_08",
+      "expected_concept": "photo",
+      "input": {
+        "id": "macro_flower_003",
+        "image_source": "https://photos.backup.io/nature/wildflower_macro.png",
+        "datetime_original": "2024-08-21T11:42:10Z",
+        "equipment": "Pentax K-3 Mark III with 100mm macro lens",
+        "exposure_compensation": "+0.7"
+      },
+      "proposal": {
+        "name": "macro_photographs",
+        "schema_type": "Hash",
+        "descriptive_name": "Macro Photographs",
+        "fields": [
+          "id",
+          "image_source",
+          "datetime_original",
+          "equipment",
+          "exposure_compensation"
+        ],
+        "field_descriptions": {
+          "id": "Unique identifier for the photograph",
+          "image_source": "URL or file path to the photograph",
+          "datetime_original": "ISO 8601 timestamp when the photograph was taken",
+          "equipment": "Camera model and lens used to capture the image",
+          "exposure_compensation": "Exposure adjustment applied during capture, in stops"
+        },
+        "purpose_statement": "Records close-up photographs with their capture metadata, equipment details, and exposure settings for organization and retrieval.",
+        "key": {
+          "hash_field": "id"
+        }
+      }
+    },
+    {
+      "id": "recipe_01",
+      "expected_concept": "recipe",
+      "input": {
+        "recipe_name": "Chocolate Chip Cookies",
+        "prep_time_minutes": 15,
+        "cook_time_minutes": 12,
+        "ingredient_list": [
+          "2 cups all-purpose flour",
+          "1 cup butter, softened",
+          "3/4 cup sugar",
+          "3/4 cup brown sugar",
+          "2 eggs",
+          "2 teaspoons vanilla extract",
+          "1 teaspoon baking soda",
+          "1 teaspoon salt",
+          "2 cups chocolate chips"
+        ],
+        "instructions": [
+          "Preheat oven to 375°F",
+          "Cream together butter and sugars",
+          "Beat in eggs and vanilla",
+          "Mix in flour, baking soda, and salt",
+          "Fold in chocolate chips",
+          "Drop spoonfuls onto baking sheet",
+          "Bake for 12 minutes until golden"
+        ],
+        "servings": 24
+      },
+      "proposal": {
+        "name": "recipes",
+        "schema_type": "Hash",
+        "descriptive_name": "Recipes",
+        "fields": [
+          "recipe_name",
+          "prep_time_minutes",
+          "cook_time_minutes",
+          "ingredient_list",
+          "instructions",
+          "servings"
+        ],
+        "field_descriptions": {
+          "recipe_name": "The name of the recipe",
+          "prep_time_minutes": "Time in minutes required to prepare ingredients before cooking",
+          "cook_time_minutes": "Time in minutes required to cook the dish",
+          "ingredient_list": "Array of ingredients with quantities and descriptions",
+          "instructions": "Array of ordered steps to follow when making the recipe",
+          "servings": "Number of servings the recipe yields"
+        },
+        "purpose_statement": "Describes how to cook a dish, with its ingredients, timing, and steps.",
+        "key": {
+          "hash_field": "recipe_name"
+        }
+      }
+    },
+    {
+      "id": "recipe_02",
+      "expected_concept": "recipe",
+      "input": {
+        "title": "Spaghetti Carbonara",
+        "total_time": 20,
+        "components": {
+          "dry_goods": [
+            "1 pound spaghetti",
+            "6 ounces pancetta, diced",
+            "4 egg yolks",
+            "1 cup Pecorino Romano cheese, grated",
+            "Black pepper to taste",
+            "Salt for pasta water"
+          ]
+        },
+        "method": [
+          "Bring salted water to boil and cook spaghetti",
+          "Fry pancetta until crispy",
+          "Whisk egg yolks with cheese and pepper",
+          "Drain pasta, reserving 1 cup pasta water",
+          "Toss hot pasta with pancetta and fat",
+          "Remove from heat and add egg mixture",
+          "Stir quickly, adding pasta water as needed"
+        ],
+        "yield": "4 servings"
+      },
+      "proposal": {
+        "name": "recipes",
+        "schema_type": "Hash",
+        "descriptive_name": "Recipes",
+        "fields": [
+          "title",
+          "total_time",
+          "components",
+          "method",
+          "yield"
+        ],
+        "field_descriptions": {
+          "title": "Name of the recipe dish",
+          "total_time": "Total cooking time in minutes",
+          "components": "Ingredient categories and lists, organized by type (e.g., dry_goods, produce)",
+          "method": "Ordered steps for preparing and cooking the dish",
+          "yield": "Serving size or quantity produced"
+        },
+        "purpose_statement": "Describes how to cook a dish, with its ingredients and preparation steps.",
+        "key": {
+          "hash_field": "title"
+        }
+      }
+    },
+    {
+      "id": "recipe_03",
+      "expected_concept": "recipe",
+      "input": {
+        "name": "Margherita Pizza",
+        "active_time": 10,
+        "inactive_time": 120,
+        "ingredients": {
+          "dough": [
+            "3 cups flour",
+            "1 teaspoon salt",
+            "1/2 teaspoon instant yeast",
+            "1 cup water"
+          ],
+          "toppings": [
+            "1 cup tomato sauce",
+            "8 ounces fresh mozzarella",
+            "Fresh basil leaves",
+            "Olive oil",
+            "Sea salt"
+          ]
+        },
+        "steps": [
+          "Mix flour, salt, and yeast",
+          "Add water and knead until smooth",
+          "Let rise for 2 hours",
+          "Preheat oven to 500°F",
+          "Stretch dough into pizza shape",
+          "Spread tomato sauce",
+          "Add mozzarella and basil",
+          "Drizzle with olive oil",
+          "Bake for 12-15 minutes"
+        ]
+      },
+      "proposal": {
+        "name": "recipes",
+        "schema_type": "Hash",
+        "descriptive_name": "Recipes",
+        "fields": [
+          "name",
+          "active_time",
+          "inactive_time",
+          "ingredients",
+          "steps"
+        ],
+        "field_descriptions": {
+          "name": "The name of the recipe or dish",
+          "active_time": "Time in minutes spent actively working on the recipe",
+          "inactive_time": "Time in minutes spent waiting (rising, baking, chilling, etc.)",
+          "ingredients": "Organized ingredient lists grouped by component (e.g., dough, toppings, sauce)",
+          "steps": "Ordered list of cooking instructions"
+        },
+        "purpose_statement": "Describes how to cook a dish, with its ingredients and preparation steps.",
+        "key": {
+          "hash_field": "name"
+        }
+      }
+    },
+    {
+      "id": "recipe_04",
+      "expected_concept": "recipe",
+      "input": {
+        "dish_name": "Thai Green Curry",
+        "prep": 25,
+        "cooking": 30,
+        "ingredient_items": [
+          "2 tablespoons green curry paste",
+          "1 can coconut milk",
+          "1 pound chicken breast, sliced",
+          "2 cups Thai eggplant, cubed",
+          "1 red bell pepper, sliced",
+          "3 kaffir lime leaves",
+          "2 tablespoons fish sauce",
+          "1 tablespoon palm sugar",
+          "Thai basil for garnish"
+        ],
+        "cooking_instructions": [
+          "Heat curry paste in a wok over medium heat",
+          "Add half the coconut milk and stir",
+          "Add chicken and cook until nearly done",
+          "Add eggplant and bell pepper",
+          "Pour in remaining coconut milk",
+          "Add lime leaves, fish sauce, and sugar",
+          "Simmer for 15 minutes",
+          "Garnish with Thai basil and serve with rice"
+        ],
+        "portions": 4
+      },
+      "proposal": {
+        "name": "recipes",
+        "schema_type": "Hash",
+        "descriptive_name": "Recipes",
+        "fields": [
+          "dish_name",
+          "prep",
+          "cooking",
+          "ingredient_items",
+          "cooking_instructions",
+          "portions"
+        ],
+        "field_descriptions": {
+          "dish_name": "Name of the dish being prepared",
+          "prep": "Preparation time in minutes",
+          "cooking": "Cooking time in minutes",
+          "ingredient_items": "List of ingredients with quantities and descriptions",
+          "cooking_instructions": "Ordered steps for preparing the dish",
+          "portions": "Number of servings the recipe yields"
+        },
+        "purpose_statement": "Describes how to cook a dish, with its ingredients, cooking times, and step-by-step instructions.",
+        "key": {
+          "hash_field": "dish_name"
+        }
+      }
+    },
+    {
+      "id": "recipe_05",
+      "expected_concept": "recipe",
+      "input": {
+        "recipe_title": "Beef Tacos",
+        "time_required": {
+          "minutes_prep": 10,
+          "minutes_cook": 15
+        },
+        "items_needed": [
+          "1 pound ground beef",
+          "1 onion, diced",
+          "2 cloves garlic, minced",
+          "2 tablespoons chili powder",
+          "1 teaspoon cumin",
+          "1/2 teaspoon paprika",
+          "1/4 cup water",
+          "8 taco shells",
+          "Shredded lettuce",
+          "Diced tomatoes",
+          "Shredded cheese",
+          "Sour cream"
+        ],
+        "procedure": [
+          "Brown ground beef with onion and garlic",
+          "Add chili powder, cumin, and paprika",
+          "Stir in water and simmer for 5 minutes",
+          "Warm taco shells according to package",
+          "Fill shells with beef mixture",
+          "Top with lettuce, tomatoes, cheese, and sour cream",
+          "Serve immediately"
+        ],
+        "serves": "4 people"
+      },
+      "proposal": {
+        "name": "recipes",
+        "schema_type": "Hash",
+        "descriptive_name": "Recipes",
+        "fields": [
+          "recipe_title",
+          "time_required",
+          "items_needed",
+          "procedure",
+          "serves"
+        ],
+        "field_descriptions": {
+          "recipe_title": "Name of the recipe dish",
+          "time_required": "Preparation and cooking time broken down by phase",
+          "items_needed": "List of ingredients and quantities required",
+          "procedure": "Ordered steps to prepare and cook the dish",
+          "serves": "Number of people or servings the recipe yields"
+        },
+        "purpose_statement": "Describes how to cook a dish, with its ingredients and steps.",
+        "key": {
+          "hash_field": "recipe_title"
+        }
+      }
+    },
+    {
+      "id": "recipe_06",
+      "expected_concept": "recipe",
+      "input": {
+        "full_name": "Classic Tiramisu",
+        "duration": {
+          "active_minutes": 20,
+          "chilling_hours": 4
+        },
+        "what_you_need": [
+          "6 egg yolks",
+          "3/4 cup sugar",
+          "1 1/3 cups heavy cream",
+          "1 pound mascarpone cheese",
+          "2 teaspoons vanilla extract",
+          "1 cup strong espresso, cooled",
+          "3 tablespoons coffee liqueur",
+          "24 ladyfinger cookies",
+          "Cocoa powder for dusting"
+        ],
+        "how_to_make": [
+          "Whisk egg yolks and sugar over double boiler until thick",
+          "Cool mixture to room temperature",
+          "Whip heavy cream to stiff peaks",
+          "Fold mascarpone and vanilla into egg mixture",
+          "Fold in whipped cream",
+          "Combine espresso and coffee liqueur",
+          "Dip ladyfingers in espresso mixture",
+          "Layer in dish: ladyfingers, then cream mixture",
+          "Repeat layers",
+          "Chill for at least 4 hours",
+          "Dust with cocoa powder before serving"
+        ],
+        "servings_count": 8
+      },
+      "proposal": {
+        "name": "recipes",
+        "schema_type": "Hash",
+        "descriptive_name": "Recipes",
+        "fields": [
+          "full_name",
+          "duration",
+          "what_you_need",
+          "how_to_make",
+          "servings_count"
+        ],
+        "field_descriptions": {
+          "full_name": "Name of the recipe dish",
+          "duration": "Active preparation time and chilling/resting time required",
+          "what_you_need": "List of ingredients with quantities needed for the recipe",
+          "how_to_make": "Ordered steps for preparing and assembling the dish",
+          "servings_count": "Number of servings the recipe yields"
+        },
+        "purpose_statement": "Describes how to prepare a dish, including its ingredients, cooking steps, and timing.",
+        "key": {
+          "hash_field": "full_name"
+        }
+      }
+    },
+    {
+      "id": "recipe_07",
+      "expected_concept": "recipe",
+      "input": {
+        "recipe": "Vegetable Stir-Fry",
+        "time": {
+          "prep_time": 15,
+          "cook_time": 10
+        },
+        "ingredient_collection": [
+          "3 tablespoons vegetable oil",
+          "1 onion, sliced",
+          "2 cups broccoli florets",
+          "1 cup snap peas",
+          "1 red bell pepper, sliced",
+          "2 carrots, julienned",
+          "3 cloves garlic, minced",
+          "1 tablespoon ginger, minced",
+          "1/4 cup soy sauce",
+          "2 tablespoons rice vinegar",
+          "1 tablespoon sesame oil",
+          "1 teaspoon cornstarch",
+          "Sesame seeds for garnish"
+        ],
+        "directions": [
+          "Heat oil in a large wok or skillet over high heat",
+          "Add onion and cook for 1 minute",
+          "Add broccoli, snap peas, bell pepper, and carrots",
+          "Stir-fry for 5 minutes",
+          "Add garlic and ginger, cook for 30 seconds",
+          "Mix soy sauce, vinegar, sesame oil, and cornstarch",
+          "Pour sauce over vegetables",
+          "Toss until coated and sauce thickens",
+          "Garnish with sesame seeds",
+          "Serve over rice"
+        ],
+        "yield": "4 servings"
+      },
+      "proposal": {
+        "name": "recipes",
+        "schema_type": "Hash",
+        "descriptive_name": "Recipes",
+        "fields": [
+          "recipe",
+          "time",
+          "ingredient_collection",
+          "directions",
+          "yield"
+        ],
+        "field_descriptions": {
+          "recipe": "Name of the dish being prepared",
+          "time": "Preparation and cooking duration in minutes",
+          "ingredient_collection": "List of ingredients with quantities and preparation notes",
+          "directions": "Ordered steps for preparing and cooking the dish",
+          "yield": "Number of servings or portions the recipe produces"
+        },
+        "purpose_statement": "Describes how to cook a dish, with its ingredients, cooking times, and step-by-step instructions.",
+        "key": {
+          "hash_field": "recipe"
+        }
+      }
+    },
+    {
+      "id": "recipe_08",
+      "expected_concept": "recipe",
+      "input": {
+        "name_of_dish": "Lemon Pound Cake",
+        "timing": {
+          "preparation": 15,
+          "baking": 50
+        },
+        "required_ingredients": [
+          "2 cups all-purpose flour",
+          "1/2 teaspoon baking powder",
+          "1/2 teaspoon salt",
+          "1 cup butter, softened",
+          "1 1/2 cups sugar",
+          "4 large eggs",
+          "1/2 cup sour cream",
+          "Zest of 3 lemons",
+          "1/4 cup fresh lemon juice",
+          "1 teaspoon vanilla extract"
+        ],
+        "preparation_steps": [
+          "Preheat oven to 350°F and grease a loaf pan",
+          "Whisk together flour, baking powder, and salt",
+          "Cream butter and sugar until light and fluffy",
+          "Beat in eggs one at a time",
+          "Alternate adding flour mixture and sour cream",
+          "Stir in lemon zest, juice, and vanilla",
+          "Pour into prepared pan",
+          "Bake for 50 minutes until a toothpick comes out clean",
+          "Cool in pan for 10 minutes, then turn out onto wire rack"
+        ],
+        "number_of_servings": 10
+      },
+      "proposal": {
+        "name": "recipes",
+        "schema_type": "Hash",
+        "descriptive_name": "Recipes",
+        "fields": [
+          "name_of_dish",
+          "timing",
+          "required_ingredients",
+          "preparation_steps",
+          "number_of_servings"
+        ],
+        "field_descriptions": {
+          "name_of_dish": "The name of the recipe or dish being prepared",
+          "timing": "An object containing preparation and baking times in minutes",
+          "required_ingredients": "A list of ingredients with quantities needed for the recipe",
+          "preparation_steps": "An ordered list of instructions to follow when making the dish",
+          "number_of_servings": "The number of servings this recipe yields"
+        },
+        "purpose_statement": "Describes how to cook a dish, with its ingredients, timing, and step-by-step instructions.",
+        "key": {
+          "hash_field": "name_of_dish"
+        }
+      }
+    },
+    {
+      "id": "task_01",
+      "expected_concept": "task",
+      "input": {
+        "task_id": "T001",
+        "title": "Review quarterly budget report",
+        "current_status": "in_progress",
+        "due_date": "2024-03-15",
+        "assigned_to": "john.smith@company.com",
+        "priority": "high"
+      },
+      "proposal": {
+        "name": "tasks",
+        "schema_type": "Hash",
+        "descriptive_name": "Tasks",
+        "fields": [
+          "task_id",
+          "title",
+          "current_status",
+          "due_date",
+          "assigned_to",
+          "priority"
+        ],
+        "field_descriptions": {
+          "task_id": "Unique identifier for the task",
+          "title": "Brief description of the task to be completed",
+          "current_status": "Current state of the task (e.g., in_progress, completed, pending)",
+          "due_date": "Target completion date for the task",
+          "assigned_to": "Email address of the person responsible for completing the task",
+          "priority": "Urgency level of the task (e.g., high, medium, low)"
+        },
+        "purpose_statement": "Tracks work items assigned to team members with their status, priority, and deadlines for project management and accountability.",
+        "key": {
+          "hash_field": "task_id",
+          "range_field": "due_date"
+        }
+      }
+    },
+    {
+      "id": "task_02",
+      "expected_concept": "task",
+      "input": {
+        "id": "task-892",
+        "name": "Update client presentation slides",
+        "status": "pending",
+        "deadline": "2024-03-20",
+        "owner": {
+          "full_name": "Sarah Johnson",
+          "contact_email": "sarah.j@company.com"
+        }
+      },
+      "proposal": {
+        "name": "tasks",
+        "schema_type": "Hash",
+        "descriptive_name": "Tasks",
+        "fields": [
+          "id",
+          "name",
+          "status",
+          "deadline",
+          "owner"
+        ],
+        "field_descriptions": {
+          "id": "Unique identifier for the task",
+          "name": "Title or description of the task",
+          "status": "Current state of the task (e.g., pending, in progress, completed)",
+          "deadline": "Due date for task completion",
+          "owner": "Person responsible for the task, including their name and contact email"
+        },
+        "purpose_statement": "Tracks work items with their status, deadlines, and ownership to enable project planning and progress monitoring.",
+        "key": {
+          "hash_field": "id",
+          "range_field": "deadline"
+        }
+      }
+    },
+    {
+      "id": "task_03",
+      "expected_concept": "task",
+      "input": {
+        "task_number": "TSK-2847",
+        "description": "Fix bug in authentication module",
+        "progress_status": "completed",
+        "target_date": "2024-03-10",
+        "responsible_party": "mike.chen",
+        "tags": [
+          "backend",
+          "urgent"
+        ]
+      },
+      "proposal": {
+        "name": "tasks",
+        "schema_type": "Hash",
+        "descriptive_name": "Tasks",
+        "fields": [
+          "task_number",
+          "description",
+          "progress_status",
+          "target_date",
+          "responsible_party",
+          "tags"
+        ],
+        "field_descriptions": {
+          "task_number": "Unique identifier for the task (e.g., TSK-2847)",
+          "description": "Summary of what the task requires or what work needs to be done",
+          "progress_status": "Current state of completion (e.g., completed, in progress, pending)",
+          "target_date": "Deadline or expected completion date for the task",
+          "responsible_party": "Username or identifier of the person assigned to complete the task",
+          "tags": "Array of labels or categories for organizing and filtering tasks"
+        },
+        "purpose_statement": "Tracks work items with their status, deadlines, and assignments to enable project planning and progress monitoring.",
+        "key": {
+          "hash_field": "task_number",
+          "range_field": "target_date"
+        }
+      }
+    },
+    {
+      "id": "task_04",
+      "expected_concept": "task",
+      "input": {
+        "todo_id": "5f3a9c2b",
+        "item_title": "Schedule team meeting for sprint planning",
+        "completion_status": "not_started",
+        "due": "2024-03-18",
+        "assignee_name": "Emily Rodriguez",
+        "notes": "Include all department heads"
+      },
+      "proposal": {
+        "name": "todo_items",
+        "schema_type": "Hash",
+        "descriptive_name": "To-Do Items",
+        "fields": [
+          "todo_id",
+          "item_title",
+          "completion_status",
+          "due",
+          "assignee_name",
+          "notes"
+        ],
+        "field_descriptions": {
+          "todo_id": "Unique identifier for the to-do item",
+          "item_title": "Brief title or description of the task",
+          "completion_status": "Current state of the task (e.g., not_started, in_progress, completed)",
+          "due": "Date by which the task should be completed",
+          "assignee_name": "Name of the person responsible for completing the task",
+          "notes": "Additional context, instructions, or details about the task"
+        },
+        "purpose_statement": "Tracks tasks to be completed, including their status, due date, and assigned owner for project and personal task management.",
+        "key": {
+          "hash_field": "todo_id",
+          "range_field": "due"
+        }
+      }
+    },
+    {
+      "id": "task_05",
+      "expected_concept": "task",
+      "input": {
+        "work_item": "WI-1203",
+        "summary": "Implement new database indexing strategy",
+        "state": "in_progress",
+        "end_date": "2024-03-25",
+        "assigned_user": {
+          "name": "David Park",
+          "email_address": "d.park@company.com"
+        },
+        "effort_hours": 16
+      },
+      "proposal": {
+        "name": "work_items",
+        "schema_type": "Hash",
+        "descriptive_name": "Work Items",
+        "fields": [
+          "work_item",
+          "summary",
+          "state",
+          "end_date",
+          "assigned_user",
+          "effort_hours"
+        ],
+        "field_descriptions": {
+          "work_item": "Unique identifier for the work item (e.g., WI-1203)",
+          "summary": "Brief description of the work to be completed",
+          "state": "Current status of the work item (e.g., in_progress, completed, pending)",
+          "end_date": "Target completion date for the work item",
+          "assigned_user": "Person responsible for the work item, including their name and email",
+          "effort_hours": "Estimated or actual hours required to complete the work"
+        },
+        "purpose_statement": "Tracks tasks and projects assigned to team members, including their status, effort estimates, and deadlines for project management and resource planning.",
+        "key": {
+          "hash_field": "work_item",
+          "range_field": "end_date"
+        }
+      }
+    },
+    {
+      "id": "task_06",
+      "expected_concept": "task",
+      "input": {
+        "task": "Deploy version 2.1 to production",
+        "task_status": "pending",
+        "due_date": "2024-03-22",
+        "assigned_to_person": "Lisa Wang",
+        "created_date": "2024-03-01",
+        "subtasks_completed": 3,
+        "total_subtasks": 5
+      },
+      "proposal": {
+        "name": "tasks",
+        "schema_type": "Hash",
+        "descriptive_name": "Tasks",
+        "fields": [
+          "task",
+          "task_status",
+          "due_date",
+          "assigned_to_person",
+          "created_date",
+          "subtasks_completed",
+          "total_subtasks"
+        ],
+        "field_descriptions": {
+          "task": "Description of the work to be completed",
+          "task_status": "Current state of the task (e.g., pending, in progress, completed)",
+          "due_date": "Target completion date for the task",
+          "assigned_to_person": "Name of the person responsible for completing the task",
+          "created_date": "Date the task was created",
+          "subtasks_completed": "Number of subtasks that have been finished",
+          "total_subtasks": "Total number of subtasks associated with this task"
+        },
+        "purpose_statement": "Tracks work items with their status, deadlines, and assignment to coordinate project execution and monitor progress.",
+        "key": {
+          "hash_field": "task",
+          "range_field": "created_date"
+        }
+      }
+    },
+    {
+      "id": "task_07",
+      "expected_concept": "task",
+      "input": {
+        "identifier": "TASK-556",
+        "task_name": "Conduct user acceptance testing",
+        "status_code": "blocked",
+        "completion_deadline": "2024-03-19",
+        "owner_email": "james.miller@company.com",
+        "blocking_issue": "Waiting for staging environment setup"
+      },
+      "proposal": {
+        "name": "tasks",
+        "schema_type": "Hash",
+        "descriptive_name": "Tasks",
+        "fields": [
+          "identifier",
+          "task_name",
+          "status_code",
+          "completion_deadline",
+          "owner_email",
+          "blocking_issue"
+        ],
+        "field_descriptions": {
+          "identifier": "Unique task identifier (e.g., TASK-556)",
+          "task_name": "Brief description of the task to be completed",
+          "status_code": "Current status of the task (e.g., blocked, in_progress, completed)",
+          "completion_deadline": "Target date for task completion",
+          "owner_email": "Email address of the person responsible for the task",
+          "blocking_issue": "Description of any issue preventing task progress, if applicable"
+        },
+        "purpose_statement": "Tracks work items with their status, deadlines, and ownership to manage project progress and identify blockers.",
+        "key": {
+          "hash_field": "identifier",
+          "range_field": "completion_deadline"
+        }
+      }
+    },
+    {
+      "id": "task_08",
+      "expected_concept": "task",
+      "input": {
+        "uid": "t-7834",
+        "title": "Write documentation for API endpoints",
+        "current_state": "in_progress",
+        "target_completion": "2024-03-21",
+        "assigned_person": {
+          "full_name": "Amanda Chen",
+          "email": "amanda.chen@company.com"
+        },
+        "percent_complete": 65
+      },
+      "proposal": {
+        "name": "tasks",
+        "schema_type": "Hash",
+        "descriptive_name": "Tasks",
+        "fields": [
+          "uid",
+          "title",
+          "current_state",
+          "target_completion",
+          "assigned_person",
+          "percent_complete"
+        ],
+        "field_descriptions": {
+          "uid": "Unique identifier for the task",
+          "title": "Brief description of the task work",
+          "current_state": "Current status of the task (e.g., in_progress, completed, blocked)",
+          "target_completion": "Target date for task completion",
+          "assigned_person": "Person responsible for the task, including their full name and email",
+          "percent_complete": "Percentage of task completion (0–100)"
+        },
+        "purpose_statement": "Tracks work items with their status, deadlines, and assigned owners to manage project progress and accountability.",
+        "key": {
+          "hash_field": "uid",
+          "range_field": "target_completion"
+        }
+      }
+    },
+    {
+      "id": "note_01",
+      "expected_concept": "note",
+      "input": {
+        "title": "Morning Reflections",
+        "content": "Today I want to focus on being more present with my family. The kids are growing so fast and I don't want to miss these moments.",
+        "timestamp": "2024-01-15T07:30:00Z",
+        "labels": [
+          "personal",
+          "family",
+          "mindfulness"
+        ]
+      },
+      "proposal": {
+        "name": "journal_entries",
+        "schema_type": "Hash",
+        "descriptive_name": "Journal Entries",
+        "fields": [
+          "title",
+          "content",
+          "timestamp",
+          "labels"
+        ],
+        "field_descriptions": {
+          "title": "Brief heading or subject of the journal entry",
+          "content": "The main body text containing reflections, thoughts, or observations",
+          "timestamp": "ISO 8601 date and time when the entry was written",
+          "labels": "Array of categorical tags or topics associated with the entry"
+        },
+        "purpose_statement": "Records personal reflections, thoughts, and observations at a point in time for self-reflection and memory.",
+        "key": {
+          "hash_field": "timestamp",
+          "range_field": "title"
+        }
+      }
+    },
+    {
+      "id": "note_02",
+      "expected_concept": "note",
+      "input": {
+        "name": "Project Kickoff Notes",
+        "body": "Met with the design team today. Key takeaways: need to finalize wireframes by Friday, color palette should reflect brand guidelines, and we're targeting Q2 launch.",
+        "created_at": "2024-01-15T14:22:00Z",
+        "tags": [
+          "work",
+          "design",
+          "project-management"
+        ],
+        "category": "professional"
+      },
+      "proposal": {
+        "name": "meeting_notes",
+        "schema_type": "Hash",
+        "descriptive_name": "Meeting Notes",
+        "fields": [
+          "name",
+          "body",
+          "created_at",
+          "tags",
+          "category"
+        ],
+        "field_descriptions": {
+          "name": "Title or subject of the meeting",
+          "body": "Summary of discussion, decisions, and key takeaways",
+          "created_at": "Timestamp when the meeting notes were created",
+          "tags": "Topic tags for categorization and searchability",
+          "category": "Classification of the meeting type (e.g., professional, personal)"
+        },
+        "purpose_statement": "Captures the discussion, decisions, and action items from a meeting or team sync.",
+        "key": {
+          "hash_field": "created_at",
+          "range_field": "name"
+        }
+      }
+    },
+    {
+      "id": "note_03",
+      "expected_concept": "note",
+      "input": {
+        "entry_title": "Recipe Experiment",
+        "entry_text": "Tried making sourdough for the first time. The dough rose beautifully but I think I over-proofed it. Next time I'll reduce the final proof by 30 minutes. The crust was crispy though!",
+        "date_created": "2024-01-14T18:45:00Z",
+        "keywords": [
+          "cooking",
+          "baking",
+          "sourdough"
+        ]
+      },
+      "proposal": {
+        "name": "cooking_journal_entries",
+        "schema_type": "Hash",
+        "descriptive_name": "Cooking Journal Entries",
+        "fields": [
+          "entry_title",
+          "entry_text",
+          "date_created",
+          "keywords"
+        ],
+        "field_descriptions": {
+          "entry_title": "The title or name of the cooking experiment or dish attempted",
+          "entry_text": "Detailed narrative of the cooking process, observations, results, and reflections or lessons learned",
+          "date_created": "ISO 8601 timestamp when the journal entry was created",
+          "keywords": "Array of topic tags or categories related to the cooking activity (e.g., cooking techniques, ingredients, cuisine type)"
+        },
+        "purpose_statement": "Records personal cooking and baking experiments, observations, and lessons learned for future reference and skill improvement.",
+        "key": {
+          "hash_field": "entry_title",
+          "range_field": "date_created"
+        }
+      }
+    },
+    {
+      "id": "note_04",
+      "expected_concept": "note",
+      "input": {
+        "subject": "Therapy Session Insights",
+        "note": "Discussed anxiety patterns with Dr. Chen. Realized I tend to catastrophize when stressed. Going to try the breathing exercise she recommended: 4-7-8 technique. Practice daily for two weeks.",
+        "recorded_at": "2024-01-15T16:00:00Z",
+        "topics": [
+          "mental-health",
+          "therapy",
+          "coping-strategies",
+          "self-improvement"
+        ]
+      },
+      "proposal": {
+        "name": "therapy_notes",
+        "schema_type": "Hash",
+        "descriptive_name": "Therapy Notes",
+        "fields": [
+          "subject",
+          "note",
+          "recorded_at",
+          "topics"
+        ],
+        "field_descriptions": {
+          "subject": "Title or main topic of the therapy session",
+          "note": "Detailed notes on what was discussed, insights gained, and recommended exercises or actions",
+          "recorded_at": "ISO 8601 timestamp when the session took place or was recorded",
+          "topics": "Array of tags categorizing the themes or areas addressed in the session"
+        },
+        "purpose_statement": "Records insights, observations, and action items from therapy sessions for personal reflection and progress tracking.",
+        "key": {
+          "hash_field": "recorded_at",
+          "range_field": "subject"
+        }
+      }
+    },
+    {
+      "id": "note_05",
+      "expected_concept": "note",
+      "input": {
+        "headline": "Book Club Discussion",
+        "description": "Finished 'The Midnight Library' - absolutely loved it. The concept of parallel lives really resonated with me. Can't wait to discuss with the group next week. Main themes: regret, choices, second chances.",
+        "timestamp_utc": "2024-01-13T21:15:00Z",
+        "tags": [
+          "books",
+          "fiction",
+          "book-club"
+        ],
+        "rating": 5
+      },
+      "proposal": {
+        "name": "book_reviews",
+        "schema_type": "Hash",
+        "descriptive_name": "Book Reviews",
+        "fields": [
+          "headline",
+          "description",
+          "timestamp_utc",
+          "tags",
+          "rating"
+        ],
+        "field_descriptions": {
+          "headline": "Title or brief name of the book being reviewed",
+          "description": "Personal thoughts, reactions, and thematic observations about the book",
+          "timestamp_utc": "Date and time the review was written in UTC",
+          "tags": "Category labels for the book (e.g., genre, reading context)",
+          "rating": "Numerical rating of the book (typically 1–5 scale)"
+        },
+        "purpose_statement": "Records personal reactions to books, including ratings and thematic observations, to track reading experiences and facilitate discussion.",
+        "key": {
+          "hash_field": "headline",
+          "range_field": "timestamp_utc"
+        }
+      }
+    },
+    {
+      "id": "note_06",
+      "expected_concept": "note",
+      "input": {
+        "title_text": "Gym Progress Update",
+        "body_text": "Hit a new personal record on deadlifts today - 225 lbs for 5 reps! Been training consistently for 8 weeks and it's really paying off. Need to focus more on flexibility work though.",
+        "created": "2024-01-15T17:30:00Z",
+        "labels": [
+          "fitness",
+          "health",
+          "goals"
+        ],
+        "mood": "accomplished"
+      },
+      "proposal": {
+        "name": "journal_entries",
+        "schema_type": "Hash",
+        "descriptive_name": "Journal Entries",
+        "fields": [
+          "title_text",
+          "body_text",
+          "created",
+          "labels",
+          "mood"
+        ],
+        "field_descriptions": {
+          "title_text": "Brief headline or subject of the journal entry",
+          "body_text": "Main content and narrative of the entry",
+          "created": "Timestamp when the entry was written",
+          "labels": "Topic tags or categories associated with the entry",
+          "mood": "Emotional state or sentiment at the time of writing"
+        },
+        "purpose_statement": "Records personal reflections, experiences, and progress updates with emotional context and topic tags for later review and self-reflection.",
+        "key": {
+          "hash_field": "created",
+          "range_field": "created"
+        }
+      }
+    },
+    {
+      "id": "note_07",
+      "expected_concept": "note",
+      "input": {
+        "note_title": "Travel Planning - Japan Trip",
+        "note_content": "Booked flights for March! Tokyo for 5 days, then Kyoto for 3 days. Still need to: book hotels, get JR pass, research restaurants, check visa requirements. Budget estimate: $3500 including flights.",
+        "creation_time": "2024-01-15T10:00:00Z",
+        "hashtags": [
+          "travel",
+          "japan",
+          "planning",
+          "adventure"
+        ]
+      },
+      "proposal": {
+        "name": "travel_notes",
+        "schema_type": "Hash",
+        "descriptive_name": "Travel Notes",
+        "fields": [
+          "note_title",
+          "note_content",
+          "creation_time",
+          "hashtags"
+        ],
+        "field_descriptions": {
+          "note_title": "The title or name of the travel note",
+          "note_content": "The main content describing the trip plan, itinerary, tasks, and budget details",
+          "creation_time": "ISO 8601 timestamp when the note was created",
+          "hashtags": "Array of topic tags for categorizing and searching the travel note"
+        },
+        "purpose_statement": "Records travel plans, itineraries, and preparation tasks for upcoming trips.",
+        "key": {
+          "hash_field": "note_title",
+          "range_field": "creation_time"
+        }
+      }
+    },
+    {
+      "id": "note_08",
+      "expected_concept": "note",
+      "input": {
+        "name": "Weekly Gratitude",
+        "text": "Grateful for: my supportive partner, a productive work week, the sunny weather, my health, and discovering a new coffee shop. Small things really do add up to make life better.",
+        "created_date": "2024-01-14T20:30:00Z",
+        "tags": [
+          "gratitude",
+          "wellness",
+          "reflection"
+        ],
+        "week_number": 3
+      },
+      "proposal": {
+        "name": "gratitude_entries",
+        "schema_type": "Hash",
+        "descriptive_name": "Gratitude Entries",
+        "fields": [
+          "name",
+          "text",
+          "created_date",
+          "tags",
+          "week_number"
+        ],
+        "field_descriptions": {
+          "name": "Title or name of the gratitude entry",
+          "text": "The main content describing what the person is grateful for",
+          "created_date": "ISO 8601 timestamp when the entry was created",
+          "tags": "Array of topic tags for categorizing and searching the entry",
+          "week_number": "The week number (1-52) this entry corresponds to"
+        },
+        "purpose_statement": "Records what someone is grateful for during a specific period to cultivate mindfulness and reflect on positive aspects of life.",
+        "key": {
+          "hash_field": "week_number",
+          "range_field": "created_date"
+        }
+      }
+    },
+    {
+      "id": "transaction_01",
+      "expected_concept": "transaction",
+      "input": {
+        "transaction_id": "TXN001",
+        "amount": 45.99,
+        "transaction_date": "2024-01-15",
+        "merchant_name": "Starbucks Coffee",
+        "transaction_category": "Food & Beverage",
+        "payment_method": "Credit Card"
+      },
+      "proposal": {
+        "name": "transactions",
+        "schema_type": "Hash",
+        "descriptive_name": "Transactions",
+        "fields": [
+          "transaction_id",
+          "amount",
+          "transaction_date",
+          "merchant_name",
+          "transaction_category",
+          "payment_method"
+        ],
+        "field_descriptions": {
+          "transaction_id": "Unique identifier for the transaction",
+          "amount": "Monetary value of the transaction",
+          "transaction_date": "Date when the transaction occurred",
+          "merchant_name": "Name of the business or entity where the transaction took place",
+          "transaction_category": "Classification of the transaction type (e.g., Food & Beverage, Utilities)",
+          "payment_method": "How the transaction was paid (e.g., Credit Card, Debit Card, Cash)"
+        },
+        "purpose_statement": "Tracks money moving in or out of an account for budgeting and reconciliation.",
+        "key": {
+          "hash_field": "transaction_id",
+          "range_field": "transaction_date"
+        }
+      }
+    },
+    {
+      "id": "transaction_02",
+      "expected_concept": "transaction",
+      "input": {
+        "id": "TX-2024-0892",
+        "value": 1250,
+        "date": "2024-01-16",
+        "vendor": "Amazon Web Services",
+        "category": "Technology",
+        "description": "Monthly cloud hosting subscription"
+      },
+      "proposal": {
+        "name": "expenses",
+        "schema_type": "Hash",
+        "descriptive_name": "Expenses",
+        "fields": [
+          "id",
+          "value",
+          "date",
+          "vendor",
+          "category",
+          "description"
+        ],
+        "field_descriptions": {
+          "id": "Unique identifier for the expense transaction",
+          "value": "Amount spent in currency units",
+          "date": "Date when the expense occurred",
+          "vendor": "Name of the business or person the money was paid to",
+          "category": "Classification of the expense type",
+          "description": "Details about what was purchased or the purpose of the expense"
+        },
+        "purpose_statement": "Records money spent on goods or services for tracking, categorization, and budget analysis.",
+        "key": {
+          "hash_field": "id",
+          "range_field": "date"
+        }
+      }
+    },
+    {
+      "id": "transaction_03",
+      "expected_concept": "transaction",
+      "input": {
+        "txn_code": "20240117-5634",
+        "cost": 87.5,
+        "posted_date": "2024-01-17",
+        "business_name": "Shell Gas Station",
+        "type": "Fuel",
+        "card_last_four": "4829"
+      },
+      "proposal": {
+        "name": "transactions",
+        "schema_type": "Hash",
+        "descriptive_name": "Transactions",
+        "fields": [
+          "txn_code",
+          "cost",
+          "posted_date",
+          "business_name",
+          "type",
+          "card_last_four"
+        ],
+        "field_descriptions": {
+          "txn_code": "Unique transaction identifier combining date and sequence number",
+          "cost": "Amount spent in the transaction",
+          "posted_date": "Date the transaction was posted to the account",
+          "business_name": "Name of the merchant or vendor",
+          "type": "Category or classification of the transaction (e.g., Fuel, Groceries)",
+          "card_last_four": "Last four digits of the payment card used"
+        },
+        "purpose_statement": "Records individual purchases and expenses for tracking spending, categorization, and financial reconciliation.",
+        "key": {
+          "hash_field": "txn_code",
+          "range_field": "posted_date"
+        }
+      }
+    },
+    {
+      "id": "transaction_04",
+      "expected_concept": "transaction",
+      "input": {
+        "reference_number": "REF-2024-001847",
+        "transaction_amount": 320,
+        "effective_date": "2024-01-18",
+        "merchant": "Delta Airlines",
+        "classification": "Travel",
+        "booking_reference": "ABC123XYZ"
+      },
+      "proposal": {
+        "name": "transactions",
+        "schema_type": "Hash",
+        "descriptive_name": "Transactions",
+        "fields": [
+          "reference_number",
+          "transaction_amount",
+          "effective_date",
+          "merchant",
+          "classification",
+          "booking_reference"
+        ],
+        "field_descriptions": {
+          "reference_number": "Unique identifier for the transaction",
+          "transaction_amount": "Monetary value of the transaction",
+          "effective_date": "Date when the transaction occurred",
+          "merchant": "Name of the vendor or service provider",
+          "classification": "Category or type of expense",
+          "booking_reference": "Reference code for the associated booking or order"
+        },
+        "purpose_statement": "Records financial transactions for tracking spending, categorization, and reconciliation across merchants and time periods.",
+        "key": {
+          "hash_field": "reference_number",
+          "range_field": "effective_date"
+        }
+      }
+    },
+    {
+      "id": "transaction_05",
+      "expected_concept": "transaction",
+      "input": {
+        "trans_id": "T88392",
+        "sum": 62.45,
+        "when": "2024-01-19",
+        "place": "Whole Foods Market",
+        "tag": "Groceries",
+        "location_city": "Portland"
+      },
+      "proposal": {
+        "name": "transactions",
+        "schema_type": "Hash",
+        "descriptive_name": "Transactions",
+        "fields": [
+          "trans_id",
+          "sum",
+          "when",
+          "place",
+          "tag",
+          "location_city"
+        ],
+        "field_descriptions": {
+          "trans_id": "Unique transaction identifier",
+          "sum": "Transaction amount in currency units",
+          "when": "Date the transaction occurred",
+          "place": "Name of the merchant or store",
+          "tag": "Category or classification of the expense",
+          "location_city": "City where the transaction took place"
+        },
+        "purpose_statement": "Records individual purchases and spending events for tracking expenses and budgeting.",
+        "key": {
+          "hash_field": "trans_id",
+          "range_field": "when"
+        }
+      }
+    },
+    {
+      "id": "transaction_06",
+      "expected_concept": "transaction",
+      "input": {
+        "transaction_ref": "2024-JAN-20-9284",
+        "amount_usd": 156.75,
+        "timestamp": "2024-01-20T14:32:00Z",
+        "merchant_info": {
+          "name": "Netflix Inc"
+        },
+        "expense_category": "Entertainment",
+        "subscription": true
+      },
+      "proposal": {
+        "name": "transactions",
+        "schema_type": "Hash",
+        "descriptive_name": "Transactions",
+        "fields": [
+          "transaction_ref",
+          "amount_usd",
+          "timestamp",
+          "merchant_info",
+          "expense_category",
+          "subscription"
+        ],
+        "field_descriptions": {
+          "transaction_ref": "Unique identifier for the transaction",
+          "amount_usd": "Transaction amount in US dollars",
+          "timestamp": "Date and time when the transaction occurred",
+          "merchant_info": "Details about the merchant, including name and other identifying information",
+          "expense_category": "Category classification for the expense (e.g., Entertainment, Groceries)",
+          "subscription": "Boolean flag indicating whether this is a recurring subscription charge"
+        },
+        "purpose_statement": "Records financial transactions to track spending, categorize expenses, and enable budget analysis and reconciliation.",
+        "key": {
+          "hash_field": "transaction_ref",
+          "range_field": "timestamp"
+        }
+      }
+    },
+    {
+      "id": "transaction_07",
+      "expected_concept": "transaction",
+      "input": {
+        "id": "TRX-2024-0021",
+        "price": 1899.99,
+        "transaction_time": "2024-01-21",
+        "retailer": "Best Buy",
+        "category_name": "Electronics",
+        "item_description": "Laptop Computer",
+        "store_location": "Downtown"
+      },
+      "proposal": {
+        "name": "transactions",
+        "schema_type": "Hash",
+        "descriptive_name": "Transactions",
+        "fields": [
+          "id",
+          "price",
+          "transaction_time",
+          "retailer",
+          "category_name",
+          "item_description",
+          "store_location"
+        ],
+        "field_descriptions": {
+          "id": "Unique transaction identifier",
+          "price": "Purchase amount in dollars",
+          "transaction_time": "Date when the transaction occurred",
+          "retailer": "Name of the store or vendor",
+          "category_name": "Product category (e.g., Electronics, Clothing)",
+          "item_description": "Description of what was purchased",
+          "store_location": "Physical location or branch of the retailer"
+        },
+        "purpose_statement": "Records individual purchases with their amounts, timing, location, and product details for spending tracking and analysis.",
+        "key": {
+          "hash_field": "id",
+          "range_field": "transaction_time"
+        }
+      }
+    },
+    {
+      "id": "transaction_08",
+      "expected_concept": "transaction",
+      "input": {
+        "txn_uuid": "a7f3e9c2-4b1d-47e8-9f2a-6c8d1e5b3a9f",
+        "charged_amount": 28,
+        "date_processed": "2024-01-22",
+        "merchant_display_name": "Planet Fitness",
+        "transaction_type": "Membership",
+        "recurring": true,
+        "status": "completed"
+      },
+      "proposal": {
+        "name": "transactions",
+        "schema_type": "Hash",
+        "descriptive_name": "Transactions",
+        "fields": [
+          "txn_uuid",
+          "charged_amount",
+          "date_processed",
+          "merchant_display_name",
+          "transaction_type",
+          "recurring",
+          "status"
+        ],
+        "field_descriptions": {
+          "txn_uuid": "Unique identifier for the transaction",
+          "charged_amount": "Amount charged in the transaction",
+          "date_processed": "Date when the transaction was processed",
+          "merchant_display_name": "Name of the merchant or vendor",
+          "transaction_type": "Category or type of transaction",
+          "recurring": "Whether this is a recurring/subscription charge",
+          "status": "Current status of the transaction"
+        },
+        "purpose_statement": "Records financial transactions for tracking spending, categorizing charges, and monitoring recurring payments.",
+        "key": {
+          "hash_field": "txn_uuid",
+          "range_field": "date_processed"
+        }
+      }
+    },
+    {
+      "id": "event_01",
+      "expected_concept": "event",
+      "input": {
+        "event_title": "Q4 Planning Meeting",
+        "start_time": "2024-01-15T09:00:00Z",
+        "end_time": "2024-01-15T10:30:00Z",
+        "venue": "Conference Room A",
+        "participants": [
+          {
+            "name": "Alice Johnson",
+            "email": "alice@company.com"
+          },
+          {
+            "name": "Bob Smith",
+            "email": "bob@company.com"
+          }
+        ],
+        "description": "Quarterly planning session"
+      },
+      "proposal": {
+        "name": "meeting_events",
+        "schema_type": "Hash",
+        "descriptive_name": "Meeting Events",
+        "fields": [
+          "event_title",
+          "start_time",
+          "end_time",
+          "venue",
+          "participants",
+          "description"
+        ],
+        "field_descriptions": {
+          "event_title": "Name or title of the meeting",
+          "start_time": "ISO 8601 timestamp when the meeting begins",
+          "end_time": "ISO 8601 timestamp when the meeting ends",
+          "venue": "Physical location or room where the meeting takes place",
+          "participants": "Array of attendees with their names and email addresses",
+          "description": "Brief summary or purpose of the meeting"
+        },
+        "purpose_statement": "Records when and where meetings take place, who attends, and what they are about.",
+        "key": {
+          "hash_field": "event_title",
+          "range_field": "start_time"
+        }
+      }
+    },
+    {
+      "id": "event_02",
+      "expected_concept": "event",
+      "input": {
+        "title": "Team Lunch",
+        "begins": "2024-01-16T12:00:00Z",
+        "ends": "2024-01-16T13:00:00Z",
+        "location_name": "Downtown Bistro",
+        "location_address": "123 Main St, City, State",
+        "attendees": [
+          {
+            "full_name": "Carol Davis",
+            "contact_email": "carol.davis@email.com"
+          },
+          {
+            "full_name": "David Lee",
+            "contact_email": "david.lee@email.com"
+          },
+          {
+            "full_name": "Emma Wilson",
+            "contact_email": "emma.w@email.com"
+          }
+        ]
+      },
+      "proposal": {
+        "name": "events",
+        "schema_type": "Hash",
+        "descriptive_name": "Events",
+        "fields": [
+          "title",
+          "begins",
+          "ends",
+          "location_name",
+          "location_address",
+          "attendees"
+        ],
+        "field_descriptions": {
+          "title": "Name or subject of the event",
+          "begins": "ISO 8601 timestamp when the event starts",
+          "ends": "ISO 8601 timestamp when the event ends",
+          "location_name": "Venue or location name",
+          "location_address": "Full street address of the event location",
+          "attendees": "Array of people attending, each with full name and contact email"
+        },
+        "purpose_statement": "Records scheduled events with timing, location, and attendee information for coordination and planning.",
+        "key": {
+          "hash_field": "title",
+          "range_field": "begins"
+        }
+      }
+    },
+    {
+      "id": "event_03",
+      "expected_concept": "event",
+      "input": {
+        "name": "Annual Conference 2024",
+        "start": "2024-02-20T08:00:00Z",
+        "end": "2024-02-22T17:00:00Z",
+        "place": "Grand Hotel Convention Center",
+        "guests": [
+          {
+            "person_name": "Frank Brown",
+            "email_address": "frank.brown@org.com"
+          },
+          {
+            "person_name": "Grace Martinez",
+            "email_address": "grace.m@org.com"
+          }
+        ],
+        "event_url": "https://conference2024.example.com",
+        "capacity": 500
+      },
+      "proposal": {
+        "name": "events",
+        "schema_type": "Hash",
+        "descriptive_name": "Events",
+        "fields": [
+          "name",
+          "start",
+          "end",
+          "place",
+          "guests",
+          "event_url",
+          "capacity"
+        ],
+        "field_descriptions": {
+          "name": "Title or name of the event",
+          "start": "ISO 8601 timestamp when the event begins",
+          "end": "ISO 8601 timestamp when the event ends",
+          "place": "Physical location or venue where the event takes place",
+          "guests": "Array of attendee objects, each containing person_name and email_address",
+          "event_url": "Web URL for event information or registration",
+          "capacity": "Maximum number of attendees the event can accommodate"
+        },
+        "purpose_statement": "Records scheduled events with their timing, location, attendee list, and capacity to enable event planning and management.",
+        "key": {
+          "hash_field": "name",
+          "range_field": "start"
+        }
+      }
+    },
+    {
+      "id": "event_04",
+      "expected_concept": "event",
+      "input": {
+        "event_name": "Project Kickoff",
+        "start_datetime": "2024-01-18T14:00:00Z",
+        "end_datetime": "2024-01-18T15:30:00Z",
+        "meeting_location": "Virtual - Zoom Link",
+        "zoom_link": "https://zoom.us/j/123456789",
+        "invitees": [
+          {
+            "contact_name": "Henry Zhang",
+            "email": "henry.zhang@tech.com"
+          },
+          {
+            "contact_name": "Iris Chen",
+            "email": "iris.chen@tech.com"
+          },
+          {
+            "contact_name": "Jack Wilson",
+            "email": "jack.w@tech.com"
+          }
+        ],
+        "organizer": "Henry Zhang"
+      },
+      "proposal": {
+        "name": "scheduled_events",
+        "schema_type": "Hash",
+        "descriptive_name": "Scheduled Events",
+        "fields": [
+          "event_name",
+          "start_datetime",
+          "end_datetime",
+          "meeting_location",
+          "zoom_link",
+          "invitees",
+          "organizer"
+        ],
+        "field_descriptions": {
+          "event_name": "Title or name of the event",
+          "start_datetime": "ISO 8601 timestamp when the event begins",
+          "end_datetime": "ISO 8601 timestamp when the event ends",
+          "meeting_location": "Physical or virtual location description",
+          "zoom_link": "URL to the Zoom meeting if applicable",
+          "invitees": "Array of invited attendees with contact name and email",
+          "organizer": "Name of the person organizing the event"
+        },
+        "purpose_statement": "Records when and where an upcoming event takes place and who is invited to attend.",
+        "key": {
+          "hash_field": "event_name",
+          "range_field": "start_datetime"
+        }
+      }
+    },
+    {
+      "id": "event_05",
+      "expected_concept": "event",
+      "input": {
+        "event": "Client Presentation",
+        "start_date": "2024-01-22T10:00:00Z",
+        "end_date": "2024-01-22T11:00:00Z",
+        "location": "Client Office Building, Suite 500",
+        "attendee_list": [
+          {
+            "attendee_name": "Karen Johnson",
+            "phone": "555-0101",
+            "email": "karen.j@client.com"
+          },
+          {
+            "attendee_name": "Leo Park",
+            "phone": "555-0102",
+            "email": "leo.park@client.com"
+          }
+        ],
+        "presentation_file": "Q1_Proposal.pdf"
+      },
+      "proposal": {
+        "name": "scheduled_events",
+        "schema_type": "Hash",
+        "descriptive_name": "Scheduled Events",
+        "fields": [
+          "event",
+          "start_date",
+          "end_date",
+          "location",
+          "attendee_list",
+          "presentation_file"
+        ],
+        "field_descriptions": {
+          "event": "Name or title of the scheduled event",
+          "start_date": "ISO 8601 timestamp when the event begins",
+          "end_date": "ISO 8601 timestamp when the event ends",
+          "location": "Physical or virtual location where the event takes place",
+          "attendee_list": "Array of attendee objects, each containing name, phone, and email",
+          "presentation_file": "Name or path of the file presented or used during the event"
+        },
+        "purpose_statement": "Records when and where meetings or presentations occur, who attends, and what materials are involved.",
+        "key": {
+          "hash_field": "event",
+          "range_field": "start_date"
+        }
+      }
+    },
+    {
+      "id": "event_06",
+      "expected_concept": "event",
+      "input": {
+        "title_of_event": "Weekly Standup",
+        "time_start": "2024-01-17T09:30:00Z",
+        "time_end": "2024-01-17T10:00:00Z",
+        "venue_name": "Engineering Hub, Room 201",
+        "team_members": [
+          {
+            "member_name": "Monica Torres",
+            "member_email": "monica.torres@dev.com"
+          },
+          {
+            "member_name": "Nathan Scott",
+            "member_email": "nathan.scott@dev.com"
+          },
+          {
+            "member_name": "Olivia Brown",
+            "member_email": "olivia.b@dev.com"
+          },
+          {
+            "member_name": "Paul Adams",
+            "member_email": "paul.adams@dev.com"
+          }
+        ],
+        "recurring": "weekly"
+      },
+      "proposal": {
+        "name": "scheduled_events",
+        "schema_type": "Hash",
+        "descriptive_name": "Scheduled Events",
+        "fields": [
+          "title_of_event",
+          "time_start",
+          "time_end",
+          "venue_name",
+          "team_members",
+          "recurring"
+        ],
+        "field_descriptions": {
+          "title_of_event": "Name or title of the event",
+          "time_start": "ISO 8601 timestamp when the event begins",
+          "time_end": "ISO 8601 timestamp when the event ends",
+          "venue_name": "Physical location or room where the event takes place",
+          "team_members": "Array of attendees with their names and email addresses",
+          "recurring": "Frequency pattern of the event (e.g., weekly, daily, monthly)"
+        },
+        "purpose_statement": "Records when and where meetings or events take place and who is expected to attend.",
+        "key": {
+          "hash_field": "title_of_event",
+          "range_field": "time_start"
+        }
+      }
+    },
+    {
+      "id": "event_07",
+      "expected_concept": "event",
+      "input": {
+        "event_id": "evt_2024_001",
+        "event_title_full": "Product Launch Event",
+        "scheduled_start": "2024-03-01T18:00:00Z",
+        "scheduled_end": "2024-03-01T20:00:00Z",
+        "event_location": "Rooftop Venue Downtown",
+        "event_location_coordinates": {
+          "lat": 40.7128,
+          "lng": -74.006
+        },
+        "registered_attendees": [
+          {
+            "full_name": "Quinn Roberts",
+            "email_address": "quinn.roberts@brand.com",
+            "rsvp_status": "confirmed"
+          },
+          {
+            "full_name": "Rachel Green",
+            "email_address": "rachel.green@brand.com",
+            "rsvp_status": "confirmed"
+          }
+        ],
+        "event_image_url": "https://images.example.com/launch.jpg"
+      },
+      "proposal": {
+        "name": "events",
+        "schema_type": "Hash",
+        "descriptive_name": "Events",
+        "fields": [
+          "event_id",
+          "event_title_full",
+          "scheduled_start",
+          "scheduled_end",
+          "event_location",
+          "event_location_coordinates",
+          "registered_attendees",
+          "event_image_url"
+        ],
+        "field_descriptions": {
+          "event_id": "Unique identifier for the event",
+          "event_title_full": "Full title or name of the event",
+          "scheduled_start": "ISO 8601 timestamp when the event begins",
+          "scheduled_end": "ISO 8601 timestamp when the event ends",
+          "event_location": "Venue name or address where the event takes place",
+          "event_location_coordinates": "Geographic coordinates (latitude and longitude) of the event location",
+          "registered_attendees": "Array of attendee objects with name, email, and RSVP status",
+          "event_image_url": "URL to a promotional or cover image for the event"
+        },
+        "purpose_statement": "Records scheduled events with their details, location, and attendee registrations for planning and coordination.",
+        "key": {
+          "hash_field": "event_id",
+          "range_field": "scheduled_start"
+        }
+      }
+    },
+    {
+      "id": "event_08",
+      "expected_concept": "event",
+      "input": {
+        "calendar_event_name": "Board Meeting",
+        "event_start_time": "2024-01-25T15:00:00Z",
+        "event_end_time": "2024-01-25T16:30:00Z",
+        "event_venue": "Executive Boardroom",
+        "event_venue_floor": "15th Floor",
+        "participants_list": [
+          {
+            "participant_full_name": "Samuel King",
+            "participant_email": "samuel.king@exec.com"
+          },
+          {
+            "participant_full_name": "Tina Lopez",
+            "participant_email": "tina.lopez@exec.com"
+          },
+          {
+            "participant_full_name": "Uma Patel",
+            "participant_email": "uma.patel@exec.com"
+          }
+        ],
+        "meeting_agenda_link": "https://docs.example.com/agenda"
+      },
+      "proposal": {
+        "name": "calendar_events",
+        "schema_type": "Hash",
+        "descriptive_name": "Calendar Events",
+        "fields": [
+          "calendar_event_name",
+          "event_start_time",
+          "event_end_time",
+          "event_venue",
+          "event_venue_floor",
+          "participants_list",
+          "meeting_agenda_link"
+        ],
+        "field_descriptions": {
+          "calendar_event_name": "Title or name of the calendar event or meeting",
+          "event_start_time": "ISO 8601 timestamp indicating when the event begins",
+          "event_end_time": "ISO 8601 timestamp indicating when the event ends",
+          "event_venue": "Name or description of the physical location where the event takes place",
+          "event_venue_floor": "Floor number or level within the venue building",
+          "participants_list": "Array of attendees with their full names and email addresses",
+          "meeting_agenda_link": "URL pointing to the meeting agenda document or resource"
+        },
+        "purpose_statement": "Records scheduled meetings and events with their timing, location, attendees, and agenda to enable calendar management and meeting coordination.",
+        "key": {
+          "hash_field": "calendar_event_name",
+          "range_field": "event_start_time"
+        }
+      }
+    },
+    {
+      "id": "bookmark_01",
+      "expected_concept": "bookmark",
+      "input": {
+        "url": "https://www.wikipedia.org/wiki/Machine_Learning",
+        "title": "Machine Learning - Wikipedia",
+        "saved_at": "2024-01-15T10:30:00Z",
+        "tags": [
+          "ai",
+          "education",
+          "reference"
+        ]
+      },
+      "proposal": {
+        "name": "saved_links",
+        "schema_type": "Hash",
+        "descriptive_name": "Saved Links",
+        "fields": [
+          "url",
+          "title",
+          "saved_at",
+          "tags"
+        ],
+        "field_descriptions": {
+          "url": "The full web address of the saved link",
+          "title": "The page title or name of the saved resource",
+          "saved_at": "ISO 8601 timestamp when the link was saved",
+          "tags": "Array of topic labels for categorizing and searching the saved link"
+        },
+        "purpose_statement": "Records URLs that a user has bookmarked along with metadata for later retrieval and organization.",
+        "key": {
+          "hash_field": "url",
+          "range_field": "saved_at"
+        }
+      }
+    },
+    {
+      "id": "bookmark_02",
+      "expected_concept": "bookmark",
+      "input": {
+        "link": "https://github.com/torvalds/linux",
+        "name": "Linux Kernel Repository",
+        "timestamp": "2024-01-14T14:22:15Z",
+        "labels": [
+          "open-source",
+          "programming"
+        ]
+      },
+      "proposal": {
+        "name": "repository_bookmarks",
+        "schema_type": "Hash",
+        "descriptive_name": "Repository Bookmarks",
+        "fields": [
+          "link",
+          "name",
+          "timestamp",
+          "labels"
+        ],
+        "field_descriptions": {
+          "link": "URL to the repository",
+          "name": "Human-readable name or title of the repository",
+          "timestamp": "ISO 8601 datetime when the bookmark was created or last updated",
+          "labels": "Array of category tags for organizing and filtering repositories"
+        },
+        "purpose_statement": "Tracks saved links to code repositories with metadata for quick reference and categorization.",
+        "key": {
+          "hash_field": "link",
+          "range_field": "timestamp"
+        }
+      }
+    },
+    {
+      "id": "bookmark_03",
+      "expected_concept": "bookmark",
+      "input": {
+        "webpage_url": "https://www.medium.com/articles/web-design-trends",
+        "page_title": "Web Design Trends 2024",
+        "bookmarked_on": "2024-01-13T09:45:30Z",
+        "categories": [
+          "design",
+          "web",
+          "trends",
+          "2024"
+        ]
+      },
+      "proposal": {
+        "name": "bookmarks",
+        "schema_type": "Hash",
+        "descriptive_name": "Bookmarks",
+        "fields": [
+          "webpage_url",
+          "page_title",
+          "bookmarked_on",
+          "categories"
+        ],
+        "field_descriptions": {
+          "webpage_url": "The full URL of the bookmarked web page",
+          "page_title": "The title or heading of the web page",
+          "bookmarked_on": "ISO 8601 timestamp indicating when the page was bookmarked",
+          "categories": "Array of topic tags or categories assigned to the bookmark for organization and filtering"
+        },
+        "purpose_statement": "Records web pages that someone has saved for later reference, preserving the URL, title, and categorization.",
+        "key": {
+          "hash_field": "webpage_url",
+          "range_field": "bookmarked_on"
+        }
+      }
+    },
+    {
+      "id": "bookmark_04",
+      "expected_concept": "bookmark",
+      "input": {
+        "uri": "https://stackoverflow.com/questions/12345",
+        "heading": "How to center a div in CSS",
+        "created": "2024-01-12T16:18:45Z"
+      },
+      "proposal": {
+        "name": "web_questions",
+        "schema_type": "Hash",
+        "descriptive_name": "Web Questions",
+        "fields": [
+          "uri",
+          "heading",
+          "created"
+        ],
+        "field_descriptions": {
+          "uri": "The unique URL identifier for the question",
+          "heading": "The title or subject of the question",
+          "created": "The timestamp when the question was posted"
+        },
+        "purpose_statement": "Records questions posted on web platforms to enable searching, tracking, and referencing community knowledge.",
+        "key": {
+          "hash_field": "uri",
+          "range_field": "created"
+        }
+      }
+    },
+    {
+      "id": "bookmark_05",
+      "expected_concept": "bookmark",
+      "input": {
+        "address": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "subject": "Never Gonna Give You Up",
+        "saved_timestamp": "2024-01-11T11:05:22Z",
+        "keywords": [
+          "music",
+          "video",
+          "entertainment"
+        ]
+      },
+      "proposal": {
+        "name": "saved_videos",
+        "schema_type": "Hash",
+        "descriptive_name": "Saved Videos",
+        "fields": [
+          "address",
+          "subject",
+          "saved_timestamp",
+          "keywords"
+        ],
+        "field_descriptions": {
+          "address": "URL link to the video",
+          "subject": "Title or name of the video",
+          "saved_timestamp": "ISO 8601 timestamp when the video was saved",
+          "keywords": "Array of topic tags or keywords for categorizing and searching the video"
+        },
+        "purpose_statement": "Records video links that a user has saved for later viewing, along with metadata for organization and retrieval.",
+        "key": {
+          "hash_field": "address",
+          "range_field": "saved_timestamp"
+        }
+      }
+    },
+    {
+      "id": "bookmark_06",
+      "expected_concept": "bookmark",
+      "input": {
+        "link_url": "https://docs.python.org/3/library/asyncio.html",
+        "document_title": "asyncio — Asynchronous I/O",
+        "date_saved": "2024-01-10T13:30:00Z",
+        "tags": [
+          "python",
+          "documentation",
+          "async"
+        ]
+      },
+      "proposal": {
+        "name": "saved_links",
+        "schema_type": "Hash",
+        "descriptive_name": "Saved Links",
+        "fields": [
+          "link_url",
+          "document_title",
+          "date_saved",
+          "tags"
+        ],
+        "field_descriptions": {
+          "link_url": "The full URL of the saved web page or resource",
+          "document_title": "The title or heading of the linked document or page",
+          "date_saved": "The timestamp when the link was saved or bookmarked",
+          "tags": "Array of topic labels or keywords for categorizing and searching the saved link"
+        },
+        "purpose_statement": "Records web links that have been bookmarked or archived for future reference, preserving the URL, title, and categorization.",
+        "key": {
+          "hash_field": "link_url",
+          "range_field": "date_saved"
+        }
+      }
+    },
+    {
+      "id": "bookmark_07",
+      "expected_concept": "bookmark",
+      "input": {
+        "href": "https://www.hackernews.com/item?id=28464140",
+        "item_name": "Show HN: My new startup",
+        "bookmarked": "2024-01-09T08:15:45Z",
+        "topic_tags": [
+          "startup",
+          "news",
+          "technology"
+        ]
+      },
+      "proposal": {
+        "name": "bookmarked_articles",
+        "schema_type": "Hash",
+        "descriptive_name": "Bookmarked Articles",
+        "fields": [
+          "href",
+          "item_name",
+          "bookmarked",
+          "topic_tags"
+        ],
+        "field_descriptions": {
+          "href": "The full URL of the bookmarked article or web page",
+          "item_name": "The title or headline of the bookmarked item",
+          "bookmarked": "ISO 8601 timestamp indicating when the article was bookmarked",
+          "topic_tags": "Array of topic labels or categories assigned to the article for organization and discovery"
+        },
+        "purpose_statement": "Records articles and web content that a user has saved for later reference, preserving the URL, title, and topic categorization.",
+        "key": {
+          "hash_field": "href",
+          "range_field": "bookmarked"
+        }
+      }
+    },
+    {
+      "id": "bookmark_08",
+      "expected_concept": "bookmark",
+      "input": {
+        "web_address": "https://www.coursera.org/learn/machine-learning",
+        "resource_title": "Machine Learning Specialization",
+        "time_added": "2024-01-08T15:42:10Z"
+      },
+      "proposal": {
+        "name": "learning_resources",
+        "schema_type": "Hash",
+        "descriptive_name": "Learning Resources",
+        "fields": [
+          "web_address",
+          "resource_title",
+          "time_added"
+        ],
+        "field_descriptions": {
+          "web_address": "The URL of the learning resource",
+          "resource_title": "The name or title of the course or learning material",
+          "time_added": "The timestamp when the resource was added or discovered"
+        },
+        "purpose_statement": "Tracks educational courses, tutorials, and learning materials that someone has discovered or saved for future reference.",
+        "key": {
+          "hash_field": "web_address",
+          "range_field": "time_added"
+        }
+      }
+    }
+  ]
+}

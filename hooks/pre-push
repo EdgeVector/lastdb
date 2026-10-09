@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Pre-push hook: refuse to push commits that introduce build artifacts or
+# oversized blobs (same rules as pre-commit / CI), then run the Forge Mini
+# clippy gate so local pushes match CI before they leave the machine.
+#
+# Covers agent paths that used `git commit --no-verify` (the May 2026
+# kanban-checkpoint bloat was local refs, but salvage branches did get
+# shared). Remote remains small only if pushes stay clean.
+#
+# Mini-lane clippy mirrors `.github/workflows/ci-required.yml` job `build_test`
+# step "cargo clippy -p lastdb_node --lib --bins (Mini gate)":
+#   cargo clippy -p lastdb_node --lib --bins -- -D warnings
+# Scoped to lastdb_node lib+bins only — not full-workspace clippy.
+#
+# Install: scripts/install-hooks.sh
+# Bypass (sparingly): git push --no-verify
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+LINT=scripts/lints/lint-no-build-artifacts.sh
+if [ ! -x "$LINT" ]; then
+  # Not executable yet on a half-checkout — try bash explicitly.
+  if [ ! -f "$LINT" ]; then
+    echo "pre-push: $LINT missing — refusing push (install incomplete?)" >&2
+    exit 1
+  fi
+fi
+
+zero=0000000000000000000000000000000000000000
+status=0
+
+# Baseline for brand-new remote branches: only lint commits not already on
+# origin/main. Scanning the full tip history would re-flag historical
+# oversize fixtures still reachable from main (e.g. old dogfood snapshot
+# DBs) on every feature-branch first push — those are not regressions.
+baseline_ref() {
+  if git rev-parse --verify origin/main >/dev/null 2>&1; then
+    echo "origin/main"
+  elif git rev-parse --verify origin/HEAD >/dev/null 2>&1; then
+    git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's#^origin/##' | awk '{print "origin/"$0}'
+  else
+    echo ""
+  fi
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "${local_sha:-}" ] && continue
+  # Delete of a remote ref — nothing to lint.
+  if [ "$local_sha" = "$zero" ]; then
+    continue
+  fi
+  if [ "$remote_sha" = "$zero" ] || [ -z "$remote_sha" ]; then
+    base="$(baseline_ref)"
+    if [ -n "$base" ] && git merge-base --is-ancestor "$base" "$local_sha" 2>/dev/null; then
+      range="${base}..${local_sha}"
+    elif [ -n "$base" ]; then
+      # Diverged / unrelated history: still only compare against baseline tip.
+      range="${base}...${local_sha}"
+    else
+      # No remote main yet — lint the tip tree (matches CI), not all history.
+      echo "pre-push: lint-no-build-artifacts --tree $local_sha ($local_ref, no origin baseline)" >&2
+      if ! bash "$LINT" --tree "$local_sha"; then
+        echo "pre-push: blocked $local_ref — strip target/ / oversize blobs, then retry." >&2
+        status=1
+      fi
+      continue
+    fi
+  else
+    range="${remote_sha}..${local_sha}"
+  fi
+  echo "pre-push: lint-no-build-artifacts on $local_ref ($range)" >&2
+  if ! bash "$LINT" --range "$range"; then
+    echo "pre-push: blocked $local_ref — strip target/ / oversize blobs, then retry." >&2
+    status=1
+  fi
+done
+
+# --- Mini-lane clippy (matches Forge CI build_test) -------------------------
+# Same command as `.github/workflows/ci-required.yml` step
+# "cargo clippy -p lastdb_node --lib --bins (Mini gate)". Catches
+# question_mark / map_unwrap_or / etc. before the push → Mini-red cycle.
+# Run once per push (not per ref): the working tree tip is what CI will build.
+# Skip only when cargo is missing (machine without Rust toolchain).
+if [ "$status" -eq 0 ]; then
+  if command -v cargo >/dev/null 2>&1; then
+    echo "pre-push: cargo clippy -p lastdb_node --lib --bins -- -D warnings" >&2
+    if ! cargo clippy -p lastdb_node --lib --bins -- -D warnings; then
+      echo "pre-push: blocked — Mini-lane clippy failed (same gate as Forge CI)." >&2
+      echo "pre-push: fix warnings, then retry (or sparingly: git push --no-verify)." >&2
+      status=1
+    fi
+  else
+    echo "pre-push: cargo not on PATH — skipping Mini-lane clippy" >&2
+  fi
+fi
+
+exit "$status"

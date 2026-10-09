@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "Vein",
+  "field_classifications": {
+    "drains_to": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "region_drained": [
+      "word"
+    ],
+    "tributary": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "drains_to": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "region_drained": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tributary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "drains_to": "The vasculature that the vein drains into.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "region_drained": "The anatomical or organ system drained by this vessel; generally refers to a specific part of an organ.",
+    "tributary": "The anatomical or organ system that the vein flows into; a larger structure that the vein connects to."
+  },
+  "field_types": {
+    "drains_to": "String",
+    "identifier": "String",
+    "region_drained": "String",
+    "tributary": "String"
+  },
+  "fields": [
+    "drains_to",
+    "identifier",
+    "region_drained",
+    "tributary"
+  ],
+  "identity_hash": "d9d3abbb7314480816fbfc20ba3a120833e5894fb50f23a2926f1d1a9e2c13dc",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d9d3abbb7314480816fbfc20ba3a120833e5894fb50f23a2926f1d1a9e2c13dc",
+  "purpose_statement": "Vein",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

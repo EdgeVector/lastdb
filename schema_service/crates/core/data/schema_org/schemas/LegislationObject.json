@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "LegislationObject",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "legislation_legal_value": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "legislation_legal_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "legislation_legal_value": "The legal value of this legislation file. The same legislation can be written in multiple files with different legal values. Typically a digitally signed PDF have a \"stronger\" legal value than the HTML file of the same act."
+  },
+  "field_types": {
+    "identifier": "String",
+    "legislation_legal_value": "String"
+  },
+  "fields": [
+    "identifier",
+    "legislation_legal_value"
+  ],
+  "identity_hash": "50fda2f816d2113a572d300074b7ee6426c6f4cc985b10c559b2be3e002c3f33",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "50fda2f816d2113a572d300074b7ee6426c6f4cc985b10c559b2be3e002c3f33",
+  "purpose_statement": "LegislationObject",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

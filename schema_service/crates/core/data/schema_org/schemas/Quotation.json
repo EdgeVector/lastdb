@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "Quotation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "spoken_by_character": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "spoken_by_character": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "spoken_by_character": "The (e.g. fictional) character, Person or Organization to whom the quotation is attributed within the containing CreativeWork."
+  },
+  "field_types": {
+    "identifier": "String",
+    "spoken_by_character": "String"
+  },
+  "fields": [
+    "identifier",
+    "spoken_by_character"
+  ],
+  "identity_hash": "63914e4fb913e6a38e89ce4c8201e3df274f46a938a517fc4271608bf807728e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "63914e4fb913e6a38e89ce4c8201e3df274f46a938a517fc4271608bf807728e",
+  "purpose_statement": "Quotation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

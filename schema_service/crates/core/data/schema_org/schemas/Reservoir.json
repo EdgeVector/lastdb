@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Reservoir",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "cb9ed3662d6799074bbf8f2ad933d0193efcbae80ac4cdfbfef3c4e58f62c2e9",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "cb9ed3662d6799074bbf8f2ad933d0193efcbae80ac4cdfbfef3c4e58f62c2e9",
+  "purpose_statement": "Reservoir",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

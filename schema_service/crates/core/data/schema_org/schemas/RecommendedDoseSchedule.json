@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "RecommendedDoseSchedule",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "b44797feeb0b6f2525e1afc396ff537f40473406f9f9e7ecb51fbb593a6d3c93",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b44797feeb0b6f2525e1afc396ff537f40473406f9f9e7ecb51fbb593a6d3c93",
+  "purpose_statement": "RecommendedDoseSchedule",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

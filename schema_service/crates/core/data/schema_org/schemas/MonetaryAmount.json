@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "MonetaryAmount",
+  "field_classifications": {
+    "currency": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "max_value": [
+      "number"
+    ],
+    "min_value": [
+      "number"
+    ],
+    "valid_from": [
+      "word"
+    ],
+    "valid_through": [
+      "word"
+    ],
+    "value": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "max_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "min_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "valid_from": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "valid_through": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "currency": "The currency in which the monetary amount is expressed.\\n\\nUse standard formats: [ISO 4217 currency format](http://en.wikipedia.org/wiki/ISO_4217), e.g. \"USD\"; [Ticker symbol](https://en.wikipedia.org/wiki/List_of_cryptocurrencies) for cryptocurrencies, e.g. \"BTC\"; well known names for [Local Exchange Trading Systems](https://en.wikipedia.org/wiki/Local_exchange_trading_system) (LETS) and other currency types, e.g. \"Ithaca HOUR\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "max_value": "The upper value of some characteristic or property.",
+    "min_value": "The lower value of some characteristic or property.",
+    "valid_from": "The date when the item becomes valid.",
+    "valid_through": "The date after when the item is not valid. For example the end of an offer, salary period, or a period of opening hours.",
+    "value": "The value of a [[QuantitativeValue]] (including [[Observation]]) or property value node.\\n\\n* For [[QuantitativeValue]] and [[MonetaryAmount]], the recommended type for values is 'Number'.\\n* For [[PropertyValue]], it can be 'Text', 'Number', 'Boolean', or 'StructuredValue'.\\n* Use values from 0123456789 (Unicode 'DIGIT ZERO' (U+0030) to 'DIGIT NINE' (U+0039)) rather than superficially similar Unicode symbols.\\n* Use '.' (Unicode 'FULL STOP' (U+002E)) rather than ',' to indicate a decimal point. Avoid using these symbols as a readability separator."
+  },
+  "field_types": {
+    "currency": "String",
+    "identifier": "String",
+    "max_value": "Float",
+    "min_value": "Float",
+    "valid_from": "String",
+    "valid_through": "String",
+    "value": "Float"
+  },
+  "fields": [
+    "currency",
+    "identifier",
+    "max_value",
+    "min_value",
+    "valid_from",
+    "valid_through",
+    "value"
+  ],
+  "identity_hash": "ff9724a5748d8acac929860ea572a94c9ab72629595dbff2994619077edeca5b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ff9724a5748d8acac929860ea572a94c9ab72629595dbff2994619077edeca5b",
+  "purpose_statement": "MonetaryAmount",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

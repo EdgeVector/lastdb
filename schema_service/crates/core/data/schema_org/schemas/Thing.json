@@ -1,0 +1,152 @@
+{
+  "descriptive_name": "Thing",
+  "field_classifications": {
+    "additional_type": [
+      "word"
+    ],
+    "alternate_name": [
+      "word"
+    ],
+    "description": [
+      "word"
+    ],
+    "disambiguating_description": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "image": [
+      "word"
+    ],
+    "main_entity_of_page": [
+      "word"
+    ],
+    "name": [
+      "word"
+    ],
+    "owner": [
+      "word"
+    ],
+    "potential_action": [
+      "word"
+    ],
+    "same_as": [
+      "word"
+    ],
+    "subject_of": [
+      "word"
+    ],
+    "url": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "additional_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "alternate_name": {
+      "data_domain": "identity",
+      "sensitivity_level": 3
+    },
+    "description": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "disambiguating_description": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "image": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "main_entity_of_page": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "name": {
+      "data_domain": "general",
+      "sensitivity_level": 0
+    },
+    "owner": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "potential_action": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "same_as": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "subject_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "url": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "additional_type": "An additional type for the item, typically used for adding more specific types from external vocabularies in microdata syntax. This is a relationship between something and a class that the thing is in. Typically the value is a URI-identified RDF class, and in this case corresponds to the\n    use of rdf:type in RDF. Text values can be used sparingly, for cases where useful information can be added without their being an appropriate schema to reference. In the case of text values, the class label should follow the schema.org <a href=\"https://schema.org/docs/styleguide.html\">style guide</a>.",
+    "alternate_name": "An alias for the item.",
+    "description": "A description of the item.",
+    "disambiguating_description": "A sub property of description. A short description of the item used to disambiguate from other, similar items. Information from other properties (in particular, name) may be necessary for the description to be useful for disambiguation.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "image": "An image of the item. This can be a [[URL]] or a fully described [[ImageObject]].",
+    "main_entity_of_page": "Indicates a page (or other CreativeWork) for which this thing is the main entity being described. See [background notes](/docs/datamodel.html#mainEntityBackground) for details.",
+    "name": "The name of the item.",
+    "owner": "A person or organization who owns this Thing.",
+    "potential_action": "Indicates a potential Action, which describes an idealized action in which this thing would play an 'object' role.",
+    "same_as": "URL of a reference Web page that unambiguously indicates the item's identity. E.g. the URL of the item's Wikipedia page, Wikidata entry, or official website.",
+    "subject_of": "A CreativeWork or Event about this Thing.",
+    "url": "URL of the item."
+  },
+  "field_types": {
+    "additional_type": "String",
+    "alternate_name": "String",
+    "description": "String",
+    "disambiguating_description": "String",
+    "identifier": "String",
+    "image": "String",
+    "main_entity_of_page": "String",
+    "name": "String",
+    "owner": "String",
+    "potential_action": "String",
+    "same_as": "String",
+    "subject_of": "String",
+    "url": "String"
+  },
+  "fields": [
+    "additional_type",
+    "alternate_name",
+    "description",
+    "disambiguating_description",
+    "identifier",
+    "image",
+    "main_entity_of_page",
+    "name",
+    "owner",
+    "potential_action",
+    "same_as",
+    "subject_of",
+    "url"
+  ],
+  "identity_hash": "b8bd8d15be2dbcb5440dac6ceb150556350e99ccafaada4ceddfc6179c88bdfb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b8bd8d15be2dbcb5440dac6ceb150556350e99ccafaada4ceddfc6179c88bdfb",
+  "purpose_statement": "Thing",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

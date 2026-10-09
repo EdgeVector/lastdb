@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Optional local hook helper for fold_db library work.
+# There is no React frontend / RustEmbed dist step — Mini cutover 2026-07-12.
+set -euo pipefail
+echo "Running fold_db pre-commit checks..."
+
+# Prefer monorepo root if this script lives under fold_db/scripts.
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
+
+cargo clippy -p fold_db --all-targets -- -D warnings
+echo "Pre-commit checks passed."

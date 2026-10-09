@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "gate": "schema_pow_canary",
+  "environment": "dev",
+  "sample_window": {
+    "hours": 24,
+    "cadence_minutes": 60,
+    "minimum_completed_runs": 24
+  },
+  "required_probes": [
+    "valid_registration",
+    "missing_proof_rejected",
+    "invalid_proof_rejected"
+  ],
+  "evidence": {
+    "require_private_key_persisted_false": true,
+    "forbidden_fields": [
+      "authorization",
+      "credentials",
+      "headers",
+      "private_key",
+      "raw_payload",
+      "request_body",
+      "response_body",
+      "secret"
+    ]
+  },
+  "alarms": [
+    {
+      "name": "schema_pow_challenge_failure",
+      "category": "challenge",
+      "threshold_count": 1,
+      "failure_reasons": [
+        "challenge_request_failed",
+        "challenge_hash_mismatch",
+        "challenge_node_key_mismatch"
+      ]
+    },
+    {
+      "name": "schema_pow_grind_failure",
+      "category": "grind",
+      "threshold_count": 1,
+      "failure_reasons": [
+        "difficulty_exceeds_client_cap",
+        "proof_of_work_expired",
+        "probe_timeout"
+      ]
+    },
+    {
+      "name": "schema_pow_retry_failure",
+      "category": "retry",
+      "threshold_count": 1,
+      "failure_reasons": [
+        "idempotent_repost_failed",
+        "identity_hash_contract_failed",
+        "node_signature_invalid",
+        "proof_of_work_invalid"
+      ]
+    },
+    {
+      "name": "schema_pow_required_probe_missing",
+      "category": "coverage",
+      "threshold_count": 1,
+      "failure_reasons": [
+        "required_probe_missing"
+      ]
+    },
+    {
+      "name": "schema_pow_evidence_safety_violation",
+      "category": "evidence_safety",
+      "threshold_count": 1,
+      "failure_reasons": [
+        "evidence_safety_violation"
+      ]
+    },
+    {
+      "name": "schema_pow_unclassified_failure",
+      "category": "unclassified",
+      "threshold_count": 1,
+      "failure_reasons": [
+        "unclassified_failure"
+      ]
+    }
+  ],
+  "decisions": {
+    "canary": {
+      "pass": "promote",
+      "fail": "hold"
+    },
+    "promoted": {
+      "pass": "keep",
+      "fail": "rollback"
+    }
+  }
+}

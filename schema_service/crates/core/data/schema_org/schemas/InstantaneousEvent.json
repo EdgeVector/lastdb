@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "InstantaneousEvent",
+  "field_classifications": {
+    "data": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "source": [
+      "word"
+    ],
+    "timestamp": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "data": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "source": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "timestamp": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "data": "Data associated with the event, like for instance a log message.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "source": "The source or cause of the event.",
+    "timestamp": "The instant the event occured."
+  },
+  "field_types": {
+    "data": "String",
+    "identifier": "String",
+    "source": "String",
+    "timestamp": "String"
+  },
+  "fields": [
+    "data",
+    "identifier",
+    "source",
+    "timestamp"
+  ],
+  "identity_hash": "df01977114ce1d44259e2ac137bcf1ddba008abc0f2acadf29314ee31b4db871",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "df01977114ce1d44259e2ac137bcf1ddba008abc0f2acadf29314ee31b4db871",
+  "purpose_statement": "InstantaneousEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

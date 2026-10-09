@@ -1,0 +1,102 @@
+{
+  "descriptive_name": "PostalAddress",
+  "field_classifications": {
+    "address_country": [
+      "word"
+    ],
+    "address_locality": [
+      "word"
+    ],
+    "address_region": [
+      "word"
+    ],
+    "extended_address": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "post_office_box_number": [
+      "word"
+    ],
+    "postal_code": [
+      "word"
+    ],
+    "street_address": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "address_country": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "address_locality": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "address_region": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "extended_address": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "post_office_box_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "postal_code": {
+      "data_domain": "location",
+      "sensitivity_level": 2
+    },
+    "street_address": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "address_country": "The country. Recommended to be in 2-letter [ISO 3166-1 alpha-2](http://en.wikipedia.org/wiki/ISO_3166-1) format, for example \"US\". For backward compatibility, a 3-letter [ISO 3166-1 alpha-3](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-3) country code such as \"SGP\" or a full country name such as \"Singapore\" can also be used.",
+    "address_locality": "The locality in which the street address is, and which is in the region. For example, Mountain View.",
+    "address_region": "The region in which the locality is, and which is in the country. For example, California or another appropriate first-level [Administrative division](https://en.wikipedia.org/wiki/List_of_administrative_divisions_by_country) such as the Province in Italy or Region in Germany.",
+    "extended_address": "An address extension such as an apartment number, C/O or alternative name.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "post_office_box_number": "The post office box number for PO box addresses.",
+    "postal_code": "The postal code. For example, 94043.",
+    "street_address": "The street address. For example, 1600 Amphitheatre Pkwy."
+  },
+  "field_types": {
+    "address_country": "String",
+    "address_locality": "String",
+    "address_region": "String",
+    "extended_address": "String",
+    "identifier": "String",
+    "post_office_box_number": "String",
+    "postal_code": "String",
+    "street_address": "String"
+  },
+  "fields": [
+    "address_country",
+    "address_locality",
+    "address_region",
+    "extended_address",
+    "identifier",
+    "post_office_box_number",
+    "postal_code",
+    "street_address"
+  ],
+  "identity_hash": "541cf31e8522f20628becf3ac8c7f11763361b0b552e268bdbd96bdc0d9e4d22",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "541cf31e8522f20628becf3ac8c7f11763361b0b552e268bdbd96bdc0d9e4d22",
+  "purpose_statement": "PostalAddress",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

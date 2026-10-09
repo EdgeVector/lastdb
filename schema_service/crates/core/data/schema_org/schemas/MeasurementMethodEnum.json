@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MeasurementMethodEnum",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "3a0dd10b2ce0a4f8b9f0cf5e068336c9b0232b55d2b3f6e23a5124238a920ef6",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3a0dd10b2ce0a4f8b9f0cf5e068336c9b0232b55d2b3f6e23a5124238a920ef6",
+  "purpose_statement": "MeasurementMethodEnum",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,20 @@
+[package]
+name = "generate_schema_org_classifications"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "One-shot script: cluster-classify every Schema.org property and emit crates/core/data/schema_org/classification_overlay.json. Run manually; the generated overlay is committed to the repo and consumed at service cold start."
+
+[[bin]]
+name = "generate-schema-org-classifications"
+path = "src/main.rs"
+
+[dependencies]
+schema_service_core = { path = "../../crates/core", features = ["local-store", "schema-org-seed-data"] }
+fold_db = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+
+[lints]
+workspace = true

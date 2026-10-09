@@ -1,0 +1,252 @@
+{
+  "descriptive_name": "VideoGameSeries",
+  "field_classifications": {
+    "actor": [
+      "word"
+    ],
+    "actors": [
+      "word"
+    ],
+    "character_attribute": [
+      "word"
+    ],
+    "cheat_code": [
+      "word"
+    ],
+    "contains_season": [
+      "word"
+    ],
+    "director": [
+      "word"
+    ],
+    "directors": [
+      "word"
+    ],
+    "episode": [
+      "word"
+    ],
+    "episodes": [
+      "word"
+    ],
+    "game_item": [
+      "word"
+    ],
+    "game_location": [
+      "word"
+    ],
+    "game_platform": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "music_by": [
+      "word"
+    ],
+    "number_of_episodes": [
+      "number"
+    ],
+    "number_of_players": [
+      "word"
+    ],
+    "number_of_seasons": [
+      "number"
+    ],
+    "play_mode": [
+      "word"
+    ],
+    "production_company": [
+      "word"
+    ],
+    "quest": [
+      "word"
+    ],
+    "season": [
+      "word"
+    ],
+    "seasons": [
+      "word"
+    ],
+    "trailer": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "actor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "actors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "character_attribute": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "cheat_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "contains_season": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "director": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "directors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "episode": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "episodes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "game_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "game_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "game_platform": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "music_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_episodes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_players": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_seasons": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "play_mode": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "production_company": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "quest": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "season": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "seasons": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "trailer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "actor": "An actor (individual or a group), e.g. in TV, radio, movie, video games etc., or in an event. Actors can be associated with individual items or with a series, episode, clip.",
+    "actors": "An actor, e.g. in TV, radio, movie, video games etc. Actors can be associated with individual items or with a series, episode, clip.",
+    "character_attribute": "A piece of data that represents a particular aspect of a fictional character (skill, power, character points, advantage, disadvantage).",
+    "cheat_code": "Cheat codes to the game.",
+    "contains_season": "A season that is part of the media series.",
+    "director": "A director of e.g. TV, radio, movie, video gaming etc. content, or of an event. Directors can be associated with individual items or with a series, episode, clip.",
+    "directors": "A director of e.g. TV, radio, movie, video games etc. content. Directors can be associated with individual items or with a series, episode, clip.",
+    "episode": "An episode of a TV, radio or game media within a series or season.",
+    "episodes": "An episode of a TV/radio series or season.",
+    "game_item": "An item is an object within the game world that can be collected by a player or, occasionally, a non-player character.",
+    "game_location": "Real or fictional location of the game (or part of game).",
+    "game_platform": "The electronic systems used to play <a href=\"http://en.wikipedia.org/wiki/Category:Video_game_platforms\">video games</a>.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "music_by": "The composer of the soundtrack.",
+    "number_of_episodes": "The number of episodes in this season or series.",
+    "number_of_players": "Indicate how many people can play this game (minimum, maximum, or range).",
+    "number_of_seasons": "The number of seasons in this series.",
+    "play_mode": "Indicates whether this game is multi-player, co-op or single-player.  The game can be marked as multi-player, co-op and single-player at the same time.",
+    "production_company": "The production company or studio responsible for the item, e.g. series, video game, episode etc.",
+    "quest": "The task that a player-controlled character, or group of characters may complete in order to gain a reward.",
+    "season": "A season in a media series.",
+    "seasons": "A season in a media series.",
+    "trailer": "The trailer of a movie or TV/radio series, season, episode, etc."
+  },
+  "field_types": {
+    "actor": "String",
+    "actors": "String",
+    "character_attribute": "String",
+    "cheat_code": "String",
+    "contains_season": "String",
+    "director": "String",
+    "directors": "String",
+    "episode": "String",
+    "episodes": "String",
+    "game_item": "String",
+    "game_location": "String",
+    "game_platform": "String",
+    "identifier": "String",
+    "music_by": "String",
+    "number_of_episodes": "Integer",
+    "number_of_players": "String",
+    "number_of_seasons": "Integer",
+    "play_mode": "String",
+    "production_company": "String",
+    "quest": "String",
+    "season": "String",
+    "seasons": "String",
+    "trailer": "String"
+  },
+  "fields": [
+    "actor",
+    "actors",
+    "character_attribute",
+    "cheat_code",
+    "contains_season",
+    "director",
+    "directors",
+    "episode",
+    "episodes",
+    "game_item",
+    "game_location",
+    "game_platform",
+    "identifier",
+    "music_by",
+    "number_of_episodes",
+    "number_of_players",
+    "number_of_seasons",
+    "play_mode",
+    "production_company",
+    "quest",
+    "season",
+    "seasons",
+    "trailer"
+  ],
+  "identity_hash": "19ba45f582c632a3374058b4ae5b5018bfc48ad0703490833ab6b9d531c7a000",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "19ba45f582c632a3374058b4ae5b5018bfc48ad0703490833ab6b9d531c7a000",
+  "purpose_statement": "VideoGameSeries",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

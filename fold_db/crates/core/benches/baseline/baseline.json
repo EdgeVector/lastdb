@@ -1,0 +1,532 @@
+{
+  "_comment": [
+    "Committed performance baseline for the fold_db criterion benches.",
+    "This is the SOURCE OF TRUTH the scheduled/label-gated `bench` CI job",
+    "(.github/workflows/bench.yml) compares fresh bench runs against — it",
+    "replaces the hand-typed numbers that used to live (and go stale) in the",
+    "bench doc comments. See README.md in this directory.",
+    "",
+    "Captured from origin/main @ be19526be on a shared machine with",
+    "FOLD_DISABLE_NATIVE_INDEX=1 (the env the benches set themselves), 2026-06-21.",
+    "Every `baseline_ns` is the criterion MEDIAN point-estimate, in nanoseconds.",
+    "",
+    "The guard (scripts/lints/bench-compare.py) reads each fresh run's",
+    "target/criterion/<group>/<id>/new/estimates.json and fails the case when",
+    "  fresh_median_ns > baseline_ns * regression_factor.",
+    "regression_factor defaults to 2.0 (the card's '>2x regression' bar);",
+    "the FLAT cases (point lookups, which must NOT scale with cardinality) are",
+    "guarded tighter at 1.6x so an O(field) regression like the 2026-06-20 wedge",
+    "trips the guard well before it 2x's. Absolute numbers are runner-dependent;",
+    "treat these as RELATIVE regression ceilings, not SLAs.",
+    "Cases with fast_guard_optional=true are still part of full local benchmark",
+    "runs, but may be absent from the scheduled FOLD_BENCH_FAST_GUARD=1 CI pass",
+    "when their setup cost would starve later guard suites.",
+    "",
+    "Updating: when a deliberate perf change moves a curve, re-run the benches on",
+    "a quiet machine (see README) and edit the affected baseline_ns here in the",
+    "same PR, with the reason in the commit message."
+  ],
+  "captured": {
+    "ref": "be19526be",
+    "date": "2026-06-21",
+    "env": "FOLD_DISABLE_NATIVE_INDEX=1",
+    "machine": "shared (relative guard only)",
+    "metric": "median",
+    "unit": "ns",
+    "_schema_scan_note": "schema_scan + schema_scan_indexed re-captured 2026-07-17 after schemaidx markers moved out of the main atom namespace and into the local-only schema_index namespace. schema_scan remains result-sized and schema_scan_indexed remains flat across corpus size. The fixed-result schema_scan_indexed cases were rechecked on the loaded scheduled-routine host on 2026-07-18: medians were ~4.36ms/6.66ms/5.09ms/4.10ms for 1K/10K/50K/100K, so the flat baseline is rounded to 7ms with the same 1.6x guard. A real fallback to the old full scan remains far above this ceiling.",
+    "_write_scan_refresh_note": "query_path_bench read paths plus db_operations_bench keyed_update_write/schema_scan/schema_scan_indexed/point_read re-captured 2026-06-29 on Apple M4 Max after post-baseline perf PRs (#981, #983, #984, #987, #1026, #1028). Values are rounded up conservatively from Criterion medians; regression factors unchanged.",
+    "_hashrange_page_list_note": "hashrange_page_list_vs_N captured 2026-06-30 on Apple M4 Max after adding the mhr range-major HashRange Page index. Criterion medians were ~950us/951us/967us/978us for 1K/10K/50K/100K; baseline rounded to 1.0ms for all cases with the flat 1.6x guard.",
+    "_api_query_latency_note_removed": "api_query_latency_bench deleted with the fold_db_node crate (Mini-only cutover, 2026-07-12); cases removed so bench-compare does not error on missing data.",
+    "_batch_store_note": "batch_store cases captured 2026-07-15 on a loaded shared host after the bench switched to fresh DBs per measured iteration so corpus growth cannot distort later samples. The one-atom case was rechecked on the loaded scheduled-routine host on 2026-07-19 at ~25.7ms median and rounded to 30ms; larger cases remain from the 2026-07-15 capture (~11.86ms/3.22ms/82.01ms for 10/100/1000 atoms). Baselines are relative ceilings only.",
+    "_storage_breakdown_note": "storage_breakdown cases added 2026-07-25 to make per-schema logical storage metering attribution visible in the db-perf guard. The current implementation scans canonical atom rows and filters to the requested schema, so the curve is expected to be linear in total corpus with a fixed 500-atom target result. Initial baselines are conservative shared-runner ceilings; if storage_breakdown moves to schema-index enumeration, re-capture and flatten these cases.",
+    "_hash_key_lookup_note": "query_path_bench HashKey lookup cases re-captured 2026-07-18 from origin/main @ 7aa2c8589 on the scheduled routine host after confirming the current-head mhk fast path already bypasses transient molecule hydration. The remaining cardinality growth is the sled atom-body point-get curve: indexed_point_lookup medians were ~27.6us/69.9us/132.7us/214.1us for 1k/10k/50k/100k. Baselines keep the 1.6x guard to catch a return to field materialization while acknowledging that one marker get plus one atom-body get is not perfectly flat on this store.",
+    "_atom_refcount_tip_write_note": "atom_refcount_tip_write_vs_catalog_refs captured 2026-09-28 on the shared Apple Silicon host after the tip path moved from a catalog-edge partition scan to one exact durable counter read per molecule. Fast-guard medians were ~103ms/144ms/190ms for 0/16/64 catalog aliases. Baselines round upward because full mutation durability dominates and shared-host noise is large; the curve now records this added cost and guards against a return to an edge scan."
+  },
+  "default_regression_factor": 2.0,
+  "cases": [
+    {
+      "bench": "query_path_bench",
+      "group": "indexed_point_lookup",
+      "id": "1000",
+      "baseline_ns": 35000,
+      "regression_factor": 1.6,
+      "note": "Current-head HashKey read; one marker get plus one atom-body get. Guarded tightly against field materialization."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "indexed_point_lookup",
+      "id": "10000",
+      "baseline_ns": 75000,
+      "regression_factor": 1.6,
+      "note": "Current-head HashKey read; allows the observed sled point-get curve without permitting field materialization."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "indexed_point_lookup",
+      "id": "50000",
+      "baseline_ns": 140000,
+      "regression_factor": 1.6,
+      "note": "Current-head HashKey read; allows the observed sled point-get curve without permitting field materialization."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "indexed_point_lookup",
+      "id": "100000",
+      "baseline_ns": 220000,
+      "regression_factor": 1.6,
+      "note": "Current-head HashKey read; 100k pays the larger sled atom-body get tree cost after mhk marker optimization."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "point_lookup_vs_schema_count",
+      "id": "1",
+      "baseline_ns": 28000,
+      "regression_factor": 1.6,
+      "note": "Keyed point lookup vs SCHEMA COUNT (registry-clone dimension), fixed 1K corpus, 1 extra schema. MUST stay FLAT across schema count 1/10/100/500 — a climb with K is the O(N-schema) per-query registry clone behind the 2026-06-20 :9001 wedge (the dimension every other group is blind to, since they load one schema)."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "point_lookup_vs_schema_count",
+      "id": "10",
+      "baseline_ns": 28000,
+      "regression_factor": 1.6,
+      "note": "Keyed point lookup vs schema count, fixed 1K corpus, 10 extra schemas (some superseded). MUST stay FLAT vs schema count — guards the O(N-schema) registry clone (2026-06-20 wedge)."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "point_lookup_vs_schema_count",
+      "id": "100",
+      "baseline_ns": 31000,
+      "regression_factor": 1.6,
+      "note": "Keyed point lookup vs schema count, fixed 1K corpus, 100 extra schemas (some superseded). MUST stay FLAT vs schema count — guards the O(N-schema) registry clone (2026-06-20 wedge)."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "point_lookup_vs_schema_count",
+      "id": "500",
+      "baseline_ns": 42000,
+      "regression_factor": 1.6,
+      "note": "Keyed point lookup vs schema count, fixed 1K corpus, 500 extra schemas (some superseded). MUST stay sub-linear vs schema count — a >1.6x climb here is the O(N-schema) per-query registry deep-clone returning (the 2026-06-20 :9001 wedge had this exact axis with zero bench coverage)."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "realistic_message_lookup",
+      "id": "10000",
+      "baseline_ns": 35000,
+      "regression_factor": 1.6,
+      "note": "Realistic-shape O(1) point lookup; MUST stay flat."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "realistic_message_lookup",
+      "id": "50000",
+      "baseline_ns": 35000,
+      "regression_factor": 1.6,
+      "note": "Realistic-shape O(1) point lookup; MUST stay flat."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "realistic_message_lookup",
+      "id": "100000",
+      "baseline_ns": 60000,
+      "regression_factor": 1.6,
+      "note": "Realistic-shape O(1) point lookup; 100k retains a tighter relative guard while allowing the larger sled atom-body get tree cost after mhk marker optimization."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "indexed_full_read",
+      "id": "1000",
+      "baseline_ns": 7200000,
+      "note": "Unfiltered full-field read; linear by design, guard against blowups."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "indexed_full_read",
+      "id": "10000",
+      "baseline_ns": 55000000,
+      "note": "Unfiltered full-field read; linear by design."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "indexed_full_read",
+      "id": "50000",
+      "baseline_ns": 288000000,
+      "note": "Unfiltered full-field read; linear by design."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "indexed_full_read",
+      "id": "100000",
+      "baseline_ns": 615000000,
+      "note": "Unfiltered full-field read; linear by design."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "value_filter_scan",
+      "id": "1000",
+      "baseline_ns": 22000000,
+      "note": "Value-filter SCAN (full-span Page + numeric value_filters, FIXED ~100-row result in a growing corpus) — the SampleN/bulk-scan dimension behind the 2026-06-20 :9001 wedge that every other query group is blind to (they all set value_filters: None). Unindexed, so O(corpus) by design (UPPER-BOUND case, default 2.0x guard like schema_scan); the curve must stay ~LINEAR in corpus — a super-linear blowup (N² re-scan / per-row result clone) is the regression. Captured on a loaded shared host (~17.5ms median); RELATIVE ceiling only."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "value_filter_scan",
+      "id": "10000",
+      "baseline_ns": 220000000,
+      "note": "Value-filter scan, 10K corpus / fixed ~100-row result. ~10x the 1K case = ~linear in corpus by design (the unindexed scan must materialize + inspect every record's value before dropping non-matches). Guards against a super-linear scan/return-path blowup. Captured on a loaded shared host (~177ms median); RELATIVE ceiling only."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "value_filter_scan",
+      "id": "50000",
+      "baseline_ns": 1150000000,
+      "note": "Value-filter scan, 50K corpus / fixed ~100-row result. ~linear in corpus (the upper-bound unindexed scan). Captured on a loaded shared host (~921ms median); RELATIVE ceiling only."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "value_filter_scan",
+      "id": "100000",
+      "baseline_ns": 2300000000,
+      "note": "Value-filter scan, 100K corpus / fixed ~100-row result. ~linear in corpus; the 2.0x relative guard trips on a super-linear return-path blowup (the exact allocation/CPU shape the SampleN(10_000) abuse wedged :9001 with). Captured on a loaded shared host (~1.86s median); RELATIVE ceiling only — if a value index is ever added for this path, RE-CAPTURE (the curve should flatten and the baseline should drop sharply)."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "hashrange_page_list_vs_N",
+      "id": "1000",
+      "baseline_ns": 1000000,
+      "regression_factor": 1.6,
+      "note": "HashRange Page{0,50} list through the range-major mhr secondary index. MUST stay flat across cardinality; a climb with N means the old full key-scan/decode/sort path returned."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "hashrange_page_list_vs_N",
+      "id": "10000",
+      "baseline_ns": 1000000,
+      "regression_factor": 1.6,
+      "note": "HashRange Page{0,50} list through the range-major mhr secondary index. MUST stay flat across cardinality."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "hashrange_page_list_vs_N",
+      "id": "50000",
+      "baseline_ns": 1000000,
+      "regression_factor": 1.6,
+      "note": "HashRange Page{0,50} list through the range-major mhr secondary index. MUST stay flat across cardinality."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "hashrange_page_list_vs_N",
+      "id": "100000",
+      "baseline_ns": 1000000,
+      "regression_factor": 1.6,
+      "note": "HashRange Page{0,50} list through the range-major mhr secondary index. MUST stay flat across cardinality."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "count_rows_vs_field_count",
+      "id": "1",
+      "baseline_ns": 190000000,
+      "regression_factor": 1.6,
+      "note": "Exact tombstone-correct count_rows with a key-field-backed field set, 2K-row corpus, 1 requested field. Captured cold/outlier-heavy at ~160ms on 2026-07-03; guards the count path against returning to serial per-atom awaits."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "count_rows_vs_field_count",
+      "id": "3",
+      "baseline_ns": 22000000,
+      "regression_factor": 1.6,
+      "note": "Exact tombstone-correct count_rows with a key-field-backed field set, 2K-row corpus, 3 requested fields. MUST stay near-flat versus requested field count; a climb means count_rows is resolving every requested data field again."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "count_rows_vs_field_count",
+      "id": "5",
+      "baseline_ns": 25000000,
+      "regression_factor": 1.6,
+      "note": "Exact tombstone-correct count_rows with a key-field-backed field set, 2K-row corpus, 5 requested fields. MUST stay near-flat versus requested field count; a climb means count_rows is resolving every requested data field again."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "count_rows_vs_row_count",
+      "id": "100",
+      "baseline_ns": 10000000,
+      "regression_factor": 1.6,
+      "note": "Exact tombstone-correct count_rows over the count-bearing key field, 100-row corpus. Guards the row-count axis independently from requested field count."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "count_rows_vs_row_count",
+      "id": "1000",
+      "baseline_ns": 13000000,
+      "regression_factor": 1.6,
+      "note": "Exact tombstone-correct count_rows over the count-bearing key field, 1K-row corpus. A large jump means per-row storage fetches are serializing again."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "count_rows_vs_row_count",
+      "id": "5000",
+      "baseline_ns": 50000000,
+      "regression_factor": 1.6,
+      "note": "Exact tombstone-correct count_rows over the count-bearing key field, 5K-row corpus. Should remain tens of milliseconds, not seconds."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "concurrent_list_reads",
+      "id": "1",
+      "baseline_ns": 58000000,
+      "note": "Concurrent unfiltered reads; the load shape that wedged :9001."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "concurrent_list_reads",
+      "id": "8",
+      "baseline_ns": 132000000,
+      "note": "Concurrent unfiltered reads; watch for throughput collapse."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "concurrent_list_reads",
+      "id": "32",
+      "baseline_ns": 492000000,
+      "note": "Concurrent unfiltered reads; watch for lock-convoy regression."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "concurrent_mixed_read_write",
+      "id": "1",
+      "baseline_ns": 40000,
+      "note": "MIXED LOAD: reader point-lookup latency at concurrency 1 WHILE a steady background writer streams keyed batches at the same corpus. The 2026-06-20 :9001 wedge was a mixed-load convoy (routines reading while writes landed) that the read-only concurrent_list_reads and the timing-free storage_stress_test mixed-correctness test both miss. 2.0x relative guard: writers must not convoy readers. ~38us measured; conservative ceiling."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "concurrent_mixed_read_write",
+      "id": "8",
+      "baseline_ns": 130000,
+      "note": "MIXED LOAD: reader point-lookup latency at concurrency 8 under steady write load. 2.0x relative guard against a writer-induced reader convoy (the 06-20 mixed-load wedge shape). ~125us measured; conservative ceiling."
+    },
+    {
+      "bench": "query_path_bench",
+      "group": "concurrent_mixed_read_write",
+      "id": "32",
+      "baseline_ns": 460000,
+      "note": "MIXED LOAD: reader point-lookup latency at concurrency 32 under steady write load. 2.0x relative guard against a writer-induced reader convoy (the 06-20 mixed-load wedge shape). ~445us measured; conservative ceiling."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "keyed_update_write",
+      "id": "1000",
+      "baseline_ns": 50000000,
+      "note": "Per-key write into a populated field; sub-linear, relative guard."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "keyed_update_write",
+      "id": "10000",
+      "baseline_ns": 55000000,
+      "note": "Per-key write into a populated field; sub-linear, relative guard."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "keyed_update_write",
+      "id": "50000",
+      "baseline_ns": 105000000,
+      "fast_guard_optional": true,
+      "note": "Per-key write into a populated field; sub-linear, relative guard."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "keyed_update_write",
+      "id": "100000",
+      "baseline_ns": 180000000,
+      "fast_guard_optional": true,
+      "note": "Per-key write into a populated field; sub-linear, relative guard."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "batch_write_payload",
+      "id": "1",
+      "baseline_ns": 55000000,
+      "note": "Batched mutation write (~8 KB content/atom) through the full MutationManager write funnel; surfaces the canonical-prefix atom-batch clone dropped in this PR. Re-captured 2026-06-25 on Apple M4 Max with load averages 4.20/2.44/2.32; two targeted Criterion runs measured medians ~45-47 ms, so this rounded 55 ms baseline stays conservative for the relative guard."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "batch_write_payload",
+      "id": "32",
+      "baseline_ns": 60000000,
+      "note": "Batched mutation write (~8 KB content/atom) through the full MutationManager write funnel; surfaces the canonical-prefix atom-batch clone dropped in this PR. Re-captured 2026-06-25 on Apple M4 Max with load averages 4.20/2.44/2.32; two targeted Criterion runs measured medians ~49-51 ms, so this rounded 60 ms baseline stays conservative for the relative guard."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "batch_write_payload",
+      "id": "256",
+      "baseline_ns": 150000000,
+      "note": "Batched mutation write (~8 KB content/atom) through the full MutationManager write funnel; surfaces the canonical-prefix atom-batch clone dropped in this PR. Re-captured 2026-06-25 on Apple M4 Max with load averages 4.20/2.44/2.32; two targeted Criterion runs measured medians ~118-122 ms, so this rounded 150 ms baseline stays conservative for the relative guard."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "batch_store",
+      "id": "1",
+      "baseline_ns": 30000000,
+      "note": "Raw DbOperations::batch_store_atoms write throughput, one atom per fresh DB iteration. Re-captured on the loaded scheduled-routine host on 2026-07-19; Criterion median ~25.7 ms, rounded to 30 ms for shared-host noise. Relative 2.0x guard still catches gross write-throughput regressions."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "batch_store",
+      "id": "10",
+      "baseline_ns": 15000000,
+      "note": "Raw batch_store_atoms write throughput, ten atoms per fresh DB iteration. Captured 2026-07-15; Criterion median ~11.86 ms, rounded up for shared-host noise."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "batch_store",
+      "id": "100",
+      "baseline_ns": 4000000,
+      "note": "Raw batch_store_atoms write throughput, 100 atoms per fresh DB iteration. Captured 2026-07-15; Criterion median ~3.22 ms, rounded up. The mean was higher due to fresh-DB outliers, but bench-compare guards Criterion medians."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "batch_store",
+      "id": "1000",
+      "baseline_ns": 85000000,
+      "note": "Raw batch_store_atoms write throughput, 1000 atoms per fresh DB iteration. Captured 2026-07-15; Criterion median ~82.01 ms, rounded up. Kept guarded because the weekly/on-demand bench job already runs this case."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "schema_scan",
+      "id": "1000",
+      "baseline_ns": 7000000,
+      "note": "Degenerate result==corpus listing (the schema owns the whole store). Index-backed through the local-only schema_index namespace, but the result IS every atom, so linear by design; upper-bound companion to schema_scan_indexed."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "schema_scan",
+      "id": "10000",
+      "baseline_ns": 75000000,
+      "note": "Result==corpus listing of 10K atoms (one schema_index scan plus atom-body fetches returning every atom). Linear in result by design; relative guard against a return-path blowup."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "schema_scan_indexed",
+      "id": "1000",
+      "baseline_ns": 7000000,
+      "regression_factor": 1.6,
+      "note": "Secondary-index scan through the local-only schema_index namespace, FIXED 500-atom result in a growing corpus; MUST stay flat across cardinality. Re-captured on the loaded scheduled-routine host at ~4-7ms medians, rounded to a shared flat 7ms baseline. A curve that climbs with corpus = a regression back to the full scan."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "schema_scan_indexed",
+      "id": "10000",
+      "baseline_ns": 7000000,
+      "regression_factor": 1.6,
+      "note": "Secondary-index scan through the local-only schema_index namespace, FIXED 500-atom result; MUST stay flat across cardinality. Same 7ms shared-host baseline as the other schema_scan_indexed cardinalities."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "schema_scan_indexed",
+      "id": "50000",
+      "baseline_ns": 7000000,
+      "regression_factor": 1.6,
+      "note": "Secondary-index scan through the local-only schema_index namespace, FIXED 500-atom result; MUST stay flat across cardinality. Same 7ms shared-host baseline as the other schema_scan_indexed cardinalities."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "schema_scan_indexed",
+      "id": "100000",
+      "baseline_ns": 7000000,
+      "regression_factor": 1.6,
+      "note": "Secondary-index scan through the local-only schema_index namespace, FIXED 500-atom result; MUST stay flat across cardinality. Same 7ms shared-host baseline as the other schema_scan_indexed cardinalities; the 100K case was ~130ms on the old full scan."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "storage_breakdown",
+      "id": "1000",
+      "baseline_ns": 15000000,
+      "note": "Per-schema logical storage metering attribution with a fixed 500 target atoms and 1K total corpus. Current implementation scans canonical atom rows and filters, so this is linear in total corpus; relative ceiling only."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "storage_breakdown",
+      "id": "10000",
+      "baseline_ns": 150000000,
+      "note": "Per-schema logical storage metering attribution with a fixed 500 target atoms and 10K total corpus. Expected linear curve for the current canonical atom scan implementation; relative ceiling only."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "storage_breakdown",
+      "id": "50000",
+      "baseline_ns": 800000000,
+      "fast_guard_optional": true,
+      "note": "Per-schema logical storage metering attribution with a fixed 500 target atoms and 50K total corpus. Optional in fast guard to keep scheduled bench time bounded; re-capture if storage_breakdown moves to index-backed enumeration."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "atom_refcount_tip_write_vs_catalog_refs",
+      "id": "0",
+      "baseline_ns": 125000000,
+      "note": "Full tip-changing mutation with no catalog aliases. Control for the exact per-molecule catalog counter lookup sweep; shared-host fast-guard median was ~103ms."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "atom_refcount_tip_write_vs_catalog_refs",
+      "id": "16",
+      "baseline_ns": 175000000,
+      "note": "Full tip-changing mutation with 16 catalog aliases. The hot path reads one exact durable per-molecule counter, not 16 molecule-edge rows; shared-host fast-guard median was ~144ms."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "atom_refcount_tip_write_vs_catalog_refs",
+      "id": "64",
+      "baseline_ns": 225000000,
+      "note": "Full tip-changing mutation with 64 catalog aliases. Guards the bounded counter lookup against a return to a per-alias edge scan; shared-host fast-guard median was ~190ms."
+    },
+    {
+      "bench": "db_operations_bench",
+      "group": "point_read",
+      "id": "get_atom_by_uuid",
+      "baseline_ns": 9000,
+      "regression_factor": 1.6,
+      "note": "O(1) storage-core point read; MUST stay flat."
+    },
+    {
+      "bench": "encrypt_scan_bench",
+      "group": "schema_load_at_boot",
+      "id": "encrypted/16",
+      "baseline_ns": 100000,
+      "note": "Schema-load-at-boot: get_all_schemas() over the encrypted `schemas` namespace, 16 schemas (a realistic small set). ~2x the plaintext control (~49us) — the per-row AES-256-GCM decrypt cost on the boot scan; sub-ms at realistic sizes. Captured on a loaded shared host with short criterion timing; RELATIVE ceiling only. Guards against a regression in the decrypt path (e.g. per-row key re-derivation)."
+    },
+    {
+      "bench": "encrypt_scan_bench",
+      "group": "schema_load_at_boot",
+      "id": "encrypted/256",
+      "baseline_ns": 1400000,
+      "note": "Schema-load-at-boot over the encrypted `schemas` namespace, 256 schemas. ~2.1x the plaintext control (~641us). RELATIVE ceiling only (loaded host, short timing)."
+    },
+    {
+      "bench": "encrypt_scan_bench",
+      "group": "schema_load_at_boot",
+      "id": "encrypted/1000",
+      "baseline_ns": 5600000,
+      "note": "Schema-load-at-boot over the encrypted `schemas` namespace, 1000 schemas (stress). ~2.2x the plaintext control (~2.54ms). RELATIVE ceiling only (loaded host, short timing)."
+    },
+    {
+      "bench": "encrypt_scan_bench",
+      "group": "encrypted_namespace_scan",
+      "id": "encrypted/1000",
+      "baseline_ns": 3100000,
+      "note": "Lineage-style bulk scan: scan_prefix over the encrypted `lineage_forward` namespace (the exact EncryptingKvStore::scan_prefix per-row AES-open path the lineage_forward/reverse traversal lands on), 1000 ~256-byte rows. ~15x the plaintext control (~204us) = ~2.8us/row decrypt. Material on a large lineage scan, but those namespaces have no production writers yet (scaffolding). Captured on a loaded shared host with short criterion timing; RELATIVE ceiling only."
+    },
+    {
+      "bench": "encrypt_scan_bench",
+      "group": "encrypted_namespace_scan",
+      "id": "encrypted/10000",
+      "baseline_ns": 31000000,
+      "note": "Encrypted lineage-style bulk scan, 10000 rows. ~15x the plaintext control (~1.98ms); ~linear in row count (~2.8us/row decrypt) by design. RELATIVE ceiling only (loaded host, short timing)."
+    },
+    {
+      "bench": "encrypt_scan_bench",
+      "group": "encrypted_namespace_scan",
+      "id": "encrypted/50000",
+      "baseline_ns": 155000000,
+      "note": "Encrypted lineage-style bulk scan, 50000 rows. ~15x the plaintext control (~10.2ms); ~linear in row count. Guards against a superlinear blowup in the per-row decrypt path. RELATIVE ceiling only (loaded host, short timing)."
+    }
+  ]
+}

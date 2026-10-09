@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:edgevector:schema-service:resolver-config:v1",
+  "title": "Native schema resolver configuration v1",
+  "description": "Signed declarative policy for native_component_cover@1. This document contains no executable behavior or artifact locations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version",
+    "resolver_contract_version",
+    "algorithm",
+    "policy_version",
+    "rollout",
+    "candidate_generation",
+    "scoring",
+    "permissions",
+    "limits"
+  ],
+  "properties": {
+    "format_version": {
+      "const": 1
+    },
+    "resolver_contract_version": {
+      "const": 1
+    },
+    "algorithm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": {
+          "const": "native_component_cover"
+        },
+        "version": {
+          "const": 1
+        }
+      }
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "rollout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested_mode"],
+      "properties": {
+        "requested_mode": {
+          "enum": ["disabled", "shadow", "enforce_reuse_only"]
+        }
+      }
+    },
+    "candidate_generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_candidates",
+        "field_candidates_per_schema",
+        "component_candidates",
+        "max_components_per_resolution",
+        "require_compatible_field_types",
+        "allow_deprecated_schemas"
+      ],
+      "properties": {
+        "schema_candidates": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        },
+        "field_candidates_per_schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "component_candidates": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "max_components_per_resolution": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "require_compatible_field_types": {
+          "const": true
+        },
+        "allow_deprecated_schemas": {
+          "const": false
+        }
+      }
+    },
+    "scoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "similarity_metric",
+        "schema",
+        "field",
+        "coverage",
+        "components"
+      ],
+      "properties": {
+        "similarity_metric": {
+          "const": "cosine"
+        },
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "descriptive_name_min_similarity",
+            "use_existing_min_score",
+            "ambiguity_margin",
+            "weights"
+          ],
+          "properties": {
+            "descriptive_name_min_similarity": {
+              "$ref": "#/$defs/unitInterval"
+            },
+            "use_existing_min_score": {
+              "$ref": "#/$defs/unitInterval"
+            },
+            "ambiguity_margin": {
+              "$ref": "#/$defs/unitInterval"
+            },
+            "weights": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["descriptive_name", "field_match"],
+              "properties": {
+                "descriptive_name": {
+                  "$ref": "#/$defs/unitInterval"
+                },
+                "field_match": {
+                  "$ref": "#/$defs/unitInterval"
+                }
+              }
+            }
+          }
+        },
+        "field": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "context_min_similarity",
+            "canonical_min_similarity",
+            "ambiguity_margin"
+          ],
+          "properties": {
+            "context_min_similarity": {
+              "$ref": "#/$defs/unitInterval"
+            },
+            "canonical_min_similarity": {
+              "$ref": "#/$defs/unitInterval"
+            },
+            "ambiguity_margin": {
+              "$ref": "#/$defs/unitInterval"
+            }
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min_fields", "min_required_fields"],
+          "properties": {
+            "min_fields": {
+              "$ref": "#/$defs/unitInterval"
+            },
+            "min_required_fields": {
+              "$ref": "#/$defs/unitInterval"
+            }
+          }
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min_score"],
+          "properties": {
+            "min_score": {
+              "$ref": "#/$defs/unitInterval"
+            }
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use_existing",
+        "use_components",
+        "expand_existing",
+        "create_canonical_schema"
+      ],
+      "properties": {
+        "use_existing": {
+          "type": "boolean"
+        },
+        "use_components": {
+          "type": "boolean"
+        },
+        "expand_existing": {
+          "const": false
+        },
+        "create_canonical_schema": {
+          "const": false
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_proposal_fields",
+        "max_registry_schemas",
+        "max_embedding_dimensions",
+        "max_work_units"
+      ],
+      "properties": {
+        "max_proposal_fields": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "max_registry_schemas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "max_embedding_dimensions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "max_work_units": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
+      }
+    }
+  },
+  "$defs": {
+    "unitInterval": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  }
+}

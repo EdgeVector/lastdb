@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "PublicationIssue",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "issue_number": [
+      "number"
+    ],
+    "page_end": [
+      "number"
+    ],
+    "page_start": [
+      "number"
+    ],
+    "pagination": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "issue_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "page_end": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "page_start": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pagination": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "issue_number": "Identifies the issue of publication; for example, \"iii\" or \"2\".",
+    "page_end": "The page on which the work ends; for example \"138\" or \"xvi\".",
+    "page_start": "The page on which the work starts; for example \"135\" or \"xiii\".",
+    "pagination": "Any description of pages that is not separated into pageStart and pageEnd; for example, \"1-6, 9, 55\" or \"10-12, 46-49\"."
+  },
+  "field_types": {
+    "identifier": "String",
+    "issue_number": "Integer",
+    "page_end": "Integer",
+    "page_start": "Integer",
+    "pagination": "String"
+  },
+  "fields": [
+    "identifier",
+    "issue_number",
+    "page_end",
+    "page_start",
+    "pagination"
+  ],
+  "identity_hash": "e6c39a749b43934c6fe08c5145b721b4d0d3785194dfd780b6dffe6cb10a5b23",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e6c39a749b43934c6fe08c5145b721b4d0d3785194dfd780b6dffe6cb10a5b23",
+  "purpose_statement": "PublicationIssue",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

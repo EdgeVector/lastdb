@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Duration",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "5466cd93796aa1cedcc4a23e0c1c9881fa4f6827e408501595df8a6016255e1a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5466cd93796aa1cedcc4a23e0c1c9881fa4f6827e408501595df8a6016255e1a",
+  "purpose_statement": "Duration",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

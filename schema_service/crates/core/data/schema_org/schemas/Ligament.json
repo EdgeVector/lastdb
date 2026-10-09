@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Ligament",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "89e262782d17a0104f294e04d225d3c34e9ff3bab1c7f82b03359cc821f16e53",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "89e262782d17a0104f294e04d225d3c34e9ff3bab1c7f82b03359cc821f16e53",
+  "purpose_statement": "Ligament",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

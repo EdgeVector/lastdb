@@ -1,0 +1,4 @@
+LastDB ingestion app fixture.
+
+This deterministic note proves a zero-UI sidecar can summarize a file, write
+app-scoped progress and result rows through the SDK, then read the result back.

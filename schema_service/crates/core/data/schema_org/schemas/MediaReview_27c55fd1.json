@@ -1,0 +1,78 @@
+{
+  "descriptive_name": "MediaReview",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "media_authenticity_category": [
+      "word"
+    ],
+    "media_item_appearance": [
+      "word"
+    ],
+    "original_media_context_description": [
+      "word"
+    ],
+    "original_media_link": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "media_authenticity_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "media_item_appearance": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "original_media_context_description": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "original_media_link": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "media_authenticity_category": "Indicates a MediaManipulationRatingEnumeration classification of a media object (in the context of how it was published or shared).",
+    "media_item_appearance": "In the context of a [[MediaReview]], indicates specific media item(s) that are grouped using a [[MediaReviewItem]].",
+    "original_media_context_description": "Describes, in a [[MediaReview]] when dealing with [[DecontextualizedContent]], background information that can contribute to better interpretation of the [[MediaObject]].",
+    "original_media_link": "Link to the page containing an original version of the content, or directly to an online copy of the original [[MediaObject]] content, e.g. video file."
+  },
+  "field_mappers": {
+    "identifier": "5979a1e9ce6c16eda1b9971cd1f4382cc03f14f5192a6465688169c59a032e9a.identifier",
+    "media_authenticity_category": "5979a1e9ce6c16eda1b9971cd1f4382cc03f14f5192a6465688169c59a032e9a.media_authenticity_category",
+    "original_media_context_description": "5979a1e9ce6c16eda1b9971cd1f4382cc03f14f5192a6465688169c59a032e9a.original_media_context_description",
+    "original_media_link": "5979a1e9ce6c16eda1b9971cd1f4382cc03f14f5192a6465688169c59a032e9a.original_media_link"
+  },
+  "field_types": {
+    "identifier": "String",
+    "media_authenticity_category": "String",
+    "media_item_appearance": "String",
+    "original_media_context_description": "String",
+    "original_media_link": "String"
+  },
+  "fields": [
+    "identifier",
+    "media_authenticity_category",
+    "original_media_context_description",
+    "original_media_link",
+    "media_item_appearance"
+  ],
+  "identity_hash": "27c55fd1af0d26c8118764c3e833ffeb5c15889c604ed45a6fae72fd7c18d02c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "27c55fd1af0d26c8118764c3e833ffeb5c15889c604ed45a6fae72fd7c18d02c",
+  "purpose_statement": "MediaReviewItem",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

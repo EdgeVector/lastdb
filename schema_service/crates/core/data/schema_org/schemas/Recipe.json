@@ -1,0 +1,132 @@
+{
+  "descriptive_name": "Recipe",
+  "field_classifications": {
+    "cook_time": [
+      "word"
+    ],
+    "cooking_method": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "ingredients": [
+      "word"
+    ],
+    "nutrition": [
+      "word"
+    ],
+    "recipe_category": [
+      "word"
+    ],
+    "recipe_cuisine": [
+      "word"
+    ],
+    "recipe_ingredient": [
+      "word"
+    ],
+    "recipe_instructions": [
+      "word"
+    ],
+    "recipe_yield": [
+      "word"
+    ],
+    "suitable_for_diet": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "cook_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "cooking_method": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "ingredients": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "nutrition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "recipe_category": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "recipe_cuisine": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "recipe_ingredient": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "recipe_instructions": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "recipe_yield": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "suitable_for_diet": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "cook_time": "The time it takes to actually cook the dish, in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601).",
+    "cooking_method": "The method of cooking, such as Frying, Steaming, ...",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "ingredients": "A single ingredient used in the recipe, e.g. sugar, flour or garlic.",
+    "nutrition": "Nutrition information about the recipe or menu item.",
+    "recipe_category": "The category of the recipe—for example, appetizer, entree, etc.",
+    "recipe_cuisine": "The cuisine of the recipe (for example, French or Ethiopian).",
+    "recipe_ingredient": "An ingredient or ordered list of ingredients and potentially quantities used in the recipe, e.g. 1 cup of sugar, flour or garlic.  The ingredients can be represented as free text or more structured values.",
+    "recipe_instructions": "A step in making the recipe, in the form of a single item (document, video, etc.) or an ordered list with HowToStep and/or HowToSection items.",
+    "recipe_yield": "The quantity produced by the recipe (for example, number of people served, number of servings, etc).",
+    "suitable_for_diet": "Indicates a dietary restriction or guideline for which this recipe or menu item is suitable, e.g. diabetic, halal etc."
+  },
+  "field_types": {
+    "cook_time": "String",
+    "cooking_method": "String",
+    "identifier": "String",
+    "ingredients": "String",
+    "nutrition": "String",
+    "recipe_category": "String",
+    "recipe_cuisine": "String",
+    "recipe_ingredient": "String",
+    "recipe_instructions": "String",
+    "recipe_yield": "String",
+    "suitable_for_diet": "String"
+  },
+  "fields": [
+    "cook_time",
+    "cooking_method",
+    "identifier",
+    "ingredients",
+    "nutrition",
+    "recipe_category",
+    "recipe_cuisine",
+    "recipe_ingredient",
+    "recipe_instructions",
+    "recipe_yield",
+    "suitable_for_diet"
+  ],
+  "identity_hash": "d6ab1a54bf1ec27923261e13fd90c8c4f4e3fee52ab91c44f8f2246f1a05b42d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d6ab1a54bf1ec27923261e13fd90c8c4f4e3fee52ab91c44f8f2246f1a05b42d",
+  "purpose_statement": "Recipe",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,47 @@
+# fold_db
+
+Core library of the `EdgeVector/fold` workspace (`crates/{core,observability}`).
+Local, schema-based database engine (LastStore-backed) with optional encrypted
+Exemem cloud sync. **Library only — no UI, no React app, no desktop shell.**
+
+Product surface is LastDB Mini in sibling crate `lastdb_node` (`lastdb` +
+`lastdbd` over the owner Unix socket). Desktop/Tauri/`fold_db_node` + the old
+embedded React UI were deleted in the Mini-only cutover (2026-07-12); restore
+point branch: `archive/desktop-dmg-pre-removal`. Do not resurrect them here.
+
+## Canonical commands
+
+Run from the **workspace root** (`EdgeVector/fold`), not this subdirectory.
+
+```bash
+cargo build -p fold_db
+cargo clippy -p fold_db --all-targets -- -D warnings
+cargo test -p fold_db --lib
+cargo test -p fold_db --test <integration_test_name>
+cargo fmt -p fold_db
+```
+
+For the product daemon/CLI:
+
+```bash
+cargo build -p lastdb_node
+cargo test -p lastdb_node
+```
+
+PR / merge: venue is **GitHub** for fold (`gh -R EdgeVector/fold`).
+LastGit and the Forgejo copy are retired.
+
+## Ask the brain for anything project-specific
+
+This file holds commands and cutover boundaries only. For architecture, error
+idioms, feature flags, the security model, and gotchas, ask the brain
+(`brain ask "<q>"` / `brain get <slug>`):
+
+- `concepts-lastdb-agent-access-model` — Dynamo-style access patterns (not SQL)
+- `concepts-fold-error-handling-idioms` — `From<SourceError>` + `?`, error types
+- `concepts-fold-build-test-ci-safety` — fmt gate, offline test sweep, lints
+- `concepts-fold-schema-service` — the schema service fold_db consumes as a client
+- `concepts-observability-conventions` — tracing/redaction/spawn/egress rules
+- `completed-programs` — closed product surfaces (Desktop/Tauri/web UI — do not resurrect)
+
+See also: workspace-root `CLAUDE.md`, `README.md`, `../schema_service/openapi.yaml`.

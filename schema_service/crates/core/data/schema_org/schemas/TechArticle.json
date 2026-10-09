@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "TechArticle",
+  "field_classifications": {
+    "dependencies": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "proficiency_level": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "dependencies": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "proficiency_level": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "dependencies": "Prerequisites needed to fulfill steps in article.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "proficiency_level": "Proficiency needed for this content; expected values: 'Beginner', 'Expert'."
+  },
+  "field_types": {
+    "dependencies": "String",
+    "identifier": "String",
+    "proficiency_level": "String"
+  },
+  "fields": [
+    "dependencies",
+    "identifier",
+    "proficiency_level"
+  ],
+  "identity_hash": "1bb15bd032f6c1f83ca319e2f8992d5f227265c1b8bdb5ac6fcdb6976aaa7f0a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1bb15bd032f6c1f83ca319e2f8992d5f227265c1b8bdb5ac6fcdb6976aaa7f0a",
+  "purpose_statement": "TechArticle",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

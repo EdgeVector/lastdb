@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "RepaymentSpecification",
+  "field_classifications": {
+    "down_payment": [
+      "number"
+    ],
+    "early_prepayment_penalty": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "loan_payment_amount": [
+      "word"
+    ],
+    "loan_payment_frequency": [
+      "number"
+    ],
+    "number_of_loan_payments": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "down_payment": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "early_prepayment_penalty": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "loan_payment_amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "loan_payment_frequency": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "number_of_loan_payments": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "down_payment": "a type of payment made in cash during the onset of the purchase of an expensive good/service. The payment typically represents only a percentage of the full purchase price.",
+    "early_prepayment_penalty": "The amount to be paid as a penalty in the event of early payment of the loan.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "loan_payment_amount": "The amount of money to pay in a single payment.",
+    "loan_payment_frequency": "Frequency of payments due, i.e. number of months between payments. This is defined as a frequency, i.e. the reciprocal of a period of time.",
+    "number_of_loan_payments": "The number of payments contractually required at origination to repay the loan. For monthly paying loans this is the number of months from the contractual first payment date to the maturity date."
+  },
+  "field_types": {
+    "down_payment": "Float",
+    "early_prepayment_penalty": "String",
+    "identifier": "String",
+    "loan_payment_amount": "String",
+    "loan_payment_frequency": "Float",
+    "number_of_loan_payments": "Float"
+  },
+  "fields": [
+    "down_payment",
+    "early_prepayment_penalty",
+    "identifier",
+    "loan_payment_amount",
+    "loan_payment_frequency",
+    "number_of_loan_payments"
+  ],
+  "identity_hash": "18635704d657875a9630850f9d3313df07c1077ffb737b1ba677c7ae2bbc8861",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "18635704d657875a9630850f9d3313df07c1077ffb737b1ba677c7ae2bbc8861",
+  "purpose_statement": "RepaymentSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

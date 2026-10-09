@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MusicAlbumProductionType",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "c089d41c9ce6d1b626fa4ab96deb98852aaf0987d437f5ee81a97a5d30e499be",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c089d41c9ce6d1b626fa4ab96deb98852aaf0987d437f5ee81a97a5d30e499be",
+  "purpose_statement": "MusicAlbumProductionType",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

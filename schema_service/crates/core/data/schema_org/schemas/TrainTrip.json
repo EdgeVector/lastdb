@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "TrainTrip",
+  "field_classifications": {
+    "arrival_platform": [
+      "word"
+    ],
+    "arrival_station": [
+      "word"
+    ],
+    "departure_platform": [
+      "word"
+    ],
+    "departure_station": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "train_name": [
+      "word"
+    ],
+    "train_number": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "arrival_platform": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "arrival_station": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "departure_platform": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "departure_station": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "train_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "train_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "arrival_platform": "The platform where the train arrives.",
+    "arrival_station": "The station where the train trip ends.",
+    "departure_platform": "The platform from which the train departs.",
+    "departure_station": "The station from which the train departs.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "train_name": "The name of the train (e.g. The Orient Express).",
+    "train_number": "The unique identifier for the train."
+  },
+  "field_types": {
+    "arrival_platform": "String",
+    "arrival_station": "String",
+    "departure_platform": "String",
+    "departure_station": "String",
+    "identifier": "String",
+    "train_name": "String",
+    "train_number": "String"
+  },
+  "fields": [
+    "arrival_platform",
+    "arrival_station",
+    "departure_platform",
+    "departure_station",
+    "identifier",
+    "train_name",
+    "train_number"
+  ],
+  "identity_hash": "dddbd58ff6b5556e63c01bc3409032690f412a1d28c584961355bdc84631897d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "dddbd58ff6b5556e63c01bc3409032690f412a1d28c584961355bdc84631897d",
+  "purpose_statement": "TrainTrip",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

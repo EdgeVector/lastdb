@@ -1,0 +1,102 @@
+{
+  "descriptive_name": "ShippingRateSettings",
+  "field_classifications": {
+    "does_not_ship": [
+      "word"
+    ],
+    "free_shipping_threshold": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "is_unlabelled_fallback": [
+      "word"
+    ],
+    "order_percentage": [
+      "number"
+    ],
+    "shipping_destination": [
+      "word"
+    ],
+    "shipping_rate": [
+      "word"
+    ],
+    "weight_percentage": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "does_not_ship": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "free_shipping_threshold": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_unlabelled_fallback": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "order_percentage": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "shipping_destination": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "shipping_rate": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "weight_percentage": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "does_not_ship": "Indicates when shipping to a particular [[shippingDestination]] is not available.",
+    "free_shipping_threshold": "A monetary value above (or at) which the shipping rate becomes free. Intended to be used via an [[OfferShippingDetails]] with [[shippingSettingsLink]] matching this [[ShippingRateSettings]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_unlabelled_fallback": "This can be marked 'true' to indicate that some published [[DeliveryTimeSettings]] or [[ShippingRateSettings]] are intended to apply to all [[OfferShippingDetails]] published by the same merchant, when referenced by a [[shippingSettingsLink]] in those settings. It is not meaningful to use a 'true' value for this property alongside a transitTimeLabel (for [[DeliveryTimeSettings]]) or shippingLabel (for [[ShippingRateSettings]]), since this property is for use with unlabelled settings.",
+    "order_percentage": "Value representing the fraction of the value of the order that is charged as shipping cost. Example: 0.10 would mean shipping rate is 10% of the total order value.",
+    "shipping_destination": "indicates (possibly multiple) shipping destinations. These can be defined in several ways, e.g. postalCode ranges.",
+    "shipping_rate": "The shipping rate is the cost of shipping to the specified destination. Typically, the maxValue and currency values (of the [[MonetaryAmount]]) are most appropriate.",
+    "weight_percentage": "Value representing the fraction of the weight that is used to compute the shipping price. Example: 0.10 and a shipping weight of 15kg would add $1.5 to the order price, where the $ is the currency of the order."
+  },
+  "field_types": {
+    "does_not_ship": "Boolean",
+    "free_shipping_threshold": "String",
+    "identifier": "String",
+    "is_unlabelled_fallback": "Boolean",
+    "order_percentage": "Float",
+    "shipping_destination": "String",
+    "shipping_rate": "String",
+    "weight_percentage": "Float"
+  },
+  "fields": [
+    "does_not_ship",
+    "free_shipping_threshold",
+    "identifier",
+    "is_unlabelled_fallback",
+    "order_percentage",
+    "shipping_destination",
+    "shipping_rate",
+    "weight_percentage"
+  ],
+  "identity_hash": "b6aac04d7f297b3db7b7cbb023bf0bfe40f52a6f7c5d337f94e6786887df069a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b6aac04d7f297b3db7b7cbb023bf0bfe40f52a6f7c5d337f94e6786887df069a",
+  "purpose_statement": "ShippingRateSettings",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

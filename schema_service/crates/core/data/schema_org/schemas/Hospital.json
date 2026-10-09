@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "Hospital",
+  "field_classifications": {
+    "available_service": [
+      "word"
+    ],
+    "healthcare_reporting_data": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "medical_specialty": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "available_service": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "healthcare_reporting_data": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "medical_specialty": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "available_service": "A medical service available from this provider.",
+    "healthcare_reporting_data": "Indicates data describing a hospital, e.g. a CDC [[CDCPMDRecord]] or as some kind of [[Dataset]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "medical_specialty": "A medical specialty of the provider."
+  },
+  "field_types": {
+    "available_service": "String",
+    "healthcare_reporting_data": "String",
+    "identifier": "String",
+    "medical_specialty": "String"
+  },
+  "fields": [
+    "available_service",
+    "healthcare_reporting_data",
+    "identifier",
+    "medical_specialty"
+  ],
+  "identity_hash": "44768880a658edee499abaceac04ab831dc55de5e1ed935f19c65256e0c66d3e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "44768880a658edee499abaceac04ab831dc55de5e1ed935f19c65256e0c66d3e",
+  "purpose_statement": "Hospital",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

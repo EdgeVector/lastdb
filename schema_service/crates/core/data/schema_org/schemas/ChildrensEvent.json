@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ChildrensEvent",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "cdedce743a998288761e2bb91632f6286a68e3c4bb4f035993f993f613c18064",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "cdedce743a998288761e2bb91632f6286a68e3c4bb4f035993f993f613c18064",
+  "purpose_statement": "ChildrensEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

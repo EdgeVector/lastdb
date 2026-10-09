@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "PaymentCard",
+  "field_classifications": {
+    "cash_back": [
+      "number"
+    ],
+    "contactless_payment": [
+      "word"
+    ],
+    "floor_limit": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "monthly_minimum_repayment_amount": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "cash_back": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "contactless_payment": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "floor_limit": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "monthly_minimum_repayment_amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "cash_back": "A cardholder benefit that pays the cardholder a small percentage of their net expenditures.",
+    "contactless_payment": "A secure method for consumers to purchase products or services via debit, credit or smartcards by using RFID or NFC technology.",
+    "floor_limit": "A floor limit is the amount of money above which credit card transactions must be authorized.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "monthly_minimum_repayment_amount": "The minimum payment is the lowest amount of money that one is required to pay on a credit card statement each month."
+  },
+  "field_types": {
+    "cash_back": "Float",
+    "contactless_payment": "Boolean",
+    "floor_limit": "String",
+    "identifier": "String",
+    "monthly_minimum_repayment_amount": "Float"
+  },
+  "fields": [
+    "cash_back",
+    "contactless_payment",
+    "floor_limit",
+    "identifier",
+    "monthly_minimum_repayment_amount"
+  ],
+  "identity_hash": "61dae2bed4ef6a023fa2cc843e014af60dc94a0fd16abb575671e847b0aa023e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "61dae2bed4ef6a023fa2cc843e014af60dc94a0fd16abb575671e847b0aa023e",
+  "purpose_statement": "PaymentCard",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

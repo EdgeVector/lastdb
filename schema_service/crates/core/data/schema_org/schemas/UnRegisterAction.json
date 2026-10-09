@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "UnRegisterAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "947541466933bbd2391db3fea6592d0f0426726a1e066f708a12855b2be08dc6",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "947541466933bbd2391db3fea6592d0f0426726a1e066f708a12855b2be08dc6",
+  "purpose_statement": "UnRegisterAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

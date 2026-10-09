@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "PlayAction",
+  "field_classifications": {
+    "audience": [
+      "word"
+    ],
+    "event": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "audience": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "event": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "audience": "An intended audience, i.e. a group for whom something was created.",
+    "event": "Upcoming or past event associated with this place, organization, or action.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "audience": "String",
+    "event": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "audience",
+    "event",
+    "identifier"
+  ],
+  "identity_hash": "e82dbf7c88a70c72120cd6ed9845dffb7a1059b46ed5faaf347ff5615a70aaeb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e82dbf7c88a70c72120cd6ed9845dffb7a1059b46ed5faaf347ff5615a70aaeb",
+  "purpose_statement": "PlayAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

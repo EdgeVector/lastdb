@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MathSolver",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "math_expression": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "math_expression": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "math_expression": "A mathematical expression (e.g. 'x^2-3x=0') that may be solved for a specific variable, simplified, or transformed. This can take many formats, e.g. LaTeX, Ascii-Math, or math as you would write with a keyboard."
+  },
+  "field_types": {
+    "identifier": "String",
+    "math_expression": "String"
+  },
+  "fields": [
+    "identifier",
+    "math_expression"
+  ],
+  "identity_hash": "0167d03bf1926b5279ae063571b6ce21bd1175cfad02e5c6dacdef651eb18164",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "0167d03bf1926b5279ae063571b6ce21bd1175cfad02e5c6dacdef651eb18164",
+  "purpose_statement": "MathSolver",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

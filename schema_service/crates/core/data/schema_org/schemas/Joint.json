@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "Joint",
+  "field_classifications": {
+    "biomechnical_class": [
+      "word"
+    ],
+    "functional_class": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "structural_class": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "biomechnical_class": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "functional_class": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "structural_class": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "biomechnical_class": "The biomechanical properties of the bone.",
+    "functional_class": "The degree of mobility the joint allows.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "structural_class": "The name given to how bone physically connects to each other."
+  },
+  "field_types": {
+    "biomechnical_class": "String",
+    "functional_class": "String",
+    "identifier": "String",
+    "structural_class": "String"
+  },
+  "fields": [
+    "biomechnical_class",
+    "functional_class",
+    "identifier",
+    "structural_class"
+  ],
+  "identity_hash": "c7be7efc65206c364b75a5b8728d8bd54331544f1f216062af301c8def46b5bb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c7be7efc65206c364b75a5b8728d8bd54331544f1f216062af301c8def46b5bb",
+  "purpose_statement": "Joint",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

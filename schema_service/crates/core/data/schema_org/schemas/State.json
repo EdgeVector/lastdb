@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "State",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "eb979e7be9b4e158579f7067c218ff3f58e2d95f584478cbb339fce0ff840f08",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "eb979e7be9b4e158579f7067c218ff3f58e2d95f584478cbb339fce0ff840f08",
+  "purpose_statement": "State",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

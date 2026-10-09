@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "HowToItem",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "required_quantity": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "required_quantity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "required_quantity": "The required quantity of the item(s)."
+  },
+  "field_types": {
+    "identifier": "String",
+    "required_quantity": "Float"
+  },
+  "fields": [
+    "identifier",
+    "required_quantity"
+  ],
+  "identity_hash": "2a8d73f0aa44b47bb04115fc0aa7b1c757dcc835f4c6eff7bdbc01d9a11ea910",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2a8d73f0aa44b47bb04115fc0aa7b1c757dcc835f4c6eff7bdbc01d9a11ea910",
+  "purpose_statement": "HowToItem",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

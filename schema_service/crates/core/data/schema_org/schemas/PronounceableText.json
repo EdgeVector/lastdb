@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "PronounceableText",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "in_language": [
+      "word"
+    ],
+    "phonetic_text": [
+      "word"
+    ],
+    "speech_to_text_markup": [
+      "word"
+    ],
+    "text_value": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_language": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "phonetic_text": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "speech_to_text_markup": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "text_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_language": "The language of the content or performance or used in an action. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[availableLanguage]].",
+    "phonetic_text": "Representation of a text [[textValue]] using the specified [[speechToTextMarkup]]. For example the city name of Houston in IPA: /ˈhjuːstən/.",
+    "speech_to_text_markup": "Form of markup used. eg. [SSML](https://www.w3.org/TR/speech-synthesis11) or [IPA](https://www.wikidata.org/wiki/Property:P898).",
+    "text_value": "Text value being annotated."
+  },
+  "field_types": {
+    "identifier": "String",
+    "in_language": "String",
+    "phonetic_text": "String",
+    "speech_to_text_markup": "String",
+    "text_value": "String"
+  },
+  "fields": [
+    "identifier",
+    "in_language",
+    "phonetic_text",
+    "speech_to_text_markup",
+    "text_value"
+  ],
+  "identity_hash": "32276ce78609c46d53b80d0bba3ea44ef73cddf41cb7eba23411c82175d45149",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "32276ce78609c46d53b80d0bba3ea44ef73cddf41cb7eba23411c82175d45149",
+  "purpose_statement": "PronounceableText",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "ProductModel",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "is_variant_of": [
+      "word"
+    ],
+    "predecessor_of": [
+      "word"
+    ],
+    "successor_of": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_variant_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "predecessor_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "successor_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_variant_of": "Indicates the kind of product that this is a variant of. In the case of [[ProductModel]], this is a pointer (from a ProductModel) to a base product from which this product is a variant. It is safe to infer that the variant inherits all product features from the base model, unless defined locally. This is not transitive. In the case of a [[ProductGroup]], the group description also serves as a template, representing a set of Products that vary on explicitly defined, specific dimensions only (so it defines both a set of variants, as well as which values distinguish amongst those variants). When used with [[ProductGroup]], this property can apply to any [[Product]] included in the group.",
+    "predecessor_of": "A pointer from a previous, often discontinued variant of the product to its newer variant.",
+    "successor_of": "A pointer from a newer variant of a product  to its previous, often discontinued predecessor."
+  },
+  "field_types": {
+    "identifier": "String",
+    "is_variant_of": "String",
+    "predecessor_of": "String",
+    "successor_of": "String"
+  },
+  "fields": [
+    "identifier",
+    "is_variant_of",
+    "predecessor_of",
+    "successor_of"
+  ],
+  "identity_hash": "7ec7ac715cccba3abdbcc441b49a6b0531b228efb01b72f4b8d860c1a72d7e0e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7ec7ac715cccba3abdbcc441b49a6b0531b228efb01b72f4b8d860c1a72d7e0e",
+  "purpose_statement": "ProductModel",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

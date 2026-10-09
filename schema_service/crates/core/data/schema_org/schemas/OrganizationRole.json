@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "OrganizationRole",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "numbered_position": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "numbered_position": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "numbered_position": "A number associated with a role in an organization, for example, the number on an athlete's jersey."
+  },
+  "field_types": {
+    "identifier": "String",
+    "numbered_position": "Float"
+  },
+  "fields": [
+    "identifier",
+    "numbered_position"
+  ],
+  "identity_hash": "6e059f77f04963cd9cd4a962289c9907308450c11fa1aac1c0afe6bd1c16f8b8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6e059f77f04963cd9cd4a962289c9907308450c11fa1aac1c0afe6bd1c16f8b8",
+  "purpose_statement": "OrganizationRole",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

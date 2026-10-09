@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "EndorseAction",
+  "field_classifications": {
+    "endorsee": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "endorsee": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "endorsee": "A sub property of participant. The person/organization being supported.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "endorsee": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "endorsee",
+    "identifier"
+  ],
+  "identity_hash": "15285ce7959f925765274a15c201d2d3ad049741e6d7e5ca3f1814d1b25c7d33",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "15285ce7959f925765274a15c201d2d3ad049741e6d7e5ca3f1814d1b25c7d33",
+  "purpose_statement": "EndorseAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

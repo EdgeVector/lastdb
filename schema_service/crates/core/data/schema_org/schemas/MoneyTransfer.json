@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "MoneyTransfer",
+  "field_classifications": {
+    "amount": [
+      "number"
+    ],
+    "beneficiary_bank": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "beneficiary_bank": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "amount": "The amount of money.",
+    "beneficiary_bank": "A bank or bank’s branch, financial institution or international financial institution operating the beneficiary’s bank account or releasing funds for the beneficiary.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "amount": "Number",
+    "beneficiary_bank": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "amount",
+    "beneficiary_bank",
+    "identifier"
+  ],
+  "identity_hash": "432911ca9e250bfcd0631e0f06b70551249821a214390e0d6cb536c278318372",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "432911ca9e250bfcd0631e0f06b70551249821a214390e0d6cb536c278318372",
+  "purpose_statement": "MoneyTransfer",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

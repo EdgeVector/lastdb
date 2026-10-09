@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PhysicalExam",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "2b707a5ad7a4810dedf4380828810518f7cadd6a90cca8eba53d0385dc02eb79",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2b707a5ad7a4810dedf4380828810518f7cadd6a90cca8eba53d0385dc02eb79",
+  "purpose_statement": "PhysicalExam",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

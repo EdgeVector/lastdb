@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PodcastSeason",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "a78ddbe4cca788d1e5f7e28fc9b92f0d5133548cd4957f195557b7bd6da1d315",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a78ddbe4cca788d1e5f7e28fc9b92f0d5133548cd4957f195557b7bd6da1d315",
+  "purpose_statement": "PodcastSeason",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

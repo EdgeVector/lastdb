@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "OwnershipInfo",
+  "field_classifications": {
+    "acquired_from": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "owned_from": [
+      "word"
+    ],
+    "owned_through": [
+      "word"
+    ],
+    "type_of_good": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "acquired_from": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "owned_from": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "owned_through": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "type_of_good": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "acquired_from": "The organization or person from which the product was acquired.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "owned_from": "The date and time of obtaining the product.",
+    "owned_through": "The date and time of giving up ownership on the product.",
+    "type_of_good": "The product that this structured value is referring to."
+  },
+  "field_types": {
+    "acquired_from": "String",
+    "identifier": "String",
+    "owned_from": "String",
+    "owned_through": "String",
+    "type_of_good": "String"
+  },
+  "fields": [
+    "acquired_from",
+    "identifier",
+    "owned_from",
+    "owned_through",
+    "type_of_good"
+  ],
+  "identity_hash": "c77bf8e3a7eb54c7827a144be2e01ffd2496e38b4343edb632d4a6c345cc85aa",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c77bf8e3a7eb54c7827a144be2e01ffd2496e38b4343edb632d4a6c345cc85aa",
+  "purpose_statement": "OwnershipInfo",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

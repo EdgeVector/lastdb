@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "LiteraryEvent",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "c3afaaba77606395174d8029e8c968d06fcbb6b19697935ca4c3d86a73302422",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c3afaaba77606395174d8029e8c968d06fcbb6b19697935ca4c3d86a73302422",
+  "purpose_statement": "LiteraryEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

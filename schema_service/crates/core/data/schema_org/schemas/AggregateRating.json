@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "AggregateRating",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "item_reviewed": [
+      "word"
+    ],
+    "rating_count": [
+      "number"
+    ],
+    "review_count": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "item_reviewed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "rating_count": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "review_count": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "item_reviewed": "The item that is being reviewed/rated.",
+    "rating_count": "The count of total number of ratings.",
+    "review_count": "The count of total number of reviews."
+  },
+  "field_types": {
+    "identifier": "String",
+    "item_reviewed": "String",
+    "rating_count": "Integer",
+    "review_count": "Integer"
+  },
+  "fields": [
+    "identifier",
+    "item_reviewed",
+    "rating_count",
+    "review_count"
+  ],
+  "identity_hash": "38cd08f495b1c11009d197d15bd0c842413842af85ef7c5139b586a89f1222c0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "38cd08f495b1c11009d197d15bd0c842413842af85ef7c5139b586a89f1222c0",
+  "purpose_statement": "AggregateRating",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

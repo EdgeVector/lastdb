@@ -1,0 +1,9 @@
+[package]
+name = "env_flag"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Canonical env-flag truthy/falsy vocabulary shared across the fold monorepo. Zero deps so schema_service and fold_db can both use one parser without cycles."
+
+[lints]
+workspace = true

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "School",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "05bd0a84314e99d6e22b27dc6362a7dd108496128a7325b90407acbde0c75e28",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "05bd0a84314e99d6e22b27dc6362a7dd108496128a7325b90407acbde0c75e28",
+  "purpose_statement": "School",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

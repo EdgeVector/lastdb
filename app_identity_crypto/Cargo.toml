@@ -1,0 +1,44 @@
+[package]
+name = "app_identity_crypto"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+description = "Shared Ed25519 + JCS (RFC 8785) + signed-envelope helpers for app_identity (Lane A foundation; consumed by schema_service, fold_db_node including dev-mode, exemem-infra)."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+ed25519-dalek = { version = "2.2", features = ["std", "fast", "zeroize"] }
+json-canon = "0.1"
+# ECDSA P-256 (ES256) — used only to verify exemem-root-signed DevCerts.
+# The root key lives in AWS KMS, which does not support Ed25519 SIGN_VERIFY,
+# so DevCerts are ES256 even though every other envelope in this crate is
+# Ed25519. See `dev_cert` module docs and
+# `schema_service/docs/app_identity_envelope_notes.md`.
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+# Enabled only by the `test-utils` feature, for the downstream cert/
+# envelope minting helpers (schema_service + fold_db_node test suites).
+rand_core = { version = "0.6", features = ["std", "getrandom"], optional = true }
+
+[features]
+# Exposes `test_utils` — mint ES256 DevCerts + sign Ed25519 envelopes
+# with throwaway keys. Downstream test suites (schema_service,
+# fold_db_node) enable this as a dev-dependency feature so the signing
+# side stays byte-identical to this crate's verification side.
+test-utils = ["dep:rand_core", "ed25519-dalek/rand_core"]
+
+[dev-dependencies]
+rand_core = { version = "0.6", features = ["std", "getrandom"] }
+ed25519-dalek = { version = "2.2", features = ["std", "fast", "zeroize", "rand_core"] }
+# Independent JCS implementation, used only in tests to prove our
+# `json_canon` canonicalization is byte-identical to the `serde_jcs` that
+# the exemem auth_service uses to sign DevCerts (interop guard).
+serde_jcs = "0.1"
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+
+[lints]
+workspace = true

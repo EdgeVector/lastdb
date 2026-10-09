@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "CorrectionComment",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "c517ff7ef0d3cf16c6d31094fa1e1de73ac4c824d3c0e211a8250b3db9c48ef0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c517ff7ef0d3cf16c6d31094fa1e1de73ac4c824d3c0e211a8250b3db9c48ef0",
+  "purpose_statement": "CorrectionComment",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

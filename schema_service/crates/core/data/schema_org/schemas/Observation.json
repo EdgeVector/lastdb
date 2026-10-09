@@ -1,0 +1,132 @@
+{
+  "descriptive_name": "Observation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "margin_of_error": [
+      "word"
+    ],
+    "measured_property": [
+      "word"
+    ],
+    "measurement_denominator": [
+      "word"
+    ],
+    "measurement_method": [
+      "word"
+    ],
+    "measurement_qualifier": [
+      "word"
+    ],
+    "measurement_technique": [
+      "word"
+    ],
+    "observation_about": [
+      "word"
+    ],
+    "observation_date": [
+      "word"
+    ],
+    "observation_period": [
+      "word"
+    ],
+    "variable_measured": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "margin_of_error": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "measured_property": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "measurement_denominator": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "measurement_method": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "measurement_qualifier": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "measurement_technique": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "observation_about": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "observation_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "observation_period": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "variable_measured": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "margin_of_error": "A [[marginOfError]] for an [[Observation]].",
+    "measured_property": "The measuredProperty of an [[Observation]], typically via its [[StatisticalVariable]]. There are various kinds of applicable [[Property]]: a schema.org property, a property from other RDF-compatible systems, e.g. W3C RDF Data Cube, Data Commons, Wikidata, or schema.org extensions such as [GS1's](https://www.gs1.org/voc/?show=properties).",
+    "measurement_denominator": "Identifies the denominator variable when an observation represents a ratio or percentage.",
+    "measurement_method": "A subproperty of [[measurementTechnique]] that can be used for specifying specific methods, in particular via [[MeasurementMethodEnum]].",
+    "measurement_qualifier": "Provides additional qualification to an observation. For example, a GDP observation measures the Nominal value.",
+    "measurement_technique": "A technique, method or technology used in an [[Observation]], [[StatisticalVariable]] or [[Dataset]] (or [[DataDownload]], [[DataCatalog]]), corresponding to the method used for measuring the corresponding variable(s) (for datasets, described using [[variableMeasured]]; for [[Observation]], a [[StatisticalVariable]]). Often but not necessarily each [[variableMeasured]] will have an explicit representation as (or mapping to) an property such as those defined in Schema.org, or other RDF vocabularies and \"knowledge graphs\". In that case the subproperty of [[variableMeasured]] called [[measuredProperty]] is applicable.\n    \nThe [[measurementTechnique]] property helps when extra clarification is needed about how a [[measuredProperty]] was measured. This is oriented towards scientific and scholarly dataset publication but may have broader applicability; it is not intended as a full representation of measurement, but can often serve as a high level summary for dataset discovery. \n\nFor example, if [[variableMeasured]] is: molecule concentration, [[measurementTechnique]] could be: \"mass spectrometry\" or \"nmr spectroscopy\" or \"colorimetry\" or \"immunofluorescence\". If the [[variableMeasured]] is \"depression rating\", the [[measurementTechnique]] could be \"Zung Scale\" or \"HAM-D\" or \"Beck Depression Inventory\". \n\nIf there are several [[variableMeasured]] properties recorded for some given data object, use a [[PropertyValue]] for each [[variableMeasured]] and attach the corresponding [[measurementTechnique]]. The value can also be from an enumeration, organized as a [[MeasurementMethodEnum]].",
+    "observation_about": "The [[observationAbout]] property identifies an entity, often a [[Place]], associated with an [[Observation]].",
+    "observation_date": "The observationDate of an [[Observation]].",
+    "observation_period": "The length of time an Observation took place over. The format follows `P[0-9]*[Y|M|D|h|m|s]`. For example, P1Y is Period 1 Year, P3M is Period 3 Months, P3h is Period 3 hours.",
+    "variable_measured": "The variableMeasured property can indicate (repeated as necessary) the  variables that are measured in some dataset, either described as text or as pairs of identifier and description using PropertyValue, or more explicitly as a [[StatisticalVariable]]."
+  },
+  "field_types": {
+    "identifier": "String",
+    "margin_of_error": "String",
+    "measured_property": "String",
+    "measurement_denominator": "String",
+    "measurement_method": "String",
+    "measurement_qualifier": "String",
+    "measurement_technique": "String",
+    "observation_about": "String",
+    "observation_date": "String",
+    "observation_period": "String",
+    "variable_measured": "String"
+  },
+  "fields": [
+    "identifier",
+    "margin_of_error",
+    "measured_property",
+    "measurement_denominator",
+    "measurement_method",
+    "measurement_qualifier",
+    "measurement_technique",
+    "observation_about",
+    "observation_date",
+    "observation_period",
+    "variable_measured"
+  ],
+  "identity_hash": "be1a1baf163ffde8980f8c30c41ab06703490960dbce9fc02dff52725a2674bc",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "be1a1baf163ffde8980f8c30c41ab06703490960dbce9fc02dff52725a2674bc",
+  "purpose_statement": "Observation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

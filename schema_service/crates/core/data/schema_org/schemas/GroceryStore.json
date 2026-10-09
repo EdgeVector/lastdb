@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "GroceryStore",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "bfd87f25f8cd677bea27b19b92e1905ce446c10a54de34341f44a2cb3b6403bb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bfd87f25f8cd677bea27b19b92e1905ce446c10a54de34341f44a2cb3b6403bb",
+  "purpose_statement": "GroceryStore",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

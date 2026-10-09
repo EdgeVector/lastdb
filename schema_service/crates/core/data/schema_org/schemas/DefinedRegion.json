@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "DefinedRegion",
+  "field_classifications": {
+    "address_country": [
+      "word"
+    ],
+    "address_region": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "postal_code": [
+      "word"
+    ],
+    "postal_code_prefix": [
+      "word"
+    ],
+    "postal_code_range": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "address_country": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "address_region": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "postal_code": {
+      "data_domain": "location",
+      "sensitivity_level": 2
+    },
+    "postal_code_prefix": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "postal_code_range": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "address_country": "The country. Recommended to be in 2-letter [ISO 3166-1 alpha-2](http://en.wikipedia.org/wiki/ISO_3166-1) format, for example \"US\". For backward compatibility, a 3-letter [ISO 3166-1 alpha-3](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-3) country code such as \"SGP\" or a full country name such as \"Singapore\" can also be used.",
+    "address_region": "The region in which the locality is, and which is in the country. For example, California or another appropriate first-level [Administrative division](https://en.wikipedia.org/wiki/List_of_administrative_divisions_by_country) such as the Province in Italy or Region in Germany.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "postal_code": "The postal code. For example, 94043.",
+    "postal_code_prefix": "A defined range of postal codes indicated by a common textual prefix. Used for non-numeric systems such as UK.",
+    "postal_code_range": "A defined range of postal codes."
+  },
+  "field_types": {
+    "address_country": "String",
+    "address_region": "String",
+    "identifier": "String",
+    "postal_code": "String",
+    "postal_code_prefix": "String",
+    "postal_code_range": "String"
+  },
+  "fields": [
+    "address_country",
+    "address_region",
+    "identifier",
+    "postal_code",
+    "postal_code_prefix",
+    "postal_code_range"
+  ],
+  "identity_hash": "82cd3813b6d9095843271f2c2ad8b3403207d022876d8d7f7f7e749ecd2aa0ea",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "82cd3813b6d9095843271f2c2ad8b3403207d022876d8d7f7f7e749ecd2aa0ea",
+  "purpose_statement": "DefinedRegion",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "ScreeningEvent",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "subtitle_language": [
+      "word"
+    ],
+    "video_format": [
+      "word"
+    ],
+    "work_presented": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "subtitle_language": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "video_format": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "work_presented": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "subtitle_language": "Languages in which subtitles/captions are available, in [IETF BCP 47 standard format](http://tools.ietf.org/html/bcp47).",
+    "video_format": "The type of screening or video broadcast used (e.g. IMAX, 3D, SD, HD, etc.).",
+    "work_presented": "The movie presented during this event."
+  },
+  "field_types": {
+    "identifier": "String",
+    "subtitle_language": "String",
+    "video_format": "String",
+    "work_presented": "String"
+  },
+  "fields": [
+    "identifier",
+    "subtitle_language",
+    "video_format",
+    "work_presented"
+  ],
+  "identity_hash": "7291c50768545b23780a7e9179d8e2996fd28da2a5bdad67d6f84b32afb7e922",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7291c50768545b23780a7e9179d8e2996fd28da2a5bdad67d6f84b32afb7e922",
+  "purpose_statement": "ScreeningEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

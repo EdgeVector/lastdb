@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "GeoShape",
+  "field_classifications": {
+    "address": [
+      "word"
+    ],
+    "address_country": [
+      "word"
+    ],
+    "box": [
+      "word"
+    ],
+    "circle": [
+      "word"
+    ],
+    "elevation": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "line": [
+      "word"
+    ],
+    "polygon": [
+      "word"
+    ],
+    "postal_code": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "address": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "address_country": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "box": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "circle": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "elevation": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "line": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "polygon": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "postal_code": {
+      "data_domain": "location",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "address": "Physical address of the item.",
+    "address_country": "The country. Recommended to be in 2-letter [ISO 3166-1 alpha-2](http://en.wikipedia.org/wiki/ISO_3166-1) format, for example \"US\". For backward compatibility, a 3-letter [ISO 3166-1 alpha-3](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-3) country code such as \"SGP\" or a full country name such as \"Singapore\" can also be used.",
+    "box": "A box is the area enclosed by the rectangle formed by two points. The first point is the lower corner, the second point is the upper corner. A box is expressed as two points separated by a space character.",
+    "circle": "A circle is the circular region of a specified radius centered at a specified latitude and longitude. A circle is expressed as a pair followed by a radius in meters.",
+    "elevation": "The elevation of a location ([WGS 84](https://en.wikipedia.org/wiki/World_Geodetic_System)). Values may be of the form 'NUMBER UNIT\\_OF\\_MEASUREMENT' (e.g., '1,000 m', '3,200 ft') while numbers alone should be assumed to be a value in meters.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "line": "A line is a point-to-point path consisting of two or more points. A line is expressed as a series of two or more point objects separated by space.",
+    "polygon": "A polygon is the area enclosed by a point-to-point path for which the starting and ending points are the same. A polygon is expressed as a series of four or more space delimited points where the first and final points are identical.",
+    "postal_code": "The postal code. For example, 94043."
+  },
+  "field_types": {
+    "address": "String",
+    "address_country": "String",
+    "box": "String",
+    "circle": "String",
+    "elevation": "Float",
+    "identifier": "String",
+    "line": "String",
+    "polygon": "String",
+    "postal_code": "String"
+  },
+  "fields": [
+    "address",
+    "address_country",
+    "box",
+    "circle",
+    "elevation",
+    "identifier",
+    "line",
+    "polygon",
+    "postal_code"
+  ],
+  "identity_hash": "f4b4a8bd7882016698082fcc11e1126dd4d51c35b8a966f821033d4c053c7f39",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f4b4a8bd7882016698082fcc11e1126dd4d51c35b8a966f821033d4c053c7f39",
+  "purpose_statement": "GeoShape",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

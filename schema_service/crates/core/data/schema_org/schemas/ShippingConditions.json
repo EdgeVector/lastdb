@@ -1,0 +1,152 @@
+{
+  "descriptive_name": "ShippingConditions",
+  "field_classifications": {
+    "depth": [
+      "word"
+    ],
+    "does_not_ship": [
+      "word"
+    ],
+    "height": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "num_items": [
+      "word"
+    ],
+    "order_value": [
+      "word"
+    ],
+    "seasonal_override": [
+      "word"
+    ],
+    "shipping_destination": [
+      "word"
+    ],
+    "shipping_origin": [
+      "word"
+    ],
+    "shipping_rate": [
+      "word"
+    ],
+    "transit_time": [
+      "word"
+    ],
+    "weight": [
+      "word"
+    ],
+    "width": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "depth": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "does_not_ship": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "height": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "num_items": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "order_value": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "seasonal_override": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "shipping_destination": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "shipping_origin": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "shipping_rate": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "transit_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "weight": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "width": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "depth": "The depth of the item.",
+    "does_not_ship": "Indicates when shipping to a particular [[shippingDestination]] is not available.",
+    "height": "The height of the item.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "num_items": "Limits the number of items being shipped for which these conditions apply.",
+    "order_value": "Minimum and maximum order value for which these shipping conditions are valid.",
+    "seasonal_override": "Limited period during which these shipping conditions apply.",
+    "shipping_destination": "indicates (possibly multiple) shipping destinations. These can be defined in several ways, e.g. postalCode ranges.",
+    "shipping_origin": "Indicates the origin of a shipment, i.e. where it should be coming from.",
+    "shipping_rate": "The shipping rate is the cost of shipping to the specified destination. Typically, the maxValue and currency values (of the [[MonetaryAmount]]) are most appropriate.",
+    "transit_time": "The typical delay the order has been sent for delivery and the goods reach the final customer.\n\n  In the context of [[ShippingDeliveryTime]], use the [[QuantitativeValue]]. Typical properties: minValue, maxValue, unitCode (d for DAY).\n\n  In the context of [[ShippingConditions]], use the [[ServicePeriod]]. It has a duration (as a [[QuantitativeValue]]) and also business days and a cut-off time.",
+    "weight": "The weight of the product or person.",
+    "width": "The width of the item."
+  },
+  "field_types": {
+    "depth": "String",
+    "does_not_ship": "Boolean",
+    "height": "String",
+    "identifier": "String",
+    "num_items": "String",
+    "order_value": "String",
+    "seasonal_override": "String",
+    "shipping_destination": "String",
+    "shipping_origin": "String",
+    "shipping_rate": "String",
+    "transit_time": "String",
+    "weight": "String",
+    "width": "String"
+  },
+  "fields": [
+    "depth",
+    "does_not_ship",
+    "height",
+    "identifier",
+    "num_items",
+    "order_value",
+    "seasonal_override",
+    "shipping_destination",
+    "shipping_origin",
+    "shipping_rate",
+    "transit_time",
+    "weight",
+    "width"
+  ],
+  "identity_hash": "89930408b22e45d6bcd2bed75dd35a07861284ea78893a2270adaf88838801bb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "89930408b22e45d6bcd2bed75dd35a07861284ea78893a2270adaf88838801bb",
+  "purpose_statement": "ShippingConditions",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

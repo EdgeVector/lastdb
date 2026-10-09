@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "ReservationPackage",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "sub_reservation": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "sub_reservation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "sub_reservation": "The individual reservations included in the package. Typically a repeated property."
+  },
+  "field_types": {
+    "identifier": "String",
+    "sub_reservation": "String"
+  },
+  "fields": [
+    "identifier",
+    "sub_reservation"
+  ],
+  "identity_hash": "f9c636721d25ba5321166c77cf170fdd3b7ac11e7bff351572e6a8e10b4e83a0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f9c636721d25ba5321166c77cf170fdd3b7ac11e7bff351572e6a8e10b4e83a0",
+  "purpose_statement": "ReservationPackage",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

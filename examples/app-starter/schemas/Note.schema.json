@@ -1,0 +1,17 @@
+{
+  "name": "app-starter/Note",
+  "descriptive_name": "App Starter Note",
+  "purpose_statement": "A single note owned by the app-starter example app: the row it creates and reads back.",
+  "schema_type": "Hash",
+  "fields": [
+    "id",
+    "text"
+  ],
+  "key": {
+    "hash_field": "id"
+  },
+  "field_descriptions": {
+    "id": "Stable identifier for this note (also the row key).",
+    "text": "Free-form note text."
+  }
+}

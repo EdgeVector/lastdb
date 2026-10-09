@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "Corporation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "ticker_symbol": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "ticker_symbol": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "ticker_symbol": "The exchange traded instrument associated with a Corporation object. The tickerSymbol is expressed as an exchange and an instrument name separated by a space character. For the exchange component of the tickerSymbol attribute, we recommend using the controlled vocabulary of Market Identifier Codes (MIC) specified in ISO 15022."
+  },
+  "field_types": {
+    "identifier": "String",
+    "ticker_symbol": "String"
+  },
+  "fields": [
+    "identifier",
+    "ticker_symbol"
+  ],
+  "identity_hash": "cd9ae81c9483d1a4a621ebea0b1a4a0515285efa1e88664a64e79bc062ac780d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "cd9ae81c9483d1a4a621ebea0b1a4a0515285efa1e88664a64e79bc062ac780d",
+  "purpose_statement": "Corporation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

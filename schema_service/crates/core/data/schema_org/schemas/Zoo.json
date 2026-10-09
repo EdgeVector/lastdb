@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Zoo",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "119baa6b5d163b5141216101173814f9362e622186a6436016fb56c3f0bf1b47",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "119baa6b5d163b5141216101173814f9362e622186a6436016fb56c3f0bf1b47",
+  "purpose_statement": "Zoo",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

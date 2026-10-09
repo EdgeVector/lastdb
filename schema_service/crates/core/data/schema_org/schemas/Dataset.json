@@ -1,0 +1,122 @@
+{
+  "descriptive_name": "Dataset",
+  "field_classifications": {
+    "catalog": [
+      "word"
+    ],
+    "dataset_time_interval": [
+      "word"
+    ],
+    "distribution": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "included_data_catalog": [
+      "word"
+    ],
+    "included_in_data_catalog": [
+      "word"
+    ],
+    "issn": [
+      "word"
+    ],
+    "measurement_method": [
+      "word"
+    ],
+    "measurement_technique": [
+      "word"
+    ],
+    "variable_measured": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "catalog": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "dataset_time_interval": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "distribution": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "included_data_catalog": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "included_in_data_catalog": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "issn": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "measurement_method": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "measurement_technique": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "variable_measured": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "catalog": "A data catalog which contains this dataset.",
+    "dataset_time_interval": "The range of temporal applicability of a dataset, e.g. for a 2011 census dataset, the year 2011 (in ISO 8601 time interval format).",
+    "distribution": "A downloadable form of this dataset, at a specific location, in a specific format. This property can be repeated if different variations are available. There is no expectation that different downloadable distributions must contain exactly equivalent information (see also [DCAT](https://www.w3.org/TR/vocab-dcat-3/#Class:Distribution) on this point). Different distributions might include or exclude different subsets of the entire dataset, for example.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "included_data_catalog": "A data catalog which contains this dataset (this property was previously 'catalog', preferred name is now 'includedInDataCatalog').",
+    "included_in_data_catalog": "A data catalog which contains this dataset.",
+    "issn": "The International Standard Serial Number (ISSN) that identifies this serial publication. You can repeat this property to identify different formats of, or the linking ISSN (ISSN-L) for, this serial publication.",
+    "measurement_method": "A subproperty of [[measurementTechnique]] that can be used for specifying specific methods, in particular via [[MeasurementMethodEnum]].",
+    "measurement_technique": "A technique, method or technology used in an [[Observation]], [[StatisticalVariable]] or [[Dataset]] (or [[DataDownload]], [[DataCatalog]]), corresponding to the method used for measuring the corresponding variable(s) (for datasets, described using [[variableMeasured]]; for [[Observation]], a [[StatisticalVariable]]). Often but not necessarily each [[variableMeasured]] will have an explicit representation as (or mapping to) an property such as those defined in Schema.org, or other RDF vocabularies and \"knowledge graphs\". In that case the subproperty of [[variableMeasured]] called [[measuredProperty]] is applicable.\n    \nThe [[measurementTechnique]] property helps when extra clarification is needed about how a [[measuredProperty]] was measured. This is oriented towards scientific and scholarly dataset publication but may have broader applicability; it is not intended as a full representation of measurement, but can often serve as a high level summary for dataset discovery. \n\nFor example, if [[variableMeasured]] is: molecule concentration, [[measurementTechnique]] could be: \"mass spectrometry\" or \"nmr spectroscopy\" or \"colorimetry\" or \"immunofluorescence\". If the [[variableMeasured]] is \"depression rating\", the [[measurementTechnique]] could be \"Zung Scale\" or \"HAM-D\" or \"Beck Depression Inventory\". \n\nIf there are several [[variableMeasured]] properties recorded for some given data object, use a [[PropertyValue]] for each [[variableMeasured]] and attach the corresponding [[measurementTechnique]]. The value can also be from an enumeration, organized as a [[MeasurementMethodEnum]].",
+    "variable_measured": "The variableMeasured property can indicate (repeated as necessary) the  variables that are measured in some dataset, either described as text or as pairs of identifier and description using PropertyValue, or more explicitly as a [[StatisticalVariable]]."
+  },
+  "field_types": {
+    "catalog": "String",
+    "dataset_time_interval": "String",
+    "distribution": "String",
+    "identifier": "String",
+    "included_data_catalog": "String",
+    "included_in_data_catalog": "String",
+    "issn": "String",
+    "measurement_method": "String",
+    "measurement_technique": "String",
+    "variable_measured": "String"
+  },
+  "fields": [
+    "catalog",
+    "dataset_time_interval",
+    "distribution",
+    "identifier",
+    "included_data_catalog",
+    "included_in_data_catalog",
+    "issn",
+    "measurement_method",
+    "measurement_technique",
+    "variable_measured"
+  ],
+  "identity_hash": "87d81877a6799d236c3a45328284bcad3423f1a6d6ddd4b288b56c204f90434a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "87d81877a6799d236c3a45328284bcad3423f1a6d6ddd4b288b56c204f90434a",
+  "purpose_statement": "Dataset",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,56 @@
+[package]
+name = "schema_service_server_http"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Actix HTTP wrapper around schema_service_server_shared. Dev binary for the canonical schema service."
+
+[[bin]]
+name = "schema_service"
+path = "src/bin/schema_service.rs"
+
+[features]
+default = []
+# Explicit opt-in for the local FastEmbed model. The default dev binary uses a
+# disabled embedder so ordinary local schema-service runs do not initialize or
+# download models.
+fastembed = ["schema_service_server_shared/fastembed"]
+
+[dependencies]
+schema_service_core = { path = "../core", features = ["local-store"] }
+schema_service_server_shared = { path = "../server_shared", features = ["actix"] }
+# `--hydrate-from` reuses the typed `SchemaServiceClient::fetch_snapshot`
+# helper — same retry/propagation behavior as every other call site,
+# no second HTTP layer to maintain.
+schema_service_client = { path = "../client" }
+schema_types = { workspace = true }
+observability = { workspace = true, features = ["otel"] }
+
+actix-web = { workspace = true }
+actix-cors = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+
+# Tracing + OpenTelemetry stack for the W3C ingress middleware
+# (Phase 2 / B3). See `docs/observability/ingress-middleware-notes.md`.
+tracing = { workspace = true }
+tracing-actix-web = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true }
+http = { workspace = true }
+futures-util = { workspace = true }
+
+[dev-dependencies]
+schema_service_core = { path = "../core", features = ["test-utils", "local-store"] }
+# App-identity endpoint tests mint ES256 DevCerts + Ed25519 envelopes.
+app_identity_crypto = { workspace = true, features = ["test-utils"] }
+base64 = { workspace = true }
+# Cross-env mirror E2E test impls the MirrorTransport trait with an
+# in-process fake routing through the peer's real apply_mirror_push.
+tempfile = { workspace = true }
+serde_json = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

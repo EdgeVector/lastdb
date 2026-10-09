@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "OrderItem",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "order_delivery": [
+      "word"
+    ],
+    "order_item_number": [
+      "word"
+    ],
+    "order_item_status": [
+      "word"
+    ],
+    "order_quantity": [
+      "number"
+    ],
+    "ordered_item": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "order_delivery": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "order_item_number": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "order_item_status": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "order_quantity": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "ordered_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "order_delivery": "The delivery of the parcel related to this order or order item.",
+    "order_item_number": "The identifier of the order item.",
+    "order_item_status": "The current status of the order item.",
+    "order_quantity": "The number of the item ordered. If the property is not set, assume the quantity is one.",
+    "ordered_item": "The item ordered."
+  },
+  "field_types": {
+    "identifier": "String",
+    "order_delivery": "String",
+    "order_item_number": "String",
+    "order_item_status": "String",
+    "order_quantity": "Float",
+    "ordered_item": "String"
+  },
+  "fields": [
+    "identifier",
+    "order_delivery",
+    "order_item_number",
+    "order_item_status",
+    "order_quantity",
+    "ordered_item"
+  ],
+  "identity_hash": "3175cc4f1c8c3733a94ca5b7a14c388369518b403868efeed3bb5b49f332cda7",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3175cc4f1c8c3733a94ca5b7a14c388369518b403868efeed3bb5b49f332cda7",
+  "purpose_statement": "OrderItem",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

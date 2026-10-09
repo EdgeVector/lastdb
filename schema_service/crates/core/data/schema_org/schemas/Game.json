@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "Game",
+  "field_classifications": {
+    "character_attribute": [
+      "word"
+    ],
+    "game_item": [
+      "word"
+    ],
+    "game_location": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "number_of_players": [
+      "word"
+    ],
+    "quest": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "character_attribute": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "game_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "game_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "number_of_players": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "quest": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "character_attribute": "A piece of data that represents a particular aspect of a fictional character (skill, power, character points, advantage, disadvantage).",
+    "game_item": "An item is an object within the game world that can be collected by a player or, occasionally, a non-player character.",
+    "game_location": "Real or fictional location of the game (or part of game).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "number_of_players": "Indicate how many people can play this game (minimum, maximum, or range).",
+    "quest": "The task that a player-controlled character, or group of characters may complete in order to gain a reward."
+  },
+  "field_types": {
+    "character_attribute": "String",
+    "game_item": "String",
+    "game_location": "String",
+    "identifier": "String",
+    "number_of_players": "String",
+    "quest": "String"
+  },
+  "fields": [
+    "character_attribute",
+    "game_item",
+    "game_location",
+    "identifier",
+    "number_of_players",
+    "quest"
+  ],
+  "identity_hash": "9ce5320e3d0fc190fe481505ac69317a77123a18f787917cf218d7b54c46ffdb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9ce5320e3d0fc190fe481505ac69317a77123a18f787917cf218d7b54c46ffdb",
+  "purpose_statement": "Game",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

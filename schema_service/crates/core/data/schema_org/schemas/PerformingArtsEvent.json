@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PerformingArtsEvent",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "d5f773ef472515924b4d9881b5ee975445e70eb52bed47c19f77c29afcf005f2",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d5f773ef472515924b4d9881b5ee975445e70eb52bed47c19f77c29afcf005f2",
+  "purpose_statement": "PerformingArtsEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

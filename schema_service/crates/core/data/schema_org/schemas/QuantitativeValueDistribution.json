@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "QuantitativeValueDistribution",
+  "field_classifications": {
+    "duration": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "median": [
+      "number"
+    ],
+    "percentile10": [
+      "number"
+    ],
+    "percentile25": [
+      "number"
+    ],
+    "percentile75": [
+      "number"
+    ],
+    "percentile90": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "median": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "percentile10": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "percentile25": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "percentile75": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "percentile90": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "duration": "The duration of the item (movie, audio recording, event, etc.) in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "median": "The median value.",
+    "percentile10": "The 10th percentile value.",
+    "percentile25": "The 25th percentile value.",
+    "percentile75": "The 75th percentile value.",
+    "percentile90": "The 90th percentile value."
+  },
+  "field_types": {
+    "duration": "String",
+    "identifier": "String",
+    "median": "Float",
+    "percentile10": "Float",
+    "percentile25": "Float",
+    "percentile75": "Float",
+    "percentile90": "Float"
+  },
+  "fields": [
+    "duration",
+    "identifier",
+    "median",
+    "percentile10",
+    "percentile25",
+    "percentile75",
+    "percentile90"
+  ],
+  "identity_hash": "4ba9f56612862e69342c009d43f4ae87cba09aeb1bf7db4aaff8c0280160192a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4ba9f56612862e69342c009d43f4ae87cba09aeb1bf7db4aaff8c0280160192a",
+  "purpose_statement": "QuantitativeValueDistribution",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

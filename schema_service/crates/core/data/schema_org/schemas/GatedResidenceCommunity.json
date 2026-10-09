@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "GatedResidenceCommunity",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "e61306db143df93e32d843eaaa9dcc0f10e76bbfeb08b28fde78e8d0e00f11ec",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e61306db143df93e32d843eaaa9dcc0f10e76bbfeb08b28fde78e8d0e00f11ec",
+  "purpose_statement": "GatedResidenceCommunity",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

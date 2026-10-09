@@ -1,0 +1,56 @@
+{
+  "format_version": 1,
+  "resolver_contract_version": 1,
+  "algorithm": {
+    "id": "native_component_cover",
+    "version": 1
+  },
+  "policy_version": "2026-07-13.1",
+  "rollout": {
+    "requested_mode": "shadow"
+  },
+  "candidate_generation": {
+    "schema_candidates": 24,
+    "field_candidates_per_schema": 12,
+    "component_candidates": 8,
+    "max_components_per_resolution": 4,
+    "require_compatible_field_types": true,
+    "allow_deprecated_schemas": false
+  },
+  "scoring": {
+    "similarity_metric": "cosine",
+    "schema": {
+      "descriptive_name_min_similarity": 0.78,
+      "use_existing_min_score": 0.92,
+      "ambiguity_margin": 0.04,
+      "weights": {
+        "descriptive_name": 0.4,
+        "field_match": 0.6
+      }
+    },
+    "field": {
+      "context_min_similarity": 0.88,
+      "canonical_min_similarity": 0.95,
+      "ambiguity_margin": 0.03
+    },
+    "coverage": {
+      "min_fields": 0.95,
+      "min_required_fields": 1.0
+    },
+    "components": {
+      "min_score": 0.94
+    }
+  },
+  "permissions": {
+    "use_existing": true,
+    "use_components": false,
+    "expand_existing": false,
+    "create_canonical_schema": false
+  },
+  "limits": {
+    "max_proposal_fields": 256,
+    "max_registry_schemas": 50000,
+    "max_embedding_dimensions": 1024,
+    "max_work_units": 250000
+  }
+}

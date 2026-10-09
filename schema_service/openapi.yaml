@@ -1,0 +1,2257 @@
+openapi: 3.0.3
+info:
+  title: Schema Service HTTP API
+  version: 0.1.0
+  description: |
+    Canonical schema service for FoldDB — the single source of truth for
+    schema creation, similarity matching, and the schema registry.
+
+    This spec documents the `/v1/*` HTTP surface exposed by:
+
+      * the dev binary `schema_service` (crate `schema_service_server_http`)
+      * the production Lambda at `schema.folddb.com`
+        (crate `schema_service_server_lambda`)
+
+    Both mount the same handler set from `schema_service_server_shared`, so
+    the wire contract is identical. Third-party integrators can generate a
+    client with any OpenAPI 3 codegen, e.g.:
+
+    ```
+    openapi-generator-cli generate -i openapi.yaml -g rust -o ./client-rust
+    openapi-generator-cli generate -i openapi.yaml -g typescript-fetch -o ./client-ts
+    ```
+
+    A reference Rust client lives alongside this spec in
+    `crates/client/` (published as `schema_service_client`).
+
+    Some nested types (Schema, Query, FieldValueType, DataClassification,
+    DeclarativeSchemaType, KeyConfig) are owned by the
+    `fold_db` crate. They appear here as loosely-typed objects; the
+    authoritative definitions live in
+    `https://github.com/EdgeVector/fold/tree/main/fold_db/src/schema/types`.
+
+    ## Immutability contract
+
+    **Everything this service approves is immutable forever.** Schemas,
+    classifications, and any other artifact returned by `/v1/*` is
+    content-addressed and never mutated in place after approval. There
+    is no in-place "update" endpoint: a change ships as a NEW artifact
+    with a NEW identity, registered alongside the old one. Old artifacts
+    continue to resolve until something explicitly removes them (a
+    deliberate, observable action — not a side effect of upgrading).
+
+    This is a hard correctness contract that downstream systems rely on:
+
+      * Schema identity hashes stay stable forever — this service never
+        reissues bytes under an existing hash.
+      * Sync replay is convergent: two devices replaying the same log
+        resolve the same content-addressed schemas.
+      * fold_db assumes a registered schema's shape is final from
+        registration on; data-model changes are modeled as new schemas
+        that field-map onto old molecules, not as edits to old schemas.
+
+    "Approved" is the gate. Pre-approval drafts are scratchpad. Once
+    approval succeeds the artifact is frozen.
+  license:
+    name: See repository LICENSE
+    url: https://github.com/EdgeVector/schema_service
+
+# The public schema service has no authentication — it is a deliberately
+# read-mostly, write-append registry. Clients identify registered
+# schemas by content hash, so there is no user session to protect.
+# Declaring an empty global security requirement makes this explicit to
+# codegen and lint tools.
+security: []
+
+servers:
+  - url: https://axo709qs11.execute-api.us-east-1.amazonaws.com
+    description: Production (us-east-1)
+  - url: https://y0q3m6vk75.execute-api.us-west-2.amazonaws.com
+    description: Development (us-west-2)
+  - url: http://127.0.0.1:9102
+    description: Local dev binary (workspace default)
+  - url: http://127.0.0.1:9002
+    description: Local dev binary (fold_db_node embedded default)
+
+tags:
+  - name: health
+    description: Liveness probe.
+  - name: schemas
+    description: Schema registration, lookup, and similarity matching.
+  - name: registry
+    description: Cacheable read-side registry projections for local schema dedup.
+  - name: system
+    description: Administrative endpoints (local-storage backends only).
+  - name: canonicalization
+    description: |
+      Shadow-mode observability for dual-signal schema canonicalization
+      (Phase C of the fbrain `dual-signal-schema-canonicalization` design).
+
+paths:
+  /v1/health:
+    get:
+      tags: [health]
+      operationId: health_check
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /v1/schemas:
+    get:
+      tags: [schemas]
+      operationId: list_schemas
+      summary: List schema names
+      responses:
+        '200':
+          description: List of registered schema names.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemasListResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [schemas]
+      operationId: add_schema
+      summary: Register a schema (idempotent; may expand an existing one)
+      description: |
+        Registers a schema along with mutation mappers. The service canonicalizes
+        the schema and may either create it, return the existing identity, or
+        expand an existing schema by superseding it.
+
+        Status codes:
+
+        * `201 Created` — newly added, or expanded from an existing schema
+          (check `replaced_schema` to see if this was an expansion).
+        * `200 OK` — schema with the same identity hash already existed.
+        * `400 Bad Request` — validation / canonicalization failure.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddSchemaRequest'
+      responses:
+        '200':
+          description: Schema with this identity hash already existed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddSchemaResponse'
+        '201':
+          description: Schema was newly added (or expanded from an existing one, see `replaced_schema`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddSchemaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /v1/schemas/mutation-challenge:
+    post:
+      tags: [schemas]
+      operationId: issue_schema_mutation_challenge
+      summary: Issue a node-key proof-of-work challenge
+      description: |
+        Issues a short-lived challenge for feature-flagged enforcement of
+        unowned shared schema mutations. The proof is bound to the node
+        publish key, canonical schema JSON hash, nonce, and counter.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchemaMutationChallengeRequest'
+      responses:
+        '201':
+          description: Challenge issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaMutationChallengeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/registry/index:
+    get:
+      tags: [registry]
+      operationId: registry_index
+      summary: Signed compact registry index
+      description: |
+        Returns a deterministic, signed, compact projection of the active
+        schema registry for local dedup caches. The endpoint is read-only:
+        repeated calls against the same registry state return the same body
+        and do not advance the registry version.
+
+        The response includes active schema identity hashes, descriptive
+        names, owner app namespaces, field sets, field descriptions,
+        supersession redirects, a monotonic `registry_version`, a BLAKE3
+        Merkle root over the canonical entry set, and an Ed25519 signature
+        over the canonical JSON body with `signature` removed.
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Quoted `registry_version` ETag. Returns `304` when current.
+      responses:
+        '200':
+          description: Signed compact registry index.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: '`public, max-age=60`'
+            ETag:
+              schema:
+                type: string
+              description: Quoted registry version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryIndexEnvelope'
+        '304':
+          description: The caller's ETag already matches the current registry version.
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/schemas/batch-check-reuse:
+    post:
+      tags: [schemas]
+      operationId: batch_check_reuse
+      summary: Check many proposed schemas against the registry in one call
+      description: |
+        For each `SchemaLookupEntry` in the request, returns a match if one
+        exists in the registry. Names with no match are omitted from the
+        response `matches` map. Intended for AI ingestion pipelines that
+        propose many candidate schemas at once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchSchemaReuseRequest'
+      responses:
+        '200':
+          description: Matches for the proposed schemas (only names with matches are included).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchSchemaReuseResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/schemas/resolve:
+    post:
+      tags: [schemas]
+      operationId: resolve_schemas
+      summary: Stateless schema dedup for cache misses
+      description: |
+        Resolves one or more schema proposals against the current shared
+        registry without mutating shared state. This endpoint is a public
+        read path for local cache misses: it may return reuse advice,
+        candidate equivalents, a novel decision, or a refresh decision when
+        the caller's `client_registry_version` is stale.
+
+        The handler never creates schemas, canonical fields, app records, or
+        shared discovery state. It also does not advance `registry_version`;
+        repeated calls against identical registry state return identical
+        decisions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchemaResolveRequest'
+      responses:
+        '200':
+          description: Per-proposal resolve decisions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaResolveResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /v1/schemas/reload:
+    post:
+      tags: [schemas]
+      operationId: reload_schemas
+      summary: Reload schemas from persistent storage
+      description: Drops the in-memory schema cache and repopulates it from the backing store.
+      responses:
+        '200':
+          description: Reload completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReloadResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/schemas/available:
+    get:
+      tags: [schemas]
+      operationId: get_available_schemas
+      summary: Full schema definitions (not just names)
+      description: |
+        Returns every schema with its full declarative definition, wrapped in
+        a `SchemaEnvelope` that also carries a legacy `system` flag.
+
+        Each envelope's `schema.source` field is one of `system_seed`,
+        `starter_seed`, or `user` (see `SchemaSource` in the fold_db schema
+        types). Clients can filter at the wire via the `source` query
+        parameter below; unknown values return an empty list.
+      parameters:
+        - name: source
+          in: query
+          required: false
+          description: |
+            Optional filter by schema origin. Accepted values:
+            `system_seed` (service primitives), `starter_seed` (pre-loaded
+            starter buckets such as Schema.org types), or `user`
+            (node-created). Any other value returns an empty list; omit
+            the parameter to return all schemas.
+          schema:
+            type: string
+            enum: [system_seed, starter_seed, user]
+      responses:
+        '200':
+          description: All schemas (optionally filtered by source) with full definitions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailableSchemasResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/schemas/similar/{name}:
+    get:
+      tags: [schemas]
+      operationId: find_similar_schemas
+      summary: Find schemas similar to the named schema
+      description: |
+        Returns schemas whose field-level embeddings cluster close to the
+        named schema, above the given cosine-similarity threshold.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The reference schema name.
+        - name: threshold
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: 0.0
+            maximum: 1.0
+            default: 0.5
+          description: Cosine-similarity threshold (0.0 – 1.0). Defaults to 0.5.
+      responses:
+        '200':
+          description: Matching similar schemas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarSchemasResponse'
+        '400':
+          description: Threshold outside `[0.0, 1.0]`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Reference schema not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/schema/{name}:
+    get:
+      tags: [schemas]
+      operationId: get_schema
+      summary: Get one schema by name
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: |
+            The full schema definition plus a `system: bool` flag
+            indicating whether this is an infrastructure schema
+            (`true`) or a user-data schema (`false`). The schema's
+            own fields are flattened at the top level of the
+            response; see `SchemaEnvelope`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaEnvelope'
+        '404':
+          description: Schema not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/triggers/simulate:
+    post:
+      tags: [triggers]
+      operationId: simulate_trigger
+      summary: Dry-run a trigger configuration
+      description: |
+        Stateless preview endpoint. Validates a `Trigger` against the same
+        invariants trigger validation applies (schemas resolve against the
+        registry, cron parses, IANA timezone parses, coalesce knobs sane)
+        and computes when it **would** fire, without registering a view or
+        touching any state.
+
+        Useful for:
+          * UI preview — show a user the next 24h of fires before they
+            commit to a schedule.
+          * CI linting — reject `Scheduled` entries whose cron or tz
+            won't parse, before they are used.
+          * Documentation — self-contained examples that show trigger
+            behavior without needing a seeded registry.
+
+        Cadence-specific inputs:
+          * `Scheduled` / `ScheduledIfDirty` — `hypothetical_window_hours`
+            controls how far into the future to enumerate cron ticks
+            (default 24h). `mutation_events` are used for the dirty-bit
+            / `skip_if_idle` gates.
+          * `OnWrite` / `OnWriteCoalesced` — fire times come entirely
+            from `mutation_events`. Provide a representative burst.
+          * `Manual` — always returns an empty `would_fire_at`.
+
+        The simulation intentionally does **not** replay historical mutations from
+        the registry — `mutation_events` is a caller-provided stream.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SimulateTriggerRequest'
+            examples:
+              scheduledEveryHour:
+                summary: Scheduled every hour in Los Angeles, 1h catch-up budget
+                value:
+                  trigger:
+                    kind: Scheduled
+                    cron: "0 * * * *"
+                    timezone: "America/Los_Angeles"
+                    max_catch_up_age: "1h"
+                    skip_if_idle: false
+                    schemas: ["Post"]
+                  hypothetical_window_hours: 6
+              onWriteCoalescedBurst:
+                summary: OnWriteCoalesced firing on min_batch after a burst
+                value:
+                  trigger:
+                    kind: OnWriteCoalesced
+                    schemas: ["Post"]
+                    min_batch: 3
+                    debounce_ms: 500
+                    max_wait_ms: 10000
+                  mutation_events:
+                    - { schema: "Post", timestamp_ms: 1700000000000 }
+                    - { schema: "Post", timestamp_ms: 1700000000100 }
+                    - { schema: "Post", timestamp_ms: 1700000000200 }
+      responses:
+        '200':
+          description: Trigger is valid. Body carries the (possibly empty) fire schedule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulateTriggerResponse'
+              examples:
+                scheduled:
+                  summary: Hourly cron, first fire at top of hour
+                  value:
+                    would_fire_at: [1700000400000, 1700004000000, 1700007600000]
+                    skipped_catch_up: [false, false, false]
+                    first_fire_reason: "cron tick"
+                    validation:
+                      status: "ok"
+                onWriteCoalesced:
+                  summary: Burst coalesces into a single fire
+                  value:
+                    would_fire_at: [1700000000700]
+                    skipped_catch_up: [false]
+                    first_fire_reason: "min_batch reached"
+                    validation:
+                      status: "ok"
+        '400':
+          description: |
+            Trigger is invalid (e.g. unknown schema, unparseable cron,
+            unknown timezone, out-of-range coalesce knobs). The body is
+            still a `SimulateTriggerResponse` — `would_fire_at` is empty
+            and `validation.status` is `"err"` with per-invariant
+            messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulateTriggerResponse'
+              examples:
+                invalidCron:
+                  summary: Unparseable cron expression
+                  value:
+                    would_fire_at: []
+                    first_fire_reason: ""
+                    validation:
+                      status: "err"
+                      messages:
+                        - "Trigger 0: Scheduled.cron 'not a cron' failed to parse: ..."
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/snapshot:
+    get:
+      tags: [snapshot]
+      operationId: snapshot_export
+      summary: Export the registry as a single self-contained JSON snapshot
+      description: |
+        Returns the full registry — schemas, apps, canonical fields,
+        and the embedding caches — in one JSON envelope.
+
+        Used by the dev binary's `--hydrate-from` flow (see
+        `projects/schema-service-dev-hydration`) to seed a local Sled
+        instance from production. Auth is enforced by the framework
+        wrapper: production gates this route on `X-API-Key`; the dev
+        binary leaves it open for localhost loopback.
+
+        For **resolver-pack publishing**, prefer
+        `GET /v1/snapshot/shared-only` so private legacy bootstrap
+        schemas never enter pack artifacts.
+      responses:
+        '200':
+          description: A snapshot envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/snapshot/shared-only:
+    get:
+      tags: [snapshot]
+      operationId: snapshot_export_shared_only
+      summary: Export the shared-only registry projection for resolver packs
+      description: |
+        Same envelope shape as `GET /v1/snapshot`, but schemas are
+        filtered to the shared-surface projection:
+
+        - includes system-owned seeds and explicit shared contracts
+        - excludes private legacy bootstrap, unknown, and superseded rows
+
+        Embeddings are stripped on the wire (same as full snapshot).
+        Auth matches `GET /v1/snapshot` (X-API-Key in production).
+
+        Pack publishers also re-apply the projection client-side when
+        building from a full snapshot file, so either input is safe.
+      responses:
+        '200':
+          description: Shared-only snapshot envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/snapshot/import:
+    post:
+      tags: [snapshot]
+      operationId: snapshot_import
+      summary: Replace the local registry with the contents of a snapshot envelope
+      description: |
+        Full-replace import. Clears every owned Sled tree (`schemas`,
+        `canonical_fields`, `apps`), writes the envelope's contents
+        in their place, refreshes the in-memory caches, and rebuilds the
+        `descriptive_name` index.
+
+        **Sled-only.** The production Lambda binary intentionally does
+        not mount this route; calling it through an external backend
+        returns `400`.
+
+        The importer rejects envelopes whose `format_version` does not
+        equal the binary's [`SNAPSHOT_FORMAT_VERSION`] or whose
+        `embedder_version` differs from the local embedder — vectors
+        from different models occupy different spaces and cannot be
+        mixed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnapshotEnvelope'
+      responses:
+        '200':
+          description: Import completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotImportReport'
+        '400':
+          description: |
+            Envelope rejected — unknown `format_version`, embedder
+            mismatch, non-Sled storage backend, or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/system/reset:
+    post:
+      tags: [system]
+      operationId: reset_database
+      summary: Reset the local schema database (local storage backends only)
+      description: |
+        Clears all schemas. **Only supported on Sled-backed dev instances**;
+        the production Lambda returns `400 Bad Request` because its external
+        backend owns its own reset semantics.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetRequest'
+      responses:
+        '200':
+          description: Reset completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetResponse'
+        '400':
+          description: Missing confirmation, or endpoint not supported for this backend.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetResponse'
+        '500':
+          description: Storage backend failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetResponse'
+
+  /v1/admin/dedupe-descriptive-names:
+    post:
+      tags: [system]
+      operationId: dedupe_descriptive_names
+      summary: Mark duplicate active descriptive-name entries superseded
+      description: |
+        One-shot cleanup for registry states where multiple active schemas
+        share a descriptive name. Keeps the active schema with the largest
+        field set and marks the others `superseded_by` that survivor.
+      responses:
+        '200':
+          description: Cleanup report.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [groups]
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      required: [descriptive_name, survivor, survivor_field_count, superseded]
+                      properties:
+                        descriptive_name:
+                          type: string
+                        survivor:
+                          type: string
+                        survivor_field_count:
+                          type: integer
+                          format: int64
+                        superseded:
+                          type: array
+                          items:
+                            type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/admin/deprecate-schemas:
+    post:
+      tags: [system]
+      operationId: deprecate_schemas
+      summary: Mark selected schemas inactive without deleting records
+      description: |
+        Surgical cleanup for polluted registry entries. Accepts schema
+        identity hashes and/or descriptive names, marks matching active schemas
+        inactive using `superseded_by`, and removes matching descriptive-name
+        index entries. The immutable schema records remain readable by hash.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                schema_names:
+                  type: array
+                  items:
+                    type: string
+                descriptive_names:
+                  type: array
+                  items:
+                    type: string
+                owner_app_id:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Deprecation report.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deprecated, not_found]
+                properties:
+                  deprecated:
+                    type: array
+                    items:
+                      type: object
+                      required: [schema_name, already_deprecated]
+                      properties:
+                        schema_name:
+                          type: string
+                        descriptive_name:
+                          type: string
+                          nullable: true
+                        already_deprecated:
+                          type: boolean
+                  not_found:
+                    type: array
+                    items:
+                      type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/fields/declare:
+    post:
+      tags: [fields]
+      operationId: declare_field
+      summary: Declare a field handle and receive its scoped identities
+      description: |
+        You declare a field. You get a handle. Use it in any schema. Two schemas
+        using the same handle hold the same field, so their data stays in step.
+
+        Declaring mints one immutable thing — a **declaration id**. Every field
+        identity is derived from it, so a node holding a schema that already
+        carries the id can recompute and verify the identity offline and get
+        exactly what Schema Service got. Only *creating* a declaration needs
+        this endpoint, which is what stops two offline nodes minting conflicting
+        ids for the same handle.
+
+        **Always gated** by `X-Exemem-Dev-Cert` + `X-Signature` (envelope
+        purpose `field_declare`, signing the whole request body). Unlike a local
+        schema claim — cert-free because the node computes a content-addressed
+        `identity_hash` itself — declaring a field claims a slot other schemas'
+        writes fold into, on a service shared by everyone. No verified identity,
+        no owned field.
+
+        **Idempotent.** Re-declaring the same `(owner_app_id, handle)` returns
+        the same declaration id and byte-identical identities, so a client may
+        call it on every startup. Adding a field later leaves existing
+        identities untouched; bumping a field's `version` mints a new identity
+        for that field alone.
+
+        `owner_app_id` is **not** an input to any identity. Transferring a
+        declaration leaves every field identity byte-identical — ownership is an
+        attribute, never a hash input.
+
+        Status codes:
+
+        * `200 OK` — declared (or re-declared).
+        * `400 Bad Request` — malformed body, handle, or field list.
+        * `401 Unauthorized` — missing/invalid cert or signature, or the stage
+          has no trusted roots configured (`app_identity_not_configured`).
+        * `403 Forbidden` — the cert does not match the app's registered owner,
+          or the handle belongs to another app.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeclareFieldRequest'
+      responses:
+        '200':
+          description: The declaration, with one derived identity per field.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclaredFieldRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /v1/fields/{declaration_id}:
+    get:
+      tags: [fields]
+      operationId: get_declared_field
+      summary: Read one field declaration
+      description: |
+        Unauthenticated, like `GET /v1/apps/{app_id}`: a node needs to resolve a
+        declaration it already holds an id for, and the id is not a secret. What
+        is gated is *declaring* and *referencing*, never looking up.
+      parameters:
+        - name: declaration_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The minted declaration id, e.g. `fd_2f8a1c9e...`.
+      responses:
+        '200':
+          description: The declaration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclaredFieldRecord'
+        '404':
+          description: No declaration with that id.
+
+  /v1/canonicalization-near-misses:
+    get:
+      tags: [canonicalization]
+      operationId: list_canonicalization_near_misses
+      summary: List shadow-mode canonicalization near-misses
+      description: |
+        Returns the persisted near-miss audit log — registrations where the
+        single-signal and dual-signal canonicalization algorithms produced
+        different outcomes. Populated only when the writer ran with
+        `SCHEMA_SHADOW_MODE=true`; otherwise the response is empty.
+
+        Records are returned newest-first. `since`/`until` filter on
+        `NearMissRecord.timestamp` (RFC 3339); `limit`/`offset` paginate
+        the filtered set. `total` is the count after the time-range
+        filter (pre-pagination); `next_offset` is the cursor when more
+        records remain or `null` at the end.
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Inclusive lower bound on `timestamp` (RFC 3339, UTC).
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          required: false
+          description: Exclusive upper bound on `timestamp` (RFC 3339, UTC).
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 100, capped at 1000 server-side.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          description: Starting offset into the filtered, newest-first record list.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Page of near-miss records.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NearMissesResponse'
+
+components:
+  responses:
+    BadRequest:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: |
+        Per-caller quota exceeded. Currently only emitted by
+        trigger registration when the active-trigger cap (default 100,
+        summed across every view the caller owns) would be tripped
+        by registering the submitted view's triggers.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            trigger_cap:
+              summary: Active-trigger cap exceeded
+              value:
+                error: "Failed to register view: Active trigger cap exceeded: registering 2 new triggers would push total to 102 (cap 100)"
+    InternalError:
+      description: Internal server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: |
+        Missing, invalid, or expired developer cert / signature. The body's
+        `reason` discriminates: `cert_required`, `cert_invalid`,
+        `cert_expired`, or `envelope_invalid`.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              reason:
+                type: string
+                enum: [cert_required, cert_invalid, cert_expired, envelope_invalid]
+    Forbidden:
+      description: |
+        The request is authenticated but not authorized — the signing
+        developer's pubkey is on the offline revocation denylist.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              reason:
+                type: string
+                enum: [dev_revoked]
+    AppIdentityNotConfigured:
+      description: |
+        A trusted root is configured but the deploy cannot verify the cert
+        (misconfiguration). Surfaced loud rather than silently accepting an
+        unverifiable submission.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              reason:
+                type: string
+                enum: [app_identity_not_configured]
+
+  securitySchemes:
+    # app_identity v3.1 developer cert + dev-signed envelope. Both headers
+    # are required together on cert-gated writes.
+    DevCert:
+      type: apiKey
+      in: header
+      name: X-Exemem-Dev-Cert
+      description: Base64 ES256 developer cert (app_identity v3.1), issued by a trusted exemem root.
+    DevSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: Base64 Ed25519 SignatureEnvelope over the request body; its `purpose` pins the operation.
+
+  schemas:
+    DeclareFieldRequest:
+      type: object
+      required: [owner_app_id, handle, fields]
+      properties:
+        owner_app_id:
+          type: string
+          description: |
+            The declaring app. Verified against the DevCert — never taken on
+            trust. Not an input to any field identity.
+          example: fkanban
+        handle:
+          type: string
+          description: |
+            Human-readable handle. Groups fields for humans; the slash means
+            nothing to the database. A typo mints a new declaration, which
+            fails safe.
+          example: card/title
+        fields:
+          type: array
+          minItems: 1
+          maxItems: 256
+          items:
+            $ref: '#/components/schemas/DeclareFieldInput'
+        readers:
+          type: array
+          description: |
+            Apps other than the owner granted permission to reference these
+            identities. Additive — a re-declare never removes a grant.
+          items:
+            type: string
+      example:
+        owner_app_id: fkanban
+        handle: card/title
+        fields:
+          - name: title
+            field_type: String
+            description: one-line title
+            version: 1
+
+    DeclareFieldInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Field name. Trimmed; case is significant.
+        field_type:
+          type: string
+          description: Value type from the shared registry. Defaults to `Any`.
+        description:
+          type: string
+          description: |
+            Human-readable. **Not** part of the identity — correcting prose must
+            never unbind schemas that already stamped this field.
+        version:
+          type: integer
+          format: int32
+          default: 1
+          description: |
+            Bump when meaning or type changes incompatibly. A bump mints a new
+            identity, hence a new protein.
+
+    DeclaredField:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        description:
+          type: string
+        version:
+          type: integer
+          format: int32
+        identity:
+          type: string
+          description: |
+            The derived identity a schema stamps into `field_hashes`. This is
+            also the protein id — there is no separate protein UUID.
+
+    DeclaredFieldRecord:
+      type: object
+      properties:
+        declaration_id:
+          type: string
+          description: Minted, globally unique, immutable. The only identity input.
+        handle:
+          type: string
+        owner_app_id:
+          type: string
+          description: Mutable, and never hashed.
+        readers:
+          type: array
+          items:
+            type: string
+        algo_version:
+          type: integer
+          format: int32
+          description: The identity algorithm that minted these identities.
+        declared_at:
+          type: string
+          format: date-time
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeclaredField'
+
+    # ---------- Simple responses ----------
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: healthy
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    ReloadResponse:
+      type: object
+      required: [success, schemas_loaded]
+      properties:
+        success:
+          type: boolean
+        schemas_loaded:
+          type: integer
+          format: int64
+          minimum: 0
+
+    ResetRequest:
+      type: object
+      required: [confirm]
+      properties:
+        confirm:
+          type: boolean
+          description: Must be `true` — guards against accidental reset.
+
+    ResetResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+
+    # ---------- Schema listings ----------
+    SchemasListResponse:
+      type: object
+      required: [schemas]
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+
+    AvailableSchemasResponse:
+      type: object
+      required: [schemas]
+      properties:
+        schemas:
+          type: array
+          items:
+            $ref: '#/components/schemas/SchemaEnvelope'
+
+    SchemaEnvelope:
+      description: |
+        A schema definition plus a boolean `system` flag marking
+        whether the schema is an infrastructure/system schema or a
+        user-data schema. `system = true` for the Phase 1 built-ins
+        (`Fingerprint`, `Mention`, `Edge`, `Identity`,
+        `IdentityReceipt`, `Persona`, `EdgeByFingerprint`,
+        `MentionByFingerprint`, `MentionBySource`,
+        `IngestionError`, `ExtractionStatus`, `ReceivedShare`) that
+        the schema service seeds on every boot. `system = false`
+        for everything a client has proposed.
+
+        The schema's own fields are `allOf`-merged at the top level
+        (equivalent to `#[serde(flatten)]` in the Rust types) so
+        existing clients that deserialize into the plain `Schema`
+        shape keep working — they simply ignore the extra `system`
+        property. New clients (fold_db_node's UI) read the flag to
+        group or hide system schemas in the schemas list.
+      type: object
+      required: [system]
+      allOf:
+        - $ref: '#/components/schemas/Schema'
+        - type: object
+          properties:
+            system:
+              type: boolean
+              description: |
+                True for infrastructure schemas seeded by the
+                schema service itself; false for user-proposed
+                schemas.
+
+    # ---------- Add schema ----------
+    SchemaMutationChallengeRequest:
+      type: object
+      required: [node_public_key, schema_hash]
+      properties:
+        node_public_key:
+          type: string
+          description: Base64 Ed25519 node publish public key.
+        schema_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: Lowercase SHA-256 hex of the canonical schema JSON payload.
+        app_id:
+          type: string
+          nullable: true
+          description: Optional app namespace for quota accounting.
+
+    SchemaMutationChallengeResponse:
+      type: object
+      required:
+        - challenge_id
+        - nonce
+        - challenge_mac
+        - node_public_key_hash
+        - schema_hash
+        - difficulty_bits
+        - expires_at_unix_secs
+        - counter_start
+        - pow_input
+      properties:
+        challenge_id:
+          type: string
+        nonce:
+          type: string
+        challenge_mac:
+          type: string
+          description: >
+            Base64 HMAC over nonce, node_public_key_hash, schema_hash,
+            difficulty_bits, and expires_at_unix_secs. Clients echo it via
+            X-Pow-Challenge-Mac with X-Pow-Difficulty-Bits and
+            X-Pow-Expires-At when submitting the proof.
+        node_public_key_hash:
+          type: string
+          description: Lowercase SHA-256 hex key id for the node publish key.
+        schema_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        difficulty_bits:
+          type: integer
+          minimum: 0
+          maximum: 255
+        expires_at_unix_secs:
+          type: integer
+          format: int64
+        counter_start:
+          type: integer
+          format: int64
+        pow_input:
+          type: string
+          description: The input shape clients hash while searching counters.
+
+    AddSchemaRequest:
+      type: object
+      required: [schema, mutation_mappers]
+      properties:
+        schema:
+          $ref: '#/components/schemas/Schema'
+        mutation_mappers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Field-level mutation mappers keyed by field name.
+        offer_to_shared_discovery:
+          type: boolean
+          default: false
+          description: >
+            Whether this registration OFFERS the schema into the shared
+            registry's discovery (an outward write to the shared commons) vs
+            merely CLAIMS a local namespace. A local namespace claim (the
+            default, `false`) is cert-free — the node already computes the
+            deterministic identity_hash, so claiming records ownership of a
+            content-addressed namespace with no DevCert. Only an explicit
+            offer into shared discovery (`true`) is gated on the owner's
+            DevCert (`X-Exemem-Dev-Cert` + `X-Signature`). Omitting the field
+            is treated as a local claim.
+
+    AddSchemaResponse:
+      type: object
+      required: [schema, mutation_mappers, system]
+      properties:
+        schema:
+          $ref: '#/components/schemas/Schema'
+        mutation_mappers:
+          type: object
+          additionalProperties:
+            type: string
+        replaced_schema:
+          type: string
+          nullable: true
+          description: Present only when this request expanded an existing schema; contains the old schema name that was superseded.
+        system:
+          type: boolean
+          description: |
+            True iff the returned schema is an infrastructure
+            schema (always false for schemas added via this
+            endpoint — the add-schema path is the user-data entry
+            point — but emitted explicitly so clients can
+            classify without a follow-up request).
+        composed:
+          type: boolean
+          default: false
+          description: |
+            True iff this registration was a COMPOSED outcome: the
+            compositional decompose/apply step rewrote one or more of the
+            proposal's nested ref_fields to reuse an existing canonical via
+            SchemaRef instead of re-inlining its fields. Only present when
+            true; absent (defaulting to false) for a plain
+            Added/Expanded/AlreadyExists outcome. The authoritative marker of
+            composition — the response schema carries the rewritten ref_fields
+            either way, so this flag (not the presence of ref_fields) is what
+            tells a client the apply path actually reused something. Produced
+            only when SCHEMA_COMPOSITIONAL_DECOMPOSITION=apply (off by default).
+
+    # ---------- Similar schemas ----------
+    SimilarSchemaEntry:
+      type: object
+      required: [schema, similarity]
+      properties:
+        schema:
+          $ref: '#/components/schemas/SchemaEnvelope'
+        similarity:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+
+    SimilarSchemasResponse:
+      type: object
+      required: [query_schema, threshold, similar_schemas]
+      properties:
+        query_schema:
+          type: string
+        threshold:
+          type: number
+          format: double
+        similar_schemas:
+          type: array
+          items:
+            $ref: '#/components/schemas/SimilarSchemaEntry'
+
+    # ---------- Batch reuse ----------
+    SchemaLookupEntry:
+      type: object
+      required: [descriptive_name, fields]
+      properties:
+        descriptive_name:
+          type: string
+        fields:
+          type: array
+          items:
+            type: string
+
+    BatchSchemaReuseRequest:
+      type: object
+      required: [schemas]
+      properties:
+        schemas:
+          type: array
+          items:
+            $ref: '#/components/schemas/SchemaLookupEntry'
+
+    SchemaReuseMatch:
+      type: object
+      required:
+        - schema
+        - matched_descriptive_name
+        - is_exact_match
+        - field_rename_map
+        - is_superset
+        - unmapped_fields
+      properties:
+        schema:
+          $ref: '#/components/schemas/SchemaEnvelope'
+        matched_descriptive_name:
+          type: string
+        is_exact_match:
+          type: boolean
+        field_rename_map:
+          type: object
+          additionalProperties:
+            type: string
+        is_superset:
+          type: boolean
+        unmapped_fields:
+          type: array
+          items:
+            type: string
+
+    BatchSchemaReuseResponse:
+      type: object
+      required: [matches]
+      properties:
+        matches:
+          type: object
+          description: Map of input `descriptive_name` → match result. Names with no match are omitted.
+          additionalProperties:
+            $ref: '#/components/schemas/SchemaReuseMatch'
+
+    SchemaResolveProposal:
+      type: object
+      required: [descriptive_name, fields]
+      properties:
+        descriptive_name:
+          type: string
+          description: Human-readable proposal name to resolve.
+        fields:
+          type: array
+          items:
+            type: string
+        field_descriptions:
+          type: object
+          additionalProperties:
+            type: string
+          description: Optional field descriptions used for semantic field rename advice.
+        purpose_statement:
+          type: string
+          nullable: true
+        identity_hash:
+          type: string
+          nullable: true
+          description: Optional client-computed local identity hash.
+        owner_app_id:
+          type: string
+          nullable: true
+          description: Optional app namespace to scope descriptive-name lookup.
+
+    SchemaResolveRequest:
+      type: object
+      required: [proposals]
+      properties:
+        client_registry_version:
+          type: integer
+          format: int64
+          nullable: true
+          description: Last registry version observed by the caller.
+        proposals:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/SchemaResolveProposal'
+
+    SchemaResolveOutcome:
+      type: string
+      enum: [reuse, novel, candidate_equivalent, refresh]
+
+    SchemaResolveResult:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          $ref: '#/components/schemas/SchemaResolveOutcome'
+        matched_shared_schema_hash:
+          type: string
+          nullable: true
+          description: Shared schema identity hash when `outcome` is `reuse`.
+        match:
+          $ref: '#/components/schemas/SchemaReuseMatch'
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/SchemaReuseMatch'
+        candidate_shared_schema_hashes:
+          type: array
+          items:
+            type: string
+          description: Candidate shared schema identity hashes when user/app decision is required.
+        confidence:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+
+    SchemaResolveResponse:
+      type: object
+      required: [registry_version, cache_stale, results]
+      properties:
+        registry_version:
+          type: integer
+          format: int64
+          description: Server registry version used for this decision.
+        cache_stale:
+          type: boolean
+          description: True iff `client_registry_version < registry_version`.
+        results:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SchemaResolveResult'
+
+    RegistryIndexEnvelope:
+      type: object
+      required:
+        - format_version
+        - full
+        - registry_version
+        - merkle_root
+        - embedder_version
+        - entries
+        - signature
+      properties:
+        format_version:
+          type: integer
+          example: 1
+        full:
+          type: boolean
+          description: True when this response is a full snapshot rather than a delta.
+        registry_version:
+          type: integer
+          format: int64
+          description: Monotonic state version used as the cache key and ETag.
+        merkle_root:
+          type: string
+          description: BLAKE3 root over sorted JCS-canonicalized active entries.
+          example: "b3:4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        embedder_version:
+          type: string
+          description: Embedding model namespace for any compact embedding handles.
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistryIndexEntry'
+        supersessions:
+          type: object
+          description: Map of superseded identity hash to active canonical identity hash.
+          additionalProperties:
+            type: string
+        signature:
+          $ref: '#/components/schemas/RegistryIndexSignature'
+
+    RegistryIndexEntry:
+      type: object
+      required: [identity_hash, descriptive_name, source, fields]
+      properties:
+        identity_hash:
+          type: string
+        descriptive_name:
+          type: string
+        owner_app_id:
+          type: string
+          nullable: true
+        source:
+          type: string
+          enum: [system_seed, starter_seed, user]
+        fields:
+          type: array
+          items:
+            type: string
+        field_descriptions:
+          type: object
+          additionalProperties:
+            type: string
+        purpose_statement:
+          type: string
+          nullable: true
+
+    RegistryIndexSignature:
+      type: object
+      required: [alg, key_id, sig]
+      properties:
+        alg:
+          type: string
+          enum: [Ed25519]
+        key_id:
+          type: string
+          description: SHA-256 key identifier for the signing public key.
+        sig:
+          type: string
+          description: Base64 Ed25519 signature over the unsigned canonical body.
+
+    # ---------- Triggers (stateless simulate only; view plane removed) ----------
+    Trigger:
+      oneOf:
+        - $ref: '#/components/schemas/TriggerOnWrite'
+        - $ref: '#/components/schemas/TriggerOnWriteCoalesced'
+        - $ref: '#/components/schemas/TriggerScheduled'
+        - $ref: '#/components/schemas/TriggerScheduledIfDirty'
+        - $ref: '#/components/schemas/TriggerManual'
+      discriminator:
+        propertyName: kind
+        mapping:
+          OnWrite: '#/components/schemas/TriggerOnWrite'
+          OnWriteCoalesced: '#/components/schemas/TriggerOnWriteCoalesced'
+          Scheduled: '#/components/schemas/TriggerScheduled'
+          ScheduledIfDirty: '#/components/schemas/TriggerScheduledIfDirty'
+          Manual: '#/components/schemas/TriggerManual'
+      description: |
+        Declarative firing cadence for a view. Serialized with a `kind`
+        tag. One of five variants: `OnWrite`, `OnWriteCoalesced`,
+        `Scheduled`, `ScheduledIfDirty`, `Manual`. Each variant below
+        carries its own `example`.
+
+    TriggerOnWrite:
+      type: object
+      required: [kind, schemas]
+      properties:
+        kind:
+          type: string
+          enum: [OnWrite]
+        schemas:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Fire on every write to any schema in this list.
+      example:
+        kind: OnWrite
+        schemas: [Memory]
+
+    TriggerOnWriteCoalesced:
+      type: object
+      required: [kind, schemas, min_batch, debounce_ms, max_wait_ms]
+      properties:
+        kind:
+          type: string
+          enum: [OnWriteCoalesced]
+        schemas:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        min_batch:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Minimum writes queued before the first eligible fire.
+        debounce_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Quiet window (ms) the stream must stay idle before a fire.
+        max_wait_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          description: |
+            Hard cap (ms) between the first queued write and the fire.
+            Must be `>= debounce_ms` — enforced at `add_view` time.
+      example:
+        kind: OnWriteCoalesced
+        schemas: [Fingerprint, Edge]
+        min_batch: 50
+        debounce_ms: 5000
+        max_wait_ms: 600000
+
+    TriggerScheduled:
+      type: object
+      required: [kind, cron, timezone, skip_if_idle, schemas]
+      properties:
+        kind:
+          type: string
+          enum: [Scheduled]
+        cron:
+          type: string
+          description: |
+            Cron expression parsed by the `croner` crate.
+            Only the 5-field POSIX form is accepted (minute hour
+            day-of-month month day-of-week); the seconds-leading
+            6-field form is rejected. Common nickname aliases —
+            `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly` —
+            are also accepted.
+        timezone:
+          type: string
+          description: |
+            IANA timezone name. Examples: `UTC`, `America/Los_Angeles`,
+            `Europe/Berlin`. The POSIX-style alias `PST8PDT` is also
+            accepted (via `chrono-tz`). Unknown zones are rejected with
+            a 400.
+        max_catch_up_age:
+          type: string
+          nullable: true
+          description: |
+            Optional staleness budget. If a catch-up fire's lag (wall
+            clock "now" minus the scheduled tick) strictly exceeds this
+            duration, the runner warns, advances the cursor to the
+            next tick, and skips the stale fire — no dispatch, no
+            audit row. Format: `<positive integer><unit>` with unit
+            in `m` (minutes), `h` (hours), `d` (days), or `w` (weeks).
+            Examples: `30m`, `24h`, `7d`, `2w`. Malformed or zero-count
+            values are rejected at `add_view` time. When absent,
+            catch-up is unbounded — every missed tick fires on resume.
+        skip_if_idle:
+          type: boolean
+          description: When true, suppress the fire if no source writes landed since last tick.
+        schemas:
+          type: array
+          minItems: 1
+          items:
+            type: string
+      example:
+        kind: Scheduled
+        cron: "0 2 * * *"
+        timezone: America/Los_Angeles
+        max_catch_up_age: 24h
+        skip_if_idle: false
+        schemas: [Memory]
+
+    TriggerScheduledIfDirty:
+      type: object
+      required: [kind, cron, timezone, schemas]
+      properties:
+        kind:
+          type: string
+          enum: [ScheduledIfDirty]
+        cron:
+          type: string
+          description: |
+            Same form as `TriggerScheduled.cron` — 5-field POSIX cron or
+            nickname alias (`@daily`, …).
+        timezone:
+          type: string
+          description: Same form as `TriggerScheduled.timezone` — IANA zone name.
+        max_catch_up_age:
+          type: string
+          nullable: true
+          description: |
+            Same form and semantics as `TriggerScheduled.max_catch_up_age` —
+            a staleness budget beyond which catch-up fires are skipped.
+        schemas:
+          type: array
+          minItems: 1
+          items:
+            type: string
+      description: |
+        Like `Scheduled`, but only fires when the per-view dirty bit is
+        set (at least one source write has landed since the last fire).
+      example:
+        kind: ScheduledIfDirty
+        cron: "0 3 * * *"
+        timezone: UTC
+        max_catch_up_age: 7d
+        schemas: [Memory]
+
+    TriggerManual:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [Manual]
+      description: Never fires automatically; runs only via explicit manual invocation.
+      example:
+        kind: Manual
+
+    SimulateTriggerRequest:
+      type: object
+      required: [trigger]
+      properties:
+        trigger:
+          $ref: '#/components/schemas/Trigger'
+        hypothetical_window_hours:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+          description: |
+            For `Scheduled` / `ScheduledIfDirty`: how far into the future
+            to enumerate fire times. Ignored for other variants. Defaults
+            to 24 when unset.
+        catch_up_from_ms:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            For `Scheduled` / `ScheduledIfDirty`: optional Unix-ms earlier
+            than "now" that models a scheduler offline from this time
+            until wake-up. The simulation then also emits catch-up cron
+            ticks that landed in `[catch_up_from_ms, now)`, each tagged
+            with `skipped_catch_up=true` iff its lag exceeds the
+            trigger's `max_catch_up_age` budget. Without this field,
+            only forward ticks are enumerated and `skipped_catch_up` is
+            all `false`.
+        mutation_events:
+          type: array
+          description: |
+            Hypothetical mutation stream. For `OnWrite` /
+            `OnWriteCoalesced`, this drives the fire schedule. For
+            `Scheduled` / `ScheduledIfDirty`, it feeds the
+            dirty-bit / `skip_if_idle` gates. Events on schemas not
+            referenced by the trigger are ignored (mirrors runtime).
+          items:
+            $ref: '#/components/schemas/SimulatedMutation'
+
+    SimulatedMutation:
+      type: object
+      required: [schema, timestamp_ms]
+      properties:
+        schema:
+          type: string
+          description: Schema name the hypothetical mutation lands on.
+        timestamp_ms:
+          type: integer
+          format: int64
+          description: Unix-ms timestamp of the hypothetical mutation.
+
+    SimulateTriggerResponse:
+      type: object
+      required: [would_fire_at, skipped_catch_up, first_fire_reason, validation]
+      properties:
+        would_fire_at:
+          type: array
+          description: |
+            Unix-ms timestamps where the trigger would fire, ascending.
+            Empty for `Manual`, for event-driven triggers with no
+            matching events, and for 400-responses.
+          items:
+            type: integer
+            format: int64
+        skipped_catch_up:
+          type: array
+          description: |
+            Parallel to `would_fire_at`: `true` iff the runtime would
+            skip that fire because its lag from "now" exceeded the
+            trigger's `max_catch_up_age` budget. Always `false` for
+            non-scheduled variants and for forward ticks enumerated
+            without `catch_up_from_ms` in the request.
+          items:
+            type: boolean
+        first_fire_reason:
+          type: string
+          description: |
+            Why the first fire (if any) would happen. Examples:
+            `"min_batch reached"`, `"max_wait_ms elapsed"`,
+            `"cron tick"`, `"every write"`,
+            `"manual only — never fires automatically"`, `"no events"`.
+        validation:
+          $ref: '#/components/schemas/ValidateTriggerResult'
+
+    ValidateTriggerResult:
+      oneOf:
+        - $ref: '#/components/schemas/ValidateTriggerResultOk'
+        - $ref: '#/components/schemas/ValidateTriggerResultErr'
+      discriminator:
+        propertyName: status
+        mapping:
+          ok: '#/components/schemas/ValidateTriggerResultOk'
+          err: '#/components/schemas/ValidateTriggerResultErr'
+
+    ValidateTriggerResultOk:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    ValidateTriggerResultErr:
+      type: object
+      required: [status, messages]
+      properties:
+        status:
+          type: string
+          enum: [err]
+        messages:
+          type: array
+          items:
+            type: string
+
+    # ---------- Transforms ----------
+    # ---------- fold_db types (described loosely) ----------
+    Schema:
+      type: object
+      description: |
+        `fold_db::schema::types::schema::Schema` (alias for
+        `DeclarativeSchemaDefinition`). See
+        `https://github.com/EdgeVector/fold/blob/main/fold_db/src/schema/types/declarative_schemas.rs`
+        for the authoritative field set.
+      required: [name, schema_type]
+      properties:
+        name:
+          type: string
+        descriptive_name:
+          type: string
+          nullable: true
+        purpose_statement:
+          type: string
+          nullable: true
+          description: |
+            One-sentence declaration of what the schema is semantically for.
+            Used by dual-signal canonicalization to veto structural merges
+            when purpose differs.
+
+            Optional at registration. When omitted, the service defaults the
+            stored value to the schema's `descriptive_name` so downstream
+            consumers always see a populated field. Phase B of
+            `dual-signal-schema-canonicalization` will tighten this once the
+            purpose-embedding pipeline lands.
+        schema_type:
+          $ref: '#/components/schemas/DeclarativeSchemaType'
+        key:
+          type: object
+          nullable: true
+          description: KeyConfig — required when `schema_type` is `Hash`, `Range`, or `HashRange`.
+          additionalProperties: true
+        fields:
+          type: array
+          nullable: true
+          items:
+            type: string
+        transform_fields:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+        field_mappers:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          description: Serialized as `"schema.field"` strings.
+        hash:
+          type: string
+          nullable: true
+        field_molecule_uuids:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+        field_classifications:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        field_descriptions:
+          type: object
+          additionalProperties:
+            type: string
+        field_data_classifications:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/DataClassification'
+        field_interest_categories:
+          type: object
+          additionalProperties:
+            type: string
+        ref_fields:
+          type: object
+          additionalProperties:
+            type: string
+        field_types:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/FieldValueType'
+        identity_hash:
+          type: string
+          nullable: true
+        org_hash:
+          type: string
+          nullable: true
+        trust_domain:
+          type: string
+          nullable: true
+      additionalProperties: true
+
+    DeclarativeSchemaType:
+      type: string
+      enum: [Single, Hash, Range, HashRange]
+
+    FieldValueType:
+      description: |
+        `fold_db::schema::types::field_value_type::FieldValueType`. Primitive
+        or structured value type for a schema field. See
+        `https://github.com/EdgeVector/fold/blob/main/fold_db/src/schema/types/field_value_type.rs`.
+      oneOf:
+        - type: string
+          description: 'Primitive variant serialized as a tag string (e.g. `"String"`, `"Integer"`, `"Boolean"`, `"Any"`).'
+        - type: object
+          description: 'Parameterized variants (e.g. `{ "Array": <FieldValueType> }`) serialized as tagged objects.'
+          additionalProperties: true
+
+    DataClassification:
+      description: |
+        `fold_db::schema::types::data_classification::DataClassification`.
+        Sensitivity label applied to fields. See
+        `https://github.com/EdgeVector/fold/blob/main/fold_db/src/schema/types/data_classification.rs`.
+      oneOf:
+        - type: string
+        - type: object
+          additionalProperties: true
+
+    Query:
+      description: |
+        `fold_db::schema::types::operations::Query`. Declarative query
+        referencing a schema and a set of fields, with optional filters
+        and sort order. See
+        `https://github.com/EdgeVector/fold/blob/main/fold_db/src/schema/types/operations.rs`.
+      type: object
+      additionalProperties: true
+
+    SnapshotEnvelope:
+      description: |
+        Self-contained registry snapshot. The wire format for
+        `GET /v1/snapshot` and `POST /v1/snapshot/import`. Carries
+        schemas, apps, canonical fields, and embedding caches.
+      type: object
+      required:
+        [format_version, captured_at, embedder_version, schemas, canonical_fields, embeddings]
+      properties:
+        format_version:
+          type: integer
+          description: |
+            Wire format version. Bumped on any breaking shape change;
+            importers refuse unknown values rather than silently
+            degrading. Independent of `embedder_version`.
+          example: 1
+        version:
+          type: integer
+          format: int64
+          description: |
+            Monotonic state version. Advances on every state-changing
+            write (schema add, canonical field insertion, app register).
+            Clients use it to detect mid-flight changes when refreshing.
+            Defaults to 0 when omitted. Starts at 0 on a fresh registry;
+            not persisted across restarts in v1.
+          example: 42
+        captured_at:
+          type: string
+          format: date-time
+          description: RFC 3339 UTC timestamp when the snapshot was produced.
+          example: "2026-05-01T19:00:00Z"
+        embedder_version:
+          type: string
+          description: |
+            Stable identifier for the embedder that produced the
+            included embedding vectors. Importers refuse a snapshot
+            whose `embedder_version` does not equal their own
+            embedder's id.
+          example: "fastembed/all-MiniLM-L6-v2"
+        schemas:
+          type: array
+          description: All registered schemas, keyed internally by identity hash (`schema.name`).
+          items:
+            $ref: '#/components/schemas/Schema'
+        apps:
+          type: array
+          description: |
+            Registered apps (canonical app registry). Empty until Lane
+            B2b's `POST /v1/apps` lands; the field ships now so the
+            snapshot wire shape is stable across the B2a → B2b boundary.
+            Defaults to an empty array when omitted.
+          items:
+            $ref: '#/components/schemas/AppRecord'
+        canonical_fields:
+          type: object
+          description: Canonical-field registry, keyed by canonical name.
+          additionalProperties:
+            type: object
+            description: '`schema_service_core::types::CanonicalField` (description, field_type, optional classification, optional interest_category).'
+        embeddings:
+          $ref: '#/components/schemas/SnapshotEmbeddings'
+
+    AppRecord:
+      description: |
+        Registered app in the canonical app registry. `owner_app_id`
+        participates in schema identity hashing — see
+        `exemem-workspace/docs/designs/app_identity.md`.
+      type: object
+      required: [app_id, owner_dev_pubkey, metadata, registered_at]
+      properties:
+        app_id:
+          type: string
+          description: 'Lowercase kebab app id; matches `^[a-z][a-z0-9-]{0,39}$`. First-write-wins, immutable.'
+          example: fbrain
+        owner_dev_pubkey:
+          type: string
+          description: Ed25519 public key (base64) of the owning developer.
+        metadata:
+          $ref: '#/components/schemas/AppMetadata'
+        registered_at:
+          type: string
+          format: date-time
+          description: RFC 3339 timestamp of first registration.
+        tier:
+          type: string
+          enum: [sandbox, live]
+          default: live
+          description: |
+            Lifecycle tier. Every `POST /v1/apps` registration starts as
+            `sandbox`; an owner-authenticated `POST /v1/apps/{app_id}/promote`
+            (gated on `authorized_publisher`) flips it to `live`. Omitted on
+            records that predate the field, which read as `live`.
+        code_signature:
+          type: object
+          nullable: true
+          description: Optional macOS code-signature requirement for the shipped app binary.
+          properties:
+            bundle_identifier:
+              type: string
+            team_id:
+              type: string
+              nullable: true
+        source:
+          type: string
+          nullable: true
+          description: Source checkout URL for source-first installs. Use a GitHub URL such as `https://github.com/EdgeVector/fold`. A legacy `lastdb:///` value still parses.
+          example: https://github.com/EdgeVector/fold
+        artifact:
+          $ref: '#/components/schemas/AppArtifact'
+        uses:
+          type: array
+          description: Cross-app schemas or outputs the app declares it consumes.
+          items:
+            type: string
+
+    AppArtifact:
+      description: Content-addressed signed app tarball pointer.
+      type: object
+      required: [hash, size_bytes]
+      properties:
+        hash:
+          type: string
+          description: Content hash used to address the tarball object in R2.
+          example: sha256:abc123
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Tarball size in bytes.
+
+    AppMetadata:
+      description: |
+        Strict-schema app metadata. Bounded (< 2 KB after JCS) and
+        rendered as plain text in consent prompts.
+      type: object
+      required: [display_name, description, homepage_url]
+      properties:
+        display_name:
+          type: string
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 500
+        homepage_url:
+          type: string
+          maxLength: 200
+        icon_url:
+          type: string
+          maxLength: 200
+
+    SnapshotEmbeddings:
+      description: |
+        The three pre-computed embedding caches the registry maintains.
+        Each map keys an entity-specific name to a fixed-dimension
+        float vector. Shipped in the snapshot so a hydrated dev
+        binary can perform semantic-similarity matching without
+        re-embedding every name on startup.
+      type: object
+      properties:
+        descriptive_names:
+          type: object
+          description: '`descriptive_name` → embedding vector.'
+          additionalProperties:
+            type: array
+            items:
+              type: number
+              format: float
+        fields:
+          type: object
+          description: '`"<descriptive_name>:<field_name>"` → embedding vector.'
+          additionalProperties:
+            type: array
+            items:
+              type: number
+              format: float
+        canonical_fields:
+          type: object
+          description: 'Canonical field name → embedding vector.'
+          additionalProperties:
+            type: array
+            items:
+              type: number
+              format: float
+
+    SnapshotImportReport:
+      description: Counts returned by a successful `POST /v1/snapshot/import`.
+      type: object
+      required:
+        [schemas, canonical_fields, embeddings, captured_at, embedder_version]
+      properties:
+        schemas:
+          type: integer
+        canonical_fields:
+          type: integer
+        embeddings:
+          type: integer
+          description: Total entries across the three embedding maps.
+        captured_at:
+          type: string
+          format: date-time
+          description: Echoed from the imported envelope.
+        embedder_version:
+          type: string
+          description: Echoed from the imported envelope.
+
+    # ---------- Phase C canonicalization shadow log ----------
+    NearMissDecision:
+      type: string
+      enum: [added, expanded, already_exists, descriptive_name_conflict]
+      description: |
+        Outcome label captured for both the single-signal and dual-signal
+        algorithms at the moment the registration was evaluated. Matches
+        the discriminator of `SchemaAddOutcome` minus its payload.
+
+    NearMissRecord:
+      type: object
+      description: |
+        One registration where the single-signal and dual-signal
+        canonicalization algorithms produced different outcomes. Append-only
+        and content-addressed by `registration_id`.
+      required:
+        - registration_id
+        - candidate_schema_hash
+        - existing_canonical_hash
+        - single_signal_decision
+        - dual_signal_decision
+        - struct_similarity
+        - purpose_similarity
+        - timestamp
+      properties:
+        registration_id:
+          type: string
+          description: UUID v4 generated at the registration call site.
+        candidate_schema_hash:
+          type: string
+          description: |
+            `Schema.get_identity_hash()` of the proposed schema (SHA-256 hex).
+        existing_canonical_hash:
+          type: string
+          description: |
+            `Schema.get_identity_hash()` of the existing canonical the
+            candidate was being compared against.
+        single_signal_decision:
+          $ref: '#/components/schemas/NearMissDecision'
+        dual_signal_decision:
+          $ref: '#/components/schemas/NearMissDecision'
+        struct_similarity:
+          type: number
+          format: float
+          description: |
+            Cosine similarity between the two `descriptive_name`
+            embeddings at decision time. `1.0` when the names match
+            case-insensitively (no embedder trip needed).
+        purpose_similarity:
+          type: number
+          format: float
+          description: |
+            Cosine similarity between the two
+            `"{descriptive_name} — {purpose_statement}"` embeddings — the
+            Phase B purpose signal. Compared against τ_purpose (currently 0.88).
+        timestamp:
+          type: string
+          format: date-time
+          description: RFC 3339 UTC timestamp.
+
+    NearMissesResponse:
+      type: object
+      required: [near_misses, total]
+      properties:
+        near_misses:
+          type: array
+          description: Page of records, newest-first.
+          items:
+            $ref: '#/components/schemas/NearMissRecord'
+        total:
+          type: integer
+          description: |
+            Count of records matching the `since`/`until` filter
+            *before* pagination.
+        next_offset:
+          type: integer
+          nullable: true
+          description: |
+            Cursor for the next page. `null` when the caller has reached
+            the end of the filtered set.

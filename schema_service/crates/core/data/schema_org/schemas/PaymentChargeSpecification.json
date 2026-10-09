@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "PaymentChargeSpecification",
+  "field_classifications": {
+    "applies_to_delivery_method": [
+      "word"
+    ],
+    "applies_to_payment_method": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "applies_to_delivery_method": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "applies_to_payment_method": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "applies_to_delivery_method": "The delivery method(s) to which the delivery charge or payment charge specification applies.",
+    "applies_to_payment_method": "The payment method(s) to which the payment charge specification applies.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "applies_to_delivery_method": "String",
+    "applies_to_payment_method": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "applies_to_delivery_method",
+    "applies_to_payment_method",
+    "identifier"
+  ],
+  "identity_hash": "42e526a4f174a7cfebbd4a934e01570d3d121a15f7b1a72b32d7dab3e45cd278",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "42e526a4f174a7cfebbd4a934e01570d3d121a15f7b1a72b32d7dab3e45cd278",
+  "purpose_statement": "PaymentChargeSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

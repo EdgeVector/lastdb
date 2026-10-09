@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "AudioObject",
+  "field_classifications": {
+    "caption": [
+      "word"
+    ],
+    "embedded_text_caption": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "transcript": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "caption": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "embedded_text_caption": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "transcript": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    }
+  },
+  "field_descriptions": {
+    "caption": "The caption for this object. For downloadable machine formats (closed caption, subtitles etc.) use MediaObject and indicate the [[encodingFormat]].",
+    "embedded_text_caption": "Represents textual captioning from a [[MediaObject]], e.g. text of a 'meme'.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "transcript": "If this MediaObject is an AudioObject or VideoObject, the transcript of that object."
+  },
+  "field_types": {
+    "caption": "String",
+    "embedded_text_caption": "String",
+    "identifier": "String",
+    "transcript": "String"
+  },
+  "fields": [
+    "caption",
+    "embedded_text_caption",
+    "identifier",
+    "transcript"
+  ],
+  "identity_hash": "66758813a836c4455a3ce3aae52d09a52448ab36ebaaf14cfba6bb098056547d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "66758813a836c4455a3ce3aae52d09a52448ab36ebaaf14cfba6bb098056547d",
+  "purpose_statement": "AudioObject",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

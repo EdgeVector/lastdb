@@ -1,0 +1,102 @@
+{
+  "descriptive_name": "QuantitativeValue",
+  "field_classifications": {
+    "additional_property": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "max_value": [
+      "number"
+    ],
+    "min_value": [
+      "number"
+    ],
+    "unit_code": [
+      "word"
+    ],
+    "unit_text": [
+      "word"
+    ],
+    "value": [
+      "number"
+    ],
+    "value_reference": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "additional_property": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "max_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "min_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "unit_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "unit_text": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "value_reference": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "additional_property": "A property-value pair representing an additional characteristic of the entity, e.g. a product feature or another characteristic for which there is no matching property in schema.org.\\n\\nNote: Publishers should be aware that applications designed to use specific schema.org properties (e.g. https://schema.org/width, https://schema.org/color, https://schema.org/gtin13, ...) will typically expect such data to be provided using those properties, rather than using the generic property/value mechanism.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "max_value": "The upper value of some characteristic or property.",
+    "min_value": "The lower value of some characteristic or property.",
+    "unit_code": "The unit of measurement given using the UN/CEFACT Common Code (3 characters) or a URL. Other codes than the UN/CEFACT Common Code may be used with a prefix followed by a colon.",
+    "unit_text": "A string or text indicating the unit of measurement. Useful if you cannot provide a standard unit code for\n<a href='unitCode'>unitCode</a>.",
+    "value": "The value of a [[QuantitativeValue]] (including [[Observation]]) or property value node.\\n\\n* For [[QuantitativeValue]] and [[MonetaryAmount]], the recommended type for values is 'Number'.\\n* For [[PropertyValue]], it can be 'Text', 'Number', 'Boolean', or 'StructuredValue'.\\n* Use values from 0123456789 (Unicode 'DIGIT ZERO' (U+0030) to 'DIGIT NINE' (U+0039)) rather than superficially similar Unicode symbols.\\n* Use '.' (Unicode 'FULL STOP' (U+002E)) rather than ',' to indicate a decimal point. Avoid using these symbols as a readability separator.",
+    "value_reference": "A secondary value that provides additional information on the original value, e.g. a reference temperature or a type of measurement."
+  },
+  "field_types": {
+    "additional_property": "String",
+    "identifier": "String",
+    "max_value": "Float",
+    "min_value": "Float",
+    "unit_code": "String",
+    "unit_text": "String",
+    "value": "Float",
+    "value_reference": "String"
+  },
+  "fields": [
+    "additional_property",
+    "identifier",
+    "max_value",
+    "min_value",
+    "unit_code",
+    "unit_text",
+    "value",
+    "value_reference"
+  ],
+  "identity_hash": "e32f8c22908a54b7497deda603210c8513693c073281d21df3d5ed387b858583",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e32f8c22908a54b7497deda603210c8513693c073281d21df3d5ed387b858583",
+  "purpose_statement": "QuantitativeValue",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

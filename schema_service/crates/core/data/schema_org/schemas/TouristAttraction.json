@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "TouristAttraction",
+  "field_classifications": {
+    "available_language": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "tourist_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "available_language": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "tourist_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "available_language": "A language someone may use with or at the item, service or place. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[inLanguage]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "tourist_type": "Attraction suitable for type(s) of tourist. E.g. children, visitors from a particular country, etc."
+  },
+  "field_types": {
+    "available_language": "String",
+    "identifier": "String",
+    "tourist_type": "String"
+  },
+  "fields": [
+    "available_language",
+    "identifier",
+    "tourist_type"
+  ],
+  "identity_hash": "2b0daa07742113b96a7465882a0131f64168933a310601ee85f01fa1629612ca",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2b0daa07742113b96a7465882a0131f64168933a310601ee85f01fa1629612ca",
+  "purpose_statement": "TouristAttraction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

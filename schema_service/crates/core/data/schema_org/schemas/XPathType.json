@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "XPathType",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "fc833d80122eb801ed59cbded4c1d0e9e829b0aeba01f752f3a7b114f2c4c287",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "fc833d80122eb801ed59cbded4c1d0e9e829b0aeba01f752f3a7b114f2c4c287",
+  "purpose_statement": "XPathType",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

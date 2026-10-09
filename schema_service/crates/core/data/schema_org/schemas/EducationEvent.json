@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "EducationEvent",
+  "field_classifications": {
+    "assesses": [
+      "word"
+    ],
+    "educational_level": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "teaches": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "assesses": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "educational_level": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "teaches": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "assesses": "The item being described is intended to assess the competency or learning outcome defined by the referenced term.",
+    "educational_level": "The level in terms of progression through an educational or training context. Examples of educational levels include 'beginner', 'intermediate' or 'advanced', and formal sets of level indicators.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "teaches": "The item being described is intended to help a person learn the competency or learning outcome defined by the referenced term."
+  },
+  "field_types": {
+    "assesses": "String",
+    "educational_level": "String",
+    "identifier": "String",
+    "teaches": "String"
+  },
+  "fields": [
+    "assesses",
+    "educational_level",
+    "identifier",
+    "teaches"
+  ],
+  "identity_hash": "e215f8fc5e32ce99032b2da3c631cf398ba917d853d9ac55a3b15e21c46c3c24",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e215f8fc5e32ce99032b2da3c631cf398ba917d853d9ac55a3b15e21c46c3c24",
+  "purpose_statement": "EducationEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

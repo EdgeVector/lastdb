@@ -1,0 +1,422 @@
+{
+  "descriptive_name": "Vehicle",
+  "field_classifications": {
+    "acceleration_time": [
+      "word"
+    ],
+    "body_type": [
+      "word"
+    ],
+    "call_sign": [
+      "word"
+    ],
+    "cargo_volume": [
+      "word"
+    ],
+    "date_vehicle_first_registered": [
+      "word"
+    ],
+    "drive_wheel_configuration": [
+      "word"
+    ],
+    "emissions_co2": [
+      "number"
+    ],
+    "fuel_capacity": [
+      "word"
+    ],
+    "fuel_consumption": [
+      "word"
+    ],
+    "fuel_efficiency": [
+      "word"
+    ],
+    "fuel_type": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "known_vehicle_damages": [
+      "word"
+    ],
+    "meets_emission_standard": [
+      "word"
+    ],
+    "mileage_from_odometer": [
+      "word"
+    ],
+    "model_date": [
+      "word"
+    ],
+    "number_of_airbags": [
+      "number"
+    ],
+    "number_of_axles": [
+      "number"
+    ],
+    "number_of_doors": [
+      "number"
+    ],
+    "number_of_forward_gears": [
+      "number"
+    ],
+    "number_of_previous_owners": [
+      "number"
+    ],
+    "payload": [
+      "word"
+    ],
+    "production_date": [
+      "word"
+    ],
+    "purchase_date": [
+      "word"
+    ],
+    "seating_capacity": [
+      "number"
+    ],
+    "speed": [
+      "word"
+    ],
+    "steering_position": [
+      "word"
+    ],
+    "tongue_weight": [
+      "word"
+    ],
+    "trailer_weight": [
+      "word"
+    ],
+    "vehicle_configuration": [
+      "word"
+    ],
+    "vehicle_engine": [
+      "word"
+    ],
+    "vehicle_identification_number": [
+      "word"
+    ],
+    "vehicle_interior_color": [
+      "word"
+    ],
+    "vehicle_interior_type": [
+      "word"
+    ],
+    "vehicle_model_date": [
+      "word"
+    ],
+    "vehicle_seating_capacity": [
+      "number"
+    ],
+    "vehicle_special_usage": [
+      "word"
+    ],
+    "vehicle_transmission": [
+      "word"
+    ],
+    "weight_total": [
+      "word"
+    ],
+    "wheelbase": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "acceleration_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "body_type": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "call_sign": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "cargo_volume": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "date_vehicle_first_registered": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "drive_wheel_configuration": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "emissions_co2": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "fuel_capacity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "fuel_consumption": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "fuel_efficiency": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "fuel_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "known_vehicle_damages": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "meets_emission_standard": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "mileage_from_odometer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "model_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "number_of_airbags": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_axles": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_doors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_forward_gears": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_previous_owners": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "payload": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "production_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "purchase_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "seating_capacity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "speed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "steering_position": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tongue_weight": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "trailer_weight": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vehicle_configuration": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vehicle_engine": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vehicle_identification_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vehicle_interior_color": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vehicle_interior_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vehicle_model_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "vehicle_seating_capacity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vehicle_special_usage": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vehicle_transmission": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "weight_total": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "wheelbase": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "acceleration_time": "The time needed to accelerate the vehicle from a given start velocity to a given target velocity.\\n\\nTypical unit code(s): SEC for seconds\\n\\n* Note: There are unfortunately no standard unit codes for seconds/0..100 km/h or seconds/0..60 mph. Simply use \"SEC\" for seconds and indicate the velocities in the [[name]] of the [[QuantitativeValue]], or use [[valueReference]] with a [[QuantitativeValue]] of 0..60 mph or 0..100 km/h to specify the reference speeds.",
+    "body_type": "Indicates the design and body style of the vehicle (e.g. station wagon, hatchback, etc.).",
+    "call_sign": "A [callsign](https://en.wikipedia.org/wiki/Call_sign), as used in broadcasting and radio communications to identify people, radio and TV stations, or vehicles.",
+    "cargo_volume": "The available volume for cargo or luggage. For automobiles, this is usually the trunk volume.\\n\\nTypical unit code(s): LTR for liters, FTQ for cubic foot/feet\\n\\nNote: You can use [[minValue]] and [[maxValue]] to indicate ranges.",
+    "date_vehicle_first_registered": "The date of the first registration of the vehicle with the respective public authorities.",
+    "drive_wheel_configuration": "The drive wheel configuration, i.e. which roadwheels will receive torque from the vehicle's engine via the drivetrain.",
+    "emissions_co2": "The CO2 emissions in g/km. When used in combination with a QuantitativeValue, put \"g/km\" into the unitText property of that value, since there is no UN/CEFACT Common Code for \"g/km\".",
+    "fuel_capacity": "The capacity of the fuel tank or in the case of electric cars, the battery. If there are multiple components for storage, this should indicate the total of all storage of the same type.\\n\\nTypical unit code(s): LTR for liters, GLL of US gallons, GLI for UK / imperial gallons, AMH for ampere-hours (for electrical vehicles).",
+    "fuel_consumption": "The amount of fuel consumed for traveling a particular distance or temporal duration with the given vehicle (e.g. liters per 100 km).\\n\\n* Note 1: There are unfortunately no standard unit codes for liters per 100 km.  Use [[unitText]] to indicate the unit of measurement, e.g. L/100 km.\\n* Note 2: There are two ways of indicating the fuel consumption, [[fuelConsumption]] (e.g. 8 liters per 100 km) and [[fuelEfficiency]] (e.g. 30 miles per gallon). They are reciprocal.\\n* Note 3: Often, the absolute value is useful only when related to driving speed (\"at 80 km/h\") or usage pattern (\"city traffic\"). You can use [[valueReference]] to link the value for the fuel consumption to another value.",
+    "fuel_efficiency": "The distance traveled per unit of fuel used; most commonly miles per gallon (mpg) or kilometers per liter (km/L).\\n\\n* Note 1: There are unfortunately no standard unit codes for miles per gallon or kilometers per liter. Use [[unitText]] to indicate the unit of measurement, e.g. mpg or km/L.\\n* Note 2: There are two ways of indicating the fuel consumption, [[fuelConsumption]] (e.g. 8 liters per 100 km) and [[fuelEfficiency]] (e.g. 30 miles per gallon). They are reciprocal.\\n* Note 3: Often, the absolute value is useful only when related to driving speed (\"at 80 km/h\") or usage pattern (\"city traffic\"). You can use [[valueReference]] to link the value for the fuel economy to another value.",
+    "fuel_type": "The type of fuel suitable for the engine or engines of the vehicle. If the vehicle has only one engine, this property can be attached directly to the vehicle.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "known_vehicle_damages": "A textual description of known damages, both repaired and unrepaired.",
+    "meets_emission_standard": "Indicates that the vehicle meets the respective emission standard.",
+    "mileage_from_odometer": "The total distance travelled by the particular vehicle since its initial production, as read from its odometer.\\n\\nTypical unit code(s): KMT for kilometers, SMI for statute miles.",
+    "model_date": "The release date of a vehicle model (often used to differentiate versions of the same make and model).",
+    "number_of_airbags": "The number or type of airbags in the vehicle.",
+    "number_of_axles": "The number of axles.\\n\\nTypical unit code(s): C62.",
+    "number_of_doors": "The number of doors.\\n\\nTypical unit code(s): C62.",
+    "number_of_forward_gears": "The total number of forward gears available for the transmission system of the vehicle.\\n\\nTypical unit code(s): C62.",
+    "number_of_previous_owners": "The number of owners of the vehicle, including the current one.\\n\\nTypical unit code(s): C62.",
+    "payload": "The permitted weight of passengers and cargo, EXCLUDING the weight of the empty vehicle.\\n\\nTypical unit code(s): KGM for kilogram, LBR for pound\\n\\n* Note 1: Many databases specify the permitted TOTAL weight instead, which is the sum of [[weight]] and [[payload]]\\n* Note 2: You can indicate additional information in the [[name]] of the [[QuantitativeValue]] node.\\n* Note 3: You may also link to a [[QualitativeValue]] node that provides additional information using [[valueReference]].\\n* Note 4: Note that you can use [[minValue]] and [[maxValue]] to indicate ranges.",
+    "production_date": "The date of production of the item, e.g. vehicle.",
+    "purchase_date": "The date the item, e.g. vehicle, was purchased by the current owner.",
+    "seating_capacity": "The number of persons that can be seated (e.g. in a vehicle), both in terms of the physical space available, and in terms of limitations set by law.\\n\\nTypical unit code(s): C62 for persons.",
+    "speed": "The speed range of the vehicle. If the vehicle is powered by an engine, the upper limit of the speed range (indicated by [[maxValue]]) should be the maximum speed achievable under regular conditions.\\n\\nTypical unit code(s): KMH for km/h, HM for mile per hour (0.447 04 m/s), KNT for knot\\n\\n*Note 1: Use [[minValue]] and [[maxValue]] to indicate the range. Typically, the minimal value is zero.\\n* Note 2: There are many different ways of measuring the speed range. You can link to information about how the given value has been determined using the [[valueReference]] property.",
+    "steering_position": "The position of the steering wheel or similar device (mostly for cars).",
+    "tongue_weight": "The permitted vertical load (TWR) of a trailer attached to the vehicle. Also referred to as Tongue Load Rating (TLR) or Vertical Load Rating (VLR).\\n\\nTypical unit code(s): KGM for kilogram, LBR for pound\\n\\n* Note 1: You can indicate additional information in the [[name]] of the [[QuantitativeValue]] node.\\n* Note 2: You may also link to a [[QualitativeValue]] node that provides additional information using [[valueReference]].\\n* Note 3: Note that you can use [[minValue]] and [[maxValue]] to indicate ranges.",
+    "trailer_weight": "The permitted weight of a trailer attached to the vehicle.\\n\\nTypical unit code(s): KGM for kilogram, LBR for pound\\n* Note 1: You can indicate additional information in the [[name]] of the [[QuantitativeValue]] node.\\n* Note 2: You may also link to a [[QualitativeValue]] node that provides additional information using [[valueReference]].\\n* Note 3: Note that you can use [[minValue]] and [[maxValue]] to indicate ranges.",
+    "vehicle_configuration": "A short text indicating the configuration of the vehicle, e.g. '5dr hatchback ST 2.5 MT 225 hp' or 'limited edition'.",
+    "vehicle_engine": "Information about the engine or engines of the vehicle.",
+    "vehicle_identification_number": "The Vehicle Identification Number (VIN) is a unique serial number used by the automotive industry to identify individual motor vehicles.",
+    "vehicle_interior_color": "The color or color combination of the interior of the vehicle.",
+    "vehicle_interior_type": "The type or material of the interior of the vehicle (e.g. synthetic fabric, leather, wood, etc.). While most interior types are characterized by the material used, an interior type can also be based on vehicle usage or target audience.",
+    "vehicle_model_date": "The release date of a vehicle model (often used to differentiate versions of the same make and model).",
+    "vehicle_seating_capacity": "The number of passengers that can be seated in the vehicle, both in terms of the physical space available, and in terms of limitations set by law.\\n\\nTypical unit code(s): C62 for persons.",
+    "vehicle_special_usage": "Indicates whether the vehicle has been used for special purposes, like commercial rental, driving school, or as a taxi. The legislation in many countries requires this information to be revealed when offering a car for sale.",
+    "vehicle_transmission": "The type of component used for transmitting the power from a rotating power source to the wheels or other relevant component(s) (\"gearbox\" for cars).",
+    "weight_total": "The permitted total weight of the loaded vehicle, including passengers and cargo and the weight of the empty vehicle.\\n\\nTypical unit code(s): KGM for kilogram, LBR for pound\\n\\n* Note 1: You can indicate additional information in the [[name]] of the [[QuantitativeValue]] node.\\n* Note 2: You may also link to a [[QualitativeValue]] node that provides additional information using [[valueReference]].\\n* Note 3: Note that you can use [[minValue]] and [[maxValue]] to indicate ranges.",
+    "wheelbase": "The distance between the centers of the front and rear wheels.\\n\\nTypical unit code(s): CMT for centimeters, MTR for meters, INH for inches, FOT for foot/feet."
+  },
+  "field_types": {
+    "acceleration_time": "String",
+    "body_type": "String",
+    "call_sign": "String",
+    "cargo_volume": "String",
+    "date_vehicle_first_registered": "String",
+    "drive_wheel_configuration": "String",
+    "emissions_co2": "Float",
+    "fuel_capacity": "String",
+    "fuel_consumption": "String",
+    "fuel_efficiency": "String",
+    "fuel_type": "String",
+    "identifier": "String",
+    "known_vehicle_damages": "String",
+    "meets_emission_standard": "String",
+    "mileage_from_odometer": "String",
+    "model_date": "String",
+    "number_of_airbags": "Float",
+    "number_of_axles": "Float",
+    "number_of_doors": "Float",
+    "number_of_forward_gears": "Float",
+    "number_of_previous_owners": "Float",
+    "payload": "String",
+    "production_date": "String",
+    "purchase_date": "String",
+    "seating_capacity": "Float",
+    "speed": "String",
+    "steering_position": "String",
+    "tongue_weight": "String",
+    "trailer_weight": "String",
+    "vehicle_configuration": "String",
+    "vehicle_engine": "String",
+    "vehicle_identification_number": "String",
+    "vehicle_interior_color": "String",
+    "vehicle_interior_type": "String",
+    "vehicle_model_date": "String",
+    "vehicle_seating_capacity": "Float",
+    "vehicle_special_usage": "String",
+    "vehicle_transmission": "String",
+    "weight_total": "String",
+    "wheelbase": "String"
+  },
+  "fields": [
+    "acceleration_time",
+    "body_type",
+    "call_sign",
+    "cargo_volume",
+    "date_vehicle_first_registered",
+    "drive_wheel_configuration",
+    "emissions_co2",
+    "fuel_capacity",
+    "fuel_consumption",
+    "fuel_efficiency",
+    "fuel_type",
+    "identifier",
+    "known_vehicle_damages",
+    "meets_emission_standard",
+    "mileage_from_odometer",
+    "model_date",
+    "number_of_airbags",
+    "number_of_axles",
+    "number_of_doors",
+    "number_of_forward_gears",
+    "number_of_previous_owners",
+    "payload",
+    "production_date",
+    "purchase_date",
+    "seating_capacity",
+    "speed",
+    "steering_position",
+    "tongue_weight",
+    "trailer_weight",
+    "vehicle_configuration",
+    "vehicle_engine",
+    "vehicle_identification_number",
+    "vehicle_interior_color",
+    "vehicle_interior_type",
+    "vehicle_model_date",
+    "vehicle_seating_capacity",
+    "vehicle_special_usage",
+    "vehicle_transmission",
+    "weight_total",
+    "wheelbase"
+  ],
+  "identity_hash": "ea47ae8b141528f446c33a3cfd5f3f40c6d6a2ff5a1ef7a20f5ddc4fd1219471",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ea47ae8b141528f446c33a3cfd5f3f40c6d6a2ff5a1ef7a20f5ddc4fd1219471",
+  "purpose_statement": "Vehicle",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

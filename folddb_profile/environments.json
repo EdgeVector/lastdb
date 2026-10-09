@@ -1,0 +1,17 @@
+{
+  "_comment": "Single source of truth for cross-environment URLs. Edit ONLY here. folddb_profile/build.rs reads this at compile time and emits Rust constants in OUT_DIR. DO NOT hardcode any gateway hostnames anywhere else; scripts/lints/lint-no-hardcoded-urls.sh enforces this in CI.",
+  "environments": {
+    "dev": {
+      "region": "us-west-2",
+      "exemem_api": "https://ygyu7ritx8.execute-api.us-west-2.amazonaws.com",
+      "schema_service": "https://y0q3m6vk75.execute-api.us-west-2.amazonaws.com",
+      "portal": "https://d3t6377alb85xe.cloudfront.net"
+    },
+    "prod": {
+      "region": "us-east-1",
+      "exemem_api": "https://jdsx4ixk2i.execute-api.us-east-1.amazonaws.com",
+      "schema_service": "https://axo709qs11.execute-api.us-east-1.amazonaws.com",
+      "portal": "https://exemem.com"
+    }
+  }
+}

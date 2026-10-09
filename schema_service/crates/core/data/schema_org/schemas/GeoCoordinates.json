@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "GeoCoordinates",
+  "field_classifications": {
+    "address": [
+      "word"
+    ],
+    "address_country": [
+      "word"
+    ],
+    "elevation": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "latitude": [
+      "number"
+    ],
+    "longitude": [
+      "number"
+    ],
+    "postal_code": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "address": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "address_country": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "elevation": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "latitude": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "longitude": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "postal_code": {
+      "data_domain": "location",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "address": "Physical address of the item.",
+    "address_country": "The country. Recommended to be in 2-letter [ISO 3166-1 alpha-2](http://en.wikipedia.org/wiki/ISO_3166-1) format, for example \"US\". For backward compatibility, a 3-letter [ISO 3166-1 alpha-3](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-3) country code such as \"SGP\" or a full country name such as \"Singapore\" can also be used.",
+    "elevation": "The elevation of a location ([WGS 84](https://en.wikipedia.org/wiki/World_Geodetic_System)). Values may be of the form 'NUMBER UNIT\\_OF\\_MEASUREMENT' (e.g., '1,000 m', '3,200 ft') while numbers alone should be assumed to be a value in meters.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "latitude": "The latitude of a location. For example ```37.42242``` ([WGS 84](https://en.wikipedia.org/wiki/World_Geodetic_System)).",
+    "longitude": "The longitude of a location. For example ```-122.08585``` ([WGS 84](https://en.wikipedia.org/wiki/World_Geodetic_System)).",
+    "postal_code": "The postal code. For example, 94043."
+  },
+  "field_types": {
+    "address": "String",
+    "address_country": "String",
+    "elevation": "Float",
+    "identifier": "String",
+    "latitude": "Float",
+    "longitude": "Float",
+    "postal_code": "String"
+  },
+  "fields": [
+    "address",
+    "address_country",
+    "elevation",
+    "identifier",
+    "latitude",
+    "longitude",
+    "postal_code"
+  ],
+  "identity_hash": "65486b4fd7a2f1a9f80a53f86c11c86948328f7e3464ff37b9bdad42cdd69d47",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "65486b4fd7a2f1a9f80a53f86c11c86948328f7e3464ff37b9bdad42cdd69d47",
+  "purpose_statement": "GeoCoordinates",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

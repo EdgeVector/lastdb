@@ -1,0 +1,142 @@
+{
+  "descriptive_name": "Movie",
+  "field_classifications": {
+    "actor": [
+      "word"
+    ],
+    "actors": [
+      "word"
+    ],
+    "country_of_origin": [
+      "word"
+    ],
+    "director": [
+      "word"
+    ],
+    "directors": [
+      "word"
+    ],
+    "duration": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "music_by": [
+      "word"
+    ],
+    "production_company": [
+      "word"
+    ],
+    "subtitle_language": [
+      "word"
+    ],
+    "title_eidr": [
+      "word"
+    ],
+    "trailer": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "actor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "actors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "country_of_origin": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "director": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "directors": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "music_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "production_company": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "subtitle_language": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "title_eidr": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "trailer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "actor": "An actor (individual or a group), e.g. in TV, radio, movie, video games etc., or in an event. Actors can be associated with individual items or with a series, episode, clip.",
+    "actors": "An actor, e.g. in TV, radio, movie, video games etc. Actors can be associated with individual items or with a series, episode, clip.",
+    "country_of_origin": "The country of origin of something, including products as well as creative  works such as movie and TV content.\n\nIn the case of TV and movie, this would be the country of the principle offices of the production company or individual responsible for the movie. For other kinds of [[CreativeWork]] it is difficult to provide fully general guidance, and properties such as [[contentLocation]] and [[locationCreated]] may be more applicable.\n\nIn the case of products, the country of origin of the product. The exact interpretation of this may vary by context and product type, and cannot be fully enumerated here.",
+    "director": "A director of e.g. TV, radio, movie, video gaming etc. content, or of an event. Directors can be associated with individual items or with a series, episode, clip.",
+    "directors": "A director of e.g. TV, radio, movie, video games etc. content. Directors can be associated with individual items or with a series, episode, clip.",
+    "duration": "The duration of the item (movie, audio recording, event, etc.) in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "music_by": "The composer of the soundtrack.",
+    "production_company": "The production company or studio responsible for the item, e.g. series, video game, episode etc.",
+    "subtitle_language": "Languages in which subtitles/captions are available, in [IETF BCP 47 standard format](http://tools.ietf.org/html/bcp47).",
+    "title_eidr": "An [EIDR](https://eidr.org/) (Entertainment Identifier Registry) [[identifier]] representing at the most general/abstract level, a work of film or television.\n\nFor example, the motion picture known as \"Ghostbusters\" has a titleEIDR of  \"10.5240/7EC7-228A-510A-053E-CBB8-J\". This title (or work) may have several variants, which EIDR calls \"edits\". See [[editEIDR]].\n\nSince schema.org types like [[Movie]], [[TVEpisode]], [[TVSeason]], and [[TVSeries]] can be used for both works and their multiple expressions, it is possible to use [[titleEIDR]] alone (for a general description), or alongside [[editEIDR]] for a more edit-specific description.",
+    "trailer": "The trailer of a movie or TV/radio series, season, episode, etc."
+  },
+  "field_types": {
+    "actor": "String",
+    "actors": "String",
+    "country_of_origin": "String",
+    "director": "String",
+    "directors": "String",
+    "duration": "String",
+    "identifier": "String",
+    "music_by": "String",
+    "production_company": "String",
+    "subtitle_language": "String",
+    "title_eidr": "String",
+    "trailer": "String"
+  },
+  "fields": [
+    "actor",
+    "actors",
+    "country_of_origin",
+    "director",
+    "directors",
+    "duration",
+    "identifier",
+    "music_by",
+    "production_company",
+    "subtitle_language",
+    "title_eidr",
+    "trailer"
+  ],
+  "identity_hash": "b4f4d567a6e9634c9e664f809563cdbb6bfdbb2f88efa6ce2f198472e0b9ecb0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b4f4d567a6e9634c9e664f809563cdbb6bfdbb2f88efa6ce2f198472e0b9ecb0",
+  "purpose_statement": "Movie",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

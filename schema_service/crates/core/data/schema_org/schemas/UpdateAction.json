@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "UpdateAction",
+  "field_classifications": {
+    "collection": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "target_collection": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "collection": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "target_collection": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "collection": "A sub property of object. The collection target of the action.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "target_collection": "A sub property of object. The collection target of the action."
+  },
+  "field_types": {
+    "collection": "String",
+    "identifier": "String",
+    "target_collection": "String"
+  },
+  "fields": [
+    "collection",
+    "identifier",
+    "target_collection"
+  ],
+  "identity_hash": "62905ff68b20e78f8e6ca7e6e2f8ff9fe2a06c57b55ba78520790e95b5f316ea",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "62905ff68b20e78f8e6ca7e6e2f8ff9fe2a06c57b55ba78520790e95b5f316ea",
+  "purpose_statement": "UpdateAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

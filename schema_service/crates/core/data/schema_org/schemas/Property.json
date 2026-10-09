@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "Property",
+  "field_classifications": {
+    "domain_includes": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "inverse_of": [
+      "word"
+    ],
+    "range_includes": [
+      "word"
+    ],
+    "superseded_by": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "domain_includes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "inverse_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "range_includes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "superseded_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "domain_includes": "Relates a property to a class that is (one of) the type(s) the property is expected to be used on.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "inverse_of": "Relates a property to a property that is its inverse. Inverse properties relate the same pairs of items to each other, but in reversed direction. For example, the 'alumni' and 'alumniOf' properties are inverseOf each other. Some properties don't have explicit inverses; in these situations RDFa and JSON-LD syntax for reverse properties can be used.",
+    "range_includes": "Relates a property to a class that constitutes (one of) the expected type(s) for values of the property.",
+    "superseded_by": "Relates a term (i.e. a property, class or enumeration) to one that supersedes it."
+  },
+  "field_types": {
+    "domain_includes": "String",
+    "identifier": "String",
+    "inverse_of": "String",
+    "range_includes": "String",
+    "superseded_by": "String"
+  },
+  "fields": [
+    "domain_includes",
+    "identifier",
+    "inverse_of",
+    "range_includes",
+    "superseded_by"
+  ],
+  "identity_hash": "98cba97b1cd55c0c87c7ef4ad0ed0c2127b50c44e563928bcd89f4d0e06d7259",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "98cba97b1cd55c0c87c7ef4ad0ed0c2127b50c44e563928bcd89f4d0e06d7259",
+  "purpose_statement": "Property",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

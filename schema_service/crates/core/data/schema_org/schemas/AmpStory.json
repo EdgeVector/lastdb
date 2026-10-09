@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "AmpStory",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "8d31f544f5929755c6203eeae27553de53fcb85f61fc99e5aa2cd5814320685b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8d31f544f5929755c6203eeae27553de53fcb85f61fc99e5aa2cd5814320685b",
+  "purpose_statement": "AmpStory",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

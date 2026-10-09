@@ -1,0 +1,31 @@
+# Build-context exclusions for Docker builds that use `schema_service/`
+# as the context root. Docker honors `.dockerignore` only at the
+# build-context root — the one at `crates/worker/.dockerignore` is
+# treated as ordinary source when the context is this directory (e.g.
+# CDK's `DockerImageCode.fromImageAsset(path.join(__dirname,
+# "../../schema_service"), { file: "crates/worker/Dockerfile" })`).
+#
+# Keep this list in sync with `crates/worker/.dockerignore`, which
+# documents the rationale for each exclusion.
+
+# Cached build artifacts (workspace-wide target/ can exceed 5GB).
+target/
+**/target/
+
+# VCS + IDE metadata.
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# Node modules, if the workspace ever grows them.
+node_modules/
+
+# Test fixtures not shipped to production images.
+**/tests/fixtures/
+
+# Stray local `.cargo/` build configs — never wanted in the image.
+.cargo/
+
+# LocalStack data directories.
+.localstack/

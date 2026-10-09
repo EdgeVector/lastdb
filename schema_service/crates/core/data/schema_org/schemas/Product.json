@@ -1,0 +1,622 @@
+{
+  "descriptive_name": "Product",
+  "field_classifications": {
+    "additional_property": [
+      "word"
+    ],
+    "aggregate_rating": [
+      "word"
+    ],
+    "asin": [
+      "word"
+    ],
+    "audience": [
+      "word"
+    ],
+    "award": [
+      "word"
+    ],
+    "awards": [
+      "word"
+    ],
+    "brand": [
+      "word"
+    ],
+    "category": [
+      "word"
+    ],
+    "color": [
+      "word"
+    ],
+    "color_swatch": [
+      "word"
+    ],
+    "country_of_assembly": [
+      "word"
+    ],
+    "country_of_last_processing": [
+      "word"
+    ],
+    "country_of_origin": [
+      "word"
+    ],
+    "depth": [
+      "word"
+    ],
+    "display_location": [
+      "word"
+    ],
+    "funding": [
+      "word"
+    ],
+    "gtin": [
+      "word"
+    ],
+    "gtin12": [
+      "word"
+    ],
+    "gtin13": [
+      "word"
+    ],
+    "gtin14": [
+      "word"
+    ],
+    "gtin8": [
+      "word"
+    ],
+    "has_adult_consideration": [
+      "word"
+    ],
+    "has_certification": [
+      "word"
+    ],
+    "has_energy_consumption_details": [
+      "word"
+    ],
+    "has_gs1digital_link": [
+      "word"
+    ],
+    "has_measurement": [
+      "word"
+    ],
+    "has_merchant_return_policy": [
+      "word"
+    ],
+    "height": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "in_product_group_with_id": [
+      "word"
+    ],
+    "is_accessory_or_spare_part_for": [
+      "word"
+    ],
+    "is_consumable_for": [
+      "word"
+    ],
+    "is_family_friendly": [
+      "word"
+    ],
+    "is_related_to": [
+      "word"
+    ],
+    "is_similar_to": [
+      "word"
+    ],
+    "is_variant_of": [
+      "word"
+    ],
+    "item_condition": [
+      "word"
+    ],
+    "keywords": [
+      "word"
+    ],
+    "logo": [
+      "word"
+    ],
+    "manufacturer": [
+      "word"
+    ],
+    "material": [
+      "word"
+    ],
+    "mobile_url": [
+      "word"
+    ],
+    "model": [
+      "word"
+    ],
+    "mpn": [
+      "word"
+    ],
+    "negative_notes": [
+      "word"
+    ],
+    "nsn": [
+      "word"
+    ],
+    "offers": [
+      "word"
+    ],
+    "pattern": [
+      "word"
+    ],
+    "positive_notes": [
+      "word"
+    ],
+    "product_id": [
+      "word"
+    ],
+    "production_date": [
+      "word"
+    ],
+    "purchase_date": [
+      "word"
+    ],
+    "release_date": [
+      "word"
+    ],
+    "review": [
+      "word"
+    ],
+    "reviews": [
+      "word"
+    ],
+    "size": [
+      "word"
+    ],
+    "sku": [
+      "word"
+    ],
+    "slogan": [
+      "word"
+    ],
+    "weight": [
+      "word"
+    ],
+    "width": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "additional_property": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "aggregate_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "asin": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "audience": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "award": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "awards": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "brand": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "category": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "color": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "color_swatch": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "country_of_assembly": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "country_of_last_processing": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "country_of_origin": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "depth": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "display_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "funding": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "gtin": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "gtin12": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "gtin13": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "gtin14": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "gtin8": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "has_adult_consideration": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_certification": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_energy_consumption_details": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_gs1digital_link": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_measurement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_merchant_return_policy": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "height": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_product_group_with_id": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_accessory_or_spare_part_for": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_consumable_for": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_family_friendly": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_related_to": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_similar_to": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "is_variant_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "item_condition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "keywords": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "logo": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "manufacturer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "material": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "mobile_url": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "model": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "mpn": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "negative_notes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "nsn": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "offers": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pattern": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "positive_notes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "product_id": {
+      "data_domain": "commerce",
+      "sensitivity_level": 0
+    },
+    "production_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "purchase_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "release_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "review": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "reviews": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "size": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "sku": {
+      "data_domain": "commerce",
+      "sensitivity_level": 0
+    },
+    "slogan": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "weight": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "width": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "additional_property": "A property-value pair representing an additional characteristic of the entity, e.g. a product feature or another characteristic for which there is no matching property in schema.org.\\n\\nNote: Publishers should be aware that applications designed to use specific schema.org properties (e.g. https://schema.org/width, https://schema.org/color, https://schema.org/gtin13, ...) will typically expect such data to be provided using those properties, rather than using the generic property/value mechanism.",
+    "aggregate_rating": "The overall rating, based on a collection of reviews or ratings, of the item.",
+    "asin": "An Amazon Standard Identification Number (ASIN) is a 10-character alphanumeric unique identifier assigned by Amazon.com and its partners for product identification within the Amazon organization (summary from [Wikipedia](https://en.wikipedia.org/wiki/Amazon_Standard_Identification_Number)'s article).\n\nNote also that this is a definition for how to include ASINs in Schema.org data, and not a definition of ASINs in general - see documentation from Amazon for authoritative details.\nASINs are most commonly encoded as text strings, but the [asin] property supports URL/URI as potential values too.",
+    "audience": "An intended audience, i.e. a group for whom something was created.",
+    "award": "An award won by or for this item.",
+    "awards": "Awards won by or for this item.",
+    "brand": "The brand(s) associated with a product or service, or the brand(s) maintained by an organization or business person.",
+    "category": "A category for the item. Greater signs or slashes can be used to informally indicate a category hierarchy.",
+    "color": "The color of the product.",
+    "color_swatch": "A color swatch image, visualizing the color of a [[Product]]. Should match the textual description specified in the [[color]] property. This can be a URL or a fully described ImageObject.",
+    "country_of_assembly": "The place where the product was assembled.",
+    "country_of_last_processing": "The place where the item (typically [[Product]]) was last processed and tested before importation.",
+    "country_of_origin": "The country of origin of something, including products as well as creative  works such as movie and TV content.\n\nIn the case of TV and movie, this would be the country of the principle offices of the production company or individual responsible for the movie. For other kinds of [[CreativeWork]] it is difficult to provide fully general guidance, and properties such as [[contentLocation]] and [[locationCreated]] may be more applicable.\n\nIn the case of products, the country of origin of the product. The exact interpretation of this may vary by context and product type, and cannot be fully enumerated here.",
+    "depth": "The depth of the item.",
+    "display_location": "The location at which an item can be viewed or experienced in-person.",
+    "funding": "A [[Grant]] that directly or indirectly provide funding or sponsorship for this item. See also [[ownershipFundingInfo]].",
+    "gtin": "A Global Trade Item Number ([GTIN](https://www.gs1.org/standards/id-keys/gtin)). GTINs identify trade items, including products and services, using numeric identification codes.\n\nA correct [[gtin]] value should be a valid GTIN, which means that it should be an all-numeric string of either 8, 12, 13 or 14 digits, or a \"GS1 Digital Link\" URL based on such a string. The numeric component should also have a [valid GS1 check digit](https://www.gs1.org/services/check-digit-calculator) and meet the other rules for valid GTINs. See also [GS1's GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) and [Wikipedia](https://en.wikipedia.org/wiki/Global_Trade_Item_Number) for more details. Left-padding of the gtin values is not required or encouraged. The [[gtin]] property generalizes the earlier [[gtin8]], [[gtin12]], [[gtin13]], and [[gtin14]] properties.\n\nThe GS1 [digital link specifications](https://www.gs1.org/standards/Digital-Link/) expresses GTINs as URLs (URIs, IRIs, etc.).\nDigital Links should be populated into the [[hasGS1DigitalLink]] attribute.\n\nNote also that this is a definition for how to include GTINs in Schema.org data, and not a definition of GTINs in general - see the GS1 documentation for authoritative details.",
+    "gtin12": "The GTIN-12 code of the product, or the product to which the offer refers. The GTIN-12 is the 12-digit GS1 Identification Key composed of a U.P.C. Company Prefix, Item Reference, and Check Digit used to identify trade items. See [GS1 GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) for more details.",
+    "gtin13": "The GTIN-13 code of the product, or the product to which the offer refers. This is equivalent to 13-digit ISBN codes and EAN UCC-13. Former 12-digit UPC codes can be converted into a GTIN-13 code by simply adding a preceding zero. See [GS1 GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) for more details.",
+    "gtin14": "The GTIN-14 code of the product, or the product to which the offer refers. See [GS1 GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) for more details.",
+    "gtin8": "The GTIN-8 code of the product, or the product to which the offer refers. This code is also known as EAN/UCC-8 or 8-digit EAN. See [GS1 GTIN Summary](http://www.gs1.org/barcodes/technical/idkeys/gtin) for more details.",
+    "has_adult_consideration": "Used to tag an item to be intended or suitable for consumption or use by adults only.",
+    "has_certification": "Certification information about a product, organization, service, place, or person.",
+    "has_energy_consumption_details": "Defines the energy efficiency Category (also known as \"class\" or \"rating\") for a product according to an international energy efficiency standard.",
+    "has_gs1digital_link": "The <a href=\"https://www.gs1.org/standards/gs1-digital-link\">GS1 digital link</a> associated with the object. This URL should conform to the particular requirements of digital links. The link should only contain the Application Identifiers (AIs) that are relevant for the entity being annotated, for instance a [[Product]] or an [[Organization]], and for the correct granularity. In particular, for products:<ul><li>A Digital Link that contains a serial number (AI <code>21</code>) should only be present on instances of [[IndividualProduct]]</li><li>A Digital Link that contains a lot number (AI <code>10</code>) should be annotated as [[SomeProducts]] if only products from that lot are sold, or [[IndividualProduct]] if there is only a specific product.</li><li>A Digital Link that contains a global model number (AI <code>8013</code>) should be attached to a [[Product]] or a [[ProductModel]].</li></ul> Other item types should be adapted similarly.",
+    "has_measurement": "A measurement of an item, For example, the inseam of pants, the wheel size of a bicycle, the gauge of a screw, or the carbon footprint measured for certification by an authority. Usually an exact measurement, but can also be a range of measurements for adjustable products, for example belts and ski bindings.",
+    "has_merchant_return_policy": "Specifies a MerchantReturnPolicy that may be applicable.",
+    "height": "The height of the item.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_product_group_with_id": "Indicates the [[productGroupID]] for a [[ProductGroup]] that this product [[isVariantOf]].",
+    "is_accessory_or_spare_part_for": "A pointer to another product (or multiple products) for which this product is an accessory or spare part.",
+    "is_consumable_for": "A pointer to another product (or multiple products) for which this product is a consumable.",
+    "is_family_friendly": "Indicates whether this content is family friendly.",
+    "is_related_to": "A pointer to another, somehow related product (or multiple products).",
+    "is_similar_to": "A pointer to another, functionally similar product (or multiple products).",
+    "is_variant_of": "Indicates the kind of product that this is a variant of. In the case of [[ProductModel]], this is a pointer (from a ProductModel) to a base product from which this product is a variant. It is safe to infer that the variant inherits all product features from the base model, unless defined locally. This is not transitive. In the case of a [[ProductGroup]], the group description also serves as a template, representing a set of Products that vary on explicitly defined, specific dimensions only (so it defines both a set of variants, as well as which values distinguish amongst those variants). When used with [[ProductGroup]], this property can apply to any [[Product]] included in the group.",
+    "item_condition": "A predefined value from OfferItemCondition specifying the condition of the product or service, or the products or services included in the offer. Also used for product return policies to specify the condition of products accepted for returns.",
+    "keywords": "Keywords or tags used to describe some item. Multiple textual entries in a keywords list are typically delimited by commas, or by repeating the property.",
+    "logo": "An associated logo.",
+    "manufacturer": "The manufacturer of the product.",
+    "material": "A material that something is made from, e.g. leather, wool, cotton, paper.",
+    "mobile_url": "The [[mobileUrl]] property is provided for specific situations in which data consumers need to determine whether one of several provided URLs is a dedicated 'mobile site'.\n\nTo discourage over-use, and reflecting intial usecases, the property is expected only on [[Product]] and [[Offer]], rather than [[Thing]]. The general trend in web technology is towards [responsive design](https://en.wikipedia.org/wiki/Responsive_web_design) in which content can be flexibly adapted to a wide range of browsing environments. Pages and sites referenced with the long-established [[url]] property should ideally also be usable on a wide variety of devices, including mobile phones. In most cases, it would be pointless and counter productive to attempt to update all [[url]] markup to use [[mobileUrl]] for more mobile-oriented pages. The property is intended for the case when items (primarily [[Product]] and [[Offer]]) have extra URLs hosted on an additional \"mobile site\" alongside the main one. It should not be taken as an endorsement of this publication style.",
+    "model": "The model of the product. Use with the URL of a ProductModel or a textual representation of the model identifier. The URL of the ProductModel can be from an external source. It is recommended to additionally provide strong product identifiers via the gtin8/gtin13/gtin14 and mpn properties.",
+    "mpn": "The Manufacturer Part Number (MPN) of the product, or the product to which the offer refers.",
+    "negative_notes": "Provides negative considerations regarding something, most typically in pro/con lists for reviews (alongside [[positiveNotes]]). For symmetry \n\nIn the case of a [[Review]], the property describes the [[itemReviewed]] from the perspective of the review; in the case of a [[Product]], the product itself is being described. Since product descriptions \ntend to emphasise positive claims, it may be relatively unusual to find [[negativeNotes]] used in this way. Nevertheless for the sake of symmetry, [[negativeNotes]] can be used on [[Product]].\n\nThe property values can be expressed either as unstructured text (repeated as necessary), or if ordered, as a list (in which case the most negative is at the beginning of the list).",
+    "nsn": "Indicates the [NATO stock number](https://en.wikipedia.org/wiki/NATO_Stock_Number) (nsn) of a [[Product]].",
+    "offers": "An offer to provide this item&#x2014;for example, an offer to sell a product, rent the DVD of a movie, perform a service, or give away tickets to an event. Use [[businessFunction]] to indicate the kind of transaction offered, i.e. sell, lease, etc. This property can also be used to describe a [[Demand]]. While this property is listed as expected on a number of common types, it can be used in others. In that case, using a second type, such as Product or a subtype of Product, can clarify the nature of the offer.",
+    "pattern": "A pattern that something has, for example 'polka dot', 'striped', 'Canadian flag'. Values are typically expressed as text, although links to controlled value schemes are also supported.",
+    "positive_notes": "Provides positive considerations regarding something, for example product highlights or (alongside [[negativeNotes]]) pro/con lists for reviews.\n\nIn the case of a [[Review]], the property describes the [[itemReviewed]] from the perspective of the review; in the case of a [[Product]], the product itself is being described.\n\nThe property values can be expressed either as unstructured text (repeated as necessary), or if ordered, as a list (in which case the most positive is at the beginning of the list).",
+    "product_id": "The product identifier, such as ISBN. For example: ``` meta itemprop=\"productID\" content=\"isbn:123-456-789\" ```.",
+    "production_date": "The date of production of the item, e.g. vehicle.",
+    "purchase_date": "The date the item, e.g. vehicle, was purchased by the current owner.",
+    "release_date": "The release date of a product or product model. This can be used to distinguish the exact variant of a product.",
+    "review": "A review of the item.",
+    "reviews": "Review of the item.",
+    "size": "A standardized size of a product or creative work, specified either through a simple textual string (for example 'XL', '32Wx34L'), a  QuantitativeValue with a unitCode, or a comprehensive and structured [[SizeSpecification]]; in other cases, the [[width]], [[height]], [[depth]] and [[weight]] properties may be more applicable.",
+    "sku": "The Stock Keeping Unit (SKU), i.e. a merchant-specific identifier for a product or service, or the product to which the offer refers.",
+    "slogan": "A slogan or motto associated with the item.",
+    "weight": "The weight of the product or person.",
+    "width": "The width of the item."
+  },
+  "field_types": {
+    "additional_property": "String",
+    "aggregate_rating": "String",
+    "asin": "String",
+    "audience": "String",
+    "award": "String",
+    "awards": "String",
+    "brand": "String",
+    "category": "String",
+    "color": "String",
+    "color_swatch": "String",
+    "country_of_assembly": "String",
+    "country_of_last_processing": "String",
+    "country_of_origin": "String",
+    "depth": "String",
+    "display_location": "String",
+    "funding": "String",
+    "gtin": "String",
+    "gtin12": "String",
+    "gtin13": "String",
+    "gtin14": "String",
+    "gtin8": "String",
+    "has_adult_consideration": "String",
+    "has_certification": "String",
+    "has_energy_consumption_details": "String",
+    "has_gs1digital_link": "String",
+    "has_measurement": "String",
+    "has_merchant_return_policy": "String",
+    "height": "String",
+    "identifier": "String",
+    "in_product_group_with_id": "String",
+    "is_accessory_or_spare_part_for": "String",
+    "is_consumable_for": "String",
+    "is_family_friendly": "Boolean",
+    "is_related_to": "String",
+    "is_similar_to": "String",
+    "is_variant_of": "String",
+    "item_condition": "String",
+    "keywords": "String",
+    "logo": "String",
+    "manufacturer": "String",
+    "material": "String",
+    "mobile_url": "String",
+    "model": "String",
+    "mpn": "String",
+    "negative_notes": "String",
+    "nsn": "String",
+    "offers": "String",
+    "pattern": "String",
+    "positive_notes": "String",
+    "product_id": "String",
+    "production_date": "String",
+    "purchase_date": "String",
+    "release_date": "String",
+    "review": "String",
+    "reviews": "String",
+    "size": "String",
+    "sku": "String",
+    "slogan": "String",
+    "weight": "String",
+    "width": "String"
+  },
+  "fields": [
+    "additional_property",
+    "aggregate_rating",
+    "asin",
+    "audience",
+    "award",
+    "awards",
+    "brand",
+    "category",
+    "color",
+    "color_swatch",
+    "country_of_assembly",
+    "country_of_last_processing",
+    "country_of_origin",
+    "depth",
+    "display_location",
+    "funding",
+    "gtin",
+    "gtin12",
+    "gtin13",
+    "gtin14",
+    "gtin8",
+    "has_adult_consideration",
+    "has_certification",
+    "has_energy_consumption_details",
+    "has_gs1digital_link",
+    "has_measurement",
+    "has_merchant_return_policy",
+    "height",
+    "identifier",
+    "in_product_group_with_id",
+    "is_accessory_or_spare_part_for",
+    "is_consumable_for",
+    "is_family_friendly",
+    "is_related_to",
+    "is_similar_to",
+    "is_variant_of",
+    "item_condition",
+    "keywords",
+    "logo",
+    "manufacturer",
+    "material",
+    "mobile_url",
+    "model",
+    "mpn",
+    "negative_notes",
+    "nsn",
+    "offers",
+    "pattern",
+    "positive_notes",
+    "product_id",
+    "production_date",
+    "purchase_date",
+    "release_date",
+    "review",
+    "reviews",
+    "size",
+    "sku",
+    "slogan",
+    "weight",
+    "width"
+  ],
+  "identity_hash": "b79e718b069ccb41fe7f41e119be08f8308345941a83ca22dc3d184aa47a93e1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b79e718b069ccb41fe7f41e119be08f8308345941a83ca22dc3d184aa47a93e1",
+  "purpose_statement": "Product",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

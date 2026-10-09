@@ -1,0 +1,232 @@
+{
+  "descriptive_name": "Legislation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "jurisdiction": [
+      "word"
+    ],
+    "legislation_amends": [
+      "word"
+    ],
+    "legislation_applies": [
+      "word"
+    ],
+    "legislation_changes": [
+      "word"
+    ],
+    "legislation_commences": [
+      "word"
+    ],
+    "legislation_consolidates": [
+      "word"
+    ],
+    "legislation_corrects": [
+      "word"
+    ],
+    "legislation_countersigned_by": [
+      "word"
+    ],
+    "legislation_date": [
+      "word"
+    ],
+    "legislation_date_of_applicability": [
+      "word"
+    ],
+    "legislation_date_version": [
+      "word"
+    ],
+    "legislation_ensures_implementation_of": [
+      "word"
+    ],
+    "legislation_identifier": [
+      "word"
+    ],
+    "legislation_jurisdiction": [
+      "word"
+    ],
+    "legislation_legal_force": [
+      "word"
+    ],
+    "legislation_passed_by": [
+      "word"
+    ],
+    "legislation_repeals": [
+      "word"
+    ],
+    "legislation_responsible": [
+      "word"
+    ],
+    "legislation_transposes": [
+      "word"
+    ],
+    "legislation_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "jurisdiction": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_amends": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_applies": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_changes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_commences": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_consolidates": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_corrects": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_countersigned_by": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "legislation_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "legislation_date_of_applicability": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_date_version": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_ensures_implementation_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_identifier": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_jurisdiction": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_legal_force": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_passed_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_repeals": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_responsible": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_transposes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legislation_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "jurisdiction": "Indicates a legal jurisdiction, e.g. of some legislation, or where some government service is based.",
+    "legislation_amends": "Another legislation that this legislation amends, introducing legal changes.",
+    "legislation_applies": "Indicates that this legislation (or part of a legislation) somehow transfers another legislation in a different legislative context. This is an informative link, and it has no legal value. For legally-binding links of transposition, use the <a href=\"/legislationTransposes\">legislationTransposes</a> property. For example an informative consolidated law of a European Union's member state \"applies\" the consolidated version of the European Directive implemented in it.",
+    "legislation_changes": "Another legislation that this legislation changes. This encompasses the notions of amendment, replacement, correction, repeal, or other types of change. This may be a direct change (textual or non-textual amendment) or a consequential or indirect change. The property is to be used to express the existence of a change relationship between two acts rather than the existence of a consolidated version of the text that shows the result of the change. For consolidation relationships, use the <a href=\"/legislationConsolidates\">legislationConsolidates</a> property.",
+    "legislation_commences": "Another legislation that this one sets into force.",
+    "legislation_consolidates": "Indicates another legislation taken into account in this consolidated legislation (which is usually the product of an editorial process that revises the legislation). This property should be used multiple times to refer to both the original version or the previous consolidated version, and to the legislations making the change.",
+    "legislation_corrects": "Another legislation in which this one introduces textual changes, like correction of spelling mistakes, with no legal impact (for modifications that have legal impact, use <a href=\"/legislationAmends\">legislationAmends</a>).",
+    "legislation_countersigned_by": "The person or organization that countersigned the legislation. Depending on the legal context, a countersignature can indicate that the signed authority undertakes to assume responsibility for texts emanating from a person who is inviolable and irresponsible, (for example a King, Grand Duc or President), or that the authority is in charge of the implementation of the text.",
+    "legislation_date": "The date of adoption or signature of the legislation. This is the date at which the text is officially aknowledged to be a legislation, even though it might not even be published or in force.",
+    "legislation_date_of_applicability": "The date at which the Legislation becomes applicable. This can sometimes be distinct from the date of entry into force : a text may come in force today, and state it will become applicable in 3 months.",
+    "legislation_date_version": "The point-in-time at which the provided description of the legislation is valid (e.g.: when looking at the law on the 2016-04-07 (= dateVersion), I get the consolidation of 2015-04-12 of the \"National Insurance Contributions Act 2015\")",
+    "legislation_ensures_implementation_of": "Indicates that this Legislation ensures the implementation of another Legislation, for example by modifying national legislations so that they do not contradict to an EU regulation or decision. This implies a legal meaning. Transpositions of EU Directive should be captured with <a href=\"/legislationTransposes\">legislationTransposes</a>.",
+    "legislation_identifier": "An identifier for the legislation. This can be either a string-based identifier, like the CELEX at EU level or the NOR in France, or a web-based, URL/URI identifier, like an ELI (European Legislation Identifier) or an URN-Lex.",
+    "legislation_jurisdiction": "The jurisdiction from which the legislation originates.",
+    "legislation_legal_force": "Whether the legislation is currently in force, not in force, or partially in force.",
+    "legislation_passed_by": "The person or organization that originally passed or made the law: typically parliament (for primary legislation) or government (for secondary legislation). This indicates the \"legal author\" of the law, as opposed to its physical author.",
+    "legislation_repeals": "Another legislation that this legislation repeals (cancels, abrogates).",
+    "legislation_responsible": "An individual or organization that has some kind of responsibility for the legislation. Typically the ministry who is/was in charge of elaborating the legislation, or the adressee for potential questions about the legislation once it is published.",
+    "legislation_transposes": "Indicates that this legislation (or part of legislation) fulfills the objectives set by another legislation, by passing appropriate implementation measures. Typically, some legislations of European Union's member states or regions transpose European Directives. This indicates a legally binding link between the 2 legislations.",
+    "legislation_type": "The type of the legislation. Examples of values are \"law\", \"act\", \"directive\", \"decree\", \"regulation\", \"statutory instrument\", \"loi organique\", \"règlement grand-ducal\", etc., depending on the country."
+  },
+  "field_types": {
+    "identifier": "String",
+    "jurisdiction": "String",
+    "legislation_amends": "String",
+    "legislation_applies": "String",
+    "legislation_changes": "String",
+    "legislation_commences": "String",
+    "legislation_consolidates": "String",
+    "legislation_corrects": "String",
+    "legislation_countersigned_by": "String",
+    "legislation_date": "String",
+    "legislation_date_of_applicability": "String",
+    "legislation_date_version": "String",
+    "legislation_ensures_implementation_of": "String",
+    "legislation_identifier": "String",
+    "legislation_jurisdiction": "String",
+    "legislation_legal_force": "String",
+    "legislation_passed_by": "String",
+    "legislation_repeals": "String",
+    "legislation_responsible": "String",
+    "legislation_transposes": "String",
+    "legislation_type": "String"
+  },
+  "fields": [
+    "identifier",
+    "jurisdiction",
+    "legislation_amends",
+    "legislation_applies",
+    "legislation_changes",
+    "legislation_commences",
+    "legislation_consolidates",
+    "legislation_corrects",
+    "legislation_countersigned_by",
+    "legislation_date",
+    "legislation_date_of_applicability",
+    "legislation_date_version",
+    "legislation_ensures_implementation_of",
+    "legislation_identifier",
+    "legislation_jurisdiction",
+    "legislation_legal_force",
+    "legislation_passed_by",
+    "legislation_repeals",
+    "legislation_responsible",
+    "legislation_transposes",
+    "legislation_type"
+  ],
+  "identity_hash": "cd7b8afedafeb2352d0b45663e5d1fdcae70edcd77b116408278f4899ec69ef3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "cd7b8afedafeb2352d0b45663e5d1fdcae70edcd77b116408278f4899ec69ef3",
+  "purpose_statement": "Legislation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

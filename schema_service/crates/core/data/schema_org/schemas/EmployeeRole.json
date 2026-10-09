@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "EmployeeRole",
+  "field_classifications": {
+    "base_salary": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "salary_currency": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "base_salary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "salary_currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "base_salary": "The base salary of the job or of an employee in an EmployeeRole.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "salary_currency": "The currency (coded using [ISO 4217](http://en.wikipedia.org/wiki/ISO_4217)) used for the main salary information in this job posting or for this employee."
+  },
+  "field_types": {
+    "base_salary": "Float",
+    "identifier": "String",
+    "salary_currency": "String"
+  },
+  "fields": [
+    "base_salary",
+    "identifier",
+    "salary_currency"
+  ],
+  "identity_hash": "e6986a887d5c9622730da9009a1d4e0c88533d92dff285f654d8260a653a42ac",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e6986a887d5c9622730da9009a1d4e0c88533d92dff285f654d8260a653a42ac",
+  "purpose_statement": "EmployeeRole",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

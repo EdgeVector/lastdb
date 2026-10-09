@@ -1,0 +1,282 @@
+{
+  "descriptive_name": "SoftwareApplication",
+  "field_classifications": {
+    "application_category": [
+      "word"
+    ],
+    "application_sub_category": [
+      "word"
+    ],
+    "application_suite": [
+      "word"
+    ],
+    "available_on_device": [
+      "word"
+    ],
+    "countries_not_supported": [
+      "word"
+    ],
+    "countries_supported": [
+      "word"
+    ],
+    "device": [
+      "word"
+    ],
+    "download_url": [
+      "word"
+    ],
+    "feature_list": [
+      "word"
+    ],
+    "file_size": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "install_url": [
+      "word"
+    ],
+    "memory_requirements": [
+      "word"
+    ],
+    "operating_system": [
+      "word"
+    ],
+    "permissions": [
+      "word"
+    ],
+    "processor_requirements": [
+      "word"
+    ],
+    "release_notes": [
+      "word"
+    ],
+    "requirements": [
+      "word"
+    ],
+    "runtime_platform": [
+      "word"
+    ],
+    "screenshot": [
+      "word"
+    ],
+    "software_add_on": [
+      "word"
+    ],
+    "software_help": [
+      "word"
+    ],
+    "software_requirements": [
+      "word"
+    ],
+    "software_version": [
+      "word"
+    ],
+    "storage_requirements": [
+      "word"
+    ],
+    "supporting_data": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "application_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "application_sub_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "application_suite": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "available_on_device": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "countries_not_supported": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "countries_supported": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "device": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "download_url": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "feature_list": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "file_size": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "install_url": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "memory_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "operating_system": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "permissions": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "processor_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "release_notes": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "runtime_platform": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "screenshot": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "software_add_on": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "software_help": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "software_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "software_version": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "storage_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "supporting_data": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "application_category": "Type of software application, e.g. 'Game, Multimedia'.",
+    "application_sub_category": "Subcategory of the application, e.g. 'Arcade Game'.",
+    "application_suite": "The name of the application suite to which the application belongs (e.g. Excel belongs to Office).",
+    "available_on_device": "Device required to run the application. Used in cases where a specific make/model is required to run the application.",
+    "countries_not_supported": "Countries for which the application is not supported. You can also provide the two-letter ISO 3166-1 alpha-2 country code.",
+    "countries_supported": "Countries for which the application is supported. You can also provide the two-letter ISO 3166-1 alpha-2 country code.",
+    "device": "Device required to run the application. Used in cases where a specific make/model is required to run the application.",
+    "download_url": "If the file can be downloaded, URL to download the binary.",
+    "feature_list": "Features or modules provided by this application (and possibly required by other applications).",
+    "file_size": "Size of the application / package (e.g. 18MB). In the absence of a unit (MB, KB etc.), KB will be assumed.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "install_url": "URL at which the app may be installed, if different from the URL of the item.",
+    "memory_requirements": "Minimum memory requirements.",
+    "operating_system": "Operating systems supported (Windows 7, OS X 10.6, Android 1.6).",
+    "permissions": "Permission(s) required to run the app (for example, a mobile app may require full internet access or may run only on wifi).",
+    "processor_requirements": "Processor architecture required to run the application (e.g. IA64).",
+    "release_notes": "Description of what changed in this version.",
+    "requirements": "Component dependency requirements for application. This includes runtime environments and shared libraries that are not included in the application distribution package, but required to run the application (examples: DirectX, Java or .NET runtime).",
+    "runtime_platform": "Runtime platform or script interpreter dependencies (example: Java v1, Python 2.3, .NET Framework 3.0).",
+    "screenshot": "A link to a screenshot image of the app.",
+    "software_add_on": "Additional content for a software application.",
+    "software_help": "Software application help.",
+    "software_requirements": "Component dependency requirements for application. This includes runtime environments and shared libraries that are not included in the application distribution package, but required to run the application (examples: DirectX, Java or .NET runtime).",
+    "software_version": "Version of the software instance.",
+    "storage_requirements": "Storage requirements (free space required).",
+    "supporting_data": "Supporting data for a SoftwareApplication."
+  },
+  "field_types": {
+    "application_category": "String",
+    "application_sub_category": "String",
+    "application_suite": "String",
+    "available_on_device": "String",
+    "countries_not_supported": "String",
+    "countries_supported": "String",
+    "device": "String",
+    "download_url": "String",
+    "feature_list": "String",
+    "file_size": "String",
+    "identifier": "String",
+    "install_url": "String",
+    "memory_requirements": "String",
+    "operating_system": "String",
+    "permissions": "String",
+    "processor_requirements": "String",
+    "release_notes": "String",
+    "requirements": "String",
+    "runtime_platform": "String",
+    "screenshot": "String",
+    "software_add_on": "String",
+    "software_help": "String",
+    "software_requirements": "String",
+    "software_version": "String",
+    "storage_requirements": "String",
+    "supporting_data": "String"
+  },
+  "fields": [
+    "application_category",
+    "application_sub_category",
+    "application_suite",
+    "available_on_device",
+    "countries_not_supported",
+    "countries_supported",
+    "device",
+    "download_url",
+    "feature_list",
+    "file_size",
+    "identifier",
+    "install_url",
+    "memory_requirements",
+    "operating_system",
+    "permissions",
+    "processor_requirements",
+    "release_notes",
+    "requirements",
+    "runtime_platform",
+    "screenshot",
+    "software_add_on",
+    "software_help",
+    "software_requirements",
+    "software_version",
+    "storage_requirements",
+    "supporting_data"
+  ],
+  "identity_hash": "6d85cdfc6ae34de33b983118c7fa34b9171a6b30860b61a17f1f9ea23736ccc1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6d85cdfc6ae34de33b983118c7fa34b9171a6b30860b61a17f1f9ea23736ccc1",
+  "purpose_statement": "SoftwareApplication",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

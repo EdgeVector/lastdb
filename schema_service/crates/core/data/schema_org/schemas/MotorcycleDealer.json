@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MotorcycleDealer",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "cbc60200b438cd84207ff241eb3162f74ecef465c59bc2ff3a3d6b9ace9922eb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "cbc60200b438cd84207ff241eb3162f74ecef465c59bc2ff3a3d6b9ace9922eb",
+  "purpose_statement": "MotorcycleDealer",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

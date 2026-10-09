@@ -1,0 +1,92 @@
+{
+  "descriptive_name": "MedicalProcedure",
+  "field_classifications": {
+    "body_location": [
+      "word"
+    ],
+    "followup": [
+      "word"
+    ],
+    "how_performed": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "preparation": [
+      "word"
+    ],
+    "procedure_type": [
+      "word"
+    ],
+    "status": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "body_location": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "followup": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "how_performed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "preparation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "procedure_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "body_location": "Location in the body of the anatomical structure.",
+    "followup": "Typical or recommended followup care after the procedure is performed.",
+    "how_performed": "How the procedure is performed.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "preparation": "Typical preparation that a patient must undergo before having the procedure performed.",
+    "procedure_type": "The type of procedure, for example Surgical, Noninvasive, or Percutaneous.",
+    "status": "The status of the study (enumerated)."
+  },
+  "field_types": {
+    "body_location": "String",
+    "followup": "String",
+    "how_performed": "String",
+    "identifier": "String",
+    "preparation": "String",
+    "procedure_type": "String",
+    "status": "String"
+  },
+  "fields": [
+    "body_location",
+    "followup",
+    "how_performed",
+    "identifier",
+    "preparation",
+    "procedure_type",
+    "status"
+  ],
+  "identity_hash": "110151672caeade72a53f0192b64fe3cfa4b56b64a56d3817d1b4ddfb5c960da",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "110151672caeade72a53f0192b64fe3cfa4b56b64a56d3817d1b4ddfb5c960da",
+  "purpose_statement": "MedicalProcedure",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

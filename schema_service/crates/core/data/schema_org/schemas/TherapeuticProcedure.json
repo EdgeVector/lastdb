@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "TherapeuticProcedure",
+  "field_classifications": {
+    "adverse_outcome": [
+      "word"
+    ],
+    "dose_schedule": [
+      "word"
+    ],
+    "drug": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "adverse_outcome": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "dose_schedule": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "drug": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "adverse_outcome": "A possible complication and/or side effect of this therapy. If it is known that an adverse outcome is serious (resulting in death, disability, or permanent damage; requiring hospitalization; or otherwise life-threatening or requiring immediate medical attention), tag it as a seriousAdverseOutcome instead.",
+    "dose_schedule": "A dosing schedule for the drug for a given population, either observed, recommended, or maximum dose based on the type used.",
+    "drug": "Specifying a drug or medicine used in a medication procedure.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "adverse_outcome": "String",
+    "dose_schedule": "String",
+    "drug": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "adverse_outcome",
+    "dose_schedule",
+    "drug",
+    "identifier"
+  ],
+  "identity_hash": "cbbce326019a71f545e35b1c5501bacc72eb207f8e35d5f80170a3ba642c3880",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "cbbce326019a71f545e35b1c5501bacc72eb207f8e35d5f80170a3ba642c3880",
+  "purpose_statement": "TherapeuticProcedure",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

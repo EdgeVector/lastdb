@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "BedDetails",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "number_of_beds": [
+      "number"
+    ],
+    "type_of_bed": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "number_of_beds": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "type_of_bed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "number_of_beds": "The quantity of the given bed type available in the HotelRoom, Suite, House, or Apartment.",
+    "type_of_bed": "The type of bed to which the BedDetail refers, i.e. the type of bed available in the quantity indicated by quantity."
+  },
+  "field_types": {
+    "identifier": "String",
+    "number_of_beds": "Float",
+    "type_of_bed": "String"
+  },
+  "fields": [
+    "identifier",
+    "number_of_beds",
+    "type_of_bed"
+  ],
+  "identity_hash": "8821060c0d64105df0f152e953e066d56f22c726362204cfe917cd874d62a757",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8821060c0d64105df0f152e953e066d56f22c726362204cfe917cd874d62a757",
+  "purpose_statement": "BedDetails",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

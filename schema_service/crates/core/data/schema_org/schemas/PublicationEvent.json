@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "PublicationEvent",
+  "field_classifications": {
+    "free": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "published_by": [
+      "word"
+    ],
+    "published_on": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "free": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "published_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "published_on": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "free": "A flag to signal that the item, event, or place is accessible for free.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "published_by": "An agent associated with the publication event.",
+    "published_on": "A broadcast service associated with the publication event."
+  },
+  "field_types": {
+    "free": "Boolean",
+    "identifier": "String",
+    "published_by": "String",
+    "published_on": "String"
+  },
+  "fields": [
+    "free",
+    "identifier",
+    "published_by",
+    "published_on"
+  ],
+  "identity_hash": "56fde0511665b3a4e92c7a03259116781093120ec6dd36780c606c784f3789de",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "56fde0511665b3a4e92c7a03259116781093120ec6dd36780c606c784f3789de",
+  "purpose_statement": "PublicationEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

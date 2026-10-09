@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "PlanAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "scheduled_time": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "scheduled_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "scheduled_time": "The time the object is scheduled to."
+  },
+  "field_types": {
+    "identifier": "String",
+    "scheduled_time": "String"
+  },
+  "fields": [
+    "identifier",
+    "scheduled_time"
+  ],
+  "identity_hash": "ffe81e785defc4700f31308e95a4b5303b825c07ac9d099a00fb06f3270e3642",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ffe81e785defc4700f31308e95a4b5303b825c07ac9d099a00fb06f3270e3642",
+  "purpose_statement": "PlanAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "ProductCollection",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "includes_object": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "includes_object": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "includes_object": "This links to a node or nodes indicating the exact quantity of the products included in  an [[Offer]] or [[ProductCollection]]."
+  },
+  "field_types": {
+    "identifier": "String",
+    "includes_object": "String"
+  },
+  "fields": [
+    "identifier",
+    "includes_object"
+  ],
+  "identity_hash": "6d35ab3a59466cb64d7271b1db0dcf3dc6fb69a9cea411e25180b5f0677270c8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6d35ab3a59466cb64d7271b1db0dcf3dc6fb69a9cea411e25180b5f0677270c8",
+  "purpose_statement": "ProductCollection",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

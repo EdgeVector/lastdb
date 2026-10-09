@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "GasStation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "78e3e7c34093308ab81cb748b10a64f6259862faf3783fa46643c46b17476ebc",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "78e3e7c34093308ab81cb748b10a64f6259862faf3783fa46643c46b17476ebc",
+  "purpose_statement": "GasStation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

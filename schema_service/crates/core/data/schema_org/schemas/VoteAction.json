@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "VoteAction",
+  "field_classifications": {
+    "candidate": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "candidate": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "candidate": "A sub property of object. The candidate subject of this action.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "candidate": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "candidate",
+    "identifier"
+  ],
+  "identity_hash": "e8fab5a3c65341af1bfd57360839bc916250d7b04b2f6187d53e7cb20c2e9e2b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e8fab5a3c65341af1bfd57360839bc916250d7b04b2f6187d53e7cb20c2e9e2b",
+  "purpose_statement": "VoteAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

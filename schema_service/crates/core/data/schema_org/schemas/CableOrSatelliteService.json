@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "CableOrSatelliteService",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "bd4a42b94ace514925179fc16337f495fa328b0d9bf83d73a0ea99f92d6e3055",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bd4a42b94ace514925179fc16337f495fa328b0d9bf83d73a0ea99f92d6e3055",
+  "purpose_statement": "CableOrSatelliteService",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

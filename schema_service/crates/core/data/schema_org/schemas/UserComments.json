@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "UserComments",
+  "field_classifications": {
+    "comment_text": [
+      "word"
+    ],
+    "comment_time": [
+      "word"
+    ],
+    "creator": [
+      "word"
+    ],
+    "discusses": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "reply_to_url": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "comment_text": {
+      "data_domain": "social",
+      "sensitivity_level": 1
+    },
+    "comment_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "creator": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "discusses": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "reply_to_url": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "comment_text": "The text of the UserComment.",
+    "comment_time": "The time at which the UserComment was made.",
+    "creator": "The creator/author of this CreativeWork. This is the same as the Author property for CreativeWork.",
+    "discusses": "Specifies the CreativeWork associated with the UserComment.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "reply_to_url": "The URL at which a reply may be posted to the specified UserComment."
+  },
+  "field_types": {
+    "comment_text": "String",
+    "comment_time": "String",
+    "creator": "String",
+    "discusses": "String",
+    "identifier": "String",
+    "reply_to_url": "String"
+  },
+  "fields": [
+    "comment_text",
+    "comment_time",
+    "creator",
+    "discusses",
+    "identifier",
+    "reply_to_url"
+  ],
+  "identity_hash": "1d2335acf2b9e6410e52adf6a570de04a463c91c9d3afa910fe68e2ef2756666",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1d2335acf2b9e6410e52adf6a570de04a463c91c9d3afa910fe68e2ef2756666",
+  "purpose_statement": "UserComments",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

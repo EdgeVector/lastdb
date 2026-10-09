@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "TypeAndQuantityNode",
+  "field_classifications": {
+    "amount_of_this_good": [
+      "number"
+    ],
+    "business_function": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "type_of_good": [
+      "word"
+    ],
+    "unit_code": [
+      "word"
+    ],
+    "unit_text": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "amount_of_this_good": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "business_function": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "type_of_good": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "unit_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "unit_text": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "amount_of_this_good": "The quantity of the goods included in the offer.",
+    "business_function": "The business function (e.g. sell, lease, repair, dispose) of the offer or component of a bundle (TypeAndQuantityNode). The default is http://purl.org/goodrelations/v1#Sell.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "type_of_good": "The product that this structured value is referring to.",
+    "unit_code": "The unit of measurement given using the UN/CEFACT Common Code (3 characters) or a URL. Other codes than the UN/CEFACT Common Code may be used with a prefix followed by a colon.",
+    "unit_text": "A string or text indicating the unit of measurement. Useful if you cannot provide a standard unit code for\n<a href='unitCode'>unitCode</a>."
+  },
+  "field_types": {
+    "amount_of_this_good": "Float",
+    "business_function": "String",
+    "identifier": "String",
+    "type_of_good": "String",
+    "unit_code": "String",
+    "unit_text": "String"
+  },
+  "fields": [
+    "amount_of_this_good",
+    "business_function",
+    "identifier",
+    "type_of_good",
+    "unit_code",
+    "unit_text"
+  ],
+  "identity_hash": "91711da288b5b259718c326b89f8d34924992bbcbe6a4f4c7e72a13bf25daa16",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "91711da288b5b259718c326b89f8d34924992bbcbe6a4f4c7e72a13bf25daa16",
+  "purpose_statement": "TypeAndQuantityNode",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

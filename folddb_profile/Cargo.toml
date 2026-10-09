@@ -1,0 +1,22 @@
+[package]
+name = "folddb_profile"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Shared `$FOLDDB_HOME` profile loader + endpoint registry + path helpers. A leaf crate (minimal deps) so any LastDB node/tool can resolve the active env profile without heavier dependencies."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+# Pinned directly (matching the workspace's pins so cargo keeps one copy):
+# `toml` parses `$FOLDDB_HOME/config.toml`; `dirs` resolves the default home.
+dirs = "6"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+serial_test = "3"

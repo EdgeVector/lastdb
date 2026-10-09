@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "RealEstateListing",
+  "field_classifications": {
+    "date_posted": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "lease_length": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "date_posted": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "lease_length": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "date_posted": "Publication date of an online listing.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "lease_length": "Length of the lease for some [[Accommodation]], either particular to some [[Offer]] or in some cases intrinsic to the property."
+  },
+  "field_types": {
+    "date_posted": "String",
+    "identifier": "String",
+    "lease_length": "String"
+  },
+  "fields": [
+    "date_posted",
+    "identifier",
+    "lease_length"
+  ],
+  "identity_hash": "bebc1415666ffa8dd96c32d602a794b2442ccb9ef6122a153c43929b25dc6fe3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bebc1415666ffa8dd96c32d602a794b2442ccb9ef6122a153c43929b25dc6fe3",
+  "purpose_statement": "RealEstateListing",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

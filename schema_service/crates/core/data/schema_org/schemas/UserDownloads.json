@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "UserDownloads",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "ce884b0b2324828971eb1814f240a2c8c6eb1d6b6f97cfad9306aafa066cf79b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ce884b0b2324828971eb1814f240a2c8c6eb1d6b6f97cfad9306aafa066cf79b",
+  "purpose_statement": "UserDownloads",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

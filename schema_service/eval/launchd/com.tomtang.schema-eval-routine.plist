@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tomtang.schema-eval-routine</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>REPLACE_ROUTINE_SH</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>REPLACE_RUN_HOME</string>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>REPLACE_LOG</string>
+    <key>StandardErrorPath</key>
+    <string>REPLACE_LOG</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>REPLACE_PATH</string>
+        <key>SCHEMA_EVAL_SERVER_BIN</key>
+        <string>REPLACE_BIN</string>
+        <key>SCHEMA_EVAL_STATE_DIR</key>
+        <string>REPLACE_STATE</string>
+        <key>KANBAN_BIN</key>
+        <string>REPLACE_KANBAN</string>
+        <key>BRAIN_BIN</key>
+        <string>REPLACE_BRAIN</string>
+    </dict>
+</dict>
+</plist>

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "SocialMediaPosting",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "shared_content": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "shared_content": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "shared_content": "A CreativeWork such as an image, video, or audio clip shared as part of this posting."
+  },
+  "field_types": {
+    "identifier": "String",
+    "shared_content": "String"
+  },
+  "fields": [
+    "identifier",
+    "shared_content"
+  ],
+  "identity_hash": "27ac2c26f9073df8326f8f099bc024d96ff87ef1ae1f4c0b1a93608b2d6a79c5",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "27ac2c26f9073df8326f8f099bc024d96ff87ef1ae1f4c0b1a93608b2d6a79c5",
+  "purpose_statement": "SocialMediaPosting",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

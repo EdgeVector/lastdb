@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Barcode",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "de18f589bb27b81d31c30006ba92fde1add5616cb975653e99a3df885524f6a0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "de18f589bb27b81d31c30006ba92fde1add5616cb975653e99a3df885524f6a0",
+  "purpose_statement": "Barcode",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

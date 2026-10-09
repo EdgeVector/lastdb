@@ -1,0 +1,252 @@
+{
+  "descriptive_name": "Order",
+  "field_classifications": {
+    "accepted_offer": [
+      "word"
+    ],
+    "billing_address": [
+      "word"
+    ],
+    "broker": [
+      "word"
+    ],
+    "confirmation_number": [
+      "word"
+    ],
+    "customer": [
+      "word"
+    ],
+    "discount": [
+      "number"
+    ],
+    "discount_code": [
+      "word"
+    ],
+    "discount_currency": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "is_gift": [
+      "word"
+    ],
+    "merchant": [
+      "word"
+    ],
+    "order_date": [
+      "word"
+    ],
+    "order_delivery": [
+      "word"
+    ],
+    "order_number": [
+      "word"
+    ],
+    "order_status": [
+      "word"
+    ],
+    "ordered_item": [
+      "word"
+    ],
+    "part_of_invoice": [
+      "word"
+    ],
+    "payment_due": [
+      "word"
+    ],
+    "payment_due_date": [
+      "word"
+    ],
+    "payment_method": [
+      "word"
+    ],
+    "payment_method_id": [
+      "word"
+    ],
+    "payment_url": [
+      "word"
+    ],
+    "seller": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "accepted_offer": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "billing_address": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "broker": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "confirmation_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "customer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "discount": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "discount_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "discount_currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_gift": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "merchant": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "order_date": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "order_delivery": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "order_number": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "order_status": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "ordered_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "part_of_invoice": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "payment_due": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "payment_due_date": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "payment_method": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "payment_method_id": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "payment_url": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "seller": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "accepted_offer": "The offer(s) -- e.g., product, quantity and price combinations -- included in the order.",
+    "billing_address": "The billing address for the order.",
+    "broker": "An entity that arranges for an exchange between a buyer and a seller.  In most cases a broker never acquires or releases ownership of a product or service involved in an exchange.  If it is not clear whether an entity is a broker, seller, or buyer, the latter two terms are preferred.",
+    "confirmation_number": "A number that confirms the given order or payment has been received.",
+    "customer": "Party placing the order or paying the invoice.",
+    "discount": "Any discount applied (to an Order).",
+    "discount_code": "Code used to redeem a discount.",
+    "discount_currency": "The currency of the discount.\\n\\nUse standard formats: [ISO 4217 currency format](http://en.wikipedia.org/wiki/ISO_4217), e.g. \"USD\"; [Ticker symbol](https://en.wikipedia.org/wiki/List_of_cryptocurrencies) for cryptocurrencies, e.g. \"BTC\"; well known names for [Local Exchange Trading Systems](https://en.wikipedia.org/wiki/Local_exchange_trading_system) (LETS) and other currency types, e.g. \"Ithaca HOUR\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_gift": "Indicates whether the offer was accepted as a gift for someone other than the buyer.",
+    "merchant": "'merchant' is an out-dated term for 'seller'.",
+    "order_date": "Date order was placed.",
+    "order_delivery": "The delivery of the parcel related to this order or order item.",
+    "order_number": "The identifier of the transaction.",
+    "order_status": "The current status of the order.",
+    "ordered_item": "The item ordered.",
+    "part_of_invoice": "The order is being paid as part of the referenced Invoice.",
+    "payment_due": "The date that payment is due.",
+    "payment_due_date": "The date that payment is due.",
+    "payment_method": "The name of the credit card or other method of payment for the order.",
+    "payment_method_id": "An identifier for the method of payment used (e.g. the last 4 digits of the credit card).",
+    "payment_url": "The URL for sending a payment.",
+    "seller": "An entity which offers (sells / leases / lends / loans) the services / goods.  A seller may also be a provider."
+  },
+  "field_types": {
+    "accepted_offer": "String",
+    "billing_address": "String",
+    "broker": "String",
+    "confirmation_number": "String",
+    "customer": "String",
+    "discount": "Float",
+    "discount_code": "String",
+    "discount_currency": "String",
+    "identifier": "String",
+    "is_gift": "Boolean",
+    "merchant": "String",
+    "order_date": "String",
+    "order_delivery": "String",
+    "order_number": "String",
+    "order_status": "String",
+    "ordered_item": "String",
+    "part_of_invoice": "String",
+    "payment_due": "String",
+    "payment_due_date": "String",
+    "payment_method": "String",
+    "payment_method_id": "String",
+    "payment_url": "String",
+    "seller": "String"
+  },
+  "fields": [
+    "accepted_offer",
+    "billing_address",
+    "broker",
+    "confirmation_number",
+    "customer",
+    "discount",
+    "discount_code",
+    "discount_currency",
+    "identifier",
+    "is_gift",
+    "merchant",
+    "order_date",
+    "order_delivery",
+    "order_number",
+    "order_status",
+    "ordered_item",
+    "part_of_invoice",
+    "payment_due",
+    "payment_due_date",
+    "payment_method",
+    "payment_method_id",
+    "payment_url",
+    "seller"
+  ],
+  "identity_hash": "04498f59121b86ff4a5c089c7bcb7054c8528a5573f93d42673748f6ca8e825e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "04498f59121b86ff4a5c089c7bcb7054c8528a5573f93d42673748f6ca8e825e",
+  "purpose_statement": "Order",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

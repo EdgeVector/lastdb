@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "ServicePeriod",
+  "field_classifications": {
+    "business_days": [
+      "word"
+    ],
+    "cutoff_time": [
+      "word"
+    ],
+    "duration": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "business_days": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "cutoff_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "business_days": "Days of the week when the merchant typically operates, indicated via opening hours markup.",
+    "cutoff_time": "Order cutoff time allows merchants to describe the time after which they will no longer process orders received on that day. For orders processed after cutoff time, one day gets added to the delivery time estimate. This property is expected to be most typically used via the [[ShippingRateSettings]] publication pattern. The time is indicated using the ISO-8601 Time format, e.g. \"23:30:00-05:00\" would represent 6:30 pm Eastern Standard Time (EST) which is 5 hours behind Coordinated Universal Time (UTC).",
+    "duration": "The duration of the item (movie, audio recording, event, etc.) in [ISO 8601 duration format](http://en.wikipedia.org/wiki/ISO_8601).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "business_days": "String",
+    "cutoff_time": "String",
+    "duration": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "business_days",
+    "cutoff_time",
+    "duration",
+    "identifier"
+  ],
+  "identity_hash": "fd24426313fe939a598ddb1c537489fb54d703e8315a8d286165f66bf099170f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "fd24426313fe939a598ddb1c537489fb54d703e8315a8d286165f66bf099170f",
+  "purpose_statement": "ServicePeriod",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

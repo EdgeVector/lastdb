@@ -1,0 +1,792 @@
+{
+  "descriptive_name": "Organization",
+  "field_classifications": {
+    "accepted_payment_method": [
+      "word"
+    ],
+    "actionable_feedback_policy": [
+      "word"
+    ],
+    "address": [
+      "word"
+    ],
+    "agent_interaction_statistic": [
+      "word"
+    ],
+    "aggregate_rating": [
+      "word"
+    ],
+    "alumni": [
+      "word"
+    ],
+    "area_served": [
+      "word"
+    ],
+    "award": [
+      "word"
+    ],
+    "awards": [
+      "word"
+    ],
+    "brand": [
+      "word"
+    ],
+    "company_registration": [
+      "word"
+    ],
+    "contact_point": [
+      "word"
+    ],
+    "contact_points": [
+      "word"
+    ],
+    "corrections_policy": [
+      "word"
+    ],
+    "department": [
+      "word"
+    ],
+    "dissolution_date": [
+      "word"
+    ],
+    "diversity_policy": [
+      "word"
+    ],
+    "diversity_staffing_report": [
+      "word"
+    ],
+    "duns": [
+      "word"
+    ],
+    "email": [
+      "word"
+    ],
+    "employee": [
+      "word"
+    ],
+    "employees": [
+      "word"
+    ],
+    "ethics_policy": [
+      "word"
+    ],
+    "event": [
+      "word"
+    ],
+    "events": [
+      "word"
+    ],
+    "fax_number": [
+      "word"
+    ],
+    "founder": [
+      "word"
+    ],
+    "founders": [
+      "word"
+    ],
+    "founding_date": [
+      "word"
+    ],
+    "founding_location": [
+      "word"
+    ],
+    "funder": [
+      "word"
+    ],
+    "funding": [
+      "word"
+    ],
+    "global_location_number": [
+      "word"
+    ],
+    "has_certification": [
+      "word"
+    ],
+    "has_credential": [
+      "word"
+    ],
+    "has_gs1digital_link": [
+      "word"
+    ],
+    "has_member_program": [
+      "word"
+    ],
+    "has_merchant_return_policy": [
+      "word"
+    ],
+    "has_offer_catalog": [
+      "word"
+    ],
+    "has_pos": [
+      "word"
+    ],
+    "has_shipping_service": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "interaction_statistic": [
+      "word"
+    ],
+    "isic_v4": [
+      "word"
+    ],
+    "iso6523code": [
+      "word"
+    ],
+    "keywords": [
+      "word"
+    ],
+    "knows_about": [
+      "word"
+    ],
+    "knows_language": [
+      "word"
+    ],
+    "legal_address": [
+      "word"
+    ],
+    "legal_name": [
+      "word"
+    ],
+    "legal_representative": [
+      "word"
+    ],
+    "lei_code": [
+      "word"
+    ],
+    "location": [
+      "word"
+    ],
+    "logo": [
+      "word"
+    ],
+    "makes_offer": [
+      "word"
+    ],
+    "member": [
+      "word"
+    ],
+    "member_of": [
+      "word"
+    ],
+    "members": [
+      "word"
+    ],
+    "naics": [
+      "word"
+    ],
+    "nonprofit_status": [
+      "word"
+    ],
+    "number_of_employees": [
+      "word"
+    ],
+    "ownership_funding_info": [
+      "word"
+    ],
+    "owns": [
+      "word"
+    ],
+    "parent_organization": [
+      "word"
+    ],
+    "publishing_principles": [
+      "word"
+    ],
+    "review": [
+      "word"
+    ],
+    "reviews": [
+      "word"
+    ],
+    "seeks": [
+      "word"
+    ],
+    "service_area": [
+      "word"
+    ],
+    "skills": [
+      "word"
+    ],
+    "slogan": [
+      "word"
+    ],
+    "sponsor": [
+      "word"
+    ],
+    "sub_organization": [
+      "word"
+    ],
+    "tax_id": [
+      "word"
+    ],
+    "telephone": [
+      "word"
+    ],
+    "unnamed_sources_policy": [
+      "word"
+    ],
+    "vat_id": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "accepted_payment_method": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "actionable_feedback_policy": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "address": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "agent_interaction_statistic": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "aggregate_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "alumni": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "area_served": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "award": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "awards": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "brand": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "company_registration": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "contact_point": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "contact_points": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "corrections_policy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "department": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "dissolution_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "diversity_policy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "diversity_staffing_report": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "duns": {
+      "data_domain": "identity",
+      "sensitivity_level": 4
+    },
+    "email": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "employee": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "employees": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "ethics_policy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "event": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "events": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "fax_number": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "founder": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "founders": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "founding_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "founding_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "funder": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "funding": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "global_location_number": {
+      "data_domain": "identity",
+      "sensitivity_level": 4
+    },
+    "has_certification": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_credential": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_gs1digital_link": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_member_program": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_merchant_return_policy": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "has_offer_catalog": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "has_pos": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_shipping_service": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "interaction_statistic": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "isic_v4": {
+      "data_domain": "identity",
+      "sensitivity_level": 4
+    },
+    "iso6523code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "keywords": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "knows_about": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "knows_language": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "legal_address": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "legal_name": {
+      "data_domain": "identity",
+      "sensitivity_level": 3
+    },
+    "legal_representative": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "lei_code": {
+      "data_domain": "identity",
+      "sensitivity_level": 4
+    },
+    "location": {
+      "data_domain": "location",
+      "sensitivity_level": 2
+    },
+    "logo": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "makes_offer": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "member": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "member_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "members": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "naics": {
+      "data_domain": "identity",
+      "sensitivity_level": 4
+    },
+    "nonprofit_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_employees": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "ownership_funding_info": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "owns": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "parent_organization": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "publishing_principles": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "review": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "reviews": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "seeks": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "service_area": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "skills": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "slogan": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sponsor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sub_organization": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tax_id": {
+      "data_domain": "identity",
+      "sensitivity_level": 4
+    },
+    "telephone": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    },
+    "unnamed_sources_policy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "vat_id": {
+      "data_domain": "identity",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "accepted_payment_method": "The payment method(s) that are accepted in general by an organization, or for some specific demand or offer.",
+    "actionable_feedback_policy": "For a [[NewsMediaOrganization]] or other news-related [[Organization]], a statement about public engagement activities (for news media, the newsroom’s), including involving the public - digitally or otherwise -- in coverage decisions, reporting and activities after publication.",
+    "address": "Physical address of the item.",
+    "agent_interaction_statistic": "The number of completed interactions for this entity, in a particular role (the 'agent'), in a particular action (indicated in the statistic), and in a particular context (i.e. interactionService).",
+    "aggregate_rating": "The overall rating, based on a collection of reviews or ratings, of the item.",
+    "alumni": "Alumni of an organization.",
+    "area_served": "The geographic area where a service or offered item is provided.",
+    "award": "An award won by or for this item.",
+    "awards": "Awards won by or for this item.",
+    "brand": "The brand(s) associated with a product or service, or the brand(s) maintained by an organization or business person.",
+    "company_registration": "The official registration information of a business including the organization that issued it such as Company House or Chamber of Commerce in form of a Certification.",
+    "contact_point": "A contact point for a person or organization.",
+    "contact_points": "A contact point for a person or organization.",
+    "corrections_policy": "For an [[Organization]] (e.g. [[NewsMediaOrganization]]), a statement describing (in news media, the newsroom’s) disclosure and correction policy for errors.",
+    "department": "A relationship between an organization and a department of that organization, also described as an organization (allowing different urls, logos, opening hours). For example: a store with a pharmacy, or a bakery with a cafe.",
+    "dissolution_date": "The date that this organization was dissolved.",
+    "diversity_policy": "Statement on diversity policy by an [[Organization]] e.g. a [[NewsMediaOrganization]]. For a [[NewsMediaOrganization]], a statement describing the newsroom’s diversity policy on both staffing and sources, typically providing staffing data.",
+    "diversity_staffing_report": "For an [[Organization]] (often but not necessarily a [[NewsMediaOrganization]]), a report on staffing diversity issues. In a news context this might be for example ASNE or RTDNA (US) reports, or self-reported.",
+    "duns": "The Dun & Bradstreet DUNS number for identifying an organization or business person.",
+    "email": "Email address.",
+    "employee": "Someone working for this organization.",
+    "employees": "People working for this organization.",
+    "ethics_policy": "Statement about ethics policy, e.g. of a [[NewsMediaOrganization]] regarding journalistic and publishing practices, or of a [[Restaurant]], a page describing food source policies. In the case of a [[NewsMediaOrganization]], an ethicsPolicy is typically a statement describing the personal, organizational, and corporate standards of behavior expected by the organization.",
+    "event": "Upcoming or past event associated with this place, organization, or action.",
+    "events": "Upcoming or past events associated with this place or organization.",
+    "fax_number": "The fax number.",
+    "founder": "A person or organization who founded this organization.",
+    "founders": "A person who founded this organization.",
+    "founding_date": "The date that this organization was founded.",
+    "founding_location": "The place where the Organization was founded.",
+    "funder": "A person or organization that supports (sponsors) something through some kind of financial contribution.",
+    "funding": "A [[Grant]] that directly or indirectly provide funding or sponsorship for this item. See also [[ownershipFundingInfo]].",
+    "global_location_number": "The [Global Location Number](http://www.gs1.org/gln) (GLN, sometimes also referred to as International Location Number or ILN) of the respective organization, person, or place. The GLN is a 13-digit number used to identify parties and physical locations.",
+    "has_certification": "Certification information about a product, organization, service, place, or person.",
+    "has_credential": "A credential awarded to the Person or Organization.",
+    "has_gs1digital_link": "The <a href=\"https://www.gs1.org/standards/gs1-digital-link\">GS1 digital link</a> associated with the object. This URL should conform to the particular requirements of digital links. The link should only contain the Application Identifiers (AIs) that are relevant for the entity being annotated, for instance a [[Product]] or an [[Organization]], and for the correct granularity. In particular, for products:<ul><li>A Digital Link that contains a serial number (AI <code>21</code>) should only be present on instances of [[IndividualProduct]]</li><li>A Digital Link that contains a lot number (AI <code>10</code>) should be annotated as [[SomeProducts]] if only products from that lot are sold, or [[IndividualProduct]] if there is only a specific product.</li><li>A Digital Link that contains a global model number (AI <code>8013</code>) should be attached to a [[Product]] or a [[ProductModel]].</li></ul> Other item types should be adapted similarly.",
+    "has_member_program": "MemberProgram offered by an Organization, for example an eCommerce merchant or an airline.",
+    "has_merchant_return_policy": "Specifies a MerchantReturnPolicy that may be applicable.",
+    "has_offer_catalog": "Indicates an OfferCatalog listing for this Organization, Person, or Service.",
+    "has_pos": "Points-of-Sales operated by the organization or person.",
+    "has_shipping_service": "Specification of a shipping service offered by the organization.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "interaction_statistic": "The number of interactions for the CreativeWork using the WebSite or SoftwareApplication. The most specific child type of InteractionCounter should be used.",
+    "isic_v4": "The International Standard of Industrial Classification of All Economic Activities (ISIC), Revision 4 code for a particular organization, business person, or place.",
+    "iso6523code": "An organization identifier as defined in [ISO 6523(-1)](https://en.wikipedia.org/wiki/ISO/IEC_6523). The identifier should be in the `XXXX:YYYYYY:ZZZ` or `XXXX:YYYYYY`format. Where `XXXX` is a 4 digit _ICD_ (International Code Designator), `YYYYYY` is an _OID_ (Organization Identifier) with all formatting characters (dots, dashes, spaces) removed with a maximal length of 35 characters, and `ZZZ` is an optional OPI (Organization Part Identifier) with a maximum length of 35 characters. The various components (ICD, OID, OPI) are joined with a colon character (ASCII `0x3a`). Note that many existing organization identifiers defined as attributes like [leiCode](https://schema.org/leiCode) (`0199`), [duns](https://schema.org/duns) (`0060`) or [GLN](https://schema.org/globalLocationNumber) (`0088`) can be expressed using ISO-6523. If possible, ISO-6523 codes should be preferred to populating [vatID](https://schema.org/vatID) or [taxID](https://schema.org/taxID), as ISO identifiers are less ambiguous.",
+    "keywords": "Keywords or tags used to describe some item. Multiple textual entries in a keywords list are typically delimited by commas, or by repeating the property.",
+    "knows_about": "Of a [[Person]], and less typically of an [[Organization]], to indicate a topic that is known about - suggesting possible expertise but not implying it. We do not distinguish skill levels here, or relate this to educational content, events, objectives or [[JobPosting]] descriptions.",
+    "knows_language": "Of a [[Person]], and less typically of an [[Organization]], to indicate a known language. We do not distinguish skill levels or reading/writing/speaking/signing here. Use language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47).",
+    "legal_address": "The legal address of an organization which acts as the officially registered address used for legal and tax purposes. The legal address can be different from the place of operations of a business and other addresses can be part of an organization.",
+    "legal_name": "The official name of the organization, e.g. the registered company name.",
+    "legal_representative": "One or multiple persons who represent this organization legally such as CEO or sole administrator.",
+    "lei_code": "An organization identifier that uniquely identifies a legal entity as defined in ISO 17442.",
+    "location": "The location of, for example, where an event is happening, where an organization is located, or where an action takes place.",
+    "logo": "An associated logo.",
+    "makes_offer": "A pointer to products or services offered by the organization or person.",
+    "member": "A member of an Organization or a ProgramMembership. Organizations can be members of organizations; ProgramMembership is typically for individuals.",
+    "member_of": "An Organization (or ProgramMembership) to which this Person or Organization belongs.",
+    "members": "A member of this organization.",
+    "naics": "The North American Industry Classification System (NAICS) code for a particular organization or business person.",
+    "nonprofit_status": "nonprofitStatus indicates the legal status of a non-profit organization in its primary place of business.",
+    "number_of_employees": "The number of employees in an organization, e.g. business.",
+    "ownership_funding_info": "For an [[Organization]] (often but not necessarily a [[NewsMediaOrganization]]), a description of organizational ownership structure; funding and grants. In a news/media setting, this is with particular reference to editorial independence.   Note that the [[funder]] is also available and can be used to make basic funder information machine-readable.",
+    "owns": "Things owned by the organization or person.",
+    "parent_organization": "The larger organization that this organization is a [[subOrganization]] of, if any.",
+    "publishing_principles": "The publishingPrinciples property indicates (typically via [[URL]]) a document describing the editorial principles of an [[Organization]] (or individual, e.g. a [[Person]] writing a blog) that relate to their activities as a publisher, e.g. ethics or diversity policies. When applied to a [[CreativeWork]] (e.g. [[NewsArticle]]) the principles are those of the party primarily responsible for the creation of the [[CreativeWork]].\n\nWhile such policies are most typically expressed in natural language, sometimes related information (e.g. indicating a [[funder]]) can be expressed using schema.org terminology.",
+    "review": "A review of the item.",
+    "reviews": "Review of the item.",
+    "seeks": "A pointer to products or services sought by the organization or person (demand).",
+    "service_area": "The geographic area where the service is provided.",
+    "skills": "A statement of knowledge, skill, ability, task or any other assertion expressing a competency that is either claimed by a person, an organization or desired or required to fulfill a role or to work in an occupation.",
+    "slogan": "A slogan or motto associated with the item.",
+    "sponsor": "A person or organization that supports a thing through a pledge, promise, or financial contribution. E.g. a sponsor of a Medical Study or a corporate sponsor of an event.",
+    "sub_organization": "A relationship between two organizations where the first includes the second, e.g., as a subsidiary. See also: the more specific 'department' property.",
+    "tax_id": "The Tax / Fiscal ID of the organization or person, e.g. the TIN in the US or the CIF/NIF in Spain.",
+    "telephone": "The telephone number.",
+    "unnamed_sources_policy": "For an [[Organization]] (typically a [[NewsMediaOrganization]]), a statement about policy on use of unnamed sources and the decision process required.",
+    "vat_id": "The value-added Tax ID of the organization or person with national prefix (for example IT123456789). Can also be described as [[iso6523Code]] with proper prefix."
+  },
+  "field_types": {
+    "accepted_payment_method": "String",
+    "actionable_feedback_policy": "String",
+    "address": "String",
+    "agent_interaction_statistic": "String",
+    "aggregate_rating": "String",
+    "alumni": "String",
+    "area_served": "String",
+    "award": "String",
+    "awards": "String",
+    "brand": "String",
+    "company_registration": "String",
+    "contact_point": "String",
+    "contact_points": "String",
+    "corrections_policy": "String",
+    "department": "String",
+    "dissolution_date": "String",
+    "diversity_policy": "String",
+    "diversity_staffing_report": "String",
+    "duns": "String",
+    "email": "String",
+    "employee": "String",
+    "employees": "String",
+    "ethics_policy": "String",
+    "event": "String",
+    "events": "String",
+    "fax_number": "String",
+    "founder": "String",
+    "founders": "String",
+    "founding_date": "String",
+    "founding_location": "String",
+    "funder": "String",
+    "funding": "String",
+    "global_location_number": "String",
+    "has_certification": "String",
+    "has_credential": "String",
+    "has_gs1digital_link": "String",
+    "has_member_program": "String",
+    "has_merchant_return_policy": "String",
+    "has_offer_catalog": "String",
+    "has_pos": "String",
+    "has_shipping_service": "String",
+    "identifier": "String",
+    "interaction_statistic": "String",
+    "isic_v4": "String",
+    "iso6523code": "String",
+    "keywords": "String",
+    "knows_about": "String",
+    "knows_language": "String",
+    "legal_address": "String",
+    "legal_name": "String",
+    "legal_representative": "String",
+    "lei_code": "String",
+    "location": "String",
+    "logo": "String",
+    "makes_offer": "String",
+    "member": "String",
+    "member_of": "String",
+    "members": "String",
+    "naics": "String",
+    "nonprofit_status": "String",
+    "number_of_employees": "String",
+    "ownership_funding_info": "String",
+    "owns": "String",
+    "parent_organization": "String",
+    "publishing_principles": "String",
+    "review": "String",
+    "reviews": "String",
+    "seeks": "String",
+    "service_area": "String",
+    "skills": "String",
+    "slogan": "String",
+    "sponsor": "String",
+    "sub_organization": "String",
+    "tax_id": "String",
+    "telephone": "String",
+    "unnamed_sources_policy": "String",
+    "vat_id": "String"
+  },
+  "fields": [
+    "accepted_payment_method",
+    "actionable_feedback_policy",
+    "address",
+    "agent_interaction_statistic",
+    "aggregate_rating",
+    "alumni",
+    "area_served",
+    "award",
+    "awards",
+    "brand",
+    "company_registration",
+    "contact_point",
+    "contact_points",
+    "corrections_policy",
+    "department",
+    "dissolution_date",
+    "diversity_policy",
+    "diversity_staffing_report",
+    "duns",
+    "email",
+    "employee",
+    "employees",
+    "ethics_policy",
+    "event",
+    "events",
+    "fax_number",
+    "founder",
+    "founders",
+    "founding_date",
+    "founding_location",
+    "funder",
+    "funding",
+    "global_location_number",
+    "has_certification",
+    "has_credential",
+    "has_gs1digital_link",
+    "has_member_program",
+    "has_merchant_return_policy",
+    "has_offer_catalog",
+    "has_pos",
+    "has_shipping_service",
+    "identifier",
+    "interaction_statistic",
+    "isic_v4",
+    "iso6523code",
+    "keywords",
+    "knows_about",
+    "knows_language",
+    "legal_address",
+    "legal_name",
+    "legal_representative",
+    "lei_code",
+    "location",
+    "logo",
+    "makes_offer",
+    "member",
+    "member_of",
+    "members",
+    "naics",
+    "nonprofit_status",
+    "number_of_employees",
+    "ownership_funding_info",
+    "owns",
+    "parent_organization",
+    "publishing_principles",
+    "review",
+    "reviews",
+    "seeks",
+    "service_area",
+    "skills",
+    "slogan",
+    "sponsor",
+    "sub_organization",
+    "tax_id",
+    "telephone",
+    "unnamed_sources_policy",
+    "vat_id"
+  ],
+  "identity_hash": "ecc8474f69976a6710f86f1fb5f21cd919dfd8f01044eb79d974b7f4d321e193",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ecc8474f69976a6710f86f1fb5f21cd919dfd8f01044eb79d974b7f4d321e193",
+  "purpose_statement": "Organization",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "CafeOrCoffeeShop",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "f012ce157ee3351486c49d5adb02c8db9c3711eb8173cc3430665c34f318bec0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f012ce157ee3351486c49d5adb02c8db9c3711eb8173cc3430665c34f318bec0",
+  "purpose_statement": "CafeOrCoffeeShop",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "MedicalStudy",
+  "field_classifications": {
+    "health_condition": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "sponsor": [
+      "word"
+    ],
+    "status": [
+      "word"
+    ],
+    "study_location": [
+      "word"
+    ],
+    "study_subject": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "health_condition": {
+      "data_domain": "medical",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "sponsor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "study_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "study_subject": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "health_condition": "Specifying the health condition(s) of a patient, medical study, or other target audience.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "sponsor": "A person or organization that supports a thing through a pledge, promise, or financial contribution. E.g. a sponsor of a Medical Study or a corporate sponsor of an event.",
+    "status": "The status of the study (enumerated).",
+    "study_location": "The location in which the study is taking/took place.",
+    "study_subject": "A subject of the study, i.e. one of the medical conditions, therapies, devices, drugs, etc. investigated by the study."
+  },
+  "field_types": {
+    "health_condition": "String",
+    "identifier": "String",
+    "sponsor": "String",
+    "status": "String",
+    "study_location": "String",
+    "study_subject": "String"
+  },
+  "fields": [
+    "health_condition",
+    "identifier",
+    "sponsor",
+    "status",
+    "study_location",
+    "study_subject"
+  ],
+  "identity_hash": "35891a0313c38b6b7bc674a3badb7d490d7596f69e46926cf445b7246a8fcd1b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "35891a0313c38b6b7bc674a3badb7d490d7596f69e46926cf445b7246a8fcd1b",
+  "purpose_statement": "MedicalStudy",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

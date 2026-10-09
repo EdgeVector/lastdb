@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ProfessionalService",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "31b848fccb64e46947e9b4f7e11b26b73d104d35464ecd56c0a43fd10c894399",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "31b848fccb64e46947e9b4f7e11b26b73d104d35464ecd56c0a43fd10c894399",
+  "purpose_statement": "ProfessionalService",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Guide",
+  "field_classifications": {
+    "category": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "review_aspect": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "category": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "review_aspect": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "category": "A category for the item. Greater signs or slashes can be used to informally indicate a category hierarchy.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "review_aspect": "This Review or Rating is relevant to this part or facet of the itemReviewed."
+  },
+  "field_types": {
+    "category": "String",
+    "identifier": "String",
+    "review_aspect": "String"
+  },
+  "fields": [
+    "category",
+    "identifier",
+    "review_aspect"
+  ],
+  "identity_hash": "775d7143f9a632d2ae2602aeb678f48ece950e1acf2eb37990838577de131b46",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "775d7143f9a632d2ae2602aeb678f48ece950e1acf2eb37990838577de131b46",
+  "purpose_statement": "Guide",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

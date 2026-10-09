@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "RuntimePlatform",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "2b6516a51461bcb4179478f6843f62096abee4efbf8de7ab910758dc22fdb25b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2b6516a51461bcb4179478f6843f62096abee4efbf8de7ab910758dc22fdb25b",
+  "purpose_statement": "RuntimePlatform",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

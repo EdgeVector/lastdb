@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "WinAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "loser": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "loser": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "loser": "A sub property of participant. The loser of the action."
+  },
+  "field_types": {
+    "identifier": "String",
+    "loser": "String"
+  },
+  "fields": [
+    "identifier",
+    "loser"
+  ],
+  "identity_hash": "287e4a6471216c7b85513192bccb8192fedc0f67ef3c7163a7532acec7de30f3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "287e4a6471216c7b85513192bccb8192fedc0f67ef3c7163a7532acec7de30f3",
+  "purpose_statement": "WinAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

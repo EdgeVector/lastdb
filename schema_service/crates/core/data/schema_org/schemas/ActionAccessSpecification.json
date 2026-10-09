@@ -1,0 +1,102 @@
+{
+  "descriptive_name": "ActionAccessSpecification",
+  "field_classifications": {
+    "availability_ends": [
+      "word"
+    ],
+    "availability_starts": [
+      "word"
+    ],
+    "category": [
+      "word"
+    ],
+    "eligible_region": [
+      "word"
+    ],
+    "expects_acceptance_of": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "ineligible_region": [
+      "word"
+    ],
+    "requires_subscription": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "availability_ends": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "availability_starts": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "category": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "eligible_region": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "expects_acceptance_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "ineligible_region": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "requires_subscription": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "availability_ends": "The end of the availability of the product or service included in the offer.",
+    "availability_starts": "The beginning of the availability of the product or service included in the offer.",
+    "category": "A category for the item. Greater signs or slashes can be used to informally indicate a category hierarchy.",
+    "eligible_region": "The ISO 3166-1 (ISO 3166-1 alpha-2) or ISO 3166-2 code, the place, or the GeoShape for the geo-political region(s) for which the offer or delivery charge specification is valid.\\n\\nSee also [[ineligibleRegion]].",
+    "expects_acceptance_of": "An Offer which must be accepted before the user can perform the Action. For example, the user may need to buy a movie before being able to watch it.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "ineligible_region": "The ISO 3166-1 (ISO 3166-1 alpha-2) or ISO 3166-2 code, the place, or the GeoShape for the geo-political region(s) for which the offer or delivery charge specification is not valid, e.g. a region where the transaction is not allowed.\\n\\nSee also [[eligibleRegion]].",
+    "requires_subscription": "Indicates if use of the media require a subscription  (either paid or free). Allowed values are ```true``` or ```false``` (note that an earlier version had 'yes', 'no')."
+  },
+  "field_types": {
+    "availability_ends": "String",
+    "availability_starts": "String",
+    "category": "String",
+    "eligible_region": "String",
+    "expects_acceptance_of": "String",
+    "identifier": "String",
+    "ineligible_region": "String",
+    "requires_subscription": "Boolean"
+  },
+  "fields": [
+    "availability_ends",
+    "availability_starts",
+    "category",
+    "eligible_region",
+    "expects_acceptance_of",
+    "identifier",
+    "ineligible_region",
+    "requires_subscription"
+  ],
+  "identity_hash": "361be08fda60c384811347572683e8d791b0115eb6c478290de9ad29e6496dfb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "361be08fda60c384811347572683e8d791b0115eb6c478290de9ad29e6496dfb",
+  "purpose_statement": "ActionAccessSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "BodyMeasurementTypeEnumeration",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "73d46eedee89911f81f2ca79a7eb921d459486865e478454acded43a45678f58",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "73d46eedee89911f81f2ca79a7eb921d459486865e478454acded43a45678f58",
+  "purpose_statement": "BodyMeasurementTypeEnumeration",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

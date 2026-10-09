@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Quantity",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "9c9592d29467517f9114a65b69bb9e67d84bbfcaf3d9ce96c791a8178093760f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9c9592d29467517f9114a65b69bb9e67d84bbfcaf3d9ce96c791a8178093760f",
+  "purpose_statement": "Quantity",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

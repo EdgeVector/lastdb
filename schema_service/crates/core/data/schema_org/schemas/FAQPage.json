@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "FAQPage",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "e02ede1eeeeb80943c70cf24baaff56ca438f7d6cb7b996d02c440c67d8fc276",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e02ede1eeeeb80943c70cf24baaff56ca438f7d6cb7b996d02c440c67d8fc276",
+  "purpose_statement": "FAQPage",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

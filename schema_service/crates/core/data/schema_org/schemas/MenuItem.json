@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "MenuItem",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "menu_add_on": [
+      "word"
+    ],
+    "nutrition": [
+      "word"
+    ],
+    "offers": [
+      "word"
+    ],
+    "suitable_for_diet": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "menu_add_on": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "nutrition": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "offers": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "suitable_for_diet": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "menu_add_on": "Additional menu item(s) such as a side dish of salad or side order of fries that can be added to this menu item. Additionally it can be a menu section containing allowed add-on menu items for this menu item.",
+    "nutrition": "Nutrition information about the recipe or menu item.",
+    "offers": "An offer to provide this item&#x2014;for example, an offer to sell a product, rent the DVD of a movie, perform a service, or give away tickets to an event. Use [[businessFunction]] to indicate the kind of transaction offered, i.e. sell, lease, etc. This property can also be used to describe a [[Demand]]. While this property is listed as expected on a number of common types, it can be used in others. In that case, using a second type, such as Product or a subtype of Product, can clarify the nature of the offer.",
+    "suitable_for_diet": "Indicates a dietary restriction or guideline for which this recipe or menu item is suitable, e.g. diabetic, halal etc."
+  },
+  "field_types": {
+    "identifier": "String",
+    "menu_add_on": "String",
+    "nutrition": "String",
+    "offers": "String",
+    "suitable_for_diet": "String"
+  },
+  "fields": [
+    "identifier",
+    "menu_add_on",
+    "nutrition",
+    "offers",
+    "suitable_for_diet"
+  ],
+  "identity_hash": "8dfe2a8ec51b3baeec95577e80ae1a3a75929f8f852638a6750005929b7f67ba",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8dfe2a8ec51b3baeec95577e80ae1a3a75929f8f852638a6750005929b7f67ba",
+  "purpose_statement": "MenuItem",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

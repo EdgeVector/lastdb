@@ -1,0 +1,181 @@
+# STATUS (2026-09-29): DISABLED in the GitHub Actions UI on purpose. Do not
+# enable without Tom. A scheduled run cuts a REAL tag every day at 07:00 UTC
+# (vX.Y.(N+1)-canary.YYYYMMDD from the latest homebrew-lastdb stable, pushed
+# with GH_PAT) and that fires release.yml, which publishes a public prerelease
+# on EdgeVector/homebrew-lastdb. It overlaps the last-stack canary chain, which
+# owns canaries and stable releases (docs/RELEASING.md). The "commits since the
+# last v* tag" guard also reads stale tags: GitHub fold tags stop at v0.23.3
+# while homebrew-lastdb is at v0.23.9, so every day would look like new work.
+#
+# Nightly LastDB Mini canary release.
+#
+# Cuts a prerelease tag `vX.Y.Z-canary.YYYYMMDD` on current `main` when there
+# is new work since the last canary/stable tag. Pushing that tag fires the
+# existing `release.yml` pipeline (build → validate → publish prerelease on
+# EdgeVector/homebrew-lastdb). Tags with `-` skip `bump-tap`, so the stable
+# brew formula is never overwritten by a canary.
+#
+# Manual: Actions → Nightly Mini Canary → Run workflow (optional force).
+#
+# Discord: posts cut/skip/failure via scripts/release/notify-discord.sh when
+# DISCORD_WEBHOOK or DISCORD_WEBHOOK_RELEASE is set (org secret). Release
+# success/failure for the actual build is notified from release.yml.
+name: Nightly Mini Canary
+
+on:
+  schedule:
+    # Daily 07:00 UTC — after US night, before the weekly Sunday smoke (06:00).
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Cut a canary even when main has no new commits since the last canary/stable tag'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-mini-canary
+  cancel-in-progress: false
+
+jobs:
+  cut-canary:
+    runs-on: ubuntu-latest
+    outputs:
+      skipped: ${{ steps.plan.outputs.skipped }}
+      tag: ${{ steps.plan.outputs.tag }}
+      reason: ${{ steps.plan.outputs.reason }}
+      sha: ${{ steps.plan.outputs.sha }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          # GH_PAT so the subsequent tag push can trigger release.yml
+          # (default GITHUB_TOKEN tag pushes do not fire other workflows).
+          token: ${{ secrets.GH_PAT || github.token }}
+
+      - name: Plan canary tag
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force || false }}
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          SHORT="$(git rev-parse --short HEAD)"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "main@$SHORT"
+
+          # Latest non-prerelease tap release (stable brew line).
+          LATEST_STABLE="$(gh release list --repo EdgeVector/homebrew-lastdb \
+            --exclude-pre-releases --limit 20 --json tagName \
+            --jq '[.[] | select(.tagName | test("^v[0-9]"))][0].tagName' 2>/dev/null || true)"
+          if [ -z "$LATEST_STABLE" ] || [ "$LATEST_STABLE" = "null" ]; then
+            LATEST_STABLE="$(gh release list --repo EdgeVector/homebrew-lastdb --limit 30 --json tagName,isPrerelease \
+              --jq '[.[] | select(.isPrerelease|not) | .tagName | select(test("^v[0-9]"))][0]' 2>/dev/null || true)"
+          fi
+          if [ -z "$LATEST_STABLE" ] || [ "$LATEST_STABLE" = "null" ]; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "reason=could not resolve latest stable homebrew-lastdb release" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          STABLE_VER="${LATEST_STABLE#v}"
+          echo "latest stable: $LATEST_STABLE ($STABLE_VER)"
+
+          # Next patch for the canary line (0.22.7 → 0.22.8-canary.DATE).
+          IFS=. read -r MAJ MIN PAT <<<"$STABLE_VER"
+          PAT="${PAT%%-*}"
+          NEXT_PATCH=$((PAT + 1))
+          DATE_STAMP="$(date -u +%Y%m%d)"
+          CANARY_VER="${MAJ}.${MIN}.${NEXT_PATCH}-canary.${DATE_STAMP}"
+          TAG="v${CANARY_VER}"
+          echo "proposed tag: $TAG"
+
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1 \
+             || gh release view "$TAG" --repo EdgeVector/homebrew-lastdb >/dev/null 2>&1; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "reason=canary tag $TAG already exists for today" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Skip when main has not moved since the latest v* tag (stable or canary).
+          LAST_TAG="$(git tag -l 'v*' --sort=-creatordate | head -1 || true)"
+          if [ -n "$LAST_TAG" ] && [ "$FORCE" != "true" ]; then
+            LAST_SHA="$(git rev-parse "${LAST_TAG}^{}" 2>/dev/null || true)"
+            if [ -n "$LAST_SHA" ] && [ "$SHA" = "$LAST_SHA" ]; then
+              echo "skipped=true" >> "$GITHUB_OUTPUT"
+              echo "reason=main@$SHORT is already tagged ($LAST_TAG); nothing new to canary" >> "$GITHUB_OUTPUT"
+              echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            AHEAD="$(git rev-list --count "${LAST_TAG}..HEAD" 2>/dev/null || echo 0)"
+            if [ "${AHEAD:-0}" = "0" ]; then
+              echo "skipped=true" >> "$GITHUB_OUTPUT"
+              echo "reason=no commits on main since $LAST_TAG" >> "$GITHUB_OUTPUT"
+              echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "main is $AHEAD commit(s) ahead of $LAST_TAG"
+          fi
+
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          echo "reason=cutting canary from main@$SHORT (stable base $LATEST_STABLE)" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Cut and push canary tag
+        if: steps.plan.outputs.skipped == 'false'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          REASON: ${{ steps.plan.outputs.reason }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Nightly Mini canary $TAG
+
+          $REASON
+
+          Fires release.yml (prerelease; no brew formula bump)."
+          git push origin "refs/tags/$TAG"
+          echo "Pushed $TAG — release.yml should start shortly."
+
+      - name: Discord (canary cut / skip)
+        if: always()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_RELEASE || secrets.DISCORD_WEBHOOK }}
+          SKIPPED: ${{ steps.plan.outputs.skipped }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          REASON: ${{ steps.plan.outputs.reason }}
+          SHA: ${{ steps.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release/notify-discord.sh
+          if [ "${SKIPPED}" = "true" ]; then
+            bash scripts/release/notify-discord.sh \
+              --status skipped \
+              --title "Mini canary skipped" \
+              --body "$(printf '%s\n\nsha: `%s`\ntag: `%s`\nworkflow: %s' \
+                "${REASON:-skipped}" "${SHA:0:12}" "${TAG:-none}" \
+                "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+          elif [ "${{ job.status }}" = "success" ]; then
+            bash scripts/release/notify-discord.sh \
+              --status success \
+              --title "Mini canary cut ${TAG}" \
+              --body "$(printf '%s\n\nTag pushed; release.yml will build + publish a prerelease on homebrew-lastdb (no brew formula bump).\n\nsha: `%s`\nrun: %s' \
+                "${REASON}" "${SHA:0:12}" \
+                "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+          else
+            bash scripts/release/notify-discord.sh \
+              --status failure \
+              --title "Mini canary cut FAILED" \
+              --body "$(printf 'Could not cut canary tag.\n\n%s\n\nrun: %s' \
+                "${REASON:-see logs}" \
+                "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+          fi

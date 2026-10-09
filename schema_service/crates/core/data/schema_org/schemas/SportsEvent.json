@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "SportsEvent",
+  "field_classifications": {
+    "away_team": [
+      "word"
+    ],
+    "competitor": [
+      "word"
+    ],
+    "home_team": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "referee": [
+      "word"
+    ],
+    "sport": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "away_team": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "competitor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "home_team": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "referee": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sport": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "away_team": "The away team in a sports event.",
+    "competitor": "A competitor in a sports event.",
+    "home_team": "The home team in a sports event.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "referee": "An official who watches a game or match closely to enforce the rules and arbitrate on matters arising from the play such as referees, umpires or judges. The name of the effective function can vary according to the sport.",
+    "sport": "A type of sport (e.g. Baseball)."
+  },
+  "field_types": {
+    "away_team": "String",
+    "competitor": "String",
+    "home_team": "String",
+    "identifier": "String",
+    "referee": "String",
+    "sport": "String"
+  },
+  "fields": [
+    "away_team",
+    "competitor",
+    "home_team",
+    "identifier",
+    "referee",
+    "sport"
+  ],
+  "identity_hash": "0143112004926e91d3f71513bea4d219ab436877ed2f59225bf46f94d0d213dc",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "0143112004926e91d3f71513bea4d219ab436877ed2f59225bf46f94d0d213dc",
+  "purpose_statement": "SportsEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

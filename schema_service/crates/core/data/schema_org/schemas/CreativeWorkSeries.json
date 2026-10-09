@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "CreativeWorkSeries",
+  "field_classifications": {
+    "end_date": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "issn": [
+      "word"
+    ],
+    "start_date": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "end_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "issn": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "start_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "end_date": "The end date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601)).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "issn": "The International Standard Serial Number (ISSN) that identifies this serial publication. You can repeat this property to identify different formats of, or the linking ISSN (ISSN-L) for, this serial publication.",
+    "start_date": "The start date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601))."
+  },
+  "field_types": {
+    "end_date": "String",
+    "identifier": "String",
+    "issn": "String",
+    "start_date": "String"
+  },
+  "fields": [
+    "end_date",
+    "identifier",
+    "issn",
+    "start_date"
+  ],
+  "identity_hash": "82b5a99d3dc677cda28920edae066083f228cbb31bca19748913d2658226fbac",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "82b5a99d3dc677cda28920edae066083f228cbb31bca19748913d2658226fbac",
+  "purpose_statement": "CreativeWorkSeries",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

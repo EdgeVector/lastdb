@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "SeekToAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "start_offset": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "start_offset": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "start_offset": "The start time of the clip expressed as the number of seconds from the beginning of the work."
+  },
+  "field_types": {
+    "identifier": "String",
+    "start_offset": "Float"
+  },
+  "fields": [
+    "identifier",
+    "start_offset"
+  ],
+  "identity_hash": "8f2276f263fcd6eac61db339885afb734e233e47260c3fc1e0e069f5d4bdd5cc",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8f2276f263fcd6eac61db339885afb734e233e47260c3fc1e0e069f5d4bdd5cc",
+  "purpose_statement": "SeekToAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,37 @@
+[package]
+name = "laststore"
+version = "0.1.0"
+edition.workspace = true
+rust-version = "1.75"
+description = "Last Store — multi-collection local document store (segment files, group-commit, real compact)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/EdgeVector/laststore"
+readme = "README.md"
+keywords = ["database", "embedded", "document-store", "segments", "last-db"]
+categories = ["database-implementations", "filesystem"]
+exclude = ["target/", ".git/"]
+
+[dependencies]
+crc32fast = "1.5"
+serde_json = "1"
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rustix = { version = "1", features = ["fs"] }
+uuid = { version = "1", features = ["v4"] }
+zstd = "0.13"
+
+[dev-dependencies]
+tempfile = "3"
+# Only the descriptor-exhaustion test needs this: reproducing `EMFILE` means
+# clamping the process's own `RLIMIT_NOFILE`, which no safe crate in the tree
+# exposes. Not a runtime dependency — the store derives nothing from libc.
+libc = "0.2"
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[bin]]
+name = "lastdb-maintenance"
+path = "src/bin/lastdb-maintenance.rs"

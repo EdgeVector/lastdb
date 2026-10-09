@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "Role",
+  "field_classifications": {
+    "end_date": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "named_position": [
+      "word"
+    ],
+    "role_name": [
+      "word"
+    ],
+    "start_date": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "end_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "named_position": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "role_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "start_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "end_date": "The end date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601)).",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "named_position": "A position played, performed or filled by a person or organization, as part of an organization. For example, an athlete in a SportsTeam might play in the position named 'Quarterback'.",
+    "role_name": "A role played, performed or filled by a person or organization. For example, the team of creators for a comic book might fill the roles named 'inker', 'penciller', and 'letterer'; or an athlete in a SportsTeam might play in the position named 'Quarterback'.",
+    "start_date": "The start date and time of the item (in [ISO 8601 date format](http://en.wikipedia.org/wiki/ISO_8601))."
+  },
+  "field_types": {
+    "end_date": "String",
+    "identifier": "String",
+    "named_position": "String",
+    "role_name": "String",
+    "start_date": "String"
+  },
+  "fields": [
+    "end_date",
+    "identifier",
+    "named_position",
+    "role_name",
+    "start_date"
+  ],
+  "identity_hash": "6ed44963718d0a721cb280500bfc16f29375923be0528e80553026d131f9e691",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6ed44963718d0a721cb280500bfc16f29375923be0528e80553026d131f9e691",
+  "purpose_statement": "Role",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

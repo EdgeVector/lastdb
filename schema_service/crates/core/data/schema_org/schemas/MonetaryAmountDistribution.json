@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MonetaryAmountDistribution",
+  "field_classifications": {
+    "currency": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "currency": "The currency in which the monetary amount is expressed.\\n\\nUse standard formats: [ISO 4217 currency format](http://en.wikipedia.org/wiki/ISO_4217), e.g. \"USD\"; [Ticker symbol](https://en.wikipedia.org/wiki/List_of_cryptocurrencies) for cryptocurrencies, e.g. \"BTC\"; well known names for [Local Exchange Trading Systems](https://en.wikipedia.org/wiki/Local_exchange_trading_system) (LETS) and other currency types, e.g. \"Ithaca HOUR\".",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "currency": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "currency",
+    "identifier"
+  ],
+  "identity_hash": "4016629c815cf41c5d3ef6c9540aafc0114d83f67270bc8f789eca09c54ed42c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4016629c815cf41c5d3ef6c9540aafc0114d83f67270bc8f789eca09c54ed42c",
+  "purpose_statement": "MonetaryAmountDistribution",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

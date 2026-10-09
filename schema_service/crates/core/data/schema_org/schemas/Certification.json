@@ -1,0 +1,152 @@
+{
+  "descriptive_name": "Certification",
+  "field_classifications": {
+    "about": [
+      "word"
+    ],
+    "audit_date": [
+      "word"
+    ],
+    "certification_identification": [
+      "word"
+    ],
+    "certification_rating": [
+      "word"
+    ],
+    "certification_status": [
+      "word"
+    ],
+    "date_published": [
+      "word"
+    ],
+    "expires": [
+      "word"
+    ],
+    "has_measurement": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "issued_by": [
+      "word"
+    ],
+    "logo": [
+      "word"
+    ],
+    "valid_from": [
+      "word"
+    ],
+    "valid_in": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "about": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "audit_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "certification_identification": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "certification_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "certification_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "date_published": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "expires": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "has_measurement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "issued_by": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "logo": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "valid_from": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "valid_in": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "about": "The subject matter of an object.",
+    "audit_date": "Date when a certification was last audited. See also  [gs1:certificationAuditDate](https://www.gs1.org/voc/certificationAuditDate).",
+    "certification_identification": "Identifier of a certification instance (as registered with an independent certification body). Typically this identifier can be used to consult and verify the certification instance. See also [gs1:certificationIdentification](https://www.gs1.org/voc/certificationIdentification).",
+    "certification_rating": "Rating of a certification instance (as defined by an independent certification body). Typically this rating can be used to rate the level to which the requirements of the certification instance are fulfilled. See also [gs1:certificationValue](https://www.gs1.org/voc/certificationValue).",
+    "certification_status": "Indicates the current status of a certification: active or inactive. See also  [gs1:certificationStatus](https://www.gs1.org/voc/certificationStatus).",
+    "date_published": "Date of first publication or broadcast. For example the date a [[CreativeWork]] was broadcast or a [[Certification]] was issued.",
+    "expires": "Date the content expires and is no longer useful or available. For example a [[VideoObject]] or [[NewsArticle]] whose availability or relevance is time-limited, a [[ClaimReview]] fact check whose publisher wants to indicate that it may no longer be relevant (or helpful to highlight) after some date, or a [[Certification]] the validity has expired.",
+    "has_measurement": "A measurement of an item, For example, the inseam of pants, the wheel size of a bicycle, the gauge of a screw, or the carbon footprint measured for certification by an authority. Usually an exact measurement, but can also be a range of measurements for adjustable products, for example belts and ski bindings.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "issued_by": "The organization issuing the item, for example a [[Permit]], [[Ticket]], or [[Certification]].",
+    "logo": "An associated logo.",
+    "valid_from": "The date when the item becomes valid.",
+    "valid_in": "The geographic area where the item is valid. Applies for example to a [[Permit]], a [[Certification]], or an [[EducationalOccupationalCredential]]."
+  },
+  "field_types": {
+    "about": "String",
+    "audit_date": "String",
+    "certification_identification": "String",
+    "certification_rating": "String",
+    "certification_status": "String",
+    "date_published": "String",
+    "expires": "String",
+    "has_measurement": "String",
+    "identifier": "String",
+    "issued_by": "String",
+    "logo": "String",
+    "valid_from": "String",
+    "valid_in": "String"
+  },
+  "fields": [
+    "about",
+    "audit_date",
+    "certification_identification",
+    "certification_rating",
+    "certification_status",
+    "date_published",
+    "expires",
+    "has_measurement",
+    "identifier",
+    "issued_by",
+    "logo",
+    "valid_from",
+    "valid_in"
+  ],
+  "identity_hash": "e699c317a2d1f51e1d3ce91768e920f5939aeb67a2e077ba29863a9478b04798",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e699c317a2d1f51e1d3ce91768e920f5939aeb67a2e077ba29863a9478b04798",
+  "purpose_statement": "Certification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

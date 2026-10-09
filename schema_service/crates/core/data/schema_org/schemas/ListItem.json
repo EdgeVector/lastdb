@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "ListItem",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "item": [
+      "word"
+    ],
+    "next_item": [
+      "word"
+    ],
+    "position": [
+      "number"
+    ],
+    "previous_item": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "next_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "position": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "previous_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "item": "An entity represented by an entry in a list or data feed (e.g. an 'artist' in a list of 'artists').",
+    "next_item": "A link to the ListItem that follows the current one.",
+    "position": "The position of an item in a series or sequence of items.",
+    "previous_item": "A link to the ListItem that precedes the current one."
+  },
+  "field_types": {
+    "identifier": "String",
+    "item": "String",
+    "next_item": "String",
+    "position": "Integer",
+    "previous_item": "String"
+  },
+  "fields": [
+    "identifier",
+    "item",
+    "next_item",
+    "position",
+    "previous_item"
+  ],
+  "identity_hash": "b3983881ee055a117bf5a592290c5a673f62122d3daf502a934a6944216b553f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b3983881ee055a117bf5a592290c5a673f62122d3daf502a934a6944216b553f",
+  "purpose_statement": "ListItem",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

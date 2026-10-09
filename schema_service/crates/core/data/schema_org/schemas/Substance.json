@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "Substance",
+  "field_classifications": {
+    "active_ingredient": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "maximum_intake": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "active_ingredient": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "maximum_intake": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "active_ingredient": "An active ingredient, typically chemical compounds and/or biologic substances.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "maximum_intake": "Recommended intake of this supplement for a given population as defined by a specific recommending authority."
+  },
+  "field_types": {
+    "active_ingredient": "String",
+    "identifier": "String",
+    "maximum_intake": "String"
+  },
+  "fields": [
+    "active_ingredient",
+    "identifier",
+    "maximum_intake"
+  ],
+  "identity_hash": "2ec52a19b92096b00f886db3e66a3f652197c4f57d93d80696835897d194a0a0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2ec52a19b92096b00f886db3e66a3f652197c4f57d93d80696835897d194a0a0",
+  "purpose_statement": "Substance",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

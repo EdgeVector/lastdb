@@ -1,0 +1,6 @@
+github
+# Gate of record for EdgeVector/fold: GitHub (github.com/EdgeVector/fold), since 2026-09-29.
+# Only the first line is the venue; last-stack-pr-venue reads that line.
+# Retired: LastGit (lastdb:///fold) and the Forgejo copy (http://localhost:3300).
+# Decision: decision-2026-09-29-retire-lastgit-all-repos-to-github.
+# PRs: gh -R EdgeVector/fold. Required check: ci-required.

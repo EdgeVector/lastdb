@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "TouristDestination",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "includes_attraction": [
+      "word"
+    ],
+    "tourist_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "includes_attraction": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tourist_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "includes_attraction": "Attraction located at destination.",
+    "tourist_type": "Attraction suitable for type(s) of tourist. E.g. children, visitors from a particular country, etc."
+  },
+  "field_types": {
+    "identifier": "String",
+    "includes_attraction": "String",
+    "tourist_type": "String"
+  },
+  "fields": [
+    "identifier",
+    "includes_attraction",
+    "tourist_type"
+  ],
+  "identity_hash": "a3f68e0f1a4fad7e93d689fc7ecf349857f48ebdce81ec9a2a39f70ffd98f18a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a3f68e0f1a4fad7e93d689fc7ecf349857f48ebdce81ec9a2a39f70ffd98f18a",
+  "purpose_statement": "TouristDestination",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

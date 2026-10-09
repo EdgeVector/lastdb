@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "BusReservation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "3fd2d5312d03c72669df54afb5db1c7a5f28409e583c40edfb8a51dea4051507",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3fd2d5312d03c72669df54afb5db1c7a5f28409e583c40edfb8a51dea4051507",
+  "purpose_statement": "BusReservation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

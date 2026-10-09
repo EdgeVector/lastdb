@@ -1,0 +1,22 @@
+[package]
+name = "schema_service_s3"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Shared S3 + DynamoDB persistence backend for schema_service. Implements `ExternalSchemaPersistence` against the canonical S3 layout (schemas.json / canonical_fields.json / near_misses.json / apps.json) and a DynamoDB embeddings table. Consumed by both the request-path Lambda (server_lambda) and the async compile worker (worker)."
+
+[dependencies]
+schema_service_core = { path = "../core", default-features = false }
+schema_types = { workspace = true }
+
+aws-sdk-s3 = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
+tracing = "0.1"
+
+[lints]
+workspace = true

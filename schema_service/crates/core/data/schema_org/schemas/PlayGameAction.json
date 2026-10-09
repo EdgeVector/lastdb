@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "PlayGameAction",
+  "field_classifications": {
+    "game_availability_type": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "game_availability_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "game_availability_type": "Indicates the availability type of the game content associated with this action, such as whether it is a full version or a demo.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "game_availability_type": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "game_availability_type",
+    "identifier"
+  ],
+  "identity_hash": "9c08e5df8afa80747b2a01cb2178100fbd30c2e6d1c42a9554f4caabc319e806",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9c08e5df8afa80747b2a01cb2178100fbd30c2e6d1c42a9554f4caabc319e806",
+  "purpose_statement": "PlayGameAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

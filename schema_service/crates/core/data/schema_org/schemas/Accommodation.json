@@ -1,0 +1,202 @@
+{
+  "descriptive_name": "Accommodation",
+  "field_classifications": {
+    "accommodation_category": [
+      "word"
+    ],
+    "accommodation_floor_plan": [
+      "word"
+    ],
+    "amenity_feature": [
+      "word"
+    ],
+    "bed": [
+      "word"
+    ],
+    "floor_level": [
+      "word"
+    ],
+    "floor_size": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "lease_length": [
+      "word"
+    ],
+    "number_of_bathrooms_total": [
+      "number"
+    ],
+    "number_of_bedrooms": [
+      "number"
+    ],
+    "number_of_full_bathrooms": [
+      "number"
+    ],
+    "number_of_partial_bathrooms": [
+      "number"
+    ],
+    "number_of_rooms": [
+      "number"
+    ],
+    "occupancy": [
+      "word"
+    ],
+    "permitted_usage": [
+      "word"
+    ],
+    "pets_allowed": [
+      "word"
+    ],
+    "tour_booking_page": [
+      "word"
+    ],
+    "year_built": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "accommodation_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "accommodation_floor_plan": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "amenity_feature": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "bed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "floor_level": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "floor_size": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "lease_length": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_bathrooms_total": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_bedrooms": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_full_bathrooms": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_partial_bathrooms": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "number_of_rooms": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "occupancy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "permitted_usage": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pets_allowed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tour_booking_page": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "year_built": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "accommodation_category": "Category of an [[Accommodation]], following real estate conventions, e.g. RESO (see [PropertySubType](https://ddwiki.reso.org/display/DDW17/PropertySubType+Field), and [PropertyType](https://ddwiki.reso.org/display/DDW17/PropertyType+Field) fields  for suggested values).",
+    "accommodation_floor_plan": "A floorplan of some [[Accommodation]].",
+    "amenity_feature": "An amenity feature (e.g. a characteristic or service) of the Accommodation. This generic property does not make a statement about whether the feature is included in an offer for the main accommodation or available at extra costs.",
+    "bed": "The type of bed or beds included in the accommodation. For the single case of just one bed of a certain type, you use bed directly with a text.\n      If you want to indicate the quantity of a certain kind of bed, use an instance of BedDetails. For more detailed information, use the amenityFeature property.",
+    "floor_level": "The floor level for an [[Accommodation]] in a multi-storey building. Since counting\n  systems [vary internationally](https://en.wikipedia.org/wiki/Storey#Consecutive_number_floor_designations), the local system should be used where possible.",
+    "floor_size": "The size of the accommodation, e.g. in square meter or squarefoot.\nTypical unit code(s): MTK for square meter, FTK for square foot, or YDK for square yard.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "lease_length": "Length of the lease for some [[Accommodation]], either particular to some [[Offer]] or in some cases intrinsic to the property.",
+    "number_of_bathrooms_total": "The total integer number of bathrooms in some [[Accommodation]], following real estate conventions as [documented in RESO](https://ddwiki.reso.org/display/DDW17/BathroomsTotalInteger+Field): \"The simple sum of the number of bathrooms. For example for a property with two Full Bathrooms and one Half Bathroom, the Bathrooms Total Integer will be 3.\". See also [[numberOfRooms]].",
+    "number_of_bedrooms": "The total integer number of bedrooms in a some [[Accommodation]], [[ApartmentComplex]] or [[FloorPlan]].",
+    "number_of_full_bathrooms": "Number of full bathrooms - The total number of full and ¾ bathrooms in an [[Accommodation]]. This corresponds to the [BathroomsFull field in RESO](https://ddwiki.reso.org/display/DDW17/BathroomsFull+Field).",
+    "number_of_partial_bathrooms": "Number of partial bathrooms - The total number of half and ¼ bathrooms in an [[Accommodation]]. This corresponds to the [BathroomsPartial field in RESO](https://ddwiki.reso.org/display/DDW17/BathroomsPartial+Field).",
+    "number_of_rooms": "The number of rooms (excluding bathrooms and closets) of the accommodation or lodging business.\nTypical unit code(s): ROM for room or C62 for no unit. The type of room can be put in the unitText property of the QuantitativeValue.",
+    "occupancy": "The allowed total occupancy for the accommodation in persons (including infants etc). For individual accommodations, this is not necessarily the legal maximum but defines the permitted usage as per the contractual agreement (e.g. a double room used by a single person).\nTypical unit code(s): C62 for person.",
+    "permitted_usage": "Indications regarding the permitted usage of the accommodation.",
+    "pets_allowed": "Indicates whether pets are allowed to enter the accommodation or lodging business. More detailed information can be put in a text value.",
+    "tour_booking_page": "A page providing information on how to book a tour of some [[Place]], such as an [[Accommodation]] or [[ApartmentComplex]] in a real estate setting, as well as other kinds of tours as appropriate.",
+    "year_built": "The year an [[Accommodation]] was constructed. This corresponds to the [YearBuilt field in RESO](https://ddwiki.reso.org/display/DDW17/YearBuilt+Field)."
+  },
+  "field_types": {
+    "accommodation_category": "String",
+    "accommodation_floor_plan": "String",
+    "amenity_feature": "String",
+    "bed": "String",
+    "floor_level": "String",
+    "floor_size": "String",
+    "identifier": "String",
+    "lease_length": "String",
+    "number_of_bathrooms_total": "Integer",
+    "number_of_bedrooms": "Float",
+    "number_of_full_bathrooms": "Float",
+    "number_of_partial_bathrooms": "Float",
+    "number_of_rooms": "Float",
+    "occupancy": "String",
+    "permitted_usage": "String",
+    "pets_allowed": "Boolean",
+    "tour_booking_page": "String",
+    "year_built": "Float"
+  },
+  "fields": [
+    "accommodation_category",
+    "accommodation_floor_plan",
+    "amenity_feature",
+    "bed",
+    "floor_level",
+    "floor_size",
+    "identifier",
+    "lease_length",
+    "number_of_bathrooms_total",
+    "number_of_bedrooms",
+    "number_of_full_bathrooms",
+    "number_of_partial_bathrooms",
+    "number_of_rooms",
+    "occupancy",
+    "permitted_usage",
+    "pets_allowed",
+    "tour_booking_page",
+    "year_built"
+  ],
+  "identity_hash": "22029586b0eff0658e00b8c5fe882867c4025c3c7e31bafcf5fe12466beb6b41",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "22029586b0eff0658e00b8c5fe882867c4025c3c7e31bafcf5fe12466beb6b41",
+  "purpose_statement": "Accommodation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

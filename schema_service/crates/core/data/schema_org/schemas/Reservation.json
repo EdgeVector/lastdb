@@ -1,0 +1,162 @@
+{
+  "descriptive_name": "Reservation",
+  "field_classifications": {
+    "booking_agent": [
+      "word"
+    ],
+    "booking_time": [
+      "word"
+    ],
+    "broker": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "modified_time": [
+      "word"
+    ],
+    "price_currency": [
+      "word"
+    ],
+    "program_membership_used": [
+      "word"
+    ],
+    "provider": [
+      "word"
+    ],
+    "reservation_for": [
+      "word"
+    ],
+    "reservation_id": [
+      "word"
+    ],
+    "reservation_status": [
+      "word"
+    ],
+    "reserved_ticket": [
+      "word"
+    ],
+    "total_price": [
+      "number"
+    ],
+    "under_name": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "booking_agent": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "booking_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "broker": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "modified_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "price_currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "program_membership_used": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "provider": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "reservation_for": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "reservation_id": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "reservation_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "reserved_ticket": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "total_price": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "under_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "booking_agent": "'bookingAgent' is an out-dated term indicating a 'broker' that serves as a booking agent.",
+    "booking_time": "The date and time the reservation was booked.",
+    "broker": "An entity that arranges for an exchange between a buyer and a seller.  In most cases a broker never acquires or releases ownership of a product or service involved in an exchange.  If it is not clear whether an entity is a broker, seller, or buyer, the latter two terms are preferred.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "modified_time": "The date and time the reservation was modified.",
+    "price_currency": "The currency of the price, or a price component when attached to [[PriceSpecification]] and its subtypes.\\n\\nUse standard formats: [ISO 4217 currency format](http://en.wikipedia.org/wiki/ISO_4217), e.g. \"USD\"; [Ticker symbol](https://en.wikipedia.org/wiki/List_of_cryptocurrencies) for cryptocurrencies, e.g. \"BTC\"; well known names for [Local Exchange Trading Systems](https://en.wikipedia.org/wiki/Local_exchange_trading_system) (LETS) and other currency types, e.g. \"Ithaca HOUR\".",
+    "program_membership_used": "Any membership in a frequent flyer, hotel loyalty program, etc. being applied to the reservation.",
+    "provider": "The service provider, service operator, or service performer; the goods producer. Another party (a seller) may offer those services or goods on behalf of the provider. A provider may also serve as the seller.",
+    "reservation_for": "The thing -- flight, event, restaurant, etc. being reserved.",
+    "reservation_id": "A unique identifier for the reservation.",
+    "reservation_status": "The current status of the reservation.",
+    "reserved_ticket": "A ticket associated with the reservation.",
+    "total_price": "The total price for the reservation or ticket, including applicable taxes, shipping, etc.\\n\\nUsage guidelines:\\n\\n* Use values from 0123456789 (Unicode 'DIGIT ZERO' (U+0030) to 'DIGIT NINE' (U+0039)) rather than superficially similar Unicode symbols.\\n* Use '.' (Unicode 'FULL STOP' (U+002E)) rather than ',' to indicate a decimal point. Avoid using these symbols as a readability separator.",
+    "under_name": "The person or organization the reservation or ticket is for."
+  },
+  "field_types": {
+    "booking_agent": "String",
+    "booking_time": "String",
+    "broker": "String",
+    "identifier": "String",
+    "modified_time": "String",
+    "price_currency": "String",
+    "program_membership_used": "String",
+    "provider": "String",
+    "reservation_for": "String",
+    "reservation_id": "String",
+    "reservation_status": "String",
+    "reserved_ticket": "String",
+    "total_price": "Float",
+    "under_name": "String"
+  },
+  "fields": [
+    "booking_agent",
+    "booking_time",
+    "broker",
+    "identifier",
+    "modified_time",
+    "price_currency",
+    "program_membership_used",
+    "provider",
+    "reservation_for",
+    "reservation_id",
+    "reservation_status",
+    "reserved_ticket",
+    "total_price",
+    "under_name"
+  ],
+  "identity_hash": "675bf43c209192282cda2444cc14cd13e605be2da0221b6dd45a9567e7ba1ba6",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "675bf43c209192282cda2444cc14cd13e605be2da0221b6dd45a9567e7ba1ba6",
+  "purpose_statement": "Reservation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

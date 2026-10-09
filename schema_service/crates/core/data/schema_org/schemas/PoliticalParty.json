@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PoliticalParty",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "9be7e639ad447f600e6bfe8a6fec4e8782be199c730019128393977fe22f4ab5",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9be7e639ad447f600e6bfe8a6fec4e8782be199c730019128393977fe22f4ab5",
+  "purpose_statement": "PoliticalParty",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

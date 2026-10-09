@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "CheckInAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "95244ff4cd5c2379062e2a49f4fc1bd0eb12879b748aeb7d5fe0e9823fb50e71",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "95244ff4cd5c2379062e2a49f4fc1bd0eb12879b748aeb7d5fe0e9823fb50e71",
+  "purpose_statement": "CheckInAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

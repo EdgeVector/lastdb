@@ -1,0 +1,8 @@
+.cache/
+.fastembed_cache/
+results/
+tmp/
+bin/
+PINNED_SHA
+PINNED_AT
+launchd/rendered.plist

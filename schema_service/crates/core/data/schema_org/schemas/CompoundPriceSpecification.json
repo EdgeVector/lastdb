@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "CompoundPriceSpecification",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "price_component": [
+      "word"
+    ],
+    "price_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "price_component": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "price_type": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "price_component": "This property links to all [[UnitPriceSpecification]] nodes that apply in parallel for the [[CompoundPriceSpecification]] node.",
+    "price_type": "Defines the type of a price specified for an offered product, for example a list price, a (temporary) sale price or a manufacturer suggested retail price. If multiple prices are specified for an offer the [[priceType]] property can be used to identify the type of each such specified price. The value of priceType can be specified as a value from enumeration PriceTypeEnumeration or, a UN/EDIFACT 5387 code, or as a free form text string for price types that are not already predefined in PriceTypeEnumeration."
+  },
+  "field_types": {
+    "identifier": "String",
+    "price_component": "String",
+    "price_type": "String"
+  },
+  "fields": [
+    "identifier",
+    "price_component",
+    "price_type"
+  ],
+  "identity_hash": "4080c0f9900a8e3c2891cd181ef56e5e99669d11c9e8dd637428577117026f80",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4080c0f9900a8e3c2891cd181ef56e5e99669d11c9e8dd637428577117026f80",
+  "purpose_statement": "CompoundPriceSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

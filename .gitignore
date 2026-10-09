@@ -1,0 +1,43 @@
+# Cargo build output
+/target/
+# Nested target dirs from building the workspace-excluded exemem lambdas
+# in their own directory (e.g. exemem_service/lambdas/*/target/). Without
+# this, `git add -A` sweeps thousands of build artifacts into a commit.
+**/target/
+# The dogfood ephemeral-node helper defaults to a per-run target under /tmp,
+# but a caller may pin DOGFOOD_NODE_TARGET_DIR=<workspace>/target-dogfood.
+# Belt-and-suspenders so a pinned in-tree dogfood target never dirties status
+# (the `**/target/` pattern only matches a dir named exactly `target`).
+/target-dogfood/
+# Even if someone renames a target dir or force-adds, never track rustc
+# library products (the May 2026 bloat was mostly libaws_sdk_*.rlib).
+**/*.rlib
+**/*.rmeta
+# JS package installs (if any nested tooling grows them)
+**/node_modules/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.claude/
+
+# Local env / secrets
+.env
+.env.local
+
+# Personal gbrain eval fixture — silences `gbrain doctor` whoknows_health
+# WARN when run from this directory. Not part of the Rust monorepo.
+/test/fixtures/whoknows-eval.jsonl
+
+# Local agent/tool state (gstack, scratch, embedding cache, dev-node data)
+.gstack/
+.agent-scratch/
+.portal-worktree
+.fastembed_cache/
+.semantic-search-fastembed-cache/
+.folddb-dev/
+# A node run from the repo root writes its sled store to ./data/ (conf, db,
+# blobs). Root-anchored so it never matches nested fixture/test `data/` dirs.
+/data/

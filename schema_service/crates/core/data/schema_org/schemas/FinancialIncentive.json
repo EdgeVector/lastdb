@@ -1,0 +1,172 @@
+{
+  "descriptive_name": "FinancialIncentive",
+  "field_classifications": {
+    "area_served": [
+      "word"
+    ],
+    "eligible_with_supplier": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "incentive_amount": [
+      "word"
+    ],
+    "incentive_status": [
+      "word"
+    ],
+    "incentive_type": [
+      "word"
+    ],
+    "incentivized_item": [
+      "word"
+    ],
+    "income_limit": [
+      "word"
+    ],
+    "provider": [
+      "word"
+    ],
+    "publisher": [
+      "word"
+    ],
+    "purchase_price_limit": [
+      "word"
+    ],
+    "purchase_type": [
+      "word"
+    ],
+    "qualified_expense": [
+      "word"
+    ],
+    "valid_from": [
+      "word"
+    ],
+    "valid_through": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "area_served": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "eligible_with_supplier": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "incentive_amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "incentive_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "incentive_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "incentivized_item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "income_limit": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "provider": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "publisher": {
+      "data_domain": "document",
+      "sensitivity_level": 0
+    },
+    "purchase_price_limit": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "purchase_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "qualified_expense": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "valid_from": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "valid_through": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "area_served": "The geographic area where a service or offered item is provided.",
+    "eligible_with_supplier": "The supplier of the incentivized item/service for which the incentive is valid for such as a utility company, merchant, or contractor.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "incentive_amount": "Describes the amount that can be redeemed from this incentive.\n    \n<p>[[QuantitativeValue]]: Use this for incentives based on price (either raw amount or percentage-based). For a raw amount example, \"You can claim $2,500 - $7,500 from the total cost of installation\" would be represented as the following:</p>\n    {\n        \"@type\": \"QuantitativeValue\",\n        “minValue”: 2500,\n        “maxValue”: 7500,\n        \"unitCode\": \"USD\"\n    }\n<p>[[QuantitativeValue]] can also be used for percentage amounts. In such cases, value is used to represent the incentive’s percentage, while maxValue represents a limit (if one exists) to that incentive. The unitCode should be 'P1' and the unitText should be '%', while valueReference should be used for holding the currency type. For example, \"You can claim up to 30% of the total cost of installation, up to a maximum of $7,500\" would be:</p>\n    {\n        \"@type\": \"QuantitativeValue\",\n        \"value\": 30,\n        \"unitCode\": \"P1\",\n        \"unitText\": \"%\",\n        “maxValue”: 7500,\n        “valueReference”: “USD”\n    }\n<p>[[UnitPriceSpecification]]: Use this for incentives that are based on amounts rather than price. For example, a net metering rebate that pays $10/kWh, up to $1,000:</p>\n    {\n        \"@type\": \"UnitPriceSpecification\",\n        \"price\": 10,\n        \"priceCurrency\": \"USD\",\n        \"referenceQuantity\": 1,\n        \"unitCode\": \"DO3\",\n        \"unitText\": \"kw/h\",\n        \"maxPrice\": 1000,\n        \"description\": \"$10 / kwh up to $1000\"\n    }\n<p>[[LoanOrCredit]]: Use for incentives that are loan based. For example, a loan of $4,000 - $50,000 with a repayment term of 10 years, interest free would look like:</p>\n    {\n        \"@type\": \"LoanOrCredit\",\n        \"loanTerm\": {\n                \"@type\":\"QuantitativeValue\",\n                \"value\":\"10\",\n                \"unitCode\": \"ANN\"\n            },\n        \"amount\":[\n            {\n                \"@type\": \"QuantitativeValue\",\n                \"Name\":\"fixed interest rate\",\n                \"value\":\"0\",\n            },\n        ],\n        \"amount\":[\n            {\n                \"@type\": \"MonetaryAmount\",\n                \"Name\":\"min loan amount\",\n                \"value\":\"4000\",\n                \"currency\":\"CAD\"\n            },\n            {\n                \"@type\": \"MonetaryAmount\",\n                \"Name\":\"max loan amount\",\n                \"value\":\"50000\",\n                \"currency\":\"CAD\"\n            }\n        ],\n    }\n\nIn summary: <ul><li>Use [[QuantitativeValue]] for absolute/percentage-based incentives applied on the price of a good/service.</li>\n<li>Use [[UnitPriceSpecification]] for incentives based on a per-unit basis (e.g. net metering).</li>\n<li>Use [[LoanOrCredit]] for loans/credits.</li>\n</ul>.",
+    "incentive_status": "The status of the incentive (active, on hold, retired, etc.).",
+    "incentive_type": "The type of incentive offered (tax credit/rebate, tax deduction, tax waiver, subsidies, etc.).",
+    "incentivized_item": "The type or specific product(s) and/or service(s) being incentivized.\n<p>DefinedTermSets are used for product and service categories such as the United Nations Standard Products and Services Code:</p>\n    {\n        \"@type\": \"DefinedTerm\",\n        \"inDefinedTermSet\": \"https://www.unspsc.org/\",\n        \"termCode\": \"261315XX\",\n        \"name\": \"Photovoltaic module\"\n    }\n\n<p>For a specific product or service, use the Product type:</p>\n    {\n        \"@type\": \"Product\",\n        \"name\": \"Kenmore White 17\" Microwave\",\n    }\nFor multiple different incentivized items, use multiple [[DefinedTerm]] or [[Product]].",
+    "income_limit": "Optional. Income limit for which the incentive is applicable for.\n    \n<p>If MonetaryAmount is specified, this should be based on annualized income (e.g. if an incentive is limited to those making <$114,000 annually):</p>\n    {\n        \"@type\": \"MonetaryAmount\",\n        \"maxValue\": 114000,\n        \"currency\": \"USD\",\n    }\n\nUse Text for incentives that are limited based on other criteria, for example if an incentive is only available to recipients making 120% of the median poverty income in their area.",
+    "provider": "The service provider, service operator, or service performer; the goods producer. Another party (a seller) may offer those services or goods on behalf of the provider. A provider may also serve as the seller.",
+    "publisher": "The publisher of the article in question.",
+    "purchase_price_limit": "Optional. The maximum price the item can have and still qualify for this offer.",
+    "purchase_type": "Optional. The type of purchase the consumer must make in order to qualify for this incentive.",
+    "qualified_expense": "Optional. The types of expenses that are covered by the incentive. For example some incentives are only for the goods (tangible items) but the services (labor) are excluded.",
+    "valid_from": "The date when the item becomes valid.",
+    "valid_through": "The date after when the item is not valid. For example the end of an offer, salary period, or a period of opening hours."
+  },
+  "field_types": {
+    "area_served": "String",
+    "eligible_with_supplier": "String",
+    "identifier": "String",
+    "incentive_amount": "String",
+    "incentive_status": "String",
+    "incentive_type": "String",
+    "incentivized_item": "String",
+    "income_limit": "String",
+    "provider": "String",
+    "publisher": "String",
+    "purchase_price_limit": "String",
+    "purchase_type": "String",
+    "qualified_expense": "String",
+    "valid_from": "String",
+    "valid_through": "String"
+  },
+  "fields": [
+    "area_served",
+    "eligible_with_supplier",
+    "identifier",
+    "incentive_amount",
+    "incentive_status",
+    "incentive_type",
+    "incentivized_item",
+    "income_limit",
+    "provider",
+    "publisher",
+    "purchase_price_limit",
+    "purchase_type",
+    "qualified_expense",
+    "valid_from",
+    "valid_through"
+  ],
+  "identity_hash": "c77ac2501c69f84886569368efc71cf57381e5f6d1b3dab4ed676e2eaa4ac3bf",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c77ac2501c69f84886569368efc71cf57381e5f6d1b3dab4ed676e2eaa4ac3bf",
+  "purpose_statement": "FinancialIncentive",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

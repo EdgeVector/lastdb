@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "PathologyTest",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "tissue_sample": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "tissue_sample": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "tissue_sample": "The type of tissue sample required for the test."
+  },
+  "field_types": {
+    "identifier": "String",
+    "tissue_sample": "String"
+  },
+  "fields": [
+    "identifier",
+    "tissue_sample"
+  ],
+  "identity_hash": "d2bada9a0b9a39083da7de34cb05fc7350cc3f3bb3e75b2cc24db1745d21383a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d2bada9a0b9a39083da7de34cb05fc7350cc3f3bb3e75b2cc24db1745d21383a",
+  "purpose_statement": "PathologyTest",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

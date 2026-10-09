@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "OccupationalExperienceRequirements",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "months_of_experience": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "months_of_experience": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "months_of_experience": "Indicates the minimal number of months of experience required for a position."
+  },
+  "field_types": {
+    "identifier": "String",
+    "months_of_experience": "Float"
+  },
+  "fields": [
+    "identifier",
+    "months_of_experience"
+  ],
+  "identity_hash": "e492f5b30389b38cc79c41e8190e1fa1760dba5275162c4778a3a5118c5f11e3",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e492f5b30389b38cc79c41e8190e1fa1760dba5275162c4778a3a5118c5f11e3",
+  "purpose_statement": "OccupationalExperienceRequirements",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

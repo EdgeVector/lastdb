@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "Diet",
+  "field_classifications": {
+    "diet_features": [
+      "word"
+    ],
+    "endorsers": [
+      "word"
+    ],
+    "expert_considerations": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "physiological_benefits": [
+      "word"
+    ],
+    "risks": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "diet_features": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "endorsers": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "expert_considerations": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "physiological_benefits": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "risks": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "diet_features": "Nutritional information specific to the dietary plan. May include dietary recommendations on what foods to avoid, what foods to consume, and specific alterations/deviations from the USDA or other regulatory body's approved dietary guidelines.",
+    "endorsers": "People or organizations that endorse the plan.",
+    "expert_considerations": "Medical expert advice related to the plan.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "physiological_benefits": "Specific physiologic benefits associated to the plan.",
+    "risks": "Specific physiologic risks associated to the diet plan."
+  },
+  "field_types": {
+    "diet_features": "String",
+    "endorsers": "String",
+    "expert_considerations": "String",
+    "identifier": "String",
+    "physiological_benefits": "String",
+    "risks": "String"
+  },
+  "fields": [
+    "diet_features",
+    "endorsers",
+    "expert_considerations",
+    "identifier",
+    "physiological_benefits",
+    "risks"
+  ],
+  "identity_hash": "8d5684f741e46a4e5c1f3bdc0a008d975e5239200220af2eed2ba1277c71aecf",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8d5684f741e46a4e5c1f3bdc0a008d975e5239200220af2eed2ba1277c71aecf",
+  "purpose_statement": "Diet",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

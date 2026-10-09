@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "Occupation",
+  "field_classifications": {
+    "education_requirements": [
+      "word"
+    ],
+    "estimated_salary": [
+      "number"
+    ],
+    "experience_requirements": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "occupation_location": [
+      "word"
+    ],
+    "occupational_category": [
+      "word"
+    ],
+    "qualifications": [
+      "word"
+    ],
+    "responsibilities": [
+      "word"
+    ],
+    "skills": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "education_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "estimated_salary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "experience_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "occupation_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "occupational_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "qualifications": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "responsibilities": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "skills": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "education_requirements": "Educational background needed for the position or Occupation.",
+    "estimated_salary": "An estimated salary for a job posting or occupation, based on a variety of variables including, but not limited to industry, job title, and location. Estimated salaries  are often computed by outside organizations rather than the hiring organization, who may not have committed to the estimated value.",
+    "experience_requirements": "Description of skills and experience needed for the position or Occupation.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "occupation_location": "The region/country for which this occupational description is appropriate. Note that educational requirements and qualifications can vary between jurisdictions.",
+    "occupational_category": "A category describing the job, preferably using a term from a taxonomy such as [BLS O*NET-SOC](http://www.onetcenter.org/taxonomy.html), [ISCO-08](https://www.ilo.org/public/english/bureau/stat/isco/isco08/) or similar, with the property repeated for each applicable value. Ideally the taxonomy should be identified, and both the textual label and formal code for the category should be provided.\\n\nNote: for historical reasons, any textual label and formal code provided as a literal may be assumed to be from O*NET-SOC.",
+    "qualifications": "Specific qualifications required for this role or Occupation.",
+    "responsibilities": "Responsibilities associated with this role or Occupation.",
+    "skills": "A statement of knowledge, skill, ability, task or any other assertion expressing a competency that is either claimed by a person, an organization or desired or required to fulfill a role or to work in an occupation."
+  },
+  "field_types": {
+    "education_requirements": "String",
+    "estimated_salary": "Float",
+    "experience_requirements": "String",
+    "identifier": "String",
+    "occupation_location": "String",
+    "occupational_category": "String",
+    "qualifications": "String",
+    "responsibilities": "String",
+    "skills": "String"
+  },
+  "fields": [
+    "education_requirements",
+    "estimated_salary",
+    "experience_requirements",
+    "identifier",
+    "occupation_location",
+    "occupational_category",
+    "qualifications",
+    "responsibilities",
+    "skills"
+  ],
+  "identity_hash": "9b542c435127ff1fd5370b8737816542364b5bb353bc54df290d9a8b71f2ce78",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9b542c435127ff1fd5370b8737816542364b5bb353bc54df290d9a8b71f2ce78",
+  "purpose_statement": "Occupation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

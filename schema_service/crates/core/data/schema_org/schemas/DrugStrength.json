@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "DrugStrength",
+  "field_classifications": {
+    "active_ingredient": [
+      "word"
+    ],
+    "available_in": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "maximum_intake": [
+      "word"
+    ],
+    "strength_unit": [
+      "word"
+    ],
+    "strength_value": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "active_ingredient": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "available_in": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "maximum_intake": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "strength_unit": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "strength_value": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "active_ingredient": "An active ingredient, typically chemical compounds and/or biologic substances.",
+    "available_in": "The location in which the strength is available.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "maximum_intake": "Recommended intake of this supplement for a given population as defined by a specific recommending authority.",
+    "strength_unit": "The units of an active ingredient's strength, e.g. mg.",
+    "strength_value": "The value of an active ingredient's strength, e.g. 325."
+  },
+  "field_types": {
+    "active_ingredient": "String",
+    "available_in": "String",
+    "identifier": "String",
+    "maximum_intake": "String",
+    "strength_unit": "String",
+    "strength_value": "Float"
+  },
+  "fields": [
+    "active_ingredient",
+    "available_in",
+    "identifier",
+    "maximum_intake",
+    "strength_unit",
+    "strength_value"
+  ],
+  "identity_hash": "e58393314fc0cc25b26c3f601aca8660a6eba4004c44a05c467cf2f687ceb55a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e58393314fc0cc25b26c3f601aca8660a6eba4004c44a05c467cf2f687ceb55a",
+  "purpose_statement": "DrugStrength",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

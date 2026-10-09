@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "PreventionIndication",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "7012ee3f38e5824966ccae94a88a7d803b94d52f961e5d08e9a00e651b40dc7d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "7012ee3f38e5824966ccae94a88a7d803b94d52f961e5d08e9a00e651b40dc7d",
+  "purpose_statement": "PreventionIndication",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

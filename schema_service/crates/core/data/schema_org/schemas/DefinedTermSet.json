@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "DefinedTermSet",
+  "field_classifications": {
+    "about": [
+      "word"
+    ],
+    "has_defined_term": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "about": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "has_defined_term": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "about": "The subject matter of an object.",
+    "has_defined_term": "A Defined Term contained in this term set.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "about": "String",
+    "has_defined_term": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "about",
+    "has_defined_term",
+    "identifier"
+  ],
+  "identity_hash": "ead72390cf12641cf71c43b5434593334d2693697dd32cc9e0d15da507c6b286",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ead72390cf12641cf71c43b5434593334d2693697dd32cc9e0d15da507c6b286",
+  "purpose_statement": "DefinedTermSet",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

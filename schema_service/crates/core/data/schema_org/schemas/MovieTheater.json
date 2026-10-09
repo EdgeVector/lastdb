@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MovieTheater",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "screen_count": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "screen_count": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "screen_count": "The number of screens in the movie theater."
+  },
+  "field_types": {
+    "identifier": "String",
+    "screen_count": "Float"
+  },
+  "fields": [
+    "identifier",
+    "screen_count"
+  ],
+  "identity_hash": "ede79357a1b13c70b11fd965d46927ffceec0e511d9d99f32dfeb7ea1bf928b4",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ede79357a1b13c70b11fd965d46927ffceec0e511d9d99f32dfeb7ea1bf928b4",
+  "purpose_statement": "MovieTheater",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

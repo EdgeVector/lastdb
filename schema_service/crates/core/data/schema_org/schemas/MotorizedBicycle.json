@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MotorizedBicycle",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "5f4e4e5c9ab86eaa6b35badfb55191f9560dbdaea19040b4b050691ef3e8c538",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5f4e4e5c9ab86eaa6b35badfb55191f9560dbdaea19040b4b050691ef3e8c538",
+  "purpose_statement": "MotorizedBicycle",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

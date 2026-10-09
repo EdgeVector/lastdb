@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "EnergyConsumptionDetails",
+  "field_classifications": {
+    "energy_efficiency_scale_max": [
+      "word"
+    ],
+    "energy_efficiency_scale_min": [
+      "word"
+    ],
+    "has_energy_efficiency_category": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "energy_efficiency_scale_max": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "energy_efficiency_scale_min": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_energy_efficiency_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "energy_efficiency_scale_max": "Specifies the most energy efficient class on the regulated EU energy consumption scale for the product category a product belongs to. For example, energy consumption for televisions placed on the market after January 1, 2020 is scaled from D to A+++.",
+    "energy_efficiency_scale_min": "Specifies the least energy efficient class on the regulated EU energy consumption scale for the product category a product belongs to. For example, energy consumption for televisions placed on the market after January 1, 2020 is scaled from D to A+++.",
+    "has_energy_efficiency_category": "Defines the energy efficiency Category (which could be either a rating out of range of values or a yes/no certification) for a product according to an international energy efficiency standard.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "energy_efficiency_scale_max": "String",
+    "energy_efficiency_scale_min": "String",
+    "has_energy_efficiency_category": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "energy_efficiency_scale_max",
+    "energy_efficiency_scale_min",
+    "has_energy_efficiency_category",
+    "identifier"
+  ],
+  "identity_hash": "c7d1dbc45a68157b87864ea79c441c3970a2e0b05b61342c190181e20c2dbea6",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c7d1dbc45a68157b87864ea79c441c3970a2e0b05b61342c190181e20c2dbea6",
+  "purpose_statement": "EnergyConsumptionDetails",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

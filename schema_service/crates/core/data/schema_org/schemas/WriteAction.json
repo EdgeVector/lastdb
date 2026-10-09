@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "WriteAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "in_language": [
+      "word"
+    ],
+    "language": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_language": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "language": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_language": "The language of the content or performance or used in an action. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[availableLanguage]].",
+    "language": "A sub property of instrument. The language used on this action."
+  },
+  "field_types": {
+    "identifier": "String",
+    "in_language": "String",
+    "language": "String"
+  },
+  "fields": [
+    "identifier",
+    "in_language",
+    "language"
+  ],
+  "identity_hash": "08e5ae5530adbb422b7be169730a92524a263dc3e739c4e7b40ebed0f5f1c05a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "08e5ae5530adbb422b7be169730a92524a263dc3e739c4e7b40ebed0f5f1c05a",
+  "purpose_statement": "WriteAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

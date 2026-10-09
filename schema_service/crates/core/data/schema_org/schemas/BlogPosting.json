@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "BlogPosting",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "3f4ec2e09f7accec5cf185795b8ea5c7e4134645485442527408e1d6c1d4ba7d",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3f4ec2e09f7accec5cf185795b8ea5c7e4134645485442527408e1d6c1d4ba7d",
+  "purpose_statement": "BlogPosting",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

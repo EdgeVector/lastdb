@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "Article",
+  "field_classifications": {
+    "article_body": [
+      "word"
+    ],
+    "article_section": [
+      "word"
+    ],
+    "backstory": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "page_end": [
+      "number"
+    ],
+    "page_start": [
+      "number"
+    ],
+    "pagination": [
+      "word"
+    ],
+    "speakable": [
+      "word"
+    ],
+    "word_count": [
+      "number"
+    ]
+  },
+  "field_data_classifications": {
+    "article_body": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "article_section": {
+      "data_domain": "content",
+      "sensitivity_level": 2
+    },
+    "backstory": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "page_end": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "page_start": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pagination": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "speakable": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "word_count": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "article_body": "The actual body of the article.",
+    "article_section": "Articles may belong to one or more 'sections' in a magazine or newspaper, such as Sports, Lifestyle, etc.",
+    "backstory": "For an [[Article]], typically a [[NewsArticle]], the backstory property provides a textual summary giving a brief explanation of why and how an article was created. In a journalistic setting this could include information about reporting process, methods, interviews, data sources, etc.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "page_end": "The page on which the work ends; for example \"138\" or \"xvi\".",
+    "page_start": "The page on which the work starts; for example \"135\" or \"xiii\".",
+    "pagination": "Any description of pages that is not separated into pageStart and pageEnd; for example, \"1-6, 9, 55\" or \"10-12, 46-49\".",
+    "speakable": "Indicates sections of a Web page that are particularly 'speakable' in the sense of being highlighted as being especially appropriate for text-to-speech conversion. Other sections of a page may also be usefully spoken in particular circumstances; the 'speakable' property serves to indicate the parts most likely to be generally useful for speech.\n\nThe *speakable* property can be repeated an arbitrary number of times, with three kinds of possible 'content-locator' values:\n\n1.) *id-value* URL references - uses *id-value* of an element in the page being annotated. The simplest use of *speakable* has (potentially relative) URL values, referencing identified sections of the document concerned.\n\n2.) CSS Selectors - addresses content in the annotated page, e.g. via class attribute. Use the [[cssSelector]] property.\n\n3.)  XPaths - addresses content via XPaths (assuming an XML view of the content). Use the [[xpath]] property.\n\n\nFor more sophisticated markup of speakable sections beyond simple ID references, either CSS selectors or XPath expressions to pick out document section(s) as speakable. For this\nwe define a supporting type, [[SpeakableSpecification]]  which is defined to be a possible value of the *speakable* property.",
+    "word_count": "The number of words in the text of the CreativeWork such as an Article, Book, etc."
+  },
+  "field_types": {
+    "article_body": "String",
+    "article_section": "String",
+    "backstory": "String",
+    "identifier": "String",
+    "page_end": "Integer",
+    "page_start": "Integer",
+    "pagination": "String",
+    "speakable": "String",
+    "word_count": "Integer"
+  },
+  "fields": [
+    "article_body",
+    "article_section",
+    "backstory",
+    "identifier",
+    "page_end",
+    "page_start",
+    "pagination",
+    "speakable",
+    "word_count"
+  ],
+  "identity_hash": "4c4392a4fd65813a1d9a1d2546a1f6e9609e30b7609f678a607fe37005ad83c0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "4c4392a4fd65813a1d9a1d2546a1f6e9609e30b7609f678a607fe37005ad83c0",
+  "purpose_statement": "Article",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

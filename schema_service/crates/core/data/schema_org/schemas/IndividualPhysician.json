@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "IndividualPhysician",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "practices_at": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "practices_at": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "practices_at": "A [[MedicalOrganization]] where the [[IndividualPhysician]] practices."
+  },
+  "field_types": {
+    "identifier": "String",
+    "practices_at": "String"
+  },
+  "fields": [
+    "identifier",
+    "practices_at"
+  ],
+  "identity_hash": "a0bdac4c6c6b1e45f04a28467265e77eec085668ee842ff2a69dcff89b2f5bb4",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "a0bdac4c6c6b1e45f04a28467265e77eec085668ee842ff2a69dcff89b2f5bb4",
+  "purpose_statement": "IndividualPhysician",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

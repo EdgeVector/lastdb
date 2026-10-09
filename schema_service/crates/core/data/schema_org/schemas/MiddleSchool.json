@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MiddleSchool",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "930cf5c77f829eed2b1ffe7ba73836223332fada3da8d2056f705494d79b7e23",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "930cf5c77f829eed2b1ffe7ba73836223332fada3da8d2056f705494d79b7e23",
+  "purpose_statement": "MiddleSchool",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

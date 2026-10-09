@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "RVPark",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "3f45fb82a0738efc30ecb300e44ae479ac1a35fc18262da19034c11a5614bfb8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "3f45fb82a0738efc30ecb300e44ae479ac1a35fc18262da19034c11a5614bfb8",
+  "purpose_statement": "RVPark",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

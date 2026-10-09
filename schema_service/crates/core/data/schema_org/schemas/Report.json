@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "Report",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "report_number": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "report_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "report_number": "The number or other unique designator assigned to a Report by the publishing organization."
+  },
+  "field_types": {
+    "identifier": "String",
+    "report_number": "String"
+  },
+  "fields": [
+    "identifier",
+    "report_number"
+  ],
+  "identity_hash": "2d5799b0e33fcac6ab8c97fb3e57d574fe91f1b43604a74d75b0a4b05bee0327",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2d5799b0e33fcac6ab8c97fb3e57d574fe91f1b43604a74d75b0a4b05bee0327",
+  "purpose_statement": "Report",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

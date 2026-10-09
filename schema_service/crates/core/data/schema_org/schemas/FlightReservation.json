@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "FlightReservation",
+  "field_classifications": {
+    "boarding_group": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "passenger_priority_status": [
+      "word"
+    ],
+    "passenger_sequence_number": [
+      "word"
+    ],
+    "security_screening": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "boarding_group": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "passenger_priority_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "passenger_sequence_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "security_screening": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "boarding_group": "The airline-specific indicator of boarding order / preference.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "passenger_priority_status": "The priority status assigned to a passenger for security or boarding (e.g. FastTrack or Priority).",
+    "passenger_sequence_number": "The passenger's sequence number as assigned by the airline.",
+    "security_screening": "The type of security screening the passenger is subject to."
+  },
+  "field_types": {
+    "boarding_group": "String",
+    "identifier": "String",
+    "passenger_priority_status": "String",
+    "passenger_sequence_number": "String",
+    "security_screening": "String"
+  },
+  "fields": [
+    "boarding_group",
+    "identifier",
+    "passenger_priority_status",
+    "passenger_sequence_number",
+    "security_screening"
+  ],
+  "identity_hash": "f014347dadcd7aebdc9f8289a0458e93c47bb2f788ba0d1da02cd2cff94eaa5a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f014347dadcd7aebdc9f8289a0458e93c47bb2f788ba0d1da02cd2cff94eaa5a",
+  "purpose_statement": "FlightReservation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

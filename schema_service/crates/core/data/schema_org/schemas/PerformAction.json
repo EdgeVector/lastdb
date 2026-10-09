@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "PerformAction",
+  "field_classifications": {
+    "entertainment_business": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "entertainment_business": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "entertainment_business": "A sub property of location. The entertainment business where the action occurred.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "entertainment_business": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "entertainment_business",
+    "identifier"
+  ],
+  "identity_hash": "69950ed80dc45636c6c37306b67dab3145b4bb92a3606cead72309ebe490fcd8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "69950ed80dc45636c6c37306b67dab3145b4bb92a3606cead72309ebe490fcd8",
+  "purpose_statement": "PerformAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

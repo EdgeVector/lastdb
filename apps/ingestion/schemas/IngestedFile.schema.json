@@ -1,0 +1,33 @@
+{
+  "name": "ingestion/IngestedFile",
+  "descriptive_name": "Ingestion Ingested File",
+  "purpose_statement": "Deterministic summary of a single file ingested by the zero-UI Ingestion sidecar.",
+  "schema_type": "Hash",
+  "fields": [
+    "file_id",
+    "run_id",
+    "source_path",
+    "base_name",
+    "sha256",
+    "byte_count",
+    "line_count",
+    "word_count",
+    "text_preview",
+    "ingested_at"
+  ],
+  "key": {
+    "hash_field": "file_id"
+  },
+  "field_descriptions": {
+    "file_id": "Deterministic id derived from the file content hash.",
+    "run_id": "Owning ingestion/Run id.",
+    "source_path": "Source file path supplied to the sidecar.",
+    "base_name": "Source file basename.",
+    "sha256": "SHA-256 digest of the file bytes.",
+    "byte_count": "File size in bytes.",
+    "line_count": "Number of text lines in the UTF-8 previewable content.",
+    "word_count": "Whitespace-delimited word count in the UTF-8 previewable content.",
+    "text_preview": "First short text preview, safe for deterministic fixture validation.",
+    "ingested_at": "RFC3339 ingestion timestamp."
+  }
+}

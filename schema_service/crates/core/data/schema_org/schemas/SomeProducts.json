@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "SomeProducts",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "inventory_level": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "inventory_level": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "inventory_level": "The current approximate inventory level for the item or items."
+  },
+  "field_types": {
+    "identifier": "String",
+    "inventory_level": "String"
+  },
+  "fields": [
+    "identifier",
+    "inventory_level"
+  ],
+  "identity_hash": "ed405522e2c6843577cafaa651168a1baadf1782e189f986f039cf4b57e96ff7",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ed405522e2c6843577cafaa651168a1baadf1782e189f986f039cf4b57e96ff7",
+  "purpose_statement": "SomeProducts",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "WebAPI",
+  "field_classifications": {
+    "documentation": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "documentation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "documentation": "Further documentation describing the Web API in more detail.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "documentation": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "documentation",
+    "identifier"
+  ],
+  "identity_hash": "e580dfebf4ea085a6f9fa8db0ef840e05c5bca9ef9dd1c368a4bdf4bb6ed3975",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e580dfebf4ea085a6f9fa8db0ef840e05c5bca9ef9dd1c368a4bdf4bb6ed3975",
+  "purpose_statement": "WebAPI",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MovieClip",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "b721fc9a5d7337f176ba2b2c2cde87531896f0593d4e882cad9a7191d42a4926",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b721fc9a5d7337f176ba2b2c2cde87531896f0593d4e882cad9a7191d42a4926",
+  "purpose_statement": "MovieClip",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "CommunicateAction",
+  "field_classifications": {
+    "about": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "in_language": [
+      "word"
+    ],
+    "language": [
+      "word"
+    ],
+    "recipient": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "about": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_language": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "language": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "recipient": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "about": "The subject matter of an object.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_language": "The language of the content or performance or used in an action. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[availableLanguage]].",
+    "language": "A sub property of instrument. The language used on this action.",
+    "recipient": "A sub property of participant. The participant who is at the receiving end of the action."
+  },
+  "field_types": {
+    "about": "String",
+    "identifier": "String",
+    "in_language": "String",
+    "language": "String",
+    "recipient": "String"
+  },
+  "fields": [
+    "about",
+    "identifier",
+    "in_language",
+    "language",
+    "recipient"
+  ],
+  "identity_hash": "b40333b18db4c06a35bd181f2a07aabcf9645a2789a47e44899a043c0296560c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b40333b18db4c06a35bd181f2a07aabcf9645a2789a47e44899a043c0296560c",
+  "purpose_statement": "CommunicateAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

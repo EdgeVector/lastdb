@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "RealEstateAgent",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "dbf2768cbb2bac4dfc0a9b9966e852edab54d4223248b3f16243acc2faa0b78f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "dbf2768cbb2bac4dfc0a9b9966e852edab54d4223248b3f16243acc2faa0b78f",
+  "purpose_statement": "RealEstateAgent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

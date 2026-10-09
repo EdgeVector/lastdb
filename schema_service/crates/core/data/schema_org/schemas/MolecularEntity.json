@@ -1,0 +1,122 @@
+{
+  "descriptive_name": "MolecularEntity",
+  "field_classifications": {
+    "chemical_role": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "in_ch_i": [
+      "word"
+    ],
+    "in_ch_i_key": [
+      "word"
+    ],
+    "iupac_name": [
+      "word"
+    ],
+    "molecular_formula": [
+      "word"
+    ],
+    "molecular_weight": [
+      "word"
+    ],
+    "monoisotopic_molecular_weight": [
+      "word"
+    ],
+    "potential_use": [
+      "word"
+    ],
+    "smiles": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "chemical_role": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_ch_i": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "in_ch_i_key": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "iupac_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "molecular_formula": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "molecular_weight": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "monoisotopic_molecular_weight": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "potential_use": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "smiles": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "chemical_role": "A role played by the BioChemEntity within a chemical context.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_ch_i": "Non-proprietary identifier for molecular entity that can be used in printed and electronic data sources thus enabling easier linking of diverse data compilations.",
+    "in_ch_i_key": "InChIKey is a hashed version of the full InChI (using the SHA-256 algorithm).",
+    "iupac_name": "Systematic method of naming chemical compounds as recommended by the International Union of Pure and Applied Chemistry (IUPAC).",
+    "molecular_formula": "The empirical formula is the simplest whole number ratio of all the atoms in a molecule.",
+    "molecular_weight": "This is the molecular weight of the entity being described, not of the parent. Units should be included in the form '&lt;Number&gt; &lt;unit&gt;', for example '12 amu' or as '&lt;QuantitativeValue&gt;.",
+    "monoisotopic_molecular_weight": "The monoisotopic mass is the sum of the masses of the atoms in a molecule using the unbound, ground-state, rest mass of the principal (most abundant) isotope for each element instead of the isotopic average mass. Please include the units in the form '&lt;Number&gt; &lt;unit&gt;', for example '770.230488 g/mol' or as '&lt;QuantitativeValue&gt;.",
+    "potential_use": "Intended use of the BioChemEntity by humans.",
+    "smiles": "A specification in form of a line notation for describing the structure of chemical species using short ASCII strings.  Double bond stereochemistry \\ indicators may need to be escaped in the string in formats where the backslash is an escape character."
+  },
+  "field_types": {
+    "chemical_role": "String",
+    "identifier": "String",
+    "in_ch_i": "String",
+    "in_ch_i_key": "String",
+    "iupac_name": "String",
+    "molecular_formula": "String",
+    "molecular_weight": "String",
+    "monoisotopic_molecular_weight": "String",
+    "potential_use": "String",
+    "smiles": "String"
+  },
+  "fields": [
+    "chemical_role",
+    "identifier",
+    "in_ch_i",
+    "in_ch_i_key",
+    "iupac_name",
+    "molecular_formula",
+    "molecular_weight",
+    "monoisotopic_molecular_weight",
+    "potential_use",
+    "smiles"
+  ],
+  "identity_hash": "2c7ea5392266bc641d9abfc0692441a8d981c03ca87085a06d6b16702e7d6c59",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "2c7ea5392266bc641d9abfc0692441a8d981c03ca87085a06d6b16702e7d6c59",
+  "purpose_statement": "MolecularEntity",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

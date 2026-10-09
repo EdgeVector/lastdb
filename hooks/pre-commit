@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Pre-commit hook: build-artifact ban + env-URL registry lint + cargo fmt gate.
+#
+# Why this exists: CI runs `scripts/lints/lint-no-hardcoded-urls.sh`
+# and `cargo fmt --all -- --check` as step 1 of "Clippy + Tests". An
+# unformatted import aborts that job before clippy/tests run, so a fmt-only
+# slip looks like a clippy/test failure. Catching it at commit time avoids
+# the push → confusing CI red → fix-up commit churn.
+#
+# Build artifacts: nested `**/target/` and other caches once bloated local
+# .git to ~17 GB (kanban checkpoint / salvage commits). See
+# scripts/lints/lint-no-build-artifacts.sh. That gate runs first so a pure
+# artifact commit is rejected even when no .rs files are staged.
+#
+# Fmt is AUTO-FIXED, not just blocked: the hook runs `cargo fmt --all` and
+# re-stages the files it reformatted, so a clean commit lands in one shot and
+# nobody reaches for --no-verify. It only blocks when it genuinely cannot
+# auto-resolve (e.g. a partially-staged file whose unstaged hunks would still
+# be unformatted after fmt).
+#
+# To install (idempotent; run.sh also does this on every launch):
+#   scripts/install-hooks.sh
+# To bypass (use sparingly): git commit --no-verify
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR || true)
+
+# --- build-artifact / oversize ban ---------------------------------------
+# Must run before the early-exit on "no .rs files": artifact-only commits
+# otherwise slip through.
+if [ -x scripts/lints/lint-no-build-artifacts.sh ]; then
+    if ! scripts/lints/lint-no-build-artifacts.sh --staged; then
+        echo "pre-commit: lint-no-build-artifacts FAILED." >&2
+        echo "pre-commit: do not commit cargo target/, node_modules, or multi-MB binaries." >&2
+        exit 1
+    fi
+fi
+
+# --- env URL registry lint -----------------------------------------------
+# Catch hardcoded gateway hostnames before they hit CI.
+if [ -x scripts/lints/lint-no-hardcoded-urls.sh ]; then
+    if ! scripts/lints/lint-no-hardcoded-urls.sh >/dev/null 2>&1; then
+        echo "pre-commit: lint-no-hardcoded-urls FAILED." >&2
+        echo "pre-commit: run \`scripts/lints/lint-no-hardcoded-urls.sh\` to see offenders." >&2
+        echo "pre-commit: URLs live in folddb_profile/environments.json." >&2
+        exit 1
+    fi
+fi
+
+# --- cargo fmt gate (auto-fix + re-stage) --------------------------------
+RS_FILES=$(echo "$STAGED" | grep '\.rs$' || true)
+if [ -z "$RS_FILES" ]; then
+    exit 0
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-commit: cargo not on PATH — skipping fmt check" >&2
+    exit 0
+fi
+
+# Fast path: tree already formatted, nothing to do.
+if cargo fmt --all -- --check >/dev/null 2>&1; then
+    exit 0
+fi
+
+# Reformat the whole workspace in place. `cargo fmt --all` is the same
+# command CI checks against and applies every crate's rustfmt.toml in one
+# pass, so a single invocation is deterministic — no second-pass jank.
+echo "pre-commit: formatting staged Rust files (cargo fmt --all)..." >&2
+if ! cargo fmt --all >/dev/null 2>&1; then
+    echo "pre-commit: cargo fmt --all FAILED to run — fix it, then commit again." >&2
+    exit 1
+fi
+
+# Re-stage only the staged Rust files that fmt actually changed. We do NOT
+# blanket `git add -u`: that would sweep unrelated working-tree edits into
+# the commit. We touch exactly the files the user already staged.
+restaged=0
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    [ -f "$f" ] || continue                 # deleted/renamed-away — skip
+    if ! git diff --quiet -- "$f"; then
+        # `f` has unstaged changes after fmt. If it was fully staged before,
+        # those changes ARE the reformatting → safe to re-stage. If it was
+        # only partially staged, re-staging would pull in the user's unstaged
+        # hunks too, so leave it and let the final --check decide.
+        git add -- "$f"
+        restaged=$((restaged + 1))
+    fi
+done <<< "$RS_FILES"
+
+[ "$restaged" -gt 0 ] && echo "pre-commit: reformatted + re-staged $restaged file(s)." >&2
+
+# Final gate: the staged tree must now be clean. This still catches the
+# residual case where a partially-staged file's unstaged hunks are themselves
+# unformatted — auto-fixing those would silently commit work the user didn't
+# stage, so we block and let them resolve it explicitly.
+if ! cargo fmt --all -- --check >/dev/null 2>&1; then
+    echo "pre-commit: cargo fmt --check STILL failing after auto-fmt." >&2
+    echo "pre-commit: likely a partially-staged file with unformatted unstaged hunks." >&2
+    echo "pre-commit: run \`cargo fmt --all\`, \`git add -u\`, and commit again." >&2
+    echo "pre-commit: (or \`git commit --no-verify\` to skip — don't.)" >&2
+    exit 1
+fi
+
+exit 0

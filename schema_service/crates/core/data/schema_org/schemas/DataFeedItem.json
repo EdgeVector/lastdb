@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "DataFeedItem",
+  "field_classifications": {
+    "date_created": [
+      "word"
+    ],
+    "date_deleted": [
+      "word"
+    ],
+    "date_modified": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "item": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "date_created": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "date_deleted": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "date_modified": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "item": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "date_created": "The date on which the CreativeWork was created or the item was added to a DataFeed.",
+    "date_deleted": "The datetime the item was removed from the DataFeed.",
+    "date_modified": "The date on which the CreativeWork was most recently modified or when the item's entry was modified within a DataFeed.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "item": "An entity represented by an entry in a list or data feed (e.g. an 'artist' in a list of 'artists')."
+  },
+  "field_types": {
+    "date_created": "String",
+    "date_deleted": "String",
+    "date_modified": "String",
+    "identifier": "String",
+    "item": "String"
+  },
+  "fields": [
+    "date_created",
+    "date_deleted",
+    "date_modified",
+    "identifier",
+    "item"
+  ],
+  "identity_hash": "36b086e2135336433e2d72a5ab0a54d63c8331a6ff0397072b8e4cdbf19f46ea",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "36b086e2135336433e2d72a5ab0a54d63c8331a6ff0397072b8e4cdbf19f46ea",
+  "purpose_statement": "DataFeedItem",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

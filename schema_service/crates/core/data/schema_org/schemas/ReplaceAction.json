@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "ReplaceAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "replacee": [
+      "word"
+    ],
+    "replacer": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "replacee": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "replacer": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "replacee": "A sub property of object. The object that is being replaced.",
+    "replacer": "A sub property of object. The object that replaces."
+  },
+  "field_types": {
+    "identifier": "String",
+    "replacee": "String",
+    "replacer": "String"
+  },
+  "fields": [
+    "identifier",
+    "replacee",
+    "replacer"
+  ],
+  "identity_hash": "8efcc329ad32454c0ce33e9d2404e8c51e4999cee43e99a5c40c91e7f1a393b9",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "8efcc329ad32454c0ce33e9d2404e8c51e4999cee43e99a5c40c91e7f1a393b9",
+  "purpose_statement": "ReplaceAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

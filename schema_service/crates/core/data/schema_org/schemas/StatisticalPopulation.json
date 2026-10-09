@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "StatisticalPopulation",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "population_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "population_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "population_type": "Indicates the populationType common to all members of a [[StatisticalPopulation]] or all cases within the scope of a [[StatisticalVariable]]."
+  },
+  "field_types": {
+    "identifier": "String",
+    "population_type": "String"
+  },
+  "fields": [
+    "identifier",
+    "population_type"
+  ],
+  "identity_hash": "c8795611d34e21d949578fb606d8cf32f43dce1aba3974c0aeb0fb3a9857e7ce",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c8795611d34e21d949578fb606d8cf32f43dce1aba3974c0aeb0fb3a9857e7ce",
+  "purpose_statement": "StatisticalPopulation",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

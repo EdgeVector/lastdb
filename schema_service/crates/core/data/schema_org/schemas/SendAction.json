@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "SendAction",
+  "field_classifications": {
+    "delivery_method": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "recipient": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "delivery_method": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "recipient": {
+      "data_domain": "communication",
+      "sensitivity_level": 3
+    }
+  },
+  "field_descriptions": {
+    "delivery_method": "A sub property of instrument. The method of delivery.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "recipient": "A sub property of participant. The participant who is at the receiving end of the action."
+  },
+  "field_types": {
+    "delivery_method": "String",
+    "identifier": "String",
+    "recipient": "String"
+  },
+  "fields": [
+    "delivery_method",
+    "identifier",
+    "recipient"
+  ],
+  "identity_hash": "9b8a018b222c6d16fa281ce692200ad26dc91b5fcf338517bf9d75e932ffdc82",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9b8a018b222c6d16fa281ce692200ad26dc91b5fcf338517bf9d75e932ffdc82",
+  "purpose_statement": "SendAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

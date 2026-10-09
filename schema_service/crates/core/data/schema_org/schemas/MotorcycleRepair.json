@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "MotorcycleRepair",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "9e60878f30c13263fc2b13854363d66a694f3c84c66bf082e64e3bff68e3eb5b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9e60878f30c13263fc2b13854363d66a694f3c84c66bf082e64e3bff68e3eb5b",
+  "purpose_statement": "MotorcycleRepair",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

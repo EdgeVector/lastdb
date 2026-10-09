@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "TreatmentIndication",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "9c1c95461d59ab2fd4b8d0602c73e993e1c7cb55e3a468f9b3da5068f0b072a6",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "9c1c95461d59ab2fd4b8d0602c73e993e1c7cb55e3a468f9b3da5068f0b072a6",
+  "purpose_statement": "TreatmentIndication",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

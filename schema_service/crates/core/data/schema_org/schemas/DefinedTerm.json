@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "DefinedTerm",
+  "field_classifications": {
+    "about": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "in_defined_term_set": [
+      "word"
+    ],
+    "term_code": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "about": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "in_defined_term_set": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "term_code": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "about": "The subject matter of an object.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "in_defined_term_set": "A [[DefinedTermSet]] that contains this term.",
+    "term_code": "A code that identifies this [[DefinedTerm]] within a [[DefinedTermSet]]."
+  },
+  "field_types": {
+    "about": "String",
+    "identifier": "String",
+    "in_defined_term_set": "String",
+    "term_code": "String"
+  },
+  "fields": [
+    "about",
+    "identifier",
+    "in_defined_term_set",
+    "term_code"
+  ],
+  "identity_hash": "397bb508740e821c2b2c05e3ed00736f6e61049e226dd90d25d5f684b0e632b1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "397bb508740e821c2b2c05e3ed00736f6e61049e226dd90d25d5f684b0e632b1",
+  "purpose_statement": "DefinedTerm",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

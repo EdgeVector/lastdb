@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MedicalScholarlyArticle",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "publication_type": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "publication_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "publication_type": "The type of the medical article, taken from the US NLM MeSH publication type catalog. See also [MeSH documentation](http://www.nlm.nih.gov/mesh/pubtypes.html)."
+  },
+  "field_types": {
+    "identifier": "String",
+    "publication_type": "String"
+  },
+  "fields": [
+    "identifier",
+    "publication_type"
+  ],
+  "identity_hash": "6f6294cf7316d66ee01f57076e49ac268bae28a31bec25952aeeb627084f3665",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6f6294cf7316d66ee01f57076e49ac268bae28a31bec25952aeeb627084f3665",
+  "purpose_statement": "MedicalScholarlyArticle",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

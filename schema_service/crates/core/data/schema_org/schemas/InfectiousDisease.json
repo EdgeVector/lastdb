@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "InfectiousDisease",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "infectious_agent": [
+      "word"
+    ],
+    "infectious_agent_class": [
+      "word"
+    ],
+    "transmission_method": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "infectious_agent": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "infectious_agent_class": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "transmission_method": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "infectious_agent": "The actual infectious agent, such as a specific bacterium.",
+    "infectious_agent_class": "The class of infectious agent (bacteria, prion, etc.) that causes the disease.",
+    "transmission_method": "How the disease spreads, either as a route or vector, for example 'direct contact', 'Aedes aegypti', etc."
+  },
+  "field_types": {
+    "identifier": "String",
+    "infectious_agent": "String",
+    "infectious_agent_class": "String",
+    "transmission_method": "String"
+  },
+  "fields": [
+    "identifier",
+    "infectious_agent",
+    "infectious_agent_class",
+    "transmission_method"
+  ],
+  "identity_hash": "54a6ffc04cab50953d9426375a551b7719defd4b4c410de5999013603f4b17d1",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "54a6ffc04cab50953d9426375a551b7719defd4b4c410de5999013603f4b17d1",
+  "purpose_statement": "InfectiousDisease",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

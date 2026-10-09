@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Newspaper",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "1be37926c8fa7cd418b964138a3373cdf0b384785e88b8a88092e6e9efb981b4",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "1be37926c8fa7cd418b964138a3373cdf0b384785e88b8a88092e6e9efb981b4",
+  "purpose_statement": "Newspaper",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

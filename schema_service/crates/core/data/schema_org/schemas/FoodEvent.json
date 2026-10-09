@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "FoodEvent",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "520d9715f7cbae7d81a66df42fe1d1a03eda2b97c72a2efba5098fe749d3a47a",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "520d9715f7cbae7d81a66df42fe1d1a03eda2b97c72a2efba5098fe749d3a47a",
+  "purpose_statement": "FoodEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,82 @@
+{
+  "descriptive_name": "AlignmentObject",
+  "field_classifications": {
+    "alignment_type": [
+      "word"
+    ],
+    "educational_framework": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "target_description": [
+      "word"
+    ],
+    "target_name": [
+      "word"
+    ],
+    "target_url": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "alignment_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "educational_framework": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "target_description": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "target_name": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "target_url": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "alignment_type": "A category of alignment between the learning resource and the framework node. Recommended values include: 'requires', 'textComplexity', 'readingLevel', and 'educationalSubject'.",
+    "educational_framework": "The framework to which the resource being described is aligned.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "target_description": "The description of a node in an established educational framework.",
+    "target_name": "The name of a node in an established educational framework.",
+    "target_url": "The URL of a node in an established educational framework."
+  },
+  "field_types": {
+    "alignment_type": "String",
+    "educational_framework": "String",
+    "identifier": "String",
+    "target_description": "String",
+    "target_name": "String",
+    "target_url": "String"
+  },
+  "fields": [
+    "alignment_type",
+    "educational_framework",
+    "identifier",
+    "target_description",
+    "target_name",
+    "target_url"
+  ],
+  "identity_hash": "93b77e72b85d07ccb60f6e8502c9617dfa184509b62037908fa9ffe8b071ae18",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "93b77e72b85d07ccb60f6e8502c9617dfa184509b62037908fa9ffe8b071ae18",
+  "purpose_statement": "AlignmentObject",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

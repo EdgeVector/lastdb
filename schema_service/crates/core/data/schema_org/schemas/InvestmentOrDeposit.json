@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "InvestmentOrDeposit",
+  "field_classifications": {
+    "amount": [
+      "number"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "amount": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "amount": "The amount of money.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "amount": "Number",
+    "identifier": "String"
+  },
+  "fields": [
+    "amount",
+    "identifier"
+  ],
+  "identity_hash": "6337702fed05ca0710daca0c7df69842eec363303d32f3258825d380dc864b64",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "6337702fed05ca0710daca0c7df69842eec363303d32f3258825d380dc864b64",
+  "purpose_statement": "InvestmentOrDeposit",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

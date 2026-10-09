@@ -1,0 +1,476 @@
+[workspace]
+resolver = "2"
+members = [
+    # fold_db internal crates
+    "fold_db/crates/core",
+    "fold_db/crates/observability",
+
+    # schema_service crates
+    "schema_service/crates/schema_core_resolver",
+    "schema_service/crates/schema_types",
+    "schema_service/crates/core",
+    "schema_service/crates/server_shared",
+    "schema_service/crates/server_http",
+    "schema_service/crates/server_lambda",
+    "schema_service/crates/client",
+    "schema_service/crates/worker",
+    "schema_service/crates/schema_service_s3",
+    "schema_service/crates/resolver_pack_publisher",
+    "schema_service/scripts/generate_schema_org_classifications",
+    "schema_service/scripts/generate_validated_schema_org_seeds",
+
+
+    # shared Ed25519 + JCS + signed-envelope helpers (app_identity Lane A)
+    "app_identity_crypto",
+
+    # shared `$FOLDDB_HOME` profile loader + endpoint registry + path helpers.
+    # A leaf crate (minimal deps) reusable across node and dev-mode support
+    # without them depending on each other.
+    "folddb_profile",
+
+    # Canonical env-flag truthy/falsy vocabulary (zero-dep leaf).
+    "env_flag",
+
+    # shared Unix-domain-socket transport (bind/perms/peer-cred gate, minimal
+    # HTTP/1.1 framing, control-socket route classifier). A leaf crate
+    # (fold_db only) originally extracted from the desktop node's uds*.rs so
+    # every LastDB daemon serves the SAME socket surface from one
+    # implementation.
+    "lastdb_uds",
+    "lastdb_identity",
+
+    # framework-agnostic LastDB owner-socket host primitives (the wire-shape
+    # contract: request parsing, pagination math, response envelope, I4 error
+    # mapping, internal-index catalog) backing the lastdb_node socket route
+    # executor.
+    "lastdb_host",
+
+    # minimal headless LastDB daemon (`lastdbd`) — core DB + app-identity +
+    # cloud sync over the owner Unix socket (no ingestion, no discovery, no
+    # UI). The Homebrew `edgevector/lastdb/lastdb` formula ships this binary.
+    # (The fold_db_node desktop node + Tauri app + file_to_markdown were
+    # deleted in the Mini-only cutover, 2026-07-12 — restore point: branch
+    # archive/desktop-dmg-pre-removal.)
+    "lastdb_node",
+
+    # Storage-v2 crates vendored from LastDB Nano so fold's forge checkout can
+    # compile the feature-gated Mini facade without requiring sibling repos.
+    "vendor/laststore",
+    "vendor/lastdb_docstore",
+
+]
+
+# Default scope for bare `cargo build` / `cargo test` (no -p / --workspace):
+# the default product crates.
+default-members = [
+    "fold_db/crates/core",
+    "fold_db/crates/observability",
+    "schema_service/crates/core",
+    "schema_service/crates/server_shared",
+    "schema_service/crates/server_http",
+    "schema_service/crates/server_lambda",
+    "schema_service/crates/client",
+    "schema_service/crates/worker",
+    "schema_service/crates/schema_service_s3",
+    "schema_service/scripts/generate_schema_org_classifications",
+    "schema_service/scripts/generate_validated_schema_org_seeds",
+    "app_identity_crypto",
+    "folddb_profile",
+
+    # Canonical env-flag truthy/falsy vocabulary (zero-dep leaf).
+    "env_flag",
+    "lastdb_identity",
+    "lastdb_uds",
+    "lastdb_host",
+    "lastdb_node",
+]
+
+exclude = [
+
+    # Vendored dependency forks are not workspace members; they are wired
+    # in via [patch.crates-io] below.
+    "vendor/fastembed-4.9.0-no-image",
+]
+
+# Vendored fastembed 4.9.0 with the `image` dependency feature-gated
+# (image-models, off by default). The schema Lambda must not compile the
+# image codec tree (North Star north-star-schema-lambda-fast-deployment
+# criterion 8); upstream only gained this gate in fastembed 5.4.0, and a
+# 5.x bump moves ONNX Runtime 1.20→1.28 which risks non-identical
+# embedding floats. The vendored fork keeps TextEmbedding byte-identical:
+# only Cargo.toml and lib.rs module gating differ from the v4.9.0 tag.
+[patch.crates-io]
+fastembed = { path = "vendor/fastembed-4.9.0-no-image" }
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Lint floor for the whole workspace. Any new code that holds a sync
+# lock across an `.await` must either be refactored to drop the guard
+# first OR carry an explicit `#[allow(clippy::await_holding_lock,
+# reason = "...")]` with a real justification. Stops the regression
+# pattern where someone silently adds another `#[allow]` and the count
+# creeps back up.
+#
+# `too_many_arguments` is denied on the same theory: when a function
+# grows past clippy's default threshold, the choice should be conscious
+# — either bundle the args into a struct or carry
+# `#[allow(..., reason = "...")]` naming the contract (actix handler
+# shape, trait impl, FFI ABI, etc.).
+#
+# `unused_async` is denied so an `async fn` that never `.await`s either
+# drops the keyword (and its `.await` call sites) OR carries an explicit
+# `#[allow(clippy::unused_async, reason = "...")]` naming why the
+# signature is contract-locked (actix/lambda handler shape, framework-
+# agnostic handler layer, extractor dispatch contract, etc.).
+#
+# `needless_pass_by_value` is denied so a function that takes an owned
+# argument but only borrows it must either switch to `&T` / `&mut T` OR
+# carry `#[allow(clippy::needless_pass_by_value, reason = "...")]`
+# naming the callback / trait / framework contract that pins the
+# signature (map_err callback, SentryLayer event_mapper, match-arm
+# error→response conversion, etc.).
+#
+# `redundant_closure_for_method_calls` is denied so a closure that only
+# forwards its argument to a method (`|x| x.foo()`) must either be
+# rewritten as a method reference (`Type::foo`) OR carry
+# `#[allow(clippy::redundant_closure_for_method_calls, reason = "...")]`
+# naming the macro / generic / multi-type contract that pins the
+# closure form (e.g. `for_each_variant!` expanding the same body across
+# multiple distinct types).
+#
+# `manual_let_else` is denied so a `let x = match expr { Ok(v) => v,
+# Err(_) => return ... }` pattern must either be rewritten as
+# `let Ok(v) = expr else { return ... };` OR carry
+# `#[allow(clippy::manual_let_else, reason = "...")]` naming the reason
+# the rewrite doesn't apply (e.g. genuinely multi-statement error arm,
+# transformation in the success arm).
+#
+# `use_self` is denied so that inside an `impl Foo` block, references to
+# `Foo` (in return types, associated function paths, struct literals,
+# enum variant constructors) are written as `Self` instead. Keeps
+# renames cheap and reads consistent. Override per-line with
+# `#[allow(clippy::use_self, reason = "...")]` when the explicit type
+# name genuinely disambiguates (generic-bound ambiguity, derive-macro
+# expansion, etc.).
+#
+# `if_not_else` is denied so that `if !cond { A } else { B }` blocks are
+# rewritten as `if cond { B } else { A }` — the affirmative reading puts
+# the natural happy path first. Override per-line with
+# `#[allow(clippy::if_not_else, reason = "...")]` when the negative
+# reading is genuinely the natural form (e.g. happy-path branch is much
+# larger than the else branch, so flipping would push the dominant work
+# into the else block).
+#
+# `redundant_else` is denied so that `if cond { ...; return X; } else { Y }`
+# blocks are flattened to `if cond { ...; return X; } Y` — the `else` is
+# noise when the `if` body diverges (return/break/continue/panic), and
+# the dedent lets the happy path read top-to-bottom. Override per-line
+# with `#[allow(clippy::redundant_else, reason = "...")]` when the
+# `else` visually pairs with the guard for readers.
+#
+# `map_unwrap_or` is denied so that `.map(f).unwrap_or(d)` /
+# `.map(f).unwrap_or_else(g)` collapse to `.map_or(d, f)` /
+# `.map_or_else(g, f)` — the single-shot form avoids the intermediate
+# `Option<U>` and reads more directly. (Boolean predicate cases often
+# rewrite to `.is_some_and(f)` / `.is_ok_and(f)` instead, which clippy
+# suggests automatically.) Override per-line with
+# `#[allow(clippy::map_unwrap_or, reason = "...")]` when the two-stage
+# form is genuinely clearer (multi-line closure, non-trivial default).
+#
+# `needless_for_each` is denied so that `iter.for_each(|x| { ... })` is
+# rewritten as `for x in iter { ... }` — the for-loop form supports
+# early returns and `?`, and matches the dominant control-flow shape in
+# the rest of the codebase. The `.for_each` form is preferred only
+# inside `rayon` parallel pipelines, which clippy already excludes.
+# Override per-line with
+# `#[allow(clippy::needless_for_each, reason = "...")]` when the chain
+# genuinely reads worse broken (e.g. macro-generated code).
+#
+# `default_trait_access` is denied so that `Default::default()` calls
+# are written as `<Type>::default()` — naming the concrete type at the
+# call site means a reader doesn't have to chase the inferred type
+# through a surrounding annotation, struct field declaration, or
+# function signature to know what's being constructed. Override
+# per-line with `#[allow(clippy::default_trait_access, reason = "...")]`
+# only when the type is genuinely opaque (e.g. behind a fully generic
+# bound `T: Default`).
+#
+# `implicit_clone` is denied so that `.to_owned()` / `.to_string()` /
+# `.to_path_buf()` calls on a type that *already* owns its data
+# (`String`, `PathBuf`, etc.) are rewritten as `.clone()` — the latter
+# surfaces the duplication at the call site and makes performance
+# review easier. The conversion-style methods read like type coercions
+# and hide the allocation. Override per-line with
+# `#[allow(clippy::implicit_clone, reason = "...")]` when the
+# conversion crosses a borrow boundary that `.clone()` doesn't express.
+#
+# `cloned_instead_of_copied` is denied so that `.cloned()` on an
+# iterator of `Copy` items is written as `.copied()` — `.copied()`
+# tells the reader the element is a plain `Copy` value, not a
+# heap-allocating clone, which keeps `.cloned()` semantically meaningful
+# (it now always signals a real clone). Override per-line with
+# `#[allow(clippy::cloned_instead_of_copied, reason = "...")]` only when
+# the element type is `Copy` solely through a generic bound that a
+# reader can't see at the call site.
+#
+# `single_match_else` is denied so that `match x { P(v) => a, _ => b }`
+# shapes — one bound-pattern arm plus a non-trivial wildcard arm — are
+# rewritten as `if let P(v) = x { a } else { b }`. The if-let form puts
+# the happy path first and reads top-to-bottom; the `match` form is
+# noise when only one arm actually binds. Override per-line with
+# `#[allow(clippy::single_match_else, reason = "...")]` when the match
+# form is genuinely clearer (e.g. multi-pattern arm with guards that
+# don't translate, or matching a value that's about to be matched again
+# downstream).
+#
+# `inefficient_to_string` is denied so that `.to_string()` on a
+# double-reference (`&&str`, `&&T`, `&&&T`, …) is written against a
+# single deref instead. Calling `.to_string()` through the extra
+# reference layer dispatches via the blanket `ToString` impl on `&T`,
+# which routes through the slow `Display` formatting machinery; a single
+# `&str`/`&T` hits the specialized fast path. Override per-line with
+# `#[allow(clippy::inefficient_to_string, reason = "...")]` only when the
+# extra reference is load-bearing (e.g. it falls out of a generic bound
+# the call site can't flatten).
+#
+# `uninlined_format_args` is denied so that `format!("{}", x)` /
+# `println!("{}", x)` — a positional argument that is a bare variable —
+# is rewritten as `format!("{x}")` with the binding captured directly
+# in the braces. The inline form keeps each value next to the
+# placeholder it fills, so a reader never has to count positions to
+# match a `{}` to its argument; it's the modern idiom since
+# captured-identifier interpolation stabilized. Only bare-identifier
+# args inline — field/method/index expressions, width/precision args,
+# and anything else stay positional and are left untouched. Override
+# per-line with `#[allow(clippy::uninlined_format_args, reason = "...")]`
+# when the positional form is genuinely clearer.
+#
+# `unnested_or_patterns` is denied so that sibling or-patterns sharing an
+# enclosing constructor — `Some(0) | Some(1)`, `Ok(A) | Ok(B)` — are
+# nested into a single alternation: `Some(0 | 1)`, `Ok(A | B)`. The
+# nested form names the shared structure once and scopes the `|` to the
+# part that actually varies, so a reader doesn't diff two near-identical
+# patterns to spot the difference. Override per-line with
+# `#[allow(clippy::unnested_or_patterns, reason = "...")]` when the flat
+# form genuinely reads clearer (e.g. the alternatives are semantically
+# distinct cases that happen to share a constructor).
+#
+# `needless_lifetimes` is denied so that explicit lifetime parameters the
+# compiler can already infer through elision — `fn f<'a>(x: &'a str) ->
+# &'a str`, `impl<'a> Trait for T<'a> { fn g(&'a self) ... }` where the
+# annotation adds nothing — are dropped to the elided form (`fn f(x:
+# &str) -> &str`). The annotations are pure noise when elision produces
+# the identical signature, and removing them keeps the lifetimes that
+# *are* load-bearing visible instead of lost in boilerplate. Override
+# per-line with `#[allow(clippy::needless_lifetimes, reason = "...")]`
+# when the explicit lifetime is genuinely required (e.g. it documents a
+# relationship elision can't express, or the elided form fails to
+# compile).
+[workspace.lints.clippy]
+await_holding_lock = "deny"
+too_many_arguments = "deny"
+unused_async = "deny"
+needless_pass_by_value = "deny"
+redundant_closure_for_method_calls = "deny"
+manual_let_else = "deny"
+use_self = "deny"
+semicolon_if_nothing_returned = "deny"
+if_not_else = "deny"
+redundant_else = "deny"
+map_unwrap_or = "deny"
+needless_for_each = "deny"
+default_trait_access = "deny"
+implicit_clone = "deny"
+cloned_instead_of_copied = "deny"
+single_match_else = "deny"
+inefficient_to_string = "deny"
+uninlined_format_args = "deny"
+explicit_iter_loop = "deny"
+unnested_or_patterns = "deny"
+match_same_arms = "deny"
+unnecessary_lazy_evaluations = "deny"
+manual_string_new = "deny"
+explicit_into_iter_loop = "deny"
+filter_map_next = "deny"
+unnecessary_to_owned = "deny"
+map_clone = "deny"
+redundant_pattern_matching = "deny"
+needless_return = "deny"
+manual_map = "deny"
+redundant_field_names = "deny"
+needless_lifetimes = "deny"
+# Flags `let x = <expr>;` immediately followed by `x` as the tail
+# expression — return `<expr>` directly instead. Clippy already spares
+# cases where the binding extends a borrow's lifetime or a type
+# annotation is load-bearing. For a genuinely-justified site, opt out
+# per-line: #[allow(clippy::let_and_return, reason = "...")].
+let_and_return = "deny"
+# manual_ok_or: flags Option->Result reimplementations like
+# `opt.map_or(Err(e), Ok)` or an equivalent match/if-let; rewrite as
+# `.ok_or(e)` / `.ok_or_else(|| e)`. For a genuinely clearer site, escape
+# per-line with `#[allow(clippy::manual_ok_or, reason = "...")]`.
+manual_ok_or = "deny"
+# useless_conversion: flags conversions of a value into its own type —
+# `.into()`, `.try_into()`, `T::from(x)`, or `.into_iter()` on something
+# already that type — which are no-ops; drop the redundant conversion. For
+# a genuinely-justified site (e.g. a conversion kept to pin a type
+# inference path), escape per-line with
+# `#[allow(clippy::useless_conversion, reason = "...")]`.
+useless_conversion = "deny"
+# manual_filter_map: flags a `.filter(...).map(...)` (or
+# `.find(...).map(...)`) chain that can collapse into a single
+# `.filter_map(...)` (or `.find_map(...)`). The fused form computes the
+# mapped value once instead of testing then re-deriving it. For a
+# genuinely clearer site, escape per-line with
+# `#[allow(clippy::manual_filter_map, reason = "...")]`.
+manual_filter_map = "deny"
+# match_like_matches_macro: flags a `match` (or `if let ... else`)
+# expression whose only purpose is to produce a boolean — every arm
+# returns `true` or `false`. Rewrite with the `matches!` macro
+# (`matches!(x, Pat)`), which names the test once and reads as a
+# predicate rather than a control-flow split. For a genuinely-justified
+# site, escape per-line with
+# `#[allow(clippy::match_like_matches_macro, reason = "...")]`.
+match_like_matches_macro = "deny"
+# manual_unwrap_or: flags a `match` / `if let` that reimplements
+# `Option::unwrap_or` or `Result::unwrap_or` — e.g.
+# `match opt { Some(x) => x, None => default }`. Rewrite as
+# `.unwrap_or(default)` (or `.unwrap_or_else(|| ...)` when the default
+# has side effects or is expensive — eager vs lazy matters). For a
+# genuinely-justified site, escape per-line with
+# `#[allow(clippy::manual_unwrap_or, reason = "...")]`.
+manual_unwrap_or = "deny"
+# needless_collect: flags a `.collect()` into a temporary that is then
+# immediately consumed/iterated — e.g.
+# `let v: Vec<_> = it.collect(); v.iter()...`,
+# `.collect::<Vec<_>>().len()`, `.collect::<Vec<_>>().is_empty()`. The
+# intermediate allocation can be skipped by consuming the iterator
+# directly (`.count()`, `.any()`, `.next()`, direct iteration). For a
+# genuinely-justified site (e.g. the collect drains a borrow before a
+# later mutable use, or the Vec is reused), escape per-line with
+# `#[allow(clippy::needless_collect, reason = "...")]`.
+needless_collect = "deny"
+# redundant_clone: flags a `.clone()` whose result is dropped without
+# further use — typically the last use of an owned value before it goes
+# out of scope, or a `.clone()` immediately consumed by a function that
+# only needs a borrow (e.g. `serde_json::json!(x.clone())` — the macro
+# already borrows internally). Drop the `.clone()` and let the value
+# move (or pass by reference). For a genuinely-justified site (e.g. the
+# borrow checker insists despite appearances), escape per-line with
+# `#[allow(clippy::redundant_clone, reason = "...")]`.
+redundant_clone = "deny"
+
+[workspace.dependencies]
+# Internal crates — path deps. The dual-fold_db trap dies here:
+# cargo unifies path deps by definition, so there is only one fold_db.
+fold_db = { path = "fold_db/crates/core" }
+# default-features = false at the workspace key so members can opt into
+# `features = ["otel"]` (or leave bare for Lambda light). Package `default =
+# ["otel"]` still applies to path deps that do not go through this key.
+observability = { path = "fold_db/crates/observability", default-features = false }
+schema_core_resolver = { path = "schema_service/crates/schema_core_resolver" }
+schema_types = { path = "schema_service/crates/schema_types" }
+schema_service_core = { path = "schema_service/crates/core" }
+schema_service_client = { path = "schema_service/crates/client" }
+schema_service_server_shared = { path = "schema_service/crates/server_shared" }
+schema_service_s3 = { path = "schema_service/crates/schema_service_s3" }
+app_identity_crypto = { path = "app_identity_crypto" }
+folddb_profile = { path = "folddb_profile" }
+env_flag = { path = "env_flag" }
+lastdb_uds = { path = "lastdb_uds" }
+lastdb_identity = { path = "lastdb_identity" }
+lastdb_host = { path = "lastdb_host" }
+laststore = { path = "vendor/laststore" }
+lastdb_docstore = { path = "vendor/lastdb_docstore" }
+
+# External — copied verbatim from schema_service's workspace.dependencies
+actix-web = "4.3"
+actix-cors = "0.7"
+tracing = "0.1"
+tracing-actix-web = "0.7"
+tracing-opentelemetry = "0.28"
+opentelemetry = "0.27"
+http = "1"
+futures-util = "0.3"
+clap = { version = "4.4", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+semver = "1"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "signal"] }
+tempfile = "3.8"
+opentelemetry_sdk = "0.27"
+tracing-subscriber = "0.3"
+
+# Promoted from member crates (2026-05-21 audit) — these were each
+# duplicated across 3+ workspace members with identical versions before
+# being lifted here. Per-member feature sets stay on the member entries
+# (`features = [...]`); bare versions here mean "use whatever features
+# each consumer asks for, unified by cargo at build time".
+#
+# Deliberately NOT promoted in this pass:
+#   - reqwest, chrono: feature/default-features sets diverge per member;
+#     workspace-level unification would change the effective feature set.
+#
+# Later additions:
+base64 = "0.22"
+# Still "1" on purpose: opentelemetry 0.27 pins thiserror 1, so bumping this
+# key to 2 converges nothing (both majors stay in the graph) and only risks the
+# derive surface. Converging thiserror needs the opentelemetry 0.27 -> 0.28+
+# bump first.
+thiserror = "1"
+# `default-features = false` drops each SDK's legacy `rustls` feature. That
+# feature is `aws-smithy-runtime/tls-rustls`, which pulls the whole hyper 0.14
+# stack (hyper 0.14, hyper-rustls 0.24, rustls 0.21, tokio-rustls 0.24,
+# rustls-webpki 0.101, http-body 0.4) alongside the modern one. The HTTPS
+# client the SDKs actually use comes from `default-https-client`
+# (aws-smithy-http-client/rustls-aws-lc), which the same default set already
+# enabled — so the legacy connector was compiled on every cold build and never
+# selected.
+#
+# aws-sdk-s3's other non-default-critical default, `sigv4a`, is also off. It
+# gates `aws-sigv4/sigv4a`, which pulls p256 0.11 and with it the entire
+# superseded RustCrypto major line (ecdsa 0.14, elliptic-curve 0.12, ff 0.12,
+# group 0.12, crypto-bigint 0.4, der 0.6, spki 0.6, sec1 0.3, pkcs8 0.9,
+# const-oid 0.9, base16ct 0.1, rfc6979 0.3, signature 1.6) next to the 0.13/0.7
+# line the rest of the graph uses. SigV4A only signs S3 Multi-Region Access
+# Point requests; this workspace addresses buckets by plain name from env
+# (SCHEMA_STORE_BUCKET, SYNC_BUCKET, DASHBOARD_BUCKET, R2_BUCKET_NAME) and
+# talks to R2/B2, which do not implement SigV4A. Re-enable this feature here if
+# an MRAP ARN ever becomes a bucket target.
+aws-sdk-s3 = { version = "1", default-features = false, features = [
+    "default-https-client",
+    "rt-tokio",
+] }
+aws-sdk-dynamodb = { version = "1", default-features = false, features = [
+    "default-https-client",
+    "rt-tokio",
+] }
+aws-sdk-secretsmanager = { version = "1", default-features = false, features = [
+    "default-https-client",
+    "rt-tokio",
+] }
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+async-trait = "0.1"
+sha2 = "0.10"
+blake3 = "1"
+uuid = "1.0"
+sentry = { version = "0.47", default-features = false }
+rand = "0.8"
+once_cell = "1"
+hmac = "0.12"
+futures = "0.3"
+# Defense-in-depth: scrub key material from freed memory on drop. `derive`
+# gives `#[derive(Zeroize, ZeroizeOnDrop)]`. Already in Cargo.lock (transitive
+# via ed25519-dalek); promoted to a direct workspace dep for crypto crates.
+zeroize = { version = "1.8", features = ["derive"] }
+
+[profile.dev-release]
+inherits = "release"
+opt-level = 3
+lto = "off"
+codegen-units = 16
+debug = false
+panic = "abort"

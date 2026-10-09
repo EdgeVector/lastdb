@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "Nerve",
+  "field_classifications": {
+    "branch": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "nerve_motor": [
+      "word"
+    ],
+    "sensory_unit": [
+      "word"
+    ],
+    "sourced_from": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "branch": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "nerve_motor": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sensory_unit": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sourced_from": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "branch": "The branches that delineate from the nerve bundle. Not to be confused with [[branchOf]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "nerve_motor": "The neurological pathway extension that involves muscle control.",
+    "sensory_unit": "The neurological pathway extension that inputs and sends information to the brain or spinal cord.",
+    "sourced_from": "The neurological pathway that originates the neurons."
+  },
+  "field_types": {
+    "branch": "String",
+    "identifier": "String",
+    "nerve_motor": "String",
+    "sensory_unit": "String",
+    "sourced_from": "String"
+  },
+  "fields": [
+    "branch",
+    "identifier",
+    "nerve_motor",
+    "sensory_unit",
+    "sourced_from"
+  ],
+  "identity_hash": "dc86ce1edd4d5ce00e71ee9a18bbd6911aa413ac97bb4cf75b499d792cc434d7",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "dc86ce1edd4d5ce00e71ee9a18bbd6911aa413ac97bb4cf75b499d792cc434d7",
+  "purpose_statement": "Nerve",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

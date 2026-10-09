@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ResearchProject",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "99c60b41f789283f5de66c72140aca3753f5db0a2f304d166655913f3e481b86",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "99c60b41f789283f5de66c72140aca3753f5db0a2f304d166655913f3e481b86",
+  "purpose_statement": "ResearchProject",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

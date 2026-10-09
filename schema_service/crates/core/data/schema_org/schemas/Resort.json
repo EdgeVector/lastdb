@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Resort",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "51d5f9735d786e1a1b5d236d5a4901212bea11575881a5eed411cd38fa3ef3e0",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "51d5f9735d786e1a1b5d236d5a4901212bea11575881a5eed411cd38fa3ef3e0",
+  "purpose_statement": "Resort",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

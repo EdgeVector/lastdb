@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "PhysicalActivity",
+  "field_classifications": {
+    "associated_anatomy": [
+      "word"
+    ],
+    "category": [
+      "word"
+    ],
+    "epidemiology": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "pathophysiology": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "associated_anatomy": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "category": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "epidemiology": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "pathophysiology": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "associated_anatomy": "The anatomy of the underlying organ system or structures associated with this entity.",
+    "category": "A category for the item. Greater signs or slashes can be used to informally indicate a category hierarchy.",
+    "epidemiology": "The characteristics of associated patients, such as age, gender, race etc.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "pathophysiology": "Changes in the normal mechanical, physical, and biochemical functions that are associated with this activity or condition."
+  },
+  "field_types": {
+    "associated_anatomy": "String",
+    "category": "String",
+    "epidemiology": "String",
+    "identifier": "String",
+    "pathophysiology": "String"
+  },
+  "fields": [
+    "associated_anatomy",
+    "category",
+    "epidemiology",
+    "identifier",
+    "pathophysiology"
+  ],
+  "identity_hash": "991bf6fa6ba46ee6ba08f425c2557bd42949980166733b63b4d96d9896b2bb5c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "991bf6fa6ba46ee6ba08f425c2557bd42949980166733b63b4d96d9896b2bb5c",
+  "purpose_statement": "PhysicalActivity",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

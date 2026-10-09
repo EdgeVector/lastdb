@@ -1,0 +1,412 @@
+{
+  "descriptive_name": "JobPosting",
+  "field_classifications": {
+    "applicant_location_requirements": [
+      "word"
+    ],
+    "application_contact": [
+      "word"
+    ],
+    "base_salary": [
+      "number"
+    ],
+    "benefits": [
+      "word"
+    ],
+    "date_posted": [
+      "word"
+    ],
+    "direct_apply": [
+      "word"
+    ],
+    "education_requirements": [
+      "word"
+    ],
+    "eligibility_to_work_requirement": [
+      "word"
+    ],
+    "employer_overview": [
+      "word"
+    ],
+    "employment_type": [
+      "word"
+    ],
+    "employment_unit": [
+      "word"
+    ],
+    "estimated_salary": [
+      "number"
+    ],
+    "experience_in_place_of_education": [
+      "word"
+    ],
+    "experience_requirements": [
+      "word"
+    ],
+    "hiring_organization": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "incentive_compensation": [
+      "word"
+    ],
+    "incentives": [
+      "word"
+    ],
+    "industry": [
+      "word"
+    ],
+    "job_benefits": [
+      "word"
+    ],
+    "job_duration": [
+      "word"
+    ],
+    "job_immediate_start": [
+      "word"
+    ],
+    "job_location": [
+      "word"
+    ],
+    "job_location_type": [
+      "word"
+    ],
+    "job_start_date": [
+      "word"
+    ],
+    "occupational_category": [
+      "word"
+    ],
+    "physical_requirement": [
+      "word"
+    ],
+    "qualifications": [
+      "word"
+    ],
+    "relevant_occupation": [
+      "word"
+    ],
+    "responsibilities": [
+      "word"
+    ],
+    "salary_currency": [
+      "word"
+    ],
+    "security_clearance_requirement": [
+      "word"
+    ],
+    "sensory_requirement": [
+      "word"
+    ],
+    "skills": [
+      "word"
+    ],
+    "special_commitments": [
+      "word"
+    ],
+    "title": [
+      "word"
+    ],
+    "total_job_openings": [
+      "number"
+    ],
+    "valid_through": [
+      "word"
+    ],
+    "work_hours": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "applicant_location_requirements": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "application_contact": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "base_salary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "benefits": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "date_posted": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "direct_apply": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "education_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "eligibility_to_work_requirement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "employer_overview": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "employment_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "employment_unit": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "estimated_salary": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "experience_in_place_of_education": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "experience_requirements": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "hiring_organization": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "incentive_compensation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "incentives": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "industry": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "job_benefits": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "job_duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "job_immediate_start": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "job_location": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "job_location_type": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "job_start_date": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "occupational_category": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "physical_requirement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "qualifications": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "relevant_occupation": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "responsibilities": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "salary_currency": {
+      "data_domain": "financial",
+      "sensitivity_level": 3
+    },
+    "security_clearance_requirement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "sensory_requirement": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "skills": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "special_commitments": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "title": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "total_job_openings": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "valid_through": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "work_hours": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "applicant_location_requirements": "The location(s) applicants can apply from. This is usually used for telecommuting jobs where the applicant does not need to be in a physical office. Note: This should not be used for citizenship or work visa requirements.",
+    "application_contact": "Contact details for further information relevant to this job posting.",
+    "base_salary": "The base salary of the job or of an employee in an EmployeeRole.",
+    "benefits": "Description of benefits associated with the job.",
+    "date_posted": "Publication date of an online listing.",
+    "direct_apply": "Indicates whether an [[url]] that is associated with a [[JobPosting]] enables direct application for the job, via the posting website. A job posting is considered to have directApply of [[True]] if an application process for the specified job can be directly initiated via the url(s) given (noting that e.g. multiple internet domains might nevertheless be involved at an implementation level). A value of [[False]] is appropriate if there is no clear path to applying directly online for the specified job, navigating directly from the JobPosting url(s) supplied.",
+    "education_requirements": "Educational background needed for the position or Occupation.",
+    "eligibility_to_work_requirement": "The legal requirements such as citizenship, visa and other documentation required for an applicant to this job.",
+    "employer_overview": "A description of the employer, career opportunities and work environment for this position.",
+    "employment_type": "Type of employment (e.g. full-time, part-time, contract, temporary, seasonal, internship).",
+    "employment_unit": "Indicates the department, unit and/or facility where the employee reports and/or in which the job is to be performed.",
+    "estimated_salary": "An estimated salary for a job posting or occupation, based on a variety of variables including, but not limited to industry, job title, and location. Estimated salaries  are often computed by outside organizations rather than the hiring organization, who may not have committed to the estimated value.",
+    "experience_in_place_of_education": "Indicates whether a [[JobPosting]] will accept experience (as indicated by [[OccupationalExperienceRequirements]]) in place of its formal educational qualifications (as indicated by [[educationRequirements]]). If true, indicates that satisfying one of these requirements is sufficient.",
+    "experience_requirements": "Description of skills and experience needed for the position or Occupation.",
+    "hiring_organization": "Organization or Person offering the job position.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "incentive_compensation": "Description of bonus and commission compensation aspects of the job.",
+    "incentives": "Description of bonus and commission compensation aspects of the job.",
+    "industry": "The industry associated with the job position.",
+    "job_benefits": "Description of benefits associated with the job.",
+    "job_duration": "The expected duration of an employment offer as advertised by the employer. Relevant for job postings that have a clearly defined period in mind such as seasonal work, substitutes for maternal leave or any other temporary employment.",
+    "job_immediate_start": "An indicator as to whether a position is available for an immediate start.",
+    "job_location": "A (typically single) geographic location associated with the job position.",
+    "job_location_type": "A description of the job location (e.g. TELECOMMUTE for telecommute jobs).",
+    "job_start_date": "The date on which a successful applicant for this job would be expected to start work. Choose a specific date in the future or use the jobImmediateStart property to indicate the position is to be filled as soon as possible.",
+    "occupational_category": "A category describing the job, preferably using a term from a taxonomy such as [BLS O*NET-SOC](http://www.onetcenter.org/taxonomy.html), [ISCO-08](https://www.ilo.org/public/english/bureau/stat/isco/isco08/) or similar, with the property repeated for each applicable value. Ideally the taxonomy should be identified, and both the textual label and formal code for the category should be provided.\\n\nNote: for historical reasons, any textual label and formal code provided as a literal may be assumed to be from O*NET-SOC.",
+    "physical_requirement": "A description of the types of physical activity associated with the job. Defined terms such as those in O*net may be used, but note that there is no way to specify the level of ability as well as its nature when using a defined term.",
+    "qualifications": "Specific qualifications required for this role or Occupation.",
+    "relevant_occupation": "The Occupation for the JobPosting.",
+    "responsibilities": "Responsibilities associated with this role or Occupation.",
+    "salary_currency": "The currency (coded using [ISO 4217](http://en.wikipedia.org/wiki/ISO_4217)) used for the main salary information in this job posting or for this employee.",
+    "security_clearance_requirement": "A description of any security clearance requirements of the job.",
+    "sensory_requirement": "A description of any sensory requirements and levels necessary to function on the job, including hearing and vision. Defined terms such as those in O*net may be used, but note that there is no way to specify the level of ability as well as its nature when using a defined term.",
+    "skills": "A statement of knowledge, skill, ability, task or any other assertion expressing a competency that is either claimed by a person, an organization or desired or required to fulfill a role or to work in an occupation.",
+    "special_commitments": "Any special commitments associated with this job posting. Valid entries include VeteranCommit, MilitarySpouseCommit, etc.",
+    "title": "The title of the job.",
+    "total_job_openings": "The number of positions open for this job posting. Use a positive integer. Do not use if the number of positions is unclear or not known.",
+    "valid_through": "The date after when the item is not valid. For example the end of an offer, salary period, or a period of opening hours.",
+    "work_hours": "The typical working hours for this job (e.g. 1st shift, night shift, 8am-5pm)."
+  },
+  "field_types": {
+    "applicant_location_requirements": "String",
+    "application_contact": "String",
+    "base_salary": "Float",
+    "benefits": "String",
+    "date_posted": "String",
+    "direct_apply": "Boolean",
+    "education_requirements": "String",
+    "eligibility_to_work_requirement": "String",
+    "employer_overview": "String",
+    "employment_type": "String",
+    "employment_unit": "String",
+    "estimated_salary": "Float",
+    "experience_in_place_of_education": "Boolean",
+    "experience_requirements": "String",
+    "hiring_organization": "String",
+    "identifier": "String",
+    "incentive_compensation": "String",
+    "incentives": "String",
+    "industry": "String",
+    "job_benefits": "String",
+    "job_duration": "String",
+    "job_immediate_start": "Boolean",
+    "job_location": "String",
+    "job_location_type": "String",
+    "job_start_date": "String",
+    "occupational_category": "String",
+    "physical_requirement": "String",
+    "qualifications": "String",
+    "relevant_occupation": "String",
+    "responsibilities": "String",
+    "salary_currency": "String",
+    "security_clearance_requirement": "String",
+    "sensory_requirement": "String",
+    "skills": "String",
+    "special_commitments": "String",
+    "title": "String",
+    "total_job_openings": "Integer",
+    "valid_through": "String",
+    "work_hours": "String"
+  },
+  "fields": [
+    "applicant_location_requirements",
+    "application_contact",
+    "base_salary",
+    "benefits",
+    "date_posted",
+    "direct_apply",
+    "education_requirements",
+    "eligibility_to_work_requirement",
+    "employer_overview",
+    "employment_type",
+    "employment_unit",
+    "estimated_salary",
+    "experience_in_place_of_education",
+    "experience_requirements",
+    "hiring_organization",
+    "identifier",
+    "incentive_compensation",
+    "incentives",
+    "industry",
+    "job_benefits",
+    "job_duration",
+    "job_immediate_start",
+    "job_location",
+    "job_location_type",
+    "job_start_date",
+    "occupational_category",
+    "physical_requirement",
+    "qualifications",
+    "relevant_occupation",
+    "responsibilities",
+    "salary_currency",
+    "security_clearance_requirement",
+    "sensory_requirement",
+    "skills",
+    "special_commitments",
+    "title",
+    "total_job_openings",
+    "valid_through",
+    "work_hours"
+  ],
+  "identity_hash": "be57a4a96f15d58f7ca61b7bcc209ebd95ee048ad83f1a177071698551c7717f",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "be57a4a96f15d58f7ca61b7bcc209ebd95ee048ad83f1a177071698551c7717f",
+  "purpose_statement": "JobPosting",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

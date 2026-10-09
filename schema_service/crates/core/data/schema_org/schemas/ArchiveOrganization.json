@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "ArchiveOrganization",
+  "field_classifications": {
+    "archive_held": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "archive_held": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "archive_held": "Collection, [fonds](https://en.wikipedia.org/wiki/Fonds), or item held, kept or maintained by an [[ArchiveOrganization]].",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "archive_held": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "archive_held",
+    "identifier"
+  ],
+  "identity_hash": "aa1106cc229f0a8f66389fa9fbbbd52e8004a861c6df968500e9af3ac1b7fea9",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "aa1106cc229f0a8f66389fa9fbbbd52e8004a861c6df968500e9af3ac1b7fea9",
+  "purpose_statement": "ArchiveOrganization",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

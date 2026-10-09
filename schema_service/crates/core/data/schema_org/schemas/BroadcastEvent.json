@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "BroadcastEvent",
+  "field_classifications": {
+    "broadcast_of_event": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "is_live_broadcast": [
+      "word"
+    ],
+    "subtitle_language": [
+      "word"
+    ],
+    "video_format": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "broadcast_of_event": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "is_live_broadcast": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "subtitle_language": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    },
+    "video_format": {
+      "data_domain": "media",
+      "sensitivity_level": 1
+    }
+  },
+  "field_descriptions": {
+    "broadcast_of_event": "The event being broadcast such as a sporting event or awards ceremony.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "is_live_broadcast": "True if the broadcast is of a live event.",
+    "subtitle_language": "Languages in which subtitles/captions are available, in [IETF BCP 47 standard format](http://tools.ietf.org/html/bcp47).",
+    "video_format": "The type of screening or video broadcast used (e.g. IMAX, 3D, SD, HD, etc.)."
+  },
+  "field_types": {
+    "broadcast_of_event": "String",
+    "identifier": "String",
+    "is_live_broadcast": "Boolean",
+    "subtitle_language": "String",
+    "video_format": "String"
+  },
+  "fields": [
+    "broadcast_of_event",
+    "identifier",
+    "is_live_broadcast",
+    "subtitle_language",
+    "video_format"
+  ],
+  "identity_hash": "816015fb9ea98f41754a38d7dd734a445306ac0bf06a3715725435ac0f5bd567",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "816015fb9ea98f41754a38d7dd734a445306ac0bf06a3715725435ac0f5bd567",
+  "purpose_statement": "BroadcastEvent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

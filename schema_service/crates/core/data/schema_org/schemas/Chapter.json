@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "Chapter",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "page_end": [
+      "number"
+    ],
+    "page_start": [
+      "number"
+    ],
+    "pagination": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "page_end": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "page_start": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pagination": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "page_end": "The page on which the work ends; for example \"138\" or \"xvi\".",
+    "page_start": "The page on which the work starts; for example \"135\" or \"xiii\".",
+    "pagination": "Any description of pages that is not separated into pageStart and pageEnd; for example, \"1-6, 9, 55\" or \"10-12, 46-49\"."
+  },
+  "field_types": {
+    "identifier": "String",
+    "page_end": "Integer",
+    "page_start": "Integer",
+    "pagination": "String"
+  },
+  "fields": [
+    "identifier",
+    "page_end",
+    "page_start",
+    "pagination"
+  ],
+  "identity_hash": "d350fecfe55de2870ff5e6fcd9a07c936addae7305f6e28bf8dbacd5b6613da8",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d350fecfe55de2870ff5e6fcd9a07c936addae7305f6e28bf8dbacd5b6613da8",
+  "purpose_statement": "Chapter",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "Gene",
+  "field_classifications": {
+    "alternative_of": [
+      "word"
+    ],
+    "encodes_bio_chem_entity": [
+      "word"
+    ],
+    "expressed_in": [
+      "word"
+    ],
+    "has_bio_polymer_sequence": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "alternative_of": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "encodes_bio_chem_entity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "expressed_in": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_bio_polymer_sequence": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "alternative_of": "Another gene which is a variation of this one.",
+    "encodes_bio_chem_entity": "Another BioChemEntity encoded by this one.",
+    "expressed_in": "Tissue, organ, biological sample, etc in which activity of this gene has been observed experimentally. For example brain, digestive system.",
+    "has_bio_polymer_sequence": "A symbolic representation of a BioChemEntity. For example, a nucleotide sequence of a Gene or an amino acid sequence of a Protein.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "alternative_of": "String",
+    "encodes_bio_chem_entity": "String",
+    "expressed_in": "String",
+    "has_bio_polymer_sequence": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "alternative_of",
+    "encodes_bio_chem_entity",
+    "expressed_in",
+    "has_bio_polymer_sequence",
+    "identifier"
+  ],
+  "identity_hash": "d20dbc5ad17688a12acbd053ce4e7410c055545b937892c7e940fc107ade965e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d20dbc5ad17688a12acbd053ce4e7410c055545b937892c7e940fc107ade965e",
+  "purpose_statement": "Gene",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

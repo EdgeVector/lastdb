@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "UKNonprofitType",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "b024fba001ed168a07890f1b979cb93961f41d4dc0d2534e8d97642babb772a5",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b024fba001ed168a07890f1b979cb93961f41d4dc0d2534e8d97642babb772a5",
+  "purpose_statement": "UKNonprofitType",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

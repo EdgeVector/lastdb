@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "SizeGroupEnumeration",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "779d34a3ab760bb316d2ff4e0134ed1fa4db3bf319651c1ef65024acbbe1b7a6",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "779d34a3ab760bb316d2ff4e0134ed1fa4db3bf319651c1ef65024acbbe1b7a6",
+  "purpose_statement": "SizeGroupEnumeration",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

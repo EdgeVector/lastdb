@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "HealthTopicContent",
+  "field_classifications": {
+    "has_health_aspect": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "has_health_aspect": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "has_health_aspect": "Indicates the aspect or aspects specifically addressed in some [[HealthTopicContent]]. For example, that the content is an overview, or that it talks about treatment, self-care, treatments or their side-effects.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "has_health_aspect": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "has_health_aspect",
+    "identifier"
+  ],
+  "identity_hash": "06673f852c3a66d71b1910b7fd956b89079663aea9d695e6f39f57e149744f2c",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "06673f852c3a66d71b1910b7fd956b89079663aea9d695e6f39f57e149744f2c",
+  "purpose_statement": "HealthTopicContent",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

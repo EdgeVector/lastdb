@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "BankAccount",
+  "field_classifications": {
+    "account_minimum_inflow": [
+      "word"
+    ],
+    "account_overdraft_limit": [
+      "word"
+    ],
+    "bank_account_type": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "account_minimum_inflow": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "account_overdraft_limit": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "bank_account_type": {
+      "data_domain": "financial",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "account_minimum_inflow": "A minimum amount that has to be paid in every month.",
+    "account_overdraft_limit": "An overdraft is an extension of credit from a lending institution when an account reaches zero. An overdraft allows the individual to continue withdrawing money even if the account has no funds in it. Basically the bank allows people to borrow a set amount of money.",
+    "bank_account_type": "The type of a bank account.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "account_minimum_inflow": "String",
+    "account_overdraft_limit": "String",
+    "bank_account_type": "String",
+    "identifier": "String"
+  },
+  "fields": [
+    "account_minimum_inflow",
+    "account_overdraft_limit",
+    "bank_account_type",
+    "identifier"
+  ],
+  "identity_hash": "c2cd19f9b0dff75939b283abd5aaf4305ae2eefedde0efbd96bf0e422ff5bff4",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "c2cd19f9b0dff75939b283abd5aaf4305ae2eefedde0efbd96bf0e422ff5bff4",
+  "purpose_statement": "BankAccount",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

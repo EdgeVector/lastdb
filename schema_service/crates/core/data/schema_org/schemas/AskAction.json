@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "AskAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "question": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "question": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "question": "A sub property of object. A question."
+  },
+  "field_types": {
+    "identifier": "String",
+    "question": "String"
+  },
+  "fields": [
+    "identifier",
+    "question"
+  ],
+  "identity_hash": "ecfa5961713ff5a620fa2e2ad0b02c06e20e08f7adb7d983ed82657142ec5dcb",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "ecfa5961713ff5a620fa2e2ad0b02c06e20e08f7adb7d983ed82657142ec5dcb",
+  "purpose_statement": "AskAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

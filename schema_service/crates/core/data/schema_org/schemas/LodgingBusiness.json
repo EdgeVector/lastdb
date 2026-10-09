@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "LodgingBusiness",
+  "field_classifications": {
+    "amenity_feature": [
+      "word"
+    ],
+    "audience": [
+      "word"
+    ],
+    "available_language": [
+      "word"
+    ],
+    "checkin_time": [
+      "word"
+    ],
+    "checkout_time": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "number_of_rooms": [
+      "number"
+    ],
+    "pets_allowed": [
+      "word"
+    ],
+    "star_rating": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "amenity_feature": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "audience": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "available_language": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "checkin_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "checkout_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "number_of_rooms": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "pets_allowed": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "star_rating": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "amenity_feature": "An amenity feature (e.g. a characteristic or service) of the Accommodation. This generic property does not make a statement about whether the feature is included in an offer for the main accommodation or available at extra costs.",
+    "audience": "An intended audience, i.e. a group for whom something was created.",
+    "available_language": "A language someone may use with or at the item, service or place. Please use one of the language codes from the [IETF BCP 47 standard](http://tools.ietf.org/html/bcp47). See also [[inLanguage]].",
+    "checkin_time": "The earliest someone may check into a lodging establishment.",
+    "checkout_time": "The latest someone may check out of a lodging establishment.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "number_of_rooms": "The number of rooms (excluding bathrooms and closets) of the accommodation or lodging business.\nTypical unit code(s): ROM for room or C62 for no unit. The type of room can be put in the unitText property of the QuantitativeValue.",
+    "pets_allowed": "Indicates whether pets are allowed to enter the accommodation or lodging business. More detailed information can be put in a text value.",
+    "star_rating": "An official rating for a lodging business or food establishment, e.g. from national associations or standards bodies. Use the author property to indicate the rating organization, e.g. as an Organization with name such as (e.g. HOTREC, DEHOGA, WHR, or Hotelstars)."
+  },
+  "field_types": {
+    "amenity_feature": "String",
+    "audience": "String",
+    "available_language": "String",
+    "checkin_time": "String",
+    "checkout_time": "String",
+    "identifier": "String",
+    "number_of_rooms": "Float",
+    "pets_allowed": "Boolean",
+    "star_rating": "String"
+  },
+  "fields": [
+    "amenity_feature",
+    "audience",
+    "available_language",
+    "checkin_time",
+    "checkout_time",
+    "identifier",
+    "number_of_rooms",
+    "pets_allowed",
+    "star_rating"
+  ],
+  "identity_hash": "863ba1576fe567f6c5d8abc252524738e010dd5f83f5ca5e59b5ca297cdcd14b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "863ba1576fe567f6c5d8abc252524738e010dd5f83f5ca5e59b5ca297cdcd14b",
+  "purpose_statement": "LodgingBusiness",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "LoseAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "winner": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "winner": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "winner": "A sub property of participant. The winner of the action."
+  },
+  "field_types": {
+    "identifier": "String",
+    "winner": "String"
+  },
+  "fields": [
+    "identifier",
+    "winner"
+  ],
+  "identity_hash": "d7cbbdcaaa4185fec8b3edb3da218b6a9e555342e87741833993f87b57f2a828",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "d7cbbdcaaa4185fec8b3edb3da218b6a9e555342e87741833993f87b57f2a828",
+  "purpose_statement": "LoseAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

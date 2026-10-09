@@ -1,0 +1,112 @@
+{
+  "descriptive_name": "ExercisePlan",
+  "field_classifications": {
+    "activity_duration": [
+      "word"
+    ],
+    "activity_frequency": [
+      "word"
+    ],
+    "additional_variable": [
+      "word"
+    ],
+    "exercise_type": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "intensity": [
+      "word"
+    ],
+    "repetitions": [
+      "number"
+    ],
+    "rest_periods": [
+      "word"
+    ],
+    "workload": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "activity_duration": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "activity_frequency": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "additional_variable": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "exercise_type": {
+      "data_domain": "general",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "intensity": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "repetitions": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "rest_periods": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "workload": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "activity_duration": "Length of time to engage in the activity.",
+    "activity_frequency": "How often one should engage in the activity.",
+    "additional_variable": "Any additional component of the exercise prescription that may need to be articulated to the patient. This may include the order of exercises, the number of repetitions of movement, quantitative distance, progressions over time, etc.",
+    "exercise_type": "Type(s) of exercise or activity, such as strength training, flexibility training, aerobics, cardiac rehabilitation, etc.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "intensity": "Quantitative measure gauging the degree of force involved in the exercise, for example, heartbeats per minute. May include the velocity of the movement.",
+    "repetitions": "Number of times one should repeat the activity.",
+    "rest_periods": "How often one should break from the activity.",
+    "workload": "Quantitative measure of the physiologic output of the exercise; also referred to as energy expenditure."
+  },
+  "field_types": {
+    "activity_duration": "String",
+    "activity_frequency": "String",
+    "additional_variable": "String",
+    "exercise_type": "String",
+    "identifier": "String",
+    "intensity": "String",
+    "repetitions": "Float",
+    "rest_periods": "String",
+    "workload": "String"
+  },
+  "fields": [
+    "activity_duration",
+    "activity_frequency",
+    "additional_variable",
+    "exercise_type",
+    "identifier",
+    "intensity",
+    "repetitions",
+    "rest_periods",
+    "workload"
+  ],
+  "identity_hash": "e53b5de8c625c523b7450d0a5d734cf77590d5ef7d3668c6e2091d17807796c4",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "e53b5de8c625c523b7450d0a5d734cf77590d5ef7d3668c6e2091d17807796c4",
+  "purpose_statement": "ExercisePlan",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

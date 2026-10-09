@@ -1,0 +1,72 @@
+{
+  "descriptive_name": "ShippingService",
+  "field_classifications": {
+    "fulfillment_type": [
+      "word"
+    ],
+    "handling_time": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "shipping_conditions": [
+      "word"
+    ],
+    "valid_for_member_tier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "fulfillment_type": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "handling_time": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "shipping_conditions": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "valid_for_member_tier": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "fulfillment_type": "Type of fulfillment applicable to the [[ShippingService]].",
+    "handling_time": "The typical delay between the receipt of the order and the goods either leaving the warehouse or being prepared for pickup, in case the delivery method is on site pickup.\n\nIn the context of [[ShippingDeliveryTime]], Typical properties: minValue, maxValue, unitCode (d for DAY).  This is by common convention assumed to mean business days (if a unitCode is used, coded as \"d\"), i.e. only counting days when the business normally operates.\n\nIn the context of [[ShippingService]], use the [[ServicePeriod]] format, that contains the same information in a structured form, with cut-off time, business days and duration.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "shipping_conditions": "The conditions (constraints, price) applicable to the [[ShippingService]].",
+    "valid_for_member_tier": "The membership program tier(s) an Offer (or a PriceSpecification, OfferShippingDetails, or MerchantReturnPolicy under an Offer) is valid for."
+  },
+  "field_types": {
+    "fulfillment_type": "String",
+    "handling_time": "String",
+    "identifier": "String",
+    "shipping_conditions": "String",
+    "valid_for_member_tier": "String"
+  },
+  "fields": [
+    "fulfillment_type",
+    "handling_time",
+    "identifier",
+    "shipping_conditions",
+    "valid_for_member_tier"
+  ],
+  "identity_hash": "74c280b03cc29b5a8e9b566ec1e9653335736dc65cc0c30c73fef7d97a935638",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "74c280b03cc29b5a8e9b566ec1e9653335736dc65cc0c30c73fef7d97a935638",
+  "purpose_statement": "ShippingService",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

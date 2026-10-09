@@ -1,0 +1,42 @@
+{
+  "descriptive_name": "MedicalSignOrSymptom",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ],
+    "possible_treatment": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "possible_treatment": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "possible_treatment": "A possible treatment to address this condition, sign or symptom."
+  },
+  "field_types": {
+    "identifier": "String",
+    "possible_treatment": "String"
+  },
+  "fields": [
+    "identifier",
+    "possible_treatment"
+  ],
+  "identity_hash": "13e76141ebaea90693ff72064b2500e51e8d227a3129bac31d051c7b824bfdff",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "13e76141ebaea90693ff72064b2500e51e8d227a3129bac31d051c7b824bfdff",
+  "purpose_statement": "MedicalSignOrSymptom",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

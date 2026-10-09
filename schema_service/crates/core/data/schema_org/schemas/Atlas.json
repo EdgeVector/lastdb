@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "Atlas",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "bbf5062e75202e3f4e898532e19a802e0e1a53ccb3f50cffbde19c3749a0dd8b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "bbf5062e75202e3f4e898532e19a802e0e1a53ccb3f50cffbde19c3749a0dd8b",
+  "purpose_statement": "Atlas",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

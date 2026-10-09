@@ -1,0 +1,62 @@
+{
+  "descriptive_name": "LocationFeatureSpecification",
+  "field_classifications": {
+    "hours_available": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "valid_from": [
+      "word"
+    ],
+    "valid_through": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "hours_available": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "valid_from": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    },
+    "valid_through": {
+      "data_domain": "temporal",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "hours_available": "The hours during which this service or contact is available.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "valid_from": "The date when the item becomes valid.",
+    "valid_through": "The date after when the item is not valid. For example the end of an offer, salary period, or a period of opening hours."
+  },
+  "field_types": {
+    "hours_available": "String",
+    "identifier": "String",
+    "valid_from": "String",
+    "valid_through": "String"
+  },
+  "fields": [
+    "hours_available",
+    "identifier",
+    "valid_from",
+    "valid_through"
+  ],
+  "identity_hash": "b82ec76bb5d8b649d15edf627068e777b1dca09f46e8011cc7cd447cda3df9ef",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "b82ec76bb5d8b649d15edf627068e777b1dca09f46e8011cc7cd447cda3df9ef",
+  "purpose_statement": "LocationFeatureSpecification",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

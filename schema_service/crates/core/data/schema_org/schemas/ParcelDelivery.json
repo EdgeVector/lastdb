@@ -1,0 +1,152 @@
+{
+  "descriptive_name": "ParcelDelivery",
+  "field_classifications": {
+    "carrier": [
+      "word"
+    ],
+    "delivery_address": [
+      "word"
+    ],
+    "delivery_status": [
+      "word"
+    ],
+    "expected_arrival_from": [
+      "word"
+    ],
+    "expected_arrival_until": [
+      "word"
+    ],
+    "has_delivery_method": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "item_shipped": [
+      "word"
+    ],
+    "origin_address": [
+      "word"
+    ],
+    "part_of_order": [
+      "word"
+    ],
+    "provider": [
+      "word"
+    ],
+    "tracking_number": [
+      "word"
+    ],
+    "tracking_url": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "carrier": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "delivery_address": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "delivery_status": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "expected_arrival_from": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "expected_arrival_until": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "has_delivery_method": {
+      "data_domain": "commerce",
+      "sensitivity_level": 2
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "item_shipped": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "origin_address": {
+      "data_domain": "location",
+      "sensitivity_level": 3
+    },
+    "part_of_order": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "provider": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tracking_number": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "tracking_url": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "carrier": "'carrier' is an out-dated term indicating the 'provider' for parcel delivery and flights.",
+    "delivery_address": "Destination address.",
+    "delivery_status": "New entry added as the package passes through each leg of its journey (from shipment to final delivery).",
+    "expected_arrival_from": "The earliest date the package may arrive.",
+    "expected_arrival_until": "The latest date the package may arrive.",
+    "has_delivery_method": "Method used for delivery or shipping.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "item_shipped": "Item(s) being shipped.",
+    "origin_address": "Shipper's address.",
+    "part_of_order": "The overall order the items in this delivery were included in.",
+    "provider": "The service provider, service operator, or service performer; the goods producer. Another party (a seller) may offer those services or goods on behalf of the provider. A provider may also serve as the seller.",
+    "tracking_number": "Shipper tracking number.",
+    "tracking_url": "Tracking url for the parcel delivery."
+  },
+  "field_types": {
+    "carrier": "String",
+    "delivery_address": "String",
+    "delivery_status": "String",
+    "expected_arrival_from": "String",
+    "expected_arrival_until": "String",
+    "has_delivery_method": "String",
+    "identifier": "String",
+    "item_shipped": "String",
+    "origin_address": "String",
+    "part_of_order": "String",
+    "provider": "String",
+    "tracking_number": "String",
+    "tracking_url": "String"
+  },
+  "fields": [
+    "carrier",
+    "delivery_address",
+    "delivery_status",
+    "expected_arrival_from",
+    "expected_arrival_until",
+    "has_delivery_method",
+    "identifier",
+    "item_shipped",
+    "origin_address",
+    "part_of_order",
+    "provider",
+    "tracking_number",
+    "tracking_url"
+  ],
+  "identity_hash": "5bd548dc5d79bc4b2545edab6420f017d0f76c0a813d149bd8d52f81027a9d94",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "5bd548dc5d79bc4b2545edab6420f017d0f76c0a813d149bd8d52f81027a9d94",
+  "purpose_statement": "ParcelDelivery",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

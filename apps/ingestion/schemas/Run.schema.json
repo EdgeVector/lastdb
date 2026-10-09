@@ -1,0 +1,35 @@
+{
+  "name": "ingestion/Run",
+  "descriptive_name": "Ingestion Run",
+  "purpose_statement": "One explicit zero-UI Ingestion sidecar invocation.",
+  "schema_type": "Hash",
+  "fields": [
+    "run_id",
+    "operation",
+    "status",
+    "source_kind",
+    "source_path",
+    "started_at",
+    "finished_at",
+    "scanned_files",
+    "written_records",
+    "result_id",
+    "error_id"
+  ],
+  "key": {
+    "hash_field": "run_id"
+  },
+  "field_descriptions": {
+    "run_id": "Stable invocation id.",
+    "operation": "ingest_file for this initial slice.",
+    "status": "queued, running, succeeded, failed, cancelled, or blocked.",
+    "source_kind": "file or folder.",
+    "source_path": "Source path supplied to the sidecar.",
+    "started_at": "RFC3339 start timestamp.",
+    "finished_at": "RFC3339 finish timestamp.",
+    "scanned_files": "Count of files scanned.",
+    "written_records": "Count of app-owned records written.",
+    "result_id": "Related ingestion/IngestedFile id when succeeded.",
+    "error_id": "Related ingestion/AppError id when blocked or failed."
+  }
+}

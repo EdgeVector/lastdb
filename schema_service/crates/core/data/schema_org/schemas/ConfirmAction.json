@@ -1,0 +1,32 @@
+{
+  "descriptive_name": "ConfirmAction",
+  "field_classifications": {
+    "identifier": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    }
+  },
+  "field_descriptions": {
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details."
+  },
+  "field_types": {
+    "identifier": "String"
+  },
+  "fields": [
+    "identifier"
+  ],
+  "identity_hash": "fdcf7cbb5b83260fa0d7deaee5564baad316a1d870974a09dbb2881f93610d8b",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "fdcf7cbb5b83260fa0d7deaee5564baad316a1d870974a09dbb2881f93610d8b",
+  "purpose_statement": "ConfirmAction",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}

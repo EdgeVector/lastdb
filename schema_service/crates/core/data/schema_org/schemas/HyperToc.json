@@ -1,0 +1,52 @@
+{
+  "descriptive_name": "HyperToc",
+  "field_classifications": {
+    "associated_media": [
+      "word"
+    ],
+    "identifier": [
+      "word"
+    ],
+    "toc_entry": [
+      "word"
+    ]
+  },
+  "field_data_classifications": {
+    "associated_media": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    },
+    "identifier": {
+      "data_domain": "content",
+      "sensitivity_level": 0
+    },
+    "toc_entry": {
+      "data_domain": "general",
+      "sensitivity_level": 4
+    }
+  },
+  "field_descriptions": {
+    "associated_media": "A media object that encodes this CreativeWork. This property is a synonym for encoding.",
+    "identifier": "The identifier property represents any kind of identifier for any kind of [[Thing]], such as ISBNs, GTIN codes, UUIDs etc. Schema.org provides dedicated properties for representing many of these, either as textual strings or as URL (URI) links. See [background notes](/docs/datamodel.html#identifierBg) for more details.",
+    "toc_entry": "Indicates a [[HyperTocEntry]] in a [[HyperToc]]."
+  },
+  "field_types": {
+    "associated_media": "String",
+    "identifier": "String",
+    "toc_entry": "String"
+  },
+  "fields": [
+    "associated_media",
+    "identifier",
+    "toc_entry"
+  ],
+  "identity_hash": "f5611e7968fb69fea7d8e55a7574d145c4e98585840b9cfff8e043e0f1d9193e",
+  "key": {
+    "hash_field": "identifier",
+    "range_field": null
+  },
+  "name": "f5611e7968fb69fea7d8e55a7574d145c4e98585840b9cfff8e043e0f1d9193e",
+  "purpose_statement": "HyperToc",
+  "schema_type": "Hash",
+  "source": "starter_seed"
+}
