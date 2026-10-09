@@ -28,7 +28,7 @@ impl SyncEngine {
             target_generation: report.target_generation,
         };
         if let Ok(mut tracker) = self.backup_progress.lock() {
-            tracker.observe(sample);
+            tracker.observe(&sample);
         }
     }
 
