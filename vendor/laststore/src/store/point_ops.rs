@@ -143,7 +143,9 @@ impl LastStore {
     /// `retain_group_ids`.
     pub fn load_point(&self, collection: &str, storage_key: &str) -> Result<Option<LoadedPoint>> {
         let key = self.point_key(collection, storage_key);
-        let handle = self.open_group_unpublished(key)?;
+        let Some(handle) = self.open_point_group_unpublished(key, false)? else {
+            return Ok(None);
+        };
         Self::copy_loaded_point(&handle, storage_key)
     }
 
@@ -155,7 +157,7 @@ impl LastStore {
         storage_key: &str,
     ) -> Result<Option<LoadedPoint>> {
         let key = self.point_key(collection, storage_key);
-        let Some(handle) = self.open_existing_group_unpublished(key)? else {
+        let Some(handle) = self.open_point_group_unpublished(key, true)? else {
             return Ok(None);
         };
         Self::copy_loaded_point(&handle, storage_key)
@@ -216,13 +218,8 @@ impl LastStore {
         }
         let mut out = vec![None; storage_keys.len()];
         for (key, entries) in by_group {
-            let handle = if skip_absent_groups {
-                let Some(handle) = self.open_existing_group_unpublished(key)? else {
-                    continue;
-                };
-                handle
-            } else {
-                self.open_group_unpublished(key)?
+            let Some(handle) = self.open_point_group_unpublished(key, skip_absent_groups)? else {
+                continue;
             };
             {
                 let mut shard = handle.lock().expect("poison");
