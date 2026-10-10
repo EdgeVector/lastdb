@@ -87,8 +87,6 @@ tokio = { workspace = true, features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
 sha2 = { workspace = true }
 
-tracing-subscriber = { workspace = true }
-
 # Statistical micro-benchmark harness for `benches/*` (criterion_main).
 # Pure dev-dependency: never linked into the shipped library. `async_tokio`
 # enables `Bencher::to_async(&runtime)` so the async storage API can be driven

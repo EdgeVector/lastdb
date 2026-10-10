@@ -8,7 +8,6 @@ description = "Pure schema match engine (native_component_cover) — config-in, 
 
 [dependencies]
 serde = { workspace = true }
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

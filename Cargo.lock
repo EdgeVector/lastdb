@@ -2031,7 +2031,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "tracing-subscriber",
  "uuid",
  "zeroize",
 ]
@@ -4602,7 +4601,6 @@ name = "schema_core_resolver"
 version = "0.1.0"
 dependencies = [
  "serde",
- "serde_json",
 ]
 
 [[package]]
