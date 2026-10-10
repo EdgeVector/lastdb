@@ -18,6 +18,7 @@ mod atom_gc;
 mod atom_source_proof;
 mod file_blob_gc;
 mod home;
+mod normal_snapshot;
 mod reap;
 mod residue;
 mod target_atom_gc;
@@ -297,6 +298,8 @@ enum Cmd {
     FileBlobGcOffline(file_blob_gc::FileBlobGcArgs),
     /// Plan or append exact guarded atom deletes on a stopped home.
     TargetAtomGcOffline(target_atom_gc::TargetAtomGcArgs),
+    /// Publish a genuine normal snapshot from a clean stopped primary.
+    NormalSnapshotOffline(normal_snapshot::NormalSnapshotArgs),
 }
 
 /// Decode optional plain/`--after-hex` resume cursors. Hex is required when the
@@ -457,6 +460,10 @@ fn run() -> Result<(), String> {
             json,
         }),
         Cmd::Reap(reap_args) => reap::run(&home, reap_args),
+        Cmd::NormalSnapshotOffline(mut snapshot_args) => {
+            snapshot_args.home = home;
+            normal_snapshot::run(&snapshot_args)
+        }
         Cmd::TargetAtomGcOffline(mut atom_args) => {
             atom_args.home = home;
             target_atom_gc::run(&atom_args)
