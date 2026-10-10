@@ -47,7 +47,6 @@ pub fn snapshot_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
 /// The status JSON keeps the runtime schema `name` as its stable key. The
 /// `lastdb ops` CLI supplies a best-effort `name -> descriptive_name` map so
 /// terminal rows show the product name plus an eight-character stable ID.
-// lint:fn-size-ok moved verbatim from request_telemetry.rs; splitting this function is separate work.
 pub fn snapshot_lines_with_schema_labels(
     snap: &RequestTelemetrySnapshot,
     labels: &SchemaLabels,
@@ -77,6 +76,25 @@ pub fn snapshot_lines_with_schema_labels(
 
     lines.extend(app_verb_table_lines(snap));
 
+    lines.extend(key_use_lines(snap));
+    lines.extend(top_total_time_lines(snap, labels));
+    lines.extend(ring_cold_load_lines(snap, labels));
+    lines.extend(lifetime_cold_load_lines(snap, labels));
+    lines.extend(body_volume_lines(snap, labels));
+    lines.extend(idle_wait_lines(snap));
+    lines.extend(slowest_request_lines(snap, labels));
+
+    // LAST on purpose: `lastdb status` prints only the first few of these
+    // lines, so a new table above the app/verb block would silently push
+    // the offender summary out of `status`.
+    lines.extend(phase_table_lines(&snap.top_by_total_ms, labels));
+
+    lines
+}
+
+/// Distinct returned-tip-key table for the recent window.
+fn key_use_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
+    let mut lines = Vec::new();
     if let Some(key_use) = &snap.key_use {
         lines.push(String::new());
         lines.push(format!(
@@ -95,7 +113,12 @@ pub fn snapshot_lines_with_schema_labels(
             ));
         }
     }
+    lines
+}
 
+/// Top keys by total service time over the process lifetime.
+fn top_total_time_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels) -> Vec<String> {
+    let mut lines = Vec::new();
     let now = unix_millis();
     lines.push(String::new());
     lines.push("Top by total time — process lifetime; idle long-poll wait excluded".to_string());
@@ -140,7 +163,12 @@ pub fn snapshot_lines_with_schema_labels(
             true, false, false, false, true, true, true, true, true, false,
         ],
     ));
+    lines
+}
 
+/// Cold shard loads over the recent ring window.
+fn ring_cold_load_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels) -> Vec<String> {
+    let mut lines = Vec::new();
     // Ring-window cold loads first: the ranking agents use for the *live*
     // window. Lifetime averages retain start-of-day cold-miss bursts forever and
     // must never be presented as the current per-call load.
@@ -188,7 +216,12 @@ pub fn snapshot_lines_with_schema_labels(
             &[true, false, false, false, true, true, true, true, true],
         ));
     }
+    lines
+}
 
+/// Cold shard loads over the process lifetime.
+fn lifetime_cold_load_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels) -> Vec<String> {
+    let mut lines = Vec::new();
     if !snap.top_by_cold_shard_loads.is_empty() {
         lines.push(String::new());
         lines.push(
@@ -232,7 +265,12 @@ pub fn snapshot_lines_with_schema_labels(
             &[true, false, false, false, true, true, true, true, true],
         ));
     }
+    lines
+}
 
+/// Request body volume over the process lifetime.
+fn body_volume_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels) -> Vec<String> {
+    let mut lines = Vec::new();
     if !snap.top_by_body_bytes.is_empty() {
         lines.push(String::new());
         lines.push(
@@ -273,7 +311,12 @@ pub fn snapshot_lines_with_schema_labels(
             &[true, false, false, false, true, true, true, true, true],
         ));
     }
+    lines
+}
 
+/// Idle long-poll wait, kept apart from node work.
+fn idle_wait_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
+    let mut lines = Vec::new();
     if !snap.idle_wait.is_empty() {
         lines.push(String::new());
         lines.push("Idle long-poll wait — client-requested sleep, not node work".to_string());
@@ -300,7 +343,12 @@ pub fn snapshot_lines_with_schema_labels(
             &[true, false, false, true, true, true, true],
         ));
     }
+    lines
+}
 
+/// Slowest recent requests with per-request detail.
+fn slowest_request_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels) -> Vec<String> {
+    let mut lines = Vec::new();
     if !snap.top_by_duration.is_empty() {
         lines.push(String::new());
         lines.push("Slowest recent requests — idle long-poll wait excluded".to_string());
@@ -390,12 +438,6 @@ pub fn snapshot_lines_with_schema_labels(
             lines.extend(detail_lines);
         }
     }
-
-    // LAST on purpose: `lastdb status` prints only the first few of these
-    // lines, so a new table above the app/verb block would silently push
-    // the offender summary out of `status`.
-    lines.extend(phase_table_lines(&snap.top_by_total_ms, labels));
-
     lines
 }
 
