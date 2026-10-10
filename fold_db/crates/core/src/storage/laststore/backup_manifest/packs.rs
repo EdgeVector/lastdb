@@ -1,5 +1,16 @@
 use super::BackupChunkRef;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+/// One local sealed chunk selected for cloud backup upload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackupChunkUploadCandidate {
+    pub chunk: BackupChunkRef,
+    pub path: PathBuf,
+    /// A synthetic pack names its source files here. Its path is the local
+    /// directory for the short-lived pack file built only during upload.
+    pub pack_members: Option<Vec<Self>>,
+}
 
 /// One original file's location in a byte-for-byte cloud pack.
 /// The original digest stays in `BackupChunkRef::sha256`.

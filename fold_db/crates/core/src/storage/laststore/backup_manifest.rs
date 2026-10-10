@@ -253,16 +253,6 @@ pub struct BackupNamedHole {
     pub role: BackupManifestRole,
 }
 
-/// One local sealed chunk selected for cloud backup upload.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackupChunkUploadCandidate {
-    pub chunk: BackupChunkRef,
-    pub path: PathBuf,
-    /// A synthetic pack names its source files here. Its path is the local
-    /// directory for the short-lived pack file built only during upload.
-    pub pack_members: Option<Vec<BackupChunkUploadCandidate>>,
-}
-
 /// Select cloud backup chunk digests that are safe to reclaim: present in the
 /// cloud listing, but referenced by none of the keep-set manifests (current +
 /// recent retained cuts). Live-manifest digests are never returned.

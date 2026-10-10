@@ -75,31 +75,7 @@ impl SyncEngine {
         }
     }
 
-    /// Replay a single log entry with convergent per-key molecule handling.
-    ///
-    /// Non-molecule keys (atoms, history) are written unconditionally.
-    /// Per-key molecule records merge via LWW. Legacy whole-molecule `ref:`
-    /// keys are dropped (product path retired).
-    ///
-    /// **Org-scoped keys are skipped** (consented drop — incident 2026-07-13):
-    /// after the org-crypto map was removed, org-E2E ciphertext cannot be
-    /// opened by the personal provider. Keys matching
-    /// [`storage_prefix_for_key`] are dropped with a loud count rather than
-    /// failing bootstrap/sync replay with AES-GCM errors.
-    pub async fn replay_entry(
-        &self,
-        entry: &LogEntry,
-        target: Option<&SyncTarget>,
-    ) -> SyncResult<()> {
-        if self.backup_only_mode.load(Ordering::SeqCst) {
-            return Err(SyncError::Storage(
-                "paused-home backup blocks peer replay".into(),
-            ));
-        }
-        crate::sync::capture::with_capture_suppressed(self.replay_entry_inner(entry, target)).await
-    }
-
-    async fn replay_entry_inner(
+    pub(super) async fn replay_entry_inner(
         &self,
         entry: &LogEntry,
         target: Option<&SyncTarget>,
@@ -380,7 +356,7 @@ impl SyncEngine {
                             device_id: entry.device_id.clone(),
                             op,
                         };
-                        Box::pin(self.replay_entry(&child, target)).await?;
+                        Box::pin(self.replay_entry_inner(&child, target)).await?;
                     }
                     SyncResult::Ok(())
                 })

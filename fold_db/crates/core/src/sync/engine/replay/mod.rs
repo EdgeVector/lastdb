@@ -6,6 +6,7 @@
 mod apply;
 mod decode;
 mod entry;
+mod fence;
 mod merge;
 mod order;
 mod records;

@@ -36,7 +36,7 @@ pub fn verify_dev_field_index_debug_home(home: &Path, data_dir: &Path) -> Result
     #[cfg(not(debug_assertions))]
     {
         let _ = (home, data_dir);
-        return Err("field-index raw debug mode is unavailable in release builds".to_string());
+        Err("field-index raw debug mode is unavailable in release builds".to_string())
     }
 
     #[cfg(debug_assertions)]

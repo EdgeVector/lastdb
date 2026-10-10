@@ -2,6 +2,8 @@
 
 use super::*;
 
+type PackSlices<'a> = BTreeMap<&'a str, (u64, Vec<(u64, u64, &'a str)>)>;
+
 /// SHA-256 over the manifest's canonical JSON representation.
 pub fn manifest_sha256_hex(manifest: &BackupManifest) -> StorageResult<String> {
     let bytes = serde_json::to_vec(manifest)
@@ -106,7 +108,7 @@ fn validate_pack_locations(
     manifest: &BackupManifest,
     require_pack_coverage: bool,
 ) -> StorageResult<()> {
-    let mut packs: BTreeMap<&str, (u64, Vec<(u64, u64, &str)>)> = BTreeMap::new();
+    let mut packs: PackSlices<'_> = BTreeMap::new();
     for chunk in manifest.atom_chunks.iter().chain(&manifest.mutable_chunks) {
         let Some(pack) = &chunk.pack else { continue };
         let valid_sha = pack.sha256.len() == 64

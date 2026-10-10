@@ -5,6 +5,7 @@ use super::super::auth::AuthClient;
 use super::super::error::{SyncError, SyncResult};
 use super::super::s3::S3Client;
 mod packs;
+mod pointer;
 use super::pin_log::MutationLogReplayReport;
 use super::restore_progress::{self as progress, RestorePhase, RestoreProgress, TransferOperation};
 use super::RestoreChunkCache;
@@ -15,6 +16,10 @@ use crate::storage::laststore::{
 };
 use crate::sync::snapshot_log::Frontier;
 use futures::{stream::FuturesOrdered, StreamExt};
+pub use pointer::{
+    restore_laststore_cloud_backup_from_latest_pointer,
+    restore_laststore_cloud_backup_from_latest_pointer_with_cache,
+};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::time::Instant;
@@ -190,41 +195,6 @@ pub async fn restore_laststore_cloud_backup_from_rescue_with_cache(
         etag: String::new(),
     };
     restore_into_with_cache(auth, s3, store, progress, None, Some((pointer, true))).await
-}
-
-/// Restore the exact normal pointer that a source-free descriptor authenticated.
-pub async fn restore_laststore_cloud_backup_from_latest_pointer(
-    auth: &AuthClient,
-    s3: &S3Client,
-    store: &LastStoreNamespacedStore,
-    pointer: &BackupLatestGetResponse,
-    progress: Option<&RestoreProgress>,
-) -> Result<LastStoreCloudRestoreReport, S0RestoreFailure> {
-    restore_laststore_cloud_backup_from_latest_pointer_with_cache(
-        auth, s3, store, pointer, progress, None,
-    )
-    .await
-}
-
-/// Restore an exact normal pointer, reusing only digest-verified file bytes
-/// from a prior stopped home when available.
-pub async fn restore_laststore_cloud_backup_from_latest_pointer_with_cache(
-    auth: &AuthClient,
-    s3: &S3Client,
-    store: &LastStoreNamespacedStore,
-    pointer: &BackupLatestGetResponse,
-    progress: Option<&RestoreProgress>,
-    cache: Option<&RestoreChunkCache>,
-) -> Result<LastStoreCloudRestoreReport, S0RestoreFailure> {
-    restore_into_with_cache(
-        auth,
-        s3,
-        store,
-        progress,
-        cache,
-        Some((pointer.clone(), false)),
-    )
-    .await
 }
 
 fn require_independent_rescue_root(manifests: &[BackupManifest]) -> SyncResult<()> {

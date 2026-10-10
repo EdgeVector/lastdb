@@ -18,6 +18,28 @@ pub(crate) struct RemoteRecoverySelector<'a> {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct RemoteLatestOptions<'a> {
+    pub(crate) selection: RemoteRecoverySelector<'a>,
+    pub(crate) cache_home: Option<&'a Path>,
+}
+
+impl<'a> RemoteLatestOptions<'a> {
+    pub(crate) fn new(
+        db_hash: Option<&'a str>,
+        manifest_sha256: Option<&'a str>,
+        cache_home: Option<&'a Path>,
+    ) -> Self {
+        Self {
+            selection: RemoteRecoverySelector {
+                db_hash,
+                manifest_sha256,
+            },
+            cache_home,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(crate) enum RestoreSourceMode<'a> {
     Normal {
         cache_home: Option<&'a Path>,
@@ -244,8 +266,7 @@ pub(crate) fn restore_remote_latest_command(
     api_url: Option<String>,
     json_only: bool,
     progress_json: bool,
-    selection: RemoteRecoverySelector<'_>,
-    cache_home: Option<&Path>,
+    recovery: RemoteLatestOptions<'_>,
 ) -> Result<(), String> {
     if data_dir.is_none() {
         return Err(
@@ -262,8 +283,8 @@ pub(crate) fn restore_remote_latest_command(
         json_only,
         reporter.as_ref().map(|reporter| reporter.progress.as_ref()),
         RestoreSourceMode::RemoteLatest {
-            selection,
-            cache_home,
+            selection: recovery.selection,
+            cache_home: recovery.cache_home,
         },
     );
     if let Some(reporter) = reporter {
