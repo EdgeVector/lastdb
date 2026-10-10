@@ -452,7 +452,10 @@ fn flush_pack(
     ready: &mut Vec<BackupChunkUploadCandidate>,
     locations: &mut BTreeMap<FileKey, (String, BackupPackLocation)>,
 ) -> SyncResult<()> {
-    if !pending.is_empty() {
+    if pending.len() == 1 {
+        // One file already needs one cloud object. Keep its original digest.
+        ready.append(pending);
+    } else if !pending.is_empty() {
         let (pack, refs) = plan_pack(directory, std::mem::take(pending))?;
         for (key, sha, location) in refs {
             locations.insert(key, (sha, location));
