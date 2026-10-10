@@ -113,7 +113,7 @@ pub(crate) fn get_schema(state: &SchemaServiceState, p: &str) -> Result<Response
         .strip_prefix("/v1/schemas/")
         .or_else(|| p.strip_prefix("/v1/schema/"))
         .unwrap_or("");
-    get_schema_by_name(state, schema_name)
+    crate::http::get_schema_by_name(state, schema_name)
 }
 
 pub(crate) fn post_schemas_mutation_challenge(
@@ -394,21 +394,5 @@ pub(crate) fn post_schemas_resolve(
             400,
             &json!({"error": format!("Schema resolve failed: {e}")}),
         ),
-    }
-}
-
-fn get_schema_by_name(
-    state: &SchemaServiceState,
-    schema_name: &str,
-) -> Result<Response<Body>, Error> {
-    match state.get_schema_by_name(schema_name) {
-        Ok(Some(schema)) => {
-            let system = state.is_system_schema(&schema.name);
-            let envelope = SchemaEnvelope { schema, system };
-            let body = serde_json::to_value(envelope).map_err(serialization_error)?;
-            json_response(200, &body)
-        }
-        Ok(None) => json_response(404, &json!({"error": "Schema not found"})),
-        Err(e) => json_response(500, &json!({"error": format!("Failed to get schema: {e}")})),
     }
 }

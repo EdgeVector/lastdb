@@ -28,6 +28,8 @@ use schema_service_core::snapshot::{
 use serde_json::json;
 
 use artifacts::*;
+use embeddings::*;
+use manifest::*;
 use secrets::{load_signing_key, parse_trusted_keys};
 use upload::*;
 
@@ -520,6 +522,10 @@ async fn rollback(args: RollbackArgs) -> Result<(), String> {
 
 #[path = "schema_resolver_pack_publish/artifacts.rs"]
 mod artifacts;
+#[path = "schema_resolver_pack_publish/embeddings.rs"]
+mod embeddings;
+#[path = "schema_resolver_pack_publish/manifest.rs"]
+mod manifest;
 #[path = "schema_resolver_pack_publish/secrets.rs"]
 mod secrets;
 #[path = "schema_resolver_pack_publish/upload.rs"]

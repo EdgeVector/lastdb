@@ -7,6 +7,8 @@ use schema_service_core::{
     HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC, HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS,
     HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
+use schema_service_server_shared::state::SchemaServiceState;
+use schema_service_server_shared::types::SchemaEnvelope;
 use serde_json::{json, Value};
 
 /// Pull the `X-API-Key` header from a request. Header lookup is
@@ -215,4 +217,21 @@ pub(crate) fn v2_channel_path(path: &str) -> Option<(&str, &str)> {
         return None;
     }
     Some((app_id, channel))
+}
+
+/// `GET /v1/schema/{name}` body: the schema envelope, 404, or 500.
+pub(crate) fn get_schema_by_name(
+    state: &SchemaServiceState,
+    schema_name: &str,
+) -> Result<Response<Body>, Error> {
+    match state.get_schema_by_name(schema_name) {
+        Ok(Some(schema)) => {
+            let system = state.is_system_schema(&schema.name);
+            let envelope = SchemaEnvelope { schema, system };
+            let body = serde_json::to_value(envelope).map_err(serialization_error)?;
+            json_response(200, &body)
+        }
+        Ok(None) => json_response(404, &json!({"error": "Schema not found"})),
+        Err(e) => json_response(500, &json!({"error": format!("Failed to get schema: {e}")})),
+    }
 }
