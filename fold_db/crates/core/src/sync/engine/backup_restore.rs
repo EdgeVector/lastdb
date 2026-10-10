@@ -4,6 +4,7 @@ use super::super::auth::ops::{BackupLatestGetResponse, BackupLatestPointer, Resc
 use super::super::auth::AuthClient;
 use super::super::error::{SyncError, SyncResult};
 use super::super::s3::S3Client;
+mod packs;
 use super::pin_log::MutationLogReplayReport;
 use super::restore_progress::{self as progress, RestorePhase, RestoreProgress, TransferOperation};
 use super::RestoreChunkCache;
@@ -242,13 +243,10 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
             .await,
         )?,
     };
-    // The v1 reader stops here on a pointer that names another format. This
-    // runs before the first manifest presign so a v2 tip is a named
-    // `UnsupportedBackupFormat` at the pointer boundary, never a decode or
-    // chain-walk failure after cloud reads.
+    // Reject unknown formats before the first manifest request.
     at_s0_boundary(
         Boundary::LatestPointerValidation,
-        latest.latest.require_v1_format(),
+        latest.latest.require_supported_format(),
     )?;
     progress::phase(progress, RestorePhase::ManifestChain);
     let manifests =
@@ -269,7 +267,8 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
     // Defense-in-depth: `download_manifest_chain` already verified the tip
     // digest during its walk; re-check pointer fields against the body so a
     // mismatched latest row cannot install the wrong cut.
-    if latest.latest.store_uuid != manifest.store_uuid
+    if latest.latest.format_version() != manifest.version
+        || latest.latest.store_uuid != manifest.store_uuid
         || latest.latest.epoch != manifest.epoch
         || latest.latest.counter != manifest.counter
         || latest.latest.manifest_sha256
@@ -430,7 +429,7 @@ pub async fn laststore_published_backup_cut_detailed(
     let latest = at_s0_boundary(Boundary::LatestPointer, auth.backup_latest_get().await)?;
     at_s0_boundary(
         Boundary::LatestPointerValidation,
-        latest.latest.require_v1_format(),
+        latest.latest.require_supported_format(),
     )?;
     let manifests = download_manifest_chain(auth, s3, &latest.latest.manifest_sha256).await?;
     let manifest = at_s0_boundary(
@@ -439,7 +438,8 @@ pub async fn laststore_published_backup_cut_detailed(
             SyncError::Storage("backup restore found no valid manifests".to_string())
         }),
     )?;
-    if latest.latest.store_uuid != manifest.store_uuid
+    if latest.latest.format_version() != manifest.version
+        || latest.latest.store_uuid != manifest.store_uuid
         || latest.latest.epoch != manifest.epoch
         || latest.latest.counter != manifest.counter
         || latest.latest.manifest_sha256
@@ -675,6 +675,9 @@ async fn download_backup_chunk_with_progress(
     chunk: &BackupChunkRef,
     progress: Option<&RestoreProgress>,
 ) -> SyncResult<Vec<u8>> {
+    if chunk.pack.is_some() {
+        return packs::download_packed_file(auth, s3, chunk, progress).await;
+    }
     let presigned = progress::measure(
         progress,
         TransferOperation::Authorization,

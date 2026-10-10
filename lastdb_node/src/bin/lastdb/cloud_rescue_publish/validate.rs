@@ -7,6 +7,12 @@ pub(super) fn validate_manifest(plan: &RescuePlan) -> Result<(), String> {
     validate_manifest_chain(None, manifest)
         .map_err(|error| format!("invalid S0 rescue root manifest: {error}"))?;
     if plan.version != 2
+        || manifest.version != 1
+        || manifest
+            .mutable_chunks
+            .iter()
+            .chain(&manifest.atom_chunks)
+            .any(|chunk| chunk.pack.is_some())
         || manifest.counter == 0
         || manifest.mutable_chunks.is_empty() && manifest.atom_chunks.is_empty()
         || manifest.previous_manifest_sha256.is_some()

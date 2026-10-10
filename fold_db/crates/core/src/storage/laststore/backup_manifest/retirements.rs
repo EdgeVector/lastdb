@@ -83,7 +83,7 @@ pub(super) fn partition_unbackable_carried_forward_atoms(
     for chunk in atom_chunks {
         let key = chunk_key(chunk);
         let on_disk = local_atom_keys.contains(&key);
-        if on_disk || cloud_present_shas.contains(&chunk.sha256) {
+        if on_disk || cloud_present_shas.contains(chunk.object_sha256()) {
             kept.push(chunk.clone());
         } else {
             // Carried-forward, missing locally, missing in cloud → unusable.
@@ -112,8 +112,8 @@ pub fn unbackable_manifest_chunk_count(
         .atom_chunks
         .iter()
         .chain(manifest.mutable_chunks.iter())
-        .filter(|chunk| !candidate_shas.contains(&chunk.sha256))
-        .map(|chunk| chunk.sha256.as_str())
+        .filter(|chunk| !candidate_shas.contains(chunk.object_sha256()))
+        .map(BackupChunkRef::object_sha256)
         .collect::<BTreeSet<&str>>()
         .len()
 }
@@ -135,7 +135,9 @@ pub fn cas_proven_unbackable_atom_shas(
         .atom_chunks
         .iter()
         .filter(|chunk| {
-            !candidate_shas.contains(&chunk.sha256) && cas_missing_shas.contains(&chunk.sha256)
+            chunk.pack.is_none()
+                && !candidate_shas.contains(chunk.object_sha256())
+                && cas_missing_shas.contains(chunk.object_sha256())
         })
         .map(|chunk| chunk.sha256.clone())
         .collect()
@@ -223,14 +225,13 @@ pub fn cas_proven_named_hole_shas(
         .iter()
         .chain(manifest.mutable_chunks.iter())
         .filter(|chunk| {
-            !candidate_shas.contains(&chunk.sha256) && cas_missing_shas.contains(&chunk.sha256)
+            chunk.pack.is_none()
+                && cas_missing_shas.contains(chunk.object_sha256())
+                && (!candidate_shas.contains(chunk.object_sha256())
+                    || source_missing_shas.contains(chunk.object_sha256()))
         })
         .map(|chunk| chunk.sha256.clone());
-    let vanished_candidates = source_missing_shas
-        .iter()
-        .filter(|sha| cas_missing_shas.contains(sha.as_str()))
-        .cloned();
-    leftover.chain(vanished_candidates).collect()
+    leftover.collect()
 }
 
 /// Record leftover names as named holes on the held cut, drop them from the

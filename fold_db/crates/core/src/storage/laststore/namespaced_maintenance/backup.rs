@@ -283,9 +283,8 @@ impl LastStoreNamespacedStore {
         backup_manifest::enumerate_backup_publish_target_candidates(self)
     }
 
-    /// Directory where pre-packing-lock binaries cloned sealed chunks for a
-    /// given manifest counter. The cut path no longer writes here; the path
-    /// remains so construction/cut sweeps can reclaim leftover clone dirs.
+    /// Directory for immutable pack sidecars during a held backup cut.
+    /// Older binaries used this path for sealed-file clones.
     /// `None` when no high-water marker is configured.
     #[must_use]
     pub fn backup_cut_freeze_dir(&self, manifest_counter: u64) -> Option<std::path::PathBuf> {

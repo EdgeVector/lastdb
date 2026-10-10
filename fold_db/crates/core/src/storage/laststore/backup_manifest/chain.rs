@@ -22,13 +22,19 @@ pub fn classify_manifest_chain_step(
     previous: Option<&BackupManifest>,
     current: &BackupManifest,
 ) -> StorageResult<BackupManifestChainStep> {
-    if current.version != MANIFEST_VERSION {
+    if !matches!(current.version, MANIFEST_VERSION | PACKED_MANIFEST_VERSION) {
         return Err(StorageError::BackendError(format!(
             "unsupported backup manifest version {}",
             current.version
         )));
     }
+    validate_pack_locations(current)?;
     if let Some(previous) = previous {
+        if current.version < previous.version {
+            return Err(StorageError::BackendError(
+                "backup manifest format version regressed".into(),
+            ));
+        }
         let expected = manifest_sha256_hex(previous)?;
         if current.previous_manifest_sha256.as_deref() != Some(expected.as_str()) {
             return Err(StorageError::BackendError(
@@ -77,6 +83,41 @@ pub fn classify_manifest_chain_step(
         ));
     }
     Ok(BackupManifestChainStep::OrdinaryAppend)
+}
+
+fn validate_pack_locations(manifest: &BackupManifest) -> StorageResult<()> {
+    let mut pack_sizes = BTreeMap::new();
+    for chunk in manifest.atom_chunks.iter().chain(&manifest.mutable_chunks) {
+        let Some(pack) = &chunk.pack else { continue };
+        let valid_sha = pack.sha256.len() == 64
+            && pack
+                .sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase());
+        let valid_range = pack.length == chunk.bytes
+            && pack
+                .offset
+                .checked_add(pack.length)
+                .is_some_and(|end| end <= pack.bytes);
+        if manifest.version != PACKED_MANIFEST_VERSION
+            || chunk.role != BackupManifestRole::Mutable
+            || !valid_sha
+            || !valid_range
+        {
+            return Err(StorageError::BackendError(
+                "backup manifest has an invalid pack location".into(),
+            ));
+        }
+        if pack_sizes
+            .insert(&pack.sha256, pack.bytes)
+            .is_some_and(|old| old != pack.bytes)
+        {
+            return Err(StorageError::BackendError(
+                "backup manifest names one pack with different sizes".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Classification of one v2 descriptor chain step.

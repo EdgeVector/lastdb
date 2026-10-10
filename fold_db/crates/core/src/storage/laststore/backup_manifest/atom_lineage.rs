@@ -295,7 +295,8 @@ pub(in super::super) fn missing_committed_atom_groups_have_cloud_copies(
                 && missing_groups.contains(&group_addr(chunk))
         })
         .all(|chunk| {
-            current.atom_chunks.contains(chunk) && cloud.present_shas.contains(&chunk.sha256)
+            current.atom_chunks.contains(chunk)
+                && cloud.present_shas.contains(chunk.object_sha256())
         }))
 }
 

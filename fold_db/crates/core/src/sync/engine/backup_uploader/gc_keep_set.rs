@@ -213,7 +213,7 @@ impl SyncEngine {
                 ))
             })?;
         let latest = get.latest;
-        latest.require_v1_format()?;
+        latest.require_supported_format()?;
         let expected_sha = latest.manifest_sha256.trim();
         if expected_sha.is_empty() {
             return Err(SyncError::Storage(
@@ -283,7 +283,7 @@ impl SyncEngine {
                 ))
             })?;
         let latest = get.latest;
-        latest.require_v1_format()?;
+        latest.require_supported_format()?;
         let expected_sha = latest.manifest_sha256.trim().to_string();
         if expected_sha.is_empty() {
             return Err(SyncError::Storage(

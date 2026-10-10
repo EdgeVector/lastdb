@@ -21,6 +21,10 @@ impl FreshCloudProof {
     pub(super) fn matches(&self, presence: &CloudChunkPresence) -> bool {
         presence.listing_complete && self.allowed_shas == presence.present_shas
     }
+
+    pub(super) fn contains_sha(&self, sha: &str) -> bool {
+        self.allowed_shas.contains(sha)
+    }
 }
 
 fn require_exact_rescue_chunks(
@@ -29,6 +33,17 @@ fn require_exact_rescue_chunks(
     listed: &[S3ObjectInfo],
 ) -> SyncResult<CloudChunkPresence> {
     pointer.validate()?;
+    if manifest.version != 1
+        || manifest
+            .atom_chunks
+            .iter()
+            .chain(&manifest.mutable_chunks)
+            .any(|chunk| chunk.pack.is_some())
+    {
+        return Err(SyncError::Storage(
+            "S0 rescue supports direct file manifests only".into(),
+        ));
+    }
     if manifest.store_uuid != pointer.store_uuid
         || manifest.epoch != pointer.epoch
         || manifest.counter != pointer.counter

@@ -56,17 +56,18 @@ pub(super) fn backup_cloud_latest_matches_held_cut(
 
 /// Held-cut comparison against a decoded cloud `latest` pointer.
 ///
-/// A pointer whose `format_version` is not 1 is refused by name
-/// ([`SyncError::UnsupportedBackupFormat`]) before any identity field is
-/// compared: this publisher writes v1 cuts only, so its held cut can never be
-/// the tip of a newer-format chain, and the heal path must not read one as
-/// "not ours, recut" or as a silent chain-walk miss.
+/// The pointer and held manifest must name the same supported format.
 pub(super) fn backup_cloud_latest_held_cut_match(
     cloud: &BackupLatestPointer,
     manifest: &BackupManifest,
     manifest_sha256: &str,
 ) -> SyncResult<bool> {
-    cloud.require_v1_format()?;
+    cloud.require_supported_format()?;
+    if cloud.format_version() != manifest.version {
+        return Err(SyncError::Storage(
+            "backup latest format differs from held cut".into(),
+        ));
+    }
     Ok(backup_cloud_latest_matches_held_cut(
         &cloud.store_uuid,
         cloud.epoch,

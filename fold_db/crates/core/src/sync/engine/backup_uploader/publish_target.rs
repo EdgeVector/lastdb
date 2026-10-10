@@ -90,8 +90,15 @@ impl SyncEngine {
         &self,
         previous_manifest: Option<&BackupManifest>,
     ) -> SyncResult<()> {
-        self.ensure_backup_publish_target_with_presence(previous_manifest, None, false, false, None)
-            .await
+        self.ensure_backup_publish_target_with_presence(
+            previous_manifest,
+            None,
+            false,
+            false,
+            None,
+            false,
+        )
+        .await
     }
 
     /// `prelisted_presence` lets a fenced cut do its cloud list before it
@@ -104,6 +111,7 @@ impl SyncEngine {
         primary_resume_root: bool,
         accept_local_damage: bool,
         fresh_proof: Option<&FreshCloudProof>,
+        file_pack_capability_prechecked: bool,
     ) -> SyncResult<()> {
         check_damage_mode(previous_manifest, primary_resume_root, accept_local_damage)?;
         if self.has_backup_publish_target().await {
@@ -119,6 +127,10 @@ impl SyncEngine {
                 "lastdb cloud snapshot requires a LastStore backup source".to_string(),
             )
         })?;
+        if !file_pack_capability_prechecked {
+            self.require_backup_file_pack_capability(previous_manifest, fresh_proof.is_some())
+                .await?;
+        }
 
         // When cutting against a previous manifest, try a complete object-store
         // listing so carried-forward atom refs that exist neither locally nor
@@ -304,6 +316,15 @@ impl SyncEngine {
             .enumerate_backup_publish_target_candidates()
             .map_err(|e| SyncError::Storage(format!("enumerate backup chunks failed: {e}")))?;
         let candidates = bind_backup_candidates_to_manifest(&manifest, candidates);
+        let candidates = self.prepare_backup_file_packs(
+            store,
+            &mut manifest,
+            candidates,
+            previous_manifest,
+            cloud_presence.as_ref(),
+            fresh_proof,
+            primary_resume_root,
+        )?;
         {
             let candidate_shas: std::collections::BTreeSet<_> =
                 candidates.iter().map(|c| c.chunk.sha256.clone()).collect();
@@ -336,10 +357,6 @@ impl SyncEngine {
                  is absent from cloud this cut cannot publish and must be re-cut"
             );
         }
-        // Reclaim leftover clone dirs from pre-packing-lock binaries. The cut
-        // itself no longer creates a freeze dir, so every on-disk freeze dir
-        // is stale.
-        self.sweep_backup_freeze_dirs(None);
         // Mirror onto the engine so the count survives this cut's abandonment:
         // the CAS path retires the target BEFORE the cycle ends, and the sample
         // is recorded after, so reading the target there reports 0 on precisely
@@ -401,6 +418,7 @@ impl SyncEngine {
     /// after a successful CAS and on epoch rebind. Releases the packing lock.
     pub(crate) async fn retire_backup_publish_target(&self) {
         let _retired = self.backup_publish_target.lock().await.take();
+        self.sweep_backup_freeze_dirs(None);
     }
 
     /// Persist that this home's sealed base was abandoned as unpublishable.
@@ -422,16 +440,13 @@ impl SyncEngine {
         }
     }
 
-    /// Remove leftover freeze dirs from pre-packing-lock binaries.
+    /// Remove cut dirs after a target retires or before a new target starts.
     ///
-    /// The cut path no longer clones sealed files into `backup-cut-freeze/`.
-    /// This sweep stays so a process that upgraded mid-cut, or a home that
-    /// still has clone dirs from an older binary, does not keep a full extra
-    /// copy of the sealed set.
+    /// The v2 pack writer stores pack objects under the generation directory.
+    /// Older binaries also stored sealed-file clones there.
     ///
-    /// `None` means every freeze dir on disk is stale (the packing-lock cut
-    /// owns no freeze dir). `Some(keep)` is retained for tests that still
-    /// plant leftover dirs beside a named generation.
+    /// `None` means no held target owns a cut dir. `Some(keep)` preserves one
+    /// generation while the caller removes older dirs.
     ///
     /// This deletes recursively, so it is deliberately narrow: only immediate
     /// children of `<sidecar>/backup-cut-freeze/` whose name parses as a

@@ -11,6 +11,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 
 const MANIFEST_VERSION: u32 = 1;
+pub const PACKED_MANIFEST_VERSION: u32 = 2;
 /// Version of the v2 descriptor page and receipt formats. The v2 reader in
 /// [`super::backup_descriptor`] accepts this value only; the v1 reader above
 /// keeps accepting [`MANIFEST_VERSION`] only.
@@ -212,6 +213,9 @@ pub struct BackupChunkRef {
     /// digests are unchanged by this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
+    /// Location in a byte-for-byte pack. Absent on legacy direct objects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack: Option<BackupPackLocation>,
 }
 
 /// Hash-chained manifest for a local LastStore snapshot cut.
@@ -288,7 +292,7 @@ pub fn manifest_referenced_chunk_shas(manifest: &BackupManifest) -> BTreeSet<Str
         .atom_chunks
         .iter()
         .chain(manifest.mutable_chunks.iter())
-        .map(|c| c.sha256.clone())
+        .map(|c| c.object_sha256().to_string())
         .collect()
 }
 
@@ -717,6 +721,7 @@ fn chunk_ref_from_meta(
         bytes,
         end_csn: meta.end_csn,
         instance: None,
+        pack: None,
     })
 }
 
@@ -738,6 +743,8 @@ fn chunk_key(chunk: &BackupChunkRef) -> (String, u16, Option<u32>, String) {
 }
 
 mod chunk_sha_memo;
+mod packs;
+pub use packs::*;
 mod retirement_receipts;
 pub(crate) use chunk_sha_memo::*;
 use retirement_receipts::*;

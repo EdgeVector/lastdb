@@ -179,10 +179,11 @@ impl SyncEngine {
         if target.generation != generation {
             return None;
         }
+        target.manifest = manifest;
+        let still_referenced = manifest_referenced_chunk_shas(&target.manifest);
         target
             .candidates
-            .retain(|c| !hole_shas.contains(&c.chunk.sha256));
-        target.manifest = manifest;
+            .retain(|c| still_referenced.contains(&c.chunk.sha256));
         target.unbackable_manifest_chunks = unbackable_manifest_chunk_count(
             &target.manifest,
             &candidate_sha_set(&target.candidates),
@@ -250,7 +251,7 @@ impl SyncEngine {
             .mutable_chunks
             .iter()
             .chain(manifest.atom_chunks.iter())
-            .map(|chunk| chunk.sha256.clone())
+            .map(|chunk| chunk.object_sha256().to_string())
             .map(|sha| async {
                 // `None` means the probe could not determine presence this
                 // cycle (transport/auth failure) — distinct from a
