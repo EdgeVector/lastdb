@@ -3,7 +3,7 @@
 use super::*;
 use fold_db::atom::{molecule_key_codec as codec, AtomEntry, MutationEvent};
 use fold_db::db_operations::atom_store::reap_keys::{
-    offline_atom_ref_root, offline_history_atom_roots, reap_tip_sources, OfflineAtomRefRoot,
+    offline_atom_ref_root_scoped, offline_history_atom_roots, reap_tip_sources, OfflineAtomRefRoot,
 };
 use fold_db::db_operations::atom_store::TipVersionBackref;
 use fold_db::kind_partition::{anchored, form_twin};
@@ -209,7 +209,8 @@ fn references(
     targets: &BTreeSet<String>,
     facts: &mut Facts,
 ) -> Result<(), String> {
-    match offline_atom_ref_root(bare, plain).map_err(err)? {
+    let prefix = (!scope.is_empty()).then_some(scope);
+    match offline_atom_ref_root_scoped(bare, plain, prefix).map_err(err)? {
         OfflineAtomRefRoot::Active { atom_uuid, kind } => {
             facts.count(kind);
             facts.hold(

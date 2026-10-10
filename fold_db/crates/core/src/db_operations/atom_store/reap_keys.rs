@@ -8,7 +8,8 @@ mod metadata;
 pub use metadata::{offline_delete_history_atom, offline_molecule_shape};
 mod source;
 pub use super::atom_ref_edges::{
-    offline_atom_ref_root, offline_history_atom_roots, OfflineAtomRefRoot,
+    offline_atom_ref_root, offline_atom_ref_root_scoped, offline_history_atom_roots,
+    OfflineAtomRefRoot,
 };
 pub use source::*;
 

@@ -2,6 +2,7 @@
 
 mod auxiliary;
 mod cloud;
+mod diagnostics;
 mod model;
 mod ownership;
 mod reader;
@@ -18,7 +19,9 @@ pub(crate) async fn collect(
     home: &Path,
     opened: &HomeStore,
     targets: &BTreeSet<String>,
+    diagnostic_dir: &Path,
 ) -> Result<Collected, String> {
+    let diagnostics = diagnostics::Sink::new(diagnostic_dir, home, &opened.store_root)?;
     let gate = crate::reap::cloud_gate::check(home, opened)
         .await
         .map_err(err)?;
@@ -28,7 +31,7 @@ pub(crate) async fn collect(
         .ok_or("atom proof has no personal writer map")?;
     let snapshot = cloud::snapshot(opened, published).await?;
     let names = reader::namespace_names(opened).await?;
-    let mut collected = Collected::new(gate, snapshot);
+    let mut collected = Collected::new(gate, snapshot, diagnostics);
     let mut links = sources::Links::default();
     ownership::schemas(home, opened, &mut collected.facts).await?;
     let physical = opened

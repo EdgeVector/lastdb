@@ -73,12 +73,14 @@ pub(crate) struct Collected {
     pub facts: Facts,
     pub bodies: Vec<TargetBody>,
     pub(super) body_keys: BTreeSet<(String, Vec<u8>)>,
+    pub(super) diagnostics: diagnostics::Sink,
 }
 
 impl Collected {
     pub(super) fn new(
         cloud_gate: crate::reap::cloud_gate::CloudGateSummary,
         snapshot_writer_map: BTreeMap<String, u64>,
+        diagnostics: diagnostics::Sink,
     ) -> Self {
         Self {
             facts: Facts {
@@ -88,6 +90,7 @@ impl Collected {
             },
             bodies: Vec::new(),
             body_keys: BTreeSet::new(),
+            diagnostics,
         }
     }
 }

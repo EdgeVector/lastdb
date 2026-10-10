@@ -26,6 +26,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
+mod offline_metadata;
+pub(super) use offline_metadata::offline_gc_metadata;
+
 const ATOM_GC_CANDIDATE_PREFIX: &str = "aref:gc:v1:c:";
 const ATOM_GC_QUEUE_PREFIX: &str = "aref:gc:v1:q:";
 const ATOM_GC_QUEUE_TIMESTAMP_WIDTH: usize = 20;

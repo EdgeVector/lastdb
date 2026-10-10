@@ -42,6 +42,15 @@ pub fn offline_atom_ref_root(
     bare_key: &str,
     value: &[u8],
 ) -> Result<OfflineAtomRefRoot, SchemaError> {
+    offline_atom_ref_root_scoped(bare_key, value, None)
+}
+
+/// Inspect a physical root with its exact production storage scope.
+pub fn offline_atom_ref_root_scoped(
+    bare_key: &str,
+    value: &[u8],
+    storage_prefix: Option<&str>,
+) -> Result<OfflineAtomRefRoot, SchemaError> {
     let normalized;
     let bare_key = if bare_key.starts_with("aref\0") {
         normalized =
@@ -50,6 +59,9 @@ pub fn offline_atom_ref_root(
     } else {
         bare_key
     };
+    if super::super::atom_ref_gc::offline_gc_metadata(bare_key, value, storage_prefix)? {
+        return Ok(OfflineAtomRefRoot::Metadata);
+    }
     if let Some(rest) = bare_key.strip_prefix(ATOM_REF_V2_PREFIX) {
         let (atom, source) = rest
             .split_once('\0')

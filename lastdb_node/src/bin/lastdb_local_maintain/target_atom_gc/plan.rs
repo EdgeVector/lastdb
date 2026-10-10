@@ -19,7 +19,9 @@ pub(super) async fn build(
     if cutoff > Utc::now() {
         return Err("the target atom cutoff is in the future".into());
     }
-    let collected = crate::atom_source_proof::collect(&args.home, opened, &inputs.uuids).await?;
+    let collected =
+        crate::atom_source_proof::collect(&args.home, opened, &inputs.uuids, &args.plan_dir)
+            .await?;
     if !collected.facts.complete || !collected.facts.cloud_gate.complete {
         return Err("target atom source proof is incomplete".into());
     }

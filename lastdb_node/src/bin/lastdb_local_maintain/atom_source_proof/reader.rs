@@ -138,8 +138,13 @@ async fn read_selected(
                 raw,
                 plain,
             });
-        } else {
-            sources::observe(name, &key, &plain, targets, links, &mut collected.facts)?;
+        } else if let Err(error) =
+            sources::observe(name, &key, &plain, targets, links, &mut collected.facts)
+        {
+            collected
+                .diagnostics
+                .record(name, (shard, group_id), &key, (&raw, &plain), &error)?;
+            return Err("physical source decode refused; see private source-error.json".into());
         }
     }
     Ok(())
