@@ -41,7 +41,8 @@ struct Inventory {
     atoms_read: u64,
     target_atoms: Vec<AtomIdentity>,
     target_blob_refs: BTreeSet<String>,
-    other_schema_blob_references: BTreeMap<String, Vec<AtomIdentity>>,
+    non_target_atom_blob_references: BTreeMap<String, Vec<AtomIdentity>>,
+    retained_source_references_checked: bool,
     scope_note: &'static str,
 }
 
@@ -163,8 +164,9 @@ fn finish_inventory(
         requested_atom_ids_found: found.requested_atom_ids_found,
         requested_atom_ids_absent_from_complete_physical_walk: missing,
         namespaces, atoms_read: found.atoms_read, target_atoms: found.target_atoms,
-        target_blob_refs, other_schema_blob_references: found.other_blob_refs,
-        scope_note: "all physical atom scopes; target membership is canonical schema-header aliases plus exact caller-supplied atom UUIDs; caller must validate UUID-file source provenance; unmatched schema identities still require a source join; this report grants no delete authority",
+        target_blob_refs, non_target_atom_blob_references: found.other_blob_refs,
+        retained_source_references_checked: false,
+        scope_note: "all physical atom scopes; target membership is canonical schema-header aliases plus exact caller-supplied atom UUIDs; caller must validate UUID-file source provenance; unmatched schema identities still require a source join; selected atoms may retain kept molecule or org references; this report grants no delete authority",
     }
 }
 
@@ -177,7 +179,8 @@ fn print_summary(json: bool, inventory: &Inventory) {
                 "atoms_read": inventory.atoms_read, "target_schemas": inventory.listed_target_schemas.len(),
                 "target_atom_copies": inventory.target_atoms.len(),
                 "target_blob_refs": inventory.target_blob_refs.len(),
-                "shared_blob_refs": inventory.other_schema_blob_references.len(),
+                "non_target_atom_blob_refs": inventory.non_target_atom_blob_references.len(),
+                "retained_source_references_checked": inventory.retained_source_references_checked,
                 "source_schema_ownership_only": inventory.requested_atom_ids.is_empty(),
                 "unmatched_identities_require_source_join": inventory.unmatched_listed_identities_require_source_join.len(),
                 "requested_atom_ids": inventory.requested_atom_ids.len(),
@@ -187,10 +190,10 @@ fn print_summary(json: bool, inventory: &Inventory) {
         );
     } else {
         println!(
-            "target atom copies={} file blobs={} shared file blobs={}",
+            "target atom copies={} file blobs={} file blobs with non-target atom copies={}",
             inventory.target_atoms.len(),
             inventory.target_blob_refs.len(),
-            inventory.other_schema_blob_references.len()
+            inventory.non_target_atom_blob_references.len()
         );
     }
 }
