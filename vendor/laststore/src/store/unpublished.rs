@@ -138,12 +138,15 @@ impl LastStore {
         self.load_unpublished_shard(&key)
     }
 
-    /// Reuse the live authority, or load an existing disk group. An absent
-    /// point must not create an empty group. The cold-load gate covers the
-    /// authority recheck and disk presence check, as it does for pin writes.
-    pub(super) fn open_existing_group_unpublished(
+    /// Copy points from the live authority or one transient cold group.
+    ///
+    /// The cold-load gate covers the authority recheck and optional disk
+    /// presence check. A cold point handle needs no advisory sidecar stamps:
+    /// it copies records and is dropped, without a sidecar repair or publish.
+    pub(super) fn open_point_group_unpublished(
         &self,
         key: ShardKey,
+        skip_absent_groups: bool,
     ) -> Result<Option<ShardHandle>> {
         if let Some(handle) = self.existing_unpublished_authority(&key) {
             return Ok(Some(handle));
@@ -153,10 +156,11 @@ impl LastStore {
         if let Some(handle) = self.existing_unpublished_authority(&key) {
             return Ok(Some(handle));
         }
-        if !self.handle_dir(&key.0, key.1, key.2).try_exists()? {
+        if skip_absent_groups && !self.handle_dir(&key.0, key.1, key.2).try_exists()? {
             return Ok(None);
         }
-        self.load_unpublished_shard(&key).map(Some)
+        self.load_unpublished_shard_with_sidecar(&key, false)
+            .map(Some)
     }
 
     pub(super) fn existing_unpublished_authority(&self, key: &ShardKey) -> Option<ShardHandle> {
@@ -180,6 +184,14 @@ impl LastStore {
     }
 
     pub(super) fn load_unpublished_shard(&self, key: &ShardKey) -> Result<ShardHandle> {
+        self.load_unpublished_shard_with_sidecar(key, true)
+    }
+
+    fn load_unpublished_shard_with_sidecar(
+        &self,
+        key: &ShardKey,
+        seed_sidecar: bool,
+    ) -> Result<ShardHandle> {
         let (collection, shard, group) = key;
         self.shard_loads.fetch_add(1, Ordering::Relaxed);
         let dir = self.handle_dir(collection, *shard, *group);
@@ -206,7 +218,7 @@ impl LastStore {
                 .max_sorted_tail_bytes
                 .min(SORTED_ENCRYPTED_TAIL_BYTES);
         }
-        if group.is_some() && self.sidecar_enabled() {
+        if seed_sidecar && group.is_some() && self.sidecar_enabled() {
             loaded.sidecar_stamps = keysidecar::recorded_stamps(&loaded.dir);
         }
         loaded.fd_gauge = Arc::clone(&self.open_append_handles);
