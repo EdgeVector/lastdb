@@ -42,11 +42,10 @@ mod tip_version_backrefs;
 mod types;
 
 pub use atom_ref_edges::{
-    AtomLiveRefCount, AtomRefAuditReport, AtomRefBackfillPhase, AtomRefBackfillReport,
-    AtomRefBackfillStatus, AtomRefCrashResumeProof, AtomRefEdge, AtomRefEdgeLookup,
-    AtomRefEdgeType, AtomRefHistoryUpgrade, AtomRefMoleculeManifest, AtomRefV1DrainReport,
-    AtomRefV1DrainStatus, AtomRefV2AuditReport, AtomRefV2Count, AtomRefV2LookupBenchmark,
-    AtomRefV2MoleculeAuditReport, AtomRefV2Transition, PendingAtomRef,
+    AtomLiveRefCount, AtomRefBackfillPhase, AtomRefBackfillReport, AtomRefBackfillStatus,
+    AtomRefCrashResumeProof, AtomRefEdge, AtomRefEdgeLookup, AtomRefEdgeType,
+    AtomRefHistoryUpgrade, AtomRefMoleculeManifest, AtomRefV1DrainReport, AtomRefV1DrainStatus,
+    AtomRefV2AuditReport, AtomRefV2LookupBenchmark, AtomRefV2MoleculeAuditReport, PendingAtomRef,
     ATOM_REF_MANIFEST_VERSION_HISTORY, ATOM_REF_MANIFEST_VERSION_TIPS, ATOM_REF_V2_ACTIVE_MARKER,
 };
 pub use atom_ref_gc::{

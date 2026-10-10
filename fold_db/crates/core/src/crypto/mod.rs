@@ -36,5 +36,5 @@ pub use error::{CryptoError, CryptoResult};
 pub use keyring::{Dek, KeyPurpose, Keyring};
 pub use keyring_provider::KeyringCryptoProvider;
 pub use keyring_store::{keyring_path, load_or_init, KEYRING_FILENAME};
-pub use provider::{CryptoProvider, LocalCryptoProvider, NoOpCryptoProvider};
+pub use provider::{CryptoProvider, LocalCryptoProvider};
 pub mod inbox;

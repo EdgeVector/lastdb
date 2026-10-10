@@ -47,7 +47,6 @@ mod lane;
 mod ledger;
 mod logical_set;
 mod metrics;
-mod persist;
 mod point;
 mod range;
 mod types;
@@ -60,7 +59,7 @@ pub use config::{
     RESIDENT_MAX_DEFERRED_ENV, RESIDENT_MODE_ENV, RESIDENT_PERSIST_MS_ENV,
 };
 pub(crate) use graph::SlotRead;
-pub use graph::{MapSchemaLoader, ResidentGraph, SchemaLoader};
+pub use graph::{ResidentGraph, SchemaLoader};
 pub use lane::{
     PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneOccupancy,
     PersistLanePressure, PersistLaneSet, PersistLaneWriter, PersistReservation,
@@ -68,18 +67,16 @@ pub use lane::{
 };
 pub use logical_set::{
     init_resident_key_cap_from_env, parse_resident_key_cap, resident_key_cap, AtomId,
-    DurabilityToken, FieldEntry, HashCompleteness, LogicalResidentSet, MoleculeId,
-    RangeNotResident, ResidentKey, Tip, RESIDENT_KEY_CAP, RESIDENT_KEY_CAP_ENV,
+    DurabilityToken, FieldEntry, HashCompleteness, LogicalResidentSet, MoleculeId, ResidentKey,
+    Tip, RESIDENT_KEY_CAP, RESIDENT_KEY_CAP_ENV,
 };
 pub use metrics::{ResidentMetrics, ResidentMetricsSnapshot};
-pub use persist::{AtomStorePersistSink, PersistSink, RehydrateSource};
-pub use point::{PointAdmitError, PointGetOutcome, PointLoader};
-pub use range::{HashLoader, RangeAdmitError, RangePage};
+pub use point::PointLoader;
+pub use range::HashLoader;
 pub use types::{
     DirtyKey, PersistPlan, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot,
-    ResidentKind, ResidentMoleculeKey, ResidentSlotControl, ResidentSlotId, ResidentSlotState,
-    ResidentTip, ResolveOutcome, ResolveSource, RESIDENT_KIND_ATOM, RESIDENT_KIND_FILE_BLOB,
-    RESIDENT_KIND_MOLECULE, RESIDENT_KIND_MOLECULE_TIP, RESIDENT_KIND_PROTEIN,
-    RESIDENT_KIND_SCHEMA,
+    ResidentKind, ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip,
+    ResolveOutcome, ResolveSource, RESIDENT_KIND_ATOM, RESIDENT_KIND_FILE_BLOB,
+    RESIDENT_KIND_MOLECULE, RESIDENT_KIND_PROTEIN, RESIDENT_KIND_SCHEMA,
 };
 pub use worker::BackgroundPersistTask;

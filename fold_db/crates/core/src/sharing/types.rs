@@ -37,17 +37,6 @@ impl ShareRule {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShareInvite {
-    pub sender_pubkey: String,
-    pub sender_display_name: String,
-    pub share_prefix: String,
-    pub share_e2e_secret: Vec<u8>,
-    pub scope_description: String,
-    #[serde(default)]
-    pub signature: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareSubscription {
     pub sender_pubkey: String,
     pub share_prefix: String,

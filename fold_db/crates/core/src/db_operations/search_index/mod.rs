@@ -16,6 +16,6 @@ pub use search_outbox::{
 pub use search_rebuild::{
     page_searchable_records_for_rebuild, rebuild_search_outbox_from_source,
     rebuild_search_outbox_into_inbox, run_search_rebuild_for_home, write_batches_to_search_inbox,
-    FixtureBatchSource, SearchRebuildCursor, SearchRebuildPage, SearchRebuildReport,
+    SearchRebuildCursor, SearchRebuildPage, SearchRebuildReport,
 };
 pub use sink::{IndexChange, IndexChangeBatch, IndexChangeKind, IndexSink};

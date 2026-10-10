@@ -14,33 +14,6 @@ pub struct AtomRefV2LookupBenchmark {
     pub v2_to_v1_p95_basis_points: u64,
 }
 
-/// One source-row transition and its v2 reverse-edge transition.
-///
-/// The builder emits a safety-ordered mutation list. LastStore applies that
-/// list in order and then runs one durability barrier. It does not roll back a
-/// partial list, so the order keeps every crash prefix conservative.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AtomRefV2Transition {
-    /// Add a source row and its active reverse edge.
-    Add {
-        source_key: Vec<u8>,
-        source_value: Vec<u8>,
-        edge: AtomRefEdge,
-    },
-    /// Replace one source relationship with another.
-    Replace {
-        source_key: Vec<u8>,
-        source_value: Vec<u8>,
-        old_edge: AtomRefEdge,
-        new_edge: AtomRefEdge,
-    },
-    /// Remove a source row and its exact reverse edge.
-    Purge {
-        source_key: Vec<u8>,
-        edge: AtomRefEdge,
-    },
-}
-
 /// Candidate-atom lookup. Absence is authoritative only when `complete` is
 /// true and every referenced molecule manifest is also complete.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -171,27 +144,6 @@ pub struct AtomRefV1DrainReport {
     pub keys_deleted: u64,
     pub completed: bool,
     pub status: AtomRefV1DrainStatus,
-}
-
-/// Comparison against a reference reconstruction. The report exposes counts,
-/// not atom UUIDs, so it cannot become an erased-content confirmation oracle.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AtomRefAuditReport {
-    pub expected_active_edges: u64,
-    pub indexed_active_edges: u64,
-    pub missing_edges: u64,
-    pub unexpected_edges: u64,
-    pub false_zero_reference_atoms: u64,
-    pub complete: bool,
-    /// Molecule-key slots reconstructed for this report.
-    #[serde(default)]
-    pub slots_audited: u64,
-    /// Mutation-history rows reconstructed for this report.
-    #[serde(default)]
-    pub history_rows_audited: u64,
-    /// True when the walk stopped at a caller page bound.
-    #[serde(default)]
-    pub truncated: bool,
 }
 
 /// Exact isolated-copy comparison for the compact reverse-edge plane.

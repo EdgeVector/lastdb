@@ -8,13 +8,6 @@ pub use backup_latest::{
     BackupRecoveryDescriptorPut, BACKUP_LATEST_FORMAT_VERSION_V1,
 };
 mod confirm;
-mod guaranteed_write;
-pub use guaranteed_write::{
-    GuaranteedWriteCasResponse, GuaranteedWriteGetResponse, GuaranteedWritePointer,
-    GuaranteedWriteSetCasResponse, GuaranteedWriteSetGetResponse, GuaranteedWriteSetGrant,
-    GuaranteedWriteSetHead, GuaranteedWriteSetMember, GuaranteedWriteSetSlot,
-    GuaranteedWriteSetSlotState,
-};
 mod list;
 pub use list::LogListStats;
 mod lock;

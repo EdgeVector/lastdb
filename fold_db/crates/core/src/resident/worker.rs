@@ -1,7 +1,7 @@
 //! Background persist worker — the T1 drain loop.
 //!
 //! Periodically writes the resident graph's dirty [`super::types::PersistPlan`]
-//! through a [`PersistSink`], turning dirty entries clean so budget
+//! through a persist sink, turning dirty entries clean so budget
 //! enforcement can evict them. Mirrors the lifecycle discipline of
 //! `fold_db_core::mutation_flush::BackgroundFlushTask`: stopped explicitly on
 //! shutdown before the final durability barrier, aborted on Drop so tests do

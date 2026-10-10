@@ -23,23 +23,6 @@ pub const FOLDDB_DIR: &str = ".folddb";
 pub const LASTDB_HOME_ENV: &str = "LASTDB_HOME";
 /// Legacy node-home override; still honored after [`LASTDB_HOME_ENV`].
 pub const FOLDDB_HOME_ENV: &str = "FOLDDB_HOME";
-/// Canonical local-node socket override.
-pub const FOLDDB_SOCKET_PATH_ENV: &str = "FOLDDB_SOCKET_PATH";
-/// Deprecated socket override alias; honored after [`FOLDDB_SOCKET_PATH_ENV`].
-pub const FOLDDB_SOCK_ENV: &str = "FOLDDB_SOCK";
-/// File name of the node's Unix-domain socket within its data dir.
-pub const NODE_SOCKET_FILE_NAME: &str = "folddb.sock";
-
-/// Which rule produced a node socket path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NodeSocketPathSource {
-    /// The canonical `FOLDDB_SOCKET_PATH` override was set.
-    CanonicalOverride,
-    /// The deprecated `FOLDDB_SOCK` alias was set.
-    LegacyOverride,
-    /// The default `<node-home>/data/folddb.sock` path was used.
-    NodeHomeDefault,
-}
 
 /// Resolve the node-home directory.
 ///

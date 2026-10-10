@@ -5,7 +5,6 @@ use serde::Serialize;
 pub const PUBLIC: u8 = 0;
 pub const INTERNAL: u8 = 1;
 pub const CONFIDENTIAL: u8 = 2;
-pub const RESTRICTED: u8 = 3;
 pub const HIGHLY_RESTRICTED: u8 = 4;
 
 /// Maximum allowed sensitivity level.

@@ -12,7 +12,6 @@ pub mod app_registry_index;
 pub mod app_release_host;
 pub mod app_storage;
 pub mod atom_gc_reap;
-pub mod attribution_epoch;
 mod change_feed_queue;
 pub mod cloud;
 pub mod deliver;

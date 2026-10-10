@@ -334,28 +334,3 @@ pub async fn run_search_rebuild_for_home(
         })?;
     rebuild_search_outbox_into_inbox(&ops, page_size, &inbox).await
 }
-
-/// Fixture / unit-test page source: prebuilt batches, not FoldDB.
-#[derive(Debug, Clone)]
-pub struct FixtureBatchSource {
-    batches: Vec<IndexChangeBatch>,
-    offset: usize,
-}
-
-impl FixtureBatchSource {
-    /// Wrap batches for paged emission.
-    pub fn new(batches: Vec<IndexChangeBatch>) -> Self {
-        Self { batches, offset: 0 }
-    }
-
-    /// Next page of at most `limit` batches.
-    pub fn next_page(&mut self, limit: usize) -> Vec<IndexChangeBatch> {
-        if self.offset >= self.batches.len() || limit == 0 {
-            return vec![];
-        }
-        let end = (self.offset + limit).min(self.batches.len());
-        let page = self.batches[self.offset..end].to_vec();
-        self.offset = end;
-        page
-    }
-}

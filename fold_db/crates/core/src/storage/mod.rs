@@ -11,12 +11,11 @@
 //! │  TypedKvStore     │  typed JSON helpers on KvStore
 //! └─────────┬─────────┘
 //!           │ implemented by
-//!     ┌─────┴──────┐
-//!     ▼            ▼
-//!  laststore::   inmemory_backend
-//!  (product)     (tests / ephemeral)
-//!     │
-//!     ▼ optional wrappers
+//!           ▼
+//!      laststore::
+//!      (product)
+//!           │
+//!           ▼ optional wrappers
 //!  encrypting_*  (at-rest AES-GCM; migration dual-read)
 //!
 //! Cloud multi-device export is **not** a KvStore decorator. Store-level
@@ -31,7 +30,6 @@ pub mod encrypting_namespaced_store;
 /// Kv-level at-rest encryptor — implementation detail of [`EncryptingNamespacedStore`].
 pub(crate) mod encrypting_store;
 pub mod error;
-pub mod inmemory_backend;
 pub mod laststore;
 pub mod node_config_store;
 pub mod reap_unsealed;
@@ -41,7 +39,6 @@ pub mod traits;
 // Re-exports for convenience
 pub use config::{CloudSyncConfig, DatabaseConfig, P2pSyncConfig, StorageEngine};
 pub use error::StorageError;
-pub use inmemory_backend::InMemoryNamespacedStore;
 pub use laststore::{
     apply_tip_residue_copy_page, classify_index_residue_copy, classify_protein_residue_copy,
     classify_tip_residue_copy, dual_read_metrics_reset, dual_read_metrics_snapshot,
@@ -49,9 +46,9 @@ pub use laststore::{
     IndexResidueReclaimReport, LastStoreNamespacedStore, PlaneResidueCopyAction,
     PlaneResidueDrainOptions, PlaneResidueDrainReport, PlaneResidueFamily, TipResidueCopyAction,
     TipResidueCopyPageReport, TipResidueDrainOptions, TipResidueDrainReport,
-    INDEX_RESIDUE_KEY_PREFIXES, INDEX_RESIDUE_LEGACY_COLLECTIONS, ORDER_LOG_COLLECTIONS,
-    ORDER_LOG_KEY_PREFIXES, PROTEIN_FAMILY_KEY_PREFIXES, RECLAIMABLE_RETIRED_INDEX_PREFIXES,
-    TIP_RESIDUE_KEY_PREFIXES, TIP_RESIDUE_LEGACY_COLLECTIONS,
+    INDEX_RESIDUE_KEY_PREFIXES, INDEX_RESIDUE_LEGACY_COLLECTIONS, ORDER_LOG_KEY_PREFIXES,
+    PROTEIN_FAMILY_KEY_PREFIXES, RECLAIMABLE_RETIRED_INDEX_PREFIXES, TIP_RESIDUE_KEY_PREFIXES,
+    TIP_RESIDUE_LEGACY_COLLECTIONS,
 };
 
 pub use encrypting_namespaced_store::{

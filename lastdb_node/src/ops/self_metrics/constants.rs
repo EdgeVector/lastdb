@@ -55,42 +55,6 @@ pub const DEFAULT_SELF_METRIC_MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// `LASTDB_REQUEST_OPS_ROLLUP_MAX_ROWS` to bypass the derivation entirely.
 pub const DEFAULT_REQUEST_OPS_ROLLUP_MAX_BYTES: u64 = 256 * 1024 * 1024;
 
-/// What ALL durable telemetry is allowed to cost, in total, by default.
-///
-/// Both papercuts in this area were per-plane: each plane's cap was reviewed
-/// against itself, and nothing anywhere stated what telemetry costs *added
-/// up*. Two planes at 256 MiB each is 512 MiB, and that number had never been
-/// written down or agreed to — it was the arithmetic consequence of two
-/// independent decisions.
-///
-/// This constant is the place that number lives. It is enforced by
-/// `telemetry_plane_budgets_stay_within_the_total`, which sums
-/// [`TELEMETRY_PLANE_BUDGETS`] and fails if a new plane, or a raised budget,
-/// pushes the total past it. That test is the point of the constant: it makes
-/// the aggregate a decision someone has to make on purpose, instead of a sum
-/// nobody computes.
-pub const DEFAULT_TELEMETRY_TOTAL_MAX_BYTES: u64 = 512 * 1024 * 1024;
-
-/// Every durable telemetry plane, with the byte budget that bounds it and the
-/// per-row field count that budget is divided by.
-///
-/// This table exists to be asserted over, not to be read at runtime — a plane
-/// that is missing from it is a plane whose ceiling is in nobody's total. Add
-/// a row here when you add a telemetry plane; the guards below will tell you
-/// what it costs.
-pub const TELEMETRY_PLANE_BUDGETS: &[(&str, u64, usize)] = &[
-    (
-        SELF_METRIC_SCHEMA,
-        DEFAULT_SELF_METRIC_MAX_BYTES,
-        SELF_METRIC_FIELDS.len(),
-    ),
-    (
-        REQUEST_OPS_ROLLUP_SCHEMA,
-        DEFAULT_REQUEST_OPS_ROLLUP_MAX_BYTES,
-        REQUEST_OPS_ROLLUP_FIELDS.len(),
-    ),
-];
-
 /// Measured cost of one tip plus its atom on the primary, in bytes.
 ///
 /// From `lastdb db inventory` on the live primary 2026-08-03: the `mk:` tip

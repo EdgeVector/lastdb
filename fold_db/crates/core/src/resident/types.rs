@@ -42,8 +42,6 @@ impl ResidentKind {
 
 pub const RESIDENT_KIND_SCHEMA: &str = "schema";
 pub const RESIDENT_KIND_MOLECULE: &str = "molecule";
-/// Deprecated label kept for external docs; prefer `molecule`.
-pub const RESIDENT_KIND_MOLECULE_TIP: &str = "molecule_tip";
 pub const RESIDENT_KIND_ATOM: &str = "atom";
 pub const RESIDENT_KIND_FILE_BLOB: &str = "file_blob";
 pub const RESIDENT_KIND_PROTEIN: &str = "protein";
@@ -253,19 +251,6 @@ impl ResidentTip {
             })
             + 16
     }
-}
-
-/// Slot identity `(storage_prefix, molecule_uuid, disk_hash, disk_range)`.
-///
-/// One [`super::ResidentGraph`] is bound to a single LastStore prefix, so the
-/// in-graph map key is still `molecule_uuid + hash + range`. The prefix is
-/// carried here so later persist-lane work can name the full identity.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ResidentSlotId {
-    pub storage_prefix: String,
-    pub molecule_uuid: String,
-    pub disk_hash: String,
-    pub disk_range: String,
 }
 
 /// Control state for one resident slot.

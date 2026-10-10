@@ -42,56 +42,22 @@
 // HTTP — OpenTelemetry semantic conventions
 // ---------------------------------------------------------------------------
 
-pub const HTTP_METHOD: &str = "http.method";
-pub const HTTP_ROUTE: &str = "http.route";
-pub const HTTP_URL: &str = "http.url";
-pub const HTTP_STATUS_CODE: &str = "http.status_code";
-pub const HTTP_TARGET: &str = "http.target";
-pub const HTTP_USER_AGENT: &str = "http.user_agent";
-
 // ---------------------------------------------------------------------------
 // DB / storage — OpenTelemetry semantic conventions where applicable
 // ---------------------------------------------------------------------------
-
-pub const DB_SYSTEM: &str = "db.system";
-pub const DB_OPERATION: &str = "db.operation";
-pub const DB_STATEMENT: &str = "db.statement";
 
 // ---------------------------------------------------------------------------
 // Service identity
 // ---------------------------------------------------------------------------
 
 pub const SERVICE_NAME: &str = "service.name";
-pub const SERVICE_VERSION: &str = "service.version";
 
 // ---------------------------------------------------------------------------
 // fold_db-specific
 // ---------------------------------------------------------------------------
 
-/// Hashed user identifier. Always wrap the value in [`redact_id!`].
-pub const USER_HASH: &str = "user.hash";
-
 /// Logical schema name (e.g. `Notes`, `Conversation`).
 pub const SCHEMA_NAME: &str = "schema.name";
-
-/// Field within a schema.
-pub const SCHEMA_FIELD: &str = "schema.field";
-
-/// Operation against a schema (e.g. `query`, `mutation`, `transform`).
-pub const SCHEMA_OPERATION: &str = "schema.operation";
-
-/// fold_db node identifier (the persistent Ed25519-derived ID).
-pub const FOLD_NODE_ID: &str = "fold.node_id";
-
-/// Logical "feature" tag from the legacy `LogFeature` enum, surfaced on
-/// every event for filter parity during the Phase 3 migration.
-pub const FOLD_FEATURE: &str = "fold.feature";
-
-/// Range key (or sort-order key) used in a query.
-pub const FOLD_QUERY_RANGE: &str = "fold.query.range";
-
-/// Number of rows / records affected by an operation.
-pub const FOLD_RESULT_COUNT: &str = "fold.result.count";
 
 // ---------------------------------------------------------------------------
 // Redaction macros

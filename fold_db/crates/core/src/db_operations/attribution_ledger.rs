@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 mod events;
-pub use events::{AttributionEvent, AttributionEventPage, AttributionPendingScope};
+pub use events::{AttributionEvent, AttributionPendingScope};
 
 pub const ATTRIBUTION_RECORD_PREFIX: &str = "attr:v1:r:";
 pub const ATTRIBUTION_PATH_PREFIX: &str = "attr:v1:p:";

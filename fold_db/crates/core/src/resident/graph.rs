@@ -142,32 +142,3 @@ impl ResidentGraph {
 
     // ── Budget enforcement ──────────────────────────────────────────────
 }
-
-/// Test / stub loader that returns from an in-memory map and counts loads.
-#[derive(Debug, Default)]
-pub struct MapSchemaLoader {
-    pub schemas: HashMap<String, Schema>,
-    pub load_count: std::sync::atomic::AtomicU64,
-}
-
-impl MapSchemaLoader {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn insert(&mut self, schema: Schema) {
-        self.schemas.insert(schema.name.clone(), schema);
-    }
-
-    pub fn load_count(&self) -> u64 {
-        self.load_count.load(std::sync::atomic::Ordering::Relaxed)
-    }
-}
-
-impl SchemaLoader for MapSchemaLoader {
-    fn load_schema(&self, name: &str) -> Result<Option<Schema>, String> {
-        self.load_count
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Ok(self.schemas.get(name).cloned())
-    }
-}

@@ -3,25 +3,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedMessage {
-    pub payload: String,       // Base64 encoded JSON payload
-    pub public_key_id: String, // ID of the public key
-    pub signature: String,     // Hex-encoded signature
-    pub timestamp: i64,        // Unix timestamp
-}
-
-impl SignedMessage {
-    pub fn new(payload: String, public_key_id: String, signature: String, timestamp: i64) -> Self {
-        Self {
-            payload,
-            public_key_id,
-            signature,
-            timestamp,
-        }
-    }
-}
-
 /// Public key information stored on the backend
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublicKeyInfo {
@@ -58,57 +39,9 @@ impl PublicKeyInfo {
         }
     }
 
-    /// Check if this key is currently valid
-    pub fn is_valid(&self) -> bool {
-        if !self.is_active {
-            return false;
-        }
-
-        if let Some(expires_at) = self.expires_at {
-            return chrono::Utc::now().timestamp() < expires_at;
-        }
-
-        true
-    }
-
     /// Add metadata to this key
     pub fn with_metadata(mut self, key: String, value: String) -> Self {
         self.metadata.insert(key, value);
         self
-    }
-}
-
-/// Message verification result
-#[derive(Debug, Clone)]
-pub struct VerificationResult {
-    /// Whether the signature is valid
-    pub is_valid: bool,
-    /// Public key info used for verification
-    pub public_key_info: Option<PublicKeyInfo>,
-    /// Error message if verification failed
-    pub error: Option<String>,
-    /// Whether the message timestamp is within acceptable range
-    pub timestamp_valid: bool,
-}
-
-impl VerificationResult {
-    /// Create a successful verification result
-    pub fn success(public_key_info: PublicKeyInfo, timestamp_valid: bool) -> Self {
-        Self {
-            is_valid: true,
-            public_key_info: Some(public_key_info),
-            error: None,
-            timestamp_valid,
-        }
-    }
-
-    /// Create a failed verification result
-    pub fn failure(error: String) -> Self {
-        Self {
-            is_valid: false,
-            public_key_info: None,
-            error: Some(error),
-            timestamp_valid: false,
-        }
     }
 }

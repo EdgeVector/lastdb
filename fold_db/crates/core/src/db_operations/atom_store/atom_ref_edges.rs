@@ -113,13 +113,6 @@ impl AtomRefEdge {
     }
 }
 
-/// Result of one bounded v2 partition count.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AtomRefV2Count {
-    pub active_edges: u64,
-    pub truncated: bool,
-}
-
 /// Durable number of committed live tip paths that retain one atom.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AtomLiveRefCount {

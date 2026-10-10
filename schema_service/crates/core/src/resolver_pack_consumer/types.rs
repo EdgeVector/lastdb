@@ -3,11 +3,6 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObjectFetchMeta {
-    pub etag: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObjectFetchResult {
     NotFound,
     NotModified {
