@@ -301,7 +301,7 @@ fn is_atom_live_ref_count_key(key: &[u8]) -> bool {
     key.ends_with(ATOM_LIVE_REFCOUNT_KEY_END)
 }
 
-fn tip_edge(
+pub(super) fn tip_edge(
     molecule_uuid: &str,
     disk_hash: &str,
     disk_range: &str,
@@ -337,7 +337,7 @@ fn history_edge(
     }
 }
 
-fn mutation_history_edges(event_key: &str, event: &MutationEvent) -> Vec<AtomRefEdge> {
+pub(super) fn mutation_history_edges(event_key: &str, event: &MutationEvent) -> Vec<AtomRefEdge> {
     let disk_hash = event.field_key.hash.as_deref().unwrap_or_default();
     let disk_range = event.field_key.range.as_deref().unwrap_or_default();
     let atoms: BTreeSet<&str> = std::iter::once(event.new_atom_uuid.as_str())

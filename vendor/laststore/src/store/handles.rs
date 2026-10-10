@@ -168,7 +168,8 @@ impl LastStore {
     /// agree with this, but the check belongs on the read/write path too, so a
     /// hand-built `LastStoreOptions` cannot opt an encrypted store in.
     pub(super) fn sidecar_enabled(&self) -> bool {
-        self.opts.hash_group_key_sidecar
+        !self.read_only
+            && self.opts.hash_group_key_sidecar
             && !self.opts.sorted_segments
             && self.opts.layout_mode == LayoutMode::HashGroup
             && self.opts.packaging == PackagingMode::Plain

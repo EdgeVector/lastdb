@@ -110,6 +110,7 @@ pub(super) fn load_shard(
     data_key: Option<[u8; 32]>,
     policy: CollectionPolicy,
     sorted_mode: bool,
+    read_only: bool,
 ) -> Result<Shard> {
     let mut sh = Shard {
         dir,
@@ -261,6 +262,12 @@ pub(super) fn load_shard(
         }
         if last {
             if clean < data.len() || clean_disk_len < disk_data.len() as u64 {
+                if read_only {
+                    return Err(Error::Corrupt(format!(
+                        "read-only open refuses torn tail {}",
+                        path.display()
+                    )));
+                }
                 let f = OpenOptions::new().write(true).open(&path)?;
                 let truncate_to = if sh.data_key.is_some() {
                     clean_disk_len

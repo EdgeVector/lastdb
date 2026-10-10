@@ -41,6 +41,8 @@ pub(crate) fn open_laststore(
 /// The store an atom-GC command reads, plus how it was opened.
 pub(crate) struct HomeStore {
     pub(crate) store: Arc<dyn NamespacedStore>,
+    /// The same store without the at-rest seam. It returns stored bytes.
+    pub(crate) base: Arc<dyn NamespacedStore>,
     pub(crate) store_root: PathBuf,
     /// `at-rest-seam` when the home's `identity.key` was found and values
     /// decrypt, `raw-no-identity-key` when they do not.
@@ -75,10 +77,19 @@ pub(crate) fn open_home(home: &Path, i_know_this_is_primary: bool) -> Result<Hom
         high_water,
     )
     .map_err(|e| format!("open LastStore {}: {e}", store_root.display()))?;
+    wrap_home_store(home, store_root, base)
+}
+
+fn wrap_home_store(
+    home: &Path,
+    store_root: PathBuf,
+    base: LastStoreNamespacedStore,
+) -> Result<HomeStore, String> {
     let base: Arc<dyn NamespacedStore> = Arc::new(base);
 
     match load_home_crypto(home) {
         Some(crypto) => Ok(HomeStore {
+            base: Arc::clone(&base),
             store: Arc::new(EncryptingNamespacedStore::with_plaintext_namespaces(
                 base,
                 crypto,
@@ -91,11 +102,23 @@ pub(crate) fn open_home(home: &Path, i_know_this_is_primary: bool) -> Result<Hom
             seam: "at-rest-seam",
         }),
         None => Ok(HomeStore {
+            base: Arc::clone(&base),
             store: base,
             store_root,
             seam: "raw-no-identity-key",
         }),
     }
+}
+
+/// Open the stopped home for the planner without any file changes.
+pub(crate) fn open_home_for_offline_read(home: &Path) -> Result<HomeStore, String> {
+    let store_root = resolve_laststore_root(home)?;
+    let base = LastStoreNamespacedStore::open_for_offline_read(
+        &store_root,
+        laststore::LastStoreOptions::hash_group(),
+    )
+    .map_err(|error| format!("open read-only LastStore {}: {error}", store_root.display()))?;
+    wrap_home_store(home, store_root, base)
 }
 
 /// The Mini at-rest provider for `home`, from its `identity.key` seed.

@@ -311,7 +311,7 @@ fn first_expired_index(nodes: &[Walked], cutoff_nanos: u64) -> Option<usize> {
         .position(|node| node.written_at > 0 && node.written_at < cutoff_nanos)
 }
 
-fn segment_bytes(dir: &Path) -> u64 {
+pub(super) fn segment_bytes(dir: &Path) -> u64 {
     let Ok(entries) = fs::read_dir(dir) else {
         return 0;
     };
@@ -352,7 +352,7 @@ fn list_segments(dir: &Path) -> Result<Vec<(u64, std::path::PathBuf)>> {
 
 /// After a legacy rewrite, only the segment named by the in-memory group
 /// may remain. An older file still holds keys the rewrite removed.
-fn finish_legacy_rewrite(sh: &super::Shard) -> Result<()> {
+pub(super) fn finish_legacy_rewrite(sh: &super::Shard) -> Result<()> {
     let on_disk = list_segments(&sh.dir)?;
     if sh.segments.is_empty() {
         for (_, path) in on_disk {
@@ -394,6 +394,9 @@ impl LastStore {
         cutoff_nanos: u64,
         execute: bool,
     ) -> Result<MaintenanceReport> {
+        if execute {
+            self.require_writable()?;
+        }
         if self.opts.packaging != PackagingMode::Plain || self.opts.data_key.is_some() {
             return Err(Error::Config(
                 "maintenance rewrite supports plain packaging only".into(),
@@ -571,6 +574,9 @@ impl LastStore {
         open: &dyn Fn(&[u8]) -> Option<Vec<u8>>,
         seal: &dyn Fn(&[u8]) -> Option<Vec<u8>>,
     ) -> Result<VersionRetentionReport> {
+        if execute {
+            self.require_writable()?;
+        }
         if self.opts.packaging != PackagingMode::Plain || self.opts.data_key.is_some() {
             return Err(Error::Config(
                 "maintenance rewrite supports plain packaging only".into(),

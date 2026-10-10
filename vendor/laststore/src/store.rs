@@ -2231,6 +2231,8 @@ pub struct WriteAck {
 /// Drop also flushes.
 pub struct LastStore {
     root: PathBuf,
+    /// The offline reader must not create files, repair tails, or write sidecars.
+    read_only: bool,
     opts: LastStoreOptions,
     shards: Mutex<ShardWarmSet>,
     /// Ids of groups evicted from `shards`, so a repeat keys-only pass does not
@@ -2422,6 +2424,9 @@ mod warm_trim;
 
 impl Drop for LastStore {
     fn drop(&mut self) {
+        if self.read_only {
+            return;
+        }
         let _ = self.flush();
         // After the flush, so the stamps describe segments already on disk.
         // This is the only point where a group that stayed resident for the
@@ -2458,9 +2463,14 @@ mod group_compact;
 mod layout;
 mod layout_restore;
 mod maintenance;
+mod reap;
 pub use layout::{describe_home, home_has_frame_aead_segments, LayoutDescriptor};
 use layout::{resolve_layout_options, write_layout_descriptor};
 pub use layout_restore::restore_chunk_cache_paths;
 pub use maintenance::{
     MaintenanceReport, VersionRetentionReport, SUPERSEDED_VERSION_RETENTION_NANOS,
+};
+pub use reap::{
+    reap_home, CollectionApplied, CollectionCount, CollectionRules, GroupCount, ReapError,
+    ReapEvent, ReapOptions, ReapOutcome, ReapPlan, REAP_ALLOWED_COLLECTIONS,
 };

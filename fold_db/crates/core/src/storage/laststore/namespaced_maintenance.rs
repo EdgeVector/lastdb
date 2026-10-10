@@ -143,6 +143,7 @@ impl LastStoreNamespacedStore {
 mod backup;
 mod compact_admin;
 mod index_residue;
+mod offline_read;
 mod residue_drain;
 
 pub(super) fn collection_dir_bytes(store_root: &Path, collection: &str) -> u64 {

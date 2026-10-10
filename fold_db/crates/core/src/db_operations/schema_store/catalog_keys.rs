@@ -9,8 +9,14 @@ use serde::{Deserialize, Serialize};
 
 /// Maximum backend response for one strict repair catalog read.
 pub(super) const REPAIR_SCHEMA_PAGE_ROWS: usize = 32;
-/// Schema names are UTF-8, so this byte is above every valid first byte.
-pub(super) const REPAIR_SCHEMA_SCAN_END: &[u8] = &[0xff];
+/// A bound above every schema name, for the strict catalog scan.
+///
+/// The Last Store compares text ids in a range scan. It writes a bound that
+/// is not text as `b64:` plus base64. The byte `0xff` became `b64:/w==`, and
+/// that bound is below every name that sorts after `b64:`: the strict read
+/// then returned no schema at all for a catalog of such names, with no error.
+/// The largest code point is text, so the store keeps it as it is.
+pub(super) const REPAIR_SCHEMA_SCAN_END: &[u8] = "\u{10ffff}".as_bytes();
 
 /// Reserved internal key prefix for retention policies in `schema_states`.
 ///
