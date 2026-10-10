@@ -13,12 +13,16 @@ use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 
 use super::{files::FreshHome, Credentials};
 
+#[path = "lastsecrets.rs"]
+mod lastsecrets;
+
 const SEED_INPUT_LIMIT: u64 = 128;
 
 struct Failure {
     code: &'static str,
     registration_may_have_committed: bool,
     device_id: Option<String>,
+    lastsecrets: Box<lastsecrets::Receipt>,
 }
 
 impl Failure {
@@ -27,6 +31,7 @@ impl Failure {
             code,
             registration_may_have_committed: false,
             device_id: None,
+            lastsecrets: Box::default(),
         }
     }
 
@@ -35,8 +40,19 @@ impl Failure {
             code,
             registration_may_have_committed: true,
             device_id: Some(device_id.to_owned()),
+            lastsecrets: Box::default(),
         }
     }
+
+    fn with_lastsecrets(mut self, receipt: &lastsecrets::Receipt) -> Self {
+        self.lastsecrets = Box::new(receipt.clone());
+        self
+    }
+}
+
+struct Recovered {
+    device_id: String,
+    lastsecrets: lastsecrets::Receipt,
 }
 
 pub(super) fn command(
@@ -44,24 +60,34 @@ pub(super) fn command(
     destination: &Path,
     expected_user_hash: &str,
     seed_stdin: bool,
+    api_key_lastsecrets_slug: Option<&str>,
     json: bool,
 ) -> Result<(), String> {
-    let result = recover(source, destination, expected_user_hash, seed_stdin);
+    let result = recover(
+        source,
+        destination,
+        expected_user_hash,
+        seed_stdin,
+        api_key_lastsecrets_slug,
+    );
     let receipt = match &result {
-        Ok(device_id) => serde_json::json!({
+        Ok(recovered) => serde_json::json!({
             "schema": "lastdb.dev-credentials-recovery.v1", "ok": true, "environment": "dev",
-            "user_hash_matches_expected": true, "fresh_device_id": device_id,
+            "user_hash_matches_expected": true, "fresh_device_id": recovered.device_id,
             "credentials_only": true, "cloud_sync_off": true, "cloud_resume_required": true,
             "data_directory_created": false, "files": 3, "home_mode": "0700", "file_mode": "0600",
             "identity_seed_output": false, "api_key_output": false, "local_store_opened": false,
             "cloud_data_published": false, "device_registered": true,
             "remote_key_rotation_policy_verified": false,
+            "credentials_home_committed": true,
+            "lastsecrets": recovered.lastsecrets,
         }),
         Err(failure) => serde_json::json!({
             "schema": "lastdb.dev-credentials-recovery.v1", "ok": false, "environment": "dev",
             "code": failure.code, "registration_may_have_committed": failure.registration_may_have_committed,
             "fresh_device_id": failure.device_id, "identity_seed_output": false, "api_key_output": false,
             "local_store_opened": false, "cloud_data_published": false,
+            "credentials_home_committed": false, "lastsecrets": failure.lastsecrets,
         }),
     };
     if json {
@@ -88,7 +114,8 @@ fn recover(
     destination: &Path,
     expected_user_hash: &str,
     seed_stdin: bool,
-) -> Result<String, Failure> {
+    api_key_lastsecrets_slug: Option<&str>,
+) -> Result<Recovered, Failure> {
     if source.is_some() || !seed_stdin {
         return Err(Failure::before_registration(
             "explicit_seed_stdin_without_data_dir_required",
@@ -101,40 +128,73 @@ fn recover(
     {
         return Err(Failure::before_registration("invalid_expected_user_hash"));
     }
-    let seed = read_seed()?;
+    let lastsecrets = api_key_lastsecrets_slug
+        .map(|slug| lastsecrets::LastSecrets::preflight(slug, expected_user_hash))
+        .transpose()
+        .map_err(Failure::before_registration)?;
+    let pending_receipt = lastsecrets
+        .as_ref()
+        .map(lastsecrets::LastSecrets::receipt)
+        .unwrap_or_default();
+    let before_registration =
+        |code| Failure::before_registration(code).with_lastsecrets(&pending_receipt);
+    let seed = read_seed().map_err(|failure| failure.with_lastsecrets(&pending_receipt))?;
     let keypair = Ed25519KeyPair::from_secret_key(&seed)
-        .map_err(|_| Failure::before_registration("invalid_identity_seed"))?;
+        .map_err(|_| before_registration("invalid_identity_seed"))?;
     let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())
-        .map_err(|_| Failure::before_registration("cannot_derive_account_hash"))?;
+        .map_err(|_| before_registration("cannot_derive_account_hash"))?;
     if user_hash != expected_user_hash {
-        return Err(Failure::before_registration("identity_account_mismatch"));
+        return Err(before_registration("identity_account_mismatch"));
     }
     let target = FreshHome::preflight_source_free_dev(destination)
-        .map_err(|_| Failure::before_registration("invalid_fresh_private_destination"))?;
+        .map_err(|_| before_registration("invalid_fresh_private_destination"))?;
     let mut target = target
         .create()
-        .map_err(|_| Failure::before_registration("cannot_create_fresh_private_destination"))?;
+        .map_err(|_| before_registration("cannot_create_fresh_private_destination"))?;
     target
         .write(IDENTITY_KEY_FILE, &seed)
-        .map_err(|_| Failure::before_registration("cannot_write_protected_identity"))?;
+        .map_err(|_| before_registration("cannot_write_protected_identity"))?;
     let device_id = uuid::Uuid::new_v4().to_string();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|_| Failure::before_registration("cannot_create_registration_runtime"))?;
+        .map_err(|_| before_registration("cannot_create_registration_runtime"))?;
     let registered = runtime
         .block_on(register_dev_recovery_device(&keypair, &device_id))
         .map_err(|_| {
             Failure::after_registration("dev_registration_result_uncertain", &device_id)
+                .with_lastsecrets(&pending_receipt)
         })?;
     if registered.user_hash != user_hash {
-        return Err(Failure::after_registration(
-            "registered_account_mismatch",
-            &device_id,
-        ));
+        return Err(
+            Failure::after_registration("registered_account_mismatch", &device_id)
+                .with_lastsecrets(&pending_receipt),
+        );
     }
-    commit_credentials(&mut target, registered.api_key, &device_id)?;
-    Ok(device_id)
+    let secret_receipt = store_registered_key(lastsecrets, &registered.api_key, &device_id)?;
+    if let Err(mut failure) = commit_credentials(&mut target, registered.api_key, &device_id) {
+        failure.lastsecrets = Box::new(secret_receipt);
+        return Err(failure);
+    }
+    Ok(Recovered {
+        device_id,
+        lastsecrets: secret_receipt,
+    })
+}
+
+fn store_registered_key(
+    lastsecrets: Option<lastsecrets::LastSecrets>,
+    key: &str,
+    device_id: &str,
+) -> Result<lastsecrets::Receipt, Failure> {
+    let Some(lastsecrets) = lastsecrets else {
+        return Ok(lastsecrets::Receipt::default());
+    };
+    lastsecrets.store(key).map_err(|error| {
+        let mut failure = Failure::after_registration(error.code, device_id);
+        failure.lastsecrets = Box::new(error.receipt);
+        failure
+    })
 }
 
 fn read_seed() -> Result<[u8; 32], Failure> {

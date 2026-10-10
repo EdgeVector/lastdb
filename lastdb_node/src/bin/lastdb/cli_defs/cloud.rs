@@ -16,6 +16,10 @@ pub(crate) enum CloudCommand {
         /// Read one base64-encoded 32-byte identity seed from stdin.
         #[arg(long, required = true)]
         identity_seed_stdin: bool,
+        /// Store the minted key through the trusted local LastSecrets stdin route.
+        /// Require lastdb-dev-recovery-api-key-<expected-user-hash>-<UUIDv4>.
+        #[arg(long)]
+        api_key_lastsecrets_slug: Option<String>,
         /// Emit a receipt without credential values.
         #[arg(long)]
         json: bool,

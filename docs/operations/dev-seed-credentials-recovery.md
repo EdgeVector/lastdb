@@ -56,5 +56,57 @@ The product verifies final names, descriptors, owner, mode, single links, and by
 Its receipt contains no seed, API key, phrase, or response body.
 The receipt reports the fresh device ID and the account equality check.
 
+## Store the new key through LastSecrets
+
+Add `--api-key-lastsecrets-slug` when a later product command needs the new API key.
+The slug must be `lastdb-dev-recovery-api-key-<expected-user-hash>-<UUIDv4>`.
+Use one fresh UUID and retain only its `lastsecrets://` locator.
+LastSecrets put is an upsert. The command does not claim exclusive record creation.
+Check the exact proposed locator metadata before the operation; do not infer absence from a listing.
+
+The product sends the returned key directly to LastSecrets stdin after the registration account matches.
+It uses no shell, secret argument, secret environment value, or raw temporary file.
+The product then reads that exact LastSecrets record internally and compares the key in memory.
+It commits the protected recovery home only after the exact key comparison succeeds.
+The agent must not read or extract the key from the paused cloud config.
+
+The optional route requires the OS account's installed `~/.local/bin/lastsecrets`.
+It also requires the private `~/.lastsecrets/config.json` file.
+The config must retain its local owner socket and both pinned LastSecrets schema names.
+The product accepts no tool, config, socket, HOME, PATH, or endpoint override.
+It binds the executable and config descriptors and records their SHA-256 metadata.
+
+The child reads the retained config descriptor. It cannot follow a replaced config path.
+The product does not rewrite or initialize the LastSecrets configuration.
+
+It clears the child environment and fixes the child directory to `/`.
+It disables Sentry output, Bun crash uploads, and the runtime transpiler cache.
+It refuses the fixed automatic config paths before it reads the seed or registers a device.
+Bun can load config files in a standalone program.
+Those files can select a different route or preload code.
+
+See the [Bun executable docs](https://bun.com/docs/bundler/executables#automatic-config-loading).
+The [Bun environment docs](https://bun.sh/docs/runtime/environment-variables) name these config paths and controls.
+
+CAUTION: The LastSecrets child writes one secret and its normal metadata in the local LastSecrets store.
+Release any node-write hold before this operation.
+The recovery command still reads no local database content and publishes no database data.
+
+The child has a 60-second deadline.
+On failure, the product kills and reaps only that child.
+The reap has a five-second deadline.
+Child errors and output never appear in the receipt.
+The private readback has a 4097-byte cap and never reaches stdout.
+
+The receipt reports the locator, code and config hashes, stored-key result, and exact-key comparison result.
+It reports `exclusive_create: false` and separate possible-write and local-home outcomes.
+Failures after the LastSecrets preflight keep its locator and hashes.
+
+CAUTION: A failed LastSecrets result can leave a stored key after the remote registration.
+The product rolls back only the uncommitted local home.
+It does not repeat registration, delete the secret, or revoke a remote key.
+If local commit fails after LastSecrets succeeds, the receipt retains the confirmed secret-store result.
+Keep the locator and the failure receipt for a scoped follow-up.
+
 The offline `prepare-recovery-home` command stays separate.
 It reads an existing local identity and config and performs no registration.
