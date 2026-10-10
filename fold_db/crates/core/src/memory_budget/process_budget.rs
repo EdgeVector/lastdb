@@ -211,7 +211,6 @@ pub fn process_memory_budget() -> &'static ProcessMemoryBudget {
     BUDGET.get_or_init(ProcessMemoryBudget::from_env)
 }
 
-#[allow(clippy::cast_precision_loss, clippy::cast_sign_loss)]
 pub(super) fn scale_bytes(bytes: u64, factor: f64) -> u64 {
     if factor <= 0.0 {
         return 0;
