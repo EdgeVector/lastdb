@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::chain_walk::MAX_TIP_CHAIN_WALK;
+use crate::atom::AtomEntry;
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::{build_storage_key, FieldVariant};
 use crate::schema::types::key_value::KeyValue;
@@ -43,6 +44,7 @@ use crate::schema::SchemaError;
 /// Pinned by `collect_target_chain_does_not_scan_the_molecule`, which asserts
 /// the scan helper is not called at all rather than merely checking the answer
 /// is right — the scan returned the right answer too.
+#[derive(Default)]
 pub(crate) struct TargetChainTrace {
     pub tip_version_keys: Vec<String>,
     pub atom_uuids: HashSet<String>,
@@ -81,61 +83,34 @@ async fn collect_target_chain_with_mode(
     key: &KeyValue,
     mode: ChainTraceMode,
 ) -> Result<TargetChainTrace, SchemaError> {
-    let mut tv_keys: Vec<String> = Vec::new();
-    let mut atom_uuids: HashSet<String> = HashSet::new();
-    let mut atom_ref_edge_keys = Vec::new();
-    let mut atom_ref_v2_edge_keys = Vec::new();
-    let Some((target_hash, target_range)) = field.disk_slot_for_key(key) else {
-        return Ok(TargetChainTrace {
-            tip_version_keys: tv_keys,
-            atom_uuids,
-            atom_ref_edge_keys,
-            atom_ref_v2_edge_keys,
-        });
+    let Some(slot) = locate_target_slot(field, key) else {
+        return Ok(TargetChainTrace::default());
     };
-    let prefix = field.common().storage_prefix().map(str::to_string);
-    let Some(molecule_uuid) = field.common().molecule_uuid() else {
-        return Ok(TargetChainTrace {
-            tip_version_keys: tv_keys,
-            atom_uuids,
-            atom_ref_edge_keys,
-            atom_ref_v2_edge_keys,
-        });
-    };
-    let Some(molecule) = field.molecule_data() else {
-        return Ok(TargetChainTrace {
-            tip_version_keys: tv_keys,
-            atom_uuids,
-            atom_ref_edge_keys,
-            atom_ref_v2_edge_keys,
-        });
-    };
-    let Some(entry) = molecule
-        .get_atom_entry(&target_hash, &target_range)
-        .cloned()
-    else {
-        return Ok(TargetChainTrace {
-            tip_version_keys: tv_keys,
-            atom_uuids,
-            atom_ref_edge_keys,
-            atom_ref_v2_edge_keys,
-        });
-    };
-    atom_ref_edge_keys.push(db_ops.atoms().atom_ref_tip_edge_key(
+    let TargetSlot {
         molecule_uuid,
-        &target_hash,
-        &target_range,
-        &entry,
-        prefix.as_deref(),
-    ));
+        target_hash,
+        target_range,
+        prefix,
+        entry,
+    } = slot;
+    let mut trace = TargetChainTrace::default();
+    trace
+        .atom_ref_edge_keys
+        .push(db_ops.atoms().atom_ref_tip_edge_key(
+            &molecule_uuid,
+            &target_hash,
+            &target_range,
+            &entry,
+            prefix.as_deref(),
+        ));
     if let Ok(v2_key) = db_ops.atoms().atom_ref_tip_edge_v2_key(
-        molecule_uuid,
+        &molecule_uuid,
         &target_hash,
         &target_range,
         &entry,
         prefix.as_deref(),
     ) {
-        atom_ref_v2_edge_keys.push(v2_key);
+        trace.atom_ref_v2_edge_keys.push(v2_key);
     }
 
     let mut version_id = entry.prev_tip_id.clone();
@@ -155,37 +130,62 @@ async fn collect_target_chain_with_mode(
         else {
             break;
         };
-        tv_keys.push(build_storage_key(
+        trace.tip_version_keys.push(build_storage_key(
             prefix.as_deref(),
             &crate::atom::molecule_key_codec::tip_version_key(&version_id),
         ));
         if mode == ChainTraceMode::AtomErasure {
-            atom_uuids.insert(archived.atom_uuid.clone());
+            trace.atom_uuids.insert(archived.atom_uuid.clone());
         }
-        atom_ref_edge_keys.push(db_ops.atoms().atom_ref_tip_version_edge_key(
-            molecule_uuid,
-            &target_hash,
-            &target_range,
-            &version_id,
-            &archived,
-            prefix.as_deref(),
-        ));
+        trace
+            .atom_ref_edge_keys
+            .push(db_ops.atoms().atom_ref_tip_version_edge_key(
+                &molecule_uuid,
+                &target_hash,
+                &target_range,
+                &version_id,
+                &archived,
+                prefix.as_deref(),
+            ));
         if let Ok(v2_key) = db_ops.atoms().atom_ref_tip_version_edge_v2_key(
-            molecule_uuid,
+            &molecule_uuid,
             &target_hash,
             &target_range,
             &version_id,
             &archived,
             prefix.as_deref(),
         ) {
-            atom_ref_v2_edge_keys.push(v2_key);
+            trace.atom_ref_v2_edge_keys.push(v2_key);
         }
         version_id = archived.prev_tip_id;
     }
-    Ok(TargetChainTrace {
-        tip_version_keys: tv_keys,
-        atom_uuids,
-        atom_ref_edge_keys,
-        atom_ref_v2_edge_keys,
+    Ok(trace)
+}
+
+/// The resolved molecule slot a purge target addresses.
+struct TargetSlot {
+    molecule_uuid: String,
+    target_hash: String,
+    target_range: String,
+    prefix: Option<String>,
+    entry: AtomEntry,
+}
+
+/// Resolve the slot for `key`, or `None` when the field has no molecule, no
+/// resident entry, or no slot for this key (nothing to trace).
+fn locate_target_slot(field: &FieldVariant, key: &KeyValue) -> Option<TargetSlot> {
+    let (target_hash, target_range) = field.disk_slot_for_key(key)?;
+    let prefix = field.common().storage_prefix().map(str::to_string);
+    let molecule_uuid = field.common().molecule_uuid()?.clone();
+    let entry = field
+        .molecule_data()?
+        .get_atom_entry(&target_hash, &target_range)
+        .cloned()?;
+    Some(TargetSlot {
+        molecule_uuid,
+        target_hash,
+        target_range,
+        prefix,
+        entry,
     })
 }
