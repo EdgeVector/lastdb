@@ -47,8 +47,6 @@ mod lane;
 mod ledger;
 mod logical_set;
 mod metrics;
-mod point;
-mod range;
 mod types;
 mod worker;
 
@@ -71,8 +69,6 @@ pub use logical_set::{
     Tip, RESIDENT_KEY_CAP, RESIDENT_KEY_CAP_ENV,
 };
 pub use metrics::{ResidentMetrics, ResidentMetricsSnapshot};
-pub use point::PointLoader;
-pub use range::HashLoader;
 pub use types::{
     DirtyKey, PersistPlan, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot,
     ResidentKind, ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip,
