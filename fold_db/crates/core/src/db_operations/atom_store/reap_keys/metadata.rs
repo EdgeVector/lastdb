@@ -19,7 +19,7 @@ pub fn offline_delete_history_atom(key: &str, value: &[u8]) -> Result<Option<Str
     if barrier
         .displaced_atom_uuid
         .as_ref()
-        .is_some_and(|id| id.is_empty())
+        .is_some_and(String::is_empty)
     {
         return Err(invalid("Delete history has an empty atom identity"));
     }
@@ -39,7 +39,7 @@ pub fn offline_molecule_shape(bare: &str, value: &[u8]) -> Result<(), SchemaErro
             || pointer
                 .previous_generation
                 .as_ref()
-                .is_some_and(|id| id.is_empty())
+                .is_some_and(String::is_empty)
         {
             return Err(invalid("generation pointer has an empty identity"));
         }
