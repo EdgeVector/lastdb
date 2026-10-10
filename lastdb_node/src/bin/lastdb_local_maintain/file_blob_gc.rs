@@ -104,15 +104,7 @@ pub(crate) fn run(args: &FileBlobGcArgs) -> Result<(), String> {
     if args.json {
         println!("{}", serde_json::to_string(&public).map_err(err)?);
     } else {
-        println!(
-            "file blobs: read={} referenced={} recent={} undated={} candidates={} deleted={}",
-            public.counts.file_blobs_read,
-            public.counts.file_blobs_referenced,
-            public.counts.file_blobs_recent,
-            public.counts.file_blobs_undated,
-            public.counts.candidate_rows,
-            public.file_blobs_deleted,
-        );
+        println!("file blob GC operation complete; use --json for numeric counts.");
     }
     Ok(())
 }

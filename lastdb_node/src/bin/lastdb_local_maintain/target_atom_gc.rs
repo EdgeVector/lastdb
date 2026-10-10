@@ -82,14 +82,7 @@ pub(crate) fn run(args: &TargetAtomGcArgs) -> Result<(), String> {
     if args.json {
         println!("{}", serde_json::to_string(&report).map_err(err)?);
     } else {
-        println!(
-            "target atoms: requested={} found={} retained={} candidates={} deleted={}",
-            report.counts.requested_uuids,
-            report.counts.found_uuids,
-            report.counts.retained_uuids,
-            report.counts.candidate_uuids,
-            report.atom_copies_deleted,
-        );
+        println!("target atom GC operation complete; use --json for numeric counts.");
     }
     Ok(())
 }
