@@ -6,6 +6,8 @@ mod backup_gc;
 mod intent;
 #[path = "cloud_cmds/inventory.rs"]
 mod inventory;
+#[path = "cloud_cmds/recovery_home.rs"]
+mod recovery_home;
 #[path = "cloud_cmds/resume_primary.rs"]
 mod resume_primary;
 
@@ -14,6 +16,9 @@ pub(super) use intent::*;
 pub(super) use inventory::*;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
+    if recovery_home::handles(&action) {
+        return recovery_home::command(data_dir.as_deref(), action);
+    }
     let explicit_data_dir = data_dir.is_some();
     let home = lastdb_node::host::resolve_home(data_dir)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -21,6 +26,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         .build()
         .map_err(|e| format!("tokio runtime construction failed: {e}"))?;
     match action {
+        CloudCommand::PrepareRecoveryHome { .. } => unreachable!("handled before runtime creation"),
         CloudCommand::RewriteDeletedAtoms {
             plan,
             execute,
