@@ -306,6 +306,8 @@ pub struct SyncEngine {
     pub(crate) automatic_gc_pin_log_activation_pending: AtomicBool,
     /// Flush acknowledged resident writes before the compactor enumerates S.
     photograph_cut_barrier: Arc<Mutex<Option<PhotographCutBarrier>>>,
+    photograph_mutation_router:
+        Arc<Mutex<Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>>>,
     /// Refresh store addressing after S installs durable layout markers.
     photograph_restore_barrier: Arc<Mutex<Option<PhotographCutBarrier>>>,
     /// Optional callback invoked after sync replay writes native_index entries to Sled.

@@ -756,10 +756,12 @@ mod retirement_receipts;
 pub(crate) use chunk_sha_memo::*;
 use retirement_receipts::*;
 
+mod atom_copy;
 mod atom_lineage;
 mod chain;
 mod cut;
 mod retirements;
+pub use atom_copy::*;
 pub use atom_lineage::*;
 pub use chain::*;
 pub use cut::*;

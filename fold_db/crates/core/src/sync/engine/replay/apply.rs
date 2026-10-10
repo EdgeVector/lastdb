@@ -5,6 +5,7 @@ use super::super::SyncEngine;
 use crate::crypto::CryptoProvider;
 use crate::sync::error::{SyncError, SyncResult};
 use crate::sync::log::LogOp;
+use crate::sync::{ReplayCause, ReplayOperation};
 
 pub(super) fn is_raw_delete_barrier_key(namespace: &str, key: &[u8]) -> bool {
     namespace == "main"
@@ -50,11 +51,12 @@ impl SyncEngine {
         // handle_replay_apply_error can skip-and-advance instead of wedging.
         let key_bytes = LogOp::decode_bytes_for_replay(namespace, "key", key_b64)?;
         if is_raw_delete_barrier_key(namespace, &key_bytes) {
-            return Err(SyncError::ReplayApplyFailed {
-                target: namespace.into(),
-                seq: 0,
-                reason: "raw Delete barrier Put needs a safe recovery path".into(),
-            });
+            return Err(SyncError::replay_refused(
+                namespace,
+                0,
+                ReplayOperation::Put,
+                ReplayCause::RawDeleteBarrierPut,
+            ));
         }
         let value_bytes = LogOp::decode_bytes_for_replay(namespace, "value", value_b64)?;
         let key_str = std::str::from_utf8(&key_bytes).ok();

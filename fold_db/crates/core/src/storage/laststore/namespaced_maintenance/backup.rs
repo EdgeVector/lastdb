@@ -96,15 +96,11 @@ impl LastStoreNamespacedStore {
         backup_manifest::report_committed_successor_history(self)
     }
 
-    /// True when the photograph atom keep-set SHAs equal the local verified walk.
+    /// True when every atom ref is an exact verified prefix at its local address.
     pub fn atom_photograph_is_disk_copy(&self, manifest: &BackupManifest) -> StorageResult<bool> {
-        let local = backup_manifest::local_atom_chunk_shas(self)?;
-        let keep: std::collections::BTreeSet<_> = manifest
-            .atom_chunks
-            .iter()
-            .map(|chunk| chunk.sha256.clone())
-            .collect();
-        Ok(keep == local)
+        Ok(self
+            .atom_photograph_copy_report(manifest, None, true)?
+            .is_complete())
     }
 
     /// Backup-only may retain a prior atom file that exists only in cloud.
@@ -115,22 +111,18 @@ impl LastStoreNamespacedStore {
         manifest: &BackupManifest,
         cloud: Option<&CloudChunkPresence>,
     ) -> StorageResult<bool> {
-        let local = backup_manifest::local_atom_chunk_shas(self)?;
-        let keep: std::collections::BTreeSet<_> = manifest
-            .atom_chunks
-            .iter()
-            .map(|chunk| chunk.sha256.clone())
-            .collect();
-        if !local.is_subset(&keep) {
-            return Ok(false);
-        }
-        let remote: Vec<_> = keep.difference(&local).collect();
-        if remote.is_empty() {
-            return Ok(true);
-        }
-        Ok(cloud.is_some_and(|view| {
-            view.listing_complete && remote.iter().all(|sha| view.present_shas.contains(*sha))
-        }))
+        Ok(self
+            .atom_photograph_copy_report(manifest, cloud, false)?
+            .is_complete())
+    }
+
+    pub fn atom_photograph_copy_report(
+        &self,
+        manifest: &BackupManifest,
+        cloud: Option<&CloudChunkPresence>,
+        allow_append_growth: bool,
+    ) -> StorageResult<AtomPhotographCopyReport> {
+        backup_manifest::atom_photograph_copy_report(self, manifest, cloud, allow_append_growth)
     }
 
     pub fn missing_committed_atom_groups_have_cloud_copies(

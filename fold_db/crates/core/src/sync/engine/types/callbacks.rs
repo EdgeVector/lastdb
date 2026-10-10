@@ -20,9 +20,12 @@ pub type EmbeddingReloadCallback = ReloadCallback;
 pub type MutationIntentApplier = std::sync::Arc<
     dyn Fn(
             Vec<crate::sync::log::MutationEnvelope>,
-        )
-            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
-        + Send
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<(), crate::sync::MutationIntentReplayError>>
+                    + Send,
+            >,
+        > + Send
         + Sync,
 >;
 

@@ -159,6 +159,11 @@ impl SyncEngine {
             ));
         }
 
+        // The serving fence covers flush, stamp, and selection; upload starts
+        // after this guard drops. Take it before the packing slot, as resume does.
+        let _mutation_fence = self
+            .acquire_backup_mutation_fence(primary_resume_root)
+            .await?;
         // Packing lock first: hold the slot before walking live sealed files so
         // unattended compact/reseal cannot rewrite them under the list. A
         // concurrent ensure that already filled the slot returns.
@@ -258,25 +263,13 @@ impl SyncEngine {
                 "owner accepted a fresh backup of local files with missing historical atom groups"
             );
         }
-        let is_copy = if primary_resume_root && previous_manifest.is_none() {
-            store.atom_photograph_is_disk_copy(&manifest)
-        } else if self.backup_only_mode.load(Ordering::SeqCst) {
-            store.atom_photograph_has_verified_cloud_copies(&manifest, cloud_presence.as_ref())
-        } else {
-            store.atom_photograph_is_disk_copy(&manifest)
-        }
-        .map_err(|e| SyncError::Storage(format!("atom keep-set copy check failed: {e}")))?;
-        if !is_copy {
-            tracing::error!(
-                target: "fold_db::sync::backup",
-                generation = manifest.counter,
-                atom_chunks = manifest.atom_chunks.len(),
-                "atom keep-set lacks a local file or a verified cloud copy; packing-lock cut refused"
-            );
-            return Err(SyncError::Storage(
-                "atom keep-set lacks a local file or a verified cloud copy; packing-lock cut refused".to_string(),
-            ));
-        }
+        require_atom_photograph_copy(
+            store,
+            &manifest,
+            cloud_presence.as_ref(),
+            primary_resume_root && previous_manifest.is_none(),
+            self.backup_only_mode.load(Ordering::SeqCst),
+        )?;
         if primary_resume_root {
             if let Some(previous) = previous_manifest {
                 make_verified_primary_resume_root(previous, &mut manifest)?;

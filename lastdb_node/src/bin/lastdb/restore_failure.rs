@@ -1,5 +1,8 @@
 pub(super) const RESTORE_FAILURE_SCHEMA: &str = "lastdb.restore.error.v1";
 pub(super) const RESTORE_FAILURE_MAX_JSON_BYTES: usize = 1024;
+#[path = "restore_failure/diagnosis.rs"]
+mod diagnosis;
+use diagnosis::RestoreReplayDiagnosis;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -63,6 +66,7 @@ pub(super) struct RestoreFailure {
     pub(super) stage: RestoreFailureStage,
     pub(super) code: RestoreFailureCode,
     pub(super) detail: String,
+    replay: Option<RestoreReplayDiagnosis>,
 }
 
 impl RestoreFailure {
@@ -75,6 +79,7 @@ impl RestoreFailure {
             stage,
             code,
             detail: detail.into(),
+            replay: None,
         }
     }
 
@@ -84,7 +89,9 @@ impl RestoreFailure {
         error: &fold_db::sync::SyncError,
     ) -> Self {
         let code = restore_sync_error_code(error);
-        Self::new(stage, code, format!("{context}: {error}"))
+        let mut failure = Self::new(stage, code, format!("{context}: {error}"));
+        failure.replay = RestoreReplayDiagnosis::from_sync(error);
+        failure
     }
 
     pub(super) fn from_s0(
@@ -118,6 +125,8 @@ pub(super) struct RestoreFailureEnvelope {
     pub(super) ok: bool,
     pub(super) stage: RestoreFailureStage,
     pub(super) code: RestoreFailureCode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replay: Option<RestoreReplayDiagnosis>,
 }
 
 pub(super) fn restore_failure_pair_allowed(
@@ -215,6 +224,10 @@ pub(super) fn render_restore_failure_json(failure: &RestoreFailure) -> String {
         ok: false,
         stage,
         code,
+        replay: (stage == RestoreFailureStage::RestoreTail
+            && code == RestoreFailureCode::ReplayApplyFailed)
+            .then_some(failure.replay)
+            .flatten(),
     };
     let json = serde_json::to_string(&envelope).unwrap_or_else(|_| {
         concat!(

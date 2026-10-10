@@ -11,6 +11,7 @@ use crate::schema::types::{Mutation, Query};
 use std::collections::HashMap;
 
 use super::FoldDB;
+mod replay_applier;
 
 async fn prepare_photograph_cut_components(
     pending_tasks: &crate::fold_db_core::pending_task_tracker::PendingTaskTracker,
@@ -231,6 +232,10 @@ impl FoldDB {
             })
         });
         engine.set_photograph_cut_barrier(cut_barrier).await;
+        #[cfg(feature = "cloud-sync")]
+        if let Some(router) = self.mutation_log_capture.clone() {
+            engine.set_photograph_mutation_router(router).await;
+        }
         let restore_db_ops = Arc::clone(&self.db_ops);
         let restore_barrier: crate::sync::engine::PhotographCutBarrier = Arc::new(move || {
             let restore_db_ops = Arc::clone(&restore_db_ops);
@@ -243,22 +248,9 @@ impl FoldDB {
             })
         });
         engine.set_photograph_restore_barrier(restore_barrier).await;
-        let mutation_manager = Arc::clone(&self.mutation_manager);
-        let applier: crate::sync::engine::MutationIntentApplier = Arc::new(move |envelopes| {
-            let mutation_manager = Arc::clone(&mutation_manager);
-            let materializer = Arc::clone(&materializer);
-            Box::pin(async move {
-                let envelopes = materializer(envelopes).await?;
-                let (mutations, prefix) =
-                    crate::sync::mutation_intent::decode_mutations(&envelopes);
-                mutation_manager
-                    .apply_replayed_mutations(mutations, prefix.as_deref())
-                    .await
-                    .map(|_| ())
-                    .map_err(|error| error.to_string())
-            })
-        });
-        engine.set_mutation_intent_applier(applier).await;
+        engine
+            .set_mutation_intent_applier(self.mutation_intent_replay_applier(materializer))
+            .await;
         self.sync_coordinator.set_engine(engine);
     }
 

@@ -37,6 +37,10 @@ impl SyncEngine {
                 target: target_label.to_string(),
                 seq,
                 reason: other.to_string(),
+                diagnosis: crate::sync::ReplayApplyDiagnosis::new(
+                    crate::sync::ReplayOperation::Unknown,
+                    crate::sync::ReplayCause::Unknown,
+                ),
             },
         }
     }
@@ -378,6 +382,7 @@ impl SyncEngine {
                                 max_contiguous_seq
                             );
                             Self::pin_replay_error(&target.label, fetched.seq, e)
+                                .with_replay_operation(entry.seq, (&entry.op).into())
                         })?;
                         total_replayed += 1;
                     }
@@ -421,6 +426,7 @@ impl SyncEngine {
                             max_contiguous_seq
                         );
                         Self::pin_replay_error(&target.label, fetched.seq, e)
+                            .with_replay_operation(entry.seq, (&entry.op).into())
                     })?;
                     total_replayed += 1;
                     max_contiguous_seq = fetched.seq;

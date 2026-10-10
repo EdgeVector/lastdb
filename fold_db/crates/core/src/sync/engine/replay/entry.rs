@@ -9,6 +9,7 @@ use crate::storage::traits::{KvMutation, KvStore};
 use crate::sync::error::{SyncError, SyncResult};
 use crate::sync::log::{LogEntry, LogOp};
 use crate::sync::org_sync::{storage_prefix_for_key, SyncTarget};
+use crate::sync::{ReplayCause, ReplayOperation};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::Ordering;
@@ -165,11 +166,12 @@ impl SyncEngine {
                     .and_then(Self::legacy_physical_molecule_uuid)
                     .is_some()
                 {
-                    return Err(SyncError::ReplayApplyFailed {
-                        target: namespace.clone(),
-                        seq: entry.seq,
-                        reason: "legacy physical molecule Delete needs a safe recovery path".into(),
-                    });
+                    return Err(SyncError::replay_refused(
+                        namespace,
+                        entry.seq,
+                        ReplayOperation::Delete,
+                        ReplayCause::LegacyMoleculeDelete,
+                    ));
                 }
                 let kv = self.store.open_namespace(namespace).await?;
                 match self
@@ -219,12 +221,12 @@ impl SyncEngine {
                         if !Self::should_skip_org_scoped_replay_key(&final_key, target)
                             && super::apply::is_raw_delete_barrier_key(namespace, &final_key)
                         {
-                            return Err(SyncError::ReplayApplyFailed {
-                                target: namespace.clone(),
-                                seq: entry.seq,
-                                reason: "raw Delete barrier BatchPut needs a safe recovery path"
-                                    .into(),
-                            });
+                            return Err(SyncError::replay_refused(
+                                namespace,
+                                entry.seq,
+                                ReplayOperation::BatchPut,
+                                ReplayCause::RawDeleteBarrierPut,
+                            ));
                         }
                     }
                 }
@@ -275,12 +277,12 @@ impl SyncEngine {
                         .and_then(Self::legacy_physical_molecule_uuid)
                         .is_some()
                 }) {
-                    return Err(SyncError::ReplayApplyFailed {
-                        target: namespace.clone(),
-                        seq: entry.seq,
-                        reason: "legacy physical molecule BatchDelete needs a safe recovery path"
-                            .into(),
-                    });
+                    return Err(SyncError::replay_refused(
+                        namespace,
+                        entry.seq,
+                        ReplayOperation::BatchDelete,
+                        ReplayCause::LegacyMoleculeDelete,
+                    ));
                 }
                 let kv = self.store.open_namespace(namespace).await?;
                 let mut mutations = Vec::with_capacity(decoded.len() * 2);
@@ -340,12 +342,16 @@ impl SyncEngine {
                                 .is_some()
                         };
                         if blocked {
-                            return Err(SyncError::ReplayApplyFailed {
-                                target: change.namespace.clone(),
-                                seq: entry.seq,
-                                reason: "legacy physical logical commit needs a safe recovery path"
-                                    .into(),
-                            });
+                            return Err(SyncError::replay_refused(
+                                &change.namespace,
+                                entry.seq,
+                                ReplayOperation::LogicalCommit,
+                                if change.value.is_some() {
+                                    ReplayCause::RawDeleteBarrierPut
+                                } else {
+                                    ReplayCause::LegacyMoleculeDelete
+                                },
+                            ));
                         }
                     }
                 }
@@ -398,18 +404,20 @@ impl SyncEngine {
             LogOp::MutationIntent { mutations } => {
                 let applier = self.mutation_intent_applier.lock().await.clone();
                 let Some(applier) = applier else {
-                    return Err(SyncError::ReplayApplyFailed {
-                        target: "mutation_intent".to_string(),
-                        seq: entry.seq,
-                        reason: "no MutationIntent applier registered".to_string(),
-                    });
+                    return Err(SyncError::replay_refused(
+                        "mutation_intent",
+                        entry.seq,
+                        ReplayOperation::MutationIntent,
+                        ReplayCause::MissingMutationApplier,
+                    ));
                 };
                 applier(mutations.clone())
                     .await
                     .map_err(|error| SyncError::ReplayApplyFailed {
                         target: "mutation_intent".to_string(),
                         seq: entry.seq,
-                        reason: error,
+                        reason: error.reason,
+                        diagnosis: error.diagnosis,
                     })?;
             }
         }
@@ -435,11 +443,12 @@ impl SyncEngine {
         )
         .await?;
         if v2.as_ref().is_some_and(|barrier| !barrier.matches_key(key)) {
-            return Err(SyncError::ReplayApplyFailed {
-                target: namespace.into(),
-                seq: 0,
-                reason: "durable Delete barrier key identity differs from the molecule key".into(),
-            });
+            return Err(SyncError::replay_refused(
+                namespace,
+                0,
+                ReplayOperation::Unknown,
+                ReplayCause::DeleteBarrierIdentityMismatch,
+            ));
         }
         let v1_key = Self::replay_delete_marker_key(key, mol_uuid);
         let v1: Option<ReplayDeleteMarker> = Self::decode_local(

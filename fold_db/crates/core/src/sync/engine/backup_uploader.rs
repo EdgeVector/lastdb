@@ -6,7 +6,7 @@
 //! 3. CAS `latest` → (S, F, counter) — only atomic step
 //! 4. Mark mutation-log segments fully ≤ F as GC-eligible only after CAS
 //!
-//! Never blocks local Mini R/W (runs on a dedicated throttled thread).
+//! The local cut fences mutations; the long cloud upload releases that fence.
 
 use super::gc_jobs::GcObjectOutcome;
 use super::*;
@@ -68,6 +68,7 @@ mod candidates;
 mod cas_inner;
 mod chunk_upload;
 mod cloud_snapshot;
+mod copy_proof;
 mod cut_policy;
 mod file_packs;
 mod gc_execute;
@@ -85,6 +86,7 @@ mod stats_types;
 mod uploader_loop;
 
 use candidates::*;
+use copy_proof::*;
 pub use cut_policy::*;
 pub use gc_types::*;
 use policy_helpers::*;

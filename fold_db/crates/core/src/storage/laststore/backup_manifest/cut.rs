@@ -114,7 +114,10 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
         .map(|chunk| (chunk_key(chunk), chunk))
         .collect();
 
-    for (mut chunk, _path) in chunk_refs_from_walk(store, verified)? {
+    let selected = chunk_refs_from_walk(store, verified)?;
+    let pending_purged = load_pending_purged_atom_retirements(store)?;
+    verify_selected_atom_replacements(previous_manifest, &selected, &pending_purged)?;
+    for (mut chunk, _path) in selected {
         if let Some(prior) = prior_by_key.get(&chunk_key(&chunk)) {
             if prior.sha256 == chunk.sha256 && prior.bytes == chunk.bytes {
                 chunk.pack.clone_from(&prior.pack);
@@ -134,7 +137,6 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
     mutable_chunks = dedupe_and_sort_chunks(mutable_chunks);
 
     let mut deletion_receipts = Vec::new();
-    let pending_purged = load_pending_purged_atom_retirements(store)?;
     if !pending_purged.compaction_in_progress_shas.is_empty()
         || !pending_purged.compaction_in_progress_prefixes.is_empty()
     {
