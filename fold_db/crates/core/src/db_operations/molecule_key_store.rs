@@ -19,6 +19,8 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+mod offline_load;
+
 const BUNDLE_VERSION: u8 = 1;
 const NODE_DOMAIN: &str = "node";
 

@@ -17,12 +17,12 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Subcommand};
 
 mod catalog;
-mod cloud_gate;
+pub(crate) mod cloud_gate;
 mod cloud_reader;
 mod count_pass;
 mod errors;
-mod guard;
-mod identities;
+pub(crate) mod guard;
+pub(crate) mod identities;
 mod keys;
 mod meters;
 mod molset;
@@ -39,7 +39,7 @@ mod sizing;
 mod sources;
 mod tips_pass;
 mod tripwire;
-mod walk;
+pub(crate) mod walk;
 
 pub(crate) use errors::ReapError;
 

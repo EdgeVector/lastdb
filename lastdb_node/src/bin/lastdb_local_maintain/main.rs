@@ -15,6 +15,7 @@ use fold_db::storage::{
 use lastdb_node::atom_gc_reap::ReapPolicy;
 
 mod atom_gc;
+mod file_blob_gc;
 mod home;
 mod reap;
 mod residue;
@@ -290,6 +291,8 @@ enum Cmd {
     /// `reap plan` writes a plan directory for the engine. `reap sizing` prints
     /// the sizing of a finished plan. Both are in the `reap` module.
     Reap(reap::ReapArgs),
+    /// Plan or execute guarded local file-blob collection on a stopped home.
+    FileBlobGcOffline(file_blob_gc::FileBlobGcArgs),
 }
 
 /// Decode optional plain/`--after-hex` resume cursors. Hex is required when the
@@ -450,6 +453,10 @@ fn run() -> Result<(), String> {
             json,
         }),
         Cmd::Reap(reap_args) => reap::run(&home, reap_args),
+        Cmd::FileBlobGcOffline(mut blob_args) => {
+            blob_args.home = home;
+            file_blob_gc::run(&blob_args)
+        }
         Cmd::AtomGcAudit {
             detail_limit,
             i_know_this_is_primary,

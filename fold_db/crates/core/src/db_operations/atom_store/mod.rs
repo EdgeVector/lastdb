@@ -32,6 +32,7 @@ mod keep_small;
 mod locks;
 mod molecule_ref_edges;
 mod molecules;
+mod offline_decode;
 mod reap_keys;
 mod tip_version_backrefs;
 mod types;

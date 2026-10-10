@@ -43,6 +43,7 @@ mod logical_main;
 pub(crate) mod logical_path;
 mod namespaced_maintenance;
 mod namespaced_store_impl;
+mod offline_physical;
 mod residue_types;
 
 use super::encrypting_namespaced_store::LASTSTORE_PLAINTEXT_NAMESPACES;
@@ -98,6 +99,7 @@ use high_water::LastStoreHighWaterFile;
 pub(crate) use key_routing::MAIN_KEY_PREFIX_COLLECTIONS;
 use key_routing::*;
 use namespaced_maintenance::collection_dir_bytes;
+pub use offline_physical::offline_physical_collection_pair;
 pub use residue_types::*;
 
 use laststore::{HashGroupKey, LastStore, LastStoreOptions, RetiredCompactGate, TxnOp};
