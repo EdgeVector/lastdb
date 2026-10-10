@@ -4,6 +4,9 @@
 //! production code writes. These helpers call the production builders, so the
 //! planner never keeps a second copy of a key formula.
 
+mod source;
+pub use source::*;
+
 use super::atom_ref_edges::tip_edge;
 use super::{MoleculeRefEdge, PerKeyRecord};
 use crate::atom::molecule_key_codec;

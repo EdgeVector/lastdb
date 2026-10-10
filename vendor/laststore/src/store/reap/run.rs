@@ -7,7 +7,7 @@ use super::guard::{
 };
 use super::plan::ReapPlan;
 use super::ReapError;
-use crate::options::PackagingMode;
+use crate::options::{LastStoreOptions, PackagingMode};
 use crate::store::LastStore;
 use std::path::Path;
 
@@ -159,6 +159,11 @@ pub fn reap_home(
     refuse_unless_stopped_plain(&root)?;
     refuse_unless_data_dir(&root)?;
     let _lock = lock_store(&root, options.execute)?;
-    let store = LastStore::open(&root)?;
+    let store = if options.execute {
+        LastStore::open(&root)?
+    } else {
+        LastStore::open_read_only(&root, LastStoreOptions::default())
+            .map_err(|error| ReapError::Refused(error.to_string()))?
+    };
     store.reap(&plan, options, on_event)
 }

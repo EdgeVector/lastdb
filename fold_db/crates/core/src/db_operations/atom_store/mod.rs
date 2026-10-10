@@ -66,7 +66,11 @@ pub use molecule_ref_edges::{
 pub use molecules::mk_full_scans;
 #[cfg(any(feature = "sharing", test))]
 pub(crate) use molecules::MoleculeKeyDomain;
-pub use reap_keys::{compact_tip_edge_key, molecule_ref_target_prefix, TipEdgeKey};
+pub use reap_keys::{
+    compact_tip_edge_key, molecule_ref_target_prefix, reap_history_source_keys,
+    reap_legacy_atom_edge, reap_tip_source_keys, reap_tip_sources, reap_version_source_keys,
+    ReapSourceEdgeKeys, ReapTipSource, TipEdgeKey,
+};
 pub use tip_version_backrefs::{
     TipVersionBackref, TipVersionBackrefLookup, TipVersionBackrefReindexReport,
     TipVersionBackrefReindexStatus,

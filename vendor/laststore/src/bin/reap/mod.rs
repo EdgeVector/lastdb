@@ -64,9 +64,7 @@ pub(crate) fn run(args: impl Iterator<Item = String>) -> ExitCode {
             if outcome.gate_problems.is_empty() {
                 return ExitCode::SUCCESS;
             }
-            for problem in &outcome.gate_problems {
-                eprintln!("gate mismatch: {problem}");
-            }
+            eprintln!("reap count gate failed; see the collection count report");
             ExitCode::from(4)
         }
         Err(error) => {

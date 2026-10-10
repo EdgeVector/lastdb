@@ -61,7 +61,7 @@ impl LastStore {
         read_only: bool,
     ) -> Result<Self> {
         // Backward compatible: a present data_key implies frame-AEAD packaging
-        // even when callers only set the key (pre-packaging-mode tests/APIs).
+        // even when callers only set the key (pre-packaging-mode callers).
         if opts.data_key.is_some() {
             opts.packaging = PackagingMode::FrameAead;
         }

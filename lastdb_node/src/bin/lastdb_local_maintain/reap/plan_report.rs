@@ -130,12 +130,6 @@ pub(super) fn warnings(plan: &PlanFile, workers: usize) -> Vec<String> {
     if m.dead == 0 {
         out.push("no dead molecule: the plan drops nothing".to_string());
     }
-    if t.tv_chain_heads > 0 {
-        out.push(format!(
-            "{} doomed tip(s) link to a tip-version chain. The tv rows are not in the plan.",
-            t.tv_chain_heads
-        ));
-    }
     if t.tips_without_v2_edge > 0 {
         out.push(format!(
             "{} doomed tip(s) name an atom with no 64-hex id. They have no compact edge.",

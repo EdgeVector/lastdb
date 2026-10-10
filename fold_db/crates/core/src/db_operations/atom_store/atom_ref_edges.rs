@@ -337,7 +337,7 @@ fn history_edge(
     }
 }
 
-fn mutation_history_edges(event_key: &str, event: &MutationEvent) -> Vec<AtomRefEdge> {
+pub(super) fn mutation_history_edges(event_key: &str, event: &MutationEvent) -> Vec<AtomRefEdge> {
     let disk_hash = event.field_key.hash.as_deref().unwrap_or_default();
     let disk_range = event.field_key.range.as_deref().unwrap_or_default();
     let atoms: BTreeSet<&str> = std::iter::once(event.new_atom_uuid.as_str())

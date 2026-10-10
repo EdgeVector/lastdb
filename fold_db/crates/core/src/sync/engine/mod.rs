@@ -80,13 +80,14 @@ pub use types::CaptureMode;
 pub use crate::SyncConflict;
 pub use file_blob::{FileBlobRef, FileThumbnailUpload};
 pub use pin_log::{
-    audit_pin_log_plane, prepare_offline_s0_restore_marker, replay_mutation_log_segments,
+    audit_pin_log_plane, decode_offline_pin_log_row, offline_pin_log_probe_keys,
+    prepare_offline_s0_restore_marker, replay_mutation_log_segments,
     require_offline_s0_restore_marker, restore_mutation_log_after_s0,
     restore_mutation_log_after_s0_from_plane, seal_mutation_log_segment, BackupRestoreMode,
     MutationLogLocalCloud, MutationLogReplayReport, MutationLogSegment, MutationLogUploadReport,
-    PinLogPlaneReport, PinLogRecord, PinLogTargetStatus, PinLogWriterStat, PinModeLocalCloud,
-    PinModePublishDescriptor, PinModeRestoreReport, SealedBaseMember, PIN_LOG_NAMESPACE,
-    PIN_LOG_OPERATOR_KEYS_PER_CALL,
+    OfflinePinLogRow, PinLogPlaneReport, PinLogRecord, PinLogTargetStatus, PinLogWriterStat,
+    PinModeLocalCloud, PinModePublishDescriptor, PinModeRestoreReport, SealedBaseMember,
+    PIN_LOG_NAMESPACE, PIN_LOG_OPERATOR_KEYS_PER_CALL,
 };
 pub(crate) use pin_log::{MutationLogAppendReceipt, MutationPublicationWait};
 pub use types::{

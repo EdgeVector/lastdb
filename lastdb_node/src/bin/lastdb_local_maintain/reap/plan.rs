@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use fold_db::storage::traits::NamespacedStore;
 use lastdb_node::offline_home::load_e2e_keys;
@@ -14,11 +14,12 @@ use super::guard::{self, Flags, GuardReport, ProcessView};
 use super::identities::{self, Identities};
 use super::molset::{self, MoleculeSets};
 use super::plan_file::*;
-use super::plan_report::{check_plan_dir, fill_summaries, lastdb_env, warnings};
+use super::plan_report::{check_plan_dir, fill_summaries, warnings};
 use super::plan_rules::{self, KeptLists};
 use super::receipts::{self, ReceiptReport};
 use super::rules::RuleSet;
 use super::rules_out;
+use super::sources::{SourceBuilder, SourcePlan};
 use super::tips_pass::{self, TipsReport, TipsState};
 use super::tripwire::Tripwire;
 use super::{proteins, ReapError};
@@ -51,12 +52,6 @@ pub(crate) struct PlanRun<'a> {
     pub tripwire_slack_ms: u64,
     /// A fixed process view. `None` reads the live process table.
     pub view: Option<ProcessView>,
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// Run the planner. On an error after the plan directory exists, the
@@ -107,30 +102,16 @@ async fn build_plan(
     guard_report: GuardReport,
     started: Instant,
 ) -> Result<PlanFile, ReapError> {
-    let mut plan = PlanFile {
-        contract: CONTRACT,
-        window: WINDOW,
-        created_at_unix_ms: now_ms(),
-        home: run.home.display().to_string(),
-        store_root: opened.store_root.display().to_string(),
-        plan_dir: run.plan_dir.display().to_string(),
-        seam: opened.seam.to_string(),
-        csn_high_water: opened
-            .base
-            .raw_last_store()
-            .map(|last| last.csn_high_water()),
-        workers: 1,
-        env: lastdb_env(),
-        guard: guard_report,
-        identities: IdentitiesFacts {
-            file: run.identities.display().to_string(),
-            sha256: ids.sha256.clone(),
-            listed: ids.listed.len(),
-            spellings: ids.spellings.len(),
-        },
-        gates: vec!["guard".to_string(), "seam".to_string()],
-        ..PlanFile::default()
-    };
+    let mut plan = super::plan_init::initial_plan(run, ids, opened, guard_report);
+    plan.cloud_gate = super::cloud_gate::check(run.home, opened).await?;
+    plan.gates.extend(
+        [
+            "cloud_frontier_complete",
+            "personal_cloud_confirmed",
+            "capture_reexport_empty",
+        ]
+        .map(str::to_string),
+    );
     let (e2e, _) = load_e2e_keys(run.home).map_err(ReapError::Refused)?;
     let facts = catalog::load(&*opened.store, Some(e2e.encryption_key())).await?;
     plan.gates.push("strict_catalog".to_string());
@@ -155,7 +136,16 @@ async fn build_plan(
     plan.gates.push("dead_disjoint_from_live".to_string());
 
     let tips_rules = plan_rules::tips_rules(&sets.dead);
-    let report = scan_tips(run, opened, &tips_rules, &sets).await?;
+    let mut report = scan_tips(run, opened, &tips_rules, &sets).await?;
+    let source_builder = report
+        .sources
+        .take()
+        .ok_or_else(|| ReapError::Failed("missing source planner".into()))?;
+    let tripwire = Tripwire::new(&sets.drops, run.tripwire_slack_ms);
+    let sources = source_builder.finish(opened, &sets.dead, &tripwire).await?;
+    plan.sources = sources.summary.clone();
+    plan.gates
+        .extend(["version_sources_complete", "version_sources_unshared"].map(str::to_string));
     plan.gates.extend(
         [
             "tips_decode_count",
@@ -170,7 +160,7 @@ async fn build_plan(
             "PROTEIN_RESIDUE_IN_TIPS",
             format!(
                 "{} protein row(s) are in the tips collection. The protein index is then \
-                 incomplete. Drain them on a copy first.",
+                 incomplete. Resolve these protein rows before the offline reap.",
                 report.protein_rows_in_tips
             ),
         ));
@@ -186,6 +176,7 @@ async fn build_plan(
             sets,
             report,
             tips_rules,
+            sources,
         },
         started,
     )
@@ -210,7 +201,8 @@ async fn scan_tips(
         .map_err(|error| ReapError::Failed(format!("open tips: {error}")))?;
     let spill = run.plan_dir.join(EXACT_V2_FILE);
     let tripwire = Tripwire::new(&sets.drops, run.tripwire_slack_ms);
-    let state = TipsState::new(rules, &sets.dead, tripwire, Some(&spill))?;
+    let state = TipsState::new(rules, &sets.dead, tripwire, Some(&spill))?
+        .with_sources(SourceBuilder::new(run.plan_dir)?);
     tips_pass::run(raw, seam, &opened.base, state).await
 }
 
@@ -221,6 +213,7 @@ struct Findings {
     sets: MoleculeSets,
     report: TipsReport,
     tips_rules: RuleSet,
+    sources: SourcePlan,
 }
 
 async fn count_collection(
@@ -247,28 +240,24 @@ type Counted = (&'static str, RuleSet, CollectionCount);
 
 /// Count the keys that the rules of each collection match.
 ///
-/// The tips counts come from the tip pass, which used the same rule object.
+/// Recount tips after the exact version/backref rules join the molecule rules.
 async fn count_all(
     ids: &Identities,
     opened: &HomeStore,
     present: &BTreeSet<String>,
     sets: &MoleculeSets,
     report: &TipsReport,
-    tips_rules: RuleSet,
+    mut tips_rules: RuleSet,
+    sources: SourcePlan,
 ) -> Result<Vec<Counted>, ReapError> {
-    let tips_count = CollectionCount {
-        present: present.contains("tips"),
-        scanned_keys: report.raw_keys,
-        scanned_bytes: report.by_class.values().map(|s| s.bytes).sum(),
-        matched_keys: report.matched_keys,
-        matched_bytes: report.matched_bytes,
-    };
+    tips_rules.extend(sources.tips);
+    let tips_count = count_collection(&opened.base, present, "tips", &tips_rules).await?;
+    let mut v2_rules = plan_rules::v2_rules(&sets.dead, &report.edge_hashes, EXACT_V2_FILE);
+    v2_rules.extend(sources.v2);
     let mut counted = vec![("tips", tips_rules, tips_count)];
     for (name, rules) in [
-        (
-            "atom_ref_edges_v2",
-            plan_rules::v2_rules(&sets.dead, &report.edge_hashes, EXACT_V2_FILE),
-        ),
+        ("atom_ref_edges_v2", v2_rules),
+        ("atom_ref_edges", sources.v1),
         ("molecule_ref_edges", plan_rules::mref_rules(&sets.dead)),
         ("keep_small", plan_rules::keep_small_rules(&ids.spellings)),
     ] {
@@ -323,6 +312,7 @@ async fn finish_plan(
         sets,
         report,
         tips_rules,
+        sources,
     } = found;
     let present: BTreeSet<String> = opened
         .base
@@ -331,7 +321,7 @@ async fn finish_plan(
         .map_err(|error| ReapError::Failed(format!("list collections: {error}")))?
         .into_iter()
         .collect();
-    let counted = count_all(ids, opened, &present, &sets, &report, tips_rules).await?;
+    let counted = count_all(ids, opened, &present, &sets, &report, tips_rules, sources).await?;
     if report.edge_keys == 0 {
         let _ = std::fs::remove_file(run.plan_dir.join(EXACT_V2_FILE));
     }

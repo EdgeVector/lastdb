@@ -45,6 +45,13 @@ pub(crate) struct RulesHeader {
 }
 
 impl RuleSet {
+    pub(crate) fn extend(&mut self, other: Self) {
+        self.prefixes.extend(other.prefixes);
+        self.exact.extend(other.exact);
+        self.exact_files.extend(other.exact_files);
+        self.finish();
+    }
+
     pub(crate) fn add_prefix(&mut self, prefix: &[u8]) {
         self.prefixes.push(prefix.to_vec());
     }

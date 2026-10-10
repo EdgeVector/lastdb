@@ -2,8 +2,7 @@
 //!
 //! A token is one spelling of a molecule id. The builders come from
 //! `molecule_key_codec` wherever production has one. The few keys with no
-//! public builder (`mcc`, `ref`, `rdel:v1`) are written here, and the tests
-//! pin their exact bytes.
+//! public builder (`mcc`, `ref`, `rdel:v1`) are written here as exact byte shapes.
 
 use std::borrow::Cow;
 

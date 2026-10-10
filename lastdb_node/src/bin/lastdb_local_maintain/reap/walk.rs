@@ -110,7 +110,11 @@ where
             .map_err(|error| ReapError::abort(gate, error.to_string()))?;
         match (raw_page, seam_page) {
             (None, None) => return Ok(()),
-            (Some(raw_page), Some(seam_page)) => on_page(&raw_page, &seam_page)?,
+            (Some(raw_page), Some(seam_page)) => {
+                pages_agree(&raw_page, &seam_page)
+                    .map_err(|error| ReapError::abort(gate, error))?;
+                on_page(&raw_page, &seam_page)?;
+            }
             _ => {
                 return Err(ReapError::abort(
                     gate,

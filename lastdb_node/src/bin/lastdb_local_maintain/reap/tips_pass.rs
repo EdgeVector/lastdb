@@ -74,6 +74,7 @@ pub(crate) struct TipsReport {
     pub protein_rows_in_tips: u64,
     pub edge_hashes: Vec<u128>,
     pub tripwire: TripwireStats,
+    pub sources: Option<super::sources::SourceBuilder>,
 }
 
 /// The bound on distinct head labels kept for unknown classes.
@@ -87,6 +88,7 @@ pub(crate) struct TipsState<'a> {
     spill: Option<BufWriter<File>>,
     group_keys: HashMap<(u16, u32), u64>,
     pub report: TipsReport,
+    sources: Option<super::sources::SourceBuilder>,
 }
 
 fn lossy(key: &[u8]) -> String {
@@ -117,7 +119,13 @@ impl<'a> TipsState<'a> {
             spill,
             group_keys: HashMap::new(),
             report: TipsReport::default(),
+            sources: None,
         })
+    }
+
+    pub(crate) fn with_sources(mut self, sources: super::sources::SourceBuilder) -> Self {
+        self.sources = Some(sources);
+        self
     }
 
     /// Fold one pair of pages (raw and decrypted) into the counts.
@@ -178,6 +186,9 @@ impl<'a> TipsState<'a> {
             self.report.matched_bytes += bytes;
             if classified.class == Class::Mk {
                 self.doomed_tip(text, plain)?;
+            }
+            if let Some(sources) = &mut self.sources {
+                sources.observe(text, plain, classified.class, &self.tripwire)?;
             }
         } else if classified.token.is_none() {
             self.needle(classified.class, text);
@@ -253,6 +264,7 @@ impl<'a> TipsState<'a> {
         if let Some(mut spill) = self.spill.take() {
             spill.flush()?;
         }
+        self.report.sources = self.sources.take();
         self.report.tripwire.slack_ms = self.tripwire.slack_ms();
         self.report.groups = self.group_keys.len() as u64;
         self.report.largest_group_keys = self.group_keys.values().copied().max().unwrap_or(0);

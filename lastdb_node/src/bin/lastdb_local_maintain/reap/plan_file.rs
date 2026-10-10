@@ -105,6 +105,8 @@ pub(crate) struct PlanFile {
     pub catalog: CatalogSummary,
     pub molecules: MoleculeSummary,
     pub tips: TipsSummary,
+    pub sources: super::sources::SourceSummary,
+    pub cloud_gate: super::cloud_gate::CloudGateSummary,
     pub collections: BTreeMap<String, CollectionPlan>,
     /// Collections on disk that hold dead-molecule rows in an older layout.
     pub legacy_collections_present: Vec<String>,
