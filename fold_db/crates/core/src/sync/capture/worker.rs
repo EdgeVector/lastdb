@@ -7,8 +7,7 @@
 //! These methods stay as thin no-ops or backup helpers so callers (backup,
 //! compact, outbox, replay absorb) do not need a parallel delete pass.
 
-use crate::sync::engine::{SyncEngine, SyncState, CAPTURE_MARKER_BATCH_MAX_ENVELOPE_BYTES};
-use crate::sync::log::LogOp;
+use crate::sync::engine::{SyncEngine, SyncState};
 use crate::sync::snapshot::Snapshot;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
