@@ -250,7 +250,7 @@ pub fn apply_named_hole_exclusions(
         .atom_chunks
         .iter()
         .chain(manifest.mutable_chunks.iter())
-        .filter(|chunk| hole_shas.contains(&chunk.sha256))
+        .filter(|chunk| chunk.pack.is_none() && hole_shas.contains(&chunk.sha256))
         .map(|chunk| BackupNamedHole {
             sha256: chunk.sha256.clone(),
             collection: chunk.collection.clone(),
@@ -276,9 +276,11 @@ pub fn apply_named_hole_exclusions(
     let retired: Vec<String> = holes.iter().map(|h| h.sha256.clone()).collect();
     let retired_count = retired.len();
     retire_atom_versions(&mut manifest.atom_chunks, previous, hole_shas);
+    // A packed file may have the same original digest as a missing direct
+    // file. The missing direct object says nothing about the pack's presence.
     manifest
         .mutable_chunks
-        .retain(|chunk| !hole_shas.contains(&chunk.sha256));
+        .retain(|chunk| chunk.pack.is_some() || !hole_shas.contains(&chunk.sha256));
     manifest.named_holes.extend(holes);
     manifest.named_holes.sort_by(|a, b| a.sha256.cmp(&b.sha256));
     manifest.named_holes.dedup_by(|a, b| a.sha256 == b.sha256);
