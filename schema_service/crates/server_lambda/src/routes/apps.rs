@@ -1,6 +1,9 @@
 //! App registry routes (`/v1/apps/*` and `/v2/apps/*`, releases, channels, revocations).
 
-use super::super::*;
+use crate::http::*;
+use lambda_http::{Body, Error, Request, Response};
+use schema_service_server_shared::state::SchemaServiceState;
+use serde_json::{json, Value};
 
 // App registry (app_identity v3.1, Lane B2b). Auth is the cert +
 // signature envelope pair, not X-API-Key.

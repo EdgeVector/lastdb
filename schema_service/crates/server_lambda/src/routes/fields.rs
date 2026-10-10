@@ -1,6 +1,9 @@
 //! Canonical field routes (`/v1/fields/*`).
 
-use super::super::*;
+use crate::http::*;
+use lambda_http::{Body, Error, Request, Response};
+use schema_service_server_shared::state::SchemaServiceState;
+use serde_json::{json, Value};
 
 // Declared fields (brain `design-lastdb-declared-fields`).
 //

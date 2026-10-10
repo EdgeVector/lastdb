@@ -1,6 +1,11 @@
 //! Admin, debug, snapshot and telemetry routes.
 
-use super::super::*;
+use crate::http::*;
+use crate::snapshot::handle_snapshot_export_shared_only;
+use lambda_http::{Body, Error, Request, Response};
+use schema_service_server_shared::state::SchemaServiceState;
+use schema_service_server_shared::types::{DeprecateSchemasRequest, NearMissesResponse};
+use serde_json::json;
 
 pub(crate) fn post_debug_field_match_probe(
     state: &SchemaServiceState,
