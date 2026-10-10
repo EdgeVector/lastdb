@@ -107,31 +107,6 @@ pub(crate) fn sign_schema_claim(
     Ok(BASE64.encode(bytes))
 }
 
-pub(crate) fn sign_dev_schema_claim(
-    dev_key: &SigningKey,
-    env: Env,
-    schema_payload: &serde_json::Value,
-) -> FoldDbResult<String> {
-    let unsigned = SignatureEnvelope {
-        version: ENVELOPE_VERSION,
-        purpose: Purpose::SchemaClaim,
-        alg: ALG_ED25519.to_string(),
-        key_id: key_id(&dev_key.verifying_key()),
-        issued_at: Utc::now(),
-        expires_at: None,
-        env,
-        payload_hash: compute_payload_hash(schema_payload).map_err(|e| {
-            FoldDbError::Config(format!("Failed to hash schema claim payload: {e}"))
-        })?,
-        sig: None,
-    };
-    let signed = sign_envelope(dev_key, unsigned)
-        .map_err(|e| FoldDbError::Config(format!("Failed to sign schema claim envelope: {e}")))?;
-    let bytes = serde_json::to_vec(&signed)
-        .map_err(|e| FoldDbError::Config(format!("Failed to encode schema claim envelope: {e}")))?;
-    Ok(BASE64.encode(bytes))
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct SchemaClaimAuth {
     pub(crate) cert_b64: String,

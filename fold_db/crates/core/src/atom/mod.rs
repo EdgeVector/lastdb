@@ -13,7 +13,6 @@ pub mod mutation_event;
 pub mod provenance;
 pub mod size_limit;
 pub mod tombstone;
-pub mod trinity_bar;
 
 pub use atom_def::Atom;
 pub use atom_key_codec::{AtomKeyEncoding, AtomKeyEncodingMarker, AtomPartition};
