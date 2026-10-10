@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "lastdb_node"
 version.workspace = true
 edition.workspace = true
@@ -9,47 +10,69 @@ description = "LastDB Mini semantic daemon (`lastdbd`) — the core database hos
 workspace = true
 
 [[bin]]
+bench = false
+test = false
 name = "lastdbd"
 path = "src/main.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb-proxy"
 path = "src/bin/lastdb_proxy.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb"
 path = "src/bin/lastdb.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb_local_maintain"
 path = "src/bin/lastdb_local_maintain/main.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb_docstore_smoke"
 path = "src/bin/lastdb_docstore_smoke.rs"
 required-features = ["storage-v2"]
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb_laststore_empty_home_smoke"
 path = "src/bin/lastdb_laststore_empty_home_smoke.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb_restore_probe"
 path = "src/bin/lastdb_restore_probe.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb_reseal_atom_content"
 path = "src/bin/lastdb_reseal_atom_content.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb_recompress_atom_content"
 path = "src/bin/lastdb_recompress_atom_content.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb_atom_ref_v2_proof"
 path = "src/bin/lastdb_atom_ref_v2_proof.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb_storage_recovery_rollback_proof"
 path = "src/bin/lastdb_storage_recovery_rollback_proof.rs"
 
@@ -120,12 +143,13 @@ libmimalloc-sys = { version = "=0.1.49", optional = true, features = ["extended"
 [target.'cfg(target_os = "macos")'.dependencies]
 mach2 = "0.4"
 
-[dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
-serde_json = { workspace = true }
-fold_db = { workspace = true }
-lastdb_uds = { workspace = true }
-
 [[bin]]
+bench = false
+test = false
 name = "csync_e2e_write"
 path = "src/bin/csync_e2e_write.rs"
+
+[lib]
+test = false
+doctest = false
+bench = false

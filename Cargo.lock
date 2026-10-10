@@ -389,9 +389,7 @@ dependencies = [
  "ed25519-dalek",
  "json-canon",
  "p256",
- "rand_core 0.6.4",
  "serde",
- "serde_jcs",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 1.0.69",
@@ -2027,9 +2025,7 @@ dependencies = [
  "schema_types",
  "serde",
  "serde_json",
- "serial_test",
  "sha2 0.10.9",
- "temp-env",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -2046,8 +2042,6 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "serde",
- "serial_test",
- "tempfile",
  "thiserror 1.0.69",
  "toml",
  "tracing",
@@ -3034,7 +3028,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "tempfile",
  "thiserror 1.0.69",
  "uuid",
  "zeroize",
@@ -3052,7 +3045,6 @@ dependencies = [
  "lastdb_uds",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "tracing",
 ]
@@ -3064,7 +3056,6 @@ dependencies = [
  "base64 0.22.1",
  "fold_db",
  "sha2 0.10.9",
- "tempfile",
 ]
 
 [[package]]
@@ -3131,11 +3122,9 @@ dependencies = [
  "aes-gcm",
  "crc32fast",
  "hkdf",
- "libc",
  "rustix",
  "serde_json",
  "sha2 0.10.9",
- "tempfile",
  "uuid",
  "zstd",
 ]
@@ -3656,7 +3645,6 @@ version = "0.1.0"
 dependencies = [
  "folddb_profile",
  "http 1.4.0",
- "log",
  "once_cell",
  "opentelemetry",
  "opentelemetry-http",
@@ -3666,7 +3654,6 @@ dependencies = [
  "sentry-tracing",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -4602,15 +4589,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scc"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46e6f046b7fef48e2660c57ed794263155d713de679057f2d0c169bfc6e756cc"
-dependencies = [
- "sdd",
-]
-
-[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4650,7 +4628,6 @@ dependencies = [
 name = "schema_service_client"
 version = "0.1.0"
 dependencies = [
- "actix-web",
  "app_identity_crypto",
  "async-trait",
  "base64 0.22.1",
@@ -4661,7 +4638,6 @@ dependencies = [
  "schema_types",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "tracing",
 ]
@@ -4684,14 +4660,10 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "serial_test",
  "sha2 0.10.9",
- "temp-env",
- "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -4716,25 +4688,19 @@ version = "0.1.0"
 dependencies = [
  "actix-cors",
  "actix-web",
- "app_identity_crypto",
- "base64 0.22.1",
  "clap",
  "futures-util",
  "http 1.4.0",
  "observability",
  "opentelemetry",
- "opentelemetry_sdk",
  "schema_service_client",
  "schema_service_core",
  "schema_service_server_shared",
  "schema_types",
- "serde_json",
- "tempfile",
  "tokio",
  "tracing",
  "tracing-actix-web",
  "tracing-opentelemetry",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -4753,8 +4719,6 @@ dependencies = [
  "schema_types",
  "serde_json",
  "sha2 0.10.9",
- "temp-env",
- "tempfile",
  "tokio",
  "tracing",
 ]
@@ -4769,8 +4733,6 @@ dependencies = [
  "schema_types",
  "serde",
  "serde_json",
- "tempfile",
- "tokio",
  "tracing",
 ]
 
@@ -4787,8 +4749,6 @@ dependencies = [
  "schema_service_s3",
  "schema_service_server_shared",
  "serde_json",
- "temp-env",
- "tempfile",
  "tokio",
  "tracing",
 ]
@@ -4809,12 +4769,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "sdd"
-version = "3.0.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "490dcfcbfef26be6800d11870ff2df8774fa6e86d047e3e8c8a76b25655e41ca"
 
 [[package]]
 name = "sec1"
@@ -4990,17 +4944,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_jcs"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cacecf649bc1a7c5f0e299cc813977c6a78116abda2b93b1ee01735b71ead9a8"
-dependencies = [
- "ryu-js",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "serde_json"
 version = "1.0.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5043,32 +4986,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "serial_test"
-version = "3.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "911bd979bf1070a3f3aa7b691a3b3e9968f339ceeec89e08c280a8a22207a32f"
-dependencies = [
- "futures-executor",
- "futures-util",
- "log",
- "once_cell",
- "parking_lot",
- "scc",
- "serial_test_derive",
-]
-
-[[package]]
-name = "serial_test_derive"
-version = "3.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a7d91949b85b0d2fb687445e448b40d322b6b3e4af6b44a29b21d9a5f33e6d9"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -5327,15 +5244,6 @@ dependencies = [
  "filetime",
  "libc",
  "xattr",
-]
-
-[[package]]
-name = "temp-env"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96374855068f47402c3121c6eed88d29cb1de8f3ab27090e273e420bdabcf050"
-dependencies = [
- "parking_lot",
 ]
 
 [[package]]

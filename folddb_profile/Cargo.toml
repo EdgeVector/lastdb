@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "folddb_profile"
 version.workspace = true
 edition.workspace = true
@@ -17,6 +18,8 @@ tracing = { workspace = true }
 dirs = "6"
 toml = "0.8"
 
-[dev-dependencies]
-tempfile = { workspace = true }
-serial_test = "3"
+
+[lib]
+test = false
+doctest = false
+bench = false

@@ -16,8 +16,6 @@ Run from the **workspace root** (`EdgeVector/fold`), not this subdirectory.
 ```bash
 cargo build -p fold_db
 cargo clippy -p fold_db --all-targets -- -D warnings
-cargo test -p fold_db --lib
-cargo test -p fold_db --test <integration_test_name>
 cargo fmt -p fold_db
 ```
 
@@ -25,7 +23,6 @@ For the product daemon/CLI:
 
 ```bash
 cargo build -p lastdb_node
-cargo test -p lastdb_node
 ```
 
 PR / merge: venue is **GitHub** for fold (`gh -R EdgeVector/fold`).
@@ -45,3 +42,5 @@ idioms, feature flags, the security model, and gotchas, ask the brain
 - `completed-programs` — closed product surfaces (Desktop/Tauri/web UI — do not resurrect)
 
 See also: workspace-root `CLAUDE.md`, `README.md`, `../schema_service/openapi.yaml`.
+
+Do not write, restore, or run tests. Use product build, format, and lint checks.

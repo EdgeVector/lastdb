@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "lastdb_host"
 version.workspace = true
 edition.workspace = true
@@ -22,6 +23,8 @@ futures = { workspace = true }
 # QoS admission gate (qos.rs): async semaphores + deadline timers.
 tokio = { workspace = true, features = ["sync", "time"] }
 
-[dev-dependencies]
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[lib]
+test = false
+doctest = false
+bench = false

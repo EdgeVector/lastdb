@@ -48,6 +48,7 @@ pub mod backup_drain_plan;
 pub mod backup_durability;
 /// Sealed-chunk backup progress math (no network; always compiled for tests).
 pub mod backup_progress;
+pub mod benchmark_database;
 pub mod canonical;
 pub mod clock;
 pub mod constants;
@@ -73,15 +74,12 @@ pub mod storage;
 #[cfg(feature = "cloud-sync")]
 pub mod sync;
 pub mod sync_conflict;
-pub mod testing_utils;
 pub mod user_context;
 /// Schema-owner class carried into the warm set across the blocking boundary.
 pub mod warm_admit;
 
-/// Test utilities for building schemas with proper classifications.
-/// Always compiled (zero runtime cost when unused). Downstream crates
-/// can also access this via the `test-utils` feature.
-pub mod test_helpers;
+/// Schema support for the product benchmarks.
+pub mod benchmark_support;
 
 // Re-export main types for convenience
 pub use error::{FoldDbError, FoldDbResult};

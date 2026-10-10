@@ -10,7 +10,6 @@ EdgeVector/schema-infra); the `server_http` actix binary is dev-only.
 ```bash
 cargo build --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
 cargo fmt --all                             # ALWAYS before committing
 ```
 
@@ -37,3 +36,5 @@ injection design, and the canonicalization gate, ask the brain
 - `concepts-observability-conventions` — tracing/redaction/spawn/egress rules.
 
 See also: `README.md`, `openapi.yaml` (the `/v1/*` contract).
+
+Do not write, restore, or run tests. Use product build, format, and lint checks.

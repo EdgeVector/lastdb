@@ -95,23 +95,6 @@ impl FoldDB {
         Self::initialize_from_store_with_signer(store, db_path, molecule_wrap_key, signer).await
     }
 
-    /// Reopen a test store with the same signer that a production node keeps
-    /// across boots. Cold mutation tests must not silently rotate the author
-    /// identity and reset its per-writer clock.
-    pub(crate) async fn new_with_test_signer(
-        path: &str,
-        signer: Arc<crate::security::Ed25519KeyPair>,
-    ) -> Result<Self, StorageError> {
-        let store = Arc::new(LastStoreNamespacedStore::open(std::path::Path::new(path))?);
-        Self::initialize_from_store_with_signer(
-            store as Arc<dyn crate::storage::traits::NamespacedStore>,
-            path,
-            None,
-            signer,
-        )
-        .await
-    }
-
     async fn initialize_from_store_with_signer(
         store: Arc<dyn crate::storage::traits::NamespacedStore>,
         db_path: &str,

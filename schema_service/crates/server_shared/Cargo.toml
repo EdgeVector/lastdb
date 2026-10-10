@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "schema_service_server_shared"
 version.workspace = true
 edition.workspace = true
@@ -36,12 +37,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 
-[dev-dependencies]
-schema_service_core = { path = "../core", features = ["local-store"] }
-# The dual_signal_only_spike harness (`#[ignore]`d) drives the real
-# canonicalization path with the real fastembed model.
-tokio = { workspace = true }
-tempfile = { workspace = true }
-
 [lints]
 workspace = true
+
+[lib]
+test = false
+doctest = false
+bench = false

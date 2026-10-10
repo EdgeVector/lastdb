@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "schema_service_worker"
 version.workspace = true
 edition.workspace = true
@@ -6,6 +7,8 @@ publish.workspace = true
 description = "Operator CLIs for schema_service. Historically hosted the async transform compile worker; that Lambda was retired when transform submission went binary-only (2026-06-21) — there is no untrusted-source compile to offload. The crate now hosts one-shot operator tools (the `purpose_statement` backfill)."
 
 [[bin]]
+bench = false
+test = false
 # Phase D one-shot operator CLI: backfills `purpose_statement` on
 # every canonical schema persisted before Phase A. Invoked manually
 # (Sled-local for dev; S3 for prod) — never deployed as a Lambda.
@@ -34,11 +37,6 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 tracing = { workspace = true }
-
-[dev-dependencies]
-tempfile = { workspace = true }
-temp-env = "0.3"
-tokio = { workspace = true, features = ["full", "test-util"] }
 
 [lints]
 workspace = true
