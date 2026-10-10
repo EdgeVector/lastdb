@@ -32,7 +32,7 @@ impl AtomStore {
     /// the photograph installs its marker and partition-prefixed atom bodies.
     /// All clones share the atomic setting, which lets the serving store adopt
     /// the restored layout before it applies or reads the mutation-log tail.
-    #[cfg_attr(not(any(feature = "cloud-sync", test)), allow(dead_code))]
+    #[cfg_attr(not(feature = "cloud-sync"), allow(dead_code))]
     pub(crate) async fn refresh_boot_encoding_after_restore(
         &self,
     ) -> Result<(), crate::storage::StorageError> {
