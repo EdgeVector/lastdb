@@ -127,12 +127,6 @@ impl RequestTelemetrySnapshot {
             key_use: None,
         }
     }
-
-    /// True when the full forensic ring is present (non-empty `recent`).
-    #[must_use]
-    pub fn has_forensic_ring(&self) -> bool {
-        !self.recent.is_empty()
-    }
 }
 
 /// Durable rollup query result rendered by `lastdb ops --since`.

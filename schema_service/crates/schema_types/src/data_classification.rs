@@ -123,12 +123,6 @@ impl DataClassification {
             data_domain: "general".to_string(),
         }
     }
-
-    /// Information flow check: this classification can flow to `other` iff
-    /// its sensitivity is less than or equal to `other`'s sensitivity.
-    pub fn can_flow_to(&self, other: &Self) -> bool {
-        self.sensitivity_level <= other.sensitivity_level
-    }
 }
 
 impl PartialOrd for DataClassification {

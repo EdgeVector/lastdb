@@ -13,8 +13,6 @@ use std::collections::BTreeSet;
 /// Metadata key for the active node-wide attribution epoch.
 pub const ATTRIBUTION_EPOCH_KEY: &str = "attribution:epoch:v1";
 const EPOCH_VERSION: u8 = 1;
-const UNKNOWN_SCOPE_LIMIT: usize = 64;
-const UNKNOWN_SCOPE_OVERFLOW: &str = "more_unknown_scopes";
 
 /// The only lifecycle states that may persist for an attribution epoch.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -94,76 +92,6 @@ impl AttributionEpoch {
         })
     }
 
-    /// Record that every configured object cursor reached its terminal key.
-    ///
-    /// The caller must persist its cursor rows before it calls this method.
-    pub fn mark_walk_complete(&mut self) -> Result<(), String> {
-        if matches!(self.phase, AttributionEpochPhase::Complete) {
-            return Err("cannot change a complete attribution epoch".to_string());
-        }
-        self.walk_complete = true;
-        Ok(())
-    }
-
-    /// Advance after an idempotent replay page. A stale event frontier cannot
-    /// replace a newer checkpoint.
-    pub fn apply_through(&mut self, frontier: u64) -> Result<(), String> {
-        if frontier < self.applied_frontier {
-            return Err(format!(
-                "attribution frontier regressed from {} to {frontier}",
-                self.applied_frontier
-            ));
-        }
-        if matches!(self.phase, AttributionEpochPhase::Complete) {
-            return Err("cannot advance a complete attribution epoch".to_string());
-        }
-        self.applied_frontier = frontier;
-        Ok(())
-    }
-
-    /// Bind one exact isolated copy to the source event frontier that it
-    /// contains. The caller must hold the snapshot write gate, or use an
-    /// atomic storage snapshot that returns this frontier with the copy id.
-    pub fn bind_copy_snapshot(
-        &mut self,
-        copy_snapshot_id: impl Into<String>,
-        frontier: u64,
-    ) -> Result<(), String> {
-        if matches!(self.phase, AttributionEpochPhase::Complete) {
-            return Err("cannot bind a copy to a complete attribution epoch".to_string());
-        }
-        let copy_snapshot_id = copy_snapshot_id.into();
-        if copy_snapshot_id.trim().is_empty() {
-            return Err("attribution copy snapshot requires an identity".to_string());
-        }
-        if frontier != self.applied_frontier {
-            return Err(format!(
-                "attribution copy frontier {frontier} differs from projector frontier {}",
-                self.applied_frontier
-            ));
-        }
-        self.copy_snapshot_id = Some(copy_snapshot_id);
-        self.copy_frontier = Some(frontier);
-        Ok(())
-    }
-
-    /// Record an incomplete scope. The bounded set keeps the checkpoint small
-    /// while still refusing classification completion and every destructive
-    /// action.
-    pub fn note_unknown(&mut self, scope: impl Into<String>) {
-        let scope = scope.into();
-        if scope.trim().is_empty() || self.unknown_scopes.contains(&scope) {
-            return;
-        }
-        if self.unknown_scopes.len() < UNKNOWN_SCOPE_LIMIT {
-            self.unknown_scopes.insert(scope);
-        } else {
-            self.unknown_scopes
-                .insert(UNKNOWN_SCOPE_OVERFLOW.to_string());
-        }
-        self.phase = AttributionEpochPhase::Blocked;
-    }
-
     /// Record H1 after the write path makes attribution events durable before ACK.
     ///
     /// This closes classification. It does not permit deletion.
@@ -194,19 +122,6 @@ impl AttributionEpoch {
         self.final_frontier = Some(final_frontier);
         self.phase = AttributionEpochPhase::Complete;
         Ok(())
-    }
-
-    /// This confirms a complete attribution proof. It is never a delete gate.
-    /// Target-specific atom, blob, history, and cloud checks remain mandatory.
-    #[must_use]
-    pub fn has_complete_attribution_proof(&self) -> bool {
-        matches!(self.phase, AttributionEpochPhase::Complete)
-            && self.final_frontier.is_some_and(|frontier| {
-                self.applied_frontier >= frontier
-                    && self.copy_frontier == Some(frontier)
-                    && self.copy_snapshot_id.is_some()
-            })
-            && self.unknown_scopes.is_empty()
     }
 
     /// Load the sole active node attribution epoch by exact metadata key.

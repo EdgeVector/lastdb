@@ -100,15 +100,6 @@ pub struct DeclaredFieldRecord {
 }
 
 impl DeclaredFieldRecord {
-    /// The identity for one field name, if this declaration has it.
-    #[must_use]
-    pub fn identity_of(&self, field_name: &str) -> Option<&str> {
-        self.fields
-            .iter()
-            .find(|f| f.name == field_name.trim())
-            .map(|f| f.identity.as_str())
-    }
-
     /// Whether `app_id` may reference this declaration's identities.
     ///
     /// The owner always may. Everyone else needs an explicit grant — sharing a

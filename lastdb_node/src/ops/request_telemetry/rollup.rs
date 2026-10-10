@@ -1,10 +1,5 @@
 use super::*;
 
-/// Human-readable durable rollup lines for `lastdb ops --since`.
-pub fn rollup_lines(snap: &RequestOpsRollupSnapshot) -> Vec<String> {
-    rollup_lines_with_schema_labels(snap, &SchemaLabels::new())
-}
-
 /// Human-readable durable rollup with optional schema catalog labels.
 // lint:fn-size-ok moved verbatim from request_telemetry.rs; splitting this function is separate work.
 pub fn rollup_lines_with_schema_labels(

@@ -217,46 +217,6 @@ pub(super) fn ring_cold_load_rows(snap: &RequestTelemetrySnapshot) -> Vec<RingCo
     rows
 }
 
-/// Detect render lines that still invite reading lifetime counters as the
-/// same population as ring percentiles / live per-call load ratios.
-///
-/// Returns an empty list when the snapshot render is population-honest.
-/// Used by the compound-prevention probe for
-/// `papercut-lastdb-ops-lifetime-vs-window-metric-honesty`.
-#[must_use]
-pub fn metric_population_honesty_violations(lines: &[String]) -> Vec<String> {
-    let mut violations = Vec::new();
-    for line in lines {
-        // Bare loads/call= without a population suffix is the classic misread.
-        if line.contains("loads/call=")
-            && !line.contains("loads/call_lifetime=")
-            && !line.contains("loads/call_ring=")
-        {
-            violations.push(format!("bare loads/call without population: {line}"));
-        }
-        // App/verb rows that print p95 next to avg without a population tag.
-        if line.contains("app=")
-            && line.contains("verb=")
-            && line.contains("avg=")
-            && line.contains("p95=")
-            && !line.contains("[pop:")
-            && !line.contains("lifetime")
-            && !line.contains("ring")
-        {
-            violations.push(format!(
-                "app/verb row mixes avg and p95 without population labels: {line}"
-            ));
-        }
-        // Old cold-load header that claimed "read cost" without saying lifetime.
-        if line.contains("Top by cold shard loads (read cost") {
-            violations.push(format!(
-                "cold-load header claims read cost without population: {line}"
-            ));
-        }
-    }
-    violations
-}
-
 pub(super) fn percentile_95_ms(durations: &mut [u64]) -> Option<u64> {
     if durations.is_empty() {
         return None;

@@ -146,14 +146,6 @@ impl Environment {
         }
     }
 
-    pub fn is_dev(self) -> bool {
-        matches!(self, Self::Dev)
-    }
-
-    pub fn is_prod(self) -> bool {
-        matches!(self, Self::Prod)
-    }
-
     /// Lowercase name (`"dev"` / `"prod"`) — for logging and for embedding
     /// in externally-visible artifacts (e.g. a signed cert's `env` field)
     /// where the exact literal matters, not just `Debug`'s `Dev`/`Prod`.

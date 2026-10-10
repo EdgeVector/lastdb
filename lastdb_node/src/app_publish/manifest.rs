@@ -1,32 +1,6 @@
-//! App manifest loading and schema service timeouts.
+//! App manifest loading.
 
 use super::*;
-
-pub(super) const APP_REGISTRY_SCHEMA_SERVICE_TIMEOUT_SECS: u64 = 20;
-
-pub(super) fn app_registry_schema_service_timeout() -> Duration {
-    env_flag::var_parsed::<u64>("LASTDB_APP_REGISTRY_SCHEMA_TIMEOUT_SECS")
-        .filter(|&n| n > 0)
-        .map_or(
-            Duration::from_secs(APP_REGISTRY_SCHEMA_SERVICE_TIMEOUT_SECS),
-            Duration::from_secs,
-        )
-}
-
-pub(super) async fn schema_service_call_with_timeout<T, E, F>(
-    operation: &'static str,
-    fut: F,
-) -> Result<T, String>
-where
-    E: std::fmt::Display,
-    F: Future<Output = Result<T, E>>,
-{
-    let timeout = app_registry_schema_service_timeout();
-    tokio::time::timeout(timeout, fut)
-        .await
-        .map_err(|_| format!("{operation} timed out after {}s", timeout.as_secs()))?
-        .map_err(|e| e.to_string())
-}
 
 /// App manifest consumed by `lastdb app …` (JSON file, conventionally
 /// `lastdb-app.json`). `schemas` entries are declarative schema definitions

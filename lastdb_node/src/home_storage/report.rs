@@ -57,38 +57,6 @@ impl HomeStorageReport {
         }
     }
 
-    /// Build a complete snapshot and reject arithmetic or bucket-identity
-    /// errors before they can become durable truth.
-    pub fn new_complete(
-        snapshot_frontier: impl Into<String>,
-        measured_at: DateTime<Utc>,
-        home: HomeStorageTotals,
-        buckets: Vec<HomeStorageBucket>,
-    ) -> Result<Self, String> {
-        let report = Self {
-            metric: HOME_STORAGE_METRIC.to_string(),
-            measured_at,
-            snapshot_frontier: Some(snapshot_frontier.into()),
-            complete: true,
-            heavy: false,
-            home,
-            unique_physical_buckets: buckets,
-            unaccounted_bytes: 0,
-            overaccounted_bytes: 0,
-            unaccounted_apparent_bytes: 0,
-            overaccounted_apparent_bytes: 0,
-            unknown_path_bytes: 0,
-            unresolved_scopes: Vec::new(),
-            inclusive_app_attribution: HomeStorageInclusiveAppAttribution::default(),
-        }
-        .validated_for_read();
-        if report.complete {
-            Ok(report)
-        } else {
-            Err(report.unresolved_scopes.join(", "))
-        }
-    }
-
     /// Recompute every derived field and fail closed when persisted state is
     /// corrupt or incomplete. This method performs no IO.
     #[must_use]

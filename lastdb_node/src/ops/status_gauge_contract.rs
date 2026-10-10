@@ -602,19 +602,6 @@ pub fn contract_lines(contract: &StatusGaugeContract) -> Vec<String> {
     lines
 }
 
-/// Top-level JSON keys that are **not** allowed to change type/shape under
-/// the wire-freeze rule. Used by PR-5 tests; the `contract` key is additive.
-pub fn wire_freeze_top_level_keys(status_json: &Value) -> Vec<String> {
-    match status_json.as_object() {
-        Some(map) => map
-            .keys()
-            .filter(|k| k.as_str() != "contract")
-            .cloned()
-            .collect(),
-        None => Vec::new(),
-    }
-}
-
 /// Compare two status JSON objects for wire-freeze: every non-`contract` key
 /// present on `before` must exist on `after` with the same JSON type tag.
 pub fn wire_freeze_types_compatible(before: &Value, after: &Value) -> Result<(), Vec<String>> {

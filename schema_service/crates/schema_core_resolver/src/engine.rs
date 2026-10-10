@@ -738,12 +738,3 @@ fn residue_from_matches(
         })
         .collect()
 }
-
-/// Convenience for tests: unit embedding on a single axis.
-pub fn unit_axis(dim: usize, axis: usize) -> Vec<f32> {
-    let mut v = vec![0.0; dim];
-    if axis < dim {
-        v[axis] = 1.0;
-    }
-    v
-}

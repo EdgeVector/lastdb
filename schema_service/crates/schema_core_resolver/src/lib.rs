@@ -66,17 +66,6 @@ pub struct Unresolvable {
     pub output: ResolverOutput,
 }
 
-impl Unresolvable {
-    /// Engine found no safe existing match in this catalog.
-    ///
-    /// Under a complete catalog, the engine decision historically named
-    /// `NeedsLiveSchemaService` means “no match here” — the product action is
-    /// create via Schema Service, not a weaker second resolve.
-    pub fn is_no_match(&self) -> bool {
-        matches!(self.decision, Decision::NeedsLiveSchemaService)
-    }
-}
-
 /// Map a raw engine decision into the product verdict for a complete catalog.
 pub fn verdict_from_output(output: ResolverOutput) -> ResolveVerdict {
     match output.decision {

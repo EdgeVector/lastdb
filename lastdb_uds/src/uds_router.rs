@@ -21,7 +21,6 @@ const API_QUERY_BATCH_PATH: &str = "/api/queries/batch";
 const API_MUTATION_PATH: &str = "/api/mutation";
 const API_AGGREGATE_REPAIR_PATH: &str = "/api/aggregate/repair";
 const API_AGGREGATE_FINALIZE_PATH: &str = "/api/aggregate/finalize";
-const API_LIST_PATH: &str = "/api/list";
 const API_SCHEMAS_PATH: &str = "/api/schemas";
 const API_AUTO_IDENTITY_PATH: &str = "/api/system/auto-identity";
 const API_BOOT_IDENTITY_PATH: &str = "/api/system/boot-identity";

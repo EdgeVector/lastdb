@@ -35,23 +35,12 @@
 //! enforced by construction. A dev / ephemeral node with no DSN ships nothing.
 
 #[cfg(feature = "sentry-telemetry")]
+use crate::session_ledger::StartSummary;
+#[cfg(feature = "sentry-telemetry")]
 use std::collections::BTreeMap;
 #[cfg(feature = "sentry-telemetry")]
 use std::fs;
 use std::path::{Path, PathBuf};
-#[cfg(feature = "sentry-telemetry")]
-use std::time::Duration;
-
-use crate::session_ledger::StartSummary;
-
-/// How long the crash-time send waits for the Sentry transport to flush before
-/// the process dies. The panic hook runs under `panic = "abort"`, so this is a
-/// hard bound on how long a crash can appear "hung" while we ship the report:
-/// long enough for a normal upload, short enough that a wedged network doesn't
-/// stall the crash. If the flush doesn't complete in time we do NOT mark the
-/// report sent, so the next launch still promotes it as a fallback.
-#[cfg(feature = "sentry-telemetry")]
-const CRASH_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Sibling marker written next to a report once it has been shipped at crash
 /// time, so the next-launch scan neither re-sends nor re-offers it. Kept as a
@@ -167,12 +156,6 @@ pub fn startup_failure_recorded(start: Option<&StartSummary>) -> bool {
     })
 }
 
-/// Whether this launch found ANY crash evidence worth reporting (or offering
-/// to report, for opted-out users).
-pub fn has_crash_evidence(reports: &[PathBuf], start: Option<&StartSummary>) -> bool {
-    !reports.is_empty() || unclean_exit_unexplained(start, reports.len())
-}
-
 /// Promote crash evidence into Sentry events through the process-global
 /// client. No-ops (returns 0) when no client is bound — i.e. when consent or
 /// a missing DSN kept the sink off. Returns the number of events captured.
@@ -227,43 +210,6 @@ fn sent_marker_path(report: &Path) -> PathBuf {
 /// not reported a second time.
 pub fn is_report_sent(report: &Path) -> bool {
     sent_marker_path(report).exists()
-}
-
-/// Ship a single crash report to Sentry **at crash time**, from inside the
-/// panic hook. Captures the panic event through the process-global client and
-/// blocks on a bounded flush so the event leaves before `panic = "abort"`
-/// tears the process down — turning the previous "reported on next launch"
-/// behaviour into "reported the instant it happens".
-///
-/// Returns `true` only when a client was bound (consent granted + a DSN
-/// configured) AND the transport flushed within [`CRASH_FLUSH_TIMEOUT`]; on
-/// `true` it writes the sent-marker so the next launch skips the report. A
-/// `false` return (no client, unreadable report, or a flush timeout) leaves no
-/// marker, so the existing next-launch promotion still ships it as a fallback.
-///
-/// Panic-safe by construction: no `unwrap`/`expect`, no allocation-heavy work
-/// beyond reading the just-written report, and a hard time bound on the flush.
-#[cfg(feature = "sentry-telemetry")]
-pub fn send_report_now(report: &Path) -> bool {
-    let Some(client) = sentry::Hub::current().client() else {
-        return false;
-    };
-    let Ok(body) = fs::read_to_string(report) else {
-        return false;
-    };
-    sentry::capture_event(panic_event(&parse_panic_report(&body)));
-    let flushed = client.flush(Some(CRASH_FLUSH_TIMEOUT));
-    if flushed {
-        // Best-effort: a missing marker only costs a duplicate (fingerprint-
-        // grouped) event on the next launch, never a lost crash.
-        let _ = fs::write(sent_marker_path(report), b"");
-    }
-    flushed
-}
-
-#[cfg(not(feature = "sentry-telemetry"))]
-pub fn send_report_now(_report: &Path) -> bool {
-    false
 }
 
 /// Build + capture the events for the given evidence. Caller has ensured a

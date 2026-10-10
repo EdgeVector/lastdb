@@ -100,16 +100,6 @@ impl CrashContext {
         }
     }
 
-    /// Attach a callback run right after each report is written (with its
-    /// path). Used by the desktop shell to send the report to Sentry *at crash
-    /// time* instead of waiting for the next launch. Must be panic-safe and
-    /// time-bounded (it runs inside the panic hook).
-    #[must_use]
-    pub fn with_on_report_written(mut self, cb: OnReportWritten) -> Self {
-        self.on_report_written = Some(cb);
-        self
-    }
-
     /// The crash-reports directory this context writes to.
     pub fn dir(&self) -> &Path {
         &self.dir

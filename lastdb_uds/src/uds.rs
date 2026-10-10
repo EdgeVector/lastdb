@@ -392,26 +392,6 @@ pub fn evaluate_connection(
     })
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-impl UdsSocket {
-    /// Accept one pending connection and evaluate its peer credential against
-    /// `owner_uid` (the node's own uid).
-    ///
-    /// Returns the accepted stream paired with its [`UdsConnVerdict`]. The
-    /// accept loop drops the stream on a [`UdsConnVerdict::Rejected`] verdict
-    /// and dispatches it — as the posture from
-    /// [`UdsConnVerdict::access_posture`] — on an [`UdsConnVerdict::Accepted`]
-    /// one. Blocks until a connection arrives.
-    pub fn accept_and_evaluate(
-        &self,
-        owner_uid: u32,
-    ) -> io::Result<(std::os::unix::net::UnixStream, UdsConnVerdict)> {
-        let (stream, _addr) = self.listener.accept()?;
-        let verdict = evaluate_connection(&stream, owner_uid)?;
-        Ok((stream, verdict))
-    }
-}
-
 // --- Accept loop (I3a) ------------------------------------------------------
 //
 // The loop that runs on the bound listener: it accepts connections, evaluates
