@@ -4,7 +4,7 @@ use super::super::error::{SyncError, SyncResult};
 use super::super::org_sync::SyncTarget;
 use super::*;
 use crate::hex::hex_lower;
-use crate::sync::snapshot_log::{Frontier, LatestCasPayload};
+use crate::sync::snapshot_log::Frontier;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::Read;

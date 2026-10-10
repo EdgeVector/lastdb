@@ -1,7 +1,7 @@
 //! Phases of `SyncEngine::compact_target`: choose the cut, publish the
 //! photograph, then prune what the published cut supersedes.
 
-use super::super::error::{SyncError, SyncResult};
+use super::super::error::SyncResult;
 use super::super::org_sync::SyncTarget;
 use super::compact::{photograph_frontier_from_log_keys, sha256_file_hex};
 use super::*;
