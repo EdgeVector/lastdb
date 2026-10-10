@@ -79,10 +79,6 @@ pub fn maybe_spawn_atom_ref_backfill(host: &std::sync::Arc<Host>) {
     let run_v1 = atom_ref_backfill_enabled();
     let run_v2 = atom_ref_v2_backfill_enabled();
     let drain_v1 = atom_ref_v1_drain_enabled();
-    let atom_ref_store = host.db.db_ops().atoms();
-    let refresh_health = atom_ref_store.atom_ref_v2_dual_write_enabled()
-        || atom_ref_store.atom_ref_v2_reads_enabled()
-        || atom_ref_store.atom_ref_v2_only_writes_enabled();
     if drain_v1 && run_v1 {
         tracing::warn!(
             target: "lastdbd::atom_ref_backfill",
@@ -90,7 +86,8 @@ pub fn maybe_spawn_atom_ref_backfill(host: &std::sync::Arc<Host>) {
         );
         return;
     }
-    if (!run_v1 && !run_v2 && !drain_v1 && !refresh_health) || !host.atom_ref_backfill.begin() {
+    // Health always refreshes: the compact reverse-edge plane is always on.
+    if !host.atom_ref_backfill.begin() {
         return;
     }
     let host = std::sync::Arc::clone(host);
