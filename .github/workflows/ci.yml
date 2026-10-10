@@ -345,12 +345,6 @@ jobs:
       - name: UTF-8-safe byte-slice lint (fold_db + schema_service + lastdb_*)
         run: bash scripts/lints/lint-byte-slice.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity
 
-  # Regression tests for run.sh's process-sweep helpers. They source the
-  # function definitions from run.sh, spawn `sleep`-based stubs that
-  # impersonate `folddb_server` in argv, then assert sweep_orphan_servers
-  # makes the right kill/skip decision. No real binaries built. The host
-  # tools used (pgrep, ps, kill, lsof, mktemp, awk) ship by default on
-  # ubuntu-latest, so no apt step is needed.
   unused-deps-lint:
     name: Unused Dependencies (cargo-machete)
     needs: [changes, rust_suite_paths]
