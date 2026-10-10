@@ -66,14 +66,14 @@ pub use molecule_ref_edges::{
 };
 /// Full `mk:` prefix-scan counter (test/ops surface for zero-yield purge plan cost).
 pub use molecules::mk_full_scans;
-#[cfg(any(feature = "sharing", test))]
+#[cfg(feature = "sharing")]
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use tip_version_backrefs::{
     TipVersionBackref, TipVersionBackrefLookup, TipVersionBackrefReindexReport,
     TipVersionBackrefReindexStatus,
 };
 pub use types::MoleculeData;
-#[cfg(any(test, feature = "cloud-sync"))]
+#[cfg(feature = "cloud-sync")]
 pub(crate) use types::MoleculeHeader;
 pub(crate) use types::{
     ChangedKey, FilterLayout, HashKeyLookupRecord, MoleculeGenerationDelete,

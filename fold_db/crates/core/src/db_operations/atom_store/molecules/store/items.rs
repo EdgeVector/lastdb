@@ -236,7 +236,7 @@ impl AtomStore {
         Ok(items)
     }
 
-    #[cfg(any(feature = "sharing", test))]
+    #[cfg(feature = "sharing")]
     pub(in super::super) fn hash_key_lookup_items_for_records(
         molecule_uuid: &str,
         records: &[(String, PerKeyRecord)],

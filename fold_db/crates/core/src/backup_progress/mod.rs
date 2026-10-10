@@ -350,7 +350,7 @@ impl BackupProgressTracker {
     ///
     /// This deliberately accepts only manifest-commit evidence. Mutation-log
     /// segment confirmation is not a snapshot base and must never call this.
-    #[cfg(any(feature = "cloud-sync", test))]
+    #[cfg(feature = "cloud-sync")]
     pub(crate) fn restore_published_manifest(&mut self, committed_at_unix: Option<u64>) {
         if !self.enabled {
             return;
@@ -369,7 +369,7 @@ impl BackupProgressTracker {
     /// restored `has_published` and reported `complete: true` for a sealed base
     /// that can no longer be published. The abandon has to be restored beside
     /// it, or the degraded state does not survive a restart.
-    #[cfg(any(feature = "cloud-sync", test))]
+    #[cfg(feature = "cloud-sync")]
     pub(crate) fn restore_sealed_base_abandoned(&mut self, reason: String) {
         if !self.enabled {
             return;

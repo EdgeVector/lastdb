@@ -277,7 +277,7 @@ impl AtomStore {
     /// append path writes the marker before it commits a legacy reference-only
     /// pin-log row. A marker without a row only retains bytes; a row without a
     /// marker could lose acknowledged data, so this order fails safe.
-    #[cfg(any(feature = "cloud-sync", test))]
+    #[cfg(feature = "cloud-sync")]
     pub(crate) async fn protect_automatic_gc_atom_references(
         &self,
         atom_uuids: &[String],

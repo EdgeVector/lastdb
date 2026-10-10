@@ -5,7 +5,7 @@ impl AtomStore {
     ///
     /// This proof helper scans only the isolated copy's compact plane. Product
     /// requests never call it. Alternating the lookup order limits cache bias.
-    #[cfg(any(test, feature = "cloud-sync"))]
+    #[cfg(feature = "cloud-sync")]
     // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub async fn benchmark_atom_ref_v2_lookups_on_isolated_copy(
         &self,
@@ -114,7 +114,7 @@ impl AtomStore {
         })
     }
 
-    #[cfg(any(test, feature = "cloud-sync"))]
+    #[cfg(feature = "cloud-sync")]
     pub(super) async fn measure_atom_ref_lookup_pair(
         &self,
         atom_content_sha256: &str,
@@ -151,7 +151,7 @@ impl AtomStore {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "cloud-sync"))]
+    #[cfg(feature = "cloud-sync")]
     pub(super) async fn timed_atom_ref_v1_lookup(
         &self,
         atom_content_sha256: &str,
@@ -165,7 +165,7 @@ impl AtomStore {
         Ok((live, elapsed_nanos(started)))
     }
 
-    #[cfg(any(test, feature = "cloud-sync"))]
+    #[cfg(feature = "cloud-sync")]
     pub(super) async fn timed_atom_ref_v2_lookup(
         &self,
         atom_content_sha256: &str,

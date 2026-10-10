@@ -123,7 +123,7 @@ impl AtomStore {
     /// has a few exact slots, while the copied home can contain millions of
     /// unrelated slots. The caller supplies a strict slot bound so this helper
     /// cannot become an unbounded storage-plane walk.
-    #[cfg(any(test, feature = "cloud-sync"))]
+    #[cfg(feature = "cloud-sync")]
     // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub async fn verify_and_complete_atom_ref_molecule_for_isolated_copy_proof(
         &self,
