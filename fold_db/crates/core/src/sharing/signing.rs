@@ -11,7 +11,7 @@
 //! sharing does NOT reject unsigned or invalid rules yet. Signing is added
 //! first so the wire format is future-proof; enforcement lands in a follow-up.
 
-use super::types::{ShareAccessGrant, ShareInvite, ShareRule};
+use super::types::{ShareAccessGrant, ShareRule};
 
 /// Domain-separation tag for [`ShareAccessGrant`] signatures. Prevents a
 /// signature minted for another message type (or another version) from ever
@@ -51,29 +51,6 @@ pub fn canonical_bytes(rule: &ShareRule) -> Vec<u8> {
     .field(rule.share_prefix.as_bytes())
     .field(&rule.share_e2e_secret)
     .u64(rule.created_at)
-    .finish()
-}
-
-/// Canonical byte serialization for a share invite.
-///
-/// The signature binds the exact share prefix and plaintext E2E secret that
-/// `POST /api/sharing/accept` will persist into a subscription. The signature
-/// itself is excluded.
-pub fn share_invite_canonical_bytes(invite: &ShareInvite) -> Vec<u8> {
-    crate::canonical::CanonicalWriter::with_capacity(
-        invite.sender_pubkey.len()
-            + invite.sender_display_name.len()
-            + invite.share_prefix.len()
-            + invite.share_e2e_secret.len()
-            + invite.scope_description.len()
-            + 6 * 4,
-    )
-    .field(b"folddb:share_invite:v1")
-    .field(invite.sender_pubkey.as_bytes())
-    .field(invite.sender_display_name.as_bytes())
-    .field(invite.share_prefix.as_bytes())
-    .field(&invite.share_e2e_secret)
-    .field(invite.scope_description.as_bytes())
     .finish()
 }
 

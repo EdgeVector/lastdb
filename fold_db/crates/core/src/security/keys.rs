@@ -67,11 +67,6 @@ impl Ed25519KeyPair {
         general_purpose::STANDARD.encode(self.public_key_bytes())
     }
 
-    /// Get the secret key as base64-encoded string
-    pub fn secret_key_base64(&self) -> String {
-        general_purpose::STANDARD.encode(self.secret_key_bytes())
-    }
-
     /// Sign a message with this key pair
     pub fn sign(&self, message: &[u8]) -> Signature {
         self.signing_key.sign(message)

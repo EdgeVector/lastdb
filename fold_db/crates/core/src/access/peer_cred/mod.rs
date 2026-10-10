@@ -255,19 +255,6 @@ pub enum PeerCredVerdict {
     ForeignUser { peer_uid: u32, owner_uid: u32 },
 }
 
-impl PeerCredVerdict {
-    /// The pid to hand to the I3b code-signature check: `Some` only for a
-    /// same-user peer whose pid the kernel reported. A foreign user, or a
-    /// same-user peer with no reported pid, yields `None` — there is nothing
-    /// safe to verify.
-    pub fn candidate_pid(&self) -> Option<i32> {
-        match self {
-            Self::SameUser { pid, .. } => *pid,
-            Self::ForeignUser { .. } => None,
-        }
-    }
-}
-
 // --- OS peer-credential read -----------------------------------------------
 //
 // The actual `getsockopt` FFI produces a [`PeerCredential`]; every decision on

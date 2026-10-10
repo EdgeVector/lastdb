@@ -395,20 +395,6 @@ impl AttributionLedger {
             .map_err(|error| SchemaError::InvalidData(format!("put attribution record: {error}")))
     }
 
-    /// Read one classification row by its exact epoch and object identity.
-    pub async fn attribution_record(
-        &self,
-        epoch_id: &str,
-        object_kind: AttributionObjectKind,
-        object_id: &str,
-    ) -> Result<Option<AttributionRecord>, SchemaError> {
-        let probe = AttributionRecord::residue(epoch_id, object_kind, object_id, 0);
-        self.store
-            .get_item(&probe.storage_key())
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("get attribution record: {error}")))
-    }
-
     /// Persist one exact root path before its object's classification row.
     pub async fn put_attribution_path(&self, path: &AttributionPath) -> Result<(), SchemaError> {
         path.validate()?;

@@ -125,48 +125,6 @@ impl SchemaServiceClient {
         }
     }
 
-    /// Register a shared-surface schema with the DevCert-backed
-    /// `schema_claim` envelope required for app-owned shared discovery.
-    pub async fn add_schema_with_shared_surface_dev_cert(
-        &self,
-        schema: &Schema,
-        mutation_mappers: HashMap<String, String>,
-        shared_surface: SharedSurfaceMetadata,
-        schema_match_source: &str,
-        fallback_reason: Option<&str>,
-        claim: DevSchemaClaim<'_>,
-    ) -> FoldDbResult<AddSchemaResponse> {
-        let schema_payload = serde_json::to_value(schema).map_err(|e| {
-            FoldDbError::Config(format!("Failed to serialize schema for schema claim: {e}"))
-        })?;
-        let auth = SchemaClaimAuth {
-            cert_b64: claim.cert_b64.to_string(),
-            signature_b64: sign_dev_schema_claim(claim.dev_key, claim.env, &schema_payload)?,
-        };
-        match self
-            .add_schema_typed_inner(
-                schema,
-                mutation_mappers,
-                AddSchemaOptions {
-                    schema_match_source,
-                    fallback_reason,
-                    offer_to_shared_discovery: true,
-                    shared_surface: Some(shared_surface),
-                    schema_claim_auth: Some(auth),
-                },
-            )
-            .await?
-        {
-            AddSchemaOutcome::Accepted(response) => Ok(*response),
-            AddSchemaOutcome::Conflict(c) => Err(FoldDbError::Config(format!(
-                "schema service refused duplicate descriptive_name '{}': \
-                 an Approved schema with identity_hash '{}' is already registered. \
-                 Reason: {}. Rename the new schema or reuse the existing one.",
-                c.descriptive_name, c.existing_canonical, c.reason
-            ))),
-        }
-    }
-
     // lint:fn-size-ok moved verbatim from its original module
     pub(super) async fn add_schema_typed_inner(
         &self,

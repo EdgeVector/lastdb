@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use super::metrics::ResidentMetrics;
-use crate::atom::molecule_uuid::{encode_molecule_uuid_bytes, molecule_uuid_digest};
+use crate::atom::molecule_uuid::encode_molecule_uuid_bytes;
 use crate::schema::types::Schema;
 
 mod bodies;
@@ -97,10 +97,6 @@ pub struct MoleculeId([u8; 32]);
 impl MoleculeId {
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
-    }
-
-    pub fn from_schema_field(schema: &str, field: &str) -> Self {
-        Self(molecule_uuid_digest(schema, field))
     }
 
     pub fn as_bytes(&self) -> &[u8; 32] {
