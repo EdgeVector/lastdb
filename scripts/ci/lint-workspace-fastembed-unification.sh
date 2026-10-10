@@ -6,7 +6,7 @@
 # clippy look like a 60-minute job — it is NOT a normal cold start.
 #
 # Background (2026-07):
-#   cargo clippy --workspace --all-targets
+#   cargo clippy --workspace --lib --bins
 # with packages that depend on schema_service_server_shared features=["fastembed"]
 # unifies schema-service FastEmbed/ONNX onto the ENTIRE graph (every workspace test
 # target included). Agents repeatedly rationalized multi-tens-of-minutes runs
@@ -99,7 +99,7 @@ resolve. Cold full-workspace clippy then rebuilds the whole graph with ONNX
 and can look like a 30–60 minute "cold cache" job.
 
 Fix:
-  - Do not run a single unscoped \`cargo clippy --workspace --all-targets\`.
+  - Do not run a single unscoped \`cargo clippy --workspace --lib --bins\`.
   - Bulk: exclude packages that force features=["fastembed"]
     (currently: ${ONNX_FORCE_PACKAGES[*]}).
   - Off-lane: clippy those packages alone (\`cargo clippy -p … --bins\`).

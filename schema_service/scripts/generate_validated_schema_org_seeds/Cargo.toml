@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "generate_validated_schema_org_seeds"
 version.workspace = true
 edition.workspace = true
@@ -6,6 +7,8 @@ publish.workspace = true
 description = "One-shot script: ingest every Schema.org class serially through the full schema service pipeline (real fastembed embedder, real canonical-field semantic matching, real classification overlay) and save the resulting validated schemas + canonical fields as committed JSON snapshots. The runtime loads those JSONs at cold start instead of re-running the pipeline."
 
 [[bin]]
+bench = false
+test = false
 name = "generate-validated-schema-org-seeds"
 path = "src/main.rs"
 

@@ -62,11 +62,11 @@ use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion,
 };
 use fold_db::access::AccessContext;
+use fold_db::benchmark_support::BenchmarkSchemaBuilder;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::operations::{MutationType, Query, ValueFilter};
 use fold_db::schema::types::{KeyValue, Mutation};
-use fold_db::test_helpers::TestSchemaBuilder;
 use serde_json::json;
 use tokio::runtime::Runtime;
 
@@ -172,7 +172,7 @@ async fn seeded_db(n: usize) -> FoldDB {
         .await
         .expect("create FoldDB");
     db.load_schema_from_json(
-        &TestSchemaBuilder::new(SCHEMA)
+        &BenchmarkSchemaBuilder::new(SCHEMA)
             .fields(&["full_name", "email", "content_hash"])
             .hash_key("full_name")
             .range_key("content_hash")
@@ -227,7 +227,7 @@ async fn seeded_scored_db(n: usize) -> FoldDB {
         .await
         .expect("create FoldDB");
     db.load_schema_from_json(
-        &TestSchemaBuilder::new(REVIEW_SCHEMA)
+        &BenchmarkSchemaBuilder::new(REVIEW_SCHEMA)
             .fields(&["review_id", "score", "created_at"])
             .hash_key("review_id")
             .range_key("created_at")
@@ -314,7 +314,7 @@ async fn seeded_messages(n: usize) -> FoldDB {
         .await
         .expect("create FoldDB");
     db.load_schema_from_json(
-        &TestSchemaBuilder::new(MSG_SCHEMA)
+        &BenchmarkSchemaBuilder::new(MSG_SCHEMA)
             .fields(&["msg_id", "sender", "sent_at", "body"])
             .hash_key("msg_id")
             .range_key("sent_at")
@@ -381,7 +381,7 @@ async fn seeded_db_with_schemas(corpus: usize, extra_schemas: usize) -> FoldDB {
     for k in 0..extra_schemas {
         let name = format!("Extra{k}");
         db.load_schema_from_json(
-            &TestSchemaBuilder::new(&name)
+            &BenchmarkSchemaBuilder::new(&name)
                 .fields(&["k", "v"])
                 .hash_key("k")
                 .range_key("v")
@@ -941,7 +941,7 @@ async fn seeded_count_rows_db(n: usize) -> FoldDB {
     let mut fields = vec!["shard".to_string(), "doc_id".to_string()];
     fields.extend(COUNT_ROWS_DATA_FIELDS.iter().map(ToString::to_string));
     db.load_schema_from_json(
-        &TestSchemaBuilder::new(COUNT_ROWS_SCHEMA)
+        &BenchmarkSchemaBuilder::new(COUNT_ROWS_SCHEMA)
             .fields(&fields.iter().map(String::as_str).collect::<Vec<_>>())
             .hash_key("shard")
             .range_key("doc_id")

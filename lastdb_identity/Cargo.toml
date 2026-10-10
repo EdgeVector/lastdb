@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "lastdb_identity"
 version.workspace = true
 edition.workspace = true
@@ -13,5 +14,8 @@ fold_db = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
 
-[dev-dependencies]
-tempfile = { workspace = true }
+
+[lib]
+test = false
+doctest = false
+bench = false

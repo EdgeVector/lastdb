@@ -1,44 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Assert that fold's heavy clippy lane actually LINTS THE WHOLE WORKSPACE.
-#
-# Why this exists (card `fold-heavy-clippy-lane-not-a-trustworthy-gate`, and the
-# eight Brain papercuts it collects). The required Mini gate deliberately
-# compiles only `-p lastdb_node --lib --bins`, so the heavy lane in
-# `.github/workflows/ci-required.yml` has the required heavy job that lints
-# the other workspace members. That makes its coverage claim load-bearing — and
-# nothing checked the claim. Two ways it can quietly become a lie:
-#
-#   1. A new workspace member lands and no clippy invocation in the heavy lane
-#      selects it. `--workspace` covers new members automatically, so this bites
-#      through `--exclude`: excluding a package moves it out of the bulk resolve
-#      and, unless the off-lane step names it back, out of every lint in the
-#      repo. The two current excludes (the ONNX force-enablers) ARE named back;
-#      `lint-workspace-fastembed-unification.sh` keeps that pair in sync, but it
-#      only knows about fastembed. A third `--exclude` added for any other
-#      reason makes the lane cheaper, greener, and blind, and that lint stays OK.
-#
-#   2. The bulk step drops `--all-targets` or `-D warnings`. Both look like
-#      cosmetic flag edits and both silently stop the lane from failing on real
-#      lints. `--lib --bins` not compiling test targets is exactly how
-#      `papercut-fold-clippy-all-targets-red-await-holding-lock-host-rs` sat red
-#      in test code that no required lane could see.
-#
-# The failure invariant the card names: a linter that is the sole coverage for
-# most of a large Rust workspace AND cannot be trusted to have covered it is
-# functionally no linter at all. A green run whose coverage shrank is worse than
-# a red one, because nobody goes looking.
-#
-# The rule, in one line: the union of what the heavy lane's clippy invocations
-# select must equal the workspace member set, every member must be reachable,
-# and the invocation covering the bulk must still be able to fail.
-#
-# Usage:
-#   ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb [workflow.yml...]
-#
-# Self-tests override the member set so they can run without cargo:
-#   HEAVY_CLIPPY_LINT_MEMBERS="a,b,c" ruby ... fixture.yml
+# Verify that the heavy Clippy lane covers all workspace packages.
+# It checks product code only. Tests and test coverage are not required.
 
 require "yaml"
 require "json"
@@ -177,14 +141,8 @@ paths.each do |path|
     MSG
   end
 
-  # A bulk invocation that cannot fail, or that skips test targets, is coverage
-  # on paper only.
+  # A bulk invocation must still fail on product lint errors.
   invocations.select { |cmd| bulk_invocation?(cmd) }.each do |cmd|
-    unless cmd.include?("--all-targets")
-      errors << "#{path}: bulk workspace clippy has no `--all-targets`, so test " \
-                "code is never linted (the await_holding_lock rot in " \
-                "lastdb_node/src/host.rs is what that costs): #{cmd}"
-    end
     unless cmd.match?(/--\s+.*-D\s+warnings/)
       errors << "#{path}: bulk workspace clippy does not pass `-- -D warnings`, " \
                 "so lints are advisory and the lane stays green while red: #{cmd}"

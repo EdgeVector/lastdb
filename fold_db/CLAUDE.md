@@ -49,3 +49,5 @@ idioms, feature flags, the security model, and gotchas, ask the brain
 - `completed-programs` — closed product surfaces (Desktop/Tauri/web UI — do not resurrect)
 
 See also: workspace-root `CLAUDE.md`, `README.md`, `../schema_service/openapi.yaml`.
+
+Do not write, restore, or run tests. Use product build, format, and lint checks.

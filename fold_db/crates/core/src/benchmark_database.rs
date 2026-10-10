@@ -1,4 +1,4 @@
-//! Consolidated testing utilities for database setup and common test patterns
+//! Consolidated benchmarks utilities for database setup and common test patterns
 //!
 //! This module eliminates duplicate database setup code found across 11+ files
 
@@ -7,9 +7,9 @@ use crate::storage::{InMemoryNamespacedStore, LastStoreNamespacedStore, Namespac
 use std::sync::Arc;
 
 /// Consolidated temporary database creation - eliminates 11+ duplicates
-pub struct TestDatabaseFactory;
+pub struct BenchmarkDatabaseFactory;
 
-impl TestDatabaseFactory {
+impl BenchmarkDatabaseFactory {
     /// Create temporary DbOperations backed by Last Store on a leaked temp dir.
     pub async fn create_temp_db_ops() -> Result<DbOperations, Box<dyn std::error::Error>> {
         let dir = tempfile::TempDir::new()?.keep();

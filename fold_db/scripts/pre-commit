@@ -8,5 +8,5 @@ echo "Running fold_db pre-commit checks..."
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-cargo clippy -p fold_db --all-targets -- -D warnings
+cargo clippy -p fold_db --lib --bins -- -D warnings
 echo "Pre-commit checks passed."

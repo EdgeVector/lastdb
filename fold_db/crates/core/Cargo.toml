@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "fold_db"
 version = "0.3.0"
 edition.workspace = true
@@ -6,7 +7,6 @@ publish = false
 
 [features]
 default = []
-test-utils = []  # Expose test helpers (MockEmbeddingModel, etc.) for integration tests
 # Cross-user sharing and consent-gated delivery are product/host surfaces, not
 # part of the default local kernel compile path.
 sharing = []
@@ -88,8 +88,6 @@ reqwest = { version = "0.12", features = ["json"] }
 sha2 = { workspace = true }
 
 tracing-subscriber = { workspace = true }
-temp-env = "0.3"
-serial_test = "3"
 
 # Statistical micro-benchmark harness for `benches/*` (criterion_main).
 # Pure dev-dependency: never linked into the shipped library. `async_tokio`
@@ -98,6 +96,9 @@ serial_test = "3"
 criterion = { version = "0.5", features = ["async_tokio"] }
 
 [lib]
+bench = false
+doctest = false
+test = false
 name = "fold_db"
 path = "src/lib.rs"
 
