@@ -156,43 +156,4 @@ impl AtomStore {
         self.namespaced_store = Some(store);
         self
     }
-
-    /// Compact reverse-edge writes are always on. The builder remains for
-    /// older call sites.
-    #[must_use]
-    pub fn with_atom_ref_v2_dual_write(self, _enabled: bool) -> Self {
-        self
-    }
-
-    /// Compact reverse-edge reads are always on. The builder remains for
-    /// older call sites.
-    #[must_use]
-    pub fn with_atom_ref_v2_reads(self, _enabled: bool) -> Self {
-        self
-    }
-
-    /// Compact-only writes are always on. The builder remains for older
-    /// call sites.
-    #[must_use]
-    pub fn with_atom_ref_v2_only_writes(self, _enabled: bool) -> Self {
-        self
-    }
-
-    /// Whether this store writes the compact reverse-edge plane.
-    #[must_use]
-    pub fn atom_ref_v2_dual_write_enabled(&self) -> bool {
-        true
-    }
-
-    /// Whether this store accepts compact reverse-edge absence after proof.
-    #[must_use]
-    pub fn atom_ref_v2_reads_enabled(&self) -> bool {
-        true
-    }
-
-    /// Whether this store omits legacy reverse-edge puts.
-    #[must_use]
-    pub fn atom_ref_v2_only_writes_enabled(&self) -> bool {
-        true
-    }
 }

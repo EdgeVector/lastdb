@@ -216,29 +216,9 @@ pub(super) fn configured_atom_ref_edge_health(host: &Host) -> AtomRefEdgeHealth 
     let v2_bytes = namespaced_store
         .collection_disk_bytes("atom_ref_edges_v2")
         .unwrap_or(0);
-    let atom_ref_store = host.db.db_ops().atoms();
-    let dual_write = atom_ref_store.atom_ref_v2_dual_write_enabled();
-    let reads = atom_ref_store.atom_ref_v2_reads_enabled();
-    let only_writes = atom_ref_store.atom_ref_v2_only_writes_enabled();
-    let mut health = if dual_write {
-        AtomRefEdgeHealth::dual_write(v1_bytes, v2_bytes)
-    } else {
-        AtomRefEdgeHealth::default_off(v1_bytes, v2_bytes)
-    };
-    if reads {
-        health.phase = if dual_write {
-            if only_writes {
-                "v2_only_writes"
-            } else {
-                "v2_reads"
-            }
-        } else {
-            "read_misconfigured"
-        }
-        .to_string();
-    } else if only_writes {
-        health.phase = "write_misconfigured".to_string();
-    }
+    // Compact reverse-edge writes, reads and compact-only writes are always on.
+    let mut health = AtomRefEdgeHealth::dual_write(v1_bytes, v2_bytes);
+    health.phase = "v2_only_writes".to_string();
     if crate::atom_ref_backfill::atom_ref_v1_drain_enabled() {
         health.phase = if crate::atom_ref_backfill::atom_ref_backfill_enabled() {
             "drain_misconfigured"
@@ -271,12 +251,8 @@ pub(crate) async fn refresh_atom_ref_edge_health(host: &Host) {
         .collection_disk_bytes("atom_ref_edges_v2")
         .unwrap_or(0);
     let atom_ref_store = host.db.db_ops().atoms();
-    let dual_write = atom_ref_store.atom_ref_v2_dual_write_enabled();
-    let reads = atom_ref_store.atom_ref_v2_reads_enabled();
-    let only_writes = atom_ref_store.atom_ref_v2_only_writes_enabled();
-    let mut health = if !dual_write {
-        AtomRefEdgeHealth::default_off(v1_bytes, v2_bytes)
-    } else if crate::atom_ref_backfill::atom_ref_v2_backfill_enabled() {
+    // Compact reverse-edge writes, reads and compact-only writes are always on.
+    let mut health = if crate::atom_ref_backfill::atom_ref_v2_backfill_enabled() {
         match atom_ref_store.atom_ref_v2_backfill_status(None).await {
             Ok(status) => AtomRefEdgeHealth::backfill(
                 v1_bytes,
@@ -292,21 +268,12 @@ pub(crate) async fn refresh_atom_ref_edge_health(host: &Host) {
     } else {
         AtomRefEdgeHealth::dual_write(v1_bytes, v2_bytes)
     };
-    if reads {
-        health.phase = if dual_write {
-            match atom_ref_store.atom_ref_v2_reads_ready(None).await {
-                Ok(true) if only_writes => "v2_only_writes",
-                Ok(true) => "v2_reads",
-                Ok(false) => "read_blocked",
-                Err(_) => "read_invalid",
-            }
-        } else {
-            "read_misconfigured"
-        }
-        .to_string();
-    } else if only_writes {
-        health.phase = "write_misconfigured".to_string();
+    health.phase = match atom_ref_store.atom_ref_v2_reads_ready(None).await {
+        Ok(true) => "v2_only_writes",
+        Ok(false) => "read_blocked",
+        Err(_) => "read_invalid",
     }
+    .to_string();
     if crate::atom_ref_backfill::atom_ref_v1_drain_enabled() {
         health.phase = if crate::atom_ref_backfill::atom_ref_backfill_enabled() {
             "drain_misconfigured"
