@@ -114,37 +114,4 @@ impl SyncEngine {
             ))
         })
     }
-
-    /// Read one upload-quarantine tombstone: `Some(reason)` when this frontier
-    /// was dropped from the outgoing stream.
-    ///
-    /// Only the tests read a tombstone today — the write is what closes the
-    /// "no receipt" hole, and the operator surface that enumerates the ledger
-    /// (`lastdb db quarantined-mutations`, or the field on status) is the
-    /// follow-up. The reader is here so the writer's format is pinned by a
-    /// test rather than by whoever writes that command next.
-    #[allow(dead_code)]
-    pub(crate) async fn upload_quarantine_tombstone(
-        &self,
-        prefix: &str,
-        frontier: u64,
-    ) -> SyncResult<Option<String>> {
-        let kv = self
-            .cursor_store
-            .open_namespace("sync_upload_quarantine")
-            .await
-            .map_err(|e| {
-                SyncError::Storage(format!(
-                    "failed to open sync_upload_quarantine namespace for '{prefix}' frontier {frontier}: {e}"
-                ))
-            })?;
-        kv.get(Self::upload_quarantine_tombstone_key(prefix, frontier).as_bytes())
-            .await
-            .map(|value| value.map(|v| String::from_utf8_lossy(&v).into_owned()))
-            .map_err(|e| {
-                SyncError::Storage(format!(
-                    "failed to read sync upload quarantine tombstone for '{prefix}' frontier {frontier}: {e}"
-                ))
-            })
-    }
 }
