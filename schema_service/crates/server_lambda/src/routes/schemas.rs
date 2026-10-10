@@ -1,6 +1,14 @@
 //! Schema registry routes: listing, lookup, similarity, mutation challenge, submit, resolve.
 
-use super::super::*;
+use crate::http::*;
+use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::{log_schema_mutation_gate_result, SchemaMutationChallengeRequest};
+use schema_service_server_shared::state::SchemaServiceState;
+use schema_service_server_shared::types::{
+    BatchSchemaReuseRequest, SchemaAddOutcome, SchemaEnvelope, SchemaResolveRequest,
+};
+use serde_json::{json, Value};
+use std::collections::HashMap;
 
 pub(crate) fn get_registry_index(
     state: &SchemaServiceState,
@@ -386,5 +394,21 @@ pub(crate) fn post_schemas_resolve(
             400,
             &json!({"error": format!("Schema resolve failed: {e}")}),
         ),
+    }
+}
+
+fn get_schema_by_name(
+    state: &SchemaServiceState,
+    schema_name: &str,
+) -> Result<Response<Body>, Error> {
+    match state.get_schema_by_name(schema_name) {
+        Ok(Some(schema)) => {
+            let system = state.is_system_schema(&schema.name);
+            let envelope = SchemaEnvelope { schema, system };
+            let body = serde_json::to_value(envelope).map_err(serialization_error)?;
+            json_response(200, &body)
+        }
+        Ok(None) => json_response(404, &json!({"error": "Schema not found"})),
+        Err(e) => json_response(500, &json!({"error": format!("Failed to get schema: {e}")})),
     }
 }
