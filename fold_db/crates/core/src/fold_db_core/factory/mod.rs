@@ -3,7 +3,6 @@
 //! Layout:
 //! - [`local`] — local Last Store construction + at-rest seam crypto
 //! - [`boot`] — boot decrypt proof
-//! - [`tests`] — unit tests (`cfg(test)`)
 //!
 //! Two public entry points:
 //! - [`create_fold_db`] — simple path (no auth-refresh / no keyring)
