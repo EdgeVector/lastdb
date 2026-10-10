@@ -41,7 +41,9 @@ mod tips_pass;
 mod tripwire;
 pub(crate) mod walk;
 
+pub(super) use catalog::check_complete;
 pub(crate) use errors::ReapError;
+pub(super) use keys::mol_key;
 
 /// Arguments of `reap`.
 #[derive(Args, Debug)]

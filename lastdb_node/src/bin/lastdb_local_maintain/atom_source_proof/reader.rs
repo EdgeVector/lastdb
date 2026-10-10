@@ -71,7 +71,8 @@ pub(super) async fn collection(
             name,
             &*raw,
             &*seam,
-            page.row_handle,
+            page.row_handle
+                .map(|handle| (handle.shard, handle.group_id)),
             selected,
             targets,
             links,

@@ -9,7 +9,7 @@ use fold_db::schema::Schema;
 use serde_json::Value;
 
 fn molecule_id(molecule: &str) -> String {
-    fold_db::hex::hex_lower(crate::reap::keys::mol_key(molecule))
+    fold_db::hex::hex_lower(crate::reap::mol_key(molecule))
 }
 
 pub(super) async fn schemas(
@@ -28,7 +28,7 @@ pub(super) async fn schemas(
     while let Some(page) = walker.next_page().await.map_err(err)? {
         physical.extend(page.rows.into_iter().map(|row| row.0));
     }
-    crate::reap::catalog::check_complete(&physical, &schemas).map_err(err)?;
+    crate::reap::check_complete(&physical, &schemas).map_err(err)?;
     for schema in schemas.values() {
         schema_owners(schema, facts);
     }
@@ -164,7 +164,7 @@ pub(super) fn row(
                 key,
                 scope,
                 "pending_protein_job",
-                Some(&job.entry_mol),
+                Some(&job.entry_molecule_uuid),
             ),
         );
         return Ok(());
