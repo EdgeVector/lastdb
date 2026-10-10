@@ -237,13 +237,6 @@ pub fn serialize_artifact(
     serde_json::to_vec(artifact)
 }
 
-/// Serialize a manifest to JSON bytes.
-pub fn serialize_manifest(
-    manifest: &SchemaEmbeddingArtifactManifest,
-) -> Result<Vec<u8>, serde_json::Error> {
-    serde_json::to_vec(manifest)
-}
-
 /// Parse artifact bytes.
 pub fn parse_artifact(bytes: &[u8]) -> Result<SchemaEmbeddingArtifact, serde_json::Error> {
     serde_json::from_slice(bytes)

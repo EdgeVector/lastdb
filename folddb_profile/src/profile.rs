@@ -168,11 +168,6 @@ impl Profile {
             Environment::Prod => &self.env.prod,
         })
     }
-
-    /// Set the active env (so a later `save()` records it).
-    pub fn set_active(&mut self, env: Environment) {
-        self.active = env_label(env).to_string();
-    }
 }
 
 /// Map an env label (`"dev"` / `"prod"`) onto the typed [`Environment`].

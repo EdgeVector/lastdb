@@ -426,20 +426,4 @@ fn quoted_contains(line: &str, needle: &str) -> bool {
     false
 }
 
-/// Full contract audit used by the CI test.
-pub fn audit_status_gauge_contract(src: &str) -> Result<(), Vec<String>> {
-    let mut errors = Vec::new();
-    if let Err(mut e) = audit_must_be_gauge(src) {
-        errors.append(&mut e);
-    }
-    if let Err(mut e) = audit_status_line_hardcoded_units(src) {
-        errors.append(&mut e);
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
-}
-
 // lint:file-size-ok moved verbatim from the self_metrics.rs include list; cohesive unit, split further in a later pass

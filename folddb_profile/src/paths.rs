@@ -86,33 +86,6 @@ pub fn folddb_home() -> Result<PathBuf, String> {
     Ok(resolve_default_node_home(&home, Path::is_dir))
 }
 
-/// Resolve the node's Unix-domain socket path.
-///
-/// Priority:
-/// 1. `FOLDDB_SOCKET_PATH` — canonical explicit override.
-/// 2. `FOLDDB_SOCK` — deprecated alias, still honored for old callers.
-/// 3. `<node-home>/data/folddb.sock` — using [`folddb_home`]'s
-///    `LASTDB_HOME` → `FOLDDB_HOME` → existing/default home order.
-///
-/// The returned path is not probed. Callers that need transport discovery
-/// should check existence before selecting UDS over TCP.
-pub fn node_socket_path_with_source() -> Result<(PathBuf, NodeSocketPathSource), String> {
-    if let Ok(path) = std::env::var(FOLDDB_SOCKET_PATH_ENV) {
-        if !path.is_empty() {
-            return expand_tilde(&path).map(|p| (p, NodeSocketPathSource::CanonicalOverride));
-        }
-    }
-    if let Ok(path) = std::env::var(FOLDDB_SOCK_ENV) {
-        if !path.is_empty() {
-            return expand_tilde(&path).map(|p| (p, NodeSocketPathSource::LegacyOverride));
-        }
-    }
-    Ok((
-        folddb_home()?.join("data").join(NODE_SOCKET_FILE_NAME),
-        NodeSocketPathSource::NodeHomeDefault,
-    ))
-}
-
 /// Pure resolution of the *default* node home (steps 3–5 of [`folddb_home`])
 /// from an explicit `$HOME` and an injectable directory-existence predicate.
 ///
@@ -195,33 +168,4 @@ pub fn expand_tilde_path(path: impl AsRef<Path>) -> Result<PathBuf, String> {
         }
     }
     Ok(path.to_path_buf())
-}
-
-/// Assert a resolved path does NOT still contain a literal `~`
-/// component anywhere. Last-line-of-defense guard against future
-/// regressions: every path that flows into a sled opener or
-/// `create_dir_all` call should have been through [`expand_tilde`] /
-/// [`expand_tilde_path`] by the time it reaches the storage layer, and
-/// a leftover `~` means a code path bypassed that helper (the same
-/// failure mode that left 596 MB of live sled state under
-/// `/Users/example/~/.folddb/data/db` on Tom's machine).
-///
-/// Cheap to call at boot — single component walk over the resolved
-/// path. Returns `Err` with an actionable diagnostic message; the
-/// caller decides whether to panic (debug) or log-and-bail (release).
-pub fn assert_no_literal_tilde(path: &Path) -> Result<(), String> {
-    for component in path.components() {
-        if let std::path::Component::Normal(os) = component {
-            if os == "~" {
-                return Err(format!(
-                    "resolved path {path:?} still contains a literal `~` component — \
-                     a code path bypassed expand_tilde / expand_tilde_path. \
-                     This would create directories under `<cwd>/~/...` or \
-                     `$HOME/~/...` and silently shard storage from the \
-                     user's real data."
-                ));
-            }
-        }
-    }
-    Ok(())
 }

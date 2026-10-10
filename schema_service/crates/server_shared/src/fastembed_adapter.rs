@@ -68,17 +68,6 @@ impl FoldDbFastEmbedder {
         let _ = self.model();
     }
 
-    /// Batch embed. Not part of [`Embedder`] (schema core is single-text),
-    /// but useful for seed generation / backfill tools.
-    pub fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, EmbedError> {
-        if texts.is_empty() {
-            return Ok(Vec::new());
-        }
-        self.model()?
-            .embed(texts.to_vec(), None)
-            .map_err(|err| Self::map_embed_error(&err))
-    }
-
     fn model(&self) -> Result<&TextEmbedding, EmbedError> {
         match self.model.get_or_init(|| self.init_model()) {
             Ok(model) => Ok(model),

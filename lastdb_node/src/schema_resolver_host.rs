@@ -18,10 +18,9 @@ use schema_service_client::{
     LocalFirstSchemaResolver, NoopPackStore, SchemaServiceClient, SharedSurfacePublishRequest,
     SharedSurfacePublishResult,
 };
-use schema_service_core::resolver_pack::TrustedResolverPackKey;
 use schema_service_core::{
     schema_resolver_enforce_gate_failures, schema_resolver_enforce_gate_pass,
-    ResolverBootstrapConfig, SchemaResolverEnforceGateReport,
+    SchemaResolverEnforceGateReport,
 };
 
 use serde::{Deserialize, Serialize};
@@ -270,43 +269,6 @@ impl MiniSchemaResolverConfig {
             && !self.base_url.trim().is_empty()
             && !self.trusted_keys.is_empty()
             && !self.expected_embedder_id.trim().is_empty()
-    }
-
-    pub fn to_bootstrap(&self, home: &Path) -> ResolverBootstrapConfig {
-        let env = match self.channel.trim().to_ascii_lowercase().as_str() {
-            "dev" => Env::Dev,
-            _ => Env::Prod,
-        };
-        let cache_dir = {
-            let p = PathBuf::from(&self.cache_dir);
-            if p.is_absolute() {
-                p
-            } else {
-                home.join(p)
-            }
-        };
-        let trusted_keys = self
-            .trusted_keys
-            .iter()
-            .map(|k| TrustedResolverPackKey {
-                key_id: k.key_id.clone(),
-                public_key_b64: k.public_key_b64.clone(),
-            })
-            .collect();
-        ResolverBootstrapConfig {
-            enabled: self.enabled && !self.kill_switch,
-            env,
-            base_url: self.base_url.trim().to_string(),
-            refresh_interval_seconds: self.refresh_interval_seconds.max(1),
-            refresh_jitter_seconds: self.refresh_jitter_seconds,
-            request_timeout_seconds: self.request_timeout_seconds.max(1),
-            max_download_bytes: self.max_download_bytes.max(1024),
-            max_config_age_seconds: self.max_config_age_seconds,
-            expected_embedder_id: self.expected_embedder_id.clone(),
-            cache_dir,
-            trusted_keys,
-            now: None,
-        }
     }
 }
 

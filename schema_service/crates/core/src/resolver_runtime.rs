@@ -81,64 +81,6 @@ where
         self.active.read().await.clone()
     }
 
-    /// Cold start: try last-known-good first, then one network refresh.
-    pub async fn bootstrap_load(&self) -> ResolverPackLoadOutcome {
-        if !self.is_enabled() {
-            self.record_fallback(ResolverPackFallbackReason::Disabled);
-            return ResolverPackLoadOutcome::LiveServiceFallback {
-                reason: ResolverPackFallbackReason::Disabled,
-            };
-        }
-
-        let mut outcome = ResolverPackLoadOutcome::LiveServiceFallback {
-            reason: ResolverPackFallbackReason::MissingPack,
-        };
-
-        match self.consumer.load_last_known_good_only() {
-            Ok((
-                ResolverPackLoadOutcome::Loaded {
-                    source: ResolverPackLoadSource::LastKnownGood,
-                },
-                Some(pack),
-            )) => {
-                self.activate(pack, "lkg").await;
-                self.record_lkg("ok");
-                outcome = ResolverPackLoadOutcome::Loaded {
-                    source: ResolverPackLoadSource::LastKnownGood,
-                };
-            }
-            Ok((ResolverPackLoadOutcome::LiveServiceFallback { reason }, None)) => {
-                self.record_lkg(reason.as_str());
-                outcome = ResolverPackLoadOutcome::LiveServiceFallback { reason };
-            }
-            Ok(_) => {}
-            Err(_) => {
-                self.record_lkg("error");
-            }
-        }
-
-        // Network refresh once; success upgrades active state. Failure keeps
-        // whatever LKG (if any) was activated above.
-        let refresh_outcome = self.refresh().await;
-        match refresh_outcome {
-            ResolverPackLoadOutcome::Loaded {
-                source: ResolverPackLoadSource::Latest | ResolverPackLoadSource::NotModified,
-            } => refresh_outcome,
-            other => {
-                if matches!(
-                    outcome,
-                    ResolverPackLoadOutcome::Loaded {
-                        source: ResolverPackLoadSource::LastKnownGood
-                    }
-                ) {
-                    outcome
-                } else {
-                    other
-                }
-            }
-        }
-    }
-
     /// Network refresh. On failure, previous `active` Arc is left intact.
     pub async fn refresh(&self) -> ResolverPackLoadOutcome {
         if !self.is_enabled() {

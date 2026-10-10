@@ -21,7 +21,6 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::future::Future;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};

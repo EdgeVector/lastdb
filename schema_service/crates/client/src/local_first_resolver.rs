@@ -89,21 +89,8 @@ where
         }
     }
 
-    pub fn with_active_override(mut self, state: Arc<NativeResolverState>) -> Self {
-        self.active_override = Some(state);
-        self
-    }
-
     pub fn mode(&self) -> LocalFirstMode {
         self.mode
-    }
-
-    pub fn live_resolve_batch_count(&self) -> u64 {
-        self.live_resolve_batches.load(Ordering::SeqCst)
-    }
-
-    pub fn live_resolve_proposal_count(&self) -> u64 {
-        self.live_resolve_proposals.load(Ordering::SeqCst)
     }
 
     async fn load_active(&self) -> Option<Arc<NativeResolverState>> {

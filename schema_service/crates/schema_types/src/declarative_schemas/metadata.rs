@@ -96,14 +96,6 @@ impl DeclarativeSchemaDefinition {
         self.source_schemas = meta.source_schemas;
     }
 
-    pub fn get_inputs(&self) -> Vec<String> {
-        self.inputs_schema_fields.clone()
-    }
-
-    pub fn get_source_schemas(&self) -> Vec<String> {
-        self.source_schemas.clone()
-    }
-
     /// Gets a reference to the hash-to-code mapping.
     pub fn hash_to_code(&self) -> &HashMap<String, String> {
         &self.hash_to_code

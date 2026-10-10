@@ -29,7 +29,7 @@
 //! developer; the profile layer here makes the *URL* and the env-var-name
 //! override stick without re-typing.
 
-use crate::profile::{resolve_api_key, Profile};
+use crate::profile::Profile;
 
 /// The actionable error a publish verb surfaces when no API key can be
 /// resolved from flag, env, or profile. Worded to mirror the dev node's
@@ -67,23 +67,4 @@ pub fn resolve_schema_service_url(
     // env label is a real config error and propagates.
     let env_profile = profile.active_env_profile()?;
     Ok(env_profile.schema_service_url.clone())
-}
-
-/// Resolve the dev API key from flag → env → active-env profile.
-///
-/// `explicit` is the already-resolved `--dev-api-key` value (clap folds the
-/// flag + the `EXEMEM_DEV_API_KEY` env binding into it). When it is `None`
-/// (or blank), this loads the active env profile and applies
-/// [`resolve_api_key`], which honors any `api_key_env` override the profile
-/// recorded and reads that env var.
-///
-/// A missing/partial/default profile is fine — it just means
-/// [`resolve_api_key`] falls back to the default `EXEMEM_DEV_API_KEY` var.
-/// A malformed profile file errors (surfaced as a `ProfileError`).
-pub fn resolve_dev_api_key(
-    explicit: Option<&str>,
-) -> Result<Option<String>, crate::profile::ProfileError> {
-    let profile = Profile::load()?;
-    let env_profile = profile.active_env_profile()?;
-    Ok(resolve_api_key(env_profile, explicit))
 }

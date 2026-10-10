@@ -68,20 +68,6 @@ pub fn prepare_primary_resume_file(home: &Path) -> Result<bool, String> {
     resume_cloud_sync_file(home)
 }
 
-pub fn mark_cloud_resume_requested(home: &Path) -> Result<(), String> {
-    let (active, paused) = cloud_sync_paths(home);
-    if active.exists() || !paused.exists() {
-        return Err("paused-home backup request requires paused cloud configuration".into());
-    }
-    let bytes =
-        std::fs::read(&paused).map_err(|error| format!("read {}: {error}", paused.display()))?;
-    let _: fold_db::storage::config::CloudSyncConfig = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("invalid paused cloud configuration: {error}"))?;
-    mark_cloud_resume_required(home)?;
-    clear_cloud_resume_ready(home)?;
-    mark_durable_file(home, &cloud_resume_requested_path(home))
-}
-
 pub fn read_paused_home_backup_receipt(home: &Path) -> Result<PausedHomeBackupReceipt, String> {
     let path = cloud_resume_ready_path(home);
     let bytes =
@@ -90,38 +76,6 @@ pub fn read_paused_home_backup_receipt(home: &Path) -> Result<PausedHomeBackupRe
         .map_err(|error| format!("decode {}: {error}", path.display()))?;
     receipt.validate()?;
     Ok(receipt)
-}
-
-/// Record a committed paused-home backup, then stop repeat uploads on boot.
-/// The required marker remains, so Cloud Sync still cannot turn On.
-pub fn complete_paused_home_backup(
-    home: &Path,
-    manifest_sha256: &str,
-    manifest_counter: u64,
-) -> Result<(), String> {
-    if !cloud_resume_required_path(home).exists() || !cloud_resume_requested_path(home).exists() {
-        return Err("paused-home backup completion requires both durable markers".into());
-    }
-    let receipt = PausedHomeBackupReceipt {
-        version: 1,
-        manifest_sha256: manifest_sha256.to_string(),
-        manifest_counter,
-    };
-    receipt.validate()?;
-    let path = cloud_resume_ready_path(home);
-    let bytes = serde_json::to_vec(&receipt)
-        .map_err(|error| format!("encode {}: {error}", path.display()))?;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&path)
-        .map_err(|error| format!("open {}: {error}", path.display()))?;
-    file.write_all(&bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|error| format!("sync {}: {error}", path.display()))?;
-    sync_cloud_home_dir(home)?;
-    clear_cloud_resume_requested(home)
 }
 
 pub fn clear_cloud_resume_ready(home: &Path) -> Result<(), String> {

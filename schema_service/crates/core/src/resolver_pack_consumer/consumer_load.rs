@@ -15,13 +15,6 @@ where
         }
     }
 
-    pub fn telemetry_snapshot(&self) -> ResolverPackTelemetrySnapshot {
-        self.telemetry
-            .lock()
-            .map(|snapshot| snapshot.clone())
-            .unwrap_or_default()
-    }
-
     pub async fn load_latest(
         &self,
     ) -> Result<(ResolverPackLoadOutcome, Option<LoadedResolverPack>), ResolverPackConsumerError>
