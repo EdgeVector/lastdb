@@ -8,7 +8,6 @@
 //! - [`molecules`] — atom prep, molecule apply/persist
 //! - [`receipt`] — what one logical resident commit answers to its caller
 //! - [`index`] — best-effort native-index side effects
-//! - [`tests`] — unit tests (`cfg(test)`)
 
 mod aggregate;
 mod author_clock;

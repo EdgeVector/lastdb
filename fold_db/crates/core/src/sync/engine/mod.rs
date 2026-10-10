@@ -15,7 +15,6 @@
 //! - [`prefix_inventory`] — read-only R2 prefix/category size breakdown
 //! - [`configure`] — share/org target configuration
 //! - [`replay`] — convergent replay / merge paths
-//! - [`tests`] — unit tests (`cfg(test)`)
 //!
 //! This file keeps the `SyncEngine` struct definition and Drop scrub only.
 

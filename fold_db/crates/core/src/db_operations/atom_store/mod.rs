@@ -6,17 +6,20 @@
 //! `DbOperations::atoms()` to reach these operations.
 //!
 //! Layout:
-//! - [`types`] — molecule/key types
+//! - [`types`] — molecule/atom storage types
 //! - [`helpers`] — pure key/order/page-index helpers + schema index codec
+//! - [`construct`] — `AtomStore` constructors and builder hooks
+//! - [`key_encoding`] — atom body key-encoding resolution at boot and restore
+//! - [`codec`] — atom body encode/decode and storage-key reads
 //! - [`molecules`] — per-key molecule store/load/delete
 //! - [`filter`] — filtered loads + page index
 //! - [`atoms`] — atom CRUD, history, schema listing
-//! - [`tests`] — unit tests (`cfg(test)`)
-//! - [`paged_1d_cost_tests`] — what a paged 1-D read costs in cold group
-//!   loads (`cfg(test)`)
-//! - [`hash_range_write_cost_tests`] — what one constant-partition HashRange
-//!   write costs in a cold, populated HashGroup home, and what one primary
-//!   page read costs (`cfg(test)`)
+//! - [`locks`] — molecule, tip, atom-ref and delete-barrier locks
+//! - [`delete_barriers`] — delete-barrier reads and writes
+//! - [`atom_ref_edges`], [`blob_ref_edges`], [`molecule_ref_edges`],
+//!   [`tip_version_backrefs`] — durable reverse-reference planes
+//! - [`atom_ref_gc`], [`dropped_schema_reap`], [`content_maintenance`],
+//!   [`hard_erase_journal`], [`keep_small`] — GC, reap and maintenance passes
 
 pub(crate) mod atom_ref_edges;
 mod atom_ref_gc;
