@@ -47,6 +47,8 @@ Restart `lastdbd` after changing the env (limit is resolved once per process).
 
 Reads of **legacy** atoms already larger than the limit still work; only **new writes** are rejected.
 
+The `lastdb restore` command uses the 1 MiB absolute limit for authenticated replay. This preserves atoms that a source accepted with a raised limit. The restored daemon keeps its own configured limit for new writes.
+
 The check reads **only the incoming value** — never the stored one — so an
 over-limit document is *not* frozen: it can always be written smaller. What can
 get stuck is a **client shape**: a read-modify-write caller that regrows the

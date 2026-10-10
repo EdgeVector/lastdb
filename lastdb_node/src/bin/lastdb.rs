@@ -61,6 +61,14 @@ use cli_defs::*;
 fn main() {
     install_broken_pipe_exit_hook();
     let cli = Cli::parse();
+    if matches!(cli.command.as_ref(), Some(Command::Restore { .. })) {
+        // Restore replays authenticated historical writes in this one-shot process.
+        // Keep the absolute atom cap even when this host uses the 64 KiB default.
+        std::env::set_var(
+            fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV,
+            fold_db::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES.to_string(),
+        );
+    }
     let json_restore = matches!(
         cli.command.as_ref(),
         Some(Command::Restore { json: true, .. })
