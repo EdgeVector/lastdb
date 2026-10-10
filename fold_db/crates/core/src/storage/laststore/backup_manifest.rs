@@ -10,7 +10,7 @@ use std::fs;
 use std::io::Write as _;
 use std::path::PathBuf;
 
-const MANIFEST_VERSION: u32 = 1;
+pub const MANIFEST_VERSION: u32 = 1;
 pub const PACKED_MANIFEST_VERSION: u32 = 2;
 /// Version of the v2 descriptor page and receipt formats. The v2 reader in
 /// [`super::backup_descriptor`] accepts this value only; the v1 reader above

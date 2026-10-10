@@ -16,7 +16,7 @@ use crate::storage::laststore::{
     compute_backup_storage_footprint, manifest_referenced_chunk_shas, manifest_sha256_hex,
     select_orphan_backup_chunk_shas, unbackable_manifest_chunk_count, validate_manifest_chain,
     BackupChunkUploadCandidate, BackupManifest, BackupManifestRole, BackupPackLocation,
-    BackupStorageFootprint, CloudChunkPresence, PACKED_MANIFEST_VERSION,
+    BackupStorageFootprint, CloudChunkPresence, MANIFEST_VERSION, PACKED_MANIFEST_VERSION,
 };
 use crate::sync::auth::ops::BackupLatestPointer;
 use crate::sync::snapshot_log::{

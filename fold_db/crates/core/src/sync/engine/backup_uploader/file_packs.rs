@@ -29,8 +29,9 @@ impl SyncEngine {
                     .into(),
             ));
         }
-        if previous.is_some_and(|prior| prior.version == PACKED_MANIFEST_VERSION)
-            || std::env::var("LASTDB_BACKUP_FILE_PACKS").is_ok_and(|value| value == "1")
+        if !fresh_root_proven
+            && (previous.is_some_and(|prior| prior.version == PACKED_MANIFEST_VERSION)
+                || std::env::var("LASTDB_BACKUP_FILE_PACKS").is_ok_and(|value| value == "1"))
         {
             self.auth
                 .require_backup_format_version_2_capability()
@@ -49,6 +50,11 @@ impl SyncEngine {
         primary_resume_root: bool,
     ) -> SyncResult<Vec<BackupChunkUploadCandidate>> {
         self.sweep_backup_freeze_dirs(None);
+        // A fresh root must publish the direct files already held by S0. The
+        // first normal successor may convert its local mutable files to packs.
+        if primary_resume_root && previous.is_none() {
+            manifest.version = MANIFEST_VERSION;
+        }
         let ready =
             pack_backup_publish_candidates(store, manifest, candidates, previous, cloud_presence)?;
         let chain_previous = if primary_resume_root { None } else { previous };
@@ -307,11 +313,10 @@ pub(super) fn pack_backup_publish_candidates(
         .filter(|chunk| chunk.pack.is_none())
         .map(|chunk| (file_key(chunk), (chunk.sha256.as_str(), chunk.bytes)))
         .collect();
-    // A committed rescue S0 keeps its own immutable v1 manifest and direct
-    // cloud objects. Its server-side hold blocks chunk DELETE, so a fresh
-    // normal v2 root may pack the same local files without changing S0.
-    // The direct S0 objects still consume cloud bytes until a separate,
-    // verified hold-release path exists.
+    // Only the first v1-to-v2 step converts an unchanged direct file. The
+    // candidate list contains local files, so a carried ref without a local
+    // file stays direct in the manifest and cannot enter a pack.
+    let convert_prior_direct = previous.is_some_and(|prior| prior.version == MANIFEST_VERSION);
     for candidate in candidates {
         let already_direct =
             prior_direct
@@ -322,7 +327,7 @@ pub(super) fn pack_backup_publish_candidates(
         let can_pack = candidate.chunk.pack.is_none()
             && candidate.chunk.role == BackupManifestRole::Mutable
             && !matches!(candidate.chunk.collection.as_str(), "blobs" | "cas_blobs")
-            && !already_direct
+            && (!already_direct || convert_prior_direct)
             && candidate.chunk.bytes > 0
             && candidate.chunk.bytes <= MAX_PACK_BYTES;
         if !can_pack

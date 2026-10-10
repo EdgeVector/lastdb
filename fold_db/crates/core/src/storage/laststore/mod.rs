@@ -76,8 +76,8 @@ pub use backup_manifest::{
     BackupDeletionReceipt, BackupManifest, BackupManifestChainStep, BackupManifestRole,
     BackupNamedHole, BackupPackLocation, BackupStorageFootprint, CloudChunkPresence,
     DescriptorChainStep, StampCommittedSuccessorHistoryReport, UnresolvableChunk,
-    DESCRIPTOR_VERSION, NAMED_HOLE_REASON_ABSENT_LOCAL_AND_CLOUD, PACKED_MANIFEST_VERSION,
-    UNBACKABLE_RETIREMENT_REASON_ABSENT_LOCAL_AND_CLOUD,
+    DESCRIPTOR_VERSION, MANIFEST_VERSION, NAMED_HOLE_REASON_ABSENT_LOCAL_AND_CLOUD,
+    PACKED_MANIFEST_VERSION, UNBACKABLE_RETIREMENT_REASON_ABSENT_LOCAL_AND_CLOUD,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 pub use dual_read_metrics::{
