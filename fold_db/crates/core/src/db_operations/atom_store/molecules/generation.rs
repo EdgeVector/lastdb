@@ -4,12 +4,12 @@ use crate::atom::{incoming_wins_lww, molecule_key_codec};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde::de::DeserializeOwned;
-#[cfg(any(feature = "sharing", test))]
+#[cfg(feature = "sharing")]
 use serde_json::Value;
-#[cfg(any(feature = "sharing", test))]
+#[cfg(feature = "sharing")]
 use std::collections::BTreeSet;
 use std::collections::{BTreeMap, HashMap};
-#[cfg(any(feature = "sharing", test))]
+#[cfg(feature = "sharing")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::super::{
@@ -19,7 +19,7 @@ use super::super::{
 
 /// A read-only cut captured before a complete generation snapshot is built.
 /// Ordinary writes continue after this value is created.
-#[cfg(any(feature = "sharing", test))]
+#[cfg(feature = "sharing")]
 pub(crate) struct PreparedMoleculeGeneration {
     generation: String,
     observed: HashMap<(String, String), PerKeyRecord>,
@@ -28,7 +28,7 @@ pub(crate) struct PreparedMoleculeGeneration {
 }
 
 /// One complete immutable body and the rows that select it.
-#[cfg(any(feature = "sharing", test))]
+#[cfg(feature = "sharing")]
 pub(crate) struct PreparedMoleculeGenerationActivation {
     pub(crate) molecule_uuid: String,
     pub(crate) prepared: PreparedMoleculeGeneration,
@@ -36,7 +36,7 @@ pub(crate) struct PreparedMoleculeGenerationActivation {
     pub(crate) activation_items: Vec<(String, Value)>,
 }
 
-#[cfg(any(feature = "sharing", test))]
+#[cfg(feature = "sharing")]
 struct ReadyMoleculeGenerationActivation {
     molecule_uuid: String,
     prepared: PreparedMoleculeGeneration,
@@ -579,7 +579,7 @@ impl AtomStore {
     }
 
     /// Capture the complete logical row set at the generation cut.
-    #[cfg(any(feature = "sharing", test))]
+    #[cfg(feature = "sharing")]
     pub(crate) async fn prepare_molecule_generation(
         &self,
         molecule_uuid: &str,
@@ -629,7 +629,7 @@ impl AtomStore {
 
     /// Build immutable bases, then select every field generation in one batch.
     /// Ordinary writers continue to use `mk:` rows while each base is built.
-    #[cfg(any(feature = "sharing", test))]
+    #[cfg(feature = "sharing")]
     pub(crate) async fn activate_prepared_molecule_generations(
         &self,
         activations: Vec<PreparedMoleculeGenerationActivation>,

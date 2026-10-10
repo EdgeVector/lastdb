@@ -73,7 +73,7 @@ impl AtomStore {
         tip_edge(molecule_uuid, disk_hash, disk_range, entry, true).storage_key_v2(storage_prefix)
     }
 
-    #[cfg(any(feature = "sharing", test))]
+    #[cfg(feature = "sharing")]
     pub(crate) fn inactive_atom_ref_tip_edge_item(
         &self,
         molecule_uuid: &str,

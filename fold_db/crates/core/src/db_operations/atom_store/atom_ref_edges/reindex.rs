@@ -89,7 +89,7 @@ impl AtomStore {
     /// The caller must point the database at a throwaway copy. This method is
     /// available only in test or cloud-sync builds because production code
     /// must preserve the monotonic completeness marker.
-    #[cfg(any(test, feature = "cloud-sync"))]
+    #[cfg(feature = "cloud-sync")]
     pub async fn reset_atom_ref_reindex_for_isolated_copy_proof(
         &self,
         storage_prefix: Option<&str>,

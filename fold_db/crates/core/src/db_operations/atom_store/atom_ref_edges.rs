@@ -10,7 +10,7 @@ use super::{AtomStore, MoleculeData, PerKeyRecord};
 use crate::atom::{molecule_key_codec, AtomEntry, MutationEvent};
 use crate::clock::unix_nanos;
 use crate::db_operations::DbCatalogStore;
-#[cfg(any(test, feature = "cloud-sync"))]
+#[cfg(feature = "cloud-sync")]
 use crate::hex::{hex_lower, sha256_hex};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::{Schema, SchemaError};
@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
 
 mod audit;
-#[cfg(any(test, feature = "cloud-sync"))]
+#[cfg(feature = "cloud-sync")]
 mod benchmark;
 mod catalog_refs;
 mod counts_pending;
@@ -504,12 +504,12 @@ fn is_any_v1_atom_ref_key(key: &[u8]) -> bool {
     })
 }
 
-#[cfg(any(test, feature = "cloud-sync"))]
+#[cfg(feature = "cloud-sync")]
 fn elapsed_nanos(started: std::time::Instant) -> u64 {
     u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
-#[cfg(any(test, feature = "cloud-sync"))]
+#[cfg(feature = "cloud-sync")]
 fn percentile_ns(values: &mut [u64], percentile: usize) -> u64 {
     values.sort_unstable();
     let rank = values.len().saturating_mul(percentile).div_ceil(100);

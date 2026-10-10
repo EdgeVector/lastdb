@@ -121,7 +121,7 @@ pub(crate) fn derive_convergent_file_blob_materials(
 ///
 /// Only the cloud-sync upload needs the ciphertext; the local path computes the
 /// size from [`FILE_BLOB_ENVELOPE_OVERHEAD`] and seals under the at-rest seam.
-#[cfg(any(feature = "cloud-sync", test))]
+#[cfg(feature = "cloud-sync")]
 pub(crate) fn encrypt_envelope_with_nonce(
     key: &[u8; 32],
     nonce_bytes: &[u8; 12],
@@ -147,7 +147,7 @@ pub(crate) fn encrypt_envelope_with_nonce(
 }
 
 /// Convergent seal: the blob reference and the ciphertext for `plaintext`.
-#[cfg(any(feature = "cloud-sync", test))]
+#[cfg(feature = "cloud-sync")]
 pub(crate) fn seal_file_blob(
     plaintext: &[u8],
 ) -> Result<(FileBlobRef, Vec<u8>), FileBlobSealError> {

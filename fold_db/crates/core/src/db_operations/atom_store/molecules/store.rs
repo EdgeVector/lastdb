@@ -6,7 +6,7 @@ use crate::schema::SchemaError;
 use serde_json::Value;
 use std::collections::HashMap;
 
-#[cfg(any(feature = "sharing", test))]
+#[cfg(feature = "sharing")]
 use super::super::helpers::hash_range_page_index_complete_item;
 use super::super::helpers::{hash_key_lookup_item, hash_range_page_index_item_for_record_key};
 use super::super::types::{ChangedKey, MoleculeData, MoleculeHeader, PerKeyRecord};
@@ -73,7 +73,7 @@ fn refuse_legacy_ref_blob_store_items(items: &[(String, Value)]) -> Result<(), S
 /// new caller has to state what it holds instead of inheriting the wrong
 /// default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg(any(feature = "sharing", test))]
+#[cfg(feature = "sharing")]
 pub(crate) enum MoleculeKeyDomain {
     /// Slots already carry storage-form segments and must be written verbatim.
     Storage,

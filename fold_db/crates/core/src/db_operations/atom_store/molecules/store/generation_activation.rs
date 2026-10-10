@@ -1,7 +1,7 @@
 use super::*;
 
 impl AtomStore {
-    #[cfg(any(feature = "sharing", test))]
+    #[cfg(feature = "sharing")]
     pub(in super::super) async fn prepare_molecule_generation_activation(
         &self,
         molecule_uuid: &str,

@@ -13,7 +13,7 @@
 use std::path::Path;
 
 /// Marker that the installed `lastdb-dev` clone helper writes into each copy.
-#[cfg(any(debug_assertions, test))]
+#[cfg(debug_assertions)]
 const LASTDB_DEV_OWNER_MARKER: &str = ".lastdb-dev-owner";
 
 /// Whether this node is running as an ephemeral/synthetic instance.
@@ -49,7 +49,7 @@ pub fn verify_dev_field_index_debug_home(home: &Path, data_dir: &Path) -> Result
     }
 }
 
-#[cfg(any(debug_assertions, test))]
+#[cfg(debug_assertions)]
 fn verify_dev_field_index_debug_home_with(
     home: &Path,
     data_dir: &Path,
@@ -193,7 +193,7 @@ fn verify_dev_field_index_debug_home_with(
     Ok(())
 }
 
-#[cfg(any(debug_assertions, test))]
+#[cfg(debug_assertions)]
 fn marker_value<'a>(body: &'a str, key: &str) -> Option<&'a str> {
     body.lines()
         .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
@@ -201,7 +201,7 @@ fn marker_value<'a>(body: &'a str, key: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
-#[cfg(any(debug_assertions, test))]
+#[cfg(debug_assertions)]
 fn verify_owner_controlled_file(path: &Path, label: &str) -> Result<(), String> {
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|error| format!("{label} {} is unavailable: {error}", path.display()))?;

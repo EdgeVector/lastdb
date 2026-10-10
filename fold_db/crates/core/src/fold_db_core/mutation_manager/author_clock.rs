@@ -279,7 +279,7 @@ impl MutationManager {
     }
 
     /// Observe replay clocks without changing the received signed values.
-    #[cfg(any(feature = "cloud-sync", test))]
+    #[cfg(feature = "cloud-sync")]
     pub(super) fn observe_replayed_author_clocks(
         &self,
         mutations: &[Mutation],

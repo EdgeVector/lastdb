@@ -54,7 +54,7 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "schema-org-seed-data")]
 use schema_types::DataClassification;
-#[cfg(any(test, feature = "schema-org-seed-data"))]
+#[cfg(feature = "schema-org-seed-data")]
 use schema_types::FieldValueType;
 #[cfg(feature = "schema-org-seed-data")]
 use schema_types::FoldDbError;
@@ -594,7 +594,7 @@ pub fn property_name_to_snake_case(name: &str) -> String {
 /// collapse to the most general scalar type since fold_db's structural
 /// `OneOf` unions don't round-trip cleanly. `String` is the safe default
 /// for unknown or object-typed ranges.
-#[cfg(any(test, feature = "schema-org-seed-data"))]
+#[cfg(feature = "schema-org-seed-data")]
 fn infer_field_type_from_ranges(ranges: &[String]) -> FieldValueType {
     let has = |t: &str| ranges.iter().any(|r| r == t);
 

@@ -151,7 +151,7 @@ impl AtomStore {
     }
 
     /// Reset compact rebuild markers only on a throwaway proof copy.
-    #[cfg(any(test, feature = "cloud-sync"))]
+    #[cfg(feature = "cloud-sync")]
     pub async fn reset_atom_ref_v2_reindex_for_isolated_copy_proof(
         &self,
         storage_prefix: Option<&str>,
