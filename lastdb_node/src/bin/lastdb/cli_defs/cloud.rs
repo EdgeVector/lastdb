@@ -4,6 +4,22 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {
+    /// Prepare a source-free recovery home from this home's existing credentials.
+    /// Reads credentials only; no daemon, store, registration, or cloud calls.
+    PrepareRecoveryHome {
+        /// Absent, absolute destination home; its parent must already exist.
+        #[arg(long)]
+        into: PathBuf,
+        /// Require the saved URL to equal the compiled endpoint for this environment.
+        #[arg(long, value_parser = ["dev", "prod"])]
+        env: String,
+        /// Read the existing account API key from stdin; must match the saved key.
+        #[arg(long, required = true)]
+        api_key_stdin: bool,
+        /// Emit a value-free receipt.
+        #[arg(long)]
+        json: bool,
+    },
     /// Owner-authorized removal of already-reclaimed main atom bodies from
     /// exact prior cloud chunks. Dry-run by default; cloud must remain Off.
     RewriteDeletedAtoms {

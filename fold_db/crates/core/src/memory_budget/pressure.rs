@@ -189,22 +189,17 @@ pub(super) fn read_page_size() -> Option<u64> {
 
 #[cfg(target_os = "macos")]
 pub(super) fn read_vm_page_counts() -> Option<VmPageCounts> {
-    // libc has no `mach_port_deallocate`. `mach_host_self` returns a send
-    // right; leaving it leaks one port per governor tick.
+    // mach2 0.4 lacks mach_host_self. This is the mach/mach_init.h signature.
+    // The returned send right must be released after each governor tick.
     extern "C" {
-        fn mach_port_deallocate(
-            task: libc::mach_port_t,
-            name: libc::mach_port_t,
-        ) -> libc::kern_return_t;
+        fn mach_host_self() -> mach2::port::mach_port_t;
     }
 
     // SAFETY: mach_host_self returns a host send right. host_statistics64
     // writes `vm_statistics64` when `count` starts at HOST_VM_INFO64_COUNT.
     // The port is deallocated on every path below.
-    // libc deprecates these two calls in favor of the mach2 crate. This
-    // tree does not depend on mach2; the calls are the documented ones.
     unsafe {
-        let host = libc::mach_host_self();
+        let host = mach_host_self();
         let mut count = libc::HOST_VM_INFO64_COUNT;
         let mut stats = std::mem::MaybeUninit::<libc::vm_statistics64>::uninit();
         let kr = libc::host_statistics64(
@@ -213,7 +208,7 @@ pub(super) fn read_vm_page_counts() -> Option<VmPageCounts> {
             stats.as_mut_ptr().cast::<libc::integer_t>(),
             &mut count,
         );
-        let _ = mach_port_deallocate(libc::mach_task_self(), host);
+        let _ = mach2::mach_port::mach_port_deallocate(mach2::traps::mach_task_self(), host);
         if kr != libc::KERN_SUCCESS {
             return None;
         }
