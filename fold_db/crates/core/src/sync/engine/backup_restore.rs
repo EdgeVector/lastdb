@@ -317,6 +317,7 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
         );
     });
     progress::phase(progress, RestorePhase::ChunkTransfer);
+    let pack_cache = packs::VerifiedPackCache::default();
     let mut downloads = FuturesOrdered::new();
     let mut next = 0;
     let mut reserved = 0u64;
@@ -328,6 +329,7 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
             if let Some(origin) = install_origins.get(&identity::address(chunk)) {
                 install.chunk_uuid.clone_from(origin);
             }
+            let pack_cache_ref = &pack_cache;
             downloads.push_back(async move {
                 if let Some(bytes) = cache.and_then(|cache| {
                     progress::measure_cache_read(progress, || {
@@ -340,7 +342,14 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
                     chunk,
                     install,
                     false,
-                    download_backup_chunk_with_progress(auth, s3, chunk, progress).await,
+                    download_backup_chunk_with_progress(
+                        auth,
+                        s3,
+                        chunk,
+                        progress,
+                        Some(pack_cache_ref),
+                    )
+                    .await,
                 )
             });
             next += 1;
@@ -368,6 +377,7 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
         }
         bytes_installed = bytes_installed.saturating_add(bytes.len() as u64);
         reserved = reserved.saturating_sub(download_reservation(chunk));
+        pack_cache.trim().await;
         progress::update(progress, |p| {
             p.chunks_installed = chunks_installed;
             p.bytes_installed = bytes_installed;
@@ -618,7 +628,11 @@ const RESTORE_DOWNLOAD_CONCURRENCY: usize = 8;
 const RESTORE_DOWNLOAD_BUFFER_BYTES: u64 = 128 * 1024 * 1024;
 
 fn download_reservation(chunk: &BackupChunkRef) -> u64 {
-    chunk.bytes.max(BACKUP_CHUNK_DOWNLOAD_HARD_CAP as u64)
+    let file_and_pack = chunk
+        .pack
+        .as_ref()
+        .map_or(chunk.bytes, |pack| chunk.bytes.saturating_add(pack.bytes));
+    file_and_pack.max(BACKUP_CHUNK_DOWNLOAD_HARD_CAP as u64)
 }
 
 fn download_fits(count: usize, reserved: u64, chunk: &BackupChunkRef) -> bool {
@@ -666,7 +680,7 @@ pub(super) async fn download_backup_chunk(
     s3: &S3Client,
     chunk: &BackupChunkRef,
 ) -> SyncResult<Vec<u8>> {
-    download_backup_chunk_with_progress(auth, s3, chunk, None).await
+    download_backup_chunk_with_progress(auth, s3, chunk, None, None).await
 }
 
 async fn download_backup_chunk_with_progress(
@@ -674,9 +688,10 @@ async fn download_backup_chunk_with_progress(
     s3: &S3Client,
     chunk: &BackupChunkRef,
     progress: Option<&RestoreProgress>,
+    pack_cache: Option<&packs::VerifiedPackCache>,
 ) -> SyncResult<Vec<u8>> {
     if chunk.pack.is_some() {
-        return packs::download_packed_file(auth, s3, chunk, progress).await;
+        return packs::download_packed_file(auth, s3, chunk, progress, pack_cache).await;
     }
     let presigned = progress::measure(
         progress,
