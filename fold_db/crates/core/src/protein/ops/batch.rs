@@ -36,40 +36,6 @@ impl AtomStore {
             .map_err(|e| SchemaError::InvalidData(format!("read protein batch: {e}")))
     }
 
-    /// Variant used by the schema mutation path, where the entry key layout is
-    /// known. A field-identity molecule can carry multiple key conformations;
-    /// skip only the conformation written directly, not every member sharing
-    /// the same molecule UUID.
-    ///
-    /// `author_clock` is `(written_at, logical_counter, device_id,
-    /// mutation_uuid)` from the entry mutation. When set, sibling tips reuse
-    /// that full clock and LWW-skip if a newer tip already won.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn protein_sibling_tip_updates_for_layout(
-        &self,
-        protein_uuid: &str,
-        entry_molecule_uuid: &str,
-        entry_layout: Option<(&str, Option<&str>)>,
-        fields: &HashMap<String, String>,
-        atom_uuid: &str,
-        keypair: &Ed25519KeyPair,
-        author_clock: Option<(u64, u64, String, String)>,
-    ) -> Result<Vec<(String, MoleculeData, HashSet<ChangedKey>)>, SchemaError> {
-        let protein = self.protein_get(protein_uuid).await?.ok_or_else(|| {
-            SchemaError::InvalidData(format!("protein {protein_uuid} not found for sibling fold"))
-        })?;
-        self.protein_sibling_tip_updates_for_loaded_protein(
-            &protein,
-            entry_molecule_uuid,
-            entry_layout,
-            fields,
-            atom_uuid,
-            keypair,
-            author_clock,
-        )
-        .await
-    }
-
     /// Plan one field's sibling updates from a protein loaded for this write.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn protein_sibling_tip_updates_for_loaded_protein(

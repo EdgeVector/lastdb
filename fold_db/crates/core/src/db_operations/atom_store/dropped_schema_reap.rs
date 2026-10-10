@@ -402,29 +402,6 @@ impl AtomStore {
         Ok(result)
     }
 
-    /// Compatibility entry point for a first page. Use the returned cursor
-    /// with `reap_dropped_schema_tips_bounded` to finish a large inspection.
-    pub async fn reap_dropped_schema_tips(
-        &self,
-        schema_name: &str,
-        field_molecule_uuids: &[String],
-        field_names: &[String],
-        drop_receipt_proves_removed: bool,
-        dry_run: bool,
-        max_ops: usize,
-    ) -> Result<DroppedSchemaReapReport, SchemaError> {
-        self.reap_dropped_schema_tips_bounded(
-            schema_name,
-            field_molecule_uuids,
-            field_names,
-            drop_receipt_proves_removed,
-            dry_run,
-            max_ops,
-            None,
-        )
-        .await
-    }
-
     /// Inspect at most `max_ops` candidate molecules, index keys, and tip keys.
     /// `max_ops` must be 2..=4096 for a tip proof; one unit checks liveness.
     /// Execute remains closed until tip erasure and the keep-small debit share

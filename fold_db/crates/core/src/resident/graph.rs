@@ -12,10 +12,10 @@ use super::ledger::ResidentLedger;
 use super::metrics::ResidentMetrics;
 use super::types::{
     DirtyKey, PersistPlan, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot,
-    ResidentKind, ResidentMoleculeKey, ResidentSlotControl, ResidentSlotId, ResidentSlotState,
-    ResidentTip, ResolveOutcome, APPROX_SCHEMA_BYTES,
+    ResidentKind, ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip,
+    ResolveOutcome, APPROX_SCHEMA_BYTES,
 };
-use crate::schema::types::{Schema, SchemaError};
+use crate::schema::types::Schema;
 
 #[path = "coverage.rs"]
 mod coverage;
@@ -36,50 +36,10 @@ mod schemas;
 mod slots;
 mod tips;
 
-/// Shared cold-rehydrate flight. The disk read does not hold the flight map
-/// mutex; waiters park on [`Notify`].
-pub(crate) struct RehydrateFlightCell {
-    result: Mutex<Option<Result<Option<ResidentTip>, SchemaError>>>,
-    notify: Notify,
-}
-
-impl std::fmt::Debug for RehydrateFlightCell {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RehydrateFlightCell")
-            .finish_non_exhaustive()
-    }
-}
-
-impl RehydrateFlightCell {
-    fn new() -> Self {
-        Self {
-            result: Mutex::new(None),
-            notify: Notify::new(),
-        }
-    }
-
-    pub(crate) fn complete(&self, outcome: Result<Option<ResidentTip>, SchemaError>) {
-        let mut slot = self.result.lock().expect("rehydrate flight result");
-        if slot.is_none() {
-            *slot = Some(outcome);
-        }
-        drop(slot);
-        self.notify.notify_waiters();
-    }
-
-    pub(crate) async fn wait(&self) -> Result<Option<ResidentTip>, SchemaError> {
-        loop {
-            let notified = self.notify.notified();
-            {
-                let slot = self.result.lock().expect("rehydrate flight result");
-                if let Some(result) = slot.as_ref() {
-                    return result.clone();
-                }
-            }
-            notified.await;
-        }
-    }
-}
+/// Marker for an in-flight cold rehydrate of one slot. Only its presence in
+/// `rehydrate_flights` matters to the slot-eviction and purge paths.
+#[derive(Debug)]
+pub(crate) struct RehydrateFlightCell;
 
 /// Loader used on schema rehydrate miss (typically SchemaCore / db_ops).
 pub trait SchemaLoader: Send + Sync {
@@ -125,8 +85,6 @@ pub struct ResidentGraph {
     /// hold this map's mutex — waiters share the cell.
     rehydrate_flights: Mutex<HashMap<String, Arc<RehydrateFlightCell>>>,
     slot_readers: Mutex<HashMap<String, usize>>,
-    /// LastStore prefix this graph is bound to (empty = default / tests).
-    storage_prefix: String,
 }
 
 impl ResidentGraph {
@@ -151,14 +109,7 @@ impl ResidentGraph {
             persist_turn_changed: Notify::new(),
             rehydrate_flights: Mutex::new(HashMap::new()),
             slot_readers: Mutex::new(HashMap::new()),
-            storage_prefix: String::new(),
         }
-    }
-
-    /// Override the env-resolved byte budget (`0` = unbounded).
-    pub fn with_budget_bytes(mut self, budget_bytes: u64) -> Self {
-        self.budget_bytes = budget_bytes;
-        self
     }
 
     pub fn metrics(&self) -> &Arc<ResidentMetrics> {

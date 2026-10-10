@@ -125,25 +125,6 @@ impl AtomStore {
         ))
     }
 
-    /// True when one exact in-flight operation still holds the atom.
-    pub async fn has_pending_atom_ref(
-        &self,
-        atom_uuid: &str,
-        source: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<bool, SchemaError> {
-        self.main_store
-            .exists_item(&Self::pending_atom_ref_key(
-                atom_uuid,
-                source,
-                storage_prefix,
-            ))
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("probe pending atom reference: {error}"))
-            })
-    }
-
     /// True when any in-flight operation holds this atom.
     pub async fn has_any_pending_atom_refs(
         &self,
@@ -198,44 +179,5 @@ impl AtomStore {
                 value.len()
             ))),
         }
-    }
-
-    /// Count at most `limit` compact edges for one atom.
-    ///
-    /// This method uses one lookahead row to report truncation. It belongs on
-    /// audit paths, not the purge request path.
-    pub async fn count_active_atom_refs_bounded(
-        &self,
-        atom_content_sha256: &str,
-        storage_prefix: Option<&str>,
-        limit: usize,
-    ) -> Result<AtomRefV2Count, SchemaError> {
-        let prefix = atom_ref_v2_partition_prefix(atom_content_sha256, storage_prefix)?;
-        let page_limit = limit.saturating_add(2);
-        let rows = self
-            .main_store
-            .inner()
-            .scan_prefix_paged(prefix.as_bytes(), page_limit)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("count compact atom reverse edges: {error}"))
-            })?;
-        let edges: Vec<_> = rows
-            .iter()
-            .filter(|(key, _)| !is_atom_live_ref_count_key(key))
-            .collect();
-        for (key, value) in &edges {
-            if value.as_slice() != ATOM_REF_V2_ACTIVE_MARKER {
-                return Err(SchemaError::InvalidData(format!(
-                    "compact atom reverse edge has invalid marker at {}: expected one byte 0x01, got {} byte(s)",
-                    String::from_utf8_lossy(key),
-                    value.len()
-                )));
-            }
-        }
-        Ok(AtomRefV2Count {
-            active_edges: u64::try_from(edges.len().min(limit)).unwrap_or(u64::MAX),
-            truncated: edges.len() > limit,
-        })
     }
 }

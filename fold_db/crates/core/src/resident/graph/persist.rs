@@ -3,12 +3,6 @@
 use super::*;
 
 impl ResidentGraph {
-    /// Apply a field's atom and tip. File bytes are outside the resident graph.
-    pub fn apply_field_write(&self, tip: ResidentTip, atom: ResidentAtom) {
-        self.apply_atom(atom);
-        self.apply_tip(tip);
-    }
-
     // ── Persist plan (fidelity surface) ─────────────────────────────────
 
     /// Build the exact plan of dirty objects that will be written to disk.
@@ -127,21 +121,6 @@ impl ResidentGraph {
         drop(slots);
         self.enforce_budget();
         true
-    }
-
-    /// Install a persist plan into an empty (or existing) graph as if rehydrated
-    /// from disk — used for fidelity round-trips.
-    pub fn install_from_persist_plan(&self, plan: &PersistPlan) {
-        for s in &plan.schemas {
-            self.install_schema(s.clone());
-            self.metrics.record_rehydrate(ResidentKind::Schema);
-        }
-        for t in &plan.tips {
-            self.rehydrate_tip(t.clone());
-        }
-        for a in &plan.atoms {
-            self.rehydrate_atom(a.clone());
-        }
     }
 
     pub(super) fn clear_dirty(&self, key: &DirtyKey) {

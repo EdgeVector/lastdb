@@ -170,20 +170,6 @@ impl MoleculeKeyStore {
         Ok(bundle)
     }
 
-    /// Add or replace one access-domain wrap without changing the bundle.
-    pub async fn grant_domain(
-        &self,
-        molecule_uuid: &str,
-        domain: &str,
-        domain_wrap_key: &[u8; 32],
-    ) -> StorageResult<()> {
-        validate_identity(molecule_uuid, domain)?;
-        let bundle = self.ensure(molecule_uuid).await?;
-        self.put_wrap(molecule_uuid, domain, &bundle, domain_wrap_key)
-            .await?;
-        self.entries.inner().flush().await
-    }
-
     /// Grant one access domain to every molecule in an existing schema.
     ///
     /// The preflight resolves every bundle before it writes a wrap. A missing
@@ -252,26 +238,6 @@ impl MoleculeKeyStore {
         }
         self.entries.inner().flush().await?;
         Ok(dropped)
-    }
-
-    /// Open one named domain wrap. This supports future member restore paths.
-    pub async fn load_for_domain(
-        &self,
-        molecule_uuid: &str,
-        domain: &str,
-        domain_wrap_key: &[u8; 32],
-    ) -> StorageResult<Option<MoleculeKeyBundle>> {
-        validate_identity(molecule_uuid, domain)?;
-        let Some(wrap) = self
-            .entries
-            .get_item::<BundleWrap>(&wrap_key_for(molecule_uuid, domain))
-            .await?
-        else {
-            return Ok(None);
-        };
-        let bundle = open_wrap(&wrap, molecule_uuid, domain, domain_wrap_key)?;
-        self.remember(molecule_uuid, bundle.clone());
-        Ok(Some(bundle))
     }
 
     pub(crate) async fn flush(&self) -> StorageResult<()> {

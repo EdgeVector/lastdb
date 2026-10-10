@@ -1,9 +1,8 @@
 //! Attribution source events and pending write-intent scopes.
 
 use super::{
-    hash, AttributionLedger, ATTRIBUTION_EVENT_END, ATTRIBUTION_EVENT_MUTATION_PREFIX,
-    ATTRIBUTION_EVENT_PREFIX, ATTRIBUTION_EVENT_TIP_KEY, ATTRIBUTION_PENDING_PREFIX,
-    ATTRIBUTION_ROOT_DOMAIN,
+    hash, AttributionLedger, ATTRIBUTION_EVENT_MUTATION_PREFIX, ATTRIBUTION_EVENT_PREFIX,
+    ATTRIBUTION_EVENT_TIP_KEY, ATTRIBUTION_PENDING_PREFIX, ATTRIBUTION_ROOT_DOMAIN,
 };
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
@@ -125,17 +124,6 @@ impl AttributionPendingScope {
 }
 
 impl AttributionLedger {
-    /// Append a contiguous page of source events before a caller reports the
-    /// write as attribution-complete. This method does not prune old events;
-    /// an active epoch can pin any sequence between H0 and H1.
-    pub async fn append_events(
-        &self,
-        events: Vec<AttributionEvent>,
-    ) -> Result<Vec<u64>, SchemaError> {
-        self.append_events_and_clear_pending_scopes(events, &[])
-            .await
-    }
-
     /// Delete the pending scopes for `mutation_ids`; a no-op when empty.
     async fn delete_pending_scopes(&self, mutation_ids: &[String]) -> Result<(), SchemaError> {
         if mutation_ids.is_empty() {
@@ -234,35 +222,6 @@ impl AttributionLedger {
         Ok(sequences)
     }
 
-    /// Read a bounded source-event page after one exact sequence frontier.
-    pub async fn attribution_events_after(
-        &self,
-        after: u64,
-        limit: usize,
-    ) -> Result<AttributionEventPage, SchemaError> {
-        if limit == 0 {
-            return Ok(AttributionEventPage { events: Vec::new() });
-        }
-        let events = self
-            .store
-            .scan_items_in_range_paged::<AttributionEvent>(
-                &event_key(after.saturating_add(1)),
-                ATTRIBUTION_EVENT_END,
-                limit,
-            )
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("read attribution events: {error}")))?
-            .into_iter()
-            .map(|(_, event)| event)
-            .collect();
-        Ok(AttributionEventPage { events })
-    }
-
-    /// The H0/H1 frontier for this node-local attribution source.
-    pub async fn attribution_event_tip(&self) -> u64 {
-        *self.event_tip.lock().await
-    }
-
     /// Persist all pending scopes for one product write batch with one flush.
     pub async fn begin_pending_scopes(
         &self,
@@ -286,19 +245,6 @@ impl AttributionLedger {
                 SchemaError::InvalidData(format!("put attribution pending scopes: {error}"))
             })?;
         self.store.inner().flush().await.map_err(SchemaError::from)
-    }
-
-    /// Read one pending scope after restart or a failed write transition.
-    pub async fn pending_scope(
-        &self,
-        mutation_id: &str,
-    ) -> Result<Option<AttributionPendingScope>, SchemaError> {
-        self.store
-            .get_item(&pending_key(mutation_id))
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("get attribution pending scope: {error}"))
-            })
     }
 }
 

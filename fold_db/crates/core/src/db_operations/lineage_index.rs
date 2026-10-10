@@ -128,28 +128,6 @@ impl LineageIndex {
         Ok(())
     }
 
-    /// Look up the source `MoleculeRef`s for a derived molecule.
-    pub async fn get_forward(
-        &self,
-        derived_uuid: &str,
-    ) -> Result<Option<Vec<MoleculeRef>>, FoldDbError> {
-        match self.forward.get(derived_uuid.as_bytes()).await? {
-            Some(bytes) => match serde_json::from_slice(&bytes) {
-                Ok(sources) => Ok(Some(sources)),
-                Err(e) => {
-                    tracing::warn!(
-                        derived_uuid,
-                        error = %e,
-                        "lineage_forward tip unreadable; treating as missing \
-                         (ciphertext-era / empty row)"
-                    );
-                    Ok(None)
-                }
-            },
-            None => Ok(None),
-        }
-    }
-
     /// List every derived molecule that consumed `source_ref`. Returns an
     /// empty `Vec` when the source has no known derivatives. The returned
     /// list is sorted ascending — callers may rely on this ordering.

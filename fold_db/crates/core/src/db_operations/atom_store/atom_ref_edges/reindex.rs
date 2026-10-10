@@ -84,32 +84,6 @@ impl AtomStore {
             .map_err(|e| SchemaError::InvalidData(format!("load atom edge rebuild status: {e}")))
     }
 
-    /// Reset the rebuild markers for an isolated-copy proof.
-    ///
-    /// The caller must point the database at a throwaway copy. This method is
-    /// available only in test or cloud-sync builds because production code
-    /// must preserve the monotonic completeness marker.
-    #[cfg(feature = "cloud-sync")]
-    pub async fn reset_atom_ref_reindex_for_isolated_copy_proof(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        self.main_store
-            .batch_delete_keys(vec![
-                build_storage_key(storage_prefix, molecule_key_codec::ATOM_REF_COMPLETE_KEY),
-                build_storage_key(
-                    storage_prefix,
-                    molecule_key_codec::ATOM_REF_REINDEX_CHECKPOINT_KEY,
-                ),
-            ])
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!(
-                    "reset atom reverse-edge rebuild markers on isolated copy: {e}"
-                ))
-            })
-    }
-
     /// Run one bounded page of the internal two-pass rebuild.
     // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub async fn reindex_atom_ref_edges(

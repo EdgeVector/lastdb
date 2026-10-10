@@ -62,23 +62,6 @@ impl DbOperations {
         .await
     }
 
-    /// Open the domain stores for an isolated meter repair.
-    ///
-    /// This path skips normal meter hydrate. It does not start normal writers;
-    /// the caller must run an explicit bounded repair before exposure.
-    pub async fn from_namespaced_store_for_meter_repair(
-        store: Arc<dyn NamespacedStore>,
-    ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_atom_and_molecule_keys_mode(
-            store,
-            None,
-            crate::atom::MoleculeKeyCodec::plain(),
-            None,
-            false,
-        )
-        .await
-    }
-
     /// Production constructor with a node key for durable molecule-key wraps.
     pub async fn from_namespaced_store_with_atom_and_molecule_keys(
         store: Arc<dyn NamespacedStore>,

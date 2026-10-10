@@ -105,16 +105,6 @@ impl AtomStore {
         Ok(report)
     }
 
-    /// Auto reclaim does not delete. Explicit `compact-order-log --execute` does.
-    pub fn compact_order_logs_for_molecules(
-        &self,
-        _molecules: &[String],
-        _storage_prefix: Option<&str>,
-    ) -> Result<OrderLogZeroLiveCompactionReport, SchemaError> {
-        let _ = self;
-        Ok(OrderLogZeroLiveCompactionReport::default())
-    }
-
     pub(in super::super) async fn fanout_compact_molecules(
         &self,
         molecules: Vec<String>,

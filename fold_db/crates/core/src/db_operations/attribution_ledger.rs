@@ -29,7 +29,6 @@ pub const ATTRIBUTION_PATH_PREFIX: &str = "attr:v1:p:";
 pub const LIVE_ATTRIBUTION_EPOCH_ID: &str = "attribution:live:v1";
 const ATTRIBUTION_EVENT_TIP_KEY: &str = "event-tip:v1";
 const ATTRIBUTION_EVENT_PREFIX: &str = "event:v1:";
-const ATTRIBUTION_EVENT_END: &str = "event:v1;";
 const ATTRIBUTION_EVENT_MUTATION_PREFIX: &str = "event-mutation:v1:";
 const ATTRIBUTION_PENDING_PREFIX: &str = "pending:v1:";
 const ATTRIBUTION_VERSION: u8 = 1;
@@ -517,18 +516,6 @@ impl AttributionLedger {
         ))
         .await?;
         Ok(true)
-    }
-
-    /// Test one exact root path without materializing the object path set.
-    pub async fn attribution_path_exists(
-        &self,
-        path: &AttributionPath,
-    ) -> Result<bool, SchemaError> {
-        path.validate()?;
-        self.store
-            .exists_item(&path.storage_key())
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("probe attribution path: {error}")))
     }
 
     /// Count every durable classification row by class, plus the total path

@@ -122,49 +122,6 @@ impl AtomStore {
         Ok(protein)
     }
 
-    /// Remove one molecule key layout from a protein.
-    ///
-    /// The protein source row changes before its `mref:v1` edge leaves the
-    /// active set. An interrupted operation can retain an extra edge, but it
-    /// cannot expose a live member without a retaining edge.
-    pub async fn protein_remove_member(
-        &self,
-        protein_uuid: &str,
-        molecule_uuid: &str,
-        hash_field: &str,
-        range_field: Option<&str>,
-    ) -> Result<Protein, SchemaError> {
-        let mut protein = self
-            .protein_get(protein_uuid)
-            .await?
-            .ok_or_else(|| SchemaError::InvalidData(format!("protein {protein_uuid} not found")))?;
-        let Some(member) = protein
-            .member_for_layout(molecule_uuid, hash_field, range_field)
-            .cloned()
-        else {
-            return Ok(protein);
-        };
-        let edge =
-            MoleculeRefEdge::protein_member(protein_uuid, molecule_uuid, hash_field, range_field);
-        let _target_gate = self
-            .lock_liveness_molecules(&[molecule_uuid.to_string()])
-            .await;
-        protein.members.retain(|candidate| candidate != &member);
-        self.put_protein(&protein).await?;
-        if !protein.contains_molecule(molecule_uuid) {
-            self.raw()
-                .delete_item(&member_backref_key(molecule_uuid))
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!(
-                        "delete molprot {molecule_uuid} after protein member removal: {e}"
-                    ))
-                })?;
-        }
-        self.delete_molecule_ref_edge(&edge, None).await?;
-        Ok(protein)
-    }
-
     /// Write a shared atom tip on the **entry** member and enqueue fold jobs so
     /// sibling members converge on the same atom under their own key layouts.
     ///
@@ -346,74 +303,6 @@ impl AtomStore {
                 .await?;
         }
         Ok(())
-    }
-
-    /// After a normal field write that already set the entry tip to `atom_uuid`,
-    /// prepare sibling protein members to the same atom **in memory** (sync fold
-    /// of tip state). Does **not** durable-store.
-    ///
-    /// Used by the mutation path when field_hash auto-protein is bound: entry
-    /// write stays on the normal molecule path; siblings fold without creating
-    /// a second atom. Under `LASTDB_RESIDENT_MODE=write` the caller publishes
-    /// these tips dirty to resident and defers
-    /// [`Self::store_molecules_changed_keys_batch`] with the entry durable put
-    /// — sibling flush must not sit on the mutation hot path.
-    ///
-    /// `protein_uuid` is supplied by the caller because every caller has already
-    /// resolved it to decide whether a fold is needed at all. Re-resolving it
-    /// here cost one extra `molprot:` get **per mutated field** — 24 redundant
-    /// storage reads on a single 24-field kanban card write — for an answer the
-    /// caller was holding. See `fold_protein_siblings_after_write`.
-    pub(crate) async fn protein_sibling_tip_updates(
-        &self,
-        protein_uuid: &str,
-        entry_molecule_uuid: &str,
-        fields: &HashMap<String, String>,
-        atom_uuid: &str,
-        keypair: &Ed25519KeyPair,
-    ) -> Result<Vec<(String, MoleculeData, HashSet<ChangedKey>)>, SchemaError> {
-        self.protein_sibling_tip_updates_for_layout(
-            protein_uuid,
-            entry_molecule_uuid,
-            None,
-            fields,
-            atom_uuid,
-            keypair,
-            None,
-        )
-        .await
-    }
-
-    /// Prepare sibling tip updates and durable-store them immediately.
-    ///
-    /// Prefer the mutation path's deferred-persist wiring under write-mode;
-    /// this helper remains for tests and callers that need store-before-return.
-    pub async fn protein_fold_siblings_to_atom(
-        &self,
-        protein_uuid: &str,
-        entry_molecule_uuid: &str,
-        fields: &HashMap<String, String>,
-        atom_uuid: &str,
-        keypair: &Ed25519KeyPair,
-    ) -> Result<usize, SchemaError> {
-        let mut sibling_updates = self
-            .protein_sibling_tip_updates(
-                protein_uuid,
-                entry_molecule_uuid,
-                fields,
-                atom_uuid,
-                keypair,
-            )
-            .await?;
-        let folded = sibling_updates.len();
-        if !sibling_updates.is_empty() {
-            self.store_molecules_changed_keys_batch(&sibling_updates, None)
-                .await?;
-            for (_, mol, _) in &mut sibling_updates {
-                let _ = mol.take_pending_tip_versions();
-            }
-        }
-        Ok(folded)
     }
 
     /// One-time tip backfill when adding a new key as a self-maintaining member.

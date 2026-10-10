@@ -111,17 +111,6 @@ impl ResidentGraph {
         removed
     }
 
-    pub(crate) fn resident_field_ready(
-        &self,
-        molecule_uuid: &str,
-        hash: &str,
-        range: &str,
-    ) -> Option<ResidentTip> {
-        let tip = self.resolve_tip(molecule_uuid, hash, range)?;
-        self.resolve_atom(&tip.value.atom_uuid)?;
-        Some(tip.value)
-    }
-
     /// Evict a clean tip; refuses if dirty.
     pub fn try_evict_tip(
         &self,

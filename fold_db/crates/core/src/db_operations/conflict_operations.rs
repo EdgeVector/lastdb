@@ -178,21 +178,6 @@ impl DbOperations {
         }
     }
 
-    /// Molecules a complete stamp names, including newer events.
-    ///
-    /// `Some` is a complete set: a molecule absent from it has no conflict.
-    /// `None` is unknown (no stamp, a disabled index, or `complete: false`).
-    /// Callers must not treat `None` as clean.
-    pub async fn home_conflicted_molecules(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Option<HashSet<String>> {
-        match self.read_home_conflict_annotation(storage_prefix).await {
-            HomeConflictAnnotation::Known { molecules } => Some(molecules),
-            _ => None,
-        }
-    }
-
     /// Whether this home holds any unresolved conflict.
     ///
     /// `Some(false)` is the only clean answer, and only a complete stamp with
@@ -303,84 +288,6 @@ impl DbOperations {
         }
 
         Ok(conflicts)
-    }
-
-    /// Mark a conflict as resolved by its ID.
-    /// When `storage_prefix` is `Some`, keys are org-prefixed.
-    pub async fn resolve_conflict(
-        &self,
-        conflict_id: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        // The conflict_id is "{mol_uuid}:{ts}", stored at key "conflict:{id}"
-        let base_key = crate::kind_partition::anchored("conflict", conflict_id);
-        let key = build_storage_key(storage_prefix, &base_key);
-
-        let mut conflict: SyncConflict = self
-            .atoms()
-            .raw()
-            .get_item(&key)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("Failed to read conflict: {e}")))?
-            .ok_or_else(|| SchemaError::NotFound(format!("Conflict not found: {conflict_id}")))?;
-
-        conflict.resolved = true;
-        self.atoms()
-            .raw()
-            .put_item(&key, &conflict)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("Failed to update conflict: {e}")))?;
-
-        // Drop the cache so the next read re-derives the id list. conflict_id
-        // is "{mol_uuid}:{ts_nanos}" with a single trailing timestamp segment.
-        if let Some((mol, _)) = conflict_id.rsplit_once(':') {
-            let index_key = build_storage_key(storage_prefix, &molecule_conflict_index_key(mol));
-            let _ = self.atoms().raw().delete_item(&index_key).await;
-            // Name the molecule and leave the stamp. A clear that sorts after
-            // a concurrent append would hide that conflict. A failed append
-            // over-reports when the stamp already names the molecule.
-            let _ = self
-                .invalidate_home_conflict_index(storage_prefix, mol)
-                .await;
-        }
-
-        Ok(())
-    }
-
-    /// Record a newly created unresolved conflict id so the annotate path
-    /// point-gets it instead of scanning.
-    pub async fn note_conflict_created(
-        &self,
-        molecule_uuid: &str,
-        conflict_id: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let index_key =
-            build_storage_key(storage_prefix, &molecule_conflict_index_key(molecule_uuid));
-        let mut ids: Vec<String> = self
-            .atoms()
-            .raw()
-            .get_item(&index_key)
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!("read conflict index {molecule_uuid}: {e}"))
-            })?
-            .unwrap_or_default();
-        if !ids.iter().any(|id| id == conflict_id) {
-            ids.push(conflict_id.to_string());
-        }
-        self.atoms()
-            .raw()
-            .put_item(&index_key, &ids)
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!("write conflict index {molecule_uuid}: {e}"))
-            })?;
-        // Append in the same call that records the conflict. Not best-effort:
-        // a missing event lets a complete stamp hide this molecule.
-        self.invalidate_home_conflict_index(storage_prefix, molecule_uuid)
-            .await?;
-        Ok(())
     }
 
     /// Fold events at or below the cutoff into `hcu:mols`, then delete only
