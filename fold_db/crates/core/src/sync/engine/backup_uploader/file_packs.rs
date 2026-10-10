@@ -307,6 +307,12 @@ pub(super) fn pack_backup_publish_candidates(
     let mut pending = Vec::new();
     let mut pending_bytes = 0u64;
     let mut locations = BTreeMap::new();
+    // One direct cloud object can serve every file with the same stored bytes.
+    // Count all manifest refs, including carried atom and packed refs.
+    let mut sha_ref_counts = BTreeMap::<String, usize>::new();
+    for chunk in manifest.atom_chunks.iter().chain(&manifest.mutable_chunks) {
+        *sha_ref_counts.entry(chunk.sha256.clone()).or_default() += 1;
+    }
     let prior_direct: BTreeMap<_, _> = previous
         .into_iter()
         .flat_map(|manifest| manifest.atom_chunks.iter().chain(&manifest.mutable_chunks))
@@ -327,6 +333,7 @@ pub(super) fn pack_backup_publish_candidates(
         let can_pack = candidate.chunk.pack.is_none()
             && candidate.chunk.role == BackupManifestRole::Mutable
             && !matches!(candidate.chunk.collection.as_str(), "blobs" | "cas_blobs")
+            && sha_ref_counts.get(&candidate.chunk.sha256) == Some(&1)
             && (!already_direct || convert_prior_direct)
             && candidate.chunk.bytes > 0
             && candidate.chunk.bytes <= MAX_PACK_BYTES;

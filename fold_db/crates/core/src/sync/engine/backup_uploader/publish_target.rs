@@ -282,14 +282,14 @@ impl SyncEngine {
                 make_verified_primary_resume_root(previous, &mut manifest)?;
             } else {
                 manifest.deletion_receipts.clear();
-                validate_manifest_chain(None, &manifest).map_err(|error| {
+                validate_manifest_chain_before_packing(None, &manifest).map_err(|error| {
                     SyncError::Storage(format!("fresh local root is invalid: {error}"))
                 })?;
             }
         } else {
-            validate_manifest_chain(previous_manifest, &manifest).map_err(|error| {
-                SyncError::Storage(format!("validate backup manifest failed: {error}"))
-            })?;
+            validate_manifest_chain_before_packing(previous_manifest, &manifest).map_err(
+                |error| SyncError::Storage(format!("validate backup manifest failed: {error}")),
+            )?;
         }
         if !manifest.deletion_receipts.is_empty() {
             let retired: usize = manifest
