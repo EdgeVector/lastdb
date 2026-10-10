@@ -2,9 +2,7 @@
 
 use super::ops::register_db::DB_HASH_NOT_REGISTERED;
 use super::AuthClient;
-use super::{
-    AuthRefreshCallback, SyncAuth, DEFAULT_AUTH_REQUEST_TIMEOUT, MAX_AUTH_REFRESH_RETRIES,
-};
+use super::{SyncAuth, DEFAULT_AUTH_REQUEST_TIMEOUT, MAX_AUTH_REFRESH_RETRIES};
 use crate::sync::error::{SyncError, SyncResult};
 use reqwest::Client;
 use std::sync::Arc;
@@ -23,12 +21,6 @@ impl AuthClient {
             db_auto_claim: true,
             request_timeout: DEFAULT_AUTH_REQUEST_TIMEOUT,
         }
-    }
-
-    /// Builder variant: attach a refresh callback that's invoked on a 401.
-    pub fn with_auth_refresh(mut self, cb: AuthRefreshCallback) -> Self {
-        self.auth_refresh = Some(cb);
-        self
     }
 
     /// Builder variant: override the per-request timeout (default
@@ -66,14 +58,6 @@ impl AuthClient {
     /// so subsequent requests use the new token.
     pub async fn update_auth(&self, new_auth: SyncAuth) {
         *self.auth.write().await = new_auth;
-    }
-
-    /// Check if the current auth credential is a bearer token.
-    ///
-    /// Useful for callers to decide whether a refresh is needed (bearer tokens
-    /// expire, API keys do not).
-    pub async fn is_bearer_token(&self) -> bool {
-        matches!(&*self.auth.read().await, SyncAuth::BearerToken(_))
     }
 
     pub(super) async fn apply_auth(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {

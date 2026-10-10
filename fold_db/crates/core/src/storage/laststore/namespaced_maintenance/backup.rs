@@ -96,26 +96,6 @@ impl LastStoreNamespacedStore {
         backup_manifest::report_committed_successor_history(self)
     }
 
-    /// True when every atom ref is an exact verified prefix at its local address.
-    pub fn atom_photograph_is_disk_copy(&self, manifest: &BackupManifest) -> StorageResult<bool> {
-        Ok(self
-            .atom_photograph_copy_report(manifest, None, true)?
-            .is_complete())
-    }
-
-    /// Backup-only may retain a prior atom file that exists only in cloud.
-    /// Require a complete cloud list for every such file. The CAS path later
-    /// checks each file again before it commits the new manifest.
-    pub fn atom_photograph_has_verified_cloud_copies(
-        &self,
-        manifest: &BackupManifest,
-        cloud: Option<&CloudChunkPresence>,
-    ) -> StorageResult<bool> {
-        Ok(self
-            .atom_photograph_copy_report(manifest, cloud, false)?
-            .is_complete())
-    }
-
     pub fn atom_photograph_copy_report(
         &self,
         manifest: &BackupManifest,

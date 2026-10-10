@@ -120,21 +120,6 @@ impl EncryptedManifestCommitment {
             byte_length: stored_bytes.len() as u64,
         }
     }
-
-    /// Check stored bytes against this commitment.
-    pub fn verify_stored_bytes(&self, stored_bytes: &[u8]) -> StorageResult<()> {
-        let actual = Self::of_stored_bytes(stored_bytes);
-        if actual != *self {
-            return Err(StorageError::BackendError(format!(
-                "backup descriptor manifest commitment mismatch: expected {}/{} bytes, stored {}/{} bytes",
-                self.stored_bytes_sha256,
-                self.byte_length,
-                actual.stored_bytes_sha256,
-                actual.byte_length
-            )));
-        }
-        Ok(())
-    }
 }
 
 /// One instance-addressed object reference on a descriptor page. Entries carry

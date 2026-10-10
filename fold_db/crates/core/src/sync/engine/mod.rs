@@ -84,9 +84,8 @@ pub use pin_log::{
     require_offline_s0_restore_marker, restore_mutation_log_after_s0,
     restore_mutation_log_after_s0_from_plane, seal_mutation_log_segment, BackupRestoreMode,
     MutationLogLocalCloud, MutationLogReplayReport, MutationLogSegment, MutationLogUploadReport,
-    PinLogPlaneReport, PinLogRecord, PinLogTargetStatus, PinLogWriterStat, PinModeLocalCloud,
-    PinModePublishDescriptor, PinModeRestoreReport, SealedBaseMember, PIN_LOG_NAMESPACE,
-    PIN_LOG_OPERATOR_KEYS_PER_CALL,
+    PinLogPlaneReport, PinLogRecord, PinLogTargetStatus, PinLogWriterStat,
+    PinModePublishDescriptor, SealedBaseMember, PIN_LOG_NAMESPACE, PIN_LOG_OPERATOR_KEYS_PER_CALL,
 };
 pub(crate) use pin_log::{MutationLogAppendReceipt, MutationPublicationWait};
 pub use types::{

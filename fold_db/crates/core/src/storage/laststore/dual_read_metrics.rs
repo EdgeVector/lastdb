@@ -233,26 +233,6 @@ pub struct DualReadMetricsSnapshot {
 }
 
 impl DualReadMetricsSnapshot {
-    /// The collection serving the most legacy hits, if any — the one line an
-    /// operator needs to decide whether a cutover can close.
-    #[must_use]
-    pub fn top_legacy_collection(&self) -> Option<(&str, u64)> {
-        self.legacy_hits_by_collection
-            .iter()
-            .max_by_key(|(_, hits)| *hits)
-            .map(|(name, hits)| (name.as_str(), *hits))
-    }
-
-    /// The by-design plane serving the most reads, if any. Named so an
-    /// operator can tell "34% of gets fall through" from "34% is debt".
-    #[must_use]
-    pub fn top_by_design_collection(&self) -> Option<(&str, u64)> {
-        self.by_design_hits_by_collection
-            .iter()
-            .max_by_key(|(_, hits)| *hits)
-            .map(|(name, hits)| (name.as_str(), *hits))
-    }
-
     /// Every read that resolved off the write target, debt or not.
     ///
     /// `target_hits + fallthrough_hits() + misses == gets` for any window with

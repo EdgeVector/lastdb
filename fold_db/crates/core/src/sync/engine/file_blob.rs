@@ -37,14 +37,6 @@ pub struct FileThumbnailUpload {
     pub kind: String,
 }
 
-fn hash_from_sha256_blob_ref(blob_ref: &str) -> SyncResult<&str> {
-    blob_ref.strip_prefix("sha256:").ok_or_else(|| {
-        SyncError::Crypto(format!(
-            "thumbnail blob_ref must use sha256: prefix, got {blob_ref}"
-        ))
-    })
-}
-
 async fn open_file_blob(blob_ref: &FileBlobRef, ciphertext: &[u8]) -> SyncResult<Vec<u8>> {
     if !file_blob_cipher_suite_supported(&blob_ref.cipher_suite) {
         return Err(SyncError::Crypto(format!(
@@ -301,26 +293,6 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Download and open a sealed loose thumbnail object.
-    pub async fn download_file_thumbnail(
-        &self,
-        thumbnail: &FileThumbnailRef,
-    ) -> SyncResult<Option<Vec<u8>>> {
-        let thumb_hash = hash_from_sha256_blob_ref(&thumbnail.blob_ref)?;
-        let Some(ciphertext) = self.load_thumb_ciphertext(thumb_hash).await? else {
-            return Ok(None);
-        };
-        let blob_ref = FileBlobRef {
-            blob_ref: thumbnail.blob_ref.clone(),
-            file_hash: thumb_hash.to_string(),
-            owner_scope: None,
-            cipher_suite: thumbnail.access.cipher_suite.clone(),
-            dek: thumbnail.access.dek.clone(),
-            encrypted_size_bytes: thumbnail.access.encrypted_size_bytes,
-        };
-        open_file_blob(&blob_ref, &ciphertext).await.map(Some)
-    }
-
     /// Download and open a personal content-addressed file blob using the DEK
     /// metadata returned by [`Self::upload_file_blob`].
     ///
@@ -457,24 +429,5 @@ impl SyncEngine {
                 .file_blob_absent_identities_capped
                 .load(Ordering::Relaxed),
         }
-    }
-
-    /// Delete a personal content-addressed file blob and best-effort release
-    /// its storage-metering credit after the object DELETE succeeds.
-    pub async fn delete_file_blob(&self, file_hash: &str) -> SyncResult<()> {
-        let url = self.auth.presign_file_delete(file_hash).await?;
-        self.s3.delete(&url).await?;
-
-        if let Err(e) = self.auth.confirm_file_delete(file_hash).await {
-            tracing::warn!(
-                target: "fold_db::sync",
-                error = %e,
-                file_hash = %file_hash,
-                "confirm_file_delete metering failed (non-fatal; reconcile will heal)"
-            );
-        }
-
-        self.forget_file_blob_ref(file_hash).await?;
-        Ok(())
     }
 }

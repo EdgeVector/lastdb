@@ -42,14 +42,6 @@ impl LastStoreNamespacedStore {
         self.store.hash_group_warm_stats_for(collection)
     }
 
-    pub fn open_with_data_key(path: &Path, data_key: [u8; 32]) -> StorageResult<Self> {
-        Self::open_with_options(
-            path,
-            LastStoreOptions::hash_group_frame_aead(data_key)
-                .with_hash_group_key(HashGroupKey::PartitionPrefix),
-        )
-    }
-
     /// Open an existing plaintext-frame LastStore home with backup high-water.
     ///
     /// Production Mini homes (post-P4) store collection frames without

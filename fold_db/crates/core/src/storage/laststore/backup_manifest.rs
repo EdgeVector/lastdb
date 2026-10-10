@@ -17,7 +17,6 @@ pub const PACKED_MANIFEST_VERSION: u32 = 2;
 /// keeps accepting [`MANIFEST_VERSION`] only.
 pub const DESCRIPTOR_VERSION: u32 = 2;
 const ATOMS_COLLECTION: &str = "atoms";
-const DELETION_RECEIPT_RECORD_TYPE: &str = "retention_floor_deletion_receipt";
 /// System-authenticated receipt: retire carried-forward atom chunk refs that
 /// exist neither on local disk nor in the object store. Distinct from a
 /// user-authorized retention-floor move — agents may mint this type only when
@@ -396,22 +395,6 @@ impl BackupDeletionReceipt {
                 .retired_atom_chunk_shas
                 .iter()
                 .any(|retired| retired == sha)
-    }
-
-    pub fn new_floor_move(
-        floor_from_manifest_counter: u64,
-        floor_to_manifest_counter: u64,
-        authorized_at_unix_secs: u64,
-    ) -> Self {
-        Self {
-            record_type: DELETION_RECEIPT_RECORD_TYPE.to_string(),
-            floor_from_manifest_counter,
-            floor_to_manifest_counter,
-            user_authorized: true,
-            authorized_at_unix_secs,
-            retired_atom_chunk_shas: Vec::new(),
-            reason: None,
-        }
     }
 
     /// System receipt: retire carried-forward atom digests that are usable for

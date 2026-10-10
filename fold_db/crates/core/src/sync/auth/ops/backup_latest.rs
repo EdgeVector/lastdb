@@ -256,17 +256,6 @@ impl AuthClient {
         .await
     }
 
-    pub async fn backup_latest_cas_if_absent(
-        &self,
-        store_uuid: &str,
-        epoch: u64,
-        counter: u64,
-        manifest_sha256: &str,
-    ) -> SyncResult<BackupLatestCasResponse> {
-        self.backup_latest_cas_with_condition(store_uuid, epoch, counter, manifest_sha256, true, 1)
-            .await
-    }
-
     pub async fn backup_latest_cas_if_absent_for_format(
         &self,
         store_uuid: &str,

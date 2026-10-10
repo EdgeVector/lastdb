@@ -47,7 +47,7 @@ mod wire;
 pub use audit::*;
 use compaction::*;
 use keys::*;
-pub use local_cloud::*;
+use local_cloud::*;
 pub use model::*;
 pub use offline_s0_marker::*;
 pub use replay::*;

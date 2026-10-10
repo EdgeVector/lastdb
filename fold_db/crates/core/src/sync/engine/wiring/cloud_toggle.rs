@@ -101,23 +101,6 @@ impl SyncEngine {
         self.config.recording_local_changes(disabled_at, now)
     }
 
-    /// Publish a full local backup while Cloud Sync remains Off. No peer data
-    /// enters this node, and no normal cloud worker starts.
-    pub async fn reconcile_paused_boot_snapshot(&self) -> SyncResult<LastStoreCloudSnapshotReport> {
-        if !self
-            .backup_only_mode
-            .load(std::sync::atomic::Ordering::SeqCst)
-        {
-            return Err(SyncError::Storage(
-                "paused-home backup requires backup-only mode".into(),
-            ));
-        }
-        let (_, report) = PAUSED_HOME_BACKUP_UPLOAD
-            .scope((), self.laststore_cloud_snapshot(None))
-            .await?;
-        Ok(report)
-    }
-
     /// Re-enable Cloud Sync after an intentional pause.
     ///
     /// - **Within grace:** clear disabled stamp, keep any short staging buffer,
