@@ -272,18 +272,6 @@ pub enum HashCompleteness {
     },
 }
 
-/// The in-memory ordered view is not complete. Do not treat it as the order.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct RangeNotResident;
-
-impl std::fmt::Display for RangeNotResident {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "hash view is not complete")
-    }
-}
-
-impl std::error::Error for RangeNotResident {}
-
 #[derive(Debug, Default)]
 struct HashView {
     completeness: HashCompleteness,

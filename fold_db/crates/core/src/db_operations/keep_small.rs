@@ -157,28 +157,6 @@ impl LiveBudgetTotals {
     }
 }
 
-/// Cheap budget report vs the 1 GiB target.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BudgetReport {
-    pub measured_at: DateTime<Utc>,
-    /// Always false: this is a point read of write-path totals, not a scan.
-    pub heavy: bool,
-    pub budget_bytes: u64,
-    pub live_atom_bytes: u64,
-    pub live_tip_bytes: u64,
-    pub live_bookkeeping_bytes: u64,
-    pub live_total_bytes: u64,
-    pub live_atom_count: u64,
-    pub live_tip_count: u64,
-    /// Physical plane bytes the budget cares about (atoms + tips + indexes +
-    /// order-log + locators + proteins). File blobs (`cas_blobs`) are exempt.
-    pub physical_bytes: u64,
-    /// `physical_bytes / live_total_bytes` (1.0 when live is zero).
-    pub amplification: f64,
-    /// `live_total_bytes / budget_bytes`.
-    pub used_ratio: f64,
-}
-
 /// Per-schema incremental meter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaMeter {
@@ -305,26 +283,6 @@ pub fn apply_delta(current: u64, new_bytes: u64, previous_bytes: u64) -> u64 {
     } else {
         current.saturating_sub(previous_bytes - new_bytes)
     }
-}
-
-/// Churn report: largest ratio first.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChurnReport {
-    pub measured_at: DateTime<Utc>,
-    pub heavy: bool,
-    pub day: String,
-    pub per_schema: Vec<SchemaChurnRow>,
-}
-
-/// One schema's churn line.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SchemaChurnRow {
-    pub schema_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-    pub live_bytes: u64,
-    pub appended_bytes: u64,
-    pub churn_ratio: f64,
 }
 
 /// Atom size histogram on the schemas/atom surface.

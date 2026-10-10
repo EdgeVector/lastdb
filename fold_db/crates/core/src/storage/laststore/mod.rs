@@ -87,9 +87,8 @@ pub use dual_read_metrics::{
     classify_order_log_residue_copy, classify_protein_residue_copy, classify_tip_residue_copy,
     dual_read_metrics_reset, dual_read_metrics_snapshot, DualReadMetricsSnapshot,
     PlaneResidueCopyAction, TipResidueCopyAction, TipResidueCopyPageReport, CONFLICT_KEY_PREFIXES,
-    INDEX_RESIDUE_KEY_PREFIXES, INDEX_RESIDUE_LEGACY_COLLECTIONS, ORDER_LOG_COLLECTIONS,
-    ORDER_LOG_KEY_PREFIXES, PROTEIN_FAMILY_KEY_PREFIXES, TIP_RESIDUE_KEY_PREFIXES,
-    TIP_RESIDUE_LEGACY_COLLECTIONS,
+    INDEX_RESIDUE_KEY_PREFIXES, INDEX_RESIDUE_LEGACY_COLLECTIONS, ORDER_LOG_KEY_PREFIXES,
+    PROTEIN_FAMILY_KEY_PREFIXES, TIP_RESIDUE_KEY_PREFIXES, TIP_RESIDUE_LEGACY_COLLECTIONS,
 };
 pub use high_water::{
     cloud_db_hash_for_store_uuid, high_water_path_for_store_root, read_backup_durability,

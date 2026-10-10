@@ -2,16 +2,6 @@
 
 use super::*;
 
-/// Outcome of one novel-schema registration: the manifest schema name, the
-/// locally computed identity, and the identity the catalog actually stored
-/// (differs when the service folded the shape into an expanded canonical).
-#[derive(Debug, Clone)]
-pub struct RegisteredSchema {
-    pub schema_name: String,
-    pub local_identity: String,
-    pub stored_identity: String,
-}
-
 // ─── Manifest lockfile (schema name → stored catalog identity) ────────────
 
 /// `<manifest>.lock.json` — records, per manifest schema name, the catalog

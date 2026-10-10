@@ -15,7 +15,6 @@ pub mod schema_type;
 
 pub use data_classification::{
     DataClassification, CONFIDENTIAL, HIGHLY_RESTRICTED, INTERNAL, MAX_SENSITIVITY_LEVEL, PUBLIC,
-    RESTRICTED,
 };
 pub use declarative_schemas::{
     canonical_name_parts, compute_identity_hash_parts, derive_transform_metadata, hash_expression,
@@ -25,8 +24,7 @@ pub use declarative_schemas::{
 };
 pub use error::{FoldDbError, FoldDbResult};
 pub use field_identity::{
-    compute_declared_field_identity, compute_field_hash, FieldIdentityInputs,
-    DECLARED_FIELD_IDENTITY_ALGO_VERSION,
+    compute_declared_field_identity, compute_field_hash, DECLARED_FIELD_IDENTITY_ALGO_VERSION,
 };
 pub use field_value_type::FieldValueType;
 pub use key_config::KeyConfig;

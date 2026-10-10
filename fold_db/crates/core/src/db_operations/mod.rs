@@ -59,10 +59,9 @@ pub use atom_store::{
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,
-    AttributionEventPage, AttributionLedger, AttributionObjectKind, AttributionPath,
-    AttributionPendingScope, AttributionRecord, AttributionRootKind, AttributionSize,
-    AttributionSummary, ATTRIBUTION_PATH_PREFIX, ATTRIBUTION_RECORD_PREFIX,
-    LIVE_ATTRIBUTION_EPOCH_ID,
+    AttributionLedger, AttributionObjectKind, AttributionPath, AttributionPendingScope,
+    AttributionRecord, AttributionRootKind, AttributionSize, AttributionSummary,
+    ATTRIBUTION_PATH_PREFIX, ATTRIBUTION_RECORD_PREFIX, LIVE_ATTRIBUTION_EPOCH_ID,
 };
 pub use change_feed::{ChangeFeedEvent, ChangeFeedPage, ChangeFeedStore};
 pub use db_catalog_store::{
@@ -78,10 +77,10 @@ pub use delete_ledger::{
 pub use keep_small::{
     atom_histogram, keep_small_schema_shard_key, physical_compact_rewrite_capture_records,
     physical_compact_rewrite_is_capture_neutral, sum_physical_plane_bytes, AtomHistogram,
-    BudgetReport, ChurnReport, KeepSmallHardEraseDebit, KeepSmallHardEraseTotals, KeepSmallMeters,
-    KeepSmallSchemaShard, KeepSmallSnapshot, LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload,
-    MeterTrustState, MoleculeStorageCounter, MoleculeTipCounterSource, SchemaChurnRow, SchemaMeter,
-    ATOM_HISTOGRAM_16KIB, ATOM_HISTOGRAM_32KIB, ATOM_HISTOGRAM_64KIB, BUDGET_PHYSICAL_PLANES,
+    KeepSmallHardEraseDebit, KeepSmallHardEraseTotals, KeepSmallMeters, KeepSmallSchemaShard,
+    KeepSmallSnapshot, LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload, MeterTrustState,
+    MoleculeStorageCounter, MoleculeTipCounterSource, SchemaMeter, ATOM_HISTOGRAM_16KIB,
+    ATOM_HISTOGRAM_32KIB, ATOM_HISTOGRAM_64KIB, BUDGET_PHYSICAL_PLANES,
     KEEP_SMALL_HARD_ERASE_TOTALS_KEY, KEEP_SMALL_SCHEMA_SHARD_PREFIX,
     KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY, KEEP_SMALL_TRUST_VERSION,
     KEEP_SMALL_UNATTRIBUTED_SCHEMA, KEEP_SMALL_UNATTRIBUTED_SHARD_KEY, LIVE_BUDGET_BYTES,
@@ -106,7 +105,6 @@ pub use molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
 pub use public_key_store::PublicKeyStore;
 pub use schema_operations::{
     LivenessBootstrapReport, SchemaRetentionAttributionReport, SchemaRootAttributionReport,
-    SchemaRootTipAttributionReport,
 };
 pub use schema_store::{SchemaDropReceipt, SchemaStore};
 pub use search_index::{

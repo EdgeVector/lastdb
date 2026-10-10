@@ -36,11 +36,10 @@ pub use protein::{
 /// (`concepts-lastdb-rehydrate`).
 pub mod resident;
 pub use resident::{
-    AtomStorePersistSink, DirtyKey, PersistBatchOutcome, PersistEnvelope, PersistLaneFull,
-    PersistLaneKey, PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistPlan,
-    PersistReservation, PersistSink, PersistSlotRevision, ResidentAtom, ResidentGraph,
-    ResidentKind, ResidentMetrics, ResidentSlotControl, ResidentSlotId, ResidentSlotState,
-    ResidentTip, ResolveOutcome, ResolveSource,
+    DirtyKey, PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey,
+    PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistPlan, PersistReservation,
+    PersistSlotRevision, ResidentAtom, ResidentGraph, ResidentKind, ResidentMetrics,
+    ResidentSlotControl, ResidentSlotState, ResidentTip, ResolveOutcome, ResolveSource,
 };
 /// Pure continuous-backup drain planner (no network; always compiled for tests).
 pub mod backup_drain_plan;

@@ -77,9 +77,7 @@ mod state_expansion;
 mod state_fields;
 mod state_matching;
 mod state_native_resolve;
-pub use multi_key_reindex::{
-    plan_keyed_tip_regeneration, KeyedMembershipIndex, RegeneratedTip, SourceRecord,
-};
+pub use multi_key_reindex::{plan_keyed_tip_regeneration, RegeneratedTip, SourceRecord};
 pub use state_expansion::{
     apply_shared_field_mappers, is_cross_key_layout, key_layout_fingerprint, shared_field_names,
     KeyLayoutFingerprint,
@@ -116,11 +114,10 @@ pub use resolver_config::{
 };
 pub use resolver_pack_consumer::{
     validate_bootstrap_base_url, FsResolverPackCache, ImportedResolverPackEmbeddings,
-    LoadedResolverPack, ObjectFetchMeta, ObjectFetchResult, ResolverBootstrapConfig,
-    ResolverBootstrapConfigError, ResolverPackConsumer, ResolverPackConsumerConfig,
-    ResolverPackFallbackReason, ResolverPackFetchError, ResolverPackLoadOutcome,
-    ResolverPackLoadSource, ResolverPackObjectStore, ResolverPackResolutionRoute,
-    ResolverPackTelemetrySnapshot,
+    LoadedResolverPack, ObjectFetchResult, ResolverBootstrapConfig, ResolverBootstrapConfigError,
+    ResolverPackConsumer, ResolverPackConsumerConfig, ResolverPackFallbackReason,
+    ResolverPackFetchError, ResolverPackLoadOutcome, ResolverPackLoadSource,
+    ResolverPackObjectStore, ResolverPackResolutionRoute, ResolverPackTelemetrySnapshot,
 };
 pub use resolver_runtime::{NativeResolverState, ResolverRuntime, RuntimeTelemetry};
 pub use schema_core_resolver::{

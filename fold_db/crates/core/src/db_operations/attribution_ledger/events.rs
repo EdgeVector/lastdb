@@ -62,12 +62,6 @@ impl AttributionEvent {
     }
 }
 
-/// A bounded page from the durable attribution event source.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AttributionEventPage {
-    pub events: Vec<AttributionEvent>,
-}
-
 /// A fail-closed write-intent marker. A marker without a matching event means
 /// the attribution projector must classify its scope as unknown.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

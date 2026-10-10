@@ -12,9 +12,7 @@ mod attribution_reports;
 mod liveness_bootstrap;
 mod molecule_measure;
 
-pub use attribution_reports::{
-    SchemaRetentionAttributionReport, SchemaRootAttributionReport, SchemaRootTipAttributionReport,
-};
+pub use attribution_reports::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
 pub use liveness_bootstrap::LivenessBootstrapReport;
 
 fn schema_molecule_ref_edges(schema_name: &str, schema: &Schema) -> Vec<MoleculeRefEdge> {

@@ -157,12 +157,6 @@ mod client_pow;
 mod client_reads;
 mod client_snapshot;
 
-pub struct DevSchemaClaim<'a> {
-    pub cert_b64: &'a str,
-    pub dev_key: &'a SigningKey,
-    pub env: Env,
-}
-
 struct AddSchemaOptions<'a> {
     schema_match_source: &'a str,
     fallback_reason: Option<&'a str>,

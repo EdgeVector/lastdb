@@ -18,7 +18,7 @@ pub mod types;
 
 pub use keys::*;
 pub use signing::*;
-pub use types::{PublicKeyInfo, SignedMessage, VerificationResult};
+pub use types::PublicKeyInfo;
 
 use thiserror::Error;
 
@@ -48,32 +48,3 @@ pub enum SecurityError {
 }
 
 pub type SecurityResult<T> = Result<T, SecurityError>;
-
-/// Security module configuration.
-///
-/// Ed25519 signatures are always required on write endpoints — there is no opt-out.
-/// E2E encryption is always active — there is no opt-out.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SecurityConfig {
-    /// Whether to require TLS for all connections
-    pub require_tls: bool,
-}
-
-impl Default for SecurityConfig {
-    fn default() -> Self {
-        Self { require_tls: true }
-    }
-}
-
-impl SecurityConfig {
-    /// Load security configuration from environment variables
-    pub fn from_env() -> Self {
-        let mut config = Self::default();
-
-        if let Ok(value) = std::env::var("FOLD_REQUIRE_TLS") {
-            config.require_tls = value.parse().unwrap_or(true);
-        }
-
-        config
-    }
-}

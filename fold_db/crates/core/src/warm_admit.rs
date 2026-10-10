@@ -4,12 +4,6 @@
 //! set here survives the await. The blocking wrapper copies it onto the
 //! worker thread. `X-LastDB-Client` is not an input.
 
-/// Factory owners. A null owner and any other owner except `lastgit` stay
-/// protected too. This list is the verified product ids, not a filter that
-/// demotes an unknown name.
-pub const INTERACTIVE_OWNER_APP_IDS: &[&str] =
-    &["fbrain", "fkanban", "loom", "routines", "fsituations"];
-
 tokio::task_local! {
     static WARM_ADMIT_CODE: u8;
 }

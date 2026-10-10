@@ -23,19 +23,6 @@ pub struct SchemaRootAttributionReport {
     pub retained_history_bytes: u64,
 }
 
-/// One bounded continuation page from a schema molecule into live tips and
-/// their atom targets. Missing atom bodies remain explicit unknowns.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SchemaRootTipAttributionReport {
-    pub molecule_uuid: String,
-    pub tips_seen: u64,
-    pub atoms_attributed: u64,
-    pub unknown_atoms: u64,
-    pub missing_tips: u64,
-    pub next_cursor: Option<String>,
-    pub has_more: bool,
-}
-
 /// Result of attributing the node-local retention registry's own bookkeeping
 /// rows (policy + hash-partition markers) as `Retention`-rooted objects.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

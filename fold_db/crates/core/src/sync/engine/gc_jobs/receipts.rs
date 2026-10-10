@@ -141,37 +141,6 @@ pub struct GcDispositionCounts {
     pub uncertain_write_bytes: u64,
 }
 
-/// Receipt encoding of the P0 `ProviderVersion` enum.
-///
-/// | P0 `ProviderVersion` | receipt `provider_version` |
-/// |---|---|
-/// | absent (version 1 receipt, or no version knowledge) | `null` / omitted |
-/// | `Unversioned` | `"unversioned"` |
-/// | `Exact(id)` | `"exact:<id>"` |
-///
-/// The prefix keeps a provider version id that is literally `unversioned`
-/// distinct from the explicit unversioned locator.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GcProviderVersion {
-    Unversioned,
-    Exact(String),
-}
-
-impl GcProviderVersion {
-    pub const UNVERSIONED: &'static str = "unversioned";
-    pub const EXACT_PREFIX: &'static str = "exact:";
-
-    pub fn parse(text: &str) -> Option<Self> {
-        if text == Self::UNVERSIONED {
-            Some(Self::Unversioned)
-        } else {
-            text.strip_prefix(Self::EXACT_PREFIX)
-                .filter(|id| !id.is_empty())
-                .map(|id| Self::Exact(id.into()))
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GcSelection {
     pub cloud_db_hash: Option<String>,

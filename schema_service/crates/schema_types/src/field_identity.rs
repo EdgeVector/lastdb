@@ -7,47 +7,7 @@
 //! See brain `design-lastdb-field-hash-auto-protein`.
 
 use crate::FieldValueType;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-/// Inputs Schema Service mints from. Owner/app is intentionally **not** part of
-/// the hash — field identity is catalog-global across apps.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldIdentityInputs {
-    pub name: String,
-    pub description: String,
-    pub field_type: FieldValueType,
-    /// Bump when meaning or type changes incompatibly. Default 1.
-    pub version: u32,
-}
-
-impl FieldIdentityInputs {
-    #[must_use]
-    pub fn new(
-        name: impl Into<String>,
-        description: impl Into<String>,
-        field_type: FieldValueType,
-        version: u32,
-    ) -> Self {
-        Self {
-            name: name.into(),
-            description: description.into(),
-            field_type,
-            version,
-        }
-    }
-
-    /// SHA-256 hex of canonical JSON for the four identity inputs.
-    #[must_use]
-    pub fn hash(&self) -> String {
-        compute_field_hash(
-            &self.name,
-            &self.description,
-            &self.field_type,
-            self.version,
-        )
-    }
-}
 
 /// Canonical field hash used on catalog schemas and local runtime metadata.
 ///

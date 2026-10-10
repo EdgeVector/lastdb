@@ -154,20 +154,6 @@ impl Profile {
         let home = folddb_home().map_err(ProfileError::NoHome)?;
         Ok(home.join(PROFILE_FILE))
     }
-
-    /// Active [`Environment`] (`dev` or `prod`), erroring loudly on an
-    /// unknown value.
-    pub fn active_env(&self) -> Result<Environment, ProfileError> {
-        env_from_label(&self.active)
-    }
-
-    /// Active env's profile slice (read-only).
-    pub fn active_env_profile(&self) -> Result<&EnvProfile, ProfileError> {
-        Ok(match self.active_env()? {
-            Environment::Dev => &self.env.dev,
-            Environment::Prod => &self.env.prod,
-        })
-    }
 }
 
 /// Map an env label (`"dev"` / `"prod"`) onto the typed [`Environment`].

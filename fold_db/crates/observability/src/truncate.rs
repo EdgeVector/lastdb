@@ -29,10 +29,3 @@ pub fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> &str {
     }
     &s[..end]
 }
-
-/// Cap on the visible portion of a user-supplied query/term when it is
-/// logged. Anything beyond this is replaced with a
-/// `…(N chars truncated)` marker so the body of the log line never
-/// carries the full natural-language input (which on a log-forwarding
-/// node would become a content leak).
-pub const QUERY_LOG_MAX_BYTES: usize = 80;

@@ -84,20 +84,6 @@ pub struct SealedBaseMember {
     pub mtime_secs: i64,
 }
 
-/// Publish descriptor for catch-up of frozen base S plus log for one target.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PinModePublishDescriptor {
-    pub target_id: String,
-    pub target_prefix: String,
-    pub base_frontier: u64,
-    pub log_from: u64,
-    pub last_durable_frontier: u64,
-    pub sealed_base_shas: Vec<String>,
-    pub publish_counter: u64,
-    /// Always true for pin-mode publish: base may be fuzzy relative to tips.
-    pub base_may_be_fuzzy: bool,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct PinLogRuntime {
     pub(crate) target_id: String,

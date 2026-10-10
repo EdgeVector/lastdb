@@ -467,9 +467,6 @@ pub const INDEX_RESIDUE_LEGACY_COLLECTIONS: &[&str] = &[
 /// lives under the order-log collections below. Never treat as index residue.
 pub const ORDER_LOG_KEY_PREFIXES: &[&str] = &["mord:", "moc:", "mo:"];
 
-/// On-disk collections holding history-adjacent order-log mass (plane map role).
-pub const ORDER_LOG_COLLECTIONS: &[&str] = &["field_update_order_log", "field_update_order_count"];
-
 /// Decision for one key during protein/index plane residue copy-verify.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaneResidueCopyAction {

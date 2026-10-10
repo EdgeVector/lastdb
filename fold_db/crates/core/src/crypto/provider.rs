@@ -22,21 +22,6 @@ pub trait CryptoProvider: Send + Sync {
 // NoOpCryptoProvider — passthrough, no encryption (for tests)
 // ---------------------------------------------------------------------------
 
-/// A no-op provider that passes data through without encryption.
-/// Used for unit tests and migration scenarios.
-pub struct NoOpCryptoProvider;
-
-#[async_trait]
-impl CryptoProvider for NoOpCryptoProvider {
-    async fn encrypt(&self, plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
-        Ok(plaintext.to_vec())
-    }
-
-    async fn decrypt(&self, ciphertext: &[u8]) -> CryptoResult<Vec<u8>> {
-        Ok(ciphertext.to_vec())
-    }
-}
-
 // ---------------------------------------------------------------------------
 // LocalCryptoProvider — file-based key, AES-256-GCM (for standalone dev)
 // ---------------------------------------------------------------------------
