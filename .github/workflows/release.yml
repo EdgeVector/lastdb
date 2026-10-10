@@ -477,7 +477,7 @@ jobs:
             | grep -vE '^[+-]{3}|^[+-]\s*(version\s|url\s|sha256\s)' \
             || true)
           if [ -n "$unexpected" ]; then
-            echo "::error::surgical formula bump touched lines outside version/url/sha256 — failing the release instead of shipping a broken formula. Fix scripts/release/bump-homebrew-formula.rb (+ its test) and re-tag."
+            echo "::error::surgical formula bump touched lines outside version/url/sha256 — failing the release instead of shipping a broken formula. Fix scripts/release/bump-homebrew-formula.rb and re-tag."
             echo "─── changed lines outside version/url/sha256 ───"
             echo "$unexpected"
             echo "─── full diff ───"

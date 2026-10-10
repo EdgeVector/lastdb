@@ -60,7 +60,10 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
             line.push_str(&format!(" schema={schema}"));
         }
         if let Some(fp) = e.get("key_fingerprint").and_then(|v| v.as_str()) {
-            line.push_str(&format!(" key_fp={}", &fp[..fp.len().min(12)]));
+            line.push_str(&format!(
+                " key_fp={}",
+                observability::truncate::truncate_on_char_boundary(fp, 12)
+            ));
         }
         if n("history_rows_deleted") > 0 {
             line.push_str(&format!(" history={}", n("history_rows_deleted")));

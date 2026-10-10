@@ -54,7 +54,7 @@ fn check_dir_matches_app_count(dir: &Option<PathBuf>, app_ids: &[String]) -> Res
 }
 
 fn short_sha(sha: &str) -> &str {
-    &sha[..sha.len().min(12)]
+    observability::truncate::truncate_on_char_boundary(sha, 12)
 }
 
 pub(crate) fn app_list(

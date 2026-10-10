@@ -1,4 +1,5 @@
-//! Offline credential transfer. Never open a store or call the cloud.
+//! Protected credential homes: offline transfer or explicit DEV registration.
+//! Neither action opens a local store or enables Cloud Sync.
 
 use std::io::{Read, Write};
 use std::path::Path;
@@ -9,6 +10,8 @@ use lastdb_node::host::{CLOUD_SYNC_CONFIG_FILE, IDENTITY_KEY_FILE};
 
 #[path = "recovery_home/files.rs"]
 mod files;
+#[path = "recovery_home/seed_registration.rs"]
+mod seed_registration;
 use super::CloudCommand;
 use files::{open_directory, read_private_file, FreshHome};
 
@@ -21,23 +24,41 @@ struct Credentials {
 }
 
 pub(super) fn handles(action: &CloudCommand) -> bool {
-    matches!(action, CloudCommand::PrepareRecoveryHome { .. })
+    matches!(
+        action,
+        CloudCommand::PrepareRecoveryHome { .. } | CloudCommand::RecoverDevCredentialsHome { .. }
+    )
 }
 
 pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(), String> {
-    let CloudCommand::PrepareRecoveryHome {
-        into,
-        env,
-        api_key_stdin,
-        json,
-    } = action
-    else {
-        unreachable!("recovery-home command dispatch")
-    };
-    if !api_key_stdin {
-        return Err("prepare-recovery-home requires --api-key-stdin".into());
+    match action {
+        CloudCommand::PrepareRecoveryHome {
+            into,
+            env,
+            api_key_stdin,
+            json,
+        } => {
+            if !api_key_stdin {
+                return Err("prepare-recovery-home requires --api-key-stdin".into());
+            }
+            run(source, &into, &env, json)
+        }
+        CloudCommand::RecoverDevCredentialsHome {
+            into,
+            expected_user_hash,
+            identity_seed_stdin,
+            api_key_lastsecrets_slug,
+            json,
+        } => seed_registration::command(
+            source,
+            &into,
+            &expected_user_hash,
+            identity_seed_stdin,
+            api_key_lastsecrets_slug.as_deref(),
+            json,
+        ),
+        _ => unreachable!("recovery-home command dispatch"),
     }
-    run(source, &into, &env, json)
 }
 
 fn run(

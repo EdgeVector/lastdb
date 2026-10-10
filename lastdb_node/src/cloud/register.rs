@@ -2,6 +2,10 @@
 
 use super::*;
 
+#[path = "register/recovery.rs"]
+mod recovery;
+pub use recovery::register_dev_recovery_device;
+
 /// Marker file recording that the initial cloud bootstrap-restore completed;
 /// its presence keeps subsequent boots from re-running the full restore.
 pub const BOOTSTRAP_DONE_FILE: &str = ".bootstrap_done";
@@ -115,7 +119,11 @@ pub(super) async fn send_signed_register(
         .text()
         .await
         .map_err(|_| "Failed to read register response".to_string())?;
-    let json: serde_json::Value = serde_json::from_str(&text)
+    parse_registered_response(&text)
+}
+
+fn parse_registered_response(text: &str) -> Result<Registered, String> {
+    let json: serde_json::Value = serde_json::from_str(text)
         .map_err(|_| "Register response was not valid JSON".to_string())?;
 
     if !json

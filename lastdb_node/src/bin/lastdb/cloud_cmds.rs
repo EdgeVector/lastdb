@@ -26,7 +26,10 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         .build()
         .map_err(|e| format!("tokio runtime construction failed: {e}"))?;
     match action {
-        CloudCommand::PrepareRecoveryHome { .. } => unreachable!("handled before runtime creation"),
+        CloudCommand::PrepareRecoveryHome { .. }
+        | CloudCommand::RecoverDevCredentialsHome { .. } => {
+            unreachable!("handled before home resolution")
+        }
         CloudCommand::RewriteDeletedAtoms {
             plan,
             execute,
