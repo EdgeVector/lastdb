@@ -164,5 +164,3 @@ pub struct AuthClient {
 mod helpers;
 mod http;
 pub mod ops;
-
-// Visible to unit tests (`use super::*`).

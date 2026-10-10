@@ -36,7 +36,7 @@ pub(super) fn backup_storage_footprint_from_listing(
 ///
 /// The ceiling is a budget on *how much work one cycle may take*, not on
 /// resource usage — in-flight PUTs are bounded separately by
-/// [`backup_upload_concurrency`], and cycle wall time by
+/// [`backup_upload_concurrency_with_runtime`], and cycle wall time by
 /// [`backup_catchup_cycle_budget`].
 pub(super) fn backup_upload_target_per_cycle(catching_up: bool) -> usize {
     if catching_up {
@@ -152,27 +152,6 @@ pub(super) fn presence_reseed_is_due(
     }
 }
 
-/// In-flight PUT concurrency for one backup drain cycle.
-///
-/// Default follows the adaptive upload-policy concurrency (same knob the
-/// mutation-log uploader uses). Override with `LASTDB_BACKUP_UPLOAD_CONCURRENCY`.
-/// Floor is 2 so a multi-Mbps link is never stuck at a single serial stream
-/// (the 2026-07-30 ~137 KB/s ceiling).
-///
-/// In **catch-up** mode the floor is raised, because the adaptive policy is
-/// tuned for the opposite situation. `upload_policy` drops concurrency to
-/// `MIN_CONCURRENCY` whenever `interactive_busy` is set — which on a machine
-/// running an agent fleet is essentially always — so the 2026-07-31 primary was
-/// uploading its *first ever* backup at concurrency 2. Yielding to foreground
-/// work is right for a home that is already durable; for one that has never
-/// been restorable it is how a backup stays unfinished indefinitely. An
-/// explicit `LASTDB_BACKUP_UPLOAD_CONCURRENCY` still wins in both modes.
-/// A process-local owner override sits between env and adaptive policy:
-/// `valid environment override > runtime owner override > adaptive/catch-up`.
-pub(super) fn backup_upload_concurrency(policy_concurrency: usize, catching_up: bool) -> usize {
-    backup_upload_concurrency_with_runtime(policy_concurrency, catching_up, None)
-}
-
 pub(super) fn backup_upload_concurrency_env() -> Option<usize> {
     env_flag::var_parsed("LASTDB_BACKUP_UPLOAD_CONCURRENCY").map(|value: usize| value.clamp(1, 32))
 }
@@ -198,6 +177,23 @@ pub(super) fn backup_upload_concurrency_status(
     }
 }
 
+/// In-flight PUT concurrency for one backup drain cycle.
+///
+/// Default follows the adaptive upload-policy concurrency (same knob the
+/// mutation-log uploader uses). Override with `LASTDB_BACKUP_UPLOAD_CONCURRENCY`.
+/// Floor is 2 so a multi-Mbps link is never stuck at a single serial stream
+/// (the 2026-07-30 ~137 KB/s ceiling).
+///
+/// In **catch-up** mode the floor is raised, because the adaptive policy is
+/// tuned for the opposite situation. `upload_policy` drops concurrency to
+/// `MIN_CONCURRENCY` whenever `interactive_busy` is set — which on a machine
+/// running an agent fleet is essentially always — so the 2026-07-31 primary was
+/// uploading its *first ever* backup at concurrency 2. Yielding to foreground
+/// work is right for a home that is already durable; for one that has never
+/// been restorable it is how a backup stays unfinished indefinitely. An
+/// explicit `LASTDB_BACKUP_UPLOAD_CONCURRENCY` still wins in both modes.
+/// A process-local owner override sits between env and adaptive policy:
+/// `valid environment override > runtime owner override > adaptive/catch-up`.
 pub(super) fn backup_upload_concurrency_with_runtime(
     policy_concurrency: usize,
     catching_up: bool,
