@@ -5,8 +5,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 /// Format version a `backup/latest` pointer carries when it omits the field.
-/// Every pointer written before the field existed is a v1 pointer, and every
-/// writer in this build still omits it.
+/// Every pointer written before the field existed is a v1 pointer.
 pub const BACKUP_LATEST_FORMAT_VERSION_V1: u32 = 1;
 
 /// CAS conflict reason the storage service returns when a candidate would
@@ -23,10 +22,7 @@ pub struct BackupLatestPointer {
     pub manifest_sha256: String,
     pub updated_at_unix_secs: u64,
     /// Backup object-format version the pointer's manifest chain uses.
-    /// Absent on the wire means v1. Read-side only in this build: no writer
-    /// emits it, so a pointer this client lands serializes exactly as before.
-    /// An older server that does not know the field ignores it; an older
-    /// client that does not know it ignores it.
+    /// Absent on the wire means v1. A packed snapshot explicitly carries v2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format_version: Option<u32>,
 }
@@ -38,13 +34,10 @@ impl BackupLatestPointer {
             .unwrap_or(BACKUP_LATEST_FORMAT_VERSION_V1)
     }
 
-    /// Refuse, by name, a pointer whose format this build's v1 readers do not
-    /// understand. Call it before any manifest or chunk request so a v2 tip
-    /// is a typed [`SyncError::UnsupportedBackupFormat`], not a decode
-    /// failure deep in the chain walk.
-    pub fn require_v1_format(&self) -> SyncResult<()> {
+    /// Reject an unknown format before any manifest or file request.
+    pub fn require_supported_format(&self) -> SyncResult<()> {
         let format_version = self.format_version();
-        if format_version == BACKUP_LATEST_FORMAT_VERSION_V1 {
+        if matches!(format_version, 1 | 2) {
             Ok(())
         } else {
             Err(SyncError::UnsupportedBackupFormat { format_version })
@@ -126,6 +119,31 @@ pub struct BackupRecoveryDescriptorPut<'a> {
 }
 
 impl AuthClient {
+    pub async fn require_backup_format_version_2_capability(&self) -> SyncResult<()> {
+        let value = self
+            .post(
+                "/api/sync/presign",
+                serde_json::json!({"action": "backup_latest_cas_capabilities"}),
+            )
+            .await?;
+        if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true)
+            && value
+                .get("backup_format_version_max")
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|version| version >= 2)
+            && value
+                .get("backup_latest_cas_v2")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+        {
+            Ok(())
+        } else {
+            Err(SyncError::Storage(
+                "cloud service lacks backup file pack format support".into(),
+            ))
+        }
+    }
+
     pub async fn require_backup_expected_absent_capability(&self) -> SyncResult<()> {
         let value = self
             .post(
@@ -215,8 +233,27 @@ impl AuthClient {
         counter: u64,
         manifest_sha256: &str,
     ) -> SyncResult<BackupLatestCasResponse> {
-        self.backup_latest_cas_with_condition(store_uuid, epoch, counter, manifest_sha256, false)
+        self.backup_latest_cas_with_condition(store_uuid, epoch, counter, manifest_sha256, false, 1)
             .await
+    }
+
+    pub async fn backup_latest_cas_for_format(
+        &self,
+        store_uuid: &str,
+        epoch: u64,
+        counter: u64,
+        manifest_sha256: &str,
+        format_version: u32,
+    ) -> SyncResult<BackupLatestCasResponse> {
+        self.backup_latest_cas_with_condition(
+            store_uuid,
+            epoch,
+            counter,
+            manifest_sha256,
+            false,
+            format_version,
+        )
+        .await
     }
 
     pub async fn backup_latest_cas_if_absent(
@@ -226,8 +263,27 @@ impl AuthClient {
         counter: u64,
         manifest_sha256: &str,
     ) -> SyncResult<BackupLatestCasResponse> {
-        self.backup_latest_cas_with_condition(store_uuid, epoch, counter, manifest_sha256, true)
+        self.backup_latest_cas_with_condition(store_uuid, epoch, counter, manifest_sha256, true, 1)
             .await
+    }
+
+    pub async fn backup_latest_cas_if_absent_for_format(
+        &self,
+        store_uuid: &str,
+        epoch: u64,
+        counter: u64,
+        manifest_sha256: &str,
+        format_version: u32,
+    ) -> SyncResult<BackupLatestCasResponse> {
+        self.backup_latest_cas_with_condition(
+            store_uuid,
+            epoch,
+            counter,
+            manifest_sha256,
+            true,
+            format_version,
+        )
+        .await
     }
 
     async fn backup_latest_cas_with_condition(
@@ -237,20 +293,24 @@ impl AuthClient {
         counter: u64,
         manifest_sha256: &str,
         backup_expected_absent: bool,
+        format_version: u32,
     ) -> SyncResult<BackupLatestCasResponse> {
-        let value = self
-            .post(
-                "/api/sync/presign",
-                serde_json::json!({
-                    "action": "backup_latest_cas",
-                    "backup_store_uuid": store_uuid,
-                    "backup_epoch": epoch,
-                    "backup_counter": counter,
-                    "manifest_sha256": manifest_sha256,
-                    "backup_expected_absent": backup_expected_absent,
-                }),
-            )
-            .await?;
+        if !matches!(format_version, 1 | 2) {
+            return Err(SyncError::UnsupportedBackupFormat { format_version });
+        }
+        let mut request = serde_json::json!({
+            "action": "backup_latest_cas",
+            "backup_store_uuid": store_uuid,
+            "backup_epoch": epoch,
+            "backup_counter": counter,
+            "manifest_sha256": manifest_sha256,
+            "backup_expected_absent": backup_expected_absent,
+        });
+        if format_version == 2 {
+            request["action"] = serde_json::json!("backup_latest_cas_v2");
+            request["backup_format_version"] = serde_json::json!(2);
+        }
+        let value = self.post("/api/sync/presign", request).await?;
         if !value
             .get("ok")
             .and_then(serde_json::Value::as_bool)
@@ -258,8 +318,14 @@ impl AuthClient {
         {
             return Err(backup_latest_cas_failure(&value));
         }
-        serde_json::from_value(value).map_err(|e| {
+        let response: BackupLatestCasResponse = serde_json::from_value(value).map_err(|e| {
             SyncError::Serialization(format!("backup_latest_cas response decode failed: {e}"))
-        })
+        })?;
+        if response.latest.format_version() != format_version {
+            return Err(SyncError::Storage(
+                "backup latest CAS returned a different format version".into(),
+            ));
+        }
+        Ok(response)
     }
 }

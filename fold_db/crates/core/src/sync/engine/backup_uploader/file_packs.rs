@@ -1,0 +1,376 @@
+//! Byte-for-byte packs for completed LastStore files.
+
+use super::*;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::Path;
+
+mod repack;
+use repack::{finish_pack_candidates, repack_dirty_survivors};
+
+const MAX_PACK_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_PACK_FILES: usize = 8;
+type FileKey = (String, u16, Option<u32>, String);
+type PackMemberLocations = Vec<(FileKey, String, BackupPackLocation)>;
+type PlannedPack = (BackupChunkUploadCandidate, PackMemberLocations);
+
+impl SyncEngine {
+    pub(super) async fn require_backup_file_pack_capability(
+        &self,
+        previous: Option<&BackupManifest>,
+        fresh_root_proven: bool,
+    ) -> SyncResult<()> {
+        if previous.is_none()
+            && !fresh_root_proven
+            && self
+                .auth
+                .backup_latest_get_optional()
+                .await?
+                .is_some_and(|tip| tip.latest.format_version() == PACKED_MANIFEST_VERSION)
+        {
+            return Err(SyncError::Storage(
+                "cloud has a packed backup tip but the local predecessor manifest is unavailable"
+                    .into(),
+            ));
+        }
+        if !fresh_root_proven
+            && (previous.is_some_and(|prior| prior.version == PACKED_MANIFEST_VERSION)
+                || std::env::var("LASTDB_BACKUP_FILE_PACKS").is_ok_and(|value| value == "1"))
+        {
+            self.auth
+                .require_backup_format_version_2_capability()
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn prepare_backup_file_packs(
+        &self,
+        store: &crate::storage::laststore::LastStoreNamespacedStore,
+        manifest: &mut BackupManifest,
+        candidates: Vec<BackupChunkUploadCandidate>,
+        previous: Option<&BackupManifest>,
+        cloud_presence: Option<&CloudChunkPresence>,
+        primary_resume_root: bool,
+    ) -> SyncResult<Vec<BackupChunkUploadCandidate>> {
+        self.sweep_backup_freeze_dirs(None);
+        // A fresh root must publish the direct files already held by S0. The
+        // first normal successor may convert its local mutable files to packs.
+        if primary_resume_root && previous.is_none() {
+            manifest.version = MANIFEST_VERSION;
+        }
+        let ready =
+            pack_backup_publish_candidates(store, manifest, candidates, previous, cloud_presence)?;
+        let chain_previous = if primary_resume_root { None } else { previous };
+        validate_manifest_chain(chain_previous, manifest)
+            .map_err(|error| SyncError::Storage(format!("packed manifest invalid: {error}")))?;
+        Ok(ready)
+    }
+}
+
+fn file_key(chunk: &crate::storage::laststore::BackupChunkRef) -> FileKey {
+    (
+        chunk.collection.clone(),
+        chunk.shard,
+        chunk.group_id,
+        chunk.chunk_uuid.clone(),
+    )
+}
+
+/// Hash the exact file prefixes without a staged pack. The cut keeps the
+/// source files under its packing lock until each pack is uploaded or retired.
+fn plan_pack(directory: &Path, group: Vec<BackupChunkUploadCandidate>) -> SyncResult<PlannedPack> {
+    let mut pack_hash = Sha256::new();
+    let mut locations = Vec::with_capacity(group.len());
+    let mut offset = 0u64;
+    for candidate in &group {
+        let mut input = std::fs::File::open(&candidate.path).map_err(|error| {
+            SyncError::Storage(format!(
+                "backup pack source {}/{} unavailable: {error}",
+                candidate.chunk.collection, candidate.chunk.chunk_uuid
+            ))
+        })?;
+        let mut member_hash = Sha256::new();
+        let mut remaining = candidate.chunk.bytes;
+        let mut buffer = [0u8; 64 * 1024];
+        while remaining > 0 {
+            let to_read = remaining.min(buffer.len() as u64) as usize;
+            let count = input.read(&mut buffer[..to_read])?;
+            if count == 0 {
+                return Err(SyncError::Storage("backup pack source ended early".into()));
+            }
+            member_hash.update(&buffer[..count]);
+            pack_hash.update(&buffer[..count]);
+            remaining -= count as u64;
+        }
+        let actual = format!("{:x}", member_hash.finalize());
+        if actual != candidate.chunk.sha256 {
+            return Err(SyncError::Crypto(format!(
+                "backup pack source sha256 mismatch: chunk_uuid={} expected={} got={actual}",
+                candidate.chunk.chunk_uuid, candidate.chunk.sha256
+            )));
+        }
+        locations.push((
+            file_key(&candidate.chunk),
+            candidate.chunk.sha256.clone(),
+            offset,
+            candidate.chunk.bytes,
+        ));
+        offset += candidate.chunk.bytes;
+    }
+    let sha256 = format!("{:x}", pack_hash.finalize());
+    let refs = locations
+        .into_iter()
+        .map(|(key, original_sha, member_offset, length)| {
+            (
+                key,
+                original_sha,
+                BackupPackLocation {
+                    sha256: sha256.clone(),
+                    offset: member_offset,
+                    length,
+                    bytes: offset,
+                },
+            )
+        })
+        .collect();
+    let mut synthetic = group[0].chunk.clone();
+    synthetic.collection = "backup_pack".into();
+    synthetic.chunk_uuid.clone_from(&sha256);
+    synthetic.role = BackupManifestRole::Mutable;
+    synthetic.sha256 = sha256;
+    synthetic.bytes = offset;
+    synthetic.pack = None;
+    Ok((
+        BackupChunkUploadCandidate {
+            chunk: synthetic,
+            path: directory.to_path_buf(),
+            pack_members: Some(group),
+        },
+        refs,
+    ))
+}
+
+/// Build one short-lived pack only after the cloud asks for its bytes. The
+/// temporary file is unlinked, but its open handle stays valid through PUT.
+pub(super) fn open_verified_backup_pack_candidate(
+    candidate: &BackupChunkUploadCandidate,
+) -> SyncResult<Option<std::fs::File>> {
+    let members = candidate
+        .pack_members
+        .as_ref()
+        .ok_or_else(|| SyncError::Storage("backup pack upload has no source members".into()))?;
+    if members.is_empty()
+        || members.len() > MAX_PACK_FILES
+        || candidate.chunk.bytes > MAX_PACK_BYTES
+    {
+        return Err(SyncError::Storage(
+            "backup pack exceeds its file or byte bound".into(),
+        ));
+    }
+    std::fs::create_dir_all(&candidate.path)?;
+    let mut output = tempfile::tempfile_in(&candidate.path)?;
+    let mut pack_hash = Sha256::new();
+    let mut bytes = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    for member in members {
+        let Some(mut input) = open_verified_backup_candidate(member)? else {
+            return Ok(None);
+        };
+        let mut remaining = member.chunk.bytes;
+        while remaining > 0 {
+            let to_read = remaining.min(buffer.len() as u64) as usize;
+            let count = input.read(&mut buffer[..to_read])?;
+            if count == 0 {
+                return Err(SyncError::Storage("backup pack source ended early".into()));
+            }
+            output.write_all(&buffer[..count])?;
+            pack_hash.update(&buffer[..count]);
+            remaining -= count as u64;
+            bytes += count as u64;
+        }
+    }
+    let actual = format!("{:x}", pack_hash.finalize());
+    if bytes != candidate.chunk.bytes || actual != candidate.chunk.sha256 {
+        return Err(SyncError::Crypto(format!(
+            "backup pack sha256 mismatch: expected={} got={actual} expected_bytes={} source_bytes={bytes}",
+            candidate.chunk.sha256, candidate.chunk.bytes
+        )));
+    }
+    output.seek(SeekFrom::Start(0))?;
+    Ok(Some(output))
+}
+
+/// Keep a complete local source for an unchanged cloud pack. A later HEAD can
+/// prove the cloud object absent even when the earlier listing did not.
+fn retained_pack_candidate(
+    directory: &Path,
+    members: Vec<BackupChunkUploadCandidate>,
+) -> Option<BackupChunkUploadCandidate> {
+    let first = members.first()?.chunk.pack.as_ref()?;
+    let pack_sha = first.sha256.clone();
+    let pack_bytes = first.bytes;
+    if pack_bytes == 0 || pack_bytes > MAX_PACK_BYTES {
+        return None;
+    }
+    let mut slices = BTreeMap::new();
+    for member in members {
+        let pack = member.chunk.pack.as_ref()?;
+        if pack.sha256 != pack_sha || pack.bytes != pack_bytes || pack.length != member.chunk.bytes
+        {
+            return None;
+        }
+        let slice = (pack.offset, pack.length, member.chunk.sha256.clone());
+        slices.entry(slice).or_insert(member);
+    }
+    if slices.is_empty() || slices.len() > MAX_PACK_FILES {
+        return None;
+    }
+    let ordered: Vec<_> = slices.into_values().collect();
+    let mut covered = 0u64;
+    for member in &ordered {
+        let pack = member.chunk.pack.as_ref()?;
+        if pack.offset != covered {
+            return None;
+        }
+        covered = covered.checked_add(pack.length)?;
+    }
+    if covered != pack_bytes {
+        return None;
+    }
+    let mut synthetic = ordered[0].chunk.clone();
+    synthetic.collection = "backup_pack".into();
+    synthetic.chunk_uuid.clone_from(&pack_sha);
+    synthetic.role = BackupManifestRole::Mutable;
+    synthetic.sha256 = pack_sha;
+    synthetic.bytes = pack_bytes;
+    synthetic.pack = None;
+    Some(BackupChunkUploadCandidate {
+        chunk: synthetic,
+        path: directory.to_path_buf(),
+        pack_members: Some(ordered),
+    })
+}
+
+pub(super) fn pack_backup_publish_candidates(
+    store: &crate::storage::laststore::LastStoreNamespacedStore,
+    manifest: &mut BackupManifest,
+    mut candidates: Vec<BackupChunkUploadCandidate>,
+    previous: Option<&BackupManifest>,
+    cloud_presence: Option<&CloudChunkPresence>,
+) -> SyncResult<Vec<BackupChunkUploadCandidate>> {
+    if manifest.version != PACKED_MANIFEST_VERSION {
+        return Ok(candidates);
+    }
+    repack_dirty_survivors(manifest, &mut candidates, previous, cloud_presence)?;
+    // Keep each new pack's members close to one another in restore order.
+    // The manifest still maps each member by its original file key.
+    candidates.sort_by_key(|candidate| {
+        super::super::backup_restore::backup_restore_chunk_order(&candidate.chunk)
+    });
+    let directory = store
+        .backup_cut_freeze_dir(manifest.counter)
+        .ok_or_else(|| SyncError::Storage("backup pack needs a local sidecar directory".into()))?;
+    let mut ready = Vec::new();
+    let mut pending = Vec::new();
+    let mut pending_bytes = 0u64;
+    let mut locations = BTreeMap::new();
+    let mut retained_pack_members: BTreeMap<String, Vec<BackupChunkUploadCandidate>> =
+        BTreeMap::new();
+    // One direct cloud object can serve every file with the same stored bytes.
+    // Count all manifest refs, including carried atom and packed refs.
+    let mut sha_ref_counts = BTreeMap::<String, usize>::new();
+    for chunk in manifest.atom_chunks.iter().chain(&manifest.mutable_chunks) {
+        *sha_ref_counts.entry(chunk.sha256.clone()).or_default() += 1;
+    }
+    let prior_direct: BTreeMap<_, _> = previous
+        .into_iter()
+        .flat_map(|manifest| manifest.atom_chunks.iter().chain(&manifest.mutable_chunks))
+        .filter(|chunk| chunk.pack.is_none())
+        .map(|chunk| (file_key(chunk), (chunk.sha256.as_str(), chunk.bytes)))
+        .collect();
+    // Only the first v1-to-v2 step converts an unchanged direct file. The
+    // candidate list contains local files, so a carried ref without a local
+    // file stays direct in the manifest and cannot enter a pack.
+    let convert_prior_direct = previous.is_some_and(|prior| prior.version == MANIFEST_VERSION);
+    for candidate in candidates {
+        let already_direct =
+            prior_direct
+                .get(&file_key(&candidate.chunk))
+                .is_some_and(|(sha, bytes)| {
+                    *sha == candidate.chunk.sha256 && *bytes == candidate.chunk.bytes
+                });
+        let can_pack = candidate.chunk.pack.is_none()
+            && candidate.chunk.role == BackupManifestRole::Mutable
+            && !matches!(candidate.chunk.collection.as_str(), "blobs" | "cas_blobs")
+            && sha_ref_counts.get(&candidate.chunk.sha256) == Some(&1)
+            && (!already_direct || convert_prior_direct)
+            && candidate.chunk.bytes > 0
+            && candidate.chunk.bytes <= MAX_PACK_BYTES;
+        if !can_pack
+            || pending.len() >= MAX_PACK_FILES
+            || pending_bytes + candidate.chunk.bytes > MAX_PACK_BYTES
+        {
+            flush_pack(
+                &directory,
+                &mut pending,
+                &mut pending_bytes,
+                &mut ready,
+                &mut locations,
+            )?;
+        }
+        if can_pack {
+            pending_bytes += candidate.chunk.bytes;
+            pending.push(candidate);
+        } else if candidate.chunk.pack.is_none() {
+            ready.push(candidate);
+        } else if let Some(pack_sha) = candidate
+            .chunk
+            .pack
+            .as_ref()
+            .map(|pack| pack.sha256.clone())
+        {
+            retained_pack_members
+                .entry(pack_sha)
+                .or_default()
+                .push(candidate);
+        }
+    }
+    flush_pack(
+        &directory,
+        &mut pending,
+        &mut pending_bytes,
+        &mut ready,
+        &mut locations,
+    )?;
+    finish_pack_candidates(
+        manifest,
+        &directory,
+        retained_pack_members,
+        &locations,
+        &mut ready,
+    );
+    Ok(ready)
+}
+
+fn flush_pack(
+    directory: &Path,
+    pending: &mut Vec<BackupChunkUploadCandidate>,
+    pending_bytes: &mut u64,
+    ready: &mut Vec<BackupChunkUploadCandidate>,
+    locations: &mut BTreeMap<FileKey, (String, BackupPackLocation)>,
+) -> SyncResult<()> {
+    if pending.len() == 1 {
+        // One file already needs one cloud object. Keep its original digest.
+        ready.append(pending);
+    } else if !pending.is_empty() {
+        let (pack, refs) = plan_pack(directory, std::mem::take(pending))?;
+        for (key, sha, location) in refs {
+            locations.insert(key, (sha, location));
+        }
+        ready.push(pack);
+    }
+    *pending_bytes = 0;
+    Ok(())
+}

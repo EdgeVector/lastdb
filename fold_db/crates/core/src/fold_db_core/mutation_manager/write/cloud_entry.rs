@@ -46,7 +46,7 @@ impl MutationManager {
     }
 
     // lint:fn-size-ok verbatim move from write.rs; splitting this function is separate work
-    pub(super) async fn write_mutations_batch_with_receipt_cloud(
+    pub(super) async fn write_mutations_batch_with_receipt_cloud_admitted(
         &self,
         mut mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,

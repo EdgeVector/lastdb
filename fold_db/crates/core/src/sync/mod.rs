@@ -69,6 +69,10 @@ pub mod log;
 pub(crate) mod mutation_intent;
 pub mod org_sync;
 pub(crate) mod policy;
+mod replay_diagnosis;
+pub use replay_diagnosis::{
+    MutationIntentReplayError, ReplayApplyDiagnosis, ReplayCause, ReplayOperation,
+};
 pub mod s3;
 pub mod snapshot;
 /// Continuous cloud sync v1 object model (snapshot + log + frontier + CAS).

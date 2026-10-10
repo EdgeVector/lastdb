@@ -29,6 +29,17 @@ fn require_exact_rescue_chunks(
     listed: &[S3ObjectInfo],
 ) -> SyncResult<CloudChunkPresence> {
     pointer.validate()?;
+    if manifest.version != 1
+        || manifest
+            .atom_chunks
+            .iter()
+            .chain(&manifest.mutable_chunks)
+            .any(|chunk| chunk.pack.is_some())
+    {
+        return Err(SyncError::Storage(
+            "S0 rescue supports direct file manifests only".into(),
+        ));
+    }
     if manifest.store_uuid != pointer.store_uuid
         || manifest.epoch != pointer.epoch
         || manifest.counter != pointer.counter

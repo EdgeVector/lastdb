@@ -141,6 +141,7 @@ pub enum SyncError {
         target: String,
         seq: u64,
         reason: String,
+        diagnosis: super::ReplayApplyDiagnosis,
     },
 
     #[error("sequence gap: expected {expected}, found {found}")]

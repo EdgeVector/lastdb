@@ -24,12 +24,16 @@ use std::future::Future;
 use std::sync::{Arc, OnceLock, RwLock};
 
 mod kv_store;
+mod logical_admission;
 mod logical_commit;
+mod mutation_fence;
 mod namespaced;
 mod queue;
 
 use kv_store::*;
-pub(crate) use logical_commit::*;
+pub(crate) use logical_admission::*;
+pub(crate) use logical_commit::{capture_logical_commit_with_policy, with_capture_suppressed};
+pub(crate) use mutation_fence::*;
 pub(crate) use namespaced::MutationLogCaptureNamespacedStore;
 use queue::*;
 
@@ -119,10 +123,6 @@ impl MutationLogCaptureRouter {
     /// Hold new logical and direct KV mutations outside one snapshot cut.
     pub(crate) async fn fence_mutations(&self) -> tokio::sync::OwnedRwLockWriteGuard<()> {
         Arc::clone(&self.activation_gate).write_owned().await
-    }
-
-    async fn enter_mutation(&self) -> tokio::sync::OwnedRwLockReadGuard<()> {
-        Arc::clone(&self.activation_gate).read_owned().await
     }
 
     /// Attach the engine only after every earlier local-only write finishes.

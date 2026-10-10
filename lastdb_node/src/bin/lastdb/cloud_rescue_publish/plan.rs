@@ -27,6 +27,8 @@ pub(super) async fn load_or_create_plan(
         let mut manifest = store
             .cut_backup_manifest_with_cloud_presence_strict(None, None)
             .map_err(|error| format!("cut complete S0 rescue manifest: {error}"))?;
+        // The S0 restore reader and the rescue hold use direct file objects.
+        manifest.version = 1;
         omit_root_cut_retirement_receipts(&mut manifest)?;
         let manifest_sha256 = manifest_sha256_hex(&manifest)
             .map_err(|error| format!("hash S0 rescue manifest: {error}"))?;

@@ -78,6 +78,9 @@ pub fn rewrite_plain_backup_atom_chunk(
     if chunk.role != BackupManifestRole::Atom || chunk.collection != "atoms" {
         return Err(invalid("not an atom chunk"));
     }
+    if chunk.pack.is_some() {
+        return Err(invalid("packed atom rewrite is unsupported"));
+    }
     if atom_ids.is_empty()
         || atom_ids.len() > MAX_ATOMS
         || atom_ids.iter().any(|id| {
@@ -132,6 +135,7 @@ pub fn rewrite_plain_backup_atom_chunk(
     let mut replacement = chunk.clone();
     replacement.sha256 = sha256_hex(&out);
     replacement.bytes = out.len() as u64;
+    replacement.pack = None;
     // A replacement is a new chunk identity. Reusing the UUID would bypass
     // the chain's removed-chunk receipt check (which keys on chunk identity).
     // Adjacent identity preserves restore order unless another chunk occupies
@@ -170,6 +174,7 @@ pub fn manifest_with_atom_rewrites(
         let mut expected = rewrite.original.clone();
         expected.sha256.clone_from(&rewrite.replacement.sha256);
         expected.bytes = rewrite.replacement.bytes;
+        expected.pack = None;
         expected.chunk_uuid = replacement_uuid(&rewrite.original.chunk_uuid)?;
         if expected != rewrite.replacement || expected.bytes >= rewrite.original.bytes {
             return Err(invalid("replacement changed its chunk address"));
@@ -275,6 +280,7 @@ pub async fn prepare_cloud_backup_atom_rewrite(
     authorized_at: u64,
 ) -> SyncResult<PreparedBackupAtomRewrite> {
     let latest = auth.backup_latest_get().await?;
+    latest.latest.require_supported_format()?;
     if latest.latest.manifest_sha256 != expected_manifest
         || chunk_shas.is_empty()
         || chunk_shas.len() > 64
@@ -288,6 +294,9 @@ pub async fn prepare_cloud_backup_atom_rewrite(
         .into_iter()
         .next()
         .ok_or_else(|| invalid("empty manifest chain"))?;
+    if latest.latest.format_version() != previous.version {
+        return Err(invalid("latest format differs from manifest"));
+    }
     let scope = crate::storage::laststore::cloud_db_hash_for_store_uuid(&previous.store_uuid);
     if auth.db_hash_scope() != Some(scope.as_str())
         || latest.latest.store_uuid != previous.store_uuid
@@ -391,11 +400,12 @@ pub async fn publish_cloud_backup_atom_rewrite(
         return Err(invalid("cloud tip changed before CAS"));
     }
     let committed = auth
-        .backup_latest_cas(
+        .backup_latest_cas_for_format(
             &prepared.next.store_uuid,
             prepared.next.epoch,
             prepared.next.counter,
             &next_sha,
+            prepared.next.version,
         )
         .await?;
     if committed.latest.store_uuid != prepared.next.store_uuid

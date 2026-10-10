@@ -529,7 +529,12 @@ pub(super) async fn replay_mutation_log_segments_with_progress(
                     .map_err(SyncError::Storage)?,
             )
         };
-        engine.replay_entry(&record.entry, target.as_ref()).await?;
+        engine
+            .replay_entry(&record.entry, target.as_ref())
+            .await
+            .map_err(|error| {
+                error.with_replay_operation(record.entry.seq, (&record.entry.op).into())
+            })?;
         touched_namespaces.insert(log_entry_namespace(&record.entry).to_string());
         *writer_frontier = record.frontier_after;
         report.records_applied += 1;

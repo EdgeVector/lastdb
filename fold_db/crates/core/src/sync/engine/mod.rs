@@ -63,6 +63,7 @@ pub use backup_restore::{
     laststore_published_backup_cut, laststore_published_backup_cut_detailed,
     restore_laststore_cloud_backup, restore_laststore_cloud_backup_detailed,
     restore_laststore_cloud_backup_from_latest_pointer,
+    restore_laststore_cloud_backup_from_latest_pointer_with_cache,
     restore_laststore_cloud_backup_from_rescue_with_cache,
     restore_laststore_cloud_backup_with_cache, restore_laststore_cloud_backup_with_progress,
     LastStoreCloudRestoreReport, S0RestoreBoundary, S0RestoreFailure,
@@ -304,6 +305,8 @@ pub struct SyncEngine {
     pub(crate) automatic_gc_pin_log_activation_pending: AtomicBool,
     /// Flush acknowledged resident writes before the compactor enumerates S.
     photograph_cut_barrier: Arc<Mutex<Option<PhotographCutBarrier>>>,
+    photograph_mutation_router:
+        Arc<Mutex<Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>>>,
     /// Refresh store addressing after S installs durable layout markers.
     photograph_restore_barrier: Arc<Mutex<Option<PhotographCutBarrier>>>,
     /// Optional callback invoked after sync replay writes native_index entries to Sled.

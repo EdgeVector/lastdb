@@ -72,11 +72,13 @@ pub use backup_manifest::{
     classify_manifest_chain_step, compute_backup_storage_footprint,
     enumerate_backup_publish_target_candidates, manifest_referenced_chunk_shas,
     manifest_sha256_hex, select_orphan_backup_chunk_shas, unbackable_manifest_chunk_count,
-    validate_manifest_chain, BackupChunkRef, BackupChunkScan, BackupChunkUploadCandidate,
-    BackupDeletionReceipt, BackupManifest, BackupManifestChainStep, BackupManifestRole,
-    BackupNamedHole, BackupStorageFootprint, CloudChunkPresence, DescriptorChainStep,
-    StampCommittedSuccessorHistoryReport, UnresolvableChunk, DESCRIPTOR_VERSION,
-    NAMED_HOLE_REASON_ABSENT_LOCAL_AND_CLOUD, UNBACKABLE_RETIREMENT_REASON_ABSENT_LOCAL_AND_CLOUD,
+    validate_manifest_chain, validate_manifest_chain_before_packing, AtomPhotographCopyReport,
+    BackupChunkRef, BackupChunkScan, BackupChunkUploadCandidate, BackupDeletionReceipt,
+    BackupManifest, BackupManifestChainStep, BackupManifestRole, BackupNamedHole,
+    BackupPackLocation, BackupStorageFootprint, CloudChunkPresence, DescriptorChainStep,
+    StampCommittedSuccessorHistoryReport, UnresolvableChunk, DESCRIPTOR_VERSION, MANIFEST_VERSION,
+    NAMED_HOLE_REASON_ABSENT_LOCAL_AND_CLOUD, PACKED_MANIFEST_VERSION,
+    UNBACKABLE_RETIREMENT_REASON_ABSENT_LOCAL_AND_CLOUD,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 pub use dual_read_metrics::{

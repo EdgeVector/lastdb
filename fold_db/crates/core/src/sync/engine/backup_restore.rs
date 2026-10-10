@@ -4,6 +4,8 @@ use super::super::auth::ops::{BackupLatestGetResponse, BackupLatestPointer, Resc
 use super::super::auth::AuthClient;
 use super::super::error::{SyncError, SyncResult};
 use super::super::s3::S3Client;
+mod packs;
+mod pointer;
 use super::pin_log::MutationLogReplayReport;
 use super::restore_progress::{self as progress, RestorePhase, RestoreProgress, TransferOperation};
 use super::RestoreChunkCache;
@@ -14,6 +16,10 @@ use crate::storage::laststore::{
 };
 use crate::sync::snapshot_log::Frontier;
 use futures::{stream::FuturesOrdered, StreamExt};
+pub use pointer::{
+    restore_laststore_cloud_backup_from_latest_pointer,
+    restore_laststore_cloud_backup_from_latest_pointer_with_cache,
+};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::time::Instant;
@@ -191,25 +197,6 @@ pub async fn restore_laststore_cloud_backup_from_rescue_with_cache(
     restore_into_with_cache(auth, s3, store, progress, None, Some((pointer, true))).await
 }
 
-/// Restore the exact normal pointer that a source-free descriptor authenticated.
-pub async fn restore_laststore_cloud_backup_from_latest_pointer(
-    auth: &AuthClient,
-    s3: &S3Client,
-    store: &LastStoreNamespacedStore,
-    pointer: &BackupLatestGetResponse,
-    progress: Option<&RestoreProgress>,
-) -> Result<LastStoreCloudRestoreReport, S0RestoreFailure> {
-    restore_into_with_cache(
-        auth,
-        s3,
-        store,
-        progress,
-        None,
-        Some((pointer.clone(), false)),
-    )
-    .await
-}
-
 fn require_independent_rescue_root(manifests: &[BackupManifest]) -> SyncResult<()> {
     match manifests {
         [root] if root.previous_manifest_sha256.is_none() => Ok(()),
@@ -242,13 +229,10 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
             .await,
         )?,
     };
-    // The v1 reader stops here on a pointer that names another format. This
-    // runs before the first manifest presign so a v2 tip is a named
-    // `UnsupportedBackupFormat` at the pointer boundary, never a decode or
-    // chain-walk failure after cloud reads.
+    // Reject unknown formats before the first manifest request.
     at_s0_boundary(
         Boundary::LatestPointerValidation,
-        latest.latest.require_v1_format(),
+        latest.latest.require_supported_format(),
     )?;
     progress::phase(progress, RestorePhase::ManifestChain);
     let manifests =
@@ -269,7 +253,8 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
     // Defense-in-depth: `download_manifest_chain` already verified the tip
     // digest during its walk; re-check pointer fields against the body so a
     // mismatched latest row cannot install the wrong cut.
-    if latest.latest.store_uuid != manifest.store_uuid
+    if latest.latest.format_version() != manifest.version
+        || latest.latest.store_uuid != manifest.store_uuid
         || latest.latest.epoch != manifest.epoch
         || latest.latest.counter != manifest.counter
         || latest.latest.manifest_sha256
@@ -318,6 +303,7 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
         );
     });
     progress::phase(progress, RestorePhase::ChunkTransfer);
+    let pack_cache = packs::VerifiedPackCache::default();
     let mut downloads = FuturesOrdered::new();
     let mut next = 0;
     let mut reserved = 0u64;
@@ -329,6 +315,7 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
             if let Some(origin) = install_origins.get(&identity::address(chunk)) {
                 install.chunk_uuid.clone_from(origin);
             }
+            let pack_cache_ref = &pack_cache;
             downloads.push_back(async move {
                 if let Some(bytes) = cache.and_then(|cache| {
                     progress::measure_cache_read(progress, || {
@@ -341,7 +328,14 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
                     chunk,
                     install,
                     false,
-                    download_backup_chunk_with_progress(auth, s3, chunk, progress).await,
+                    download_backup_chunk_with_progress(
+                        auth,
+                        s3,
+                        chunk,
+                        progress,
+                        Some(pack_cache_ref),
+                    )
+                    .await,
                 )
             });
             next += 1;
@@ -369,6 +363,7 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
         }
         bytes_installed = bytes_installed.saturating_add(bytes.len() as u64);
         reserved = reserved.saturating_sub(download_reservation(chunk));
+        pack_cache.trim().await;
         progress::update(progress, |p| {
             p.chunks_installed = chunks_installed;
             p.bytes_installed = bytes_installed;
@@ -430,7 +425,7 @@ pub async fn laststore_published_backup_cut_detailed(
     let latest = at_s0_boundary(Boundary::LatestPointer, auth.backup_latest_get().await)?;
     at_s0_boundary(
         Boundary::LatestPointerValidation,
-        latest.latest.require_v1_format(),
+        latest.latest.require_supported_format(),
     )?;
     let manifests = download_manifest_chain(auth, s3, &latest.latest.manifest_sha256).await?;
     let manifest = at_s0_boundary(
@@ -439,7 +434,8 @@ pub async fn laststore_published_backup_cut_detailed(
             SyncError::Storage("backup restore found no valid manifests".to_string())
         }),
     )?;
-    if latest.latest.store_uuid != manifest.store_uuid
+    if latest.latest.format_version() != manifest.version
+        || latest.latest.store_uuid != manifest.store_uuid
         || latest.latest.epoch != manifest.epoch
         || latest.latest.counter != manifest.counter
         || latest.latest.manifest_sha256
@@ -618,7 +614,11 @@ const RESTORE_DOWNLOAD_CONCURRENCY: usize = 8;
 const RESTORE_DOWNLOAD_BUFFER_BYTES: u64 = 128 * 1024 * 1024;
 
 fn download_reservation(chunk: &BackupChunkRef) -> u64 {
-    chunk.bytes.max(BACKUP_CHUNK_DOWNLOAD_HARD_CAP as u64)
+    let file_and_pack = chunk
+        .pack
+        .as_ref()
+        .map_or(chunk.bytes, |pack| chunk.bytes.saturating_add(pack.bytes));
+    file_and_pack.max(BACKUP_CHUNK_DOWNLOAD_HARD_CAP as u64)
 }
 
 fn download_fits(count: usize, reserved: u64, chunk: &BackupChunkRef) -> bool {
@@ -666,7 +666,7 @@ pub(super) async fn download_backup_chunk(
     s3: &S3Client,
     chunk: &BackupChunkRef,
 ) -> SyncResult<Vec<u8>> {
-    download_backup_chunk_with_progress(auth, s3, chunk, None).await
+    download_backup_chunk_with_progress(auth, s3, chunk, None, None).await
 }
 
 async fn download_backup_chunk_with_progress(
@@ -674,7 +674,11 @@ async fn download_backup_chunk_with_progress(
     s3: &S3Client,
     chunk: &BackupChunkRef,
     progress: Option<&RestoreProgress>,
+    pack_cache: Option<&packs::VerifiedPackCache>,
 ) -> SyncResult<Vec<u8>> {
+    if chunk.pack.is_some() {
+        return packs::download_packed_file(auth, s3, chunk, progress, pack_cache).await;
+    }
     let presigned = progress::measure(
         progress,
         TransferOperation::Authorization,

@@ -10,7 +10,8 @@ use std::fs;
 use std::io::Write as _;
 use std::path::PathBuf;
 
-const MANIFEST_VERSION: u32 = 1;
+pub const MANIFEST_VERSION: u32 = 1;
+pub const PACKED_MANIFEST_VERSION: u32 = 2;
 /// Version of the v2 descriptor page and receipt formats. The v2 reader in
 /// [`super::backup_descriptor`] accepts this value only; the v1 reader above
 /// keeps accepting [`MANIFEST_VERSION`] only.
@@ -212,6 +213,9 @@ pub struct BackupChunkRef {
     /// digests are unchanged by this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
+    /// Location in a byte-for-byte pack. Absent on legacy direct objects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack: Option<BackupPackLocation>,
 }
 
 /// Hash-chained manifest for a local LastStore snapshot cut.
@@ -249,13 +253,6 @@ pub struct BackupNamedHole {
     pub role: BackupManifestRole,
 }
 
-/// One local sealed chunk selected for cloud backup upload.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackupChunkUploadCandidate {
-    pub chunk: BackupChunkRef,
-    pub path: PathBuf,
-}
-
 /// Select cloud backup chunk digests that are safe to reclaim: present in the
 /// cloud listing, but referenced by none of the keep-set manifests (current +
 /// recent retained cuts). Live-manifest digests are never returned.
@@ -288,7 +285,7 @@ pub fn manifest_referenced_chunk_shas(manifest: &BackupManifest) -> BTreeSet<Str
         .atom_chunks
         .iter()
         .chain(manifest.mutable_chunks.iter())
-        .map(|c| c.sha256.clone())
+        .map(|c| c.object_sha256().to_string())
         .collect()
 }
 
@@ -645,7 +642,11 @@ pub fn scan_backup_chunks(
         if previous_refs.contains(&chunk_key(&chunk)) {
             continue;
         }
-        candidates.push(BackupChunkUploadCandidate { chunk, path });
+        candidates.push(BackupChunkUploadCandidate {
+            chunk,
+            path,
+            pack_members: None,
+        });
     }
     candidates.sort_by_key(|candidate| chunk_key(&candidate.chunk));
     Ok(BackupChunkScan {
@@ -717,6 +718,7 @@ fn chunk_ref_from_meta(
         bytes,
         end_csn: meta.end_csn,
         instance: None,
+        pack: None,
     })
 }
 
@@ -738,14 +740,18 @@ fn chunk_key(chunk: &BackupChunkRef) -> (String, u16, Option<u32>, String) {
 }
 
 mod chunk_sha_memo;
+mod packs;
+pub use packs::*;
 mod retirement_receipts;
 pub(crate) use chunk_sha_memo::*;
 use retirement_receipts::*;
 
+mod atom_copy;
 mod atom_lineage;
 mod chain;
 mod cut;
 mod retirements;
+pub use atom_copy::*;
 pub use atom_lineage::*;
 pub use chain::*;
 pub use cut::*;

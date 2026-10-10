@@ -46,7 +46,10 @@ impl<'a> Flavor<'a> {
                 (cache_home, false, false, RemoteRecoverySelector::default())
             }
             RestoreSourceMode::RemoteS0(selection) => (None, true, false, selection),
-            RestoreSourceMode::RemoteLatest(selection) => (None, false, true, selection),
+            RestoreSourceMode::RemoteLatest {
+                selection,
+                cache_home,
+            } => (cache_home, false, true, selection),
         };
         Self {
             cache_home,

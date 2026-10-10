@@ -40,7 +40,7 @@ where
 }
 
 /// Capture one logical commit after its author clock reaches durable metadata.
-pub(crate) async fn capture_logical_commit_with_policy_and_author_clock<F, T, E>(
+pub(super) async fn capture_logical_commit_admitted<F, T, E>(
     router: Option<Arc<MutationLogCaptureRouter>>,
     envelopes: Vec<MutationEnvelope>,
     policy: CloudCapturePolicy,
@@ -66,7 +66,7 @@ where
     // before the engine was attached. Later commits wait behind activation
     // and reserve capture against the new engine before resident apply.
     let _activation_guard = match router.as_ref() {
-        Some(router) => Some(router.enter_mutation().await),
+        Some(router) => router.enter_mutation().await,
         None => None,
     };
     let reservation = match router.as_ref() {

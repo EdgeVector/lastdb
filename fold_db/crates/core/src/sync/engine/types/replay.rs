@@ -48,6 +48,7 @@ pub(crate) fn replay_blocker_from_error(err: &SyncError) -> Option<SyncReplayBlo
             target,
             seq,
             reason,
+            ..
         } => Some(SyncReplayBlocker {
             code: "cloud_replay_apply_failed".to_string(),
             target: target.clone(),

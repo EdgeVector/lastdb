@@ -56,7 +56,7 @@ impl SyncEngine {
         expected: &super::super::primary_resume::PrimaryResumeCutIdentity,
     ) -> SyncResult<()> {
         if let Some(latest) = self.auth.backup_latest_get_optional().await? {
-            latest.latest.require_v1_format()?;
+            latest.latest.require_supported_format()?;
             if !expected.matches_previous_latest(&latest.latest) {
                 return Err(SyncError::Storage(
                     "primary resume normal backup/latest changed before CAS".into(),

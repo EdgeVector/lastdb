@@ -178,6 +178,7 @@ impl SyncEngine {
             automatic_gc_pin_log_barrier: Arc::new(Mutex::new(())),
             automatic_gc_pin_log_activation_pending: AtomicBool::new(false),
             photograph_cut_barrier: Arc::new(Mutex::new(None)),
+            photograph_mutation_router: Arc::new(Mutex::new(None)),
             photograph_restore_barrier: Arc::new(Mutex::new(None)),
             embedding_reloader: Arc::new(Mutex::new(None)),
             auth_refresh: None,

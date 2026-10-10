@@ -147,12 +147,13 @@ impl Apply<'_> {
                 )
                 .await
             } else {
-                fold_db::sync::engine::restore_laststore_cloud_backup_from_latest_pointer(
+                fold_db::sync::engine::restore_laststore_cloud_backup_from_latest_pointer_with_cache(
                     auth,
                     s3,
                     store,
                     recovery.latest.as_ref().expect("normal latest was checked"),
                     progress,
+                    self.homes.cache.as_ref(),
                 )
                 .await
             }

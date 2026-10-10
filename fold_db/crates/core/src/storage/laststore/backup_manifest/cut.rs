@@ -108,8 +108,21 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
     let mut mutable_chunks = Vec::new();
     let mut local_atom_keys = BTreeSet::new();
     let mut local_atom_shas = BTreeSet::new();
+    let prior_by_key: BTreeMap<_, _> = previous_manifest
+        .into_iter()
+        .flat_map(|manifest| manifest.atom_chunks.iter().chain(&manifest.mutable_chunks))
+        .map(|chunk| (chunk_key(chunk), chunk))
+        .collect();
 
-    for (chunk, _path) in chunk_refs_from_walk(store, verified)? {
+    let selected = chunk_refs_from_walk(store, verified)?;
+    let pending_purged = load_pending_purged_atom_retirements(store)?;
+    verify_selected_atom_replacements(previous_manifest, &selected, &pending_purged)?;
+    for (mut chunk, _path) in selected {
+        if let Some(prior) = prior_by_key.get(&chunk_key(&chunk)) {
+            if prior.sha256 == chunk.sha256 && prior.bytes == chunk.bytes {
+                chunk.pack.clone_from(&prior.pack);
+            }
+        }
         match chunk.role {
             BackupManifestRole::Atom => {
                 local_atom_keys.insert(chunk_key(&chunk));
@@ -124,7 +137,6 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
     mutable_chunks = dedupe_and_sort_chunks(mutable_chunks);
 
     let mut deletion_receipts = Vec::new();
-    let pending_purged = load_pending_purged_atom_retirements(store)?;
     if !pending_purged.compaction_in_progress_shas.is_empty()
         || !pending_purged.compaction_in_progress_prefixes.is_empty()
     {
@@ -169,7 +181,13 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
     let previous_manifest_sha256 = previous_manifest.map(manifest_sha256_hex).transpose()?;
 
     Ok(BackupManifest {
-        version: MANIFEST_VERSION,
+        version: if previous_manifest.is_some_and(|prior| prior.version == PACKED_MANIFEST_VERSION)
+            || std::env::var("LASTDB_BACKUP_FILE_PACKS").is_ok_and(|value| value == "1")
+        {
+            PACKED_MANIFEST_VERSION
+        } else {
+            MANIFEST_VERSION
+        },
         store_uuid: state.store_uuid,
         epoch: state.backup_epoch,
         counter: state.backup_manifest_counter,

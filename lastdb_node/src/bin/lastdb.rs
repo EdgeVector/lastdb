@@ -61,6 +61,14 @@ use cli_defs::*;
 fn main() {
     install_broken_pipe_exit_hook();
     let cli = Cli::parse();
+    if matches!(cli.command.as_ref(), Some(Command::Restore { .. })) {
+        // Restore replays authenticated historical writes in this one-shot process.
+        // Keep the absolute atom cap even when this host uses the 64 KiB default.
+        std::env::set_var(
+            fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV,
+            fold_db::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES.to_string(),
+        );
+    }
     let json_restore = matches!(
         cli.command.as_ref(),
         Some(Command::Restore { json: true, .. })
@@ -454,10 +462,11 @@ fn run(cli: Cli) -> Result<(), String> {
                     api_url,
                     json,
                     progress_json,
-                    RemoteRecoverySelector {
-                        db_hash: db_hash.as_deref(),
-                        manifest_sha256: manifest_sha256.as_deref(),
-                    },
+                    RemoteLatestOptions::new(
+                        db_hash.as_deref(),
+                        manifest_sha256.as_deref(),
+                        reuse_chunks_from.as_deref(),
+                    ),
                 )
             } else if let Some(cache_home) = reuse_chunks_from {
                 restore_command_with_chunk_cache(

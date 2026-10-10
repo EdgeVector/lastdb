@@ -20,6 +20,7 @@ use super::helpers::{apply_storage_prefix_to_schema, validate_derived_provenance
 /// Max keys purged under one exclusive per-schema barrier hold.
 const PURGE_BARRIER_CHUNK: usize = 64;
 
+mod admission;
 mod attribution;
 mod batch_inner;
 mod cloud_entry;

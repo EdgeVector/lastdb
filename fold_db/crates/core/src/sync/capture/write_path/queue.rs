@@ -24,6 +24,7 @@ impl CaptureReservation {
             kind,
             queued_at: std::time::Instant::now(),
             _pending_task: pending_task,
+            mutation_admission: current_mutation_admission(),
         });
     }
 }
@@ -33,6 +34,7 @@ pub(super) struct CaptureJob {
     pub(super) kind: CaptureJobKind,
     pub(super) queued_at: std::time::Instant,
     pub(super) _pending_task: PendingTask,
+    pub(super) mutation_admission: Option<MutationAdmission>,
 }
 
 pub(super) enum CaptureJobKind {
@@ -83,7 +85,11 @@ pub(super) async fn run_capture_queue(mut receiver: tokio::sync::mpsc::Receiver<
         // on receiver teardown. Spawning isolates the panic in the join
         // handle so this loop keeps draining the queue.
         let engine = Arc::clone(&job.engine);
-        if let Err(join_error) = tokio::spawn(process_capture_job(job)).await {
+        let capture = with_existing_mutation_admission(
+            job.mutation_admission.clone(),
+            process_capture_job(job),
+        );
+        if let Err(join_error) = tokio::spawn(capture).await {
             if let Ok(panic) = join_error.try_into_panic() {
                 let panics = engine
                     .capture_queue_worker_panics
@@ -118,6 +124,7 @@ pub(super) async fn process_capture_job(job: CaptureJob) {
         kind,
         queued_at,
         _pending_task,
+        mutation_admission: _mutation_admission,
     } = job;
     engine.capture_queue_delay_us.fetch_add(
         elapsed_micros(queued_at),

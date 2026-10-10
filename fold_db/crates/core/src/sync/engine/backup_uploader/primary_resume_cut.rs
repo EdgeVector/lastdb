@@ -36,6 +36,8 @@ impl SyncEngine {
         }
         let (previous, latest, cloud_presence, fresh_proof) =
             self.primary_resume_cloud_inputs(fresh_from_local).await?;
+        self.require_backup_file_pack_capability(previous.as_ref(), fresh_proof.is_some())
+            .await?;
         let _publish_turn = self.backup_publish_turn.lock().await;
         let _mutation_fence = router.fence_mutations().await;
         if fresh_from_local {
@@ -55,6 +57,7 @@ impl SyncEngine {
             true,
             accept_local_damage,
             fresh_proof.as_ref(),
+            true,
         )
         .await?;
         let target = self.backup_publish_target.lock().await;
@@ -111,7 +114,7 @@ impl SyncEngine {
                 SyncError::Storage(format!("hash prior normal backup manifest: {error}"))
             })?;
             let latest = self.auth.backup_latest_get().await?;
-            latest.latest.require_v1_format()?;
+            latest.latest.require_supported_format()?;
             if latest.latest.store_uuid != previous.store_uuid
                 || latest.latest.epoch != previous.epoch
                 || latest.latest.counter != previous.counter
@@ -153,20 +156,22 @@ impl SyncEngine {
     ) -> SyncResult<crate::sync::auth::ops::BackupLatestCasResponse> {
         if fresh_root {
             self.auth
-                .backup_latest_cas_if_absent(
+                .backup_latest_cas_if_absent_for_format(
                     &manifest.store_uuid,
                     manifest.epoch,
                     manifest.counter,
                     manifest_sha256,
+                    manifest.version,
                 )
                 .await
         } else {
             self.auth
-                .backup_latest_cas(
+                .backup_latest_cas_for_format(
                     &manifest.store_uuid,
                     manifest.epoch,
                     manifest.counter,
                     manifest_sha256,
+                    manifest.version,
                 )
                 .await
         }

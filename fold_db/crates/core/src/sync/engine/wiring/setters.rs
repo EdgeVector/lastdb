@@ -171,6 +171,13 @@ impl SyncEngine {
         *self.photograph_cut_barrier.lock().await = Some(barrier);
     }
 
+    pub(crate) async fn set_photograph_mutation_router(
+        &self,
+        router: Arc<crate::sync::capture::MutationLogCaptureRouter>,
+    ) {
+        *self.photograph_mutation_router.lock().await = Some(router);
+    }
+
     /// Register the serving-store refresh that runs after photograph restore.
     pub async fn set_photograph_restore_barrier(&self, barrier: PhotographCutBarrier) {
         *self.photograph_restore_barrier.lock().await = Some(barrier);

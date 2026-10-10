@@ -47,8 +47,9 @@ tail responses, so it is not an S0 chunk download byte count.
 
 ## Verification
 
-The core tests cover exact prefix reuse, appended local tails, corrupt and missing
-candidates, symlink refusal, normal cloud fallback, native receipt aliases, and
-cold reads after two opens. The synthetic server rejects all remote write calls.
-CLI tests reject overlap, symlink aliases, and any pre-existing target content
-before credentials or destination writes.
+The DEV cloud proof uses synthetic records and a separate recovery home.
+It restores a direct backup and a packed backup, then checks records by key.
+It also checks a later create, update, Delete, a 160 KiB atom, and a local file blob.
+An interrupted restore supplies 268 verified chunks and 983854 bytes to a fresh target.
+That target replays 192 records and returns the same record and file values.
+No test suite runs. Format, lint, and product build checks remain the code gates.

@@ -179,10 +179,11 @@ impl SyncEngine {
         if target.generation != generation {
             return None;
         }
+        target.manifest = manifest;
+        let still_referenced = manifest_referenced_chunk_shas(&target.manifest);
         target
             .candidates
-            .retain(|c| !hole_shas.contains(&c.chunk.sha256));
-        target.manifest = manifest;
+            .retain(|c| still_referenced.contains(&c.chunk.sha256));
         target.unbackable_manifest_chunks = unbackable_manifest_chunk_count(
             &target.manifest,
             &candidate_sha_set(&target.candidates),
@@ -246,31 +247,32 @@ impl SyncEngine {
             .await
             .max(1);
 
-        let probes = manifest
+        let object_shas: BTreeSet<_> = manifest
             .mutable_chunks
             .iter()
             .chain(manifest.atom_chunks.iter())
-            .map(|chunk| chunk.sha256.clone())
-            .map(|sha| async {
-                // `None` means the probe could not determine presence this
-                // cycle (transport/auth failure) — distinct from a
-                // server-confirmed `Some(false)` absence. Collapsing the two
-                // let a flaky HEAD punch a false hole in the keep-set.
-                let outcome = match self.auth.require_backup_chunk_present(&sha).await {
-                    Ok(present) => Some(present),
-                    Err(err) => {
-                        tracing::warn!(
-                            target: "fold_db::sync::backup",
-                            sha = %sha,
-                            error = %err,
-                            "backup chunk presence probe failed (transport/auth); \
-                             leaving prior presence classification untouched"
-                        );
-                        None
-                    }
-                };
-                (sha, outcome)
-            });
+            .map(|chunk| chunk.object_sha256().to_string())
+            .collect();
+        let probes = object_shas.into_iter().map(|sha| async {
+            // `None` means the probe could not determine presence this
+            // cycle (transport/auth failure) — distinct from a
+            // server-confirmed `Some(false)` absence. Collapsing the two
+            // let a flaky HEAD punch a false hole in the keep-set.
+            let outcome = match self.auth.require_backup_chunk_present(&sha).await {
+                Ok(present) => Some(present),
+                Err(err) => {
+                    tracing::warn!(
+                        target: "fold_db::sync::backup",
+                        sha = %sha,
+                        error = %err,
+                        "backup chunk presence probe failed (transport/auth); \
+                         leaving prior presence classification untouched"
+                    );
+                    None
+                }
+            };
+            (sha, outcome)
+        });
         let mut probe_stream = stream::iter(probes).buffer_unordered(concurrency);
 
         let mut confirmed_missing = BTreeSet::new();

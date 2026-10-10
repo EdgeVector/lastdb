@@ -75,4 +75,6 @@ The fresh cut stops primary writes while it reads the local files.
 The file read can stop writes for more than 30 seconds on a large local store.
 Schedule a quiet period and measure the pause.
 The remote restore test uses the normal backup; it does not test B2 file blobs.
-The restored target has no sync engine. Its file blob fetch route returns 409.
+The restored target has no sync engine. Its file blob fetch route reads local `cas_blobs`.
+It returns 404 when the file blob is absent locally because it cannot ask the cloud.
+This local read does not prove access to a file blob that exists only in B2.

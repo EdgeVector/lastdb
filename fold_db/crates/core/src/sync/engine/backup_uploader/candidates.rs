@@ -4,14 +4,14 @@ pub(super) fn make_verified_primary_resume_root(
     previous: &BackupManifest,
     manifest: &mut BackupManifest,
 ) -> SyncResult<()> {
-    validate_manifest_chain(Some(previous), manifest).map_err(|error| {
+    validate_manifest_chain_before_packing(Some(previous), manifest).map_err(|error| {
         SyncError::Storage(format!(
             "primary resume predecessor step is invalid: {error}"
         ))
     })?;
     manifest.previous_manifest_sha256 = None;
     manifest.deletion_receipts.clear();
-    validate_manifest_chain(None, manifest).map_err(|error| {
+    validate_manifest_chain_before_packing(None, manifest).map_err(|error| {
         SyncError::Storage(format!(
             "primary resume independent root is invalid: {error}"
         ))

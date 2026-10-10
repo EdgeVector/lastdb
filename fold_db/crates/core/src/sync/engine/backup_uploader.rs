@@ -6,7 +6,7 @@
 //! 3. CAS `latest` → (S, F, counter) — only atomic step
 //! 4. Mark mutation-log segments fully ≤ F as GC-eligible only after CAS
 //!
-//! Never blocks local Mini R/W (runs on a dedicated throttled thread).
+//! The local cut fences mutations; the long cloud upload releases that fence.
 
 use super::gc_jobs::GcObjectOutcome;
 use super::*;
@@ -15,7 +15,9 @@ use crate::storage::laststore::{
     cas_proven_named_hole_shas, cas_proven_unbackable_atom_shas, cloud_db_hash_for_store_uuid,
     compute_backup_storage_footprint, manifest_referenced_chunk_shas, manifest_sha256_hex,
     select_orphan_backup_chunk_shas, unbackable_manifest_chunk_count, validate_manifest_chain,
-    BackupChunkUploadCandidate, BackupManifest, BackupStorageFootprint, CloudChunkPresence,
+    validate_manifest_chain_before_packing, BackupChunkUploadCandidate, BackupManifest,
+    BackupManifestRole, BackupPackLocation, BackupStorageFootprint, CloudChunkPresence,
+    MANIFEST_VERSION, PACKED_MANIFEST_VERSION,
 };
 use crate::sync::auth::ops::BackupLatestPointer;
 use crate::sync::snapshot_log::{
@@ -66,7 +68,9 @@ mod candidates;
 mod cas_inner;
 mod chunk_upload;
 mod cloud_snapshot;
+mod copy_proof;
 mod cut_policy;
+mod file_packs;
 mod gc_execute;
 mod gc_keep_set;
 mod gc_run;
@@ -82,6 +86,7 @@ mod stats_types;
 mod uploader_loop;
 
 use candidates::*;
+use copy_proof::*;
 pub use cut_policy::*;
 pub use gc_types::*;
 use policy_helpers::*;

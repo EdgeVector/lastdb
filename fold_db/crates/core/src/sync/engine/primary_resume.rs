@@ -215,7 +215,7 @@ impl SyncEngine {
         }
         let latest = self.auth.backup_latest_get().await?;
         let expected = &cut.manifest;
-        latest.latest.require_v1_format()?;
+        latest.latest.require_supported_format()?;
         if !expected.matches_latest(&latest.latest) {
             return Err(SyncError::Storage(
                 "primary resume cut is not the current cloud backup/latest".into(),
