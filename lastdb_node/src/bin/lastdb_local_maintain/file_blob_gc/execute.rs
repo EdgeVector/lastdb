@@ -39,14 +39,14 @@ pub(super) async fn execute(
     let mut report = model::Report {
         event: "file_blob_gc_offline",
         execute: true,
-        counts: plan.counts.clone(),
+        counts: model::PublicCounts::from(&plan.counts),
         ledger_committed: false,
         file_blobs_deleted: 0,
         compactions: Vec::new(),
         atom_retirement_state_unchanged: false,
         fresh_snapshot_required: true,
-        prerequisites: plan.prerequisites.clone(),
-        pre_blob_snapshot_writer_map: plan.pre_blob_snapshot_writer_map.clone(),
+        pre_blob_snapshot_writer_count: u64::try_from(plan.pre_blob_snapshot_writer_map.len())
+            .unwrap_or(u64::MAX),
         csn_before,
         csn_after: csn_before,
     };

@@ -21,6 +21,7 @@ mod execute;
 mod inventory;
 mod model;
 mod pointers;
+mod public_report;
 mod snapshot_fence;
 mod target_inventory;
 
@@ -87,29 +88,30 @@ pub(crate) fn run(args: &FileBlobGcArgs) -> Result<(), String> {
         model::Report {
             event: "file_blob_gc_offline",
             execute: false,
-            counts: plan.counts,
+            counts: model::PublicCounts::from(&plan.counts),
             ledger_committed: false,
             file_blobs_deleted: 0,
             compactions: Vec::new(),
             atom_retirement_state_unchanged: true,
             fresh_snapshot_required: false,
-            prerequisites: plan.prerequisites,
-            pre_blob_snapshot_writer_map: plan.pre_blob_snapshot_writer_map,
+            pre_blob_snapshot_writer_count: u64::try_from(plan.pre_blob_snapshot_writer_map.len())
+                .unwrap_or(u64::MAX),
             csn_before: 0,
             csn_after: 0,
         }
     };
+    let public = public_report::Report::from(&report);
     if args.json {
-        println!("{}", serde_json::to_string(&report).map_err(err)?);
+        println!("{}", serde_json::to_string(&public).map_err(err)?);
     } else {
         println!(
             "file blobs: read={} referenced={} recent={} undated={} candidates={} deleted={}",
-            report.counts.file_blobs_read,
-            report.counts.file_blobs_referenced,
-            report.counts.file_blobs_recent,
-            report.counts.file_blobs_undated,
-            report.counts.candidate_rows,
-            report.file_blobs_deleted,
+            public.counts.file_blobs_read,
+            public.counts.file_blobs_referenced,
+            public.counts.file_blobs_recent,
+            public.counts.file_blobs_undated,
+            public.counts.candidate_rows,
+            public.file_blobs_deleted,
         );
     }
     Ok(())

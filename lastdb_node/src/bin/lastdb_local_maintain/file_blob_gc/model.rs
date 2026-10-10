@@ -36,6 +36,40 @@ pub(super) struct Counts {
     pub candidate_stored_bytes: u64,
 }
 
+/// Numeric summary only; physical scope identities stay in the private plan.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct PublicCounts {
+    pub physical_rows: u64,
+    pub atoms_read: u64,
+    pub atom_scope_count: u64,
+    pub journal_roots: u64,
+    pub confirmed_personal_roots_omitted: u64,
+    pub file_blobs_read: u64,
+    pub file_blobs_referenced: u64,
+    pub file_blobs_recent: u64,
+    pub file_blobs_undated: u64,
+    pub candidate_rows: u64,
+    pub candidate_stored_bytes: u64,
+}
+
+impl From<&Counts> for PublicCounts {
+    fn from(counts: &Counts) -> Self {
+        Self {
+            physical_rows: counts.physical_rows,
+            atoms_read: counts.atoms_read,
+            atom_scope_count: u64::try_from(counts.atom_scopes.len()).unwrap_or(u64::MAX),
+            journal_roots: counts.journal_roots,
+            confirmed_personal_roots_omitted: counts.confirmed_personal_roots_omitted,
+            file_blobs_read: counts.file_blobs_read,
+            file_blobs_referenced: counts.file_blobs_referenced,
+            file_blobs_recent: counts.file_blobs_recent,
+            file_blobs_undated: counts.file_blobs_undated,
+            candidate_rows: counts.candidate_rows,
+            candidate_stored_bytes: counts.candidate_stored_bytes,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct Plan {
     pub format: u32,
@@ -55,14 +89,13 @@ pub(super) struct Plan {
 pub(super) struct Report {
     pub event: &'static str,
     pub execute: bool,
-    pub counts: Counts,
+    pub counts: PublicCounts,
     pub ledger_committed: bool,
     pub file_blobs_deleted: u64,
     pub compactions: Vec<fold_db::storage::laststore::CollectionCompactReport>,
     pub atom_retirement_state_unchanged: bool,
     pub fresh_snapshot_required: bool,
-    pub prerequisites: Vec<String>,
-    pub pre_blob_snapshot_writer_map: BTreeMap<String, u64>,
+    pub pre_blob_snapshot_writer_count: u64,
     pub csn_before: u64,
     pub csn_after: u64,
 }
