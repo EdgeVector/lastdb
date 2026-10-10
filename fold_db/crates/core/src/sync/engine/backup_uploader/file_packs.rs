@@ -284,6 +284,57 @@ pub(super) fn open_verified_backup_pack_candidate(
     Ok(Some(output))
 }
 
+/// Keep a complete local source for an unchanged cloud pack. A later HEAD can
+/// prove the cloud object absent even when the earlier listing did not.
+fn retained_pack_candidate(
+    directory: &Path,
+    members: Vec<BackupChunkUploadCandidate>,
+) -> Option<BackupChunkUploadCandidate> {
+    let first = members.first()?.chunk.pack.as_ref()?;
+    let pack_sha = first.sha256.clone();
+    let pack_bytes = first.bytes;
+    if pack_bytes == 0 || pack_bytes > MAX_PACK_BYTES {
+        return None;
+    }
+    let mut slices = BTreeMap::new();
+    for member in members {
+        let pack = member.chunk.pack.as_ref()?;
+        if pack.sha256 != pack_sha || pack.bytes != pack_bytes || pack.length != member.chunk.bytes
+        {
+            return None;
+        }
+        let slice = (pack.offset, pack.length, member.chunk.sha256.clone());
+        slices.entry(slice).or_insert(member);
+    }
+    if slices.is_empty() || slices.len() > MAX_PACK_FILES {
+        return None;
+    }
+    let ordered: Vec<_> = slices.into_values().collect();
+    let mut covered = 0u64;
+    for member in &ordered {
+        let pack = member.chunk.pack.as_ref()?;
+        if pack.offset != covered {
+            return None;
+        }
+        covered = covered.checked_add(pack.length)?;
+    }
+    if covered != pack_bytes {
+        return None;
+    }
+    let mut synthetic = ordered[0].chunk.clone();
+    synthetic.collection = "backup_pack".into();
+    synthetic.chunk_uuid.clone_from(&pack_sha);
+    synthetic.role = BackupManifestRole::Mutable;
+    synthetic.sha256 = pack_sha;
+    synthetic.bytes = pack_bytes;
+    synthetic.pack = None;
+    Some(BackupChunkUploadCandidate {
+        chunk: synthetic,
+        path: directory.to_path_buf(),
+        pack_members: Some(ordered),
+    })
+}
+
 pub(super) fn pack_backup_publish_candidates(
     store: &crate::storage::laststore::LastStoreNamespacedStore,
     manifest: &mut BackupManifest,
@@ -307,6 +358,8 @@ pub(super) fn pack_backup_publish_candidates(
     let mut pending = Vec::new();
     let mut pending_bytes = 0u64;
     let mut locations = BTreeMap::new();
+    let mut retained_pack_members: BTreeMap<String, Vec<BackupChunkUploadCandidate>> =
+        BTreeMap::new();
     // One direct cloud object can serve every file with the same stored bytes.
     // Count all manifest refs, including carried atom and packed refs.
     let mut sha_ref_counts = BTreeMap::<String, usize>::new();
@@ -354,6 +407,16 @@ pub(super) fn pack_backup_publish_candidates(
             pending.push(candidate);
         } else if candidate.chunk.pack.is_none() {
             ready.push(candidate);
+        } else if let Some(pack_sha) = candidate
+            .chunk
+            .pack
+            .as_ref()
+            .map(|pack| pack.sha256.clone())
+        {
+            retained_pack_members
+                .entry(pack_sha)
+                .or_default()
+                .push(candidate);
         }
     }
     flush_pack(
@@ -363,6 +426,11 @@ pub(super) fn pack_backup_publish_candidates(
         &mut ready,
         &mut locations,
     )?;
+    for members in retained_pack_members.into_values() {
+        if let Some(candidate) = retained_pack_candidate(&directory, members) {
+            ready.push(candidate);
+        }
+    }
     for chunk in manifest
         .atom_chunks
         .iter_mut()
