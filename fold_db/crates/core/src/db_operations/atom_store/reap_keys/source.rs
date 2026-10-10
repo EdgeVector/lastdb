@@ -78,7 +78,7 @@ pub fn reap_tip_sources(key: &str, value: &[u8]) -> Result<Vec<ReapTipSource>, S
     Err(invalid("unsupported tip source key"))
 }
 
-fn keys(edge: AtomRefEdge) -> ReapSourceEdgeKeys {
+fn keys(edge: &AtomRefEdge) -> ReapSourceEdgeKeys {
     ReapSourceEdgeKeys {
         v1: edge.storage_key(None),
         v2: edge.storage_key_v2(None).ok(),
@@ -87,7 +87,7 @@ fn keys(edge: AtomRefEdge) -> ReapSourceEdgeKeys {
 
 #[must_use]
 pub fn reap_tip_source_keys(source: &ReapTipSource) -> ReapSourceEdgeKeys {
-    keys(tip_edge(
+    keys(&tip_edge(
         &source.molecule_uuid,
         &source.disk_hash,
         &source.disk_range,
@@ -106,7 +106,7 @@ pub fn reap_version_source_keys(
     atom_uuid: &str,
 ) -> (ReapSourceEdgeKeys, String) {
     (
-        keys(AtomRefEdge {
+        keys(&AtomRefEdge {
             atom_uuid: atom_uuid.into(),
             edge_type: super::super::AtomRefEdgeType::TipVersion,
             molecule_uuid: molecule_uuid.into(),
@@ -133,10 +133,7 @@ pub fn reap_history_source_keys(
     if let Some(twin) = form_twin(key) {
         edges.extend(mutation_history_edges(&twin, &event));
     }
-    Ok((
-        event.molecule_uuid.clone(),
-        edges.into_iter().map(keys).collect(),
-    ))
+    Ok((event.molecule_uuid, edges.iter().map(keys).collect()))
 }
 
 /// Decode a legacy source edge and confirm its stored key matches its value.
@@ -150,5 +147,6 @@ pub fn reap_legacy_atom_edge(
     if key != expected && form_twin(&expected).as_deref() != Some(key) {
         return Err(invalid("legacy atom edge key differs from its value"));
     }
-    Ok((edge.molecule_uuid.clone(), keys(edge)))
+    let source_keys = keys(&edge);
+    Ok((edge.molecule_uuid, source_keys))
 }

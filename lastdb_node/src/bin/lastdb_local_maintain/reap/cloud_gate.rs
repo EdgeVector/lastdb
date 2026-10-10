@@ -95,11 +95,11 @@ impl PhysicalFacts {
         if (self.summary.cloud_configured
             || self.summary.cloud_paused
             || self.summary.physical_keys > 0)
-            && !self
+            && self
                 .summary
                 .published_maps
                 .get("personal")
-                .is_some_and(|map| !map.is_empty())
+                .is_none_or(BTreeMap::is_empty)
         {
             return Err(abort(
                 "existing cloud state requires a nonempty durable personal writer map",
@@ -107,12 +107,12 @@ impl PhysicalFacts {
         }
         for ((target, writer), frontier) in &self.required {
             if target == "personal"
-                && !self
+                && self
                     .summary
                     .published_maps
                     .get(target)
                     .and_then(|map| map.get(writer))
-                    .is_some_and(|published| published >= frontier)
+                    .is_none_or(|published| published < frontier)
             {
                 return Err(abort(format!("personal writer {writer:?} has an unconfirmed durable entry or capture receipt")));
             }
