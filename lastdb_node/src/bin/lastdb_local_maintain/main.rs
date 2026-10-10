@@ -74,7 +74,6 @@ impl IndexResidueSource {
 
 // Shared `Drain*` prefix is intentional: clap maps these to `drain-*`
 // subcommands operators discover together. Renaming variants would churn CLI.
-#[allow(clippy::enum_variant_names)]
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Copy/delete one page of tip residue into canonical `tips` (CoW first).

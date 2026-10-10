@@ -203,7 +203,6 @@ pub(super) fn read_vm_page_counts() -> Option<VmPageCounts> {
     // The port is deallocated on every path below.
     // libc deprecates these two calls in favor of the mach2 crate. This
     // tree does not depend on mach2; the calls are the documented ones.
-    #[allow(deprecated)]
     unsafe {
         let host = libc::mach_host_self();
         let mut count = libc::HOST_VM_INFO64_COUNT;

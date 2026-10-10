@@ -59,7 +59,6 @@ pub(super) fn current_rss_bytes() -> Option<u64> {
 }
 
 #[cfg(target_os = "macos")]
-#[allow(deprecated)]
 pub(super) fn current_rss_bytes() -> Option<u64> {
     // Prefer live resident size (matches `ps` RSS). `getrusage(RUSAGE_SELF).ru_maxrss`
     // on Darwin is a high-water mark in bytes and misled operators during the

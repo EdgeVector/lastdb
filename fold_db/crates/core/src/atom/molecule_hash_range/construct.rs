@@ -91,7 +91,6 @@ impl MoleculeHashRange {
     /// [`Self::get_atom_entry`], which is a hashmap lookup. Calling this per key
     /// is how bulk purge stayed `O(R)`-per-record after being batched in `N`;
     /// see `collect_target_chain`.
-    #[allow(clippy::type_complexity)]
     pub(crate) fn per_key_records(&self) -> Vec<(String, String, AtomEntry, Option<KeyMetadata>)> {
         let mut out = Vec::new();
         for (hash, ranges) in &self.atom_uuids {
@@ -117,7 +116,6 @@ impl MoleculeHashRange {
 
     /// Rebuild from per-key records. Entries are restored **verbatim** — no
     /// re-signing. The result is a full snapshot (`order_is_tail` is false).
-    #[allow(clippy::type_complexity)]
     pub(crate) fn from_per_key_records(
         uuid: String,
         version: u64,
@@ -153,7 +151,6 @@ impl MoleculeHashRange {
     /// [`Self::order_is_tail`] is true. A tail takes the shared append guard.
     /// A full rewrite of a tail molecule is refused. This constructor does not
     /// read `moc:` and does not build an order vector.
-    #[allow(clippy::type_complexity)]
     pub(crate) fn from_write_records(
         uuid: String,
         version: u64,
