@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 mod admission;
 mod engine;
+mod historical_claim;
 mod io;
 mod model;
 mod publish;

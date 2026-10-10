@@ -41,6 +41,7 @@ pub(super) async fn run(
             device_id: &inputs.device_id,
             previous_manifest_sha256: &args.previous_manifest_sha256,
             previous_cache_sha256: &inputs.previous_cache_sha256,
+            historical_unproved_flush_claim_sha256: &inputs.historical_unproved_flush_claim_sha256,
             operator_evidence_sha256: &args.operator_evidence_sha256,
             operator: &inputs.operator,
             cloud_gate: &before,

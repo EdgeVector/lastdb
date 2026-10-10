@@ -1,6 +1,6 @@
 //! Actual clean-stop, unchanged credentials/identity, and owner evidence gates.
 
-use super::{err, io, model, NormalSnapshotArgs};
+use super::{err, historical_claim, io, model, NormalSnapshotArgs};
 use crate::home::resolve_laststore_root;
 use crate::reap::guard::{self, Flags};
 use fold_db::storage::config::CloudSyncConfig;
@@ -19,6 +19,7 @@ pub(super) struct Inputs {
     pub device_id: String,
     pub previous: BackupManifest,
     pub previous_cache_sha256: String,
+    pub historical_unproved_flush_claim_sha256: Option<String>,
     pub db_hash: String,
     pub operator: model::OperatorEvidence,
 }
@@ -42,6 +43,7 @@ pub(super) fn stopped(args: &NormalSnapshotArgs) -> Result<(), String> {
     }
     clean_session(args)?;
     forbidden_states(&args.home)?;
+    let _ = historical_claim::check(args)?;
     Ok(())
 }
 
@@ -116,7 +118,6 @@ fn forbidden_states(home: &std::path::Path) -> Result<(), String> {
         cloud::CLOUD_RESUME_REQUESTED_FILE,
         cloud::CLOUD_RESUME_READY_FILE,
         cloud::CLOUD_BACKUP_SOURCE_COPY_FILE,
-        cloud::CLOUD_BACKUP_UNPROVED_FLUSH_CLAIM_FILE,
     ] {
         io::absent(&home.join(name))?;
     }
@@ -201,6 +202,7 @@ pub(super) fn load(args: &NormalSnapshotArgs) -> Result<Inputs, String> {
         device_id,
         previous,
         previous_cache_sha256: io::digest(&cache),
+        historical_unproved_flush_claim_sha256: historical_claim::check(args)?,
         db_hash,
         operator,
     })
@@ -269,6 +271,9 @@ pub(super) fn unchanged(
     before_publish: bool,
 ) -> Result<(), String> {
     stopped(args)?;
+    if historical_claim::check(args)? != inputs.historical_unproved_flush_claim_sha256 {
+        return Err("the historical unproved flush claim changed during publication".into());
+    }
     io::bound(
         &inputs.home.join(lastdb_node::host::CLOUD_SYNC_CONFIG_FILE),
         &args.cloud_config_sha256,

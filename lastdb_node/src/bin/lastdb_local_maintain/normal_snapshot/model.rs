@@ -47,6 +47,7 @@ pub(super) struct Intent<'a> {
     pub device_id: &'a str,
     pub previous_manifest_sha256: &'a str,
     pub previous_cache_sha256: &'a str,
+    pub historical_unproved_flush_claim_sha256: &'a Option<String>,
     pub operator_evidence_sha256: &'a str,
     pub operator: &'a OperatorEvidence,
     pub cloud_gate: &'a CloudGateSummary,
