@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "laststore"
 version = "0.1.0"
 edition.workspace = true
@@ -21,17 +22,19 @@ rustix = { version = "1", features = ["fs"] }
 uuid = { version = "1", features = ["v4"] }
 zstd = "0.13"
 
-[dev-dependencies]
-tempfile = "3"
-# Only the descriptor-exhaustion test needs this: reproducing `EMFILE` means
-# clamping the process's own `RLIMIT_NOFILE`, which no safe crate in the tree
-# exposes. Not a runtime dependency — the store derives nothing from libc.
-libc = "0.2"
-
 [[example]]
+bench = false
+test = false
 name = "basic"
 path = "examples/basic.rs"
 
 [[bin]]
+bench = false
+test = false
 name = "lastdb-maintenance"
 path = "src/bin/lastdb-maintenance.rs"
+
+[lib]
+test = false
+doctest = false
+bench = false

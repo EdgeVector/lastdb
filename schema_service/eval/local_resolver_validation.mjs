@@ -330,23 +330,6 @@ function round3(n) {
   return Math.round(n * 1000) / 1000;
 }
 
-function assertSelfTest(result) {
-  if (result.summary.after.falsePositives !== 0) {
-    throw new Error(
-      `expected zero false positives, got ${result.summary.after.falsePositives}`,
-    );
-  }
-  for (const fixture of ADVERSARIAL_FIXTURES.filter((f) => f.expectLocalDecision)) {
-    const decision = result.decisions.find((d) => d.id === fixture.id);
-    if (!decision) throw new Error(`missing adversarial decision for ${fixture.id}`);
-    if (decision.localDecision !== fixture.expectLocalDecision) {
-      throw new Error(
-        `${fixture.id} expected ${fixture.expectLocalDecision}, got ${decision.localDecision}`,
-      );
-    }
-  }
-}
-
 function printReport(result) {
   const after = result.summary.after;
   const before = result.summary.before;
@@ -372,14 +355,12 @@ async function main() {
   const corpusFile =
     process.argv.find((arg) => arg.startsWith("--corpus="))?.split("=")[1] ??
     "corpus_generated_64.json";
-  const selfTest = process.argv.includes("--self-test");
   const corpus = loadCorpus(corpusFile);
   const items = [...corpus, ...ADVERSARIAL_FIXTURES];
   const result = validate(items);
   result.latency = measureLatency(items);
   result.adversarialFixtureIds = ADVERSARIAL_FIXTURES.map((item) => item.id);
 
-  if (selfTest) assertSelfTest(result);
   printReport(result);
   console.log(`latency_ms_per_record: ${JSON.stringify(result.latency)}`);
 

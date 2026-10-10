@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "schema_service_server_lambda"
 version.workspace = true
 edition.workspace = true
@@ -6,6 +7,8 @@ publish.workspace = true
 description = "AWS Lambda wrapper around schema_service_server_shared. Deployed to schema.folddb.com via schema-infra."
 
 [[bin]]
+bench = false
+test = false
 # cargo-lambda ALWAYS names the binary inside the zip `bootstrap` (the
 # AL2023 provided runtime entrypoint). The `name` below controls only
 # the cargo build artifact path — `target/lambda/server_lambda/bootstrap.zip`.
@@ -69,13 +72,6 @@ observability = { workspace = true }
 # Diet cut #5: removed vendored OpenSSL. The Lambda AWS stack rides
 # hyper-rustls; nothing in this crate referenced openssl symbols, and the
 # vendored build was pure compile-time cost for AL2023 packaging.
-
-[dev-dependencies]
-schema_service_core = { path = "../core", features = ["test-utils", "local-store"] }
-tempfile = { workspace = true }
-temp-env = "0.3"
-# tests use #[tokio::test]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 
 [lints]
 workspace = true

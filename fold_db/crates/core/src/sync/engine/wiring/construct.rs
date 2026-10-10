@@ -166,6 +166,7 @@ impl SyncEngine {
             target_restore_scopes: Arc::new(Mutex::new(HashMap::new())),
             target_config_lock: Arc::new(Mutex::new(())),
             target_config_generation: AtomicU64::new(1),
+            scoped_upload_turn: AtomicU64::new(0),
             download_cursors: Arc::new(Mutex::new(std::collections::HashMap::new())),
             personal_index_reads_since_reconcile: AtomicU64::new(0),
             unseal_failure_log_cache: Arc::new(Mutex::new(HashSet::new())),

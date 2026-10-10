@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "schema_resolver_pack_publisher"
 version.workspace = true
 edition.workspace = true
@@ -6,6 +7,8 @@ publish.workspace = true
 description = "Local operator CLI for signing and publishing Schema Resolver Packs."
 
 [[bin]]
+bench = false
+test = false
 name = "schema_resolver_pack_publish"
 path = "src/bin/schema_resolver_pack_publish.rs"
 

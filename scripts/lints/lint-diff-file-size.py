@@ -8,8 +8,7 @@ Rules, per file the diff touches (added, modified or renamed Rust sources):
   - changed file that was over MAX and grew by --allow lines or fewer  -> pass
   - changed file that shrank, or ends at or under MAX                   -> pass
 
-Lines are counted in the whole file. Test files and generated files use
-a higher limit (--max-test). Override one file with a line that contains
+Lines are counted in the whole file. Override one file with a line that contains
 `lint:file-size-ok <reason>` anywhere in the file.
 """
 import argparse
@@ -26,9 +25,6 @@ def git(*args):
     return out.stdout
 
 
-def is_test_path(path):
-    return "/tests/" in path or path.endswith("_test.rs") or path.endswith("/tests.rs")
-
 
 def line_count(text):
     return text.count("\n") + (0 if text.endswith("\n") or not text else 1)
@@ -39,7 +35,6 @@ def main():
     ap.add_argument("--base", required=True, help="base commit (merge base)")
     ap.add_argument("--head", default="HEAD")
     ap.add_argument("--max", type=int, default=400, help="limit for source files")
-    ap.add_argument("--max-test", type=int, default=800, help="limit for test files")
     ap.add_argument("--allow", type=int, default=10, help="lines an already-too-long file may grow")
     ap.add_argument("--ext", action="append", default=None, help="extension, repeatable (default .rs)")
     args = ap.parse_args()
@@ -56,7 +51,7 @@ def main():
         new = git("show", f"{args.head}:{path}")
         if OVERRIDE in new:
             continue
-        limit = args.max_test if is_test_path(path) else args.max
+        limit = args.max
         after = line_count(new)
         if after <= limit:
             continue

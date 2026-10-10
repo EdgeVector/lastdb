@@ -301,7 +301,6 @@ pub(crate) async fn collect_retained_chain_atoms_with_concurrency(
     target_slots: &HashSet<(String, String, String)>,
     concurrency: usize,
 ) -> Result<HashSet<String>, SchemaError> {
-    crate::test_helpers::wait_purge_walk_stall().await;
     let mut out: HashSet<String> = HashSet::new();
     for field in schema.runtime_fields.values() {
         let Some(molecule_uuid) = field.common().molecule_uuid() else {

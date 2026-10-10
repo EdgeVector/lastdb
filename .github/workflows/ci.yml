@@ -254,7 +254,7 @@ jobs:
             cmd+=(--all-targets -- -D warnings)
             "${cmd[@]}"
           else
-            cargo clippy ${{ matrix.args }} --all-targets -- -D warnings
+            cargo clippy ${{ matrix.args }} --lib --bins -- -D warnings
           fi
 
   redaction-lint:

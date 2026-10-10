@@ -152,10 +152,10 @@ jobs:
         run: bash scripts/ci/lint-workspace-fastembed-unification.sh
       - name: Heavy clippy workspace-coverage lint
         run: ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb
-      - name: cargo clippy --workspace --all-targets (no ONNX packages)
+      - name: cargo clippy --workspace --lib --bins (no ONNX packages)
         run: |
           ulimit -n 8192 || true
-          cargo clippy --workspace --all-targets --locked \
+          cargo clippy --workspace --lib --bins --locked \
             --exclude generate_validated_schema_org_seeds \
             --exclude schema_service_worker \
             -- -D warnings

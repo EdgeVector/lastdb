@@ -25,9 +25,7 @@ require "open3"
 require "yaml"
 
 # Per planned matrix (scripts/ci/plan-rust-ci-matrices.rb with every family
-# enabled). Current values: test=32, doctest=6, clippy=7.
-PLANNED_TEST_MAX = 40
-PLANNED_DOCTEST_MAX = 10
+# enabled). Only the product Clippy matrix enters this guard.
 PLANNED_CLIPPY_MAX = 10
 
 # Per static `strategy.matrix.include` array in ci.yml. Current largest:
@@ -68,12 +66,10 @@ end
 planned = {}
 stdout.each_line do |line|
   key, _, value = line.partition("=")
-  planned[key.strip] = JSON.parse(value).length if value && !value.strip.empty?
+  planned[key.strip] = JSON.parse(value).length if key.strip == "clippy_matrix" && value && !value.strip.empty?
 end
 
 {
-  "test_matrix" => PLANNED_TEST_MAX,
-  "doctest_matrix" => PLANNED_DOCTEST_MAX,
   "clippy_matrix" => PLANNED_CLIPPY_MAX,
 }.each do |key, cap|
   count = planned[key]

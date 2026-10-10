@@ -47,7 +47,7 @@ test coverage.
 
 ```bash
 cargo build --workspace
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --lib --bins -- -D warnings
 cargo fmt --all                              # ALWAYS run before committing
 scripts/install-hooks.sh                     # fmt + no-URL pre-commit hook
 ```
@@ -63,12 +63,11 @@ cargo build -p lastdb_node
 cargo build -p schema_service_core
 cargo build -p fold_db
 
-scripts/ci/run-query-memory-guard.sh       # query memory guard; durable ~/.cache/fold-db-perf-guard/target + concurrent-cargo wait/refuse + host lock
 scripts/ci/run-db-perf-guard.sh            # Criterion setup/measure/compare; same durable target + wait/refuse + host lock
 scripts/ci/with-fold-host-cargo-lock.sh -- cargo …  # agents/routines: serialize heavy fold cargo behind the probe
 
 # Full workspace — use before opening/pushing a PR, or when shared crates move
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --lib --bins -- -D warnings
 ```
 
 How to pick `-p`: use the card's `Surfaces:` line and the crate that owns the
@@ -109,10 +108,10 @@ Write Rust so that small, focused files and functions are the default. CI job
 these limits. It checks only the files and functions the PR touches. Old code
 is not checked until you touch it.
 
-| What | Limit | Test code |
-|---|---|---|
-| Source file | 400 lines | 800 lines |
-| Function | 100 lines | 200 lines |
+| What | Limit |
+|---|---|
+| Source file | 400 lines |
+| Function | 100 lines |
 
 - A **new** file or function over the limit fails.
 - A file or function that **crosses** the limit (was under, now over) fails.

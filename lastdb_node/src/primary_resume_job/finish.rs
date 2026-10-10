@@ -27,6 +27,10 @@ pub(crate) fn finish(
     if !engine.is_backup_only_mode() {
         return Err("finish requires the backup-only sync engine".into());
     }
+    // The cloud workers started by run_finish must outlive this job thread.
+    // A private runtime would cancel them when the thread exits.
+    let daemon_runtime = tokio::runtime::Handle::try_current()
+        .map_err(|error| format!("primary resume finish needs daemon runtime: {error}"))?;
     if host
         .primary_resume_job_running
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -77,11 +81,7 @@ pub(crate) fn finish(
     if let Err(error) = std::thread::Builder::new()
         .name("lastdb-primary-resume-finish".into())
         .spawn(move || {
-            let result = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|error| format!("start primary resume finish runtime: {error}"))
-                .and_then(|runtime| runtime.block_on(run_finish(&home, &db, &mut receipt)));
+            let result = daemon_runtime.block_on(run_finish(&home, &db, &mut receipt));
             if let Err(error) = result {
                 receipt.phase = "failed".into();
                 receipt.error = Some(error);

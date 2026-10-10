@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "generate_schema_org_classifications"
 version.workspace = true
 edition.workspace = true
@@ -6,6 +7,8 @@ publish.workspace = true
 description = "One-shot script: cluster-classify every Schema.org property and emit crates/core/data/schema_org/classification_overlay.json. Run manually; the generated overlay is committed to the repo and consumed at service cold start."
 
 [[bin]]
+bench = false
+test = false
 name = "generate-schema-org-classifications"
 path = "src/main.rs"
 

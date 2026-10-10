@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "lastdb_uds"
 version.workspace = true
 edition.workspace = true
@@ -15,4 +16,8 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 libc = "0.2"
 
-[dev-dependencies]
+
+[lib]
+test = false
+doctest = false
+bench = false

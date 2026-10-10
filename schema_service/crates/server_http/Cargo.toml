@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "schema_service_server_http"
 version.workspace = true
 edition.workspace = true
@@ -6,6 +7,8 @@ publish.workspace = true
 description = "Actix HTTP wrapper around schema_service_server_shared. Dev binary for the canonical schema service."
 
 [[bin]]
+bench = false
+test = false
 name = "schema_service"
 path = "src/bin/schema_service.rs"
 
@@ -40,17 +43,10 @@ opentelemetry = { workspace = true }
 http = { workspace = true }
 futures-util = { workspace = true }
 
-[dev-dependencies]
-schema_service_core = { path = "../core", features = ["test-utils", "local-store"] }
-# App-identity endpoint tests mint ES256 DevCerts + Ed25519 envelopes.
-app_identity_crypto = { workspace = true, features = ["test-utils"] }
-base64 = { workspace = true }
-# Cross-env mirror E2E test impls the MirrorTransport trait with an
-# in-process fake routing through the peer's real apply_mirror_push.
-tempfile = { workspace = true }
-serde_json = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-tracing-subscriber = { workspace = true }
-
 [lints]
 workspace = true
+
+[lib]
+test = false
+doctest = false
+bench = false

@@ -47,6 +47,61 @@ impl PinLog {
         Ok(())
     }
 
+    /// Prefixes with a local durable frontier beyond the published frontier.
+    /// This is only a scheduling hint: the scalar frontier can hide an older
+    /// unpublished writer, so the uploader must still visit every target.
+    pub(crate) async fn scoped_prefixes_with_local_backlog(
+        &self,
+    ) -> std::collections::HashSet<String> {
+        let mut prefixes: std::collections::HashSet<String> = self
+            .state
+            .lock()
+            .await
+            .values()
+            .filter(|runtime| {
+                runtime.active && runtime.last_durable_frontier > runtime.published_frontier
+            })
+            .map(|runtime| runtime.target_prefix.clone())
+            .collect();
+        prefixes.extend(self.known_pending_prefixes.lock().await.iter().cloned());
+        prefixes
+    }
+
+    /// Retain a retry hint before the first cloud PUT of a bounded read.
+    pub(super) async fn mark_upload_scan_pending(
+        &self,
+        target_prefix: &str,
+        publish: MutationLogPublish,
+        report: &MutationLogUploadReport,
+    ) {
+        if matches!(publish, MutationLogPublish::Cloud)
+            && (report.records_considered > 0 || report.records_considered_is_lower_bound)
+        {
+            self.known_pending_prefixes
+                .lock()
+                .await
+                .insert(target_prefix.to_string());
+        }
+    }
+
+    /// Clear the hint only after the read reached the end and cloud work ended.
+    pub(super) async fn clear_upload_scan_pending(
+        &self,
+        target_prefix: &str,
+        publish: MutationLogPublish,
+        report: &MutationLogUploadReport,
+    ) {
+        if matches!(publish, MutationLogPublish::Cloud)
+            && !report.records_considered_is_lower_bound
+            && report.upload_backlog_after == 0
+        {
+            self.known_pending_prefixes
+                .lock()
+                .await
+                .remove(target_prefix);
+        }
+    }
+
     /// Whether continuous full-home sealed-chunk re-upload is demoted because
     /// the mutation-log plane is the active continuous durability engine.
     ///

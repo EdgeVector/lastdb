@@ -1,7 +1,7 @@
 {
   "name": "@lastdb/app-sdk",
   "version": "0.4.0",
-  "description": "Runtime SDK for LastDB apps — connect, request consent, and query/mutate a node's /api/* surface with a capability.",
+  "description": "Runtime SDK for LastDB apps \u2014 connect, request consent, and query/mutate a node's /api/* surface with a capability.",
   "license": "Apache-2.0",
   "keywords": [
     "lastdb",
@@ -55,7 +55,6 @@
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "eslint": "^8.57.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "typescript": "^5.4.0"
   }
 }

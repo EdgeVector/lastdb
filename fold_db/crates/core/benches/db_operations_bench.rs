@@ -31,13 +31,13 @@ use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
 };
 use fold_db::atom::Atom;
+use fold_db::benchmark_database::BenchmarkDatabaseFactory;
+use fold_db::benchmark_support::BenchmarkSchemaBuilder;
 use fold_db::db_operations::DbOperations;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::operations::MutationType;
 use fold_db::schema::types::{KeyValue, Mutation};
 use fold_db::storage::{LastStoreNamespacedStore, NamespacedStore};
-use fold_db::test_helpers::TestSchemaBuilder;
-use fold_db::testing_utils::TestDatabaseFactory;
 use serde_json::json;
 use tokio::runtime::{Builder, Runtime};
 
@@ -98,7 +98,7 @@ fn salted_atoms(schema: &str, salt: u64, n: usize) -> Vec<Atom> {
 fn new_db(rt: &Runtime) -> Arc<DbOperations> {
     rt.block_on(async {
         Arc::new(
-            TestDatabaseFactory::create_temp_db_ops()
+            BenchmarkDatabaseFactory::create_temp_db_ops()
                 .await
                 .expect("create temp db_ops"),
         )
@@ -412,7 +412,7 @@ fn bench_keyed_update_write(c: &mut Criterion) {
             .await
             .expect("create FoldDB");
         db.load_schema_from_json(
-            &TestSchemaBuilder::new(SCHEMA)
+            &BenchmarkSchemaBuilder::new(SCHEMA)
                 .fields(&["full_name", "email", "content_hash"])
                 .hash_key("full_name")
                 .range_key("content_hash")
@@ -523,7 +523,7 @@ fn bench_atom_refcount_tip_write_vs_catalog_refs(c: &mut Criterion) {
             .await
             .expect("create FoldDB");
         db.load_schema_from_json(
-            &TestSchemaBuilder::new(SCHEMA)
+            &BenchmarkSchemaBuilder::new(SCHEMA)
                 .fields(&["payload"])
                 .hash_key("id")
                 .build_json(),
@@ -605,7 +605,7 @@ fn bench_batch_write_payload(c: &mut Criterion) {
             .await
             .expect("create FoldDB");
         db.load_schema_from_json(
-            &TestSchemaBuilder::new(schema)
+            &BenchmarkSchemaBuilder::new(schema)
                 .fields(&["full_name", "content_hash", "payload"])
                 .hash_key("full_name")
                 .range_key("content_hash")

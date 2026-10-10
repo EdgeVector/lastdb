@@ -3,6 +3,13 @@ use crate::storage::StorageError;
 use super::FoldDB;
 
 impl FoldDB {
+    /// Cancel local sync cadences as soon as the daemon stops accepting calls.
+    /// Shutdown joins them before it records a clean flush.
+    #[cfg(feature = "cloud-sync")]
+    pub fn request_background_stop(&self) {
+        self.sync_coordinator.request_background_stop();
+    }
+
     /// Upper bound on how long [`FoldDB::shutdown`] waits for tracked tasks.
     /// The limit matches the cold-cache model start limit.
     const SHUTDOWN_TASK_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -45,6 +52,8 @@ impl FoldDB {
             target: "fold_node::database",
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
+        #[cfg(feature = "cloud-sync")]
+        self.request_background_stop();
         // Stop periodic flusher before the final barrier so we do not race
         // two flushes (and so Drop does not try to abort a still-running tick).
         self.background_flush.stop().await;
@@ -63,35 +72,7 @@ impl FoldDB {
         self.drain_persist_lanes_before_sync(task_drain_timeout)
             .await;
         #[cfg(feature = "cloud-sync")]
-        {
-            if !self
-                .mutation_manager
-                .wait_for_capture_tasks(task_drain_timeout)
-                .await
-            {
-                tracing::warn!(
-                    target: "fold_node::database",
-                    "shutdown: post-ack capture queue did not drain before final sync"
-                );
-                pre_flush_errors.push("post-ack capture queue did not drain".to_string());
-            }
-            let sync_timeout = Self::shutdown_sync_timeout();
-            match tokio::time::timeout(sync_timeout, self.stop_sync()).await {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => {
-                    tracing::warn!("sync flush on shutdown failed: {error}");
-                    pre_flush_errors.push(format!("sync flush failed: {error}"));
-                }
-                Err(_) => {
-                    tracing::error!(
-                        target: "fold_node::database",
-                        timeout_ms = u64::try_from(sync_timeout.as_millis()).unwrap_or(u64::MAX),
-                        "shutdown: final sync did not finish in time"
-                    );
-                    pre_flush_errors.push("final sync did not finish in time".to_string());
-                }
-            }
-        }
+        pre_flush_errors.extend(self.stop_sync_for_shutdown(task_drain_timeout).await);
         // The final sync can apply remote mutations. Stop lane admission only
         // after that sync finishes, then drain each accepted envelope.
         self.mutation_manager.persist_lanes().stop();
@@ -163,6 +144,48 @@ impl FoldDB {
             };
         }
         flush_result
+    }
+
+    #[cfg(feature = "cloud-sync")]
+    async fn stop_sync_for_shutdown(&self, task_drain_timeout: std::time::Duration) -> Vec<String> {
+        let mut errors = Vec::new();
+        if !self
+            .mutation_manager
+            .wait_for_capture_tasks(task_drain_timeout)
+            .await
+        {
+            tracing::warn!(
+                target: "fold_node::database",
+                "shutdown: post-ack capture queue did not drain before final sync"
+            );
+            errors.push("post-ack capture queue did not drain".to_string());
+        }
+        if let Err(error) = self
+            .sync_coordinator
+            .join_background_tasks(task_drain_timeout)
+            .await
+        {
+            tracing::error!(target: "fold_node::database", %error, "shutdown: local sync task did not stop");
+            errors.push(format!("local sync task did not stop: {error}"));
+            return errors;
+        }
+        let sync_timeout = Self::shutdown_sync_timeout();
+        match tokio::time::timeout(sync_timeout, self.sync_coordinator.final_sync()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::warn!("sync flush on shutdown failed: {error}");
+                errors.push(format!("sync flush failed: {error}"));
+            }
+            Err(_) => {
+                tracing::error!(
+                    target: "fold_node::database",
+                    timeout_ms = u64::try_from(sync_timeout.as_millis()).unwrap_or(u64::MAX),
+                    "shutdown: final sync did not finish in time"
+                );
+                errors.push("final sync did not finish in time".to_string());
+            }
+        }
+        errors
     }
 
     /// First shutdown drain: wait for every accepted lane envelope to become

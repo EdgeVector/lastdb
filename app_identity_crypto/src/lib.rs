@@ -21,8 +21,6 @@ mod envelope;
 mod error;
 mod hex;
 mod jcs;
-#[cfg(feature = "test-utils")]
-pub mod test_utils;
 
 pub use dev_cert::{
     root_key_id, verify_dev_cert, DevCert, ALG_ES256, DEV_CERT_VERSION, PURPOSE_DEV_CERT,
