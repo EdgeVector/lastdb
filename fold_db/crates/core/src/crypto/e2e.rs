@@ -4,8 +4,6 @@ use ed25519_compact::x25519;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use std::path::Path;
-use tokio::fs;
 use zeroize::{Zeroize, Zeroizing};
 
 const HKDF_SALT: &[u8] = b"fold:e2e:v1";
@@ -71,60 +69,6 @@ impl E2eKeys {
         // Scrub the X25519 secret copy on drop; `from_secret` only borrows it.
         let mut secret = Zeroizing::new([0u8; 32]);
         secret.copy_from_slice(x_bytes);
-        Ok(Self::from_secret(&secret))
-    }
-
-    /// Load a 32-byte secret from `key_path`, or generate a random one if the
-    /// file does not exist. Then derive both E2E keys via [`from_secret`].
-    pub async fn load_or_generate(key_path: &Path) -> CryptoResult<Self> {
-        let secret: Zeroizing<[u8; 32]> = if key_path.exists() {
-            let mut bytes = fs::read(key_path)
-                .await
-                .map_err(|e| CryptoError::KeyError(format!("Failed to read E2E key file: {e}")))?;
-
-            if bytes.len() != 32 {
-                bytes.zeroize();
-                return Err(CryptoError::KeyError(format!(
-                    "E2E key file has invalid length: {} (expected 32)",
-                    bytes.len()
-                )));
-            }
-
-            let mut secret = Zeroizing::new([0u8; 32]);
-            secret.copy_from_slice(&bytes);
-            bytes.zeroize();
-            secret
-        } else {
-            let mut secret = Zeroizing::new([0u8; 32]);
-            use rand::RngCore;
-            rand::rngs::OsRng.fill_bytes(secret.as_mut_slice());
-
-            if let Some(parent) = key_path.parent() {
-                fs::create_dir_all(parent).await.map_err(|e| {
-                    CryptoError::KeyError(format!("Failed to create E2E key directory: {e}"))
-                })?;
-            }
-
-            fs::write(key_path, secret.as_slice())
-                .await
-                .map_err(|e| CryptoError::KeyError(format!("Failed to write E2E key file: {e}")))?;
-
-            // Restrict key file permissions to owner-only (Unix)
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let perms = std::fs::Permissions::from_mode(0o600);
-                std::fs::set_permissions(key_path, perms).map_err(|e| {
-                    CryptoError::KeyError(format!("Failed to set E2E key file permissions: {e}"))
-                })?;
-            }
-
-            tracing::info!("Generated new E2E key at {}", key_path.display());
-            tracing::warn!("Back up your E2E key! Without it, encrypted data cannot be recovered.");
-
-            secret
-        };
-
         Ok(Self::from_secret(&secret))
     }
 

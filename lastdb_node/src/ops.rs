@@ -16,5 +16,4 @@ pub mod request_telemetry;
 pub mod self_metrics;
 pub mod session_ledger;
 pub mod status_gauge_contract;
-pub mod status_gauge_gate;
 pub mod ttl_sweep;

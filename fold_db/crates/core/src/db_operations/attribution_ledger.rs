@@ -35,7 +35,6 @@ const ATTRIBUTION_VERSION: u8 = 1;
 const ATTRIBUTION_OBJECT_DOMAIN: &[u8] = b"lastdb:attribution-object:v1\0";
 const ATTRIBUTION_EPOCH_DOMAIN: &[u8] = b"lastdb:attribution-epoch:v1\0";
 const ATTRIBUTION_ROOT_DOMAIN: &[u8] = b"lastdb:attribution-root:v1\0";
-const ATTRIBUTION_PATH_SET_DOMAIN: &[u8] = b"lastdb:attribution-path-set:v1\0";
 
 /// The physical object plane that an attribution row describes.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -419,105 +418,6 @@ impl AttributionLedger {
             .map_err(|error| SchemaError::InvalidData(format!("put attribution path: {error}")))
     }
 
-    /// Add one or more paths, then rebuild the fixed-size object row from the
-    /// durable path set. A shared atom therefore keeps every schema path even
-    /// when separate molecule pages reach it at different times.
-    pub async fn put_attributed_object_paths(
-        &self,
-        paths: &[AttributionPath],
-        source_sequence: u64,
-    ) -> Result<AttributionRecord, SchemaError> {
-        let Some(first) = paths.first() else {
-            return Err(SchemaError::InvalidData(
-                "attribution object requires at least one path".to_string(),
-            ));
-        };
-        for path in paths {
-            path.validate()?;
-            if path.epoch_id != first.epoch_id
-                || path.object_kind != first.object_kind
-                || path.object_id != first.object_id
-            {
-                return Err(SchemaError::InvalidData(
-                    "attribution paths must target one object".to_string(),
-                ));
-            }
-            self.put_attribution_path(path).await?;
-        }
-
-        let stored_paths = self
-            .store
-            .scan_items_with_prefix::<AttributionPath>(&attribution_path_prefix(
-                &first.epoch_id,
-                first.object_kind,
-                &first.object_id,
-            ))
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("read attribution paths: {error}"))
-            })?;
-        let classification =
-            classification_for_roots(stored_paths.iter().map(|(_, path)| &path.root_kind));
-        let mut path_set: Vec<String> = stored_paths
-            .into_iter()
-            .map(|(_, path)| {
-                format!(
-                    "{}\0{}\0{}",
-                    path.root_kind.key(),
-                    path.root_id,
-                    path.edge_path_digest
-                )
-            })
-            .collect();
-        path_set.sort();
-        path_set.dedup();
-        let path_set_digest = hash(ATTRIBUTION_PATH_SET_DOMAIN, &path_set.join("\0"));
-        let existing = self
-            .attribution_record(&first.epoch_id, first.object_kind, &first.object_id)
-            .await?;
-        let record = AttributionRecord {
-            version: ATTRIBUTION_VERSION,
-            epoch_id: first.epoch_id.clone(),
-            object_kind: first.object_kind,
-            object_id: first.object_id.clone(),
-            classification,
-            root_count: path_set.len() as u64,
-            path_set_digest: Some(path_set_digest),
-            size: existing.as_ref().and_then(|record| record.size),
-            source_sequence: existing.as_ref().map_or(source_sequence, |record| {
-                record.source_sequence.max(source_sequence)
-            }),
-        };
-        self.put_attribution_record(&record).await?;
-        Ok(record)
-    }
-
-    /// Preserve a missing target as unknown without downgrading an object that
-    /// another root already proved reachable.
-    pub async fn put_unknown_record_if_absent(
-        &self,
-        epoch_id: &str,
-        object_kind: AttributionObjectKind,
-        object_id: &str,
-        source_sequence: u64,
-    ) -> Result<bool, SchemaError> {
-        if self
-            .attribution_record(epoch_id, object_kind, object_id)
-            .await?
-            .is_some()
-        {
-            return Ok(false);
-        }
-        self.put_attribution_record(&AttributionRecord::unknown(
-            epoch_id,
-            object_kind,
-            object_id,
-            source_sequence,
-        ))
-        .await?;
-        Ok(true)
-    }
-
     /// Count every durable classification row by class, plus the total path
     /// row count, across every epoch this ledger holds.
     ///
@@ -553,19 +453,6 @@ impl AttributionLedger {
             .len() as u64;
         Ok(AttributionSummary { objects, path_rows })
     }
-}
-
-fn attribution_path_prefix(
-    epoch_id: &str,
-    object_kind: AttributionObjectKind,
-    object_id: &str,
-) -> String {
-    format!(
-        "{ATTRIBUTION_PATH_PREFIX}{}\0{}\0{}\0",
-        hash(ATTRIBUTION_EPOCH_DOMAIN, epoch_id),
-        object_kind.key(),
-        hash(ATTRIBUTION_OBJECT_DOMAIN, object_id),
-    )
 }
 
 fn hash(domain: &[u8], value: &str) -> String {

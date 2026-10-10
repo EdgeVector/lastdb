@@ -33,61 +33,6 @@ pub fn load_lockfile(manifest_path: &Path) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
-pub(super) fn app_schema_shared_surface(
-    manifest: &AppManifest,
-    schema: &Schema,
-    local_name: &str,
-    identity_hash: &str,
-) -> SharedSurfaceMetadata {
-    SharedSurfaceMetadata {
-        visibility: SharedSurfaceVisibility::Shared,
-        purpose: SharedSurfacePurpose::PublicProtocol,
-        owner_app_id: manifest.app_id.clone(),
-        contract_name: schema
-            .descriptive_name
-            .clone()
-            .unwrap_or_else(|| local_name.to_string()),
-        compatibility: SharedSurfaceCompatibility::BackwardCompatible,
-        provenance: SharedSurfaceProvenance {
-            origin: format!("lastdb app register-schemas:{}", manifest.app_id),
-            local_identity_hash: Some(identity_hash.to_string()),
-            notes: Some("App manifest schema registered before app publish gate".to_string()),
-        },
-    }
-}
-
-/// Normalize a manifest schema the way the Mini declare route does:
-/// namespace the name under the app id, default the descriptive name,
-/// stamp `owner_app_id`, and compute the identity hash.
-pub(super) fn normalized_schema(app_id: &str, raw: &Value) -> Result<Schema, String> {
-    let mut schema: Schema = serde_json::from_value(raw.clone())
-        .map_err(|e| format!("schema does not parse as a declarative definition: {e}"))?;
-    let local_name = match schema.name.split_once('/') {
-        Some((owner, local)) if owner == app_id && !local.is_empty() => local.to_string(),
-        Some(_) => {
-            return Err(format!(
-                "schema name '{}' must be namespaced under the manifest app_id '{app_id}'",
-                schema.name
-            ))
-        }
-        None => schema.name.clone(),
-    };
-    schema.name = format!("{app_id}/{local_name}");
-    schema.owner_app_id = Some(app_id.to_string());
-    if schema
-        .descriptive_name
-        .as_deref()
-        .is_none_or(|n| n.trim().is_empty())
-    {
-        schema.descriptive_name = Some(local_name);
-    }
-    schema.compute_identity_hash();
-    schema
-        .populate_runtime_fields()
-        .map_err(|e| format!("schema '{}': {e}", schema.name))?;
-    Ok(schema)
-}
-
 // ─── Step 3: publish into the registry ─────────────────────────────────────
 
 #[derive(Debug, Clone)]

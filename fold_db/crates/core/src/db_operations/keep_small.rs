@@ -179,16 +179,6 @@ pub struct BudgetReport {
     pub used_ratio: f64,
 }
 
-/// Physical / live amplification. Live 0 → 1.0 so a fresh home is not Inf.
-#[must_use]
-pub fn amplification_ratio(physical_bytes: u64, live_bytes: u64) -> f64 {
-    if live_bytes == 0 {
-        1.0
-    } else {
-        physical_bytes as f64 / live_bytes as f64
-    }
-}
-
 /// Per-schema incremental meter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaMeter {

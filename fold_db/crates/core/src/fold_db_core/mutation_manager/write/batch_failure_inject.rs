@@ -35,26 +35,6 @@ pub fn armed_mut<'a, T>(slot: &'a mut Armed<T>, db_ops: &Arc<DbOperations>) -> O
         .map(|(_, value)| value)
 }
 
-/// True when this database armed `slot` for `schema`.
-pub fn armed_for_schema(slot: &Armed<String>, db_ops: &Arc<DbOperations>, schema: &str) -> bool {
-    armed(slot, db_ops).is_some_and(|armed| armed == schema)
-}
-
-/// Consume one attempt of a counted schema arm of this database.
-pub fn take_attempt(
-    slot: &mut Armed<(String, u32)>,
-    db_ops: &Arc<DbOperations>,
-    schema: &str,
-) -> bool {
-    match armed_mut(slot, db_ops) {
-        Some((armed, attempts)) if armed == schema && *attempts > 0 => {
-            *attempts -= 1;
-            true
-        }
-        _ => false,
-    }
-}
-
 fn take_owned_pause(slot: &mut Armed<Pause>, db_ops: &Arc<DbOperations>) -> Option<Pause> {
     let index = slot.iter().position(|(owner, _)| is_owner(owner, db_ops))?;
     Some(slot.swap_remove(index).1)
@@ -96,17 +76,6 @@ impl Inject {
     }
 }
 
-/// Consume the pause armed for this database, if any — fires at most once
-/// per arm, and never for another test's database.
-pub fn take_pause_after_cas_check(db_ops: &Arc<DbOperations>) -> Option<Pause> {
-    take_owned_pause(&mut lock().pause_after_cas_check, db_ops)
-}
-
-#[cfg(feature = "cloud-sync")]
-pub fn take_pause_replay_after_filter(db_ops: &Arc<DbOperations>) -> Option<Pause> {
-    take_owned_pause(&mut lock().pause_replay_after_filter, db_ops)
-}
-
 pub fn lock() -> std::sync::MutexGuard<'static, Inject> {
     static STATE: OnceLock<Mutex<Inject>> = OnceLock::new();
     STATE
@@ -117,8 +86,4 @@ pub fn lock() -> std::sync::MutexGuard<'static, Inject> {
 
 pub fn prune_dropped_owners() {
     lock().prune_dropped_owners();
-}
-
-pub fn take_pause_after_purge_publish(db_ops: &Arc<DbOperations>) -> Option<Pause> {
-    take_owned_pause(&mut lock().pause_after_purge_publish, db_ops)
 }

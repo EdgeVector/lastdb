@@ -5,11 +5,6 @@
 //! applies it locally only after this operation succeeds.  A matching retry is
 //! successful, so a timeout after the cloud commit cannot create two grants.
 
-use super::super::helpers::attach_target_scope;
-use super::super::AuthClient;
-use super::op_failed;
-use crate::sync::error::{SyncError, SyncResult};
-use crate::sync::org_sync::SyncTarget;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -110,41 +105,4 @@ pub struct GuaranteedWriteSetCasResponse {
     pub latest: GuaranteedWriteSetHead,
     #[serde(default)]
     pub etag: String,
-}
-
-impl AuthClient {
-    /// Read the cloud version for one guaranteed field slot.
-    pub async fn guaranteed_write_get_for_target(
-        &self,
-        target: &SyncTarget,
-        field_id: &str,
-        slot: &str,
-    ) -> SyncResult<GuaranteedWriteGetResponse> {
-        let mut body = serde_json::json!({
-            "action": "guaranteed_write_get",
-            "guaranteed_field_id": field_id,
-            "guaranteed_slot": slot,
-        });
-        attach_target_scope(&mut body, target);
-        let value = self.post("/api/sync/presign", body).await?;
-        if !value
-            .get("ok")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-        {
-            return Err(op_failed(
-                "guaranteed_write_get",
-                value
-                    .get("reason")
-                    .or_else(|| value.get("error"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string),
-            ));
-        }
-        serde_json::from_value(value).map_err(|error| {
-            SyncError::Serialization(format!(
-                "guaranteed_write_get response decode failed: {error}"
-            ))
-        })
-    }
 }

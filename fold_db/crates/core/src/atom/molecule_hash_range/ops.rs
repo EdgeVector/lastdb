@@ -336,63 +336,6 @@ impl MoleculeHashRange {
         }
     }
 
-    /// Inserts an entry whose writer identity was supplied by the caller
-    /// rather than produced by a local keypair. Used by the replay/import
-    /// path (e.g. inbound `data_share` from another node): the original
-    /// author's `writer_pubkey` is preserved on the AtomEntry so downstream
-    /// queries can attribute the record to its sender.
-    ///
-    /// The caller is responsible for the meaning of `signature` /
-    /// `signature_version`. Pass `signature_version = 0` and an empty
-    /// `signature` when no verifiable signature is available — `verify_key`
-    /// will then return false for this entry, which is the correct semantics
-    /// for an imported record whose canonical bytes (built from the local
-    /// `written_at`) differ from whatever the original author signed.
-    ///
-    /// `written_at`: pass `Some(sender_written_at)` to preserve the
-    /// timestamp the original author SIGNED — the canonical bytes include
-    /// `written_at`, so stamping a local clock here (the `None` behavior)
-    /// makes the imported signature permanently unverifiable at rest.
-    /// `Some` makes `verify_key` pass for a genuine imported signature;
-    /// it also feeds the sender's write time into last-writer-wins merge
-    /// resolution, which is the correct semantic for an authored-elsewhere
-    /// record. `None` keeps the legacy attribution-only behavior.
-    ///
-    /// When the existing entry at `(hash_value, range_value)` already
-    /// references the same `atom_uuid`, this is a complete no-op: the
-    /// existing `written_at`, `updated_at`, signature, and provenance are
-    /// all preserved. A replayed `data_share` (same payload
-    /// re-delivered) must not bump `written_at`, since `merge` consumes
-    /// `AtomEntry.written_at` for last-writer-wins per-key resolution
-    /// (mirror of PR #114's merge-side fix and PR #123's signed-write-path
-    /// fix). The no-op is defined by `atom_uuid` equality alone — NOT by
-    /// `writer_pubkey` / `signature` equality — matching the prior
-    /// `changed` flag's semantic.
-    #[allow(clippy::too_many_arguments)] // mirrors the AtomEntry shape; a params struct would be ceremony for one internal call site
-    pub fn set_atom_uuid_from_values_imported(
-        &mut self,
-        hash_value: String,
-        range_value: String,
-        atom_uuid: String,
-        writer_pubkey: String,
-        signature: String,
-        signature_version: u8,
-        written_at: Option<u64>,
-    ) {
-        self.set_atom_uuid_from_values_imported_with_author(
-            hash_value,
-            range_value,
-            atom_uuid,
-            writer_pubkey.clone(),
-            writer_pubkey,
-            signature,
-            signature_version,
-            written_at,
-            0,
-            String::new(),
-        );
-    }
-
     /// Import a tip while preserving its signed author-clock identity.
     #[allow(clippy::too_many_arguments)]
     pub fn set_atom_uuid_from_values_imported_with_author(

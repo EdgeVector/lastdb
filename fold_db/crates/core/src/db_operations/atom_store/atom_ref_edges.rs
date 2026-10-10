@@ -220,16 +220,6 @@ fn atom_content_sha256_token(atom_content_sha256: &str) -> Result<String, Schema
     Ok(URL_SAFE_NO_PAD.encode(digest))
 }
 
-fn require_active_v2_edge(edge: &AtomRefEdge) -> Result<(), SchemaError> {
-    if edge.active {
-        Ok(())
-    } else {
-        Err(SchemaError::InvalidData(
-            "compact atom reverse edge put requires an active source relationship".to_string(),
-        ))
-    }
-}
-
 fn atom_ref_v2_source_token(edge: &AtomRefEdge) -> String {
     let mut digest = Sha256::new();
     digest.update(ATOM_REF_V2_SOURCE_DOMAIN);

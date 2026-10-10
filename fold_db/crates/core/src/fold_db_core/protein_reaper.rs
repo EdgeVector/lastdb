@@ -148,14 +148,6 @@ impl BackgroundProteinReaperTask {
             handle.abort();
         }
     }
-
-    pub fn is_running(&self) -> bool {
-        self.join
-            .lock()
-            .expect("background protein reaper join lock")
-            .as_ref()
-            .is_some_and(|h| !h.is_finished())
-    }
 }
 
 impl Drop for BackgroundProteinReaperTask {

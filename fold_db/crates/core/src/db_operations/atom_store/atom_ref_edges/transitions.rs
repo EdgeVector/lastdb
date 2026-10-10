@@ -3,53 +3,6 @@ use super::*;
 
 // Source transitions, v2 commit and live-count mutation planning.
 impl AtomStore {
-    /// Build a safety-ordered mixed batch for one source transition.
-    pub fn atom_ref_v2_transition_mutations(
-        &self,
-        transition: AtomRefV2Transition,
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<KvMutation>, SchemaError> {
-        let mutations = match transition {
-            AtomRefV2Transition::Add {
-                source_key,
-                source_value,
-                edge,
-            } => {
-                require_active_v2_edge(&edge)?;
-                vec![
-                    KvMutation::put(
-                        edge.storage_key_v2(storage_prefix)?.into_bytes(),
-                        ATOM_REF_V2_ACTIVE_MARKER,
-                    ),
-                    KvMutation::put(source_key, source_value),
-                ]
-            }
-            AtomRefV2Transition::Replace {
-                source_key,
-                source_value,
-                old_edge,
-                new_edge,
-            } => {
-                require_active_v2_edge(&new_edge)?;
-                let old_key = old_edge.storage_key_v2(storage_prefix)?.into_bytes();
-                let new_key = new_edge.storage_key_v2(storage_prefix)?.into_bytes();
-                let mut mutations = vec![
-                    KvMutation::put(new_key.clone(), ATOM_REF_V2_ACTIVE_MARKER),
-                    KvMutation::put(source_key, source_value),
-                ];
-                if old_key != new_key {
-                    mutations.push(KvMutation::delete(old_key));
-                }
-                mutations
-            }
-            AtomRefV2Transition::Purge { source_key, edge } => vec![
-                KvMutation::delete(source_key),
-                KvMutation::delete(edge.storage_key_v2(storage_prefix)?.into_bytes()),
-            ],
-        };
-        Ok(mutations)
-    }
-
     /// Commit one existing JSON put batch with compact edge changes.
     ///
     /// Active compact edges precede every source put. Compact edge deletes

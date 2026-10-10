@@ -1,9 +1,6 @@
 use super::envelope::{decrypt_envelope_with_context, encrypt_envelope};
-use super::error::{CryptoError, CryptoResult};
+use super::error::CryptoResult;
 use async_trait::async_trait;
-use std::path::Path;
-use tokio::fs;
-use zeroize::Zeroize;
 
 /// Trait for providing encryption/decryption of byte payloads.
 ///
@@ -61,67 +58,6 @@ pub struct LocalCryptoProvider {
 }
 
 impl LocalCryptoProvider {
-    /// Load or generate a local encryption key.
-    ///
-    /// The key is stored at the given path. If the file does not exist,
-    /// a new random key is generated and written.
-    pub async fn load_or_generate(key_path: &Path) -> CryptoResult<Self> {
-        if key_path.exists() {
-            let mut bytes = fs::read(key_path)
-                .await
-                .map_err(|e| CryptoError::KeyError(format!("Failed to read key file: {e}")))?;
-
-            if bytes.len() != 32 {
-                bytes.zeroize();
-                return Err(CryptoError::KeyError(format!(
-                    "Key file has invalid length: {} (expected 32)",
-                    bytes.len()
-                )));
-            }
-
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes);
-            bytes.zeroize();
-            Ok(Self { key })
-        } else {
-            // Generate a new key
-            let mut key = [0u8; 32];
-            use rand::RngCore;
-            rand::rngs::OsRng.fill_bytes(&mut key);
-
-            // Ensure parent directory exists
-            if let Some(parent) = key_path.parent() {
-                fs::create_dir_all(parent).await.map_err(|e| {
-                    CryptoError::KeyError(format!("Failed to create key directory: {e}"))
-                })?;
-            }
-
-            fs::write(key_path, &key)
-                .await
-                .map_err(|e| CryptoError::KeyError(format!("Failed to write key file: {e}")))?;
-
-            // Restrict key file permissions to owner-only (Unix)
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let perms = std::fs::Permissions::from_mode(0o600);
-                std::fs::set_permissions(key_path, perms).map_err(|e| {
-                    CryptoError::KeyError(format!("Failed to set key file permissions: {e}"))
-                })?;
-            }
-
-            tracing::info!(
-                "Generated new local encryption key at {}",
-                key_path.display()
-            );
-            tracing::warn!(
-                "Back up your encryption key! Without it, encrypted data cannot be recovered."
-            );
-
-            Ok(Self { key })
-        }
-    }
-
     /// Create a provider from an explicit key (useful for tests).
     pub fn from_key(key: [u8; 32]) -> Self {
         Self { key }

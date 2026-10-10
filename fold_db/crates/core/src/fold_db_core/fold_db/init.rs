@@ -34,30 +34,6 @@ impl FoldDB {
         .await
     }
 
-    /// Create an embedded database whose store carries the durable
-    /// high-water sidecar, the way the Mini node factory opens a home.
-    ///
-    /// The sidecar is where the store keeps its backup bookkeeping — the
-    /// committed CSN high water and the pending purged-atom retirement
-    /// record. Verbs that write that record, such as `compact --collection
-    /// atoms`, refuse a store opened without it (`FoldDB::new`), so an
-    /// in-process caller that wants the whole delete → reclaim chain opens
-    /// through here. Layout: `<path>/laststore_high_water.json`, matching
-    /// `high_water_path_for_store_root`.
-    pub async fn new_with_high_water(path: &str) -> Result<Self, StorageError> {
-        let root = std::path::Path::new(path);
-        let store = Arc::new(LastStoreNamespacedStore::open_with_high_water(
-            root,
-            crate::storage::laststore::high_water_path_for_store_root(root),
-        )?);
-        Self::initialize_from_store(
-            store as Arc<dyn crate::storage::traits::NamespacedStore>,
-            path,
-            None,
-        )
-        .await
-    }
-
     /// Create an embedded database with durable per-molecule key bundles.
     ///
     /// The caller must supply the same wrap key each time it opens this path.

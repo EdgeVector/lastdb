@@ -202,14 +202,6 @@ impl BackgroundTipHistoryDrainTask {
             handle.abort();
         }
     }
-
-    pub fn is_running(&self) -> bool {
-        self.join
-            .lock()
-            .expect("background tip-history drain join lock")
-            .as_ref()
-            .is_some_and(|h| !h.is_finished())
-    }
 }
 
 impl Drop for BackgroundTipHistoryDrainTask {

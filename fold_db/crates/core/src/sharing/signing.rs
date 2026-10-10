@@ -12,7 +12,6 @@
 //! first so the wire format is future-proof; enforcement lands in a follow-up.
 
 use super::types::{ShareAccessGrant, ShareInvite, ShareRule};
-use crate::security::{Ed25519KeyPair, Ed25519PublicKey, KeyUtils, SecurityError, SecurityResult};
 
 /// Domain-separation tag for [`ShareAccessGrant`] signatures. Prevents a
 /// signature minted for another message type (or another version) from ever
@@ -55,30 +54,6 @@ pub fn canonical_bytes(rule: &ShareRule) -> Vec<u8> {
     .finish()
 }
 
-/// Sign `rule` with `keypair`. Returns the base64-encoded signature.
-/// The caller is responsible for placing the signature on `rule.signature` and
-/// ensuring `rule.writer_pubkey` matches `keypair`'s public key.
-pub fn sign_share_rule(rule: &ShareRule, keypair: &Ed25519KeyPair) -> String {
-    let bytes = canonical_bytes(rule);
-    let sig = keypair.sign(&bytes);
-    KeyUtils::signature_to_base64(&sig)
-}
-
-/// Verify the signature on `rule` against `rule.writer_pubkey`.
-/// Returns `Ok(true)` on valid signature, `Ok(false)` on mismatch,
-/// `Err` only when the public-key or signature encoding itself is malformed.
-pub fn verify_share_rule(rule: &ShareRule) -> SecurityResult<bool> {
-    if rule.signature.is_empty() {
-        return Ok(false);
-    }
-    let pubkey = Ed25519PublicKey::from_base64(&rule.writer_pubkey)
-        .map_err(|e| SecurityError::InvalidPublicKey(e.to_string()))?;
-    let signature = KeyUtils::signature_from_base64(&rule.signature)
-        .map_err(|e| SecurityError::InvalidSignature(e.to_string()))?;
-    let bytes = canonical_bytes(rule);
-    Ok(pubkey.verify(&bytes, &signature))
-}
-
 /// Canonical byte serialization for a share invite.
 ///
 /// The signature binds the exact share prefix and plaintext E2E secret that
@@ -100,26 +75,6 @@ pub fn share_invite_canonical_bytes(invite: &ShareInvite) -> Vec<u8> {
     .field(&invite.share_e2e_secret)
     .field(invite.scope_description.as_bytes())
     .finish()
-}
-
-/// Sign `invite` with the sender's node keypair.
-pub fn sign_share_invite(invite: &ShareInvite, keypair: &Ed25519KeyPair) -> String {
-    let bytes = share_invite_canonical_bytes(invite);
-    let sig = keypair.sign(&bytes);
-    KeyUtils::signature_to_base64(&sig)
-}
-
-/// Verify the signature on `invite` against `invite.sender_pubkey`.
-pub fn verify_share_invite(invite: &ShareInvite) -> SecurityResult<bool> {
-    if invite.signature.is_empty() {
-        return Ok(false);
-    }
-    let pubkey = Ed25519PublicKey::from_base64(&invite.sender_pubkey)
-        .map_err(|e| SecurityError::InvalidPublicKey(e.to_string()))?;
-    let signature = KeyUtils::signature_from_base64(&invite.signature)
-        .map_err(|e| SecurityError::InvalidSignature(e.to_string()))?;
-    let bytes = share_invite_canonical_bytes(invite);
-    Ok(pubkey.verify(&bytes, &signature))
 }
 
 /// Canonical byte serialization for a [`ShareAccessGrant`].
@@ -151,34 +106,4 @@ pub fn share_access_grant_canonical_bytes(grant: &ShareAccessGrant) -> Vec<u8> {
     .field(grant.sender_pubkey.as_bytes())
     .u64(grant.expires_at)
     .finish()
-}
-
-/// Sign a [`ShareAccessGrant`] with the sender's node keypair. Returns the
-/// base64-encoded signature; the caller places it on `grant.signature` and is
-/// responsible for ensuring `grant.sender_pubkey` matches `keypair`.
-pub fn sign_share_access_grant(grant: &ShareAccessGrant, keypair: &Ed25519KeyPair) -> String {
-    let bytes = share_access_grant_canonical_bytes(grant);
-    let sig = keypair.sign(&bytes);
-    KeyUtils::signature_to_base64(&sig)
-}
-
-/// Verify the signature on a [`ShareAccessGrant`] against `grant.sender_pubkey`.
-///
-/// Returns `Ok(true)` on a valid signature, `Ok(false)` on mismatch or an empty
-/// signature, and `Err` only when the public-key or signature encoding is
-/// malformed. Callers that authorize a recipient MUST additionally check that
-/// `grant.share_prefix` is the prefix being requested, that
-/// `hex(SHA256(sender_pubkey)[..16])` equals the prefix's `sender_hash`, and
-/// that `grant.expires_at` is in the future — the signature alone binds those
-/// fields but does not enforce the policy.
-pub fn verify_share_access_grant(grant: &ShareAccessGrant) -> SecurityResult<bool> {
-    if grant.signature.is_empty() {
-        return Ok(false);
-    }
-    let pubkey = Ed25519PublicKey::from_base64(&grant.sender_pubkey)
-        .map_err(|e| SecurityError::InvalidPublicKey(e.to_string()))?;
-    let signature = KeyUtils::signature_from_base64(&grant.signature)
-        .map_err(|e| SecurityError::InvalidSignature(e.to_string()))?;
-    let bytes = share_access_grant_canonical_bytes(grant);
-    Ok(pubkey.verify(&bytes, &signature))
 }

@@ -3,20 +3,6 @@
 use super::*;
 
 impl MutationManager {
-    /// Commit one source mutation and its bounded aggregate member replacement.
-    pub async fn write_aggregate_set_with_access_receipt(
-        &self,
-        source: Mutation,
-        access_context: &crate::access::AccessContext,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        self.write_aggregate_set_with_access_receipt_cloud(
-            source,
-            access_context,
-            CloudCapturePolicy::Async,
-        )
-        .await
-    }
-
     /// Single-route sibling that can secure a durable aggregate delete intent.
     pub async fn write_aggregate_set_with_access_receipt_cloud(
         &self,

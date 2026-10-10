@@ -237,19 +237,6 @@ impl AtomPartition {
         (!molecule_uuid.is_empty()).then_some(molecule_uuid)
     }
 
-    /// The partition of the slot addressed by `(schema_name, field_name,
-    /// storage_hash)`.
-    ///
-    /// The molecule uuid is `sha256(schema:field)`, so a writer that knows which
-    /// field it is writing can name the partition without loading the molecule.
-    #[must_use]
-    pub fn for_field_slot(schema_name: &str, field_name: &str, storage_hash: &str) -> Self {
-        Self::for_slot(
-            &crate::atom::deterministic_molecule_uuid(schema_name, field_name),
-            storage_hash,
-        )
-    }
-
     /// The partition of the per-key record stored at `record_key`.
     ///
     /// Takes the partition straight off the tip's **own** storage key —

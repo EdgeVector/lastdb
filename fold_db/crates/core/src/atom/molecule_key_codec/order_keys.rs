@@ -26,39 +26,6 @@ pub const ORDER_LOG_RETENTION_SECS: u64 = 30 * 24 * 60 * 60;
 /// Deleted-record semantics are untouched: no timer, no retention window.
 pub const SUPERSEDED_VERSION_RETENTION_SECS: u64 = 7 * 24 * 60 * 60;
 
-/// `mord:{M}\0{nanos}:{writer}:{offset}` — one sparse append-log entry.
-///
-/// The partition separator pins one molecule's sparse log to its own LastStore
-/// partition, so reassembly is a targeted prefix read rather than a collection
-/// sweep. `nanos + writer + offset` is unique without reading or updating a
-/// shared counter; a failed batch therefore leaves no hole that a reader can
-/// mistake for end-of-log.
-#[must_use]
-pub fn sparse_order_entry_key(
-    molecule_uuid: &str,
-    nanos: u64,
-    writer: &str,
-    offset: usize,
-) -> String {
-    format!("{MORD_PREFIX}{molecule_uuid}{SEP}{nanos:020}:{writer}:{offset:016}")
-}
-
-/// Nanos stamped in a sparse `mord:` key, when the key matches the layout.
-///
-/// Accepts an optional storage-prefix in front of `mord:`. Dense
-/// `mord:{M}:{seq}` keys return `None`.
-#[must_use]
-pub fn sparse_order_entry_nanos(storage_key: &str) -> Option<u64> {
-    let mord = storage_key.find(MORD_PREFIX)?;
-    let rest = &storage_key[mord + MORD_PREFIX.len()..];
-    let (_molecule, stamped) = rest.split_once(SEP)?;
-    let nanos = stamped.get(..20)?;
-    if !nanos.as_bytes().iter().all(u8::is_ascii_digit) {
-        return None;
-    }
-    nanos.parse().ok()
-}
-
 /// `mord:{M}\0` — partition-pinned prefix for sparse append-log entries.
 #[must_use]
 pub fn sparse_order_log_prefix(molecule_uuid: &str) -> String {

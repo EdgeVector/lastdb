@@ -26,50 +26,8 @@ async fn collect_namespace<T: serde::de::DeserializeOwned>(
     Ok(items)
 }
 
-pub async fn create_share_rule_in_ops(
-    ops: &DbOperations,
-    rule: &ShareRule,
-) -> Result<(), FoldDbError> {
-    let store = namespace(ops, SHARE_RULE_TREE).await?;
-    let key = format!("share_rule:{}", rule.rule_id);
-    let value = serde_json::to_vec(rule)?;
-    store.put(key.as_bytes(), value).await?;
-    Ok(())
-}
-
 pub async fn list_share_rules_in_ops(ops: &DbOperations) -> Result<Vec<ShareRule>, FoldDbError> {
     collect_namespace(ops, SHARE_RULE_TREE, "share rules").await
-}
-
-pub async fn deactivate_share_rule_in_ops(
-    ops: &DbOperations,
-    rule_id: &str,
-) -> Result<(), FoldDbError> {
-    let store = namespace(ops, SHARE_RULE_TREE).await?;
-    let key = format!("share_rule:{rule_id}");
-
-    if let Some(value) = store.get(key.as_bytes()).await? {
-        let mut rule: ShareRule = serde_json::from_slice(&value)?;
-        rule.active = false;
-        let value = serde_json::to_vec(&rule)?;
-        store.put(key.as_bytes(), value).await?;
-        return Ok(());
-    }
-
-    Err(FoldDbError::Database(format!(
-        "Share rule {rule_id} not found"
-    )))
-}
-
-pub async fn create_share_subscription_in_ops(
-    ops: &DbOperations,
-    sub: &ShareSubscription,
-) -> Result<(), FoldDbError> {
-    let store = namespace(ops, SHARE_SUB_TREE).await?;
-    let key = format!("share_sub:{}", sub.sender_pubkey);
-    let value = serde_json::to_vec(sub)?;
-    store.put(key.as_bytes(), value).await?;
-    Ok(())
 }
 
 pub async fn list_share_subscriptions_in_ops(

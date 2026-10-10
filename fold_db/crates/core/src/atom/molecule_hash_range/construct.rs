@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use std::collections::{BTreeMap, HashMap};
 
 use super::MoleculeHashRange;
-use crate::atom::{deterministic_molecule_uuid, now_nanos, AtomEntry, KeyMetadata};
+use crate::atom::{deterministic_molecule_uuid, AtomEntry, KeyMetadata};
 
 impl MoleculeHashRange {
     /// Creates a new empty MoleculeHashRange with a deterministic UUID.
@@ -44,40 +44,6 @@ impl MoleculeHashRange {
             order_is_tail: false,
             version: 0,
             key_metadata: HashMap::new(),
-        }
-    }
-
-    /// Creates a new MoleculeHashRange with existing atom UUIDs.
-    #[must_use]
-    pub fn with_atoms(
-        schema_name: &str,
-        field_name: &str,
-        atom_uuids: HashMap<String, BTreeMap<String, String>>,
-    ) -> Self {
-        let ts = now_nanos();
-        let entries: HashMap<String, BTreeMap<String, AtomEntry>> = atom_uuids
-            .into_iter()
-            .map(|(hash, range_map)| {
-                let entry_map: BTreeMap<String, AtomEntry> = range_map
-                    .into_iter()
-                    .map(|(range, atom_uuid)| {
-                        (range, AtomEntry::thin(atom_uuid, ts, String::new()))
-                    })
-                    .collect();
-                (hash, entry_map)
-            })
-            .collect();
-
-        Self {
-            uuid: deterministic_molecule_uuid(schema_name, field_name),
-            atom_uuids: entries,
-            updated_at: Utc::now(),
-            order_is_tail: false,
-            version: 0,
-            key_metadata: HashMap::new(),
-            pending_tip_versions: Vec::new(),
-            pending_replaced_tips: Vec::new(),
-            tip_history_enabled: false,
         }
     }
 

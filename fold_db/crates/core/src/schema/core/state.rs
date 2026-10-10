@@ -75,11 +75,6 @@ impl SchemaCore {
         self.catalog_ready.store(false, Ordering::Release);
     }
 
-    /// Test/helper: force the catalog readiness flag (e.g. simulate hydration).
-    pub fn set_catalog_ready_for_test(&self, ready: bool) {
-        self.catalog_ready.store(ready, Ordering::Release);
-    }
-
     pub fn get_schema_states(
         &self,
     ) -> Result<std::collections::HashMap<String, SchemaState>, SchemaError> {
@@ -260,22 +255,5 @@ impl SchemaCore {
     /// Get the database operations.
     pub fn db_ops(&self) -> &Arc<crate::db_operations::DbOperations> {
         &self.db_ops
-    }
-
-    /// Creates a new SchemaCore for testing purposes with a temporary database
-    pub async fn new_for_testing() -> Result<Self, SchemaError> {
-        let tmp = tempfile::TempDir::new()
-            .map_err(|e| SchemaError::InvalidData(e.to_string()))?
-            .keep();
-        let store = std::sync::Arc::new(
-            crate::storage::LastStoreNamespacedStore::open(&tmp)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?,
-        ) as std::sync::Arc<dyn crate::storage::NamespacedStore>;
-        let db_ops = std::sync::Arc::new(
-            crate::db_operations::DbOperations::from_namespaced_store(store)
-                .await
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?,
-        );
-        Self::new(db_ops).await
     }
 }

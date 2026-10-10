@@ -420,16 +420,6 @@ impl MoleculeKeyCodec {
         Ok(hash_range_scan_prefix_for_hash(molecule_uuid, &h))
     }
 
-    /// `mhk:{M}:{esc(storage_hash(api_hash))}` from API hash.
-    pub fn api_hash_key_lookup_key(
-        &self,
-        molecule_uuid: &str,
-        api_hash: &str,
-    ) -> Result<String, MoleculeKeyCodecError> {
-        let h = self.storage_hash(molecule_uuid, api_hash)?;
-        Ok(hash_key_lookup_key(molecule_uuid, &h))
-    }
-
     /// True when `segment` has the **shape** this codec's [`Self::storage_hash`]
     /// produces for a non-empty API hash.
     ///
@@ -455,18 +445,6 @@ impl MoleculeKeyCodec {
                         .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
             }
         }
-    }
-
-    /// `mhr:{M}:{esc(storage_range)}\0{esc(storage_hash)}`.
-    pub fn api_hash_range_page_index_key(
-        &self,
-        molecule_uuid: &str,
-        api_hash: &str,
-        api_range: &str,
-    ) -> Result<String, MoleculeKeyCodecError> {
-        let h = self.storage_hash(molecule_uuid, api_hash)?;
-        let r = self.storage_range(molecule_uuid, api_range)?;
-        Ok(hash_range_page_index_key(molecule_uuid, &h, &r))
     }
 }
 
