@@ -1,15 +1,12 @@
-//! Byte-for-byte packs for small completed LastStore files.
+//! Byte-for-byte packs for completed LastStore files.
 
 use super::*;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 const MAX_PACK_BYTES: u64 = 8 * 1024 * 1024;
-// The DEV proof stages at most this much data before CAS. Larger cuts keep
-// later files direct until a bounded prepare/upload/release path exists.
-const MAX_STAGED_PACK_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_PACK_FILES: usize = 8;
 type FileKey = (String, u16, Option<u32>, String);
 
@@ -158,85 +155,134 @@ fn repack_dirty_survivors(
     Ok(())
 }
 
-fn write_pack(
+/// Hash the exact file prefixes without a staged pack. The cut keeps the
+/// source files under its packing lock until each pack is uploaded or retired.
+fn plan_pack(
     directory: &Path,
-    generation: u64,
-    index: usize,
-    group: &[BackupChunkUploadCandidate],
+    group: Vec<BackupChunkUploadCandidate>,
 ) -> SyncResult<(
     BackupChunkUploadCandidate,
     Vec<(FileKey, String, BackupPackLocation)>,
 )> {
-    std::fs::create_dir_all(directory)?;
-    let temporary = directory.join(format!("pack-{generation}-{index}.tmp"));
-    let result = (|| {
-        let mut output = std::fs::File::create(&temporary)?;
-        let mut pack_hash = Sha256::new();
-        let mut locations = Vec::with_capacity(group.len());
-        let mut offset = 0u64;
-        for candidate in group {
-            let mut input = open_verified_backup_candidate(candidate)?.ok_or_else(|| {
-                SyncError::Storage("backup pack source file disappeared after cut".into())
-            })?;
-            let mut remaining = candidate.chunk.bytes;
-            let mut buffer = [0u8; 64 * 1024];
-            while remaining > 0 {
-                let to_read = remaining.min(buffer.len() as u64) as usize;
-                let count = input.read(&mut buffer[..to_read])?;
-                if count == 0 {
-                    return Err(SyncError::Storage("backup pack source ended early".into()));
-                }
-                output.write_all(&buffer[..count])?;
-                pack_hash.update(&buffer[..count]);
-                remaining -= count as u64;
+    let mut pack_hash = Sha256::new();
+    let mut locations = Vec::with_capacity(group.len());
+    let mut offset = 0u64;
+    for candidate in &group {
+        let mut input = std::fs::File::open(&candidate.path).map_err(|error| {
+            SyncError::Storage(format!(
+                "backup pack source {}/{} unavailable: {error}",
+                candidate.chunk.collection, candidate.chunk.chunk_uuid
+            ))
+        })?;
+        let mut member_hash = Sha256::new();
+        let mut remaining = candidate.chunk.bytes;
+        let mut buffer = [0u8; 64 * 1024];
+        while remaining > 0 {
+            let to_read = remaining.min(buffer.len() as u64) as usize;
+            let count = input.read(&mut buffer[..to_read])?;
+            if count == 0 {
+                return Err(SyncError::Storage("backup pack source ended early".into()));
             }
-            locations.push((
-                file_key(&candidate.chunk),
-                candidate.chunk.sha256.clone(),
-                offset,
-            ));
-            offset += candidate.chunk.bytes;
+            member_hash.update(&buffer[..count]);
+            pack_hash.update(&buffer[..count]);
+            remaining -= count as u64;
         }
-        output.sync_all()?;
-        let sha256 = format!("{:x}", pack_hash.finalize());
-        let path = directory.join(format!("{sha256}.pack"));
-        std::fs::rename(&temporary, &path)?;
-        let total_bytes = offset;
-        let refs = locations
-            .into_iter()
-            .zip(group)
-            .map(|((key, original_sha, offset), candidate)| {
-                (
-                    key,
-                    original_sha,
-                    BackupPackLocation {
-                        sha256: sha256.clone(),
-                        offset,
-                        length: candidate.chunk.bytes,
-                        bytes: total_bytes,
-                    },
-                )
-            })
-            .collect();
-        let mut synthetic = group[0].chunk.clone();
-        synthetic.collection = "backup_pack".into();
-        synthetic.chunk_uuid.clone_from(&sha256);
-        synthetic.role = BackupManifestRole::Mutable;
-        synthetic.sha256 = sha256;
-        synthetic.bytes = offset;
-        synthetic.pack = None;
-        Ok((
-            BackupChunkUploadCandidate {
-                chunk: synthetic,
-                path,
-            },
-            refs,
-        ))
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+        let actual = format!("{:x}", member_hash.finalize());
+        if actual != candidate.chunk.sha256 {
+            return Err(SyncError::Crypto(format!(
+                "backup pack source sha256 mismatch: chunk_uuid={} expected={} got={actual}",
+                candidate.chunk.chunk_uuid, candidate.chunk.sha256
+            )));
+        }
+        locations.push((
+            file_key(&candidate.chunk),
+            candidate.chunk.sha256.clone(),
+            offset,
+            candidate.chunk.bytes,
+        ));
+        offset += candidate.chunk.bytes;
     }
-    result
+    let sha256 = format!("{:x}", pack_hash.finalize());
+    let refs = locations
+        .into_iter()
+        .map(|(key, original_sha, member_offset, length)| {
+            (
+                key,
+                original_sha,
+                BackupPackLocation {
+                    sha256: sha256.clone(),
+                    offset: member_offset,
+                    length,
+                    bytes: offset,
+                },
+            )
+        })
+        .collect();
+    let mut synthetic = group[0].chunk.clone();
+    synthetic.collection = "backup_pack".into();
+    synthetic.chunk_uuid.clone_from(&sha256);
+    synthetic.role = BackupManifestRole::Mutable;
+    synthetic.sha256 = sha256;
+    synthetic.bytes = offset;
+    synthetic.pack = None;
+    Ok((
+        BackupChunkUploadCandidate {
+            chunk: synthetic,
+            path: directory.to_path_buf(),
+            pack_members: Some(group),
+        },
+        refs,
+    ))
+}
+
+/// Build one short-lived pack only after the cloud asks for its bytes. The
+/// temporary file is unlinked, but its open handle stays valid through PUT.
+pub(super) fn open_verified_backup_pack_candidate(
+    candidate: &BackupChunkUploadCandidate,
+) -> SyncResult<Option<std::fs::File>> {
+    let members = candidate
+        .pack_members
+        .as_ref()
+        .ok_or_else(|| SyncError::Storage("backup pack upload has no source members".into()))?;
+    if members.is_empty()
+        || members.len() > MAX_PACK_FILES
+        || candidate.chunk.bytes > MAX_PACK_BYTES
+    {
+        return Err(SyncError::Storage(
+            "backup pack exceeds its file or byte bound".into(),
+        ));
+    }
+    std::fs::create_dir_all(&candidate.path)?;
+    let mut output = tempfile::tempfile_in(&candidate.path)?;
+    let mut pack_hash = Sha256::new();
+    let mut bytes = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    for member in members {
+        let Some(mut input) = open_verified_backup_candidate(member)? else {
+            return Ok(None);
+        };
+        let mut remaining = member.chunk.bytes;
+        while remaining > 0 {
+            let to_read = remaining.min(buffer.len() as u64) as usize;
+            let count = input.read(&mut buffer[..to_read])?;
+            if count == 0 {
+                return Err(SyncError::Storage("backup pack source ended early".into()));
+            }
+            output.write_all(&buffer[..count])?;
+            pack_hash.update(&buffer[..count]);
+            remaining -= count as u64;
+            bytes += count as u64;
+        }
+    }
+    let actual = format!("{:x}", pack_hash.finalize());
+    if bytes != candidate.chunk.bytes || actual != candidate.chunk.sha256 {
+        return Err(SyncError::Crypto(format!(
+            "backup pack sha256 mismatch: expected={} got={actual} expected_bytes={} source_bytes={bytes}",
+            candidate.chunk.sha256, candidate.chunk.bytes
+        )));
+    }
+    output.seek(SeekFrom::Start(0))?;
+    Ok(Some(output))
 }
 
 pub(super) fn pack_backup_publish_candidates(
@@ -251,14 +297,17 @@ pub(super) fn pack_backup_publish_candidates(
         return Ok(candidates);
     }
     repack_dirty_survivors(manifest, &mut candidates, previous, cloud_presence)?;
+    // Keep each new pack's members close to one another in restore order.
+    // The manifest still maps each member by its original file key.
+    candidates.sort_by_key(|candidate| {
+        super::super::backup_restore::backup_restore_chunk_order(&candidate.chunk)
+    });
     let directory = store
         .backup_cut_freeze_dir(manifest.counter)
         .ok_or_else(|| SyncError::Storage("backup pack needs a local sidecar directory".into()))?;
     let mut ready = Vec::new();
     let mut pending = Vec::new();
     let mut pending_bytes = 0u64;
-    let mut staged_bytes = 0u64;
-    let mut pack_index = 0usize;
     let mut locations = BTreeMap::new();
     let prior_direct: BTreeMap<_, _> = previous
         .into_iter()
@@ -279,16 +328,13 @@ pub(super) fn pack_backup_publish_candidates(
             && !already_direct
             && !fresh_proof.is_some_and(|proof| proof.contains_sha(&candidate.chunk.sha256))
             && candidate.chunk.bytes > 0
-            && candidate.chunk.bytes <= MAX_PACK_BYTES
-            && staged_bytes.saturating_add(candidate.chunk.bytes) <= MAX_STAGED_PACK_BYTES;
+            && candidate.chunk.bytes <= MAX_PACK_BYTES;
         if !can_pack
             || pending.len() >= MAX_PACK_FILES
             || pending_bytes + candidate.chunk.bytes > MAX_PACK_BYTES
         {
             flush_pack(
                 &directory,
-                manifest.counter,
-                &mut pack_index,
                 &mut pending,
                 &mut pending_bytes,
                 &mut ready,
@@ -296,7 +342,6 @@ pub(super) fn pack_backup_publish_candidates(
             )?;
         }
         if can_pack {
-            staged_bytes += candidate.chunk.bytes;
             pending_bytes += candidate.chunk.bytes;
             pending.push(candidate);
         } else if candidate.chunk.pack.is_none() {
@@ -305,8 +350,6 @@ pub(super) fn pack_backup_publish_candidates(
     }
     flush_pack(
         &directory,
-        manifest.counter,
-        &mut pack_index,
         &mut pending,
         &mut pending_bytes,
         &mut ready,
@@ -328,24 +371,18 @@ pub(super) fn pack_backup_publish_candidates(
 
 fn flush_pack(
     directory: &Path,
-    generation: u64,
-    index: &mut usize,
     pending: &mut Vec<BackupChunkUploadCandidate>,
     pending_bytes: &mut u64,
     ready: &mut Vec<BackupChunkUploadCandidate>,
     locations: &mut BTreeMap<FileKey, (String, BackupPackLocation)>,
 ) -> SyncResult<()> {
     if !pending.is_empty() {
-        let (pack, refs) = write_pack(directory, generation, *index, pending)?;
+        let (pack, refs) = plan_pack(directory, std::mem::take(pending))?;
         for (key, sha, location) in refs {
             locations.insert(key, (sha, location));
         }
         ready.push(pack);
-        *index += 1;
-    } else {
-        ready.append(pending);
     }
-    pending.clear();
     *pending_bytes = 0;
     Ok(())
 }

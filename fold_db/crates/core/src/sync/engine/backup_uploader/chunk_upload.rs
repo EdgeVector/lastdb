@@ -466,7 +466,13 @@ impl SyncEngine {
         // candidates fail after the presign, once per attempt, forever. On the
         // 2026-08-06 primary that was 256 dead chunks × ~20 attempts/cycle —
         // 5,120 presign calls per log rotation buying nothing.
-        if !tokio::fs::try_exists(&candidate.path).await.unwrap_or(true) {
+        if let Some(members) = &candidate.pack_members {
+            for member in members {
+                if !tokio::fs::try_exists(&member.path).await.unwrap_or(true) {
+                    return Ok(UploadOneOutcome::SourceMissing);
+                }
+            }
+        } else if !tokio::fs::try_exists(&candidate.path).await.unwrap_or(true) {
             return Ok(UploadOneOutcome::SourceMissing);
         }
         let presign = self
@@ -486,7 +492,13 @@ impl SyncEngine {
         let verify_candidate = candidate.clone();
         let span = tracing::Span::current();
         let source = tokio::task::spawn_blocking(move || {
-            span.in_scope(|| open_verified_backup_candidate(&verify_candidate))
+            span.in_scope(|| {
+                if verify_candidate.pack_members.is_some() {
+                    file_packs::open_verified_backup_pack_candidate(&verify_candidate)
+                } else {
+                    open_verified_backup_candidate(&verify_candidate)
+                }
+            })
         })
         .await
         .map_err(|error| SyncError::Storage(format!("verify backup chunk task: {error}")))??;

@@ -258,6 +258,9 @@ pub struct BackupNamedHole {
 pub struct BackupChunkUploadCandidate {
     pub chunk: BackupChunkRef,
     pub path: PathBuf,
+    /// A synthetic pack names its source files here. Its path is the local
+    /// directory for the short-lived pack file built only during upload.
+    pub pack_members: Option<Vec<BackupChunkUploadCandidate>>,
 }
 
 /// Select cloud backup chunk digests that are safe to reclaim: present in the
@@ -649,7 +652,11 @@ pub fn scan_backup_chunks(
         if previous_refs.contains(&chunk_key(&chunk)) {
             continue;
         }
-        candidates.push(BackupChunkUploadCandidate { chunk, path });
+        candidates.push(BackupChunkUploadCandidate {
+            chunk,
+            path,
+            pack_members: None,
+        });
     }
     candidates.sort_by_key(|candidate| chunk_key(&candidate.chunk));
     Ok(BackupChunkScan {

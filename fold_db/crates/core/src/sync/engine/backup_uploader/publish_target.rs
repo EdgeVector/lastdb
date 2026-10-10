@@ -442,7 +442,7 @@ impl SyncEngine {
 
     /// Remove cut dirs after a target retires or before a new target starts.
     ///
-    /// The v2 pack writer stores pack objects under the generation directory.
+    /// The v2 pack uploader creates short-lived files under this directory.
     /// Older binaries also stored sealed-file clones there.
     ///
     /// `None` means no held target owns a cut dir. `Some(keep)` preserves one

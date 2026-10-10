@@ -142,9 +142,9 @@ impl Eq for BackupPublishTargetReachabilityIdentity {}
 
 pub(crate) struct BackupPublishTarget {
     pub(super) manifest: BackupManifest,
-    /// Live sealed-file paths under the packing lock. Digests are immutable
-    /// because compaction/reseal of sealed files is skipped while this target
-    /// is held. Paths are the store's own files, not a freeze-dir clone.
+    /// Live sealed-file paths under the packing lock. A synthetic pack holds
+    /// its member paths and a temporary-file directory. Digests are immutable
+    /// because compaction/reseal is skipped while this target is held.
     pub(super) candidates: Vec<BackupChunkUploadCandidate>,
     /// Exact union of manifest references and candidate digests.
     pub(super) reachability_identity: BackupPublishTargetReachabilityIdentity,
