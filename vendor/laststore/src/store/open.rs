@@ -9,14 +9,14 @@ impl LastStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let root = path.as_ref().to_path_buf();
         let opts = resolve_layout_options(&root, LastStoreOptions::default(), false)?;
-        Self::open_resolved(root, opts)
+        Self::open_resolved(root, opts, false)
     }
 
     /// Open or create a store with explicit options.
     pub fn open_with(path: impl AsRef<Path>, opts: LastStoreOptions) -> Result<Self> {
         let root = path.as_ref().to_path_buf();
         let opts = resolve_layout_options(&root, opts, true)?;
-        Self::open_resolved(root, opts)
+        Self::open_resolved(root, opts, false)
     }
 
     /// Open an existing store using its durable layout while retaining
@@ -25,22 +25,56 @@ impl LastStore {
     pub fn open_existing_or_with(path: impl AsRef<Path>, opts: LastStoreOptions) -> Result<Self> {
         let root = path.as_ref().to_path_buf();
         let opts = resolve_layout_options(&root, opts, false)?;
-        Self::open_resolved(root, opts)
+        Self::open_resolved(root, opts, false)
     }
 
-    pub(super) fn open_resolved(root: PathBuf, mut opts: LastStoreOptions) -> Result<Self> {
+    /// Open an existing plain hash-group home for offline reads.
+    ///
+    /// Reads and drop leave all files unchanged. A torn tail is an error,
+    /// rather than a request to repair the tail. No high-water marker is written.
+    pub fn open_read_only(path: impl AsRef<Path>, opts: LastStoreOptions) -> Result<Self> {
+        let root = path.as_ref().to_path_buf();
+        let layout = super::layout::read_layout_descriptor(&root)?
+            .ok_or_else(|| Error::Config("read-only open requires a layout descriptor".into()))?;
+        if layout.layout_mode != LayoutMode::HashGroup || layout.packaging != PackagingMode::Plain {
+            return Err(Error::Config(
+                "read-only open requires plain hash-group layout".into(),
+            ));
+        }
+        if !root.join("data").is_dir() {
+            return Err(Error::Config(
+                "read-only open requires an existing data directory".into(),
+            ));
+        }
+        let opts = resolve_layout_options(&root, opts, false)?;
+        if opts.packaging != PackagingMode::Plain || opts.data_key.is_some() {
+            return Err(Error::Config(
+                "read-only open requires resolved plain options".into(),
+            ));
+        }
+        Self::open_resolved(root, opts, true)
+    }
+
+    pub(super) fn open_resolved(
+        root: PathBuf,
+        mut opts: LastStoreOptions,
+        read_only: bool,
+    ) -> Result<Self> {
         // Backward compatible: a present data_key implies frame-AEAD packaging
         // even when callers only set the key (pre-packaging-mode tests/APIs).
         if opts.data_key.is_some() {
             opts.packaging = PackagingMode::FrameAead;
         }
         opts.validate().map_err(Error::Config)?;
-        fs::create_dir_all(root.join("data"))?;
-        write_layout_descriptor(&root, &opts)?;
+        if !read_only {
+            fs::create_dir_all(root.join("data"))?;
+            write_layout_descriptor(&root, &opts)?;
+        }
         let next_csn = opts.csn_floor.saturating_add(1);
         let configured_warm_bytes = opts.hash_group_warm_bytes;
         Ok(Self {
             root,
+            read_only,
             opts,
             shards: Mutex::new(ShardWarmSet::default()),
             key_index: Mutex::new(KeyIndexCache::default()),
@@ -80,6 +114,14 @@ impl LastStore {
             next_durability_token: AtomicU64::new(0),
             durable_through: AtomicU64::new(0),
         })
+    }
+
+    /// Refuse a write on the offline reader before a mutation can start.
+    pub(super) fn require_writable(&self) -> Result<()> {
+        if self.read_only {
+            return Err(Error::Config("the store is open read-only".into()));
+        }
+        Ok(())
     }
 
     /// Open append descriptors across every resident group.

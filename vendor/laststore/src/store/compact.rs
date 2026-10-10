@@ -5,6 +5,7 @@ impl LastStore {
     /// this call.
     // lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
     pub fn snapshot(&self) -> Result<Snapshot> {
+        self.require_writable()?;
         let before = self.meta.lock().expect("poison").sealed_chunks.len();
         let mut skipped_capped_groups = 0_u64;
         let mut keys: BTreeSet<ShardKey> = self
@@ -161,6 +162,7 @@ impl LastStore {
         shard: u16,
         group: Option<u32>,
     ) -> Result<()> {
+        self.require_writable()?;
         let handle = self.scan_handle_by_key(&(collection.to_string(), shard, group))?;
         let mut shard_handle = handle.handle().lock().expect("poison");
         Self::compact_shard(&mut shard_handle)
@@ -273,6 +275,7 @@ impl LastStore {
     /// the final cutover step after a copy/delete drain. If any live id remains,
     /// the directory stays put and the caller gets a structural error.
     pub fn drop_empty_collection(&self, collection: &str) -> Result<bool> {
+        self.require_writable()?;
         let collection_dir = self.root.join("data").join(collection);
         if !collection_dir.exists() {
             return Ok(false);

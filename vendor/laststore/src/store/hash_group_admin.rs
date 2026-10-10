@@ -70,6 +70,9 @@ impl LastStore {
         expected_only_id: &str,
         execute: bool,
     ) -> Result<DroppedGroupReport> {
+        if execute {
+            self.require_writable()?;
+        }
         if self.opts.layout_mode != LayoutMode::HashGroup {
             return Err(Error::Config(
                 "drop_hash_group_dir: store is not hash-group layout".into(),

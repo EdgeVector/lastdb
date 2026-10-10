@@ -1,6 +1,10 @@
 //! Rewrite one plain LastDB store while its daemon is stopped.
 //!
 //! The tool refuses to open a store whose socket still accepts a connection.
+//!
+//! The `reap` subcommand drops the keys that a plan directory names.
+
+mod reap;
 
 use laststore::{home_has_frame_aead_segments, LastStore, MaintenanceReport};
 use std::env;
@@ -24,6 +28,9 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
+    if env::args().nth(1).as_deref() == Some("reap") {
+        return Ok(reap::run(env::args().skip(2)));
+    }
     let mut data_dir: Option<PathBuf> = None;
     let mut execute = false;
     let mut cutoff: Option<u64> = None;
@@ -136,4 +143,5 @@ fn print_report(report: &MaintenanceReport, execute: bool, cutoff: u64) {
 
 fn print_usage() {
     eprintln!("usage: lastdb-maintenance --data-dir <store-root> [--cutoff-nanos N] [--execute]");
+    eprintln!("       lastdb-maintenance reap --help");
 }

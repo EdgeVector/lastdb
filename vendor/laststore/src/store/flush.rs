@@ -33,6 +33,7 @@ impl LastStore {
     ///   something an operator can act on; "3 of 4,915 groups did not reach
     ///   disk" is.
     pub fn flush(&self) -> Result<()> {
+        self.require_writable()?;
         self.flush_barriers.fetch_add(1, Ordering::Relaxed);
         let seal = self.assigned_through();
         let keys = self.flush_sync_keys();
@@ -75,6 +76,7 @@ impl LastStore {
     /// it can sync independent group files in parallel and release each append
     /// descriptor as soon as that group reaches disk.
     pub fn flush_restore_parallel(&self, max_workers: usize) -> Result<()> {
+        self.require_writable()?;
         self.flush_barriers.fetch_add(1, Ordering::Relaxed);
         let seal = self.assigned_through();
         let keys = self.flush_sync_keys();

@@ -61,6 +61,7 @@ impl LastStore {
             self.opts.data_key,
             self.opts.collection_policy(collection),
             self.opts.sorted_segments,
+            self.read_only,
         )?;
         loaded.max_sorted_tail_bytes = self
             .opts

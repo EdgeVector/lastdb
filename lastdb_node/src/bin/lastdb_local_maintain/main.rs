@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use fold_db::storage::{
     PlaneResidueDrainOptions, PlaneResidueFamily, INDEX_RESIDUE_LEGACY_COLLECTIONS,
 };
@@ -16,6 +16,7 @@ use lastdb_node::atom_gc_reap::ReapPolicy;
 
 mod atom_gc;
 mod home;
+mod reap;
 mod residue;
 
 use atom_gc::{atom_gc_audit, atom_gc_reap, AtomGcReapArgs};
@@ -27,8 +28,9 @@ use residue::{
 #[derive(Parser, Debug)]
 #[command(name = "lastdb_local_maintain")]
 struct Args {
-    #[arg(long)]
-    home: PathBuf,
+    /// Node home. Required. It may stand before or after the verb.
+    #[arg(long, global = true)]
+    home: Option<PathBuf>,
 
     #[command(subcommand)]
     cmd: Cmd,
@@ -283,6 +285,11 @@ enum Cmd {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    /// Offline planner for the dropped-schema reap (read-only).
+    ///
+    /// `reap plan` writes a plan directory for the engine. `reap sizing` prints
+    /// the sizing of a finished plan. Both are in the `reap` module.
+    Reap(reap::ReapArgs),
 }
 
 /// Decode optional plain/`--after-hex` resume cursors. Hex is required when the
@@ -319,6 +326,16 @@ fn main() {
 // lint:fn-size-ok moved verbatim from lastdb_local_maintain.rs; splitting this function is separate work
 fn run() -> Result<(), String> {
     let args = Args::parse();
+    // `--home` is global so `reap plan --home X` works. A required global
+    // argument does not accept a value after the verb, so the check is here.
+    let Some(home) = args.home.clone() else {
+        Args::command()
+            .error(
+                clap::error::ErrorKind::MissingRequiredArgument,
+                "the following required arguments were not provided:\n  --home <HOME>",
+            )
+            .exit()
+    };
     match args.cmd {
         Cmd::DrainTipResidue {
             collection,
@@ -332,7 +349,7 @@ fn run() -> Result<(), String> {
         } => {
             let after = resolve_after_cursor(after, after_hex)?;
             drain_tip_residue(TipDrainArgs {
-                home: &args.home,
+                home: &home,
                 legacy_collection: collection.as_str(),
                 execute,
                 after,
@@ -359,7 +376,7 @@ fn run() -> Result<(), String> {
         } => {
             let after = resolve_after_cursor(after, after_hex)?;
             drain_plane(PlaneDrainArgs {
-                home: &args.home,
+                home: &home,
                 options: PlaneResidueDrainOptions {
                     family: PlaneResidueFamily::Protein,
                     source_collection: "tips".into(),
@@ -393,7 +410,7 @@ fn run() -> Result<(), String> {
             }
             let after = resolve_after_cursor(after, after_hex)?;
             drain_plane(PlaneDrainArgs {
-                home: &args.home,
+                home: &home,
                 options: PlaneResidueDrainOptions {
                     family: PlaneResidueFamily::Index,
                     source_collection,
@@ -412,12 +429,12 @@ fn run() -> Result<(), String> {
             limit,
             i_know_this_is_primary,
             json,
-        } => index_plane_inventory(&args.home, limit, i_know_this_is_primary, json),
+        } => index_plane_inventory(&home, limit, i_know_this_is_primary, json),
         Cmd::ReclaimKeepSmallLegacy {
             execute,
             i_know_this_is_primary,
             json,
-        } => reclaim_keep_small_legacy(&args.home, execute, i_know_this_is_primary, json),
+        } => reclaim_keep_small_legacy(&home, execute, i_know_this_is_primary, json),
         Cmd::ReclaimIndexResidue {
             prefix,
             execute,
@@ -425,18 +442,19 @@ fn run() -> Result<(), String> {
             i_know_this_is_primary,
             json,
         } => reclaim_index_residue(&ReclaimIndexResidueArgs {
-            home: &args.home,
+            home: &home,
             prefix,
             execute,
             limit,
             i_know_this_is_primary,
             json,
         }),
+        Cmd::Reap(reap_args) => reap::run(&home, reap_args),
         Cmd::AtomGcAudit {
             detail_limit,
             i_know_this_is_primary,
             json,
-        } => atom_gc_audit(&args.home, detail_limit, i_know_this_is_primary, json),
+        } => atom_gc_audit(&home, detail_limit, i_know_this_is_primary, json),
         Cmd::AtomGcReap {
             execute,
             reap_unreferenced_orphans,
@@ -444,7 +462,7 @@ fn run() -> Result<(), String> {
             i_know_this_is_primary,
             json,
         } => atom_gc_reap(&AtomGcReapArgs {
-            home: &args.home,
+            home: &home,
             execute,
             policy: ReapPolicy {
                 reap_unreferenced_orphans,

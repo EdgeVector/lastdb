@@ -24,6 +24,9 @@ pub struct SchemaDropReceipt {
 
 mod catalog_keys;
 mod claims_retention;
+mod offline_read;
+
+pub use offline_read::SCHEMA_DROP_RECEIPT_KEY_PREFIX;
 
 use catalog_keys::*;
 

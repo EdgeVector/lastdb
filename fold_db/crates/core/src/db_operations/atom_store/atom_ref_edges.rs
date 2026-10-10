@@ -301,7 +301,7 @@ fn is_atom_live_ref_count_key(key: &[u8]) -> bool {
     key.ends_with(ATOM_LIVE_REFCOUNT_KEY_END)
 }
 
-fn tip_edge(
+pub(super) fn tip_edge(
     molecule_uuid: &str,
     disk_hash: &str,
     disk_range: &str,

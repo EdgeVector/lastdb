@@ -193,6 +193,7 @@ impl LastStore {
             self.opts.data_key,
             self.opts.collection_policy(collection),
             self.opts.sorted_segments,
+            self.read_only,
         )?;
         // Callers hold this group's cold-load gate. The hook runs before the
         // handle is returned, so a delete on the same stripe waits. This handle

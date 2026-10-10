@@ -48,15 +48,16 @@ pub use read_activity::{observe_read_activity, ReadActivity};
 /// step that assumes it will succeed.
 pub use segfmt::{MAX_BODY_LEN, MAX_ID_LEN};
 pub use store::{
-    describe_home, home_has_frame_aead_segments, read_retire_receipt, restore_chunk_cache_paths,
-    set_pressure_shed_interactive_override, with_admit_code, with_schema_warm_owner,
-    AllGroupsPurpose, CaptureEvent, CaptureOp, CollectionResidue, DroppedGroupReport,
-    DurabilityToken, FrameCompressionStats, GroupResidue, HashGroupPlacement, HashGroupWarmStats,
+    describe_home, home_has_frame_aead_segments, read_retire_receipt, reap_home,
+    restore_chunk_cache_paths, set_pressure_shed_interactive_override, with_admit_code,
+    with_schema_warm_owner, AllGroupsPurpose, CaptureEvent, CaptureOp, CollectionApplied,
+    CollectionCount, CollectionResidue, CollectionRules, DroppedGroupReport, DurabilityToken,
+    FrameCompressionStats, GroupCount, GroupResidue, HashGroupPlacement, HashGroupWarmStats,
     LastStore, LayoutDescriptor, LayoutMigrationReport, LoadedPoint, LoadedTip, MaintenanceReport,
-    PhysicalRangeCursor, PhysicalRangePage, RetiredCompactGate, RetiredGroupId, SealedChunkMeta,
-    ShardKey, Snapshot, TxnOp, VersionRetentionReport, WarmEvictionReport, WriteAck,
-    COMPACT_REWRITE_PEAK_BUDGET_BYTES, RETIRED_GROUPS_RECEIPT_FILE,
-    SUPERSEDED_VERSION_RETENTION_NANOS,
+    PhysicalRangeCursor, PhysicalRangePage, ReapError, ReapEvent, ReapOptions, ReapOutcome,
+    ReapPlan, RetiredCompactGate, RetiredGroupId, SealedChunkMeta, ShardKey, Snapshot, TxnOp,
+    VersionRetentionReport, WarmEvictionReport, WriteAck, COMPACT_REWRITE_PEAK_BUDGET_BYTES,
+    REAP_ALLOWED_COLLECTIONS, RETIRED_GROUPS_RECEIPT_FILE, SUPERSEDED_VERSION_RETENTION_NANOS,
 };
 
 /// Convenience alias used by some internal callers.
