@@ -63,9 +63,7 @@ cargo build -p lastdb_node
 cargo build -p schema_service_core
 cargo build -p fold_db
 
-scripts/ci/run-query-memory-guard.sh       # query memory guard; durable ~/.cache/fold-db-perf-guard/target + concurrent-cargo wait/refuse + host lock
-scripts/ci/run-db-perf-guard.sh            # Criterion setup/measure/compare; same durable target + wait/refuse + host lock
-scripts/ci/with-fold-host-cargo-lock.sh -- cargo …  # agents/routines: serialize heavy fold cargo behind the probe
+scripts/ci/with-fold-host-cargo-lock.sh -- cargo build -p lastdb_node  # serialize heavy builds on this host
 
 # Full workspace — use before opening/pushing a PR, or when shared crates move
 cargo clippy --workspace --all-targets -- -D warnings
@@ -131,11 +129,11 @@ is not checked until you touch it.
 
 ## Ask the brain for anything project-specific
 
-CLAUDE.md holds commands only. For architecture, security model, build/test
+CLAUDE.md holds commands only. For architecture, security model, build
 caveats, current gates/approvals, and gotchas, ask the brain
 (`brain ask "<q>"` / `brain get <slug>`):
 
-- `concepts-fold-build-test-ci-safety` — fmt gate, offline-safe test sweep, lints (incl. byte-slice ban), workspace path-dep model, downstream submodule pointer policy.
+- `concepts-fold-build-test-ci-safety` — fmt gate, production builds, lints (incl. byte-slice ban), workspace path-dep model, downstream submodule pointer policy.
 - `concepts-fold-dev-run-and-app-isolation` — dev-node flags, app-isolation opt-out, socket-only-default vs `--with-tcp`, keyless dev, log volume knobs, Lambda/CDK.
 - `concepts-fold-error-handling-idioms` — `From<SourceError>` + bare `?` and `.context()` via `fold_db::error_context::ResultExt`; error types; coding standards.
 - `concepts-fold-endpoint-registry` — `folddb_profile/environments.json` single source of truth, `build.rs` codegen, no-hardcoded-urls lint.

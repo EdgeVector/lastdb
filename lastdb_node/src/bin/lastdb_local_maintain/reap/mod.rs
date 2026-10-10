@@ -18,6 +18,7 @@ use clap::{Args, Subcommand};
 
 mod catalog;
 mod cloud_gate;
+mod cloud_reader;
 mod count_pass;
 mod errors;
 mod guard;

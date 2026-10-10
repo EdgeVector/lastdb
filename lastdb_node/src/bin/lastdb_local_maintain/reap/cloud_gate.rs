@@ -1,5 +1,6 @@
 //! Strict stopped-home cloud confirmation gate; all reads are read-only.
 
+use super::cloud_reader;
 use super::walk::walk_both;
 use super::ReapError;
 use crate::home::HomeStore;
@@ -127,17 +128,8 @@ struct KeyedMetadata {
 
 async fn keyed_probes(raw: &dyn KvStore, seam: &dyn KvStore) -> Result<KeyedMetadata, ReapError> {
     let keys = offline_pin_log_probe_keys();
-    let (raw_values, plain_values) =
-        tokio::join!(raw.get_many(keys.clone()), seam.get_many(keys.clone()));
-    let raw_values = raw_values.map_err(|error| abort(error.to_string()))?;
-    let plain_values = plain_values.map_err(|error| abort(error.to_string()))?;
-    if raw_values.len() != keys.len() || plain_values.len() != keys.len() {
-        return Err(abort("cloud metadata probe count differs"));
-    }
+    let (_, plain_values) = cloud_reader::read_many(raw, seam, &keys).await?;
     for (at, key) in keys.iter().enumerate() {
-        if raw_values[at].is_some() != plain_values[at].is_some() {
-            return Err(abort("cloud metadata is hidden from the decrypted reader"));
-        }
         if let Some(value) = &plain_values[at] {
             decode_offline_pin_log_row(key, value).map_err(abort)?;
         }
@@ -249,22 +241,17 @@ pub(crate) async fn check(home: &Path, opened: &HomeStore) -> Result<CloudGateSu
     let mut physical_probes = BTreeMap::new();
     // Even an absent/inactive journal gets keyed probes and a physical walk.
     // Namespace inventory alone cannot prove absence of durable capture.
-    walk_both(
-        raw,
-        Arc::clone(&seam),
-        "OFFLINE_CLOUD_FRONTIER",
-        |_, page| {
-            for (key, value) in &page.rows {
-                if probes.values.contains_key(key)
-                    && physical_probes.insert(key.clone(), value.clone()).is_some()
-                {
-                    return Err(abort("duplicate physical cloud metadata probe"));
-                }
-                facts.observe(key, value)?;
+    cloud_reader::walk(raw, Arc::clone(&seam), |page| {
+        for (key, value) in &page.rows {
+            if probes.values.contains_key(key)
+                && physical_probes.insert(key.clone(), value.clone()).is_some()
+            {
+                return Err(abort("duplicate physical cloud metadata probe"));
             }
-            Ok(())
-        },
-    )
+            facts.observe(key, value)?;
+        }
+        Ok(())
+    })
     .await?;
     for (key, expected) in probes.values {
         if physical_probes.remove(&key) != expected {

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 #
-# Serialize heavy fold cargo behind a host-local exclusive lock so daily
-# db-perf-guard can claim a free window instead of competing with N pickup
-# workers.
+# Serialize heavy cargo commands with a host-local exclusive lock.
+# Agents share the same lock so concurrent builds do not exhaust the host.
 #
 # Usage:
-#   scripts/ci/with-fold-host-cargo-lock.sh [--timeout SECS] -- cargo test -p fold_db
-#   scripts/ci/with-fold-host-cargo-lock.sh --timeout 600 -- cargo check -p fold_db --tests
+#   scripts/ci/with-fold-host-cargo-lock.sh [--timeout SECS] -- cargo build -p lastdb_node
+#   scripts/ci/with-fold-host-cargo-lock.sh --timeout 600 -- cargo check -p fold_db
 #
 # Env:
 #   FOLD_HOST_CARGO_LOCK_PATH   override lock file (default:
@@ -29,8 +28,8 @@ usage: scripts/ci/with-fold-host-cargo-lock.sh [--timeout SECS] [--lock PATH] --
 
 Acquires the host fold-cargo exclusive lock and holds it until COMMAND exits.
 Agents and scheduled routines should wrap heavy fold cargo:
-  build | test | bench | check | clippy | nextest
-so db-perf-guard can run measurements without permanent concurrent-cargo starve.
+  build | check | clippy
+so each command can use the host resources without concurrent build pressure.
 USAGE
 }
 

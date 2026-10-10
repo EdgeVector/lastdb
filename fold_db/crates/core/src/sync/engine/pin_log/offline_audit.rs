@@ -15,6 +15,15 @@ pub enum OfflinePinLogRow {
     RestoreFrontier,
 }
 
+/// The one journal key that the LastStore snapshot reads and writes raw.
+///
+/// `SyncEngine::backup_restore_frontier_store` uses the physical backup source
+/// for this marker. Other journal rows use the encrypting engine store.
+#[must_use]
+pub fn offline_pin_log_restore_frontier_key() -> &'static [u8] {
+    BACKUP_RESTORE_F_KEY
+}
+
 /// Exact keyed probes supplement a complete physical journal walk.
 #[must_use]
 pub fn offline_pin_log_probe_keys() -> Vec<Vec<u8>> {

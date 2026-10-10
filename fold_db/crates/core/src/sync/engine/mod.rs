@@ -81,8 +81,8 @@ pub use crate::SyncConflict;
 pub use file_blob::{FileBlobRef, FileThumbnailUpload};
 pub use pin_log::{
     audit_pin_log_plane, decode_offline_pin_log_row, offline_pin_log_probe_keys,
-    prepare_offline_s0_restore_marker, replay_mutation_log_segments,
-    require_offline_s0_restore_marker, restore_mutation_log_after_s0,
+    offline_pin_log_restore_frontier_key, prepare_offline_s0_restore_marker,
+    replay_mutation_log_segments, require_offline_s0_restore_marker, restore_mutation_log_after_s0,
     restore_mutation_log_after_s0_from_plane, seal_mutation_log_segment, BackupRestoreMode,
     MutationLogLocalCloud, MutationLogReplayReport, MutationLogSegment, MutationLogUploadReport,
     OfflinePinLogRow, PinLogPlaneReport, PinLogRecord, PinLogTargetStatus, PinLogWriterStat,
