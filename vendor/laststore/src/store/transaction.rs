@@ -13,8 +13,8 @@ impl LastStore {
     /// design — it rides the group-commit thresholds and the embedder's
     /// background flusher — so on a busy store the dirty set at any instant is
     /// whatever every concurrent writer has appended, and the next small
-    /// transaction paid an `fsync` for all of it. Measured with
-    /// `examples/flush_barrier_cost`: a 2-key transaction costs ~10 ms alone
+    /// transaction paid an `fsync` for all of it. Measured:
+    /// a 2-key transaction costs ~10 ms alone
     /// and ~1.03 s with 256 foreign dirty groups (103x, ~4-5 ms per foreign
     /// group). On the primary that convoy was 43% of all mutation wall time —
     /// the node's 2-key change-feed append measured 409 ms per mutation.
