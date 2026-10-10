@@ -33,6 +33,10 @@ struct Inventory {
     target_schema_spellings: BTreeSet<String>,
     matched_source_schemas: BTreeSet<String>,
     unmatched_listed_identities_require_source_join: Vec<String>,
+    requested_atom_ids: BTreeSet<String>,
+    requested_atom_ids_file_sha256: Option<String>,
+    requested_atom_ids_found: BTreeSet<String>,
+    requested_atom_ids_absent_from_complete_physical_walk: BTreeSet<String>,
     namespaces: Vec<String>,
     atoms_read: u64,
     target_atoms: Vec<AtomIdentity>,
@@ -46,6 +50,13 @@ struct Collected {
     atoms_read: u64,
     target_atoms: Vec<AtomIdentity>,
     other_blob_refs: BTreeMap<String, Vec<AtomIdentity>>,
+    requested_atom_ids_found: BTreeSet<String>,
+}
+
+#[derive(Default)]
+struct RequestedAtoms {
+    ids: BTreeSet<String>,
+    file_sha256: Option<String>,
 }
 
 pub(super) async fn run(args: &FileBlobGcArgs, opened: &HomeStore) -> Result<(), String> {
@@ -57,6 +68,7 @@ pub(super) async fn run(args: &FileBlobGcArgs, opened: &HomeStore) -> Result<(),
     let identities =
         crate::reap::identities::parse(std::str::from_utf8(&schema_bytes).map_err(err)?)
             .map_err(err)?;
+    let requested = read_requested_atoms(args.target_atom_ids_file.as_deref())?;
     let home = std::fs::canonicalize(&args.home).map_err(err)?;
     let store_root = std::fs::canonicalize(&opened.store_root).map_err(err)?;
     model::create_plan_dir(&args.plan_dir, &home, &store_root)?;
@@ -83,7 +95,16 @@ pub(super) async fn run(args: &FileBlobGcArgs, opened: &HomeStore) -> Result<(),
     for name in &namespaces {
         let (raw, seam) =
             offline_physical_collection_pair(Arc::clone(&raw_store), name, Arc::clone(&crypto));
-        read_atoms(name, raw, seam, &decoder, &identities.spellings, &mut found).await?;
+        read_atoms(
+            name,
+            raw,
+            seam,
+            &decoder,
+            &identities.spellings,
+            &requested.ids,
+            &mut found,
+        )
+        .await?;
     }
     let mut after = opened.base.list_namespaces().await.map_err(err)?;
     after.sort();
@@ -91,6 +112,24 @@ pub(super) async fn run(args: &FileBlobGcArgs, opened: &HomeStore) -> Result<(),
         return Err("physical namespaces changed during target inventory".into());
     }
     prove_stopped(args)?;
+    let inventory = finish_inventory(home, store_root, namespaces, identities, requested, found);
+    model::write_private(
+        &args.plan_dir,
+        "target-atom-blob-inventory.json",
+        &inventory,
+    )?;
+    print_summary(args.json, &inventory);
+    Ok(())
+}
+
+fn finish_inventory(
+    home: PathBuf,
+    store_root: PathBuf,
+    namespaces: Vec<String>,
+    identities: crate::reap::identities::Identities,
+    requested: RequestedAtoms,
+    mut found: Collected,
+) -> Inventory {
     let target_blob_refs = found
         .target_atoms
         .iter()
@@ -105,25 +144,32 @@ pub(super) async fn run(args: &FileBlobGcArgs, opened: &HomeStore) -> Result<(),
     let matched_source_schemas = found
         .target_atoms
         .iter()
+        .filter(|atom| identities.spellings.contains(&atom.source_schema))
         .map(|atom| atom.source_schema.clone())
         .collect::<BTreeSet<_>>();
     let unmatched_listed_identities_require_source_join =
         identities.listed_without(&matched_source_schemas);
-    let inventory = Inventory {
+    let missing = requested
+        .ids
+        .difference(&found.requested_atom_ids_found)
+        .cloned()
+        .collect();
+    Inventory {
         format: 1, home, store_root, created_at: chrono::Utc::now().to_rfc3339(),
         schema_file_sha256: identities.sha256, listed_target_schemas: identities.listed,
         target_schema_spellings: identities.spellings, matched_source_schemas,
         unmatched_listed_identities_require_source_join,
+        requested_atom_ids: requested.ids, requested_atom_ids_file_sha256: requested.file_sha256,
+        requested_atom_ids_found: found.requested_atom_ids_found,
+        requested_atom_ids_absent_from_complete_physical_walk: missing,
         namespaces, atoms_read: found.atoms_read, target_atoms: found.target_atoms,
         target_blob_refs, other_schema_blob_references: found.other_blob_refs,
-        scope_note: "all physical atom scopes; source-schema ownership only; join preserved source retirement evidence for atoms created by another schema; this report grants no delete authority",
-    };
-    model::write_private(
-        &args.plan_dir,
-        "target-atom-blob-inventory.json",
-        &inventory,
-    )?;
-    if args.json {
+        scope_note: "all physical atom scopes; target membership is canonical schema-header aliases plus exact caller-supplied atom UUIDs; caller must validate UUID-file source provenance; unmatched schema identities still require a source join; this report grants no delete authority",
+    }
+}
+
+fn print_summary(json: bool, inventory: &Inventory) {
+    if json {
         println!(
             "{}",
             serde_json::json!({
@@ -132,8 +178,11 @@ pub(super) async fn run(args: &FileBlobGcArgs, opened: &HomeStore) -> Result<(),
                 "target_atom_copies": inventory.target_atoms.len(),
                 "target_blob_refs": inventory.target_blob_refs.len(),
                 "shared_blob_refs": inventory.other_schema_blob_references.len(),
-                "source_schema_ownership_only": true,
+                "source_schema_ownership_only": inventory.requested_atom_ids.is_empty(),
                 "unmatched_identities_require_source_join": inventory.unmatched_listed_identities_require_source_join.len(),
+                "requested_atom_ids": inventory.requested_atom_ids.len(),
+                "requested_atom_ids_found": inventory.requested_atom_ids_found.len(),
+                "requested_atom_ids_absent_from_complete_physical_walk": inventory.requested_atom_ids_absent_from_complete_physical_walk.len(),
             })
         );
     } else {
@@ -144,7 +193,31 @@ pub(super) async fn run(args: &FileBlobGcArgs, opened: &HomeStore) -> Result<(),
             inventory.other_schema_blob_references.len()
         );
     }
-    Ok(())
+}
+
+fn read_requested_atoms(path: Option<&Path>) -> Result<RequestedAtoms, String> {
+    let Some(path) = path else {
+        return Ok(RequestedAtoms::default());
+    };
+    let bytes = std::fs::read(path).map_err(err)?;
+    let mut ids = BTreeSet::new();
+    for id in std::str::from_utf8(&bytes).map_err(err)?.lines() {
+        if id.len() != 64
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || !ids.insert(id.to_string())
+        {
+            return Err("target atom IDs require unique 64-character lowercase hex UUIDs".into());
+        }
+    }
+    if ids.is_empty() {
+        return Err("target atom ID file is empty".into());
+    }
+    Ok(RequestedAtoms {
+        ids,
+        file_sha256: Some(model::digest(&bytes)),
+    })
 }
 
 async fn read_atoms(
@@ -153,6 +226,7 @@ async fn read_atoms(
     seam: Arc<dyn fold_db::storage::traits::KvStore>,
     decoder: &AtomStore,
     schemas: &BTreeSet<String>,
+    requested: &BTreeSet<String>,
     found: &mut Collected,
 ) -> Result<(), String> {
     let mut walker = crate::reap::walk::Walker::new(raw);
@@ -198,7 +272,10 @@ async fn read_atoms(
                 blob_refs,
             };
             found.atoms_read += 1;
-            if schemas.contains(atom.source_schema_name()) {
+            if requested.contains(atom.uuid()) {
+                found.requested_atom_ids_found.insert(atom.uuid().into());
+            }
+            if schemas.contains(atom.source_schema_name()) || requested.contains(atom.uuid()) {
                 found.target_atoms.push(row);
             } else {
                 for reference in &row.blob_refs {

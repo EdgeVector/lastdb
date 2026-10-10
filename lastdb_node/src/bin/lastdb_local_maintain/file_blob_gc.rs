@@ -45,6 +45,9 @@ pub(crate) struct FileBlobGcArgs {
     /// Exact source-schema identities; never a schema-name pattern.
     #[arg(long, requires = "inventory_only")]
     pub target_schema_file: Option<PathBuf>,
+    /// Exact atom content UUIDs from separately validated source evidence.
+    #[arg(long, requires = "inventory_only")]
+    pub target_atom_ids_file: Option<PathBuf>,
 }
 
 pub(crate) fn run(args: &FileBlobGcArgs) -> Result<(), String> {
