@@ -217,7 +217,6 @@ pub fn enforce_atom_content_limit(schema_name: &str, content: &Value) -> Result<
 /// Silent below [`HEADROOM_ALARM_FRACTION`] of the limit, so an ordinary write
 /// costs one comparison and logs nothing.
 fn observe_atom_content_headroom(schema_name: &str, size: usize, limit: usize) {
-    #[allow(clippy::cast_precision_loss)]
     let threshold = (limit as f64 * HEADROOM_ALARM_FRACTION) as usize;
     if size <= threshold {
         return;

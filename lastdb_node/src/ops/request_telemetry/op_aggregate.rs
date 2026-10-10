@@ -280,7 +280,6 @@ pub(super) fn residual_detail(unphased_us: i64, wall_us: u64) -> String {
     let pct = if wall_us == 0 {
         String::new()
     } else {
-        #[allow(clippy::cast_precision_loss)]
         let ratio = (unphased_us.unsigned_abs() as f64 / wall_us as f64) * 100.0;
         format!(" ({ratio:.1}%)")
     };

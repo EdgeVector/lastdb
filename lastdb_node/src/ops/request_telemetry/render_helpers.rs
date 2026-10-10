@@ -23,11 +23,9 @@ pub(super) fn human_bytes(n: u64) -> String {
     if n < KIB {
         format!("{n}B")
     } else if n < MIB {
-        #[allow(clippy::cast_precision_loss)]
         let kib = n as f64 / KIB as f64;
         format!("{kib:.1}KiB")
     } else {
-        #[allow(clippy::cast_precision_loss)]
         let mib = n as f64 / MIB as f64;
         format!("{mib:.1}MiB")
     }
@@ -58,7 +56,6 @@ pub(super) fn human_duration_ms(ms: u64) -> String {
         return format!("{ms}ms");
     }
     if ms < 60_000 {
-        #[allow(clippy::cast_precision_loss)]
         return format!("{:.1}s", ms as f64 / 1_000.0);
     }
     if ms < 3_600_000 {
@@ -72,7 +69,6 @@ pub(crate) fn human_duration_us(us: u64) -> String {
         return format!("{us}us");
     }
     if us < 1_000_000 {
-        #[allow(clippy::cast_precision_loss)]
         return format!("{:.1}ms", us as f64 / 1_000.0);
     }
     human_duration_ms(us / 1_000)

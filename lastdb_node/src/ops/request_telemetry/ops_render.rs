@@ -537,7 +537,6 @@ pub(super) fn molecule_work_detail(molecules: u64, commits: u64) -> String {
     if commits == 0 {
         return format!(" molecules={molecules}/0");
     }
-    #[allow(clippy::cast_precision_loss)]
     let per_commit = molecules as f64 / commits as f64;
     format!(" molecules={molecules}/{commits} ({per_commit:.2} per commit)")
 }
@@ -558,7 +557,6 @@ pub(super) fn resident_commit_detail(operations: u64, commits: u64) -> String {
     if commits == 0 {
         return format!(" resident={operations}/0");
     }
-    #[allow(clippy::cast_precision_loss)]
     let per_commit = operations as f64 / commits as f64;
     format!(" resident={operations}/{commits} ({per_commit:.2} per commit)")
 }
