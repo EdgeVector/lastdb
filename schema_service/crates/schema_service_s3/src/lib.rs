@@ -26,6 +26,8 @@
 //! sole arbiter of who wins a race. See the design doc for the full
 //! discussion.
 
+pub mod store_config;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;

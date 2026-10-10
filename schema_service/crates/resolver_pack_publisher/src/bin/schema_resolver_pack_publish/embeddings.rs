@@ -156,7 +156,11 @@ pub(crate) fn recompute_snapshot_embeddings(
                     .field_descriptions
                     .get(&field_name)
                     .map(String::as_str);
-                let text = field_context_text(&descriptive_name, &field_name, description);
+                let text = schema_service_core::field_context_text(
+                    &descriptive_name,
+                    &field_name,
+                    description,
+                );
                 let key = field_embedding_cache_key(&descriptive_name, &field_name, description);
                 let vec = model
                     .embed_text(&text)
@@ -192,18 +196,6 @@ pub(crate) fn recompute_snapshot_embeddings(
             "--recompute-embeddings requires building with --features recompute-embeddings"
                 .to_string(),
         )
-    }
-}
-
-#[cfg(feature = "recompute-embeddings")]
-pub(crate) fn field_context_text(
-    descriptive_name: &str,
-    field_name: &str,
-    field_description: Option<&str>,
-) -> String {
-    match field_description.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(desc) => format!("the {field_name} of the {descriptive_name}: {desc}"),
-        None => format!("the {field_name} of the {descriptive_name}"),
     }
 }
 

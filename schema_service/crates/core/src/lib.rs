@@ -83,7 +83,8 @@ pub use state_expansion::{
     KeyLayoutFingerprint,
 };
 pub use state_native_resolve::{
-    FieldMatchProbeHit, FieldMatchProbeItem, FieldMatchProbeRequest, FieldMatchProbeResponse,
+    field_context_text, proposal_field_id, FieldMatchProbeHit, FieldMatchProbeItem,
+    FieldMatchProbeRequest, FieldMatchProbeResponse,
 };
 pub mod types;
 

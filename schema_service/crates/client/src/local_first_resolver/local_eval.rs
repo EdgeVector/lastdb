@@ -53,22 +53,7 @@ pub(super) fn lifecycle_str(
     }
 }
 
-/// Field-context text aligned with schema service embedding construction.
-pub fn field_context_text(
-    descriptive_name: &str,
-    field_name: &str,
-    field_description: Option<&str>,
-) -> String {
-    match field_description.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(desc) => format!("the {field_name} of the {descriptive_name}: {desc}"),
-        None => format!("the {field_name} of the {descriptive_name}"),
-    }
-}
-
-/// Stable proposal field id (not the free-form field name alone).
-pub fn proposal_field_id(index: usize, field_name: &str) -> String {
-    format!("pf{index}:{field_name}")
-}
+pub use schema_service_core::{field_context_text, proposal_field_id};
 
 /// Outcome of a local native evaluation attempt.
 #[derive(Debug, Clone)]
