@@ -329,7 +329,7 @@ pub(crate) async fn upload_publish_units_batched(
             objects = objects_in_cycle,
             policy_concurrency,
             put_concurrency,
-            "mutation-log catch-up: PUT fan-out raised above the adaptive policy"
+            "mutation-log PUT fan-out raised above the adaptive policy"
         );
     }
     let mut uploaded = 0u64;

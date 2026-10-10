@@ -232,6 +232,8 @@ impl PinLog {
                 || records_selected < page_record_count,
             scan_row_budget_exhausted: page.row_budget_exhausted,
         };
+        self.mark_upload_scan_pending(target_prefix, publish, &report)
+            .await;
 
         // Seal first, then publish to cloud, and only then advance F.
         //
@@ -410,6 +412,8 @@ impl PinLog {
                     .saturating_sub(runtime.published_frontier);
             }
         }
+        self.clear_upload_scan_pending(target_prefix, publish, &report)
+            .await;
         Ok(report)
     }
 }

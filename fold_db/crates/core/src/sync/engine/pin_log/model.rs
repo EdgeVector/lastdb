@@ -37,19 +37,10 @@ pub(super) const MUTATION_LOG_SEGMENT_MAX_RECORDS: usize = 1_000;
 /// Target object size for the continuous plane. The cycle-wide byte budget can
 /// lower this, but never raises it.
 pub(super) const MUTATION_LOG_SEGMENT_TARGET_BYTES: usize = 4 * 1024 * 1024;
-/// A cycle that carries more sealed objects than this is draining a backlog.
-pub(super) const MUTATION_LOG_CATCH_UP_OBJECTS: usize = 16;
-/// PUT fan-out floor for a catch-up cycle.
-///
-/// The adaptive upload policy pins concurrency to 1 under `interactive_busy`,
-/// and on the primary that flag is effectively always set
-/// (`foreground_p95_ms=17236` on 2026-10-05). A backlog of interleaved schemas
-/// seals one small object per record, so at concurrency 1 the cycle drained
-/// ~1,300 objects (~5 KB each) per 30-45 min and published only ~30 s of log
-/// time: the cloud frontier fell behind at wall-clock rate. Small PUTs are
-/// network-bound, not CPU-bound, so yielding them to foreground work bought
-/// nothing and cost every safe-upgrade soak its cloud-progress check.
-pub(crate) const MUTATION_LOG_CATCH_UP_PUT_CONCURRENCY: usize = 8;
+/// PUT fan-out cap for mutation-log objects under interactive load.
+/// A small batch still needs parallel PUTs: seven objects took 224 seconds
+/// with concurrency one on the primary. The floor never exceeds the object count.
+pub(crate) const MUTATION_LOG_PUT_FLOOR_CAP: usize = 8;
 /// Hard ceiling for the `LASTDB_MUTATION_LOG_UPLOAD_CONCURRENCY` override.
 pub(super) const MUTATION_LOG_PUT_CONCURRENCY_MAX: usize = 32;
 /// Pin-log records materialized (atom reads) at once before sealing. Results
@@ -63,16 +54,13 @@ pub(super) fn mutation_log_put_concurrency_env() -> Option<usize> {
 
 /// PUT fan-out for one mutation-log publish cycle.
 ///
-/// `explicit env override > catch-up floor > adaptive policy`. A steady-state
-/// cycle (few objects) keeps the adaptive policy unchanged. A catch-up cycle
-/// gets at least [`MUTATION_LOG_CATCH_UP_PUT_CONCURRENCY`]. Fan-out does not
+/// `explicit env override > bounded floor > adaptive policy`. A one-object
+/// cycle keeps the adaptive policy. The floor reaches eight PUTs; a higher
+/// adaptive policy or explicit override still wins. Fan-out does not
 /// affect ordering: every PUT of a call lands before the call returns, the
 /// manifest call runs after the body call, and published F advances only after
 /// every call succeeds.
 ///
-/// A mutation probe that drops the catch-up floor must make
-/// `mutation_log_backlog_cycle_puts_in_parallel_under_interactive_busy` go
-/// RED on `PUT-PARALLELISM`.
 pub(crate) fn mutation_log_put_concurrency(
     policy_concurrency: usize,
     objects_in_cycle: usize,
@@ -82,11 +70,7 @@ pub(crate) fn mutation_log_put_concurrency(
         return explicit.clamp(1, MUTATION_LOG_PUT_CONCURRENCY_MAX);
     }
     let policy = policy_concurrency.max(1);
-    if objects_in_cycle > MUTATION_LOG_CATCH_UP_OBJECTS {
-        policy.max(MUTATION_LOG_CATCH_UP_PUT_CONCURRENCY)
-    } else {
-        policy
-    }
+    policy.max(objects_in_cycle.min(MUTATION_LOG_PUT_FLOOR_CAP))
 }
 /// One sealed base member frozen at F0 for a pin target.
 ///
@@ -425,8 +409,8 @@ pub struct MutationLogUploadReport {
     pub last_quarantine_reason: Option<String>,
     /// PUT fan-out used for this cycle. Zero when the cycle uploaded nothing.
     ///
-    /// A catch-up cycle raises this above the adaptive policy (floor
-    /// [`MUTATION_LOG_CATCH_UP_PUT_CONCURRENCY`]). The cycle log line carries
+    /// A multi-object cycle can raise this above the adaptive policy (floor
+    /// [`MUTATION_LOG_PUT_FLOOR_CAP`]). The cycle log line carries
     /// the same field so a primary measurement can name the fan-out without
     /// correlating a second catch-up line.
     #[serde(default)]

@@ -180,7 +180,8 @@ impl SyncEngine {
         let wake_threshold_ns = self.config.mutation_log_backlog_wake_threshold_ns;
         let should_wake = report.segments_uploaded > 0
             && wake_threshold_ns > 0
-            && report.upload_backlog_after >= wake_threshold_ns;
+            && (report.upload_backlog_after >= wake_threshold_ns
+                || report.records_considered_is_lower_bound);
         if should_wake {
             self.wake.notify_one();
         }
@@ -247,6 +248,7 @@ impl SyncEngine {
                     segments_uploaded,
                     upload_backlog_after,
                     self.config.mutation_log_backlog_wake_threshold_ns,
+                    pass.last.records_considered_is_lower_bound,
                     started.elapsed(),
                     budget,
                 )

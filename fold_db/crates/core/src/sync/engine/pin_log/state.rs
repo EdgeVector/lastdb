@@ -13,6 +13,9 @@ use super::*;
 /// hiding it behind a back-reference.
 pub(crate) struct PinLog {
     pub(super) state: Arc<Mutex<std::collections::HashMap<String, PinLogRuntime>>>,
+    /// Volatile hint for targets whose bounded durable read found more rows.
+    /// A restart clears it; a rotating target pass discovers old work again.
+    pub(super) known_pending_prefixes: Arc<Mutex<std::collections::HashSet<String>>>,
     /// Serializes append-floor max-merge with its pin-log record batch.
     pub(super) append_lock: Arc<Mutex<()>>,
     /// Serializes read/max-merge/write of whole published-F maps.
@@ -70,6 +73,7 @@ impl PinLog {
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            known_pending_prefixes: Arc::new(Mutex::new(std::collections::HashSet::new())),
             append_lock: Arc::new(Mutex::new(())),
             published_f_lock: Arc::new(Mutex::new(())),
             store,
