@@ -1,6 +1,14 @@
 //! Schema registry routes: listing, lookup, similarity, mutation challenge, submit, resolve.
 
-use super::super::*;
+use crate::http::*;
+use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::{log_schema_mutation_gate_result, SchemaMutationChallengeRequest};
+use schema_service_server_shared::state::SchemaServiceState;
+use schema_service_server_shared::types::{
+    BatchSchemaReuseRequest, SchemaAddOutcome, SchemaEnvelope, SchemaResolveRequest,
+};
+use serde_json::{json, Value};
+use std::collections::HashMap;
 
 pub(crate) fn get_registry_index(
     state: &SchemaServiceState,
@@ -105,7 +113,7 @@ pub(crate) fn get_schema(state: &SchemaServiceState, p: &str) -> Result<Response
         .strip_prefix("/v1/schemas/")
         .or_else(|| p.strip_prefix("/v1/schema/"))
         .unwrap_or("");
-    get_schema_by_name(state, schema_name)
+    crate::http::get_schema_by_name(state, schema_name)
 }
 
 pub(crate) fn post_schemas_mutation_challenge(
