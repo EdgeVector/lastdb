@@ -112,7 +112,7 @@ pub(super) struct BoundedMerge {
     limit: usize,
 }
 
-/// One prefix page: listed ids, plus the bodies copied during that same open.
+/// One prefix page: listed ids, plus their current bodies from grouped reads.
 pub(super) struct UnpublishedPrefixPage {
     pub(super) ids: Vec<String>,
     pub(super) bodies: HashMap<String, Vec<u8>>,
