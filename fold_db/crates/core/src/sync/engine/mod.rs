@@ -242,6 +242,8 @@ pub struct SyncEngine {
     /// binds its durable HWM seed to this value, and append rejects a stale
     /// generation before it can reuse a newly configured target's frontier.
     target_config_generation: AtomicU64,
+    /// Rotates scoped mutation-log uploads without delaying every personal cycle.
+    scoped_upload_turn: AtomicU64,
     /// Per-prefix download cursor: maps prefix -> last_seq_downloaded.
     download_cursors: Arc<Mutex<std::collections::HashMap<String, u64>>>,
     /// Counts personal-index reads so the cheap steady-state index remains a

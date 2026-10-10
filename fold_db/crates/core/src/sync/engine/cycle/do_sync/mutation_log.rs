@@ -1,5 +1,11 @@
 use super::*;
 
+// Keep each scoped pass short enough that a personal write can enter the next
+// cycle. The time budget is checked between batches; the segment cap also
+// bounds one batch when an individual cloud request is slow.
+const SCOPED_MUTATION_LOG_MAX_SEGMENTS: usize = 64;
+const SCOPED_MUTATION_LOG_CATCHUP_BUDGET_MS: u64 = 10_000;
+
 impl SyncEngine {
     /// Refill the upload queue (or skip it when a backup block is latched) and
     /// publish the continuous mutation-log plane.
@@ -47,8 +53,8 @@ impl SyncEngine {
             }
             phases.mark("capture_tick");
             // Continuous mutation-log plane: seal/upload durable segments and
-            // advance published F for every configured continuous target
-            // (personal + org/share). Local R/W never awaits this path;
+            // advance published F for the personal target and bounded scoped
+            // targets (org/share). Local R/W never awaits this path;
             // failures are logged and left for the next cycle (never-block).
             if matches!(self.config.capture_mode, CaptureMode::MutationLog) {
                 self.publish_mutation_log_segments(state).await;
@@ -57,8 +63,8 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Seal and upload durable mutation-log segments for every configured
-    /// continuous target, unless the coalesce window holds the upload.
+    /// Seal and upload the personal target plus a bounded set of scoped targets,
+    /// unless the coalesce window holds the upload.
     async fn publish_mutation_log_segments(&self, state: &mut CycleState) {
         let now_ms = unix_millis();
         let last_append_ms = self
@@ -106,14 +112,72 @@ impl SyncEngine {
                 .store(0, std::sync::atomic::Ordering::Release);
             self.mutation_log_coalesce_retry_ms
                 .store(0, std::sync::atomic::Ordering::Release);
-            let target_prefixes = self.target_prefixes().await;
-            let mut plane = self.mutation_log_plane.lock().await;
-            let catchup_budget =
-                std::time::Duration::from_millis(self.config.mutation_log_upload_catchup_budget_ms);
-            for target_prefix in target_prefixes {
-                self.upload_mutation_log_pass(&target_prefix, &mut plane, catchup_budget, state)
-                    .await;
+            self.upload_ready_mutation_log_targets(state).await;
+        }
+    }
+
+    /// Keep personal uploads first and visit at most two scoped targets.
+    async fn upload_ready_mutation_log_targets(&self, state: &mut CycleState) {
+        let target_prefixes = self.target_prefixes().await;
+        let active_prefixes = self.pin_log.scoped_prefixes_with_local_backlog().await;
+        let mut plane = self.mutation_log_plane.lock().await;
+        let catchup_budget =
+            std::time::Duration::from_millis(self.config.mutation_log_upload_catchup_budget_ms);
+        let scoped_total = target_prefixes.len().saturating_sub(1);
+        let turn = self
+            .scoped_upload_turn
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed) as usize;
+        let discovery_pick = (scoped_total > 0).then(|| turn % scoped_total);
+        let active_indices: Vec<usize> = target_prefixes
+            .iter()
+            .enumerate()
+            .skip(1)
+            .filter(|(_, prefix)| active_prefixes.contains(*prefix))
+            .map(|(index, _)| index - 1)
+            .collect();
+        let active_pick = if active_indices.is_empty() {
+            None
+        } else {
+            let position = turn % active_indices.len();
+            let first = active_indices[position];
+            Some(
+                if Some(first) == discovery_pick && active_indices.len() > 1 {
+                    active_indices[(position + 1) % active_indices.len()]
+                } else {
+                    first
+                },
+            )
+        };
+        for (index, target_prefix) in target_prefixes.iter().enumerate() {
+            if index > 0 && discovery_pick != Some(index - 1) && active_pick != Some(index - 1) {
+                continue;
             }
+            let started = std::time::Instant::now();
+            let (budget, max_segments) = if index == 0 {
+                (catchup_budget, self.config.max_log_segments_per_cycle)
+            } else {
+                (
+                    catchup_budget.min(std::time::Duration::from_millis(
+                        SCOPED_MUTATION_LOG_CATCHUP_BUDGET_MS,
+                    )),
+                    if self.config.max_log_segments_per_cycle == 0 {
+                        SCOPED_MUTATION_LOG_MAX_SEGMENTS
+                    } else {
+                        self.config
+                            .max_log_segments_per_cycle
+                            .min(SCOPED_MUTATION_LOG_MAX_SEGMENTS)
+                    },
+                )
+            };
+            self.upload_mutation_log_pass(target_prefix, &mut plane, budget, max_segments, state)
+                .await;
+            tracing::info!(
+                target: "fold_db::sync::mutation_log",
+                target_index = index,
+                target_count = target_prefixes.len(),
+                elapsed_ms = started.elapsed().as_millis(),
+                "mutation-log target upload pass"
+            );
         }
     }
 
@@ -124,6 +188,7 @@ impl SyncEngine {
         target_prefix: &str,
         plane: &mut super::super::super::pin_log::MutationLogLocalCloud,
         catchup_budget: std::time::Duration,
+        max_segments: usize,
         state: &mut CycleState,
     ) {
         match self
@@ -133,7 +198,7 @@ impl SyncEngine {
                 // NOT max_upload_entries_per_cycle: that is a RAM guard
                 // sized for fat outbox BatchPuts (default 8) and
                 // throttled this plane to ~331 B/s on a 4.6 MB/s link.
-                self.config.max_log_segments_per_cycle,
+                max_segments,
                 super::super::super::pin_log::MutationLogPublish::Cloud,
                 catchup_budget,
             )

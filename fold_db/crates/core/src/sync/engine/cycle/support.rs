@@ -105,20 +105,19 @@ impl std::fmt::Display for MutationLogUploadPassFailure {
 /// Continue looping bounded upload cycles inside one `do_sync` while the
 /// publisher still has backlog and the catch-up time box has not elapsed.
 ///
-/// `budget == 0` is one batch (legacy). This is the only continue
-/// predicate the pass uses; a mutation probe that forces it false must
-/// make `mutation_log_upload_pass_runs_more_than_one_batch_while_backlog_remains`
-/// go RED.
+/// `budget == 0` is one batch (legacy). A bounded read that did not reach
+/// the end also needs another batch, even when the runtime frontier is empty.
 pub(crate) fn should_continue_mutation_log_upload_batches(
     segments_uploaded: usize,
     upload_backlog_after: u64,
     wake_threshold_ns: u64,
+    records_considered_is_lower_bound: bool,
     elapsed: std::time::Duration,
     budget: std::time::Duration,
 ) -> bool {
     segments_uploaded > 0
         && wake_threshold_ns > 0
-        && upload_backlog_after >= wake_threshold_ns
+        && (upload_backlog_after >= wake_threshold_ns || records_considered_is_lower_bound)
         && !budget.is_zero()
         && elapsed < budget
 }
