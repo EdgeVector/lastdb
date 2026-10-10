@@ -1,11 +1,8 @@
 //! Schema-root, root-tip and retention attribution walks.
 
 use super::super::core::DbOperations;
-use super::attribution_reports::{
-    SchemaRetentionAttributionReport, SchemaRootAttributionReport, SchemaRootTipAttributionReport,
-};
+use super::attribution_reports::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
 use super::schema_molecule_ref_edges;
-use crate::atom::molecule_key_codec;
 use crate::db_operations::{
     classification_for_roots, AttributionObjectKind, AttributionPath, AttributionRecord,
     AttributionRootKind, AttributionSize,
@@ -13,7 +10,7 @@ use crate::db_operations::{
 use crate::schema::types::declarative_schemas::SchemaSource;
 use crate::schema::SchemaError;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 fn attribution_digest(parts: impl IntoIterator<Item = String>) -> String {
     let mut hasher = Sha256::new();
@@ -144,161 +141,6 @@ impl DbOperations {
             report.molecule_roots = report.molecule_roots.saturating_add(1);
         }
         // A completed page must survive before its epoch cursor advances.
-        ledger.flush().await?;
-        Ok(report)
-    }
-
-    /// Attribute one keyset page of live molecule tips and atom targets.
-    ///
-    /// The page reads only one molecule's `mk:` range. It never materializes
-    /// the full molecule, and the returned cursor is safe to persist with the
-    /// caller's epoch checkpoint. A missing atom stays unknown and cannot
-    /// become residue through this pass.
-    // lint:fn-size-ok verbatim move from schema_operations.rs; splitting this function is separate work
-    pub async fn attribute_schema_root_tip_page(
-        &self,
-        epoch_id: &str,
-        molecule_uuid: &str,
-        source_sequence: u64,
-        after: Option<&str>,
-        limit: usize,
-        storage_prefix: Option<&str>,
-    ) -> Result<SchemaRootTipAttributionReport, SchemaError> {
-        if epoch_id.trim().is_empty() || molecule_uuid.trim().is_empty() {
-            return Err(SchemaError::InvalidData(
-                "tip attribution requires an epoch and molecule".to_string(),
-            ));
-        }
-        if limit == 0 {
-            return Err(SchemaError::InvalidData(
-                "tip attribution page limit must be positive".to_string(),
-            ));
-        }
-
-        let schemas = self.get_all_schemas().await?;
-        let mut roots: Vec<(AttributionRootKind, String, String)> = Vec::new();
-        for (schema_name, schema) in &schemas {
-            let root_kind = if schema.source == SchemaSource::User {
-                AttributionRootKind::Schema
-            } else {
-                AttributionRootKind::System
-            };
-            for edge in schema_molecule_ref_edges(schema_name, schema) {
-                if edge.molecule_uuid == molecule_uuid {
-                    let root_id = edge.source;
-                    let root_digest = attribution_digest([
-                        format!("schema={schema_name}"),
-                        format!("root={root_id}"),
-                        format!("molecule={molecule_uuid}"),
-                    ]);
-                    roots.push((root_kind, root_id, root_digest));
-                }
-            }
-        }
-        roots.sort();
-        roots.dedup();
-        if roots.is_empty() {
-            return Err(SchemaError::InvalidData(format!(
-                "molecule {molecule_uuid} has no active schema root"
-            )));
-        }
-
-        let (keys, next_cursor, has_more) = self
-            .atoms()
-            .list_live_record_keys(molecule_uuid, limit, after, storage_prefix)
-            .await?;
-        let records = self
-            .atoms()
-            .load_per_key_records_for_slots(molecule_uuid, storage_prefix, &keys)
-            .await?;
-        let mut records_by_key = records
-            .into_iter()
-            .map(|(hash, range, record)| ((hash, range), record))
-            .collect::<HashMap<_, _>>();
-        let ledger = self.attribution();
-        let mut report = SchemaRootTipAttributionReport {
-            molecule_uuid: molecule_uuid.to_string(),
-            tips_seen: keys.len() as u64,
-            atoms_attributed: 0,
-            unknown_atoms: 0,
-            missing_tips: 0,
-            next_cursor,
-            has_more,
-        };
-
-        for (hash, range) in keys {
-            let tip_id = molecule_key_codec::hash_range_record_key(molecule_uuid, &hash, &range);
-            let Some(record) = records_by_key.remove(&(hash.clone(), range.clone())) else {
-                report.missing_tips = report.missing_tips.saturating_add(1);
-                ledger
-                    .put_unknown_record_if_absent(
-                        epoch_id,
-                        AttributionObjectKind::Tip,
-                        &tip_id,
-                        source_sequence,
-                    )
-                    .await?;
-                continue;
-            };
-
-            let mut tip_paths = Vec::with_capacity(roots.len());
-            for (root_kind, root_id, root_digest) in &roots {
-                tip_paths.push(AttributionPath::new(
-                    epoch_id,
-                    AttributionObjectKind::Tip,
-                    &tip_id,
-                    *root_kind,
-                    root_id,
-                    attribution_digest([
-                        root_digest.clone(),
-                        format!("tip={tip_id}"),
-                        format!("atom={}", record.entry.atom_uuid),
-                    ]),
-                ));
-            }
-            ledger
-                .put_attributed_object_paths(&tip_paths, source_sequence)
-                .await?;
-
-            let atom_id = record.entry.atom_uuid;
-            if self
-                .atoms()
-                .get_atom_by_uuid(&atom_id, storage_prefix)
-                .await?
-                .is_none()
-            {
-                report.unknown_atoms = report.unknown_atoms.saturating_add(1);
-                ledger
-                    .put_unknown_record_if_absent(
-                        epoch_id,
-                        AttributionObjectKind::Atom,
-                        &atom_id,
-                        source_sequence,
-                    )
-                    .await?;
-                continue;
-            }
-
-            let mut atom_paths = Vec::with_capacity(roots.len());
-            for (root_kind, root_id, root_digest) in &roots {
-                atom_paths.push(AttributionPath::new(
-                    epoch_id,
-                    AttributionObjectKind::Atom,
-                    &atom_id,
-                    *root_kind,
-                    root_id,
-                    attribution_digest([
-                        root_digest.clone(),
-                        format!("tip={tip_id}"),
-                        format!("atom={atom_id}"),
-                    ]),
-                ));
-            }
-            ledger
-                .put_attributed_object_paths(&atom_paths, source_sequence)
-                .await?;
-            report.atoms_attributed = report.atoms_attributed.saturating_add(1);
-        }
         ledger.flush().await?;
         Ok(report)
     }

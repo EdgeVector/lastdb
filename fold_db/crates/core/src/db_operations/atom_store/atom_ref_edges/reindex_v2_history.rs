@@ -149,30 +149,4 @@ impl AtomStore {
         }
         Ok(progress)
     }
-
-    /// Reset compact rebuild markers only on a throwaway proof copy.
-    #[cfg(feature = "cloud-sync")]
-    pub async fn reset_atom_ref_v2_reindex_for_isolated_copy_proof(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        self.main_store
-            .batch_delete_keys(vec![
-                build_storage_key(storage_prefix, molecule_key_codec::ATOM_REF_V2_COMPLETE_KEY),
-                build_storage_key(
-                    storage_prefix,
-                    molecule_key_codec::ATOM_REF_V2_REINDEX_CHECKPOINT_KEY,
-                ),
-                build_storage_key(
-                    storage_prefix,
-                    molecule_key_codec::ATOM_REF_V2_HISTORY_COMPLETE_KEY,
-                ),
-            ])
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "reset compact atom reverse-edge rebuild markers on isolated copy: {error}"
-                ))
-            })
-    }
 }

@@ -11,9 +11,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
-use super::graph::RehydrateFlightCell;
 use super::types::{PersistPlan, ResidentAtom, ResidentTip};
 use super::ResidentGraph;
 use crate::atom::molecule_key_codec::hash_range_record_key;
@@ -21,25 +19,6 @@ use crate::atom::MoleculeHashRange;
 use crate::db_operations::atom_store::{ChangedKey, MoleculeData, PerKeyRecord};
 use crate::db_operations::AtomStore;
 use crate::schema::types::SchemaError;
-
-struct FlightLeaderGuard<'a> {
-    graph: &'a ResidentGraph,
-    flight_key: String,
-    cell: Arc<RehydrateFlightCell>,
-    armed: bool,
-}
-
-impl Drop for FlightLeaderGuard<'_> {
-    fn drop(&mut self) {
-        if self.armed {
-            self.cell.complete(Err(SchemaError::InvalidData(
-                "rehydrate flight aborted".into(),
-            )));
-            self.graph
-                .clear_rehydrate_flight(&self.flight_key, &self.cell);
-        }
-    }
-}
 
 /// Sink that materializes a [`PersistPlan`] into durable storage.
 #[async_trait]
@@ -224,95 +203,4 @@ impl RehydrateSource for AtomStorePersistSink {
     }
 }
 
-impl ResidentGraph {
-    /// Rehydrate the tip and atom. A file reference is never followed.
-    ///
-    /// Concurrent cold readers of one slot share a single disk read. The
-    /// flight map mutex is released before that read. A disk value installs
-    /// only when the slot's resident and durable revisions stay unchanged.
-    pub async fn rehydrate_field_from(
-        &self,
-        source: &dyn RehydrateSource,
-        molecule_uuid: &str,
-        hash: &str,
-        range: &str,
-    ) -> Result<Option<ResidentTip>, SchemaError> {
-        if let Some(tip) = self.resident_field_ready(molecule_uuid, hash, range) {
-            return Ok(Some(tip));
-        }
-
-        let (flight_key, cell, is_leader, observed_revisions) =
-            self.join_rehydrate_flight_with_snapshot(molecule_uuid, hash, range);
-        if is_leader {
-            let observed_revisions =
-                observed_revisions.expect("a new rehydrate flight captures its slot revisions");
-            let mut guard = FlightLeaderGuard {
-                graph: self,
-                flight_key: flight_key.clone(),
-                cell: Arc::clone(&cell),
-                armed: true,
-            };
-            let outcome = async {
-                if let Some(tip) = self.resident_field_ready(molecule_uuid, hash, range) {
-                    return Ok(Some(tip));
-                }
-                self.rehydrate_field_from_uncached(
-                    source,
-                    molecule_uuid,
-                    hash,
-                    range,
-                    observed_revisions,
-                )
-                .await
-            }
-            .await;
-            cell.complete(outcome.clone());
-            guard.armed = false;
-            self.clear_rehydrate_flight(&flight_key, &cell);
-            return outcome;
-        }
-
-        let waited = cell.wait().await;
-        if let Some(tip) = self.resident_field_ready(molecule_uuid, hash, range) {
-            return Ok(Some(tip));
-        }
-        waited
-    }
-
-    async fn rehydrate_field_from_uncached(
-        &self,
-        source: &dyn RehydrateSource,
-        molecule_uuid: &str,
-        hash: &str,
-        range: &str,
-        observed_revisions: (u64, u64),
-    ) -> Result<Option<ResidentTip>, SchemaError> {
-        let loaded_tip = source.load_tip(molecule_uuid, hash, range).await?;
-        let Some(tip) = loaded_tip else {
-            let current = self.slot_control(molecule_uuid, hash, range);
-            if (current.resident_revision, current.durable_revision) != observed_revisions {
-                self.metrics().record_stale_rehydrate_rejected();
-                return Ok(self.resident_field_ready(molecule_uuid, hash, range));
-            }
-            return Ok(None);
-        };
-        let atom = source.load_atom(&tip.atom_uuid).await?;
-        // A field read stops at the atom. Its file reference and access
-        // metadata are the query result; CAS bytes belong to explicit file
-        // access and must never be hydrated into the resident query graph.
-
-        let current = self.slot_control(molecule_uuid, hash, range);
-        if (current.resident_revision, current.durable_revision) != observed_revisions {
-            self.metrics().record_stale_rehydrate_rejected();
-            return Ok(self.resident_field_ready(molecule_uuid, hash, range));
-        }
-
-        let Some(tip_out) = self.rehydrate_tip_at(tip, Some(observed_revisions)) else {
-            return Ok(None);
-        };
-        if let Some(atom) = atom {
-            self.rehydrate_atom(atom);
-        }
-        Ok(Some(tip_out.value))
-    }
-}
+impl ResidentGraph {}

@@ -79,14 +79,6 @@ impl<T> ResolveOutcome<T> {
         }
     }
 
-    pub fn is_hit(&self) -> bool {
-        self.source == ResolveSource::ResidentHit
-    }
-
-    pub fn is_rehydrated(&self) -> bool {
-        self.source == ResolveSource::Rehydrated
-    }
-
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> ResolveOutcome<U> {
         ResolveOutcome {
             value: f(self.value),

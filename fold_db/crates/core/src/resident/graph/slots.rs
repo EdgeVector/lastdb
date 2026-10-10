@@ -3,16 +3,6 @@
 use super::*;
 
 impl ResidentGraph {
-    /// Full slot identity for this graph's storage prefix.
-    pub fn slot_id(&self, molecule_uuid: &str, hash: &str, range: &str) -> ResidentSlotId {
-        ResidentSlotId {
-            storage_prefix: self.storage_prefix.clone(),
-            molecule_uuid: molecule_uuid.to_string(),
-            disk_hash: hash.to_string(),
-            disk_range: range.to_string(),
-        }
-    }
-
     /// Control state for one slot. Missing entry is [`ResidentSlotState::Absent`].
     pub fn slot_control(
         &self,
@@ -156,56 +146,5 @@ impl ResidentGraph {
         let control = slots.entry(k).or_default();
         control.resident_revision = control.resident_revision.saturating_add(1);
         control.state = ResidentSlotState::Ready;
-    }
-
-    /// Register one cold-read leader and capture its revision in one lock cut.
-    ///
-    /// Purge and eviction use the same flight-to-slot lock order. They cannot
-    /// invalidate a slot between leader admission and this revision snapshot.
-    pub(crate) fn join_rehydrate_flight_with_snapshot(
-        &self,
-        molecule_uuid: &str,
-        hash: &str,
-        range: &str,
-    ) -> (String, Arc<RehydrateFlightCell>, bool, Option<(u64, u64)>) {
-        let key = tip_map_key(molecule_uuid, hash, range);
-        let mut flights = self
-            .rehydrate_flights
-            .lock()
-            .expect("resident rehydrate flight lock");
-        if let Some(existing) = flights.get(&key) {
-            return (key, existing.clone(), false, None);
-        }
-        let cell = Arc::new(RehydrateFlightCell::new());
-        flights.insert(key.clone(), cell.clone());
-        let mut slots = self.slots.write().expect("resident slot lock");
-        let control = slots.entry(key.clone()).or_default();
-        if control.state == ResidentSlotState::Absent {
-            control.state = ResidentSlotState::RehydrateFlight;
-        }
-        let observed = (control.resident_revision, control.durable_revision);
-        (key, cell, true, Some(observed))
-    }
-
-    pub(crate) fn clear_rehydrate_flight(&self, key: &str, cell: &Arc<RehydrateFlightCell>) {
-        let readers = self.slot_readers.lock().expect("resident slot reader lock");
-        let mut flights = self
-            .rehydrate_flights
-            .lock()
-            .expect("resident rehydrate flight lock");
-        if flights
-            .get(key)
-            .is_some_and(|current| Arc::ptr_eq(current, cell))
-        {
-            flights.remove(key);
-            let mut slots = self.slots.write().expect("resident slot lock");
-            if !readers.contains_key(key)
-                && slots
-                    .get(key)
-                    .is_some_and(|control| control.state != ResidentSlotState::Ready)
-            {
-                slots.remove(key);
-            }
-        }
     }
 }

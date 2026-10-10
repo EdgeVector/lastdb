@@ -76,13 +76,6 @@ impl LogicalResidentSet {
         }
     }
 
-    /// Newest recorded write token for `key`.
-    pub fn newest_write_token(&self, key: &[u8]) -> Option<DurabilityToken> {
-        self.pending_write_tokens
-            .get(key)
-            .map(|pending| pending.token)
-    }
-
     /// Drop the pending write token for `key`. A delete must not leave a
     /// token for a later put to consume.
     pub fn clear_write_tokens(&mut self, key: &[u8]) {

@@ -196,11 +196,6 @@ impl ResidentGraph {
             );
     }
 
-    pub fn apply_schema_key_tombstone(&self, schema: &str, hash: &str, range: &str) {
-        let tombstone_id = self.next_tombstone_id();
-        self.apply_schema_key_tombstone_with_id(schema, hash, range, tombstone_id);
-    }
-
     #[must_use]
     pub fn is_schema_key_tombstoned(&self, schema: &str, hash: &str, range: &str) -> bool {
         self.schema_key_tombstones

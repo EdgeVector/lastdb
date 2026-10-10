@@ -41,29 +41,6 @@ impl KeepSmallMeters {
         rows
     }
 
-    #[must_use]
-    pub fn churn_report(&self) -> ChurnReport {
-        let day = utc_day(Utc::now());
-        let per_schema: Vec<SchemaChurnRow> = self
-            .schema_meters()
-            .into_iter()
-            .filter(|m| m.live_bytes > 0 || m.appended_bytes > 0)
-            .map(|m| SchemaChurnRow {
-                churn_ratio: m.churn_ratio(),
-                schema_name: m.schema_name,
-                display_name: m.display_name,
-                live_bytes: m.live_bytes,
-                appended_bytes: m.appended_bytes,
-            })
-            .collect();
-        ChurnReport {
-            measured_at: Utc::now(),
-            heavy: false,
-            day,
-            per_schema,
-        }
-    }
-
     pub(super) fn add_appended(meter: &mut SchemaMeter, bytes: u64) {
         let today = utc_day(Utc::now());
         if meter.appended_day != today {

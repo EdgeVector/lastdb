@@ -132,27 +132,6 @@ impl LogicalResidentSet {
         self.recency.insert(key, self.clock);
     }
 
-    /// Store one fetched schema. Its fields stay absent until
-    /// [`Self::admit_field`].
-    pub fn admit_schema(&mut self, schema: Schema) {
-        let name = schema.name.clone();
-        let schema_hold = if let Some(entry) = self.schemas.get_mut(&name) {
-            let before = entry.hold;
-            entry.take_hold();
-            entry.value = schema;
-            Some((before, entry.hold))
-        } else {
-            self.schemas.insert(name.clone(), Held::admit(schema));
-            self.note_used_insert(1, false);
-            None
-        };
-        if let Some((before, after)) = schema_hold {
-            self.note_hold_transition(before, after);
-        }
-        self.touch(ResidentKey::Schema(name));
-        self.purge_over_cap();
-    }
-
     /// Store one fetched field. No product read calls this yet.
     pub fn admit_field(&mut self, schema: &Schema, field: &str) {
         let name = schema.name.clone();
@@ -198,20 +177,6 @@ impl LogicalResidentSet {
         self.fields
             .get(&field_key(schema, field))
             .map(|entry| &entry.value)
-    }
-
-    pub fn admit_protein(&mut self, protein_id: impl Into<String>, members: Vec<MoleculeId>) {
-        let protein_id = protein_id.into();
-        if self.proteins.contains_key(&protein_id) {
-            self.remove_protein(&protein_id);
-        }
-        for member in &members {
-            self.molecule_proteins
-                .entry(*member)
-                .or_default()
-                .insert(protein_id.clone());
-        }
-        self.proteins.insert(protein_id, Held::admit(members));
     }
 
     pub fn protein(&self, protein_id: &str) -> Option<&[MoleculeId]> {

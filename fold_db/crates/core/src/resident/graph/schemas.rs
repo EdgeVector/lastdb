@@ -27,10 +27,6 @@ impl ResidentGraph {
             .contains_key(name)
     }
 
-    pub fn is_schema_dirty(&self, name: &str) -> bool {
-        self.is_dirty(&DirtyKey::Schema(name.to_string()))
-    }
-
     pub fn resolve_schema(
         &self,
         name: &str,
@@ -52,25 +48,6 @@ impl ResidentGraph {
         self.install_schema(schema.clone());
         self.metrics.record_rehydrate(ResidentKind::Schema);
         Ok(Some(ResolveOutcome::rehydrated(schema)))
-    }
-
-    pub fn try_evict_schema(&self, name: &str) -> Result<bool, String> {
-        let key = DirtyKey::Schema(name.to_string());
-        if self.is_dirty(&key) {
-            return Err(format!(
-                "refuse to evict dirty schema '{name}' until persist acks"
-            ));
-        }
-        let removed = self
-            .schemas
-            .write()
-            .expect("schemas lock")
-            .remove(name)
-            .is_some();
-        if removed {
-            self.discharge(&key);
-        }
-        Ok(removed)
     }
 
     pub fn schema_count(&self) -> usize {

@@ -415,13 +415,6 @@ impl<T: Send + 'static> PersistLaneSet<T> {
         }
     }
 
-    /// Override the base cooldown of the quarantine breaker.
-    #[must_use]
-    pub fn with_breaker_cooldown(mut self, cooldown: Duration) -> Self {
-        self.breaker_cooldown = cooldown;
-        self
-    }
-
     /// Empty set that never spawns workers. Used by persist-surface clones
     /// that only run an already-dequeued envelope.
     pub fn disabled() -> Self {

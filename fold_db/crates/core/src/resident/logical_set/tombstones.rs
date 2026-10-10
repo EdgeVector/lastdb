@@ -92,12 +92,6 @@ impl LogicalResidentSet {
             .contains_key(&tip_key(molecule, hash, range))
     }
 
-    pub fn tombstone_hold_count(&self, molecule: MoleculeId, hash: &str, range: &str) -> u32 {
-        self.tombstones
-            .get(&tip_key(molecule, hash, range))
-            .map_or(0, |entry| entry.hold)
-    }
-
     pub fn tombstone_token(
         &self,
         molecule: MoleculeId,

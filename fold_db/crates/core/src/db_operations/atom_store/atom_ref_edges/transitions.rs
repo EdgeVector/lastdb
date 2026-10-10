@@ -50,63 +50,6 @@ impl AtomStore {
         Ok(mutations)
     }
 
-    /// Commit one source transition and its compact edge with one barrier.
-    pub async fn commit_atom_ref_v2_transition(
-        &self,
-        transition: AtomRefV2Transition,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let mut active_edges = HashMap::new();
-        let mut inactive_edges = HashMap::new();
-        match &transition {
-            AtomRefV2Transition::Add { edge, .. } => {
-                active_edges.insert(
-                    edge.storage_key_v2(storage_prefix)?.into_bytes(),
-                    edge.clone(),
-                );
-            }
-            AtomRefV2Transition::Replace {
-                old_edge, new_edge, ..
-            } => {
-                let old_key = old_edge.storage_key_v2(storage_prefix)?.into_bytes();
-                let new_key = new_edge.storage_key_v2(storage_prefix)?.into_bytes();
-                active_edges.insert(new_key.clone(), new_edge.clone());
-                if old_key != new_key {
-                    inactive_edges.insert(old_key, old_edge.clone());
-                }
-            }
-            AtomRefV2Transition::Purge { edge, .. } => {
-                inactive_edges.insert(
-                    edge.storage_key_v2(storage_prefix)?.into_bytes(),
-                    edge.clone(),
-                );
-            }
-        }
-        let mut atoms: Vec<String> = active_edges
-            .values()
-            .chain(inactive_edges.values())
-            .filter(|edge| edge.edge_type == AtomRefEdgeType::Tip)
-            .map(|edge| edge.atom_uuid.clone())
-            .collect();
-        atoms.sort_unstable();
-        atoms.dedup();
-        let _count_guards = self.lock_atom_ref_counts(&atoms).await;
-        let mut mutations = self.atom_ref_v2_transition_mutations(transition, storage_prefix)?;
-        let count_mutations = self
-            .atom_live_ref_count_mutations(&active_edges, &inactive_edges, storage_prefix)
-            .await?;
-        mutations.extend(count_mutations);
-        self.main_store
-            .inner()
-            .batch_mutate(mutations)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "commit compact atom reverse-edge transition: {error}"
-                ))
-            })
-    }
-
     /// Commit one existing JSON put batch with compact edge changes.
     ///
     /// Active compact edges precede every source put. Compact edge deletes

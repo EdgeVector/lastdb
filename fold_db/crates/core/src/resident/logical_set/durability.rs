@@ -25,14 +25,6 @@ impl LogicalResidentSet {
         true
     }
 
-    /// The exact durability token is covered (`WriteAck.covered_by_file_len`).
-    /// An entry becomes clean only when its owning call has returned. It
-    /// then stays warm. `flush`'s `Ok` does not call this.
-    pub fn mark_covered(&mut self, token: DurabilityToken) {
-        self.covered_exact.insert(token);
-        self.cover_ready_entries();
-    }
-
     /// Full-flush seal. Tokens at or below `seal` are covered. A newer token
     /// stays dirty. An entry becomes clean only when the owning call has
     /// returned, and then it stays warm.

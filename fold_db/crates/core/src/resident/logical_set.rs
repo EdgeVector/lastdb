@@ -199,21 +199,6 @@ pub enum ResidentKey {
     },
 }
 
-impl ResidentKey {
-    /// False for every logical key. A group id does not fit this enum.
-    pub fn names_group(&self) -> bool {
-        match self {
-            Self::Schema(_)
-            | Self::Field { .. }
-            | Self::MoleculeTip { .. }
-            | Self::Tombstone { .. }
-            | Self::Atom(_)
-            | Self::Protein(_)
-            | Self::Record { .. } => false,
-        }
-    }
-}
-
 impl std::fmt::Debug for ResidentKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

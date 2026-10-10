@@ -179,31 +179,6 @@ pub struct BudgetReport {
     pub used_ratio: f64,
 }
 
-impl BudgetReport {
-    #[must_use]
-    pub fn from_totals(totals: LiveBudgetTotals, physical_bytes: u64) -> Self {
-        let live_total_bytes = totals.live_total_bytes();
-        Self {
-            measured_at: Utc::now(),
-            heavy: false,
-            budget_bytes: LIVE_BUDGET_BYTES,
-            live_atom_bytes: totals.atom_bytes,
-            live_tip_bytes: totals.tip_bytes,
-            live_bookkeeping_bytes: totals.bookkeeping_bytes,
-            live_total_bytes,
-            live_atom_count: totals.atom_count,
-            live_tip_count: totals.tip_count,
-            physical_bytes,
-            amplification: amplification_ratio(physical_bytes, live_total_bytes),
-            used_ratio: if LIVE_BUDGET_BYTES == 0 {
-                0.0
-            } else {
-                live_total_bytes as f64 / LIVE_BUDGET_BYTES as f64
-            },
-        }
-    }
-}
-
 /// Physical / live amplification. Live 0 → 1.0 so a fresh home is not Inf.
 #[must_use]
 pub fn amplification_ratio(physical_bytes: u64, live_bytes: u64) -> f64 {
