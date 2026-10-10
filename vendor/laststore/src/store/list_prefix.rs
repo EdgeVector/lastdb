@@ -24,10 +24,11 @@ impl LastStore {
     /// listing runs dry. See [`Self::list_range_paged`] for why that invariant
     /// is load-bearing rather than cosmetic.
     ///
-    /// Each group is opened, the page is copied, and the group is dropped.
-    /// This path does not call `scan_handle_by_key`, so the rows do not enter
-    /// the warm set. A prefix that is one molecule hash uses `load_hash`
-    /// instead of this function.
+    /// Ids use live authority, a valid key cache, or a verified sidecar.
+    /// Only groups with selected ids need a body read, once per group.
+    /// Cold fallbacks and body reads use unpublished handles, so this path
+    /// does not admit storage groups into the warm set. A prefix that is one
+    /// molecule hash uses `load_hash` instead of this function.
     pub fn list_prefix_paged(
         &self,
         collection: &str,
@@ -69,12 +70,8 @@ impl LastStore {
         Ok(rows)
     }
 
-    /// Ids and bodies under `prefix` from one unpublished open of each group.
-    ///
-    /// The body is copied before the group is dropped, so a prefix page parses
-    /// each group once. The group is dropped before the next group is opened.
-    /// A write pin is included even when `readdir` cannot see its directory
-    /// yet: an unflushed append lives on the pin, not in the warm set.
+    /// Select ids before fetching their bodies through grouped unpublished
+    /// reads. A vanished listed id is counted and the caller refills the page.
     pub(super) fn unpublished_prefix_keys_paged(
         &self,
         collection: &str,
@@ -82,11 +79,37 @@ impl LastStore {
         after: Option<&str>,
         limit: usize,
     ) -> Result<UnpublishedPrefixPage> {
+        let ids = self.unpublished_prefix_ids_paged(collection, prefix, after, limit)?;
+        let points = self.load_existing_points(collection, &ids)?;
+        let mut bodies = HashMap::new();
+        let mut vanished = 0u64;
+        for (id, point) in ids.iter().zip(points) {
+            match point.and_then(|point| point.body) {
+                Some(body) => {
+                    bodies.insert(id.clone(), body);
+                }
+                None => vanished += 1,
+            }
+        }
+        if vanished > 0 {
+            self.walk_vanished_ids
+                .fetch_add(vanished, Ordering::Relaxed);
+        }
+        Ok(UnpublishedPrefixPage { ids, bodies })
+    }
+
+    /// Use the same authoritative id tiers as a keys-only pass, without its
+    /// cold scan admission. Pins remain visible before their directory does.
+    fn unpublished_prefix_ids_paged(
+        &self,
+        collection: &str,
+        prefix: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<String>> {
+        self.validate_prefix_read(prefix)?;
         if limit == 0 {
-            return Ok(UnpublishedPrefixPage {
-                ids: Vec::new(),
-                bodies: HashMap::new(),
-            });
+            return Ok(Vec::new());
         }
         let start = match after {
             Some(a) if a.starts_with(prefix) => a.to_string(),
@@ -94,10 +117,13 @@ impl LastStore {
         };
         let skip_exact = after.filter(|a| a.starts_with(prefix));
         let mut merged = BoundedMerge::new(limit);
-        let mut bodies: HashMap<String, Vec<u8>> = HashMap::new();
         let mut visited = 0u64;
-        let mut vanished = 0u64;
         for (shard, group) in self.prefix_page_handles(collection, prefix)? {
+            if let Some(keys) = self.cached_group_keys(collection, shard, group, None)? {
+                visited +=
+                    collect_prefix(keys.range(start.clone()..), prefix, skip_exact, &mut merged);
+                continue;
+            }
             let key = (collection.to_string(), shard, group);
             let handle = self.open_group_unpublished(key.clone())?;
             // Pins lock, then the shard lock. A reap holds the pins lock and
@@ -105,7 +131,6 @@ impl LastStore {
             let pinned = self
                 .pin_table_handle(&key)
                 .is_some_and(|pin| Arc::ptr_eq(&pin, &handle));
-            let mut pending = Vec::new();
             {
                 let mut shard = handle.lock().expect("poison");
                 shard.visit_keys(&start, None, |id, _| {
@@ -113,23 +138,8 @@ impl LastStore {
                         return false;
                     }
                     visited += 1;
-                    if skip_exact == Some(id) {
-                        return true;
-                    }
-                    if merged.offer(id) == Offer::StopGroup {
-                        return false;
-                    }
-                    pending.push(id.to_string());
-                    true
+                    skip_exact == Some(id) || merged.offer(id) != Offer::StopGroup
                 })?;
-                for id in &pending {
-                    match Self::current_body_locked(&mut shard, id)? {
-                        Some(body) => {
-                            bodies.insert(id.clone(), body);
-                        }
-                        None => vanished += 1,
-                    }
-                }
                 // The group is not kept. Eviction used to rewrite a stale or
                 // corrupt sidecar on the way out. Do that here, and skip a
                 // sidecar whose stamps already match. A pin keeps its own
@@ -140,14 +150,7 @@ impl LastStore {
             }
         }
         self.walk_ids_visited.fetch_add(visited, Ordering::Relaxed);
-        if vanished > 0 {
-            self.walk_vanished_ids
-                .fetch_add(vanished, Ordering::Relaxed);
-        }
-        Ok(UnpublishedPrefixPage {
-            ids: merged.into_vec(),
-            bodies,
-        })
+        Ok(merged.into_vec())
     }
 
     /// Disk groups for `prefix`, plus every write pin in the collection.

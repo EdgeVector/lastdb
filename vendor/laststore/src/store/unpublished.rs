@@ -26,11 +26,27 @@ impl LastStore {
         group: Option<u32>,
         window: Option<keysidecar::KeyWindow<'_>>,
     ) -> Result<GroupKeySource<'_>> {
+        if let Some(keys) = self.cached_group_keys(collection, shard, group, window)? {
+            return Ok(GroupKeySource::Cached(keys));
+        }
+        let key = (collection.to_string(), shard, group);
+        Ok(GroupKeySource::Live(self.scan_handle_by_key(&key)?))
+    }
+
+    /// Resolve authoritative ids without admitting a cold group. A miss
+    /// requires a live read; callers choose a scan or unpublished handle.
+    pub(super) fn cached_group_keys(
+        &self,
+        collection: &str,
+        shard: u16,
+        group: Option<u32>,
+        window: Option<keysidecar::KeyWindow<'_>>,
+    ) -> Result<Option<GroupKeys>> {
         if self.opts.layout_mode == LayoutMode::HashGroup {
             let key = (collection.to_string(), shard, group);
             // Pins then shards: same order as put/get. A pin holds unflushed
             // writes the key index and sidecar do not see. Read those ids
-            // under the pin lock and return Cached: a Live ScanHandle drops
+            // under the pin lock and return ids: a Live ScanHandle drops
             // through `retire_leased_scan_handle`, which `sync_open`s the pin
             // and clears `dirty_ops` on a read path.
             if let Some(handle) = self.pin_table_handle(&key) {
@@ -39,7 +55,7 @@ impl LastStore {
                     shard.live_keys()?
                 };
                 self.id_tier_resident.fetch_add(1, Ordering::Relaxed);
-                return Ok(GroupKeySource::Cached(Arc::new(keys)));
+                return Ok(Some(Arc::new(keys)));
             }
             let resident = self
                 .shards
@@ -51,7 +67,7 @@ impl LastStore {
                 if self.opts.hash_group_key_cache_bytes > 0 {
                     if let Some(keys) = self.key_index.lock().expect("poison").get(&key) {
                         self.id_tier_key_cache_hits.fetch_add(1, Ordering::Relaxed);
-                        return Ok(GroupKeySource::Cached(keys));
+                        return Ok(Some(keys));
                     }
                 }
                 // On-disk tier. The in-memory cache spans one process and one
@@ -72,7 +88,7 @@ impl LastStore {
                         // concurrent authority mutation may have moved past
                         // this sidecar, and a residency recheck alone would
                         // not justify the admission for concurrent readers.
-                        return Ok(GroupKeySource::Cached(Arc::new(ids)));
+                        return Ok(Some(Arc::new(ids)));
                     }
                 }
                 self.id_tier_live_scans.fetch_add(1, Ordering::Relaxed);
@@ -80,13 +96,11 @@ impl LastStore {
                 self.id_tier_resident.fetch_add(1, Ordering::Relaxed);
             }
         } else {
-            // Not a hash-group home: there are no id tiers to consult, and the
-            // scan below is the only path. Counting it as a live scan keeps the
-            // sum equal to the number of resolutions on every layout.
+            // Not a hash-group home: there are no id tiers to consult, so a
+            // live handle is required. Count that fallback on every layout.
             self.id_tier_live_scans.fetch_add(1, Ordering::Relaxed);
         }
-        let key = (collection.to_string(), shard, group);
-        Ok(GroupKeySource::Live(self.scan_handle_by_key(&key)?))
+        Ok(None)
     }
 
     pub(super) fn warm_or_leased_handle(
