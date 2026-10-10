@@ -136,6 +136,33 @@ impl AttributionLedger {
             .await
     }
 
+    /// Delete the pending scopes for `mutation_ids`; a no-op when empty.
+    async fn delete_pending_scopes(&self, mutation_ids: &[String]) -> Result<(), SchemaError> {
+        if mutation_ids.is_empty() {
+            return Ok(());
+        }
+        self.store
+            .batch_delete_keys(
+                mutation_ids
+                    .iter()
+                    .map(|mutation_id| pending_key(mutation_id))
+                    .collect(),
+            )
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!("delete attribution pending scopes: {error}"))
+            })
+    }
+
+    /// Delete the pending scopes and flush, only when there are any to delete.
+    async fn clear_pending_and_flush(&self, mutation_ids: &[String]) -> Result<(), SchemaError> {
+        if mutation_ids.is_empty() {
+            return Ok(());
+        }
+        self.delete_pending_scopes(mutation_ids).await?;
+        self.store.inner().flush().await.map_err(SchemaError::from)
+    }
+
     /// Append source events and clear their pending scopes in one durable batch.
     ///
     /// The event is the recovery record. A pending scope stays conservative
@@ -146,26 +173,7 @@ impl AttributionLedger {
         mutation_ids: &[String],
     ) -> Result<Vec<u64>, SchemaError> {
         if events.is_empty() {
-            if !mutation_ids.is_empty() {
-                self.store
-                    .batch_delete_keys(
-                        mutation_ids
-                            .iter()
-                            .map(|mutation_id| pending_key(mutation_id))
-                            .collect(),
-                    )
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "delete attribution pending scopes: {error}"
-                        ))
-                    })?;
-                self.store
-                    .inner()
-                    .flush()
-                    .await
-                    .map_err(SchemaError::from)?;
-            }
+            self.clear_pending_and_flush(mutation_ids).await?;
             return Ok(Vec::new());
         }
         for event in &events {
@@ -203,26 +211,7 @@ impl AttributionLedger {
             sequences.push(seq);
         }
         if sequences.is_empty() {
-            if !mutation_ids.is_empty() {
-                self.store
-                    .batch_delete_keys(
-                        mutation_ids
-                            .iter()
-                            .map(|mutation_id| pending_key(mutation_id))
-                            .collect(),
-                    )
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "delete attribution pending scopes: {error}"
-                        ))
-                    })?;
-                self.store
-                    .inner()
-                    .flush()
-                    .await
-                    .map_err(SchemaError::from)?;
-            }
+            self.clear_pending_and_flush(mutation_ids).await?;
             return Ok(sequences);
         }
         let tip_value = serde_json::to_vec(&*tip).map_err(|error| {
@@ -236,19 +225,7 @@ impl AttributionLedger {
             .map_err(|error| {
                 SchemaError::InvalidData(format!("append attribution event: {error}"))
             })?;
-        if !mutation_ids.is_empty() {
-            self.store
-                .batch_delete_keys(
-                    mutation_ids
-                        .iter()
-                        .map(|mutation_id| pending_key(mutation_id))
-                        .collect(),
-                )
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!("delete attribution pending scopes: {error}"))
-                })?;
-        }
+        self.delete_pending_scopes(mutation_ids).await?;
         self.store
             .inner()
             .flush()
@@ -336,7 +313,7 @@ fn event_mutation_key(mutation_id: &str) -> String {
     )
 }
 
-pub(super) fn pending_key(mutation_id: &str) -> String {
+fn pending_key(mutation_id: &str) -> String {
     format!(
         "{ATTRIBUTION_PENDING_PREFIX}{}",
         hash(ATTRIBUTION_ROOT_DOMAIN, mutation_id)
