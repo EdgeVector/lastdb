@@ -69,8 +69,7 @@ pub(super) async fn collection(
         }
         read_selected(
             name,
-            &*raw,
-            &*seam,
+            (&*raw, &*seam),
             page.row_handle
                 .map(|handle| (handle.shard, handle.group_id)),
             selected,
@@ -92,8 +91,7 @@ type Selected = (Vec<u8>, Vec<u8>, Option<(String, String)>);
 
 async fn read_selected(
     name: &str,
-    raw: &dyn KvStore,
-    seam: &dyn KvStore,
+    readers: (&dyn KvStore, &dyn KvStore),
     handle: Option<(u16, Option<u32>)>,
     rows: Vec<Selected>,
     targets: &BTreeSet<String>,
@@ -104,6 +102,7 @@ async fn read_selected(
         return Ok(());
     }
     let (shard, group_id) = handle.ok_or("physical source page has no row handle")?;
+    let (raw, seam) = readers;
     let keys: Vec<_> = rows.iter().map(|row| row.0.clone()).collect();
     let (stored, plain) = tokio::join!(raw.get_many(keys.clone()), seam.get_many(keys));
     let stored = stored.map_err(err)?;

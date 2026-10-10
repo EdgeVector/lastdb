@@ -245,20 +245,25 @@ fn references(
             }
         }
         OfflineAtomRefRoot::Completion { .. } if scope.is_empty() => {
-            if facts
-                .personal_completion_markers
-                .insert(
-                    form_twin(bare)
-                        .filter(|_| bare.starts_with("aref\0"))
-                        .unwrap_or_else(|| bare.into()),
-                    digest(plain),
-                )
-                .is_some()
-            {
-                return Err("duplicate personal completion marker".into());
-            }
+            completion_marker(bare, plain, facts)?;
         }
         _ => {}
+    }
+    Ok(())
+}
+
+fn completion_marker(bare: &str, plain: &[u8], facts: &mut Facts) -> Result<(), String> {
+    if facts
+        .personal_completion_markers
+        .insert(
+            form_twin(bare)
+                .filter(|_| bare.starts_with("aref\0"))
+                .unwrap_or_else(|| bare.into()),
+            digest(plain),
+        )
+        .is_some()
+    {
+        return Err("duplicate personal completion marker".into());
     }
     Ok(())
 }

@@ -23,7 +23,7 @@ pub(super) fn lineage(
         }
         "lineage_reverse" => {
             let derived: Vec<String> = serde_json::from_slice(plain).map_err(err)?;
-            if derived.iter().any(|id| id.is_empty()) {
+            if derived.iter().any(String::is_empty) {
                 return Err("empty derived lineage molecule".into());
             }
             vec![canonical_source(key)?]
