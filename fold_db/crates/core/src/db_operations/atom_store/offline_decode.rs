@@ -70,3 +70,41 @@ impl AtomStore {
         Ok(decoded)
     }
 }
+
+impl AtomStore {
+    /// Pure production keys used after every physical source body is gone.
+    /// This does not perform any lookup, mutation, marker or ledger operation.
+    /// Blob edge keys precede the locator, as on the normal atom GC path.
+    pub fn offline_reclaim_derived_keys(
+        atom: &Atom,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<String>, SchemaError> {
+        let mut references =
+            crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
+                .into_iter()
+                .collect::<Vec<_>>();
+        references.sort();
+        let mut keys = Vec::with_capacity(references.len() + 1);
+        for reference in references {
+            let hash = reference.strip_prefix("sha256:").unwrap_or_default();
+            if hash.len() != 64
+                || !hash
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            {
+                return Err(SchemaError::InvalidData(
+                    "offline atom has an unsupported file blob identity".into(),
+                ));
+            }
+            keys.push(
+                super::blob_ref_edges::BlobRefEdge::atom(atom.uuid(), &reference)
+                    .storage_key(storage_prefix),
+            );
+        }
+        keys.push(crate::schema::types::field::build_storage_key(
+            storage_prefix,
+            &crate::atom::atom_locator_codec::locator_key(atom.uuid()),
+        ));
+        Ok(keys)
+    }
+}

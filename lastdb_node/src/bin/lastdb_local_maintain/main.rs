@@ -15,10 +15,12 @@ use fold_db::storage::{
 use lastdb_node::atom_gc_reap::ReapPolicy;
 
 mod atom_gc;
+mod atom_source_proof;
 mod file_blob_gc;
 mod home;
 mod reap;
 mod residue;
+mod target_atom_gc;
 
 use atom_gc::{atom_gc_audit, atom_gc_reap, AtomGcReapArgs};
 use residue::{
@@ -293,6 +295,8 @@ enum Cmd {
     Reap(reap::ReapArgs),
     /// Plan or execute guarded local file-blob collection on a stopped home.
     FileBlobGcOffline(file_blob_gc::FileBlobGcArgs),
+    /// Plan or append exact guarded atom deletes on a stopped home.
+    TargetAtomGcOffline(target_atom_gc::TargetAtomGcArgs),
 }
 
 /// Decode optional plain/`--after-hex` resume cursors. Hex is required when the
@@ -453,6 +457,10 @@ fn run() -> Result<(), String> {
             json,
         }),
         Cmd::Reap(reap_args) => reap::run(&home, reap_args),
+        Cmd::TargetAtomGcOffline(mut atom_args) => {
+            atom_args.home = home;
+            target_atom_gc::run(&atom_args)
+        }
         Cmd::FileBlobGcOffline(mut blob_args) => {
             blob_args.home = home;
             file_blob_gc::run(&blob_args)

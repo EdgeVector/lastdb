@@ -4,7 +4,12 @@
 //! production code writes. These helpers call the production builders, so the
 //! planner never keeps a second copy of a key formula.
 
+mod metadata;
+pub use metadata::{offline_delete_history_atom, offline_molecule_shape};
 mod source;
+pub use super::atom_ref_edges::{
+    offline_atom_ref_root, offline_history_atom_roots, OfflineAtomRefRoot,
+};
 pub use source::*;
 
 use super::atom_ref_edges::tip_edge;

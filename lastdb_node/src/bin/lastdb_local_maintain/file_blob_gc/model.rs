@@ -105,7 +105,9 @@ pub(super) fn digest(bytes: &[u8]) -> String {
 }
 
 pub(super) fn retirement_state(root: &Path) -> Result<Option<String>, String> {
-    let path = root.join("laststore_pending_purged_atom_retirements.json");
+    let high_water = fold_db::storage::laststore::high_water_path_for_store_root(root);
+    let parent = high_water.parent().ok_or("high-water path has no parent")?;
+    let path = parent.join("laststore_pending_purged_atom_retirements.json");
     match std::fs::read(path) {
         Ok(bytes) => Ok(Some(digest(&bytes))),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),

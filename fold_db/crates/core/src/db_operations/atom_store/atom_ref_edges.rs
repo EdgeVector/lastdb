@@ -28,6 +28,8 @@ mod benchmark;
 mod catalog_refs;
 mod counts_pending;
 mod edge_keys;
+mod offline_roots;
+pub use offline_roots::{offline_atom_ref_root, offline_history_atom_roots, OfflineAtomRefRoot};
 mod reindex;
 mod reindex_v1_upgrade;
 mod reindex_v2;

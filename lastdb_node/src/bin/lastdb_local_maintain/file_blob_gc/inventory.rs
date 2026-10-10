@@ -79,7 +79,8 @@ pub(super) async fn build(
         pre_blob_snapshot_writer_map: snapshot_map,
         prerequisites: vec![
             "required external gate: authoritative normal snapshot after key reap and before this stop".into(),
-            "required external gate: local and peer writers quiet through the complete maintenance window".into(),
+            "required external gate: established local writer pause and no other clients through the complete maintenance window".into(),
+            "scope: local file blob reclaim only; remote erasure is outside this proof".into(),
             "required external gate: fresh normal snapshot committed before writers resume after file blob reclaim".into(),
         ],
     })
@@ -181,7 +182,10 @@ fn refuse_pending_roots(namespace: &str, page: &PhysicalScanPage) -> Result<(), 
     if !page.rows.is_empty()
         && matches!(
             namespace,
-            "sync_outbox" | "sync_capture_reexport" | "sync_upload_quarantine"
+            "sync_outbox"
+                | "sync_capture_reexport"
+                | "sync_upload_quarantine"
+                | "share_delivery_outbox"
         )
     {
         return Err(
