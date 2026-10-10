@@ -7,7 +7,7 @@ use super::content_at_rest::{
     seal_content_value,
 };
 use super::molecule_key_codec::{HashKeyEncoding, MoleculeKeyCodec, RangeKeyEncoding};
-use crate::crypto::{is_sealed_at_rest, E2eKeys};
+use crate::crypto::is_sealed_at_rest;
 use serde_json::json;
 
 /// Father: product env-default encodings are blind + OPE.
@@ -84,28 +84,5 @@ pub fn son_reseal_upgrades_plain(content_key: &[u8; 32]) -> Result<(), String> {
     if raw.contains("was-plain") {
         return Err("plaintext remains after reseal".into());
     }
-    Ok(())
-}
-
-/// Run Father + Son checks using a fixed test seed (not production identity).
-pub fn run_father_son_bar() -> Result<(), String> {
-    if !father_encodings_are_strict_defaults() {
-        return Err(format!(
-            "encodings not blind+OPE (hash={:?} range={:?}); unset LASTDB_*_ENCODING=plain",
-            HashKeyEncoding::from_env_or_default(),
-            RangeKeyEncoding::from_env_or_default()
-        ));
-    }
-    let seed = [7u8; 32];
-    let e2e = E2eKeys::from_ed25519_seed(&seed).map_err(|e| e.to_string())?;
-    if !father_hash_not_greppable(
-        &e2e.index_key(),
-        "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-        "my-secret-slug",
-    )? {
-        return Err("blinded hash still greppable as api hash".into());
-    }
-    son_content_strict_roundtrip(&e2e.encryption_key())?;
-    son_reseal_upgrades_plain(&e2e.encryption_key())?;
     Ok(())
 }

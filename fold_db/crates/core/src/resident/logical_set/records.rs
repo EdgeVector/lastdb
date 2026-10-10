@@ -132,43 +132,6 @@ impl LogicalResidentSet {
         self.recency.insert(key, self.clock);
     }
 
-    /// Store one fetched field. No product read calls this yet.
-    pub fn admit_field(&mut self, schema: &Schema, field: &str) {
-        let name = schema.name.clone();
-        let keying = keying_of(&schema.schema_type);
-        let hash_field = schema.key.as_ref().and_then(|key| key.hash_field.clone());
-        let range_field = schema.key.as_ref().and_then(|key| key.range_field.clone());
-        let molecule = MoleculeId::from_schema_field(&name, field);
-        let key = FieldKey {
-            schema: name,
-            field: field.to_string(),
-        };
-        let value = FieldEntry {
-            molecule,
-            keying,
-            hash_field,
-            range_field,
-        };
-        let field_hold = if let Some(entry) = self.fields.get_mut(&key) {
-            let before = entry.hold;
-            entry.take_hold();
-            entry.value = value;
-            Some((before, entry.hold))
-        } else {
-            self.fields.insert(key.clone(), Held::admit(value));
-            self.note_used_insert(1, false);
-            None
-        };
-        if let Some((before, after)) = field_hold {
-            self.note_hold_transition(before, after);
-        }
-        self.touch(ResidentKey::Field {
-            schema: key.schema,
-            field: key.field,
-        });
-        self.purge_over_cap();
-    }
-
     pub fn schema(&self, name: &str) -> Option<&Schema> {
         self.schemas.get(name).map(|entry| &entry.value)
     }

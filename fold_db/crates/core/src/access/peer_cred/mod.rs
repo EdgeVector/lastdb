@@ -178,11 +178,6 @@ impl PeerCredential {
             }
         }
     }
-
-    /// Convenience: `true` iff the peer is the node owner's OS user.
-    pub fn is_same_user(&self, owner_uid: u32) -> bool {
-        self.uid == owner_uid
-    }
 }
 
 /// Best-effort short process name for a peer pid (ops attribution only).
@@ -261,11 +256,6 @@ pub enum PeerCredVerdict {
 }
 
 impl PeerCredVerdict {
-    /// `true` iff the peer is the node owner's OS user.
-    pub fn is_same_user(&self) -> bool {
-        matches!(self, Self::SameUser { .. })
-    }
-
     /// The pid to hand to the I3b code-signature check: `Some` only for a
     /// same-user peer whose pid the kernel reported. A foreign user, or a
     /// same-user peer with no reported pid, yields `None` — there is nothing
@@ -273,19 +263,6 @@ impl PeerCredVerdict {
     pub fn candidate_pid(&self) -> Option<i32> {
         match self {
             Self::SameUser { pid, .. } => *pid,
-            Self::ForeignUser { .. } => None,
-        }
-    }
-
-    /// The audit token to hand to the I3b code-signature check (blocker
-    /// **B3**): `Some` only for a same-user peer whose platform reported one.
-    /// When present it is preferred over [`candidate_pid`](Self::candidate_pid)
-    /// — resolving the `SecCode` guest from the token closes the PID-reuse
-    /// TOCTOU. A foreign user, or a same-user peer with no reported token,
-    /// yields `None`.
-    pub fn candidate_token(&self) -> Option<AuditToken> {
-        match self {
-            Self::SameUser { token, .. } => *token,
             Self::ForeignUser { .. } => None,
         }
     }

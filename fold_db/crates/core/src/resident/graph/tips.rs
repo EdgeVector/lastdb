@@ -27,16 +27,6 @@ impl ResidentGraph {
         hit
     }
 
-    /// Install tip from disk (or after a store write).
-    ///
-    /// **Overwrite rule:** if the tip key is already resident with a *different*
-    /// `atom_uuid`, replace it (rehydrate). Same `atom_uuid` → hit. Never keep a
-    /// stale tip forever after a write/rehydrate.
-    pub fn rehydrate_tip(&self, tip: ResidentTip) -> ResolveOutcome<ResidentTip> {
-        self.rehydrate_tip_at(tip, None)
-            .expect("an unconditional rehydrate always returns a tip")
-    }
-
     /// Install a disk tip only when `observed_revisions` are still current.
     ///
     /// `None` keeps the legacy overwrite rule (tests / persist-plan round-trip).

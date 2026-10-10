@@ -118,6 +118,7 @@ pub(crate) struct HomeConflictEvent {
 }
 
 impl HomeConflictEvent {
+    #[cfg_attr(not(feature = "cloud-sync"), allow(dead_code))]
     pub(crate) fn named(molecule: &str) -> Self {
         Self {
             molecule: molecule.to_string(),
@@ -191,21 +192,6 @@ impl DbOperations {
             HomeConflictAnnotation::Incomplete { .. } => Some(true),
             HomeConflictAnnotation::Unknown | HomeConflictAnnotation::Disabled => None,
         }
-    }
-
-    /// Append one `hcu:evt\0{seq}` for `molecule_uuid` and leave `hcu:mols`.
-    ///
-    /// A delete of the stamp used to force the next reader to walk
-    /// `conflict\0`. That walk is no longer the annotate path. The event names
-    /// the molecule so a complete stamp cannot hide it. The event does not
-    /// clear a molecule: a later clear would hide a concurrent append.
-    pub async fn invalidate_home_conflict_index(
-        &self,
-        storage_prefix: Option<&str>,
-        molecule_uuid: &str,
-    ) -> Result<(), SchemaError> {
-        self.append_home_conflict_event(storage_prefix, molecule_uuid)
-            .await
     }
 
     /// List all unresolved sync conflicts, optionally filtered by molecule UUID.
@@ -387,24 +373,6 @@ impl DbOperations {
         .await
     }
 
-    async fn append_home_conflict_event(
-        &self,
-        storage_prefix: Option<&str>,
-        molecule_uuid: &str,
-    ) -> Result<(), SchemaError> {
-        let seq = next_home_conflict_event_seq();
-        let key = build_storage_key(storage_prefix, &home_conflict_event_key(&seq));
-        debug_assert!(
-            key.contains('\0'),
-            "a conflict event key without NUL walks every hash group"
-        );
-        self.atoms()
-            .raw()
-            .put_item(&key, &HomeConflictEvent::named(molecule_uuid))
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("append home conflict event: {e}")))
-    }
-
     /// `Ok(None)` means the stamp bytes exist and do not deserialize. `Ok(Some(None))`
     /// means the key is absent.
     async fn load_stamp_for_fold(
@@ -467,12 +435,14 @@ impl DbOperations {
 /// the same nanosecond from sharing a key. Compare the whole string. Do not
 /// compare it to a unix-seconds watermark: a seconds string sorts above every
 /// zero-padded nanos seq.
+#[cfg_attr(not(feature = "cloud-sync"), allow(dead_code))]
 pub(crate) fn next_home_conflict_event_seq() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{:020}:{}-{}", unix_nanos_wide(), std::process::id(), n)
 }
 
+#[cfg_attr(not(feature = "cloud-sync"), allow(dead_code))]
 pub(crate) fn home_conflict_event_key(seq: &str) -> String {
     format!("{HOME_CONFLICT_EVENT_PREFIX}{seq}")
 }

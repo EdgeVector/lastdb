@@ -52,27 +52,6 @@ impl Ed25519KeyPair {
         })
     }
 
-    /// Create a key pair from a base64-encoded secret key. This is the
-    /// canonical loader for the node's persistent identity — the private
-    /// key is stored as base64 in the identity tree. Fails loudly with a
-    /// clear error when the input is missing, malformed, or the wrong
-    /// length.
-    pub fn from_secret_key_base64(secret_key_base64: &str) -> SecurityResult<Self> {
-        if secret_key_base64.is_empty() {
-            return Err(SecurityError::KeyGenerationFailed(
-                "Ed25519 secret key is empty".to_string(),
-            ));
-        }
-        let bytes = general_purpose::STANDARD
-            .decode(secret_key_base64)
-            .map_err(|e| {
-                SecurityError::KeyGenerationFailed(format!(
-                    "Ed25519 secret key is not valid base64: {e}"
-                ))
-            })?;
-        Self::from_secret_key(&bytes)
-    }
-
     /// Get the public key as bytes
     pub fn public_key_bytes(&self) -> [u8; 32] {
         self.verifying_key.to_bytes()
@@ -142,11 +121,6 @@ impl Ed25519PublicKey {
         self.verifying_key.to_bytes()
     }
 
-    /// Get the public key as base64-encoded string
-    pub fn to_base64(&self) -> String {
-        general_purpose::STANDARD.encode(self.to_bytes())
-    }
-
     /// Verify a signature using this public key
     pub fn verify(&self, message: &[u8], signature: &Signature) -> bool {
         self.verifying_key.verify(message, signature).is_ok()
@@ -157,18 +131,6 @@ impl Ed25519PublicKey {
 pub struct KeyUtils;
 
 impl KeyUtils {
-    /// Generate a unique key ID from a public key
-    pub fn generate_key_id(public_key: &Ed25519PublicKey) -> String {
-        use sha2::{Digest, Sha256};
-
-        let mut hasher = Sha256::new();
-        hasher.update(public_key.to_bytes());
-        let hash = hasher.finalize();
-
-        // Use first 16 bytes of SHA256 hash as key ID
-        general_purpose::STANDARD.encode(&hash[..16])
-    }
-
     /// Parse a signature from base64-encoded string
     pub fn signature_from_base64(base64_sig: &str) -> SecurityResult<Signature> {
         let bytes = general_purpose::STANDARD
@@ -190,14 +152,5 @@ impl KeyUtils {
     /// Convert a signature to base64-encoded string
     pub fn signature_to_base64(signature: &Signature) -> String {
         general_purpose::STANDARD.encode(signature.to_bytes())
-    }
-
-    /// Generate a random nonce
-    pub fn generate_nonce() -> String {
-        use rand::RngCore;
-
-        let mut nonce = [0u8; 16];
-        OsRng.fill_bytes(&mut nonce);
-        general_purpose::STANDARD.encode(nonce)
     }
 }

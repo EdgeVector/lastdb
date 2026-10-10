@@ -27,17 +27,6 @@ pub enum CallerTransport {
     RemoteNode,
 }
 
-impl CallerTransport {
-    /// Whether this transport can attest the node owner for isolation UX.
-    /// Local query/mutation paths do not use this as an ACL gate.
-    pub const fn permits_owner_isolation_bypass(self) -> bool {
-        match self {
-            Self::Tauri | Self::BrowserSession | Self::UnixSocket | Self::InProcess => true,
-            Self::LoopbackTcp | Self::RemoteNode => false,
-        }
-    }
-}
-
 /// Whether the caller's app/node identity has been verified at the host edge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]

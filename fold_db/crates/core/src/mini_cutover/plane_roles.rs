@@ -400,50 +400,6 @@ impl PlaneBreakdown {
             keys_source: "lastdb db inventory (full live scan; not part of status)".to_string(),
         }
     }
-
-    /// Attach dual-read legacy hits (by collection name) onto the plane map.
-    #[must_use]
-    pub fn to_plane_map_report_with_dual_read(
-        &self,
-        legacy_hits_by_collection: &[(String, u64)],
-    ) -> PlaneMapReport {
-        let mut report = self.to_plane_map_report();
-        let hits: std::collections::HashMap<&str, u64> = legacy_hits_by_collection
-            .iter()
-            .map(|(n, h)| (n.as_str(), *h))
-            .collect();
-        for c in &mut report.collections {
-            if let Some(h) = hits.get(c.name.as_str()) {
-                c.dual_read_legacy_hits = Some(*h);
-            }
-        }
-        for c in &mut report.sot_named {
-            if let Some(h) = hits.get(c.name.as_str()) {
-                c.dual_read_legacy_hits = Some(*h);
-            }
-        }
-        for c in &mut report.residue_named {
-            if let Some(h) = hits.get(c.name.as_str()) {
-                c.dual_read_legacy_hits = Some(*h);
-            }
-        }
-        for c in &mut report.legacy_split_named {
-            if let Some(h) = hits.get(c.name.as_str()) {
-                c.dual_read_legacy_hits = Some(*h);
-            }
-        }
-        for c in &mut report.unknown_active_collections {
-            if let Some(h) = hits.get(c.name.as_str()) {
-                c.dual_read_legacy_hits = Some(*h);
-            }
-        }
-        for c in &mut report.history_adjacent_named {
-            if let Some(h) = hits.get(c.name.as_str()) {
-                c.dual_read_legacy_hits = Some(*h);
-            }
-        }
-        report
-    }
 }
 
 fn is_legacy_split_collection(name: &str, role: CollectionPlaneRole) -> bool {

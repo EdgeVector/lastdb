@@ -21,14 +21,6 @@ impl Keyring {
             .map(|e| &e.dek)
     }
 
-    /// The purpose a `key_id` was minted for, or `None` if absent.
-    pub fn purpose_of(&self, key_id: KeyId) -> Option<KeyPurpose> {
-        self.entries
-            .iter()
-            .find(|e| e.key_id == key_id)
-            .map(|e| e.purpose)
-    }
-
     /// Seal `plaintext` for `purpose` under that purpose's active DEK.
     pub fn seal(&self, purpose: KeyPurpose, plaintext: &[u8], aad: &[u8]) -> CryptoResult<Vec<u8>> {
         let (key_id, dek) = self.active_dek(purpose).ok_or_else(|| {

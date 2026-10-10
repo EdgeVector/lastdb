@@ -50,7 +50,7 @@
 //! change on any field would silently change every signed digest.
 
 use super::backup_manifest::{BackupManifest, DESCRIPTOR_VERSION};
-use crate::hex::{hex_decode, hex_lower, sha256_hex};
+use crate::hex::{hex_decode, hex_lower};
 use crate::security::keys::{Ed25519KeyPair, Ed25519PublicKey};
 use crate::storage::error::{StorageError, StorageResult};
 use ed25519_dalek::Signature;
@@ -110,16 +110,6 @@ pub struct EncryptedManifestCommitment {
     pub stored_bytes_sha256: String,
     /// Length of those stored bytes.
     pub byte_length: u64,
-}
-
-impl EncryptedManifestCommitment {
-    /// Commit to the exact bytes that will be stored.
-    pub fn of_stored_bytes(stored_bytes: &[u8]) -> Self {
-        Self {
-            stored_bytes_sha256: sha256_hex(stored_bytes),
-            byte_length: stored_bytes.len() as u64,
-        }
-    }
 }
 
 /// One instance-addressed object reference on a descriptor page. Entries carry

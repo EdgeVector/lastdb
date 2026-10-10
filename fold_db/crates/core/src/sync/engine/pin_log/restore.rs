@@ -424,16 +424,6 @@ impl SyncEngine {
             .map_err(|error| SyncError::Storage(format!("flush backup writer frontier: {error}")))
     }
 
-    /// The cut marker inside S0 determines whether tail replay is safe.
-    /// A missing legacy marker means an empty frontier with normal replay.
-    pub async fn restored_backup_mode_and_frontier(
-        &self,
-    ) -> SyncResult<(Frontier, BackupRestoreMode)> {
-        self.restored_backup_marker_and_frontier()
-            .await
-            .map(|(frontier, mode)| (frontier, mode.unwrap_or(BackupRestoreMode::ReplayTail)))
-    }
-
     /// Preserve the difference between an absent legacy marker and an explicit
     /// replay marker. Remote S0 recovery may use an authenticated rescue
     /// descriptor only when the stored marker is absent.

@@ -282,12 +282,4 @@ impl ResidentCommitReceipt {
             touched_group_ids: crate::durable_flush::current_touched_groups(),
         }
     }
-
-    /// True when this commit acknowledged without waiting for disk — the
-    /// default mode, and the property the terminal IO-free proof asserts on
-    /// every warm sample.
-    #[must_use]
-    pub fn acknowledged_without_disk(&self) -> bool {
-        matches!(self.durability, ResidentDurability::Queued)
-    }
 }

@@ -33,18 +33,10 @@ use app_identity_crypto::{
 };
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use fold_db::schema::types::Schema;
-use schema_service_client::{
-    DevSchemaClaim, SchemaServiceClient, SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT,
-};
+use schema_service_client::{SchemaServiceClient, SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT};
 use schema_service_core::app_identity::{app_version_is_greater, validate_app_version};
 use schema_service_core::app_release::{sha256_hex, ReleaseManifest};
 use schema_service_core::snapshot::{AppArtifact, AppMetadata, AppRecord, AppTier};
-use schema_service_core::{
-    SharedSurfaceCompatibility, SharedSurfaceMetadata, SharedSurfaceProvenance,
-    SharedSurfacePurpose, SharedSurfaceVisibility,
-};
-use schema_types::Schema as ServiceSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 

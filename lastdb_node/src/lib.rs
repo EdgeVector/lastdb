@@ -38,7 +38,6 @@ pub use host::Host;
 pub use local_outbox::{LocalOutbox, LocalWatchEvent, LocalWatchPoll};
 pub use ops::{
     atom_ref_backfill, crash_attribution, crash_telemetry, footprint, gauge, health_alert,
-    log_filter, request_telemetry, self_metrics, session_ledger, status_gauge_contract,
-    status_gauge_gate, ttl_sweep,
+    log_filter, request_telemetry, self_metrics, session_ledger, status_gauge_contract, ttl_sweep,
 };
 pub use watch_gate::{WatchGate, WatchGateSnapshot, WatchSlot};

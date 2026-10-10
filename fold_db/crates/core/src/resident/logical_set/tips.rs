@@ -62,50 +62,6 @@ impl LogicalResidentSet {
             .map_or_else(Vec::new, |view| view.order.keys().cloned().collect())
     }
 
-    /// Read the ordered page. Does not fill. Does not answer from `Partial`.
-    pub fn range_page(
-        &self,
-        molecule: MoleculeId,
-        hash: &str,
-        start: Bound<&str>,
-        end: Bound<&str>,
-        limit: usize,
-    ) -> Result<Vec<(String, Tip)>, RangeNotResident> {
-        let view = self
-            .hash_views
-            .get(&(molecule, hash.to_string()))
-            .ok_or(RangeNotResident)?;
-        if !matches!(view.completeness, HashCompleteness::Complete { .. }) {
-            return Err(RangeNotResident);
-        }
-        if limit == 0 {
-            return Ok(Vec::new());
-        }
-        let mut out = Vec::new();
-        for range in view.order.range::<str, _>((start, end)).map(|(r, _)| r) {
-            if self.has_tombstone(molecule, hash, range) {
-                continue;
-            }
-            let Some(tip) = self.tip(molecule, hash, range).cloned() else {
-                continue;
-            };
-            out.push((range.clone(), tip));
-            if out.len() == limit {
-                break;
-            }
-        }
-        Ok(out)
-    }
-
-    /// Resident tips for one hash. Used as merge overlay before admission.
-    pub fn tips_for_hash(&self, molecule: MoleculeId, hash: &str) -> Vec<(String, Tip)> {
-        self.tips
-            .iter()
-            .filter(|(key, _)| key.molecule == molecule && key.hash == hash)
-            .map(|(key, entry)| (key.range.clone(), entry.value.clone()))
-            .collect()
-    }
-
     /// Dirty tombstone ranges for one hash. Used as merge overlay.
     pub fn tombstone_ranges_for_hash(&self, molecule: MoleculeId, hash: &str) -> Vec<String> {
         self.tombstones
@@ -131,25 +87,6 @@ impl LogicalResidentSet {
                 order,
             },
         );
-    }
-
-    /// Release one call hold and keep a clean record warm.
-    ///
-    /// Range fill uses this so a fetched tip stays after the call returns.
-    /// [`Self::release_tip`] also keeps a clean hold-0 tip. Over
-    /// [`RESIDENT_KEY_CAP`], LRU purge may then drop an unheld clean record.
-    pub fn release_tip_hold(&mut self, molecule: MoleculeId, hash: &str, range: &str) -> bool {
-        let hold_transition = {
-            let Some(entry) = self.tips.get_mut(&tip_key(molecule, hash, range)) else {
-                return false;
-            };
-            let before = entry.hold;
-            entry.release_hold();
-            (before, entry.hold)
-        };
-        self.note_hold_transition(hold_transition.0, hold_transition.1);
-        self.purge_over_cap();
-        true
     }
 
     /// A request hold. This is an integer on the entry. It is not

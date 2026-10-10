@@ -21,12 +21,11 @@
 //! field, molecule tip, tombstone, and atom.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::Bound;
 use std::sync::Arc;
 
 use super::metrics::ResidentMetrics;
 use crate::atom::molecule_uuid::{encode_molecule_uuid_bytes, molecule_uuid_digest};
-use crate::schema::types::{Schema, SchemaType};
+use crate::schema::types::Schema;
 
 mod bodies;
 mod durability;
@@ -523,14 +522,5 @@ fn field_key(schema: &str, field: &str) -> FieldKey {
     FieldKey {
         schema: schema.to_string(),
         field: field.to_string(),
-    }
-}
-
-fn keying_of(schema_type: &SchemaType) -> &'static str {
-    match schema_type {
-        SchemaType::Single => "Single",
-        SchemaType::Hash => "Hash",
-        SchemaType::Range => "Range",
-        SchemaType::HashRange => "HashRange",
     }
 }

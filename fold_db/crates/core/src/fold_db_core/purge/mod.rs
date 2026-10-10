@@ -297,16 +297,6 @@ fn barrier_acquisitions() -> &'static std::sync::Mutex<std::collections::HashMap
     COUNTS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Exclusive purge-barrier acquisitions on `schema_name` since process start.
-pub fn barrier_write_acquisitions(schema_name: &str) -> u64 {
-    barrier_acquisitions()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(schema_name)
-        .copied()
-        .unwrap_or(0)
-}
-
 /// Called by the caller that owns the barrier, immediately after acquiring it.
 pub(crate) fn record_barrier_write_acquisition(schema_name: &str) {
     *barrier_acquisitions()

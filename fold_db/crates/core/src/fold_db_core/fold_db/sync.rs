@@ -347,11 +347,6 @@ impl FoldDB {
             .map_err(|e| crate::error::FoldDbError::Database(e.to_string()))
     }
 
-    /// Stop the background sync timer and run a final sync.
-    pub async fn stop_sync(&self) -> Result<(), crate::sync::SyncError> {
-        self.sync_coordinator.stop().await
-    }
-
     /// Get the sync engine state, if sync is configured.
     pub async fn sync_state(&self) -> Option<crate::sync::SyncState> {
         self.sync_coordinator.state().await

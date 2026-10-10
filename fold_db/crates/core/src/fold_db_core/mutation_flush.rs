@@ -192,14 +192,6 @@ impl BackgroundFlushTask {
             handle.abort();
         }
     }
-
-    pub fn is_running(&self) -> bool {
-        self.join
-            .lock()
-            .expect("background flush join lock")
-            .as_ref()
-            .is_some_and(|h| !h.is_finished())
-    }
 }
 
 impl Drop for BackgroundFlushTask {

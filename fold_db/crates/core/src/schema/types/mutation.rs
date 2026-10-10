@@ -162,12 +162,6 @@ impl Mutation {
         self
     }
 
-    #[must_use]
-    pub fn with_provenance(mut self, provenance: Provenance) -> Self {
-        self.provenance = Some(provenance);
-        self
-    }
-
     /// Attach a compare-and-set precondition. The node will apply this
     /// mutation only if the current state at its key matches `expected`,
     /// atomically with respect to other same-key writes on the node; on a
