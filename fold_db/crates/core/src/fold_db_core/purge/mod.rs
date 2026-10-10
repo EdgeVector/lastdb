@@ -89,12 +89,14 @@ use crate::schema::types::key_value::KeyValue;
 use crate::schema::{SchemaCore, SchemaError};
 
 mod bulk;
+mod chain_walk;
 mod converge;
 mod delete_barrier_flush;
 mod guarded;
 mod helpers;
 mod storage_slot;
 mod storage_slot_resident;
+mod target_chain;
 
 pub(super) use bulk::{
     plan_guarded_complement_retained, purge_records_bulk, validate_purge_targets_present,
