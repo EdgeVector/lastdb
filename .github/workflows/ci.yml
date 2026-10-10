@@ -67,7 +67,7 @@ jobs:
   # Fine-grained, fold-specific path filter the COARSE org `changes` filter
   # (rust/frontend/cdk/docs) can't express. Maps the changed paths onto crate
   # FAMILIES via the Cargo reverse-dependency graph, then plans the
-  # rust-test / rust-doctest / clippy matrices as the union of the touched
+  # clippy matrix as the union of the touched
   # families' shards (scripts/ci/plan-rust-ci-matrices.rb). A family's filter
   # lists its own crate directories plus every workspace directory it depends
   # on (verified against `cargo metadata`), so gating is DIRECTIONAL:
@@ -75,7 +75,7 @@ jobs:
   # mini shards, while a fold_db (base-of-graph) PR still fans out everywhere.
   # Selection fails closed three ways:
   # - workspace-level files (manifests, lockfile, toolchain, .cargo/.config,
-  #   nextest/deny config, scripts, workflow YAML) force every family;
+  #   deny config, scripts, workflow YAML) force every family;
   # - the `rest` complement shard and `fmt` always run with the suite, so a
   #   newly-added crate is never silently dropped;
   # - non-Cargo coupling stays inside lastdb_node (the Mini integration
@@ -99,10 +99,8 @@ jobs:
       fold_db: ${{ steps.f.outputs.fold_db }}
       schema: ${{ steps.f.outputs.schema }}
       support: ${{ steps.f.outputs.support }}
-      # Family-gated matrices for the three big matrix jobs. `[]` when no
+      # Family-gated clippy matrix. `[]` when no
       # family is touched (the jobs then run only their always-on shards).
-      test_matrix: ${{ steps.plan.outputs.test_matrix }}
-      doctest_matrix: ${{ steps.plan.outputs.doctest_matrix }}
       clippy_matrix: ${{ steps.plan.outputs.clippy_matrix }}
     steps:
       - uses: actions/checkout@v7
@@ -129,7 +127,6 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
-              - 'nextest.toml'
               - 'deny.toml'
               - '.cargo/**'
               - '.config/**'
@@ -144,7 +141,6 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
-              - 'nextest.toml'
               - 'deny.toml'
               - '.cargo/**'
               - '.config/**'
@@ -160,7 +156,6 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
-              - 'nextest.toml'
               - 'deny.toml'
               - '.cargo/**'
               - '.config/**'
@@ -176,7 +171,6 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
-              - 'nextest.toml'
               - 'deny.toml'
               - '.cargo/**'
               - '.config/**'

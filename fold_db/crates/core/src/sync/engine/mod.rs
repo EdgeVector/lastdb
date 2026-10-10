@@ -25,6 +25,7 @@ mod backup_restore;
 pub(crate) mod backup_uploader;
 mod bootstrap;
 mod compact;
+mod compact_target;
 mod configure;
 mod cycle;
 mod file_blob;
