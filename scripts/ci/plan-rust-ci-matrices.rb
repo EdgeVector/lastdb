@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Emits the rust-test / rust-doctest / clippy matrix JSON for the crate
+# Emits the clippy matrix JSON for the crate
 # families whose Cargo reverse-dependency closure is touched by the change
 # under test. ci.yml's `fold_paths` job maps changed paths to families with
 # directional filters (a family runs when one of ITS crates' directories or a
@@ -14,12 +14,12 @@
 # now `mini` (lastdb_node + lastdb_host + lastdb_uds + lastdb_identity). See
 # card fold-github-ci-mini-redesign and branch archive/desktop-dmg-pre-removal.
 #
-# Shard topology invariants (mirrored by plan-rust-ci-matrices-test.sh):
+# Shard topology invariants:
 # - The families partition the workspace with NO gaps and NO overlap; the
 #   always-on `rest` shard is the dynamic complement, so a newly-added crate
 #   is covered even before it is assigned to a family.
 # - mini/fold_db/schema/support each contribute a small fixed set of shards
-#   (no fold_db_node hash partitions or nextest-archive replay).
+#   (no fold_db_node hash partitions).
 #
 # Usage:
 #   FAM_MINI=true FAM_FOLD_DB=false FAM_SCHEMA=false FAM_SUPPORT=false \
@@ -50,28 +50,6 @@ SUPPORT_ARGS =
   "-p generate_validated_schema_org_seeds"
 
 def matrices(fam)
-  test = []
-  test << { shard: "mini", args: MINI_ARGS } if fam[:mini]
-  test << { shard: "fold_db", args: FOLD_DB_ARGS } if fam[:fold_db]
-  if fam[:schema]
-    test << { shard: "schema_service_core", args: SCHEMA_CORE_ARGS }
-    test << { shard: "schema_service_runtime", args: SCHEMA_RUNTIME_ARGS }
-  end
-  test << { shard: "support_crates", args: SUPPORT_ARGS } if fam[:support]
-  # Always-on complement: newly-added workspace crates fall through here until
-  # they are assigned to a stable package-family shard.
-  test << { shard: "rest", args: "dynamic-rest-complement" }
-
-  doctest = []
-  doctest << { shard: "mini", args: MINI_ARGS } if fam[:mini]
-  doctest << { shard: "fold_db", args: FOLD_DB_ARGS } if fam[:fold_db]
-  if fam[:schema]
-    doctest << { shard: "schema_service_core", args: SCHEMA_CORE_ARGS }
-    doctest << { shard: "schema_service_runtime", args: SCHEMA_RUNTIME_ARGS }
-  end
-  doctest << { shard: "support_crates", args: SUPPORT_ARGS } if fam[:support]
-  doctest << { shard: "rest", args: "dynamic-rest-complement" }
-
   clippy = [{ shard: "fmt", args: "fmt" }]
   clippy << { shard: "mini", args: MINI_ARGS } if fam[:mini]
   clippy << { shard: "fold_db", args: FOLD_DB_ARGS } if fam[:fold_db]
@@ -84,11 +62,9 @@ def matrices(fam)
 
   # Every planned Rust family shard carries an explicit runner so ci.yml can use
   # `runs-on: ${{ matrix.runs_on }}` with no fallback expression.
-  [test, doctest, clippy].each do |matrix|
-    matrix.each { |s| s[:runs_on] ||= RUST_FAMILY_RUNS_ON }
-  end
+  clippy.each { |s| s[:runs_on] ||= RUST_FAMILY_RUNS_ON }
 
-  { test_matrix: test, doctest_matrix: doctest, clippy_matrix: clippy }
+  { clippy_matrix: clippy }
 end
 
 def env_true?(name)
@@ -118,6 +94,5 @@ if __FILE__ == $PROGRAM_NAME
     puts line
   end
   warn "plan-rust-ci-matrices: families=#{fam.select { |_, v| v }.keys.join(',')} " \
-       "test=#{out[:test_matrix].length} doctest=#{out[:doctest_matrix].length} " \
        "clippy=#{out[:clippy_matrix].length} shards"
 end

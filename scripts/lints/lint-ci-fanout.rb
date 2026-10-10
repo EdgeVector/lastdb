@@ -95,7 +95,7 @@ if errors.any?
     Every matrix job pays ~5-7 min of billable setup+compile before its first
     test; wide fan-out multiplies cost, not speed (June 2026: 267 shards ->
     ~354k runner-minutes, ~$2.2k — fbrain fold-ci-cost-profile-2026-07).
-    Prefer fewer shards or the nextest-archive compile-once pattern
+    Prefer fewer shards or a compile-once pattern
     (fkanban fold-ci-compile-once-collapse-shard-compute). To raise a cap,
     include a before/after billable-minute measurement in the PR's Proof
     block and bump the cap constant in scripts/lints/lint-ci-fanout.rb in
