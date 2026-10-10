@@ -43,6 +43,7 @@ mod logical_main;
 pub(crate) mod logical_path;
 mod namespaced_maintenance;
 mod namespaced_store_impl;
+mod partition_scan;
 mod residue_types;
 
 use super::encrypting_namespaced_store::LASTSTORE_PLAINTEXT_NAMESPACES;
