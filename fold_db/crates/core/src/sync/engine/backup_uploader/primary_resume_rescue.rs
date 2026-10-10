@@ -21,10 +21,6 @@ impl FreshCloudProof {
     pub(super) fn matches(&self, presence: &CloudChunkPresence) -> bool {
         presence.listing_complete && self.allowed_shas == presence.present_shas
     }
-
-    pub(super) fn contains_sha(&self, sha: &str) -> bool {
-        self.allowed_shas.contains(sha)
-    }
 }
 
 fn require_exact_rescue_chunks(

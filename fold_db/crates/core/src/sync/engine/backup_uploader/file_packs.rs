@@ -46,18 +46,11 @@ impl SyncEngine {
         candidates: Vec<BackupChunkUploadCandidate>,
         previous: Option<&BackupManifest>,
         cloud_presence: Option<&CloudChunkPresence>,
-        fresh_proof: Option<&FreshCloudProof>,
         primary_resume_root: bool,
     ) -> SyncResult<Vec<BackupChunkUploadCandidate>> {
         self.sweep_backup_freeze_dirs(None);
-        let ready = pack_backup_publish_candidates(
-            store,
-            manifest,
-            candidates,
-            previous,
-            cloud_presence,
-            fresh_proof,
-        )?;
+        let ready =
+            pack_backup_publish_candidates(store, manifest, candidates, previous, cloud_presence)?;
         let chain_previous = if primary_resume_root { None } else { previous };
         validate_manifest_chain(chain_previous, manifest)
             .map_err(|error| SyncError::Storage(format!("packed manifest invalid: {error}")))?;
@@ -291,7 +284,6 @@ pub(super) fn pack_backup_publish_candidates(
     mut candidates: Vec<BackupChunkUploadCandidate>,
     previous: Option<&BackupManifest>,
     cloud_presence: Option<&CloudChunkPresence>,
-    fresh_proof: Option<&FreshCloudProof>,
 ) -> SyncResult<Vec<BackupChunkUploadCandidate>> {
     if manifest.version != PACKED_MANIFEST_VERSION {
         return Ok(candidates);
@@ -315,6 +307,11 @@ pub(super) fn pack_backup_publish_candidates(
         .filter(|chunk| chunk.pack.is_none())
         .map(|chunk| (file_key(chunk), (chunk.sha256.as_str(), chunk.bytes)))
         .collect();
+    // A committed rescue S0 keeps its own immutable v1 manifest and direct
+    // cloud objects. Its server-side hold blocks chunk DELETE, so a fresh
+    // normal v2 root may pack the same local files without changing S0.
+    // The direct S0 objects still consume cloud bytes until a separate,
+    // verified hold-release path exists.
     for candidate in candidates {
         let already_direct =
             prior_direct
@@ -326,7 +323,6 @@ pub(super) fn pack_backup_publish_candidates(
             && candidate.chunk.role == BackupManifestRole::Mutable
             && !matches!(candidate.chunk.collection.as_str(), "blobs" | "cas_blobs")
             && !already_direct
-            && !fresh_proof.is_some_and(|proof| proof.contains_sha(&candidate.chunk.sha256))
             && candidate.chunk.bytes > 0
             && candidate.chunk.bytes <= MAX_PACK_BYTES;
         if !can_pack

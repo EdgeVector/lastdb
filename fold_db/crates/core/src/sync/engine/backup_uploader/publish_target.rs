@@ -322,7 +322,6 @@ impl SyncEngine {
             candidates,
             previous_manifest,
             cloud_presence.as_ref(),
-            fresh_proof,
             primary_resume_root,
         )?;
         {
