@@ -22,6 +22,7 @@ mod inventory;
 mod model;
 mod pointers;
 mod public_report;
+mod selected_inventory;
 mod snapshot_fence;
 mod target_inventory;
 
@@ -49,6 +50,15 @@ pub(crate) struct FileBlobGcArgs {
     /// Exact atom content UUIDs from separately validated source evidence.
     #[arg(long, requires = "inventory_only")]
     pub target_atom_ids_file: Option<PathBuf>,
+    /// Read every selected local file-blob copy without delete authority.
+    #[arg(long, conflicts_with_all = ["execute", "inventory_only"], requires_all = ["selected_blob_refs_file", "selected_blob_refs_sha256"])]
+    pub selected_blob_inventory: bool,
+    /// Unique canonical sha256 file references, independent of current atoms.
+    #[arg(long, requires = "selected_blob_inventory")]
+    pub selected_blob_refs_file: Option<PathBuf>,
+    /// SHA256 of the exact reference input file bytes.
+    #[arg(long, requires = "selected_blob_inventory")]
+    pub selected_blob_refs_sha256: Option<String>,
 }
 
 pub(crate) fn run(args: &FileBlobGcArgs) -> Result<(), String> {
@@ -61,6 +71,9 @@ pub(crate) fn run(args: &FileBlobGcArgs) -> Result<(), String> {
     let opened = open_home_for_offline_read(&args.home)?;
     if opened.seam != "at-rest-seam" {
         return Err("file blob proof needs the at-rest reader".into());
+    }
+    if args.selected_blob_inventory {
+        return runtime.block_on(selected_inventory::run(args, &opened));
     }
     if args.inventory_only {
         return runtime.block_on(target_inventory::run(args, &opened));

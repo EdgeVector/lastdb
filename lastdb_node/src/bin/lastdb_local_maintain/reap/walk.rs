@@ -32,6 +32,7 @@ pub(crate) struct Walker {
     kv: Arc<dyn KvStore>,
     cursor: Option<PhysicalScanCursor>,
     done: bool,
+    page_rows: usize,
 }
 
 impl Walker {
@@ -40,7 +41,20 @@ impl Walker {
             kv,
             cursor: None,
             done: false,
+            page_rows: PAGE_ROWS,
         }
+    }
+
+    /// A smaller page for large-value read-only inventories. Existing callers
+    /// keep PAGE_ROWS; no caller can request zero or exceed that default.
+    pub(crate) fn with_page_rows(kv: Arc<dyn KvStore>, page_rows: usize) -> Result<Self, String> {
+        if !(1..=PAGE_ROWS).contains(&page_rows) {
+            return Err("physical walk page size is outside 1..1000".into());
+        }
+        Ok(Self {
+            page_rows,
+            ..Self::new(kv)
+        })
     }
 
     /// The next page, or `None` after the last group.
@@ -54,7 +68,7 @@ impl Walker {
         }
         let page = self
             .kv
-            .scan_range_physical_paged(&[], WALK_END, self.cursor.as_ref(), PAGE_ROWS, 1)
+            .scan_range_physical_paged(&[], WALK_END, self.cursor.as_ref(), self.page_rows, 1)
             .await
             .map_err(|error| ReapError::Failed(format!("physical walk: {error}")))?;
         match &page.next_cursor {
