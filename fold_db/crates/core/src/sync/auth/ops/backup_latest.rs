@@ -131,6 +131,10 @@ impl AuthClient {
                 .get("backup_format_version_max")
                 .and_then(serde_json::Value::as_u64)
                 .is_some_and(|version| version >= 2)
+            && value
+                .get("backup_latest_cas_v2")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
         {
             Ok(())
         } else {
@@ -303,6 +307,7 @@ impl AuthClient {
             "backup_expected_absent": backup_expected_absent,
         });
         if format_version == 2 {
+            request["action"] = serde_json::json!("backup_latest_cas_v2");
             request["backup_format_version"] = serde_json::json!(2);
         }
         let value = self.post("/api/sync/presign", request).await?;
