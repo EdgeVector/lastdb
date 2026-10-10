@@ -221,7 +221,8 @@ impl SyncEngine {
             ));
         }
         let body = BackupTipIdentity::from_manifest(manifest)?;
-        if body.store_uuid != latest.store_uuid
+        if latest.format_version() != manifest.version
+            || body.store_uuid != latest.store_uuid
             || body.epoch != latest.epoch
             || body.counter != latest.counter
             || !body.manifest_sha256.eq_ignore_ascii_case(expected_sha)
@@ -304,7 +305,8 @@ impl SyncEngine {
         }
         if let Some(sidecar) = sidecar {
             let identity = BackupTipIdentity::from_manifest(&sidecar)?;
-            if identity.store_uuid != latest.store_uuid
+            if latest.format_version() != sidecar.version
+                || identity.store_uuid != latest.store_uuid
                 || identity.epoch != latest.epoch
                 || identity.counter != latest.counter
                 || identity.counter != durable_counter
