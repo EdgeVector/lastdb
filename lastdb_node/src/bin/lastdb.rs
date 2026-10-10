@@ -466,6 +466,7 @@ fn run(cli: Cli) -> Result<(), String> {
                         db_hash: db_hash.as_deref(),
                         manifest_sha256: manifest_sha256.as_deref(),
                     },
+                    reuse_chunks_from.as_deref(),
                 )
             } else if let Some(cache_home) = reuse_chunks_from {
                 restore_command_with_chunk_cache(

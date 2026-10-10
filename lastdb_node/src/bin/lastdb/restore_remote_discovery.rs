@@ -19,9 +19,14 @@ pub(crate) struct RemoteRecoverySelector<'a> {
 
 #[derive(Clone, Copy)]
 pub(crate) enum RestoreSourceMode<'a> {
-    Normal { cache_home: Option<&'a Path> },
+    Normal {
+        cache_home: Option<&'a Path>,
+    },
     RemoteS0(RemoteRecoverySelector<'a>),
-    RemoteLatest(RemoteRecoverySelector<'a>),
+    RemoteLatest {
+        selection: RemoteRecoverySelector<'a>,
+        cache_home: Option<&'a Path>,
+    },
 }
 
 /// Select one immutable account-root S0 rescue cut and authenticate its file.
@@ -240,6 +245,7 @@ pub(crate) fn restore_remote_latest_command(
     json_only: bool,
     progress_json: bool,
     selection: RemoteRecoverySelector<'_>,
+    cache_home: Option<&Path>,
 ) -> Result<(), String> {
     if data_dir.is_none() {
         return Err(
@@ -255,7 +261,10 @@ pub(crate) fn restore_remote_latest_command(
         api_url,
         json_only,
         reporter.as_ref().map(|reporter| reporter.progress.as_ref()),
-        RestoreSourceMode::RemoteLatest(selection),
+        RestoreSourceMode::RemoteLatest {
+            selection,
+            cache_home,
+        },
     );
     if let Some(reporter) = reporter {
         reporter.finish(result.is_ok());

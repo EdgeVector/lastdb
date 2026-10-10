@@ -296,6 +296,7 @@ pub(super) enum Command {
         #[arg(long, requires = "json")]
         progress_json: bool,
         /// Read verified chunk prefixes from an old home; the target must be fresh.
+        /// A failed remote-latest destination can be used for a source-free retry.
         #[arg(long)]
         reuse_chunks_from: Option<PathBuf>,
         /// Recover an S0-only backup from cloud with a recovered identity and cloud config.
@@ -303,7 +304,7 @@ pub(super) enum Command {
         remote_s0_only: bool,
         /// Restore normal backup/latest from cloud with only identity and cloud config.
         /// Discovery refuses more than 10,000 recovery descriptors.
-        #[arg(long, conflicts_with_all = ["remote_s0_only", "reuse_chunks_from"])]
+        #[arg(long, conflicts_with = "remote_s0_only")]
         remote_latest: bool,
         /// Select one cloud database when an account has several backups.
         #[arg(long)]
