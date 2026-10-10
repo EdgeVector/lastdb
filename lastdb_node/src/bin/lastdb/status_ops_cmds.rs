@@ -295,7 +295,7 @@ pub(super) fn plane_sot_spotlight_lines(
         let bits: Vec<String> = report
             .sot_named
             .iter()
-            .map(|c| format!("{}={}", c.name, format_plane_bytes(c.bytes)))
+            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
             .collect();
         lines.push(format!("  SOT named: {}", bits.join(" ")));
     }
@@ -303,7 +303,7 @@ pub(super) fn plane_sot_spotlight_lines(
         let bits: Vec<String> = report
             .residue_named
             .iter()
-            .map(|c| format!("{}={}", c.name, format_plane_bytes(c.bytes)))
+            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
             .collect();
         lines.push(format!("  residue: {}", bits.join(" ")));
     }
@@ -311,7 +311,7 @@ pub(super) fn plane_sot_spotlight_lines(
         let bits: Vec<String> = report
             .unknown_active_collections
             .iter()
-            .map(|c| format!("{}={}", c.name, format_plane_bytes(c.bytes)))
+            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
             .collect();
         lines.push(format!(
             "  unattributed: {} (not in the plane map; liveness unknown, not a reclaim target)",
@@ -322,7 +322,7 @@ pub(super) fn plane_sot_spotlight_lines(
         let bits: Vec<String> = report
             .history_adjacent_named
             .iter()
-            .map(|c| format!("{}={}", c.name, format_plane_bytes(c.bytes)))
+            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
             .collect();
         lines.push(format!("  history-adjacent: {}", bits.join(" ")));
     }
@@ -352,32 +352,16 @@ pub(super) fn plane_sot_spotlight_lines(
         let total: u64 = drain_listed.iter().map(|c| c.bytes).sum();
         let bits: Vec<String> = drain_listed
             .iter()
-            .map(|c| format!("{}={}", c.name, format_plane_bytes(c.bytes)))
+            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
             .collect();
         lines.push(format!(
             "  drain-listed: {} (total {}; the tip-family sunset owns these — \
              a drain is expected to empty them, whatever role they print under above)",
             bits.join(" "),
-            format_plane_bytes(total),
+            format_bytes(total),
         ));
     }
     lines
-}
-
-pub(super) fn format_plane_bytes(n: u64) -> String {
-    const KIB: f64 = 1024.0;
-    const MIB: f64 = 1024.0 * 1024.0;
-    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
-    let f = n as f64;
-    if f >= GIB {
-        format!("{:.2} GiB", f / GIB)
-    } else if f >= MIB {
-        format!("{:.1} MiB", f / MIB)
-    } else if f >= KIB {
-        format!("{:.1} KiB", f / KIB)
-    } else {
-        format!("{n} B")
-    }
 }
 
 /// `status` lines describing the home's durable physical placement.

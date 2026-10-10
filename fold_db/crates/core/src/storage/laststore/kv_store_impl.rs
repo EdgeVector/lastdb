@@ -120,30 +120,7 @@ impl KvStore for LastStoreKvStore {
         &self,
         prefix: &[u8],
     ) -> StorageResult<PartitionedScan> {
-        if !prefix.is_empty() {
-            return Ok(PartitionedScan {
-                rows: self.scan_prefix(prefix).await?,
-                undecryptable: Vec::new(),
-            });
-        }
-        // Empty prefix is a catalog/admin walk. Product scan_prefix("") still
-        // rejects under LASTDB_READS_REQUIRE_PARTITION.
-        let mut rows = Vec::new();
-        let mut cursor = None;
-        loop {
-            let page = self
-                .scan_range_physical_paged(&[], &[0xff, 0xff, 0xff, 0xff], cursor.as_ref(), 256, 16)
-                .await?;
-            rows.extend(page.rows);
-            match page.next_cursor {
-                Some(next) => cursor = Some(next),
-                None => break,
-            }
-        }
-        Ok(PartitionedScan {
-            rows,
-            undecryptable: Vec::new(),
-        })
+        partition_scan::scan_prefix_partitioned(self, prefix).await
     }
 
     async fn scan_prefix_keys(&self, prefix: &[u8]) -> StorageResult<Vec<Vec<u8>>> {
