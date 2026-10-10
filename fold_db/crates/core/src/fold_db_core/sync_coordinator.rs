@@ -70,6 +70,7 @@ fn plane_compaction_interval_secs() -> u64 {
 }
 
 mod gc_atoms;
+mod shutdown;
 use gc_atoms::*;
 
 fn capture_reexport_drain_delay(
@@ -528,40 +529,6 @@ impl SyncCoordinator {
             engine.sync().await?;
         }
         Ok(())
-    }
-
-    /// Stop the background sync task and run a final sync.
-    ///
-    /// Join aborted tasks before `force_sync`. Plane compaction may have
-    /// stamped a temporary Cloud Sync Off; Drop of that guard restores it, but
-    /// tokio does not run cancelled-task Drop until the handle is polled.
-    /// Abort-without-join left Off latched across this final upload.
-    pub async fn stop(&self) -> Result<(), SyncError> {
-        self.abort_and_join_background_tasks().await;
-        self.force_sync_inner(true).await
-    }
-
-    async fn abort_and_join_background_tasks(&self) {
-        let handles = {
-            let mut out = Vec::new();
-            if let Some(handle) = self.task.lock().unwrap().take() {
-                out.push(handle);
-            }
-            if let Some(handle) = self.capture_reexport_task.lock().unwrap().take() {
-                out.push(handle);
-            }
-            if let Some(handle) = self.gc_atoms_task.lock().unwrap().take() {
-                out.push(handle);
-            }
-            if let Some(handle) = self.plane_compaction_task.lock().unwrap().take() {
-                out.push(handle);
-            }
-            out
-        };
-        for handle in handles {
-            handle.abort();
-            let _ = handle.await;
-        }
     }
 
     /// Get the sync engine state, if configured.
