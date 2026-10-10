@@ -73,11 +73,6 @@ impl SyncEngine {
         self.configure_targets(partitioner, extra_targets).await;
     }
 
-    /// Check if any non-personal sync targets are configured.
-    pub async fn has_scoped_targets(&self) -> bool {
-        self.targets.lock().await.len() > 1
-    }
-
     /// Return the R2 prefix of every configured sync target, in order.
     ///
     /// Index 0 is the personal prefix. Remaining entries are share prefixes in

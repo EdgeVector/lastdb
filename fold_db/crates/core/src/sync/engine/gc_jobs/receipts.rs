@@ -161,13 +161,6 @@ impl GcProviderVersion {
     pub const UNVERSIONED: &'static str = "unversioned";
     pub const EXACT_PREFIX: &'static str = "exact:";
 
-    pub fn to_receipt_string(&self) -> String {
-        match self {
-            Self::Unversioned => Self::UNVERSIONED.into(),
-            Self::Exact(id) => format!("{}{id}", Self::EXACT_PREFIX),
-        }
-    }
-
     pub fn parse(text: &str) -> Option<Self> {
         if text == Self::UNVERSIONED {
             Some(Self::Unversioned)

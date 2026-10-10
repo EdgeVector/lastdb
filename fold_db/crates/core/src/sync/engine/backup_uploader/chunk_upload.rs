@@ -1,46 +1,6 @@
 use super::*;
 
 impl SyncEngine {
-    pub async fn upload_laststore_backup_chunks_once(
-        &self,
-        previous_manifest: Option<&BackupManifest>,
-    ) -> SyncResult<LastStoreBackupUploadStats> {
-        if !self.cloud_plane_allows_upload().await {
-            return Err(SyncError::Storage(
-                "cloud plane Off: backup chunk upload refused (lastdb cloud off)".into(),
-            ));
-        }
-        self.ensure_backup_presence_cache_loaded().await;
-        let store = self.laststore_backup_source.as_ref().ok_or_else(|| {
-            SyncError::Storage("laststore backup uploader has no LastStore source".to_string())
-        })?;
-        let scan = store
-            .scan_backup_chunks(previous_manifest)
-            .map_err(|e| SyncError::Storage(format!("enumerate backup chunks failed: {e}")))?;
-        if !scan.unresolvable.is_empty() {
-            // Drain the healthy chunks anyway. A chunk the store lists but
-            // cannot verify used to abort this walk outright, which stalled
-            // every other chunk's upload behind it; the manifest cut is the
-            // gate that stays closed until the store is repaired.
-            tracing::warn!(
-                unresolvable = scan.unresolvable.len(),
-                drainable = scan.candidates.len(),
-                first_collection = %scan.unresolvable[0].collection,
-                first_chunk_uuid = %scan.unresolvable[0].chunk_uuid,
-                "backup chunks could not be verified; uploading the rest and \
-                 holding the manifest cut until they are repaired"
-            );
-        }
-        // Refresh policy for side effects / logging; drain bounds are put-count
-        // (upload_target), not a fixed head take that can permanently stall.
-        let _caps = self.refresh_upload_policy().await;
-        self.seed_backup_presence_if_cold(&scan.candidates).await;
-        // No held cut here: this path drains a freshly scanned set, so there is
-        // no generation to scope a source-missing verdict to.
-        self.drain_backup_candidates(scan.candidates, true, None)
-            .await
-    }
-
     /// How many locally-unknown candidates justify a fresh presence listing
     /// on a publish attempt. Below this, per-chunk probes are cheaper than a
     /// full paginated listing; above it, one listing replaces hundreds of

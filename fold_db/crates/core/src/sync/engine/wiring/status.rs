@@ -32,25 +32,6 @@ impl SyncEngine {
         }
     }
 
-    /// Return whether the durable outbox is under its depth target.
-    ///
-    /// Local writes never depend on this — cloud lag must never block the
-    /// local database. This flag is retained for status / observability ("is
-    /// the outbox currently under its cap?"); the actual overflow response
-    /// (force snapshot → reset staging) is driven by
-    /// [`Self::outbox_overflow_reason`] from the sync cycle, off the write
-    /// path.
-    pub async fn has_pending_capacity(&self) -> bool {
-        let max = self.config.max_outbox_entries;
-        if max == 0 {
-            return true;
-        }
-        match self.outbox_count().await {
-            Ok(n) => n < max,
-            Err(_) => true,
-        }
-    }
-
     /// Evaluate whether the durable outbox has crossed its depth or age
     /// overflow threshold. Read-only — never mutates state, never drops
     /// entries. Returns the machine-readable trigger reason so the sync

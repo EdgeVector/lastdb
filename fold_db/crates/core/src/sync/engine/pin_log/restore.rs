@@ -424,16 +424,6 @@ impl SyncEngine {
             .map_err(|error| SyncError::Storage(format!("flush backup writer frontier: {error}")))
     }
 
-    /// Read only the cut marker from the freshly restored S0 store.
-    /// Never substitute a storage CSN, the current owner's published F, or the
-    /// ordinary published-F row restored from a later mutable-chunk cut.
-    /// Legacy snapshots without this marker conservatively replay all writers.
-    pub async fn restored_backup_mutation_frontier(&self) -> SyncResult<Frontier> {
-        self.restored_backup_mode_and_frontier()
-            .await
-            .map(|(frontier, _)| frontier)
-    }
-
     /// The cut marker inside S0 determines whether tail replay is safe.
     /// A missing legacy marker means an empty frontier with normal replay.
     pub async fn restored_backup_mode_and_frontier(

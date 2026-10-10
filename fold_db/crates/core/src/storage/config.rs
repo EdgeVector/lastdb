@@ -161,15 +161,6 @@ impl DatabaseConfig {
             cloud_sync: None,
         }
     }
-
-    /// Create a config with cloud sync enabled
-    pub fn with_cloud_sync(path: PathBuf, cloud_sync: CloudSyncConfig) -> Self {
-        Self {
-            path,
-            engine: StorageEngine::Laststore,
-            cloud_sync: Some(cloud_sync),
-        }
-    }
 }
 
 /// Custom deserializer that handles both new format and legacy tagged enum format.

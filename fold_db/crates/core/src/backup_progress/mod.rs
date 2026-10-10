@@ -301,13 +301,6 @@ struct LastCycle {
 }
 
 impl BackupProgressTracker {
-    pub fn new_enabled() -> Self {
-        Self {
-            enabled: true,
-            ..Self::default()
-        }
-    }
-
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
@@ -376,12 +369,6 @@ impl BackupProgressTracker {
         }
         self.sealed_base_abandoned = true;
         self.last_error = Some(reason);
-    }
-
-    /// Whether any full-manifest cut has ever landed in cloud (successful CAS),
-    /// including a commit restored from the LastStore high-water marker.
-    pub fn has_ever_published(&self) -> bool {
-        self.has_published
     }
 
     /// Observe one publish cycle that failed outright (no sample produced).

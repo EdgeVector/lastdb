@@ -176,22 +176,6 @@ impl Snapshot {
         self.value_encoding == SnapshotValueEncoding::AtRestEnc
     }
 
-    /// Create a snapshot containing only entries for one non-personal sync target.
-    ///
-    /// Org/share targets are represented in Sled by key prefixes. The snapshot
-    /// keeps every namespace present in the source store, even if that target
-    /// currently has zero entries in it, so a scoped restore can clear stale
-    /// target keys from those namespaces without touching unrelated data.
-    pub async fn create_scoped(
-        store: &dyn NamespacedStore,
-        device_id: &str,
-        last_seq: u64,
-        target_prefix: &str,
-    ) -> SyncResult<Self> {
-        Self::create_scoped_to_prefixes(store, device_id, last_seq, &[target_prefix.to_string()])
-            .await
-    }
-
     /// Create a snapshot containing entries for multiple local prefixes that
     /// share one remote target head.
     pub async fn create_scoped_to_prefixes(
@@ -359,16 +343,6 @@ impl Snapshot {
             materialize_ms,
             final_flush_ms,
         })
-    }
-
-    /// Restore a scoped target snapshot without clearing unrelated data.
-    pub async fn restore_scoped(
-        &self,
-        store: &dyn NamespacedStore,
-        target_prefix: &str,
-    ) -> SyncResult<SnapshotRestoreReport> {
-        self.restore_scoped_to_prefixes(store, &[target_prefix.to_string()])
-            .await
     }
 
     /// Restore a scoped target snapshot for multiple local storage prefixes.

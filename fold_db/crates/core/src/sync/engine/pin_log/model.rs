@@ -541,22 +541,6 @@ impl MutationLogLocalCloud {
             .unwrap_or(0)
     }
 
-    pub fn segment_count(&self) -> usize {
-        self.segments.len()
-    }
-
-    pub fn keys_under_writer(&self, writer_id: &str) -> Vec<String> {
-        let prefix = format!("log/{writer_id}/");
-        let mut keys: Vec<String> = self
-            .segments
-            .keys()
-            .filter(|k| k.starts_with(&prefix))
-            .cloned()
-            .collect();
-        keys.sort();
-        keys
-    }
-
     /// Distinct writer_ids that have at least one sealed segment on the plane.
     pub fn writer_ids(&self) -> Vec<String> {
         self.vector_frontier().into_keys().collect()

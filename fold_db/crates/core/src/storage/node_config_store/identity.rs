@@ -70,12 +70,4 @@ impl NodeConfigStore {
     pub fn set_identity(&self, id: &NodeIdentity) -> Result<(), StorageError> {
         self.set_identity_with_hook(id, || Ok(()))
     }
-
-    /// Read the raw stored value for `identity:private_key` without
-    /// decryption. Exposed for tests that need to verify the on-disk
-    /// representation is ciphertext.
-    #[doc(hidden)]
-    pub fn raw_identity_private_key(&self) -> Result<Option<String>, StorageError> {
-        self.get("identity:private_key")
-    }
 }
