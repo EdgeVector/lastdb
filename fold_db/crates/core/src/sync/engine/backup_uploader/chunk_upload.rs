@@ -406,16 +406,6 @@ impl SyncEngine {
         Ok(stats)
     }
 
-    /// Pure plan for one parallel drain cycle: how many PUTs may run at once.
-    /// Exposed for unit tests so concurrency policy is not re-implemented.
-    #[must_use]
-    pub fn backup_upload_concurrency_for_test(
-        policy_concurrency: usize,
-        catching_up: bool,
-    ) -> usize {
-        backup_upload_concurrency(policy_concurrency, catching_up)
-    }
-
     /// Replace or clear the process-local backup PUT concurrency override.
     ///
     /// This changes subsequent scheduling only: in-flight PUTs are not
@@ -446,13 +436,6 @@ impl SyncEngine {
     ) -> usize {
         let runtime_override = *self.backup_upload_concurrency_override.lock().await;
         backup_upload_concurrency_with_runtime(policy_concurrency, catching_up, runtime_override)
-    }
-
-    /// Pure plan for one drain cycle: how many PUTs it may complete.
-    /// Exposed for unit tests so budget policy is not re-implemented.
-    #[must_use]
-    pub fn backup_upload_target_for_test(catching_up: bool) -> usize {
-        backup_upload_target_per_cycle(catching_up)
     }
 
     /// Presign + PUT + confirm one candidate; caches presence on success.

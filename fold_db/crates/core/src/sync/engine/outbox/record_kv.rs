@@ -75,8 +75,6 @@ impl SyncEngine {
         .await
     }
 
-    /// Record a batch delete operation for sync (cold capture / tests only).
-    ///
     /// Record a committed batch delete for durable mutation-log capture.
     pub(crate) async fn record_batch_delete(
         &self,
