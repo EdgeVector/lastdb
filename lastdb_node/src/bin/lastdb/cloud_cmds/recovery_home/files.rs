@@ -151,13 +151,54 @@ struct CreatedFile {
 
 impl FreshHome {
     pub(super) fn preflight(destination: &Path, source: &File) -> Result<Self, String> {
+        Self::preflight_with_exclusion(destination, Some(source))
+    }
+
+    /// The online DEV action cannot create any child below the primary home.
+    /// Use a fixed temporary namespace; no HOME or TMPDIR override is accepted.
+    pub(super) fn preflight_source_free_dev(destination: &Path) -> Result<Self, String> {
+        #[cfg(target_os = "macos")]
+        let temporary_root = Path::new("/private/tmp");
+        #[cfg(not(target_os = "macos"))]
+        let temporary_root = Path::new("/tmp");
+        let parent = destination.parent().ok_or("missing DEV recovery parent")?;
+        if parent.parent() != Some(temporary_root)
+            || !parent
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("lastdb-dev-recovery."))
+        {
+            return Err("DEV recovery requires a fresh private temporary parent".into());
+        }
+        let target = Self::preflight_with_exclusion(destination, None)?;
+        let metadata = target
+            .parent
+            .metadata()
+            .map_err(|_| "cannot inspect DEV recovery parent")?;
+        if metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.permissions().mode() & 0o777 != 0o700
+        {
+            return Err("DEV recovery parent must be owner-only with mode0700".into());
+        }
+        for entry in
+            fs::Dir::read_from(&target.parent).map_err(|_| "cannot read DEV recovery parent")?
+        {
+            let entry = entry.map_err(|_| "cannot inspect DEV recovery parent entry")?;
+            if !matches!(entry.file_name().to_bytes(), b"." | b"..") {
+                return Err("DEV recovery parent must be empty".into());
+            }
+        }
+        Ok(target)
+    }
+
+    fn preflight_with_exclusion(destination: &Path, source: Option<&File>) -> Result<Self, String> {
         require_absolute(destination)?;
         let name = destination
             .file_name()
             .ok_or("destination requires a home name")?;
         let parent = open_directory_excluding(
             destination.parent().ok_or("missing destination parent")?,
-            Some(source),
+            source,
         )?;
         let metadata = parent
             .metadata()

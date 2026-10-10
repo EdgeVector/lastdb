@@ -114,7 +114,7 @@ pub(super) fn parse_http_response(raw: &str) -> Result<(u16, Value), String> {
 }
 
 pub(super) fn head(raw: &str) -> &str {
-    &raw[..raw.len().min(80)]
+    observability::truncate::truncate_on_char_boundary(raw, 80)
 }
 
 pub(super) fn http_client() -> Result<reqwest::Client, String> {

@@ -4,6 +4,22 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {
+    /// Recover credentials for an existing DEV account from a protected seed on stdin.
+    /// Registers one fresh device; creates no store and keeps Cloud Sync Off.
+    RecoverDevCredentialsHome {
+        /// Absent child of an empty owner-only lastdb-dev-recovery.* temporary parent.
+        #[arg(long)]
+        into: PathBuf,
+        /// Require this exact public account hash before any target or network change.
+        #[arg(long)]
+        expected_user_hash: String,
+        /// Read one base64-encoded 32-byte identity seed from stdin.
+        #[arg(long, required = true)]
+        identity_seed_stdin: bool,
+        /// Emit a receipt without credential values.
+        #[arg(long)]
+        json: bool,
+    },
     /// Prepare a source-free recovery home from this home's existing credentials.
     /// Reads credentials only; no daemon, store, registration, or cloud calls.
     PrepareRecoveryHome {
