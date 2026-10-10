@@ -47,7 +47,17 @@ pub(super) async fn snapshot(
         || marker.by_writer.is_empty()
         || &marker.by_writer != published
     {
-        return Err("normal snapshot map differs from the stopped personal published map".into());
+        return Err(format!(
+            "normal snapshot map differs from the stopped personal published map; diagnostic={}",
+            serde_json::json!({
+                "marker": {
+                    "version": marker.version,
+                    "mode": marker.mode,
+                    "by_writer": marker.by_writer,
+                },
+                "published_by_writer": published,
+            })
+        ));
     }
     Ok(marker.by_writer)
 }
