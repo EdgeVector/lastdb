@@ -19,21 +19,16 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
 
-mod audit;
 mod catalog_refs;
 mod counts_pending;
 mod edge_keys;
 mod reindex;
 mod reindex_v1_upgrade;
-mod reindex_v2;
-mod reindex_v2_history;
 mod transitions;
 mod types;
 mod v1_drain;
 pub use types::*;
 
-const DEFAULT_REINDEX_SLOT_PAGE: usize = 256;
-const MAX_TIP_CHAIN_WALK: usize = 1_000_000;
 pub const ATOM_REF_MANIFEST_VERSION_TIPS: u8 = 1;
 pub const ATOM_REF_MANIFEST_VERSION_HISTORY: u8 = 2;
 pub const ATOM_REF_V2_ACTIVE_MARKER: &[u8] = &[0x01];
@@ -369,40 +364,6 @@ fn push_edge_item(
         .map_err(|e| SchemaError::InvalidData(format!("serialize atom reverse edge: {e}")))?;
     items.push((key, value));
     Ok(())
-}
-
-fn compact_edge_put_mutation(
-    edge: &AtomRefEdge,
-    storage_prefix: Option<&str>,
-) -> Result<KvMutation, SchemaError> {
-    Ok(KvMutation::put(
-        edge.storage_key_v2(storage_prefix)?.into_bytes(),
-        ATOM_REF_V2_ACTIVE_MARKER,
-    ))
-}
-
-fn compact_manifest_mutation(
-    manifest: &AtomRefMoleculeManifest,
-    storage_prefix: Option<&str>,
-) -> Result<KvMutation, SchemaError> {
-    compact_json_put_mutation(
-        build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::atom_ref_v2_molecule_manifest_key(&manifest.molecule_uuid),
-        ),
-        manifest,
-        "serialize compact atom reverse-edge manifest",
-    )
-}
-
-fn compact_json_put_mutation<T: Serialize>(
-    key: String,
-    value: &T,
-    context: &str,
-) -> Result<KvMutation, SchemaError> {
-    let value = serde_json::to_vec(value)
-        .map_err(|error| SchemaError::InvalidData(format!("{context}: {error}")))?;
-    Ok(KvMutation::put(key.into_bytes(), value))
 }
 
 fn push_manifest_item_with_version(
