@@ -145,11 +145,16 @@ pub(super) async fn signed_auth(host: &Host) -> Result<AuthClient, ()> {
 }
 
 pub(super) fn cloud_error(error: &SyncError, ctx: &AccessContext) -> UdsResponse {
-    if matches!(error, SyncError::Storage(value) if value.contains("cloud_org_authority_busy_or_changed"))
-    {
+    if matches!(error, SyncError::Storage(value) if value.contains("cloud_org_authority_busy")) {
+        let code = if matches!(error, SyncError::Storage(value) if value.contains("cloud_org_authority_busy_or_changed"))
+        {
+            "cloud_org_authority_busy_or_changed"
+        } else {
+            "cloud_org_authority_busy"
+        };
         return lastdb_host::envelope::owner_json_or_content_free(
             503,
-            &serde_json::json!({"ok":false,"code":"cloud_org_authority_busy_or_changed",
+            &serde_json::json!({"ok":false,"code":code,
                 "message":"tracked Org work must finish; read the cloud tip and retry the same signed chain"}),
             ctx,
         );

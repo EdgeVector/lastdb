@@ -50,7 +50,8 @@ Use `null` to require first enrollment. Use a hash to require that exact current
 A changed tip causes a conflict. The bridge does not choose a different expected tip for an update.
 An exact terminal replay can retain the previous expected hash after a lost reply.
 The cloud service still checks current membership for that replay.
-If tracked Org work blocks the exact cloud update, the bridge returns status 503 and code `cloud_org_authority_busy_or_changed`.
+If tracked Org work blocks the exact cloud update, the bridge returns status 503 and code `cloud_org_authority_busy`.
+The bridge also accepts the earlier `cloud_org_authority_busy_or_changed` service code.
 Read the cloud tip and retry the same signed chain after that work ends.
 
 The success result contains only `ok`, `account`, `epoch_hash`, and `epoch_no`, plus the standard envelope field.
