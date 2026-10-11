@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "db_dangling_tips_report.rs"]
+mod db_dangling_tips_report;
+use db_dangling_tips_report::*;
+
 pub(crate) fn db_unresolved_atoms(socket: &Path, json_only: bool) -> Result<(), String> {
     let req = format!(
         "GET /api/db/unresolved-atoms HTTP/1.1\r\n\
@@ -74,13 +78,51 @@ pub(crate) fn db_unresolved_atoms(socket: &Path, json_only: bool) -> Result<(), 
     Ok(())
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_repair_dangling_tips(
     socket: &Path,
     execute: bool,
     args: &RepairDanglingTipsArgs,
     json_only: bool,
 ) -> Result<(), String> {
+    let request = repair_dangling_tips_request(execute, args);
+    let value = db_post_json(socket, "/api/db/repair-dangling-tips", &request)?;
+    let report = value
+        .get("repair_dangling_tips")
+        .cloned()
+        .ok_or_else(|| "response missing repair_dangling_tips".to_string())?;
+    if json_only {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
+        );
+        return Ok(());
+    }
+    let mode = if execute { "EXECUTED" } else { "DRY RUN" };
+    println!("Dangling tip repair — {mode}");
+    let scope = report.get("scope").filter(|s| !s.is_null());
+    print_repair_scope(scope);
+    print_repair_counters(&report);
+    print_refused_molecules(&report);
+    print_unresolved_tips(&report, scope.is_some());
+    if report
+        .get("aborted_on_repeated_failures")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        println!();
+        println!(
+            "  WARNING: stopped early on an unbroken run of repair failures — \
+             treat this as a store fault, not a few bad molecules."
+        );
+    }
+    if !execute {
+        println!();
+        println!("Re-run with --execute to remove repairable dangling tips.");
+    }
+    Ok(())
+}
+
+fn repair_dangling_tips_request(execute: bool, args: &RepairDanglingTipsArgs) -> serde_json::Value {
     // A scoped pass exists to name the keys it would touch, so it reports
     // per-key detail by default; an unscoped pass keeps its old default (none).
     let audit_limit = args
@@ -100,181 +142,9 @@ pub(crate) fn db_repair_dangling_tips(
     if let Some(hash_key) = &args.hash_key {
         request["hash_key"] = serde_json::json!(hash_key);
     }
-    let value = db_post_json(socket, "/api/db/repair-dangling-tips", &request)?;
-    let report = value
-        .get("repair_dangling_tips")
-        .cloned()
-        .ok_or_else(|| "response missing repair_dangling_tips".to_string())?;
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
-        );
-        return Ok(());
-    }
-    let mode = if execute { "EXECUTED" } else { "DRY RUN" };
-    println!("Dangling tip repair — {mode}");
-    let scope = report.get("scope").filter(|s| !s.is_null());
-    if let Some(scope) = scope {
-        let list = |key: &str| {
-            scope
-                .get(key)
-                .and_then(serde_json::Value::as_array)
-                .map(|v| {
-                    v.iter()
-                        .filter_map(serde_json::Value::as_str)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default()
-        };
-        println!("  scope: schema(s) {}", list("schemas"));
-        if let Some(hash) = scope.get("hash_key").and_then(serde_json::Value::as_str) {
-            println!("  scope: hash key {hash}");
-        }
-        println!(
-            "  scope: {} molecule(s), {} key range(s); `completed` covers this scope only",
-            scope
-                .get("molecule_uuids")
-                .and_then(serde_json::Value::as_array)
-                .map_or(0, Vec::len),
-            scope
-                .get("key_ranges")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0)
-        );
-    }
-    for key in [
-        "tips_scanned",
-        "repairable_tips",
-        "tips_repaired",
-        "skipped_changed",
-        "skipped_molecule_missing",
-        "skipped_atom_not_in_molecule",
-        "skipped_body_restored",
-        "skipped_mis_derived",
-        "skipped_unparseable_key",
-        "skipped_unrepairable",
-        "rescued_by_live_probe",
-        "failed_repairs",
-        "storage_keys_deleted",
-    ] {
-        println!(
-            "  {key:24} {}",
-            report
-                .get(key)
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0)
-        );
-    }
-    println!(
-        "  completed                {}",
-        report
-            .get("completed")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-    );
-    // `skipped_unrepairable` is a size; this is what it sits on. Without it the
-    // only record of which molecules were refused is a daemon-log warn line, so
-    // an operator reading the report cannot tell bounded, explained residue from
-    // an unexplained one.
-    if let Some(refused) = report
-        .get("refused_molecules")
-        .and_then(serde_json::Value::as_array)
-        .filter(|refused| !refused.is_empty())
-    {
-        println!();
-        println!("  Refused molecules (left completely untouched):");
-        for entry in refused {
-            let field = |key: &str| {
-                entry
-                    .get(key)
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0)
-            };
-            println!(
-                "    {} — {} key(s) over the {}-byte limit (longest {}), {} tip(s) left in place",
-                entry
-                    .get("molecule_uuid")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("?"),
-                field("keys_over_limit"),
-                field("key_limit_bytes"),
-                field("longest_key_bytes"),
-                field("tips_left_in_place"),
-            );
-        }
-        println!(
-            "  These are correct refusals: rewriting would emit a key the store \
-             rejects, and the repair is delete-then-store."
-        );
-    }
-    // `unresolved[].schema` joins each dangling molecule against the live
-    // schema catalog. Grouped here so "which schema is producing these" is a
-    // line count on the report itself, not a separate molecule-keys probe
-    // per molecule uuid.
-    if let Some(rows) = report
-        .get("unresolved")
-        .and_then(serde_json::Value::as_array)
-        .filter(|rows| !rows.is_empty())
-    {
-        use std::collections::BTreeMap;
-        let mut by_schema: BTreeMap<String, u64> = BTreeMap::new();
-        for row in rows {
-            let label = row
-                .get("schema")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("(unattributed)")
-                .to_string();
-            *by_schema.entry(label).or_insert(0) += 1;
-        }
-        println!();
-        println!(
-            "  Unresolved tips by schema (of {} detail row(s) captured, use --audit-limit to widen):",
-            rows.len()
-        );
-        for (schema, count) in by_schema {
-            println!("    {count:6}  {schema}");
-        }
-        // A scoped pass is small by construction, so name each key: that is
-        // the list an operator checks before re-running with --execute.
-        if scope.is_some() {
-            println!();
-            println!("  Repairable tips (tip key -> missing atom):");
-            for row in rows {
-                let field = |key: &str| {
-                    row.get(key)
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("?")
-                        .to_string()
-                };
-                println!(
-                    "    {} -> {}",
-                    field("tip_key").escape_debug(),
-                    field("atom_uuid")
-                );
-            }
-        }
-    }
-    if report
-        .get("aborted_on_repeated_failures")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        println!();
-        println!(
-            "  WARNING: stopped early on an unbroken run of repair failures — \
-             treat this as a store fault, not a few bad molecules."
-        );
-    }
-    if !execute {
-        println!();
-        println!("Re-run with --execute to remove repairable dangling tips.");
-    }
-    Ok(())
+    request
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_probe_locator_only(
     socket: &Path,
     max_tips: Option<usize>,

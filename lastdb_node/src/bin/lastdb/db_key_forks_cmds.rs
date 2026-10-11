@@ -110,20 +110,61 @@ pub(crate) fn db_legacy_key_forks(
     Ok(())
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
+type OrderLogTotals = HashMap<String, u64>;
+
+fn audit_field(v: &serde_json::Value, key: &str) -> u64 {
+    v.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0)
+}
+
+/// Fold one audit page into the running totals and the short-molecule list.
+fn accumulate_order_log_pass(
+    totals: &mut OrderLogTotals,
+    short: &mut Vec<serde_json::Value>,
+    pass: &serde_json::Value,
+) {
+    for key in [
+        "keys_scanned",
+        "molecules_decided",
+        "molecules_ok",
+        "molecules_without_order_count",
+        "molecules_short",
+        "entries_missing",
+        "logical_entries_missing",
+        "molecules_with_duplicate_storage_rows",
+        "order_counts_without_keys",
+        "short_candidates_rechecked",
+        "short_candidates_cleared_by_recheck",
+    ] {
+        *totals.entry(key.to_string()).or_default() += audit_field(pass, key);
+    }
+    // `moc:` rows are re-read whole on every pass, so this one is a
+    // property of the store, not a sum over passes.
+    totals.insert(
+        "order_counts_read".to_string(),
+        audit_field(pass, "order_counts_read"),
+    );
+    totals.insert(
+        "order_counts_unreadable".to_string(),
+        audit_field(pass, "order_counts_unreadable"),
+    );
+    if let Some(rows) = pass
+        .get("short_molecules")
+        .and_then(serde_json::Value::as_array)
+    {
+        short.extend(rows.iter().cloned());
+    }
+}
+
 pub(crate) fn db_order_log_audit(
     socket: &Path,
     max_keys: Option<usize>,
     json_only: bool,
 ) -> Result<(), String> {
     let max_keys = max_keys.unwrap_or(ORDER_LOG_AUDIT_KEYS_PER_CALL);
-    let field = |v: &serde_json::Value, key: &str| {
-        v.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0)
-    };
 
     // Totals accumulate across passes; `short` collects every finding so the
     // summary describes the whole store, not the last page of it.
-    let mut totals: HashMap<String, u64> = HashMap::new();
+    let mut totals: OrderLogTotals = HashMap::new();
     let mut short: Vec<serde_json::Value> = Vec::new();
     let mut after_key: Option<String> = None;
     let mut passes = 0u32;
@@ -138,37 +179,7 @@ pub(crate) fn db_order_log_audit(
             .cloned()
             .ok_or_else(|| "response missing order_log_audit".to_string())?;
         passes += 1;
-        for key in [
-            "keys_scanned",
-            "molecules_decided",
-            "molecules_ok",
-            "molecules_without_order_count",
-            "molecules_short",
-            "entries_missing",
-            "logical_entries_missing",
-            "molecules_with_duplicate_storage_rows",
-            "order_counts_without_keys",
-            "short_candidates_rechecked",
-            "short_candidates_cleared_by_recheck",
-        ] {
-            *totals.entry(key.to_string()).or_default() += field(&pass, key);
-        }
-        // `moc:` rows are re-read whole on every pass, so this one is a
-        // property of the store, not a sum over passes.
-        totals.insert(
-            "order_counts_read".to_string(),
-            field(&pass, "order_counts_read"),
-        );
-        totals.insert(
-            "order_counts_unreadable".to_string(),
-            field(&pass, "order_counts_unreadable"),
-        );
-        if let Some(rows) = pass
-            .get("short_molecules")
-            .and_then(serde_json::Value::as_array)
-        {
-            short.extend(rows.iter().cloned());
-        }
+        accumulate_order_log_pass(&mut totals, &mut short, &pass);
         let more = pass
             .get("more_remaining")
             .and_then(serde_json::Value::as_bool)
@@ -192,9 +203,8 @@ pub(crate) fn db_order_log_audit(
         }
     }
 
-    short.sort_by_key(|row| std::cmp::Reverse(field(row, "shortfall")));
+    short.sort_by_key(|row| std::cmp::Reverse(audit_field(row, "shortfall")));
     let molecules_short = totals.get("molecules_short").copied().unwrap_or(0);
-    let entries_missing = totals.get("entries_missing").copied().unwrap_or(0);
 
     if json_only {
         let mut out = serde_json::Map::new();
@@ -208,87 +218,7 @@ pub(crate) fn db_order_log_audit(
                 .map_err(|e| format!("serialize: {e}"))?
         );
     } else {
-        println!("Order-log audit — invariant: moc:{{M}} >= count(mk:{{M}}:…)");
-        for key in [
-            "order_counts_read",
-            "order_counts_unreadable",
-            "keys_scanned",
-            "molecules_decided",
-            "molecules_ok",
-            "molecules_without_order_count",
-            "order_counts_without_keys",
-            "short_candidates_rechecked",
-            "short_candidates_cleared_by_recheck",
-            "molecules_short",
-            "entries_missing",
-            "logical_entries_missing",
-            "molecules_with_duplicate_storage_rows",
-        ] {
-            println!("  {key}: {}", totals.get(key).copied().unwrap_or(0));
-        }
-        // A pass that raced heavy writes clears candidates it would once have
-        // reported. Say so, so a lower count than a previous run reads as this
-        // and not as damage that repaired itself.
-        let cleared = totals
-            .get("short_candidates_cleared_by_recheck")
-            .copied()
-            .unwrap_or(0);
-        if cleared > 0 {
-            println!(
-                "  note: {cleared} candidate(s) cleared on re-read — their log had \
-                 caught up by the time their keys were counted (concurrent writes, \
-                 not damage)."
-            );
-        }
-        if !short.is_empty() {
-            println!();
-            println!("Molecules whose order log is short (worst first):");
-            for row in short.iter().take(50) {
-                // An unattributed molecule is a real finding (schema dropped, or
-                // not loaded on this node), so say so rather than leaving a gap.
-                let schema = row
-                    .get("schema")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("<unattributed>");
-                let unique = field(row, "unique_keys");
-                let logical = field(row, "logical_shortfall");
-                let dups = field(row, "duplicate_storage_rows");
-                println!(
-                    "  {} [{schema}]: moc:={} raw_keys={} unique_keys={} shortfall={} logical_shortfall={} dups={}",
-                    row.get("molecule")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("?"),
-                    field(row, "order_count"),
-                    field(row, "keys"),
-                    unique,
-                    field(row, "shortfall"),
-                    logical,
-                    dups,
-                );
-            }
-        }
-        println!();
-        let unreadable = totals.get("order_counts_unreadable").copied().unwrap_or(0);
-        if unreadable > 0 {
-            println!(
-                "WARNING: {unreadable} `moc:` row(s) did not decode. Those molecules are \
-                 indistinguishable from ones with no order log and were NOT checked — \
-                 the verdict below covers only the rest of the store."
-            );
-        }
-        if molecules_short == 0 {
-            println!(
-                "No molecule holds an order log shorter than its key set. \
-                 No truncated `update_order` is on this store."
-            );
-        } else {
-            println!(
-                "{molecules_short} molecule(s) are missing {entries_missing} order-log entrie(s). \
-                 SampleN under-reports on these; point reads and HashKey lookups are unaffected. \
-                 An order log records the sequence in which values changed and is NOT derivable \
-                 from the current per-key records — do not attempt a reconstruction."
-            );
-        }
+        print_order_log_audit_report(&totals, &short);
     }
 
     if molecules_short > 0 {
@@ -297,6 +227,92 @@ pub(crate) fn db_order_log_audit(
         ));
     }
     Ok(())
+}
+
+fn print_order_log_audit_report(totals: &OrderLogTotals, short: &[serde_json::Value]) {
+    let molecules_short = totals.get("molecules_short").copied().unwrap_or(0);
+    let entries_missing = totals.get("entries_missing").copied().unwrap_or(0);
+    println!("Order-log audit — invariant: moc:{{M}} >= count(mk:{{M}}:…)");
+    for key in [
+        "order_counts_read",
+        "order_counts_unreadable",
+        "keys_scanned",
+        "molecules_decided",
+        "molecules_ok",
+        "molecules_without_order_count",
+        "order_counts_without_keys",
+        "short_candidates_rechecked",
+        "short_candidates_cleared_by_recheck",
+        "molecules_short",
+        "entries_missing",
+        "logical_entries_missing",
+        "molecules_with_duplicate_storage_rows",
+    ] {
+        println!("  {key}: {}", totals.get(key).copied().unwrap_or(0));
+    }
+    // A pass that raced heavy writes clears candidates it would once have
+    // reported. Say so, so a lower count than a previous run reads as this
+    // and not as damage that repaired itself.
+    let cleared = totals
+        .get("short_candidates_cleared_by_recheck")
+        .copied()
+        .unwrap_or(0);
+    if cleared > 0 {
+        println!(
+            "  note: {cleared} candidate(s) cleared on re-read — their log had \
+             caught up by the time their keys were counted (concurrent writes, \
+             not damage)."
+        );
+    }
+    if !short.is_empty() {
+        println!();
+        println!("Molecules whose order log is short (worst first):");
+        for row in short.iter().take(50) {
+            // An unattributed molecule is a real finding (schema dropped, or
+            // not loaded on this node), so say so rather than leaving a gap.
+            let schema = row
+                .get("schema")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unattributed>");
+            let unique = audit_field(row, "unique_keys");
+            let logical = audit_field(row, "logical_shortfall");
+            let dups = audit_field(row, "duplicate_storage_rows");
+            println!(
+                "  {} [{schema}]: moc:={} raw_keys={} unique_keys={} shortfall={} logical_shortfall={} dups={}",
+                row.get("molecule")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?"),
+                audit_field(row, "order_count"),
+                audit_field(row, "keys"),
+                unique,
+                audit_field(row, "shortfall"),
+                logical,
+                dups,
+            );
+        }
+    }
+    println!();
+    let unreadable = totals.get("order_counts_unreadable").copied().unwrap_or(0);
+    if unreadable > 0 {
+        println!(
+            "WARNING: {unreadable} `moc:` row(s) did not decode. Those molecules are \
+             indistinguishable from ones with no order log and were NOT checked — \
+             the verdict below covers only the rest of the store."
+        );
+    }
+    if molecules_short == 0 {
+        println!(
+            "No molecule holds an order log shorter than its key set. \
+             No truncated `update_order` is on this store."
+        );
+    } else {
+        println!(
+            "{molecules_short} molecule(s) are missing {entries_missing} order-log entrie(s). \
+             SampleN under-reports on these; point reads and HashKey lookups are unaffected. \
+             An order log records the sequence in which values changed and is NOT derivable \
+             from the current per-key records — do not attempt a reconstruction."
+        );
+    }
 }
 
 pub(crate) type OrderLogBloatSchemaTotals =
