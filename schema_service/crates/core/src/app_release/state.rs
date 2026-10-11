@@ -1,0 +1,410 @@
+//! State entry points for the release registry.
+
+use super::*;
+
+impl SchemaServiceState {
+    /// Point get of one release by its exact key.
+    #[must_use]
+    pub fn get_release(&self, release_id: &str) -> Option<ReleaseRecord> {
+        read_lock(&self.app_releases, "app_releases")
+            .ok()
+            .and_then(|releases| releases.get(release_id).cloned())
+    }
+
+    /// Point get of one channel by its exact key.
+    #[must_use]
+    pub fn get_channel(&self, app_id: &str, channel: &str) -> Option<ChannelRecord> {
+        read_lock(&self.app_channels, "app_channels")
+            .ok()
+            .and_then(|channels| channels.get(&channel_key(app_id, channel)).cloned())
+    }
+
+    /// `POST /v2/apps/{app_id}/releases` — publish an immutable release.
+    ///
+    /// `body` is the parsed request JSON `{ "manifest": … }`, and it is the
+    /// exact object the `app_release_publish` envelope signed. The release id
+    /// is the digest of `body["manifest"]`, so what the developer signed and
+    /// what the registry keys on are the same bytes.
+    ///
+    /// # Errors
+    /// See [`ReleaseError`].
+    pub async fn publish_release(
+        &self,
+        app_id: &str,
+        cert_header: &str,
+        sig_header: &str,
+        body: &Value,
+    ) -> Result<ReleasePublishOutcome, ReleaseError> {
+        let config = self.app_identity_config();
+        let result = self
+            .publish_release_inner(&config, app_id, cert_header, sig_header, body)
+            .await;
+        record_release_op(
+            env_label(config.deployment_env),
+            "release_publish",
+            match &result {
+                Ok(ReleasePublishOutcome::Created(_)) => "created",
+                Ok(ReleasePublishOutcome::Idempotent(_)) => "idempotent",
+                Err(e) => e.metric_status(),
+            },
+        );
+        result
+    }
+
+    async fn publish_release_inner(
+        &self,
+        config: &AppIdentityConfig,
+        app_id: &str,
+        cert_header: &str,
+        sig_header: &str,
+        body: &Value,
+    ) -> Result<ReleasePublishOutcome, ReleaseError> {
+        if !config.is_active() {
+            return Err(ReleaseError::NotConfigured);
+        }
+        let manifest_value = body
+            .get("manifest")
+            .cloned()
+            .ok_or_else(|| ReleaseError::InvalidManifest("body has no 'manifest'".to_string()))?;
+        let manifest: ReleaseManifest = serde_json::from_value(manifest_value.clone())
+            .map_err(|e| ReleaseError::InvalidManifest(format!("malformed manifest: {e}")))?;
+        validate_manifest(&manifest).map_err(ReleaseError::InvalidManifest)?;
+        if manifest.app_id != app_id {
+            return Err(ReleaseError::AppIdMismatch);
+        }
+
+        let verified = verify_cert_and_signature(
+            config,
+            cert_header,
+            sig_header,
+            body,
+            Purpose::AppReleasePublish,
+        )
+        .map_err(|f| map_auth_failure(&f))?;
+
+        // Ownership: only the registered owner of the namespace publishes
+        // releases into it.
+        let app = self
+            .get_app(app_id)
+            .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
+        if app.owner_dev_pubkey != verified.dev_pubkey {
+            return Err(ReleaseError::NotAppOwner);
+        }
+
+        // Every locked identity must already resolve. This is the gate that
+        // keeps the release path read-only against the catalog: an
+        // unresolved schema fails the publish, it does not get registered.
+        for (name, identity) in &manifest.schemas {
+            let resolved = self
+                .get_schema_by_name(identity)
+                .map_err(|e| ReleaseError::Internal(e.to_string()))?;
+            if resolved.is_none() {
+                return Err(ReleaseError::UnresolvedSchema(name.clone()));
+            }
+        }
+
+        // The id is the digest of the manifest the developer signed, not of
+        // a re-serialization of our parsed struct.
+        let release_id =
+            compute_release_id_from_value(&manifest_value).map_err(ReleaseError::Internal)?;
+
+        {
+            let releases = read_lock(&self.app_releases, "app_releases")
+                .map_err(|e| ReleaseError::Internal(e.to_string()))?;
+            if let Some(existing) = releases.get(&release_id) {
+                return Ok(ReleasePublishOutcome::Idempotent(existing.clone()));
+            }
+        }
+
+        let record = ReleaseRecord {
+            release_id: release_id.clone(),
+            manifest,
+            publisher_dev_pubkey: verified.dev_pubkey,
+            published_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            revoked_at: None,
+            revocation_reason: None,
+        };
+
+        // Insert-if-absent under one write lock: a concurrent publish of the
+        // same manifest converges on the first winner rather than racing.
+        let stored = {
+            let mut releases = write_lock(&self.app_releases, "app_releases")
+                .map_err(|e| ReleaseError::Internal(e.to_string()))?;
+            if let Some(existing) = releases.get(&release_id) {
+                return Ok(ReleasePublishOutcome::Idempotent(existing.clone()));
+            }
+            releases.insert(release_id, record.clone());
+            record
+        };
+        self.persist_release(&stored).await?;
+        Ok(ReleasePublishOutcome::Created(stored))
+    }
+
+    /// `PUT /v2/apps/{app_id}/channels/{channel}` — point a channel at a
+    /// release under a generation check.
+    ///
+    /// `body` is `{ app_id, channel, release_id, generation }`, signed with
+    /// purpose `app_channel_set`. `generation` is what the writer read; a
+    /// stale value fails with [`ReleaseError::GenerationConflict`] instead of
+    /// clobbering a concurrent write.
+    ///
+    /// # Errors
+    /// See [`ReleaseError`].
+    pub async fn set_channel(
+        &self,
+        app_id: &str,
+        channel: &str,
+        cert_header: &str,
+        sig_header: &str,
+        body: &Value,
+    ) -> Result<ChannelRecord, ReleaseError> {
+        let config = self.app_identity_config();
+        let result = self
+            .set_channel_inner(&config, app_id, channel, cert_header, sig_header, body)
+            .await;
+        record_release_op(
+            env_label(config.deployment_env),
+            "channel_set",
+            match &result {
+                Ok(_) => "updated",
+                Err(e) => e.metric_status(),
+            },
+        );
+        result
+    }
+
+    async fn set_channel_inner(
+        &self,
+        config: &AppIdentityConfig,
+        app_id: &str,
+        channel: &str,
+        cert_header: &str,
+        sig_header: &str,
+        body: &Value,
+    ) -> Result<ChannelRecord, ReleaseError> {
+        if !config.is_active() {
+            return Err(ReleaseError::NotConfigured);
+        }
+        if !is_valid_app_id(app_id) {
+            return Err(ReleaseError::InvalidManifest(
+                "app_id does not match ^[a-z][a-z0-9-]{0,39}$".to_string(),
+            ));
+        }
+        if !is_valid_channel(channel) {
+            return Err(ReleaseError::InvalidManifest(
+                "channel does not match ^[a-z][a-z0-9-]{0,31}$".to_string(),
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct ChannelSetRequest {
+            app_id: String,
+            channel: String,
+            release_id: String,
+            generation: u64,
+        }
+        let request: ChannelSetRequest = serde_json::from_value(body.clone())
+            .map_err(|e| ReleaseError::InvalidManifest(format!("malformed body: {e}")))?;
+        if request.app_id != app_id || request.channel != channel {
+            return Err(ReleaseError::AppIdMismatch);
+        }
+        if !is_sha256_hex(&request.release_id) {
+            return Err(ReleaseError::InvalidManifest(
+                "release_id must be 64 lowercase hex characters".to_string(),
+            ));
+        }
+
+        let verified = verify_cert_and_signature(
+            config,
+            cert_header,
+            sig_header,
+            body,
+            Purpose::AppChannelSet,
+        )
+        .map_err(|f| map_auth_failure(&f))?;
+        let app = self
+            .get_app(app_id)
+            .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
+        if app.owner_dev_pubkey != verified.dev_pubkey {
+            return Err(ReleaseError::NotAppOwner);
+        }
+
+        // A channel can only point at a release that exists, in this app.
+        let release = self
+            .get_release(&request.release_id)
+            .ok_or_else(|| ReleaseError::UnknownRelease(request.release_id.clone()))?;
+        if release.manifest.app_id != app_id {
+            return Err(ReleaseError::AppIdMismatch);
+        }
+
+        let key = channel_key(app_id, channel);
+        let record = {
+            let mut channels = write_lock(&self.app_channels, "app_channels")
+                .map_err(|e| ReleaseError::Internal(e.to_string()))?;
+            let current = channels.get(&key).map_or(0, |c| c.generation);
+            if current != request.generation {
+                return Err(ReleaseError::GenerationConflict {
+                    expected: current,
+                    supplied: request.generation,
+                });
+            }
+            let record = ChannelRecord {
+                app_id: app_id.to_string(),
+                channel: channel.to_string(),
+                release_id: request.release_id,
+                generation: current + 1,
+                updated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            };
+            channels.insert(key, record.clone());
+            record
+        };
+        self.persist_channel(&record).await?;
+        Ok(record)
+    }
+
+    /// `POST /v2/apps/{app_id}/revocations` — revoke a published release.
+    ///
+    /// The manifest stays immutable; revocation annotates the record, and
+    /// an installed host reacts on its next drift check.
+    ///
+    /// # Errors
+    /// See [`ReleaseError`].
+    pub async fn revoke_release(
+        &self,
+        app_id: &str,
+        cert_header: &str,
+        sig_header: &str,
+        body: &Value,
+    ) -> Result<ReleaseRecord, ReleaseError> {
+        let config = self.app_identity_config();
+        let result = self
+            .revoke_release_inner(&config, app_id, cert_header, sig_header, body)
+            .await;
+        record_release_op(
+            env_label(config.deployment_env),
+            "release_revoke",
+            match &result {
+                Ok(_) => "revoked",
+                Err(e) => e.metric_status(),
+            },
+        );
+        result
+    }
+
+    async fn revoke_release_inner(
+        &self,
+        config: &AppIdentityConfig,
+        app_id: &str,
+        cert_header: &str,
+        sig_header: &str,
+        body: &Value,
+    ) -> Result<ReleaseRecord, ReleaseError> {
+        if !config.is_active() {
+            return Err(ReleaseError::NotConfigured);
+        }
+        #[derive(Deserialize)]
+        struct RevokeRequest {
+            app_id: String,
+            release_id: String,
+            #[serde(default)]
+            reason: Option<String>,
+        }
+        let request: RevokeRequest = serde_json::from_value(body.clone())
+            .map_err(|e| ReleaseError::InvalidManifest(format!("malformed body: {e}")))?;
+        if request.app_id != app_id {
+            return Err(ReleaseError::AppIdMismatch);
+        }
+        if !is_sha256_hex(&request.release_id) {
+            return Err(ReleaseError::InvalidManifest(
+                "release_id must be 64 lowercase hex characters".to_string(),
+            ));
+        }
+        if let Some(reason) = &request.reason {
+            if reason.len() > REVOCATION_REASON_MAX_LEN {
+                return Err(ReleaseError::InvalidManifest(format!(
+                    "reason must be at most {REVOCATION_REASON_MAX_LEN} characters"
+                )));
+            }
+        }
+
+        let verified = verify_cert_and_signature(
+            config,
+            cert_header,
+            sig_header,
+            body,
+            Purpose::AppReleaseRevoke,
+        )
+        .map_err(|f| map_auth_failure(&f))?;
+        let app = self
+            .get_app(app_id)
+            .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
+        if app.owner_dev_pubkey != verified.dev_pubkey {
+            return Err(ReleaseError::NotAppOwner);
+        }
+
+        let record = {
+            let mut releases = write_lock(&self.app_releases, "app_releases")
+                .map_err(|e| ReleaseError::Internal(e.to_string()))?;
+            let existing = releases
+                .get_mut(&request.release_id)
+                .ok_or_else(|| ReleaseError::UnknownRelease(request.release_id.clone()))?;
+            if existing.manifest.app_id != app_id {
+                return Err(ReleaseError::AppIdMismatch);
+            }
+            if existing.revoked_at.is_none() {
+                existing.revoked_at =
+                    Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+                existing.revocation_reason = request.reason;
+            }
+            existing.clone()
+        };
+        self.persist_release(&record).await?;
+        Ok(record)
+    }
+
+    async fn persist_release(&self, record: &ReleaseRecord) -> Result<(), ReleaseError> {
+        self.storage
+            .backend()
+            .save_release(record)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))
+    }
+
+    async fn persist_channel(&self, record: &ChannelRecord) -> Result<(), ReleaseError> {
+        self.storage
+            .backend()
+            .save_channel(record)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))
+    }
+
+    /// Replace the in-memory release + channel stores from a backend load.
+    /// Called once at startup, next to the app-registry load.
+    ///
+    /// # Errors
+    /// Returns a lock-poison error.
+    pub fn install_loaded_releases(
+        &self,
+        releases: HashMap<String, ReleaseRecord>,
+        channels: HashMap<String, ChannelRecord>,
+    ) -> Result<(), schema_types::FoldDbError> {
+        {
+            let mut store = write_lock(&self.app_releases, "app_releases")?;
+            *store = releases;
+        }
+        let mut store = write_lock(&self.app_channels, "app_channels")?;
+        *store = channels;
+        Ok(())
+    }
+}
+
+pub(super) fn record_release_op(env: &str, op: &str, status: &str) {
+    tracing::info!(
+        target: "schema_service::app_release",
+        metric = "app_release_op_total",
+        env = %env,
+        op = %op,
+        status = %status,
+        "app release registry outcome"
+    );
+}
