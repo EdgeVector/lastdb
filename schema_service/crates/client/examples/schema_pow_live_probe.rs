@@ -674,118 +674,117 @@ async fn run_negative_probe(
     Ok(())
 }
 
-#[tokio::main]
-async fn main() {
-    let args = match parse_args(std::env::args()) {
-        Ok(args) => args,
-        Err(error) => {
-            eprintln!("schema_pow_live_probe: {error}");
-            std::process::exit(2);
-        }
-    };
-    let environment_label = match args.environment {
-        Env::Dev => "dev",
-        Env::Prod => "prod",
-    };
-    let schema = probe_schema(args.environment, &args.run_id);
-    let schema_name = schema.name.clone();
-    if let Some(diagnostic) = endpoint_preflight_diagnostic(&args.url) {
-        emit_preflight_failure(environment_label, &schema_name, &diagnostic);
-    }
-    let signing_key = match ephemeral_signing_key() {
-        Ok(key) => key,
-        Err(error) => {
-            eprintln!("schema_pow_live_probe: {error}");
-            std::process::exit(1);
-        }
-    };
+/// Print a FAIL record to stderr and exit 1.
+#[allow(clippy::needless_pass_by_value)] // call sites build the record inline
+fn fail_exit(record: serde_json::Value) -> ! {
+    eprintln!("{record}");
+    std::process::exit(1);
+}
 
-    if let Some(mode) = args.negative_proof {
-        if let Err(reason) =
-            run_negative_probe(&args, &schema, &signing_key, mode, environment_label).await
-        {
-            eprintln!(
-                "{}",
-                serde_json::json!({
-                    "status": "FAIL",
-                    "environment": environment_label,
-                    "negative_proof": mode.label(),
-                    "reason": reason
-                })
-            );
-            std::process::exit(1);
-        }
-        println!(
-            "{}",
-            serde_json::json!({
-                "status": "PASS",
-                "environment": environment_label,
-                "negative_proof": mode.label(),
-                "rejection": mode.expected_reason(),
-                "private_key_persisted": false
-            })
+/// FAIL record for the registration phase, with the shared fixed fields.
+fn registration_failure(
+    environment: &str,
+    schema_name: &str,
+    reason: &str,
+    owner_surface: &str,
+    diagnostic: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "status": "FAIL",
+        "environment": environment,
+        "schema_name": schema_name,
+        "reason": reason,
+        "owner_surface": owner_surface,
+        "diagnostic": diagnostic,
+        "private_key_persisted": false
+    })
+}
+
+async fn run_negative_mode(
+    args: &ProbeArgs,
+    schema: &Schema,
+    signing_key: &SigningKey,
+    mode: NegativeProof,
+    environment_label: &str,
+) {
+    if let Err(reason) =
+        run_negative_probe(args, schema, signing_key, mode, environment_label).await
+    {
+        fail_exit(serde_json::json!({
+            "status": "FAIL",
+            "environment": environment_label,
+            "negative_proof": mode.label(),
+            "reason": reason
+        }));
+    }
+    println!(
+        "{}",
+        serde_json::json!({
+            "status": "PASS",
+            "environment": environment_label,
+            "negative_proof": mode.label(),
+            "rejection": mode.expected_reason(),
+            "private_key_persisted": false
+        })
+    );
+}
+
+async fn run_quota_probe(
+    client: &SchemaServiceClient,
+    args: &ProbeArgs,
+    environment_label: &str,
+    max_attempts: u16,
+) {
+    for attempt in 1..=max_attempts {
+        let quota_run_id = format!("{}-quota-{attempt}", args.run_id);
+        let schema = probe_schema(args.environment, &quota_run_id);
+        emit_progress(
+            environment_label,
+            &schema.name,
+            "quota-registration-submit",
+            None,
         );
-        return;
-    }
-    let client = SchemaServiceClient::new_with_timeout(
-        &args.url,
-        Duration::from_secs(args.request_timeout_secs),
-    )
-    .with_node_identity(signing_key, args.environment);
-
-    if let Some(max_attempts) = args.quota_attempts {
-        for attempt in 1..=max_attempts {
-            let quota_run_id = format!("{}-quota-{attempt}", args.run_id);
-            let schema = probe_schema(args.environment, &quota_run_id);
-            emit_progress(
-                environment_label,
-                &schema.name,
-                "quota-registration-submit",
-                None,
-            );
-            match client.add_schema(&schema, HashMap::new()).await {
-                Ok(_) => {}
-                Err(error) if error.to_string().contains("quota exceeded") => {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "status": "PASS",
-                            "environment": environment_label,
-                            "quota_probe": true,
-                            "attempts": attempt,
-                            "accepted_before_reject": attempt - 1,
-                            "rejection": "quota_exceeded",
-                            "private_key_persisted": false
-                        })
-                    );
-                    return;
-                }
-                Err(_) => {
-                    eprintln!(
-                        "{}",
-                        serde_json::json!({
-                            "status": "FAIL",
-                            "environment": environment_label,
-                            "reason": "unexpected_registration_failure",
-                            "attempt": attempt
-                        })
-                    );
-                    std::process::exit(1);
-                }
+        match client.add_schema(&schema, HashMap::new()).await {
+            Ok(_) => {}
+            Err(error) if error.to_string().contains("quota exceeded") => {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "PASS",
+                        "environment": environment_label,
+                        "quota_probe": true,
+                        "attempts": attempt,
+                        "accepted_before_reject": attempt - 1,
+                        "rejection": "quota_exceeded",
+                        "private_key_persisted": false
+                    })
+                );
+                return;
             }
-        }
-        eprintln!(
-            "{}",
-            serde_json::json!({
+            Err(_) => fail_exit(serde_json::json!({
                 "status": "FAIL",
                 "environment": environment_label,
-                "reason": "quota_not_rejected",
-                "attempts": max_attempts
-            })
-        );
-        std::process::exit(1);
+                "reason": "unexpected_registration_failure",
+                "attempt": attempt
+            })),
+        }
     }
+    fail_exit(serde_json::json!({
+        "status": "FAIL",
+        "environment": environment_label,
+        "reason": "quota_not_rejected",
+        "attempts": max_attempts
+    }));
+}
 
+/// Prove the read-only resolve endpoint answers for the probe proposal and
+/// return its outcome label.
+async fn run_read_only_resolve(
+    client: &SchemaServiceClient,
+    schema: &Schema,
+    environment_label: &str,
+) -> String {
+    let schema_name = schema.name.clone();
     emit_progress(environment_label, &schema_name, "read-only-resolve", None);
     let resolve = match client
         // The live proof only needs to prove the read-only endpoint responds
@@ -793,54 +792,50 @@ async fn main() {
         // refresh verdict instead of running native component-cover.
         .resolve_schemas(
             Some(READ_ONLY_RESOLVE_PREFLIGHT_REGISTRY_VERSION),
-            vec![resolve_proposal(&schema)],
+            vec![resolve_proposal(schema)],
         )
         .await
     {
         Ok(response) => response,
-        Err(error) => {
-            eprintln!(
-                "{}",
-                serde_json::json!({
-                    "status": "FAIL",
-                    "environment": environment_label,
-                    "schema_name": schema_name,
-                    "reason": "read_only_resolve_failed",
-                    "owner_surface": "schema_service_resolve_endpoint",
-                    "diagnostic": "The read-only /v1/schemas/resolve path failed before the mutation proof; inspect the dev schema service deployment and resolver logs.",
-                    "error": error.to_string(),
-                    "private_key_persisted": false
-                })
-            );
-            std::process::exit(1);
-        }
+        Err(error) => fail_exit(serde_json::json!({
+            "status": "FAIL",
+            "environment": environment_label,
+            "schema_name": schema_name,
+            "reason": "read_only_resolve_failed",
+            "owner_surface": "schema_service_resolve_endpoint",
+            "diagnostic": "The read-only /v1/schemas/resolve path failed before the mutation proof; inspect the dev schema service deployment and resolver logs.",
+            "error": error.to_string(),
+            "private_key_persisted": false
+        })),
     };
     let proposal_name = schema
         .descriptive_name
         .as_deref()
         .unwrap_or(schema_name.as_str());
-    let resolve_outcome = if let Some(result) = resolve
+    match resolve
         .results
         .get(proposal_name)
         .or_else(|| resolve.results.get(&schema_name))
     {
-        outcome_label(&result.outcome).to_string()
-    } else {
-        eprintln!(
-            "{}",
-            serde_json::json!({
-                "status": "FAIL",
-                "environment": environment_label,
-                "schema_name": schema_name,
-                "reason": "read_only_resolve_missing_result",
-                "owner_surface": "schema_service_resolve_endpoint",
-                "diagnostic": "The read-only /v1/schemas/resolve response did not include the probe proposal result.",
-                "private_key_persisted": false
-            })
-        );
-        std::process::exit(1);
-    };
+        Some(result) => outcome_label(&result.outcome).to_string(),
+        None => fail_exit(registration_failure(
+            environment_label,
+            &schema_name,
+            "read_only_resolve_missing_result",
+            "schema_service_resolve_endpoint",
+            "The read-only /v1/schemas/resolve response did not include the probe proposal result.",
+        )),
+    }
+}
 
+/// Register the probe schema twice and require the same identity both times.
+async fn run_registration_proof(
+    client: &SchemaServiceClient,
+    schema: &Schema,
+    environment_label: &'static str,
+    resolve_outcome: String,
+) {
+    let schema_name = schema.name.clone();
     let first_started = Instant::now();
     emit_progress(
         environment_label,
@@ -848,23 +843,17 @@ async fn main() {
         "valid-registration-first-submit",
         None,
     );
-    let first = match client.add_schema(&schema, HashMap::new()).await {
+    let first = match client.add_schema(schema, HashMap::new()).await {
         Ok(response) => response,
         Err(error) => {
             let diagnostic = registration_failure_diagnostic(&error);
-            eprintln!(
-                "{}",
-                serde_json::json!({
-                    "status": "FAIL",
-                    "environment": environment_label,
-                    "schema_name": schema_name,
-                    "reason": diagnostic.reason,
-                    "owner_surface": diagnostic.owner_surface,
-                    "diagnostic": diagnostic.diagnostic,
-                    "private_key_persisted": false
-                })
-            );
-            std::process::exit(1);
+            fail_exit(registration_failure(
+                environment_label,
+                &schema_name,
+                diagnostic.reason,
+                diagnostic.owner_surface,
+                diagnostic.diagnostic,
+            ))
         }
     };
     let first_registration_ms = first_started.elapsed().as_millis();
@@ -876,23 +865,17 @@ async fn main() {
         "valid-registration-repost",
         None,
     );
-    let repost = match client.add_schema(&schema, HashMap::new()).await {
+    let repost = match client.add_schema(schema, HashMap::new()).await {
         Ok(response) => response,
         Err(error) => {
             let diagnostic = registration_failure_diagnostic(&error);
-            eprintln!(
-                "{}",
-                serde_json::json!({
-                    "status": "FAIL",
-                    "environment": environment_label,
-                    "schema_name": schema_name,
-                    "reason": "idempotent_repost_failed",
-                    "owner_surface": diagnostic.owner_surface,
-                    "diagnostic": diagnostic.diagnostic,
-                    "private_key_persisted": false
-                })
-            );
-            std::process::exit(1);
+            fail_exit(registration_failure(
+                environment_label,
+                &schema_name,
+                "idempotent_repost_failed",
+                diagnostic.owner_surface,
+                diagnostic.diagnostic,
+            ))
         }
     };
 
@@ -900,19 +883,13 @@ async fn main() {
         first.schema.identity_hash.as_deref(),
         repost.schema.identity_hash.as_deref(),
     ) {
-        eprintln!(
-            "{}",
-            serde_json::json!({
-                "status": "FAIL",
-                "environment": environment_label,
-                "schema_name": schema_name,
-                "reason": reason,
-                "owner_surface": "schema_service_idempotent_repost",
-                "diagnostic": "The idempotent repost did not return the same non-empty schema identity as the first registration.",
-                "private_key_persisted": false
-            })
-        );
-        std::process::exit(1);
+        fail_exit(registration_failure(
+            environment_label,
+            &schema_name,
+            reason,
+            "schema_service_idempotent_repost",
+            "The idempotent repost did not return the same non-empty schema identity as the first registration.",
+        ));
     }
 
     let report = ProbeReport {
@@ -936,4 +913,48 @@ async fn main() {
         "{}",
         serde_json::to_string(&report).expect("probe report is serializable")
     );
+}
+
+#[tokio::main]
+async fn main() {
+    let args = match parse_args(std::env::args()) {
+        Ok(args) => args,
+        Err(error) => {
+            eprintln!("schema_pow_live_probe: {error}");
+            std::process::exit(2);
+        }
+    };
+    let environment_label = match args.environment {
+        Env::Dev => "dev",
+        Env::Prod => "prod",
+    };
+    let schema = probe_schema(args.environment, &args.run_id);
+    if let Some(diagnostic) = endpoint_preflight_diagnostic(&args.url) {
+        emit_preflight_failure(environment_label, &schema.name, &diagnostic);
+    }
+    let signing_key = match ephemeral_signing_key() {
+        Ok(key) => key,
+        Err(error) => {
+            eprintln!("schema_pow_live_probe: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    if let Some(mode) = args.negative_proof {
+        run_negative_mode(&args, &schema, &signing_key, mode, environment_label).await;
+        return;
+    }
+    let client = SchemaServiceClient::new_with_timeout(
+        &args.url,
+        Duration::from_secs(args.request_timeout_secs),
+    )
+    .with_node_identity(signing_key, args.environment);
+
+    if let Some(max_attempts) = args.quota_attempts {
+        run_quota_probe(&client, &args, environment_label, max_attempts).await;
+        return;
+    }
+
+    let resolve_outcome = run_read_only_resolve(&client, &schema, environment_label).await;
+    run_registration_proof(&client, &schema, environment_label, resolve_outcome).await;
 }
