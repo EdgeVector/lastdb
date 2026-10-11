@@ -58,7 +58,7 @@ pub(super) async fn open_mutation_log_replay_units(
     }
 
     for (group_id, assembly) in groups {
-        units.push(assemble_transaction_group(group_id, assembly)?);
+        units.push(assemble_transaction_group(&group_id, assembly)?);
     }
     Ok(units)
 }
@@ -116,7 +116,7 @@ fn stage_transaction_group_object(
         ) if wire_type == "manifest" => stage_transaction_group_manifest(
             object,
             groups,
-            (format_version, group_id, writer_id, frontier_after),
+            (format_version, &group_id, writer_id, frontier_after),
             (
                 record_digest_version,
                 record_sha256,
@@ -188,7 +188,7 @@ fn stage_transaction_group_shard(
 fn stage_transaction_group_manifest(
     object: &MutationLogSegment,
     groups: &mut BTreeMap<String, TransactionGroupAssembly>,
-    (format_version, group_id, writer_id, frontier_after): (u32, String, String, u64),
+    (format_version, group_id, writer_id, frontier_after): (u32, &str, String, u64),
     (record_digest_version, record_sha256, operation_count, shard_count): (u32, String, u32, u32),
     (record_template, raw_record_template, shards): (
         Box<PinLogRecord>,
@@ -213,7 +213,7 @@ fn stage_transaction_group_manifest(
             object.segment.object_key
         ));
     }
-    let assembly = groups.entry(group_id.clone()).or_default();
+    let assembly = groups.entry(group_id.to_string()).or_default();
     if assembly.manifest.is_some() {
         return Err(format!("transaction group {group_id} has two manifests"));
     }
@@ -263,7 +263,7 @@ fn transaction_group_shard_matches_operations(
 /// Check a group's shards against its commit manifest and rebuild the single
 /// `MutationIntent` record the group was split from.
 fn assemble_transaction_group(
-    group_id: String,
+    group_id: &str,
     mut assembly: TransactionGroupAssembly,
 ) -> Result<MutationLogReplayUnit, String> {
     let manifest = assembly
@@ -288,8 +288,8 @@ fn assemble_transaction_group(
     }
     assembly.shards.sort_by_key(|shard| shard.shard_index);
     let (mutations, raw_mutations) =
-        collect_group_operations(&group_id, &manifest, assembly.shards)?;
-    let record = rebuild_group_record(&group_id, &manifest, mutations, &raw_mutations)?;
+        collect_group_operations(group_id, &manifest, assembly.shards)?;
+    let record = rebuild_group_record(group_id, &manifest, mutations, &raw_mutations)?;
     Ok(MutationLogReplayUnit {
         segment: manifest.segment,
         records: vec![record],
