@@ -1,216 +1,55 @@
 use super::*;
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
-pub(crate) fn print_inventory_human(inventory: &serde_json::Value) {
-    let main_total = inventory
-        .get("main_total_bytes")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let main_keys = inventory
-        .get("main_total_keys")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
+use serde_json::Value;
+
+/// Rows shown for the per-schema tables before the "… N more" line.
+const SCHEMA_ROW_LIMIT: usize = 25;
+
+fn u64_of(value: &Value, key: &str) -> u64 {
+    value.get(key).and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn str_of<'a>(value: &'a Value, key: &str, default: &'a str) -> &'a str {
+    value.get(key).and_then(Value::as_str).unwrap_or(default)
+}
+
+fn array_of<'a>(value: &'a Value, key: &str) -> Option<&'a Vec<Value>> {
+    value.get(key).and_then(Value::as_array)
+}
+
+/// Comma-joined `name` fields of a non-empty row list, or `None` when empty.
+fn joined_names(planes: &Value, key: &str) -> Option<String> {
+    let rows = array_of(planes, key).filter(|rows| !rows.is_empty())?;
+    Some(
+        rows.iter()
+            .filter_map(|row| row.get("name").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
+pub(crate) fn print_inventory_human(inventory: &Value) {
     println!("Live DB inventory (decrypted key+value sizes on running node)");
     println!(
         "main tree: {} keys, {}",
-        main_keys,
-        format_bytes(main_total)
+        u64_of(inventory, "main_total_keys"),
+        format_bytes(u64_of(inventory, "main_total_bytes"))
     );
     if let Some(planes) = inventory.get("planes") {
         println!();
-        let collection_count = planes
-            .get("collection_count")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let total_bytes = planes
-            .get("total_bytes")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        println!(
-            "Collection planes: {} collections, {}",
-            collection_count,
-            format_bytes(total_bytes)
-        );
-        if let Some(rows) = planes.get("by_role").and_then(|v| v.as_array()) {
-            for row in rows {
-                let label = row.get("label").and_then(|v| v.as_str()).unwrap_or("?");
-                let bytes = row
-                    .get("bytes")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                let names = row
-                    .get("collections")
-                    .and_then(|v| v.as_array())
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|item| item.as_str())
-                            .take(4)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                    .unwrap_or_default();
-                println!("  {:>10}  {:<16} [{}]", format_bytes(bytes), label, names);
-            }
-        }
-        if let Some(rows) = planes
-            .get("legacy_split_named")
-            .and_then(|v| v.as_array())
-            .filter(|rows| !rows.is_empty())
-        {
-            let names = rows
-                .iter()
-                .filter_map(|row| row.get("name").and_then(|v| v.as_str()))
-                .collect::<Vec<_>>()
-                .join(", ");
-            println!("  legacy splits: {names}");
-        }
-        if let Some(rows) = planes
-            .get("unknown_active_collections")
-            .and_then(|v| v.as_array())
-            .filter(|rows| !rows.is_empty())
-        {
-            let names = rows
-                .iter()
-                .filter_map(|row| row.get("name").and_then(|v| v.as_str()))
-                .collect::<Vec<_>>()
-                .join(", ");
-            println!("  UNKNOWN active planes: {names}");
-        }
+        print_collection_planes(planes);
     }
     println!();
-    println!("Main key classes (largest first):");
-    if let Some(classes) = inventory.get("main_classes").and_then(|v| v.as_array()) {
-        for c in classes {
-            let class = c.get("class").and_then(|v| v.as_str()).unwrap_or("?");
-            let keys = c
-                .get("keys")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
-            let bytes = c
-                .get("bytes")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
-            let prefix = c.get("prefix").and_then(|v| v.as_str()).unwrap_or("");
-            println!(
-                "  {:>10}  {:>8} keys  {}  — {}",
-                format_bytes(bytes),
-                keys,
-                class,
-                prefix
-            );
-        }
-    }
+    print_main_classes(inventory);
     println!();
-    println!("Per-schema atoms (logical JSON size):");
-    if let Some(rows) = inventory.get("per_schema_atoms").and_then(|v| v.as_array()) {
-        for (i, row) in rows.iter().enumerate() {
-            if i >= 25 {
-                println!("  … {} more schemas", rows.len().saturating_sub(25));
-                break;
-            }
-            let name = row
-                .get("schema_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
-            let bytes = row
-                .get("bytes")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
-            let count = row
-                .get("atom_count")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
-            println!(
-                "  {:>10}  {:>8} atoms  {}",
-                format_bytes(bytes),
-                count,
-                name
-            );
-        }
-        let total = inventory
-            .get("per_schema_atoms_total_bytes")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        println!("  total logical atom bytes: {}", format_bytes(total));
-    }
+    print_per_schema_atoms(inventory);
     println!();
-    println!("Per-schema mutation history:");
-    if let Some(rows) = inventory
-        .get("per_schema_history")
-        .and_then(|v| v.as_array())
-    {
-        if rows.is_empty() {
-            println!("  (none)");
-        } else {
-            for (i, row) in rows.iter().enumerate() {
-                if i >= 25 {
-                    println!("  … {} more schemas", rows.len().saturating_sub(25));
-                    break;
-                }
-                let name = row
-                    .get("schema_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                let events = row
-                    .get("history_events")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                let bytes = row
-                    .get("history_bytes_approx")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                println!(
-                    "  {:>10}  {:>8} events  {}",
-                    format_bytes(bytes),
-                    events,
-                    name
-                );
-            }
-        }
-    }
+    print_per_schema_history(inventory);
     if let Some(tf) = inventory.get("tip_format") {
         println!();
-        println!("Tip format (mk: values):");
-        let scanned = tf
-            .get("tips_scanned")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let thin = tf
-            .get("tips_thin")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let fat = tf
-            .get("tips_fat")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let unreadable = tf
-            .get("tips_unreadable")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let fat_bytes = tf
-            .get("fat_bytes_approx")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let thin_bytes = tf
-            .get("thin_bytes_approx")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        println!("  scanned:     {scanned}");
-        println!("  thin:        {thin}  ({})", format_bytes(thin_bytes));
-        println!("  fat (legacy):{fat}  ({})", format_bytes(fat_bytes));
-        if unreadable > 0 {
-            println!("  unreadable:  {unreadable}");
-        }
-        if fat > 0 {
-            println!();
-            println!("  → migrate: lastdb db migrate-thin-tips            # dry-run");
-            println!("             lastdb db migrate-thin-tips --execute  # rewrite in place");
-            println!("  → rekey:   lastdb db rekey-atom-partition-prefix  # dual-write dry-run");
-            println!("             lastdb db rekey-atom-partition-prefix --execute");
-        }
+        print_tip_format(tf);
     }
-    if let Some(notes) = inventory.get("notes").and_then(|v| v.as_array()) {
+    if let Some(notes) = array_of(inventory, "notes") {
         println!();
         println!("Notes:");
         for n in notes {
@@ -220,6 +59,136 @@ pub(crate) fn print_inventory_human(inventory: &serde_json::Value) {
         }
     }
     println!();
+    print_history_tips();
+}
+
+fn print_collection_planes(planes: &Value) {
+    println!(
+        "Collection planes: {} collections, {}",
+        u64_of(planes, "collection_count"),
+        format_bytes(u64_of(planes, "total_bytes"))
+    );
+    if let Some(rows) = array_of(planes, "by_role") {
+        for row in rows {
+            let names = array_of(row, "collections")
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .take(4)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            println!(
+                "  {:>10}  {:<16} [{}]",
+                format_bytes(u64_of(row, "bytes")),
+                str_of(row, "label", "?"),
+                names
+            );
+        }
+    }
+    if let Some(names) = joined_names(planes, "legacy_split_named") {
+        println!("  legacy splits: {names}");
+    }
+    if let Some(names) = joined_names(planes, "unknown_active_collections") {
+        println!("  UNKNOWN active planes: {names}");
+    }
+}
+
+fn print_main_classes(inventory: &Value) {
+    println!("Main key classes (largest first):");
+    if let Some(classes) = array_of(inventory, "main_classes") {
+        for c in classes {
+            println!(
+                "  {:>10}  {:>8} keys  {}  — {}",
+                format_bytes(u64_of(c, "bytes")),
+                u64_of(c, "keys"),
+                str_of(c, "class", "?"),
+                str_of(c, "prefix", "")
+            );
+        }
+    }
+}
+
+fn print_per_schema_atoms(inventory: &Value) {
+    println!("Per-schema atoms (logical JSON size):");
+    if let Some(rows) = array_of(inventory, "per_schema_atoms") {
+        for (i, row) in rows.iter().enumerate() {
+            if i >= SCHEMA_ROW_LIMIT {
+                println!(
+                    "  … {} more schemas",
+                    rows.len().saturating_sub(SCHEMA_ROW_LIMIT)
+                );
+                break;
+            }
+            println!(
+                "  {:>10}  {:>8} atoms  {}",
+                format_bytes(u64_of(row, "bytes")),
+                u64_of(row, "atom_count"),
+                str_of(row, "schema_name", "?")
+            );
+        }
+        println!(
+            "  total logical atom bytes: {}",
+            format_bytes(u64_of(inventory, "per_schema_atoms_total_bytes"))
+        );
+    }
+}
+
+fn print_per_schema_history(inventory: &Value) {
+    println!("Per-schema mutation history:");
+    let Some(rows) = array_of(inventory, "per_schema_history") else {
+        return;
+    };
+    if rows.is_empty() {
+        println!("  (none)");
+        return;
+    }
+    for (i, row) in rows.iter().enumerate() {
+        if i >= SCHEMA_ROW_LIMIT {
+            println!(
+                "  … {} more schemas",
+                rows.len().saturating_sub(SCHEMA_ROW_LIMIT)
+            );
+            break;
+        }
+        println!(
+            "  {:>10}  {:>8} events  {}",
+            format_bytes(u64_of(row, "history_bytes_approx")),
+            u64_of(row, "history_events"),
+            str_of(row, "schema_name", "?")
+        );
+    }
+}
+
+fn print_tip_format(tf: &Value) {
+    println!("Tip format (mk: values):");
+    let thin = u64_of(tf, "tips_thin");
+    let fat = u64_of(tf, "tips_fat");
+    let unreadable = u64_of(tf, "tips_unreadable");
+    println!("  scanned:     {}", u64_of(tf, "tips_scanned"));
+    println!(
+        "  thin:        {thin}  ({})",
+        format_bytes(u64_of(tf, "thin_bytes_approx"))
+    );
+    println!(
+        "  fat (legacy):{fat}  ({})",
+        format_bytes(u64_of(tf, "fat_bytes_approx"))
+    );
+    if unreadable > 0 {
+        println!("  unreadable:  {unreadable}");
+    }
+    if fat > 0 {
+        println!();
+        println!("  → migrate: lastdb db migrate-thin-tips            # dry-run");
+        println!("             lastdb db migrate-thin-tips --execute  # rewrite in place");
+        println!("  → rekey:   lastdb db rekey-atom-partition-prefix  # dual-write dry-run");
+        println!("             lastdb db rekey-atom-partition-prefix --execute");
+    }
+}
+
+fn print_history_tips() {
     println!("Tip: clear long history with:");
     println!("  lastdb db clear-history                         # dry-run keep_last=1");
     println!("  lastdb db clear-history --execute               # keep newest 1 per field key");
