@@ -103,37 +103,6 @@ pub struct AtomRefBackfillReport {
     pub status: AtomRefBackfillStatus,
 }
 
-/// Durable state for the final removal of legacy v1 reverse-edge rows.
-///
-/// This row lives in the v2 plane. The drain can therefore remove every v1
-/// row, including the old v1 rebuild metadata, without removing its cursor.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AtomRefV1DrainStatus {
-    pub version: u8,
-    pub cursor: Option<PhysicalScanCursor>,
-    pub keys_deleted: u64,
-    pub completed: bool,
-}
-
-impl Default for AtomRefV1DrainStatus {
-    fn default() -> Self {
-        Self {
-            version: 1,
-            cursor: None,
-            keys_deleted: 0,
-            completed: false,
-        }
-    }
-}
-
-/// Work performed by one bounded v1 drain page.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AtomRefV1DrainReport {
-    pub keys_deleted: u64,
-    pub completed: bool,
-    pub status: AtomRefV1DrainStatus,
-}
-
 /// Safety audit for one molecule before its compact manifest can advance.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AtomRefV2MoleculeAuditReport {
