@@ -1,5 +1,10 @@
-// lint:file-size-ok verbatim move from the original module; one long function remains, splitting it is separate work
+// lint:file-size-ok resolve_hash_key_fast is split into helpers; the helpers stay in this module
 use super::*;
+type TipMatch = (
+    KeyValue,
+    crate::db_operations::atom_store::PerKeyRecord,
+    String,
+);
 
 impl FieldVariant {
     /// Resolves field values by refreshing the field, applying filters, and
@@ -118,7 +123,6 @@ impl FieldVariant {
         Ok(resolved)
     }
 
-    // lint:fn-size-ok moved verbatim from the original module; splitting it is a separate change
     pub(super) async fn resolve_hash_key_fast(
         &self,
         db_ops: &Arc<DbOperations>,
@@ -167,25 +171,80 @@ impl FieldVariant {
             return Ok(Some(HashMap::new()));
         }
 
+        if let Some(hit) = self.resident_hash_point_read(
+            db_ops,
+            &molecule_uuid,
+            hash,
+            storage_prefix,
+            &window,
+            include_tombstones,
+        ) {
+            return Ok(Some(hit));
+        }
+
+        let (matches, window_applied) = match self.kind {
+            FieldKind::Hash => (
+                Self::hash_field_tip_match(db_ops, &molecule_uuid, hash, storage_prefix).await?,
+                false,
+            ),
+            FieldKind::HashRange => {
+                Self::hash_range_tip_matches(
+                    db_ops,
+                    &molecule_uuid,
+                    hash,
+                    storage_prefix,
+                    &window,
+                    include_tombstones,
+                )
+                .await?
+            }
+            _ => return Ok(None),
+        };
+
+        let visible_matches =
+            Self::page_visible_matches(matches, window, window_applied, include_tombstones);
+        if visible_matches.is_empty() {
+            return Ok(Some(HashMap::new()));
+        }
+        Self::materialize_tip_matches(
+            db_ops,
+            &molecule_uuid,
+            storage_prefix,
+            include_tombstones,
+            visible_matches,
+        )
+        .await
+        .map(Some)
+    }
+
+    /// Resident-first point read for a `Hash` field `HashKey` filter.
+    fn resident_hash_point_read(
+        &self,
+        db_ops: &Arc<DbOperations>,
+        molecule_uuid: &str,
+        hash: &str,
+        storage_prefix: Option<&str>,
+        window: &Option<KeyWindow>,
+        include_tombstones: bool,
+    ) -> Option<HashMap<KeyValue, FieldValue>> {
         // Resident-first HashKey path: serve tip+atom from T0 when both are
         // present (second+ resolve is a hit; cold path rehydrates below).
         // A `Hash` field's `HashKey` read is a point read — one row, or none —
         // so any window past the first row is empty and a window that includes
         // it changes nothing.
         if matches!(self.kind, FieldKind::Hash)
-            && as_of.is_none()
             && storage_prefix.is_none()
             && window
                 .as_ref()
                 .is_none_or(|window| matches!(window, KeyWindow::Offset { offset: 0, .. }))
         {
-            if let Some(tip_out) = db_ops.resident().resolve_tip(&molecule_uuid, hash, "") {
+            if let Some(tip_out) = db_ops.resident().resolve_tip(molecule_uuid, hash, "") {
                 if let Some(atom_out) = db_ops.resident().resolve_atom(&tip_out.value.atom_uuid) {
                     let atom = &atom_out.value;
                     if include_tombstones || !crate::atom::is_tombstone_value(&atom.content) {
                         let mut resolved = HashMap::new();
                         resolved.insert(
-                            KeyValue::new(Some(hash.clone()), None),
+                            KeyValue::new(Some(hash.to_string()), None),
                             FieldValue {
                                 value: atom.content.clone(),
                                 atom_uuid: atom.uuid.clone(),
@@ -208,7 +267,7 @@ impl FieldVariant {
                                             m
                                         })
                                     }),
-                                molecule_uuid: Some(molecule_uuid.clone()),
+                                molecule_uuid: Some(molecule_uuid.to_string()),
                                 molecule_version: None,
                                 writer_pubkey: (!tip_out.value.writer_pubkey.is_empty())
                                     .then_some(tip_out.value.writer_pubkey.clone()),
@@ -218,227 +277,263 @@ impl FieldVariant {
                                     .and_then(|ns| u64::try_from(ns).ok()),
                             },
                         );
-                        return Ok(Some(resolved));
+                        return Some(resolved);
                     }
                 }
             }
         }
+        None
+    }
 
-        // Each row: (api KeyValue, tip record, tip base key for partition).
-        let mut window_applied = false;
-        let matches: Vec<(KeyValue, _, String)> = match self.kind {
-            FieldKind::Hash => {
-                let observed = db_ops.resident().observe_slot(&molecule_uuid, hash, "");
-                let Some((base_key, rec)) = db_ops
-                    .atoms()
-                    .get_per_key_1d(&molecule_uuid, hash, "", storage_prefix)
-                    .await?
-                else {
-                    return Ok(Some(HashMap::new()));
-                };
-                if storage_prefix.is_none() {
-                    // The keyed read already supplied the tip. Reusing it
-                    // avoids a second tip read and a premature atom fetch
-                    // without a partition hint. Keep API coordinates in T0;
-                    // get_per_key_1d owns blind-hash / encoded-range storage.
-                    db_ops.resident().rehydrate_tip_at(
-                        crate::resident::ResidentTip {
-                            molecule_uuid: molecule_uuid.clone(),
-                            hash: hash.clone(),
-                            range: String::new(),
-                            atom_uuid: rec.entry.atom_uuid.clone(),
-                            written_at: rec.entry.written_at,
-                            logical_counter: rec.entry.logical_counter,
-                            device_id: rec.entry.lww_device().to_string(),
-                            mutation_uuid: rec.entry.mutation_uuid.clone(),
-                            key_metadata: rec.meta.clone(),
-                            writer_pubkey: rec.entry.writer_pubkey.clone(),
-                        },
-                        Some((observed.resident_revision, observed.durable_revision)),
-                    );
-                }
-                vec![(KeyValue::new(Some(hash.clone()), None), rec, base_key)]
-            }
-            FieldKind::HashRange => {
-                let use_resident =
-                    crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix);
-                let cached = use_resident
-                    .then(|| {
-                        if let Some(window) = &window {
-                            db_ops
-                                .resident()
-                                .resolve_partition_window(
-                                    &molecule_uuid,
-                                    hash,
-                                    window,
-                                    include_tombstones,
-                                )
-                                .or_else(|| {
-                                    db_ops.resident().resolve_exact_page(
-                                        &molecule_uuid,
-                                        hash,
-                                        window,
-                                        include_tombstones,
-                                    )
-                                })
-                        } else {
-                            db_ops.resident().resolve_partition_interval(
-                                &molecule_uuid,
+    /// Tip record for a single `Hash` field key (empty when absent).
+    async fn hash_field_tip_match(
+        db_ops: &Arc<DbOperations>,
+        molecule_uuid: &str,
+        hash: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<TipMatch>, SchemaError> {
+        let observed = db_ops.resident().observe_slot(molecule_uuid, hash, "");
+        let Some((base_key, rec)) = db_ops
+            .atoms()
+            .get_per_key_1d(molecule_uuid, hash, "", storage_prefix)
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        if storage_prefix.is_none() {
+            // The keyed read already supplied the tip. Reusing it
+            // avoids a second tip read and a premature atom fetch
+            // without a partition hint. Keep API coordinates in T0;
+            // get_per_key_1d owns blind-hash / encoded-range storage.
+            db_ops.resident().rehydrate_tip_at(
+                crate::resident::ResidentTip {
+                    molecule_uuid: molecule_uuid.to_string(),
+                    hash: hash.to_string(),
+                    range: String::new(),
+                    atom_uuid: rec.entry.atom_uuid.clone(),
+                    written_at: rec.entry.written_at,
+                    logical_counter: rec.entry.logical_counter,
+                    device_id: rec.entry.lww_device().to_string(),
+                    mutation_uuid: rec.entry.mutation_uuid.clone(),
+                    key_metadata: rec.meta.clone(),
+                    writer_pubkey: rec.entry.writer_pubkey.clone(),
+                },
+                Some((observed.resident_revision, observed.durable_revision)),
+            );
+        }
+        Ok(vec![(
+            KeyValue::new(Some(hash.to_string()), None),
+            rec,
+            base_key,
+        )])
+    }
+
+    /// Tip records for a `HashRange` partition, plus whether the window was
+    /// already applied while selecting them.
+    async fn hash_range_tip_matches(
+        db_ops: &Arc<DbOperations>,
+        molecule_uuid: &str,
+        hash: &str,
+        storage_prefix: Option<&str>,
+        window: &Option<KeyWindow>,
+        include_tombstones: bool,
+    ) -> Result<(Vec<TipMatch>, bool), SchemaError> {
+        let use_resident =
+            crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix);
+        let cached = use_resident
+            .then(|| {
+                if let Some(window) = &window {
+                    db_ops
+                        .resident()
+                        .resolve_partition_window(molecule_uuid, hash, window, include_tombstones)
+                        .or_else(|| {
+                            db_ops.resident().resolve_exact_page(
+                                molecule_uuid,
                                 hash,
-                                "",
-                                None,
-                            )
-                        }
-                    })
-                    .flatten();
-                if let Some(tips) = cached {
-                    window_applied = window.is_some();
-                    let codec = db_ops.atoms().key_codec_for_molecule(&molecule_uuid);
-                    tips.into_iter()
-                        .map(|tip| {
-                            let key = codec
-                                .api_hash_range_record_keys_for_read(
-                                    &molecule_uuid,
-                                    &tip.hash,
-                                    &tip.range,
-                                )
-                                .map_err(|e| SchemaError::InvalidData(e.to_string()))?
-                                .into_iter()
-                                .next()
-                                .expect("primary tip key");
-                            let mut entry = crate::atom::AtomEntry::thin_with_author(
-                                tip.atom_uuid,
-                                tip.written_at,
-                                tip.logical_counter,
-                                tip.device_id,
-                                tip.mutation_uuid,
-                                String::new(),
-                            );
-                            entry.writer_pubkey = tip.writer_pubkey;
-                            Ok((
-                                KeyValue::new(Some(tip.hash), Some(tip.range)),
-                                crate::db_operations::atom_store::PerKeyRecord {
-                                    entry,
-                                    meta: tip.key_metadata,
-                                },
-                                key,
-                            ))
-                        })
-                        .collect::<Result<Vec<_>, SchemaError>>()?
-                } else {
-                    let partition_read = (use_resident && window.is_none()).then(|| {
-                        db_ops.resident().begin_partition_interval_read(
-                            &molecule_uuid,
-                            hash,
-                            "",
-                            None,
-                        )
-                    });
-                    let page_read = window.as_ref().filter(|_| use_resident).and_then(|window| {
-                        db_ops.resident().begin_page_read(
-                            &molecule_uuid,
-                            hash,
-                            window,
-                            include_tombstones,
-                        )
-                    });
-                    let paged = if let Some(window) = window.as_ref().filter(|_| use_resident) {
-                        partition_window::merged_tip_window(
-                            db_ops,
-                            &molecule_uuid,
-                            hash,
-                            storage_prefix,
-                            window,
-                            include_tombstones,
-                        )
-                        .await?
-                    } else if let Some(window) = &window {
-                        db_ops
-                            .atoms()
-                            .scan_hash_tip_window(
-                                &molecule_uuid,
-                                hash,
-                                storage_prefix,
                                 window,
                                 include_tombstones,
                             )
-                            .await?
-                    } else {
-                        None
-                    };
-                    let scanned = if let Some(paged) = paged {
-                        window_applied = true;
-                        paged
-                    } else if let Some(unique) = db_ops
-                        .atoms()
-                        .get_unique_hash_key_record(&molecule_uuid, hash, storage_prefix)
-                        .await?
-                    {
-                        vec![unique]
-                    } else {
-                        // Storage-form hash (single path).
-                        let prefixes = db_ops
-                            .atoms()
-                            .key_codec_for_molecule(&molecule_uuid)
-                            .api_hash_range_scan_prefixes_for_read(&molecule_uuid, hash)
-                            .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                        db_ops
-                            .atoms()
-                            .scan_per_key_prefixes(&prefixes, storage_prefix)
-                            .await?
-                    };
-                    let mut rows = Vec::with_capacity(scanned.len());
-                    for (storage_key, rec) in scanned {
-                        let (_decoded_hash, decoded_range) =
-                            crate::atom::molecule_key_codec::decode_hash_range_any(&storage_key)
-                                .ok_or_else(|| {
-                                    SchemaError::InvalidData(format!(
-                                        "malformed hash-range record key: {storage_key}"
-                                    ))
-                                })?;
-                        // Option I: never surface storage-form hash (blind token) as API key.
-                        // Under OPE, also leak-decode range so clients see API plaintext
-                        // (e.g. BoardCards sk `todo#pos#slug`).
-                        let range = if db_ops.atoms().key_codec().range_encoding().writes_ope() {
-                            crate::crypto::E2eKeys::ope_decode_range_plaintext(&decoded_range)
-                                .unwrap_or(decoded_range)
-                        } else {
-                            decoded_range
-                        };
-                        rows.push((
-                            KeyValue::new(Some(hash.clone()), Some(range)),
-                            rec,
-                            storage_key,
-                        ));
-                    }
-                    if partition_read.is_some() || (window_applied && page_read.is_some()) {
-                        let tips = rows
-                            .iter()
-                            .map(|(key, rec, _)| crate::resident::ResidentTip {
-                                molecule_uuid: molecule_uuid.clone(),
-                                hash: hash.clone(),
-                                range: key.range.clone().unwrap_or_default(),
-                                atom_uuid: rec.entry.atom_uuid.clone(),
-                                written_at: rec.entry.written_at,
-                                logical_counter: rec.entry.logical_counter,
-                                device_id: rec.entry.lww_device().to_string(),
-                                mutation_uuid: rec.entry.mutation_uuid.clone(),
-                                writer_pubkey: rec.entry.writer_pubkey.clone(),
-                                key_metadata: rec.meta.clone(),
-                            })
-                            .collect();
-                        if let Some(read) = partition_read {
-                            db_ops.resident().finish_partition_read(&read, tips);
-                        } else if let Some(read) = page_read {
-                            db_ops.resident().finish_page_read(&read, tips);
-                        }
-                    }
-                    rows
+                        })
+                } else {
+                    db_ops
+                        .resident()
+                        .resolve_partition_interval(molecule_uuid, hash, "", None)
                 }
-            }
-            _ => return Ok(None),
-        };
+            })
+            .flatten();
+        if let Some(tips) = cached {
+            let matches = Self::resident_tips_to_matches(db_ops, molecule_uuid, tips)?;
+            return Ok((matches, window.is_some()));
+        }
+        Self::scan_hash_range_matches(
+            db_ops,
+            molecule_uuid,
+            hash,
+            storage_prefix,
+            window,
+            include_tombstones,
+            use_resident,
+        )
+        .await
+    }
 
+    fn resident_tips_to_matches(
+        db_ops: &Arc<DbOperations>,
+        molecule_uuid: &str,
+        tips: Vec<crate::resident::ResidentTip>,
+    ) -> Result<Vec<TipMatch>, SchemaError> {
+        let codec = db_ops.atoms().key_codec_for_molecule(molecule_uuid);
+        tips.into_iter()
+            .map(|tip| {
+                let key = codec
+                    .api_hash_range_record_keys_for_read(molecule_uuid, &tip.hash, &tip.range)
+                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?
+                    .into_iter()
+                    .next()
+                    .expect("primary tip key");
+                let mut entry = crate::atom::AtomEntry::thin_with_author(
+                    tip.atom_uuid,
+                    tip.written_at,
+                    tip.logical_counter,
+                    tip.device_id,
+                    tip.mutation_uuid,
+                    String::new(),
+                );
+                entry.writer_pubkey = tip.writer_pubkey;
+                Ok((
+                    KeyValue::new(Some(tip.hash), Some(tip.range)),
+                    crate::db_operations::atom_store::PerKeyRecord {
+                        entry,
+                        meta: tip.key_metadata,
+                    },
+                    key,
+                ))
+            })
+            .collect::<Result<Vec<_>, SchemaError>>()
+    }
+
+    async fn scan_hash_range_matches(
+        db_ops: &Arc<DbOperations>,
+        molecule_uuid: &str,
+        hash: &str,
+        storage_prefix: Option<&str>,
+        window: &Option<KeyWindow>,
+        include_tombstones: bool,
+        use_resident: bool,
+    ) -> Result<(Vec<TipMatch>, bool), SchemaError> {
+        let mut window_applied = false;
+        let partition_read = (use_resident && window.is_none()).then(|| {
+            db_ops
+                .resident()
+                .begin_partition_interval_read(molecule_uuid, hash, "", None)
+        });
+        let page_read = window.as_ref().filter(|_| use_resident).and_then(|window| {
+            db_ops
+                .resident()
+                .begin_page_read(molecule_uuid, hash, window, include_tombstones)
+        });
+        let paged = if let Some(window) = window.as_ref().filter(|_| use_resident) {
+            partition_window::merged_tip_window(
+                db_ops,
+                molecule_uuid,
+                hash,
+                storage_prefix,
+                window,
+                include_tombstones,
+            )
+            .await?
+        } else if let Some(window) = &window {
+            db_ops
+                .atoms()
+                .scan_hash_tip_window(
+                    molecule_uuid,
+                    hash,
+                    storage_prefix,
+                    window,
+                    include_tombstones,
+                )
+                .await?
+        } else {
+            None
+        };
+        let scanned = if let Some(paged) = paged {
+            window_applied = true;
+            paged
+        } else if let Some(unique) = db_ops
+            .atoms()
+            .get_unique_hash_key_record(molecule_uuid, hash, storage_prefix)
+            .await?
+        {
+            vec![unique]
+        } else {
+            // Storage-form hash (single path).
+            let prefixes = db_ops
+                .atoms()
+                .key_codec_for_molecule(molecule_uuid)
+                .api_hash_range_scan_prefixes_for_read(molecule_uuid, hash)
+                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+            db_ops
+                .atoms()
+                .scan_per_key_prefixes(&prefixes, storage_prefix)
+                .await?
+        };
+        let mut rows = Vec::with_capacity(scanned.len());
+        for (storage_key, rec) in scanned {
+            let (_decoded_hash, decoded_range) =
+                crate::atom::molecule_key_codec::decode_hash_range_any(&storage_key).ok_or_else(
+                    || {
+                        SchemaError::InvalidData(format!(
+                            "malformed hash-range record key: {storage_key}"
+                        ))
+                    },
+                )?;
+            // Option I: never surface storage-form hash (blind token) as API key.
+            // Under OPE, also leak-decode range so clients see API plaintext
+            // (e.g. BoardCards sk `todo#pos#slug`).
+            let range = if db_ops.atoms().key_codec().range_encoding().writes_ope() {
+                crate::crypto::E2eKeys::ope_decode_range_plaintext(&decoded_range)
+                    .unwrap_or(decoded_range)
+            } else {
+                decoded_range
+            };
+            rows.push((
+                KeyValue::new(Some(hash.to_string()), Some(range)),
+                rec,
+                storage_key,
+            ));
+        }
+        if partition_read.is_some() || (window_applied && page_read.is_some()) {
+            let tips = rows
+                .iter()
+                .map(|(key, rec, _)| crate::resident::ResidentTip {
+                    molecule_uuid: molecule_uuid.to_string(),
+                    hash: hash.to_string(),
+                    range: key.range.clone().unwrap_or_default(),
+                    atom_uuid: rec.entry.atom_uuid.clone(),
+                    written_at: rec.entry.written_at,
+                    logical_counter: rec.entry.logical_counter,
+                    device_id: rec.entry.lww_device().to_string(),
+                    mutation_uuid: rec.entry.mutation_uuid.clone(),
+                    writer_pubkey: rec.entry.writer_pubkey.clone(),
+                    key_metadata: rec.meta.clone(),
+                })
+                .collect();
+            if let Some(read) = partition_read {
+                db_ops.resident().finish_partition_read(&read, tips);
+            } else if let Some(read) = page_read {
+                db_ops.resident().finish_page_read(&read, tips);
+            }
+        }
+        Ok((rows, window_applied))
+    }
+
+    /// Drop hidden tombstones and apply the key window when storage did not.
+    fn page_visible_matches(
+        matches: Vec<TipMatch>,
+        window: Option<KeyWindow>,
+        window_applied: bool,
+        include_tombstones: bool,
+    ) -> Vec<TipMatch> {
         let mut visible_matches: Vec<_> = matches
             .into_iter()
             .filter(|(_, rec, _)| {
@@ -463,11 +558,17 @@ impl FieldVariant {
                     .collect(),
             };
         }
+        visible_matches
+    }
 
-        if visible_matches.is_empty() {
-            return Ok(Some(HashMap::new()));
-        }
-
+    /// Hydrate atoms for the selected tips into field values.
+    async fn materialize_tip_matches(
+        db_ops: &Arc<DbOperations>,
+        molecule_uuid: &str,
+        storage_prefix: Option<&str>,
+        include_tombstones: bool,
+        visible_matches: Vec<TipMatch>,
+    ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         // Tip base key → partition (cannot disagree with the tip walk). Fall
         // back to for_slot only if the tip key is unparseable.
         let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = visible_matches
@@ -476,7 +577,7 @@ impl FieldVariant {
                 let partition =
                     crate::atom::AtomPartition::from_record_key(tip_key).or_else(|| {
                         Some(crate::atom::AtomPartition::for_slot(
-                            &molecule_uuid,
+                            molecule_uuid,
                             key.hash.as_deref().unwrap_or(""),
                         ))
                     });
@@ -504,7 +605,7 @@ impl FieldVariant {
                     &atom_uuid,
                     &key,
                     crate::db_operations::core::UnresolvedAtomContext {
-                        molecule_uuid: Some(molecule_uuid.as_str()),
+                        molecule_uuid: Some(molecule_uuid),
                         atom_partition: crate::atom::AtomPartition::from_record_key(&tip_key)
                             .as_ref(),
                         tip_storage_key: Some(&tip_key),
@@ -559,14 +660,14 @@ impl FieldVariant {
                     atom_uuid,
                     source_file_name,
                     metadata,
-                    molecule_uuid: Some(molecule_uuid.clone()),
+                    molecule_uuid: Some(molecule_uuid.to_string()),
                     molecule_version: None,
                     writer_pubkey,
                     written_at,
                 },
             );
         }
-        Ok(Some(resolved))
+        Ok(resolved)
     }
 
     /// Stamp molecule uuid/version/writer onto a resolved field map.
