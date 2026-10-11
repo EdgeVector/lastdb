@@ -432,6 +432,7 @@ pub(super) async fn replay_mutation_log_segments_with_progress(
         Frontier::Vector { .. } => None,
     };
     let mut touched_namespaces = BTreeSet::new();
+    let mut schema_barrier = super::schema_replay::SchemaReplayBarrier::default();
     let mut report = MutationLogReplayReport {
         segments_considered: ordered.len(),
         ..MutationLogReplayReport::default()
@@ -522,11 +523,16 @@ pub(super) async fn replay_mutation_log_segments_with_progress(
         }
         let target = super::replay_scope::target(engine, record, scope_target).await?;
         engine
-            .replay_entry(&record.entry, target.as_ref())
+            .replay_entry_with_schema_refresh(
+                &record.entry,
+                target.as_ref(),
+                schema_barrier.requires_refresh(&record.entry),
+            )
             .await
             .map_err(|error| {
                 error.with_replay_operation(record.entry.seq, (&record.entry.op).into())
             })?;
+        schema_barrier.applied(&record.entry, &mut touched_namespaces);
         touched_namespaces.insert(log_entry_namespace(&record.entry).to_string());
         *writer_frontier = record.frontier_after;
         report.records_applied += 1;
@@ -552,6 +558,7 @@ pub(super) async fn replay_mutation_log_segments_with_progress(
             .flush()
             .await?;
     }
+    schema_barrier.finish(engine).await?;
     report.frontier_after = frontier_after;
     Ok(report)
 }
@@ -560,9 +567,8 @@ pub(super) async fn replay_mutation_log_segments_with_progress(
 ///
 /// Snapshot/S0 install and continuous-log apply remain separate cloud fetch
 /// phases, but product restore (LastStore home restore, device bootstrap after
-/// S0) and CoW proofs share this entry so `replay_mutation_log_segments` is not
-/// test-harness-only. Callers that already hold sealed segment payloads (local
-/// test plane, pre-downloaded objects) pass them here; cloud listing/download
+/// S0) share this entry. Callers that already hold sealed segment payloads
+/// (local cloud storage, pre-downloaded objects) pass them here; cloud listing/download
 /// is [`SyncEngine::download_mutation_log_segments_above`].
 pub async fn restore_mutation_log_after_s0(
     engine: &SyncEngine,
@@ -572,8 +578,8 @@ pub async fn restore_mutation_log_after_s0(
     replay_mutation_log_segments(engine, segments, incorporated_frontier).await
 }
 
-/// Local-plane variant of [`restore_mutation_log_after_s0`] for tests and CoW
-/// harnesses that publish sealed segments into [`MutationLogLocalCloud`].
+/// Local-cloud variant of [`restore_mutation_log_after_s0`] for sealed
+/// segments published into [`MutationLogLocalCloud`].
 pub async fn restore_mutation_log_after_s0_from_plane(
     engine: &SyncEngine,
     plane: &MutationLogLocalCloud,

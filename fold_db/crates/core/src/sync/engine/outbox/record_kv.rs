@@ -31,8 +31,7 @@ impl SyncEngine {
         result
     }
 
-    /// Applyable leftover put. `db_catalog` membership uses this so org-log
-    /// replay can restore the row. Other leftover catalog planes stay on
+    /// Applyable membership or schema-authority put. Other physical rows keep
     /// [`Self::record_physical_digest`].
     pub(crate) async fn record_put(
         &self,

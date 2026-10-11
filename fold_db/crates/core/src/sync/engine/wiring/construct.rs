@@ -192,6 +192,7 @@ impl SyncEngine {
             unseal_failure_log_cache: Arc::new(Mutex::new(HashSet::new())),
             org_scoped_replay_skips: AtomicU64::new(0),
             schema_reloader: Arc::new(Mutex::new(None)),
+            schema_replay_reloader: Arc::new(Mutex::new(None)),
             mutation_intent_applier: Arc::new(Mutex::new(None)),
             mutation_intent_materializer: Arc::new(Mutex::new(None)),
             automatic_gc_atom_store: Arc::new(Mutex::new(None)),

@@ -51,8 +51,8 @@ pub enum LogOp {
     /// with the proven KV apply path while making capture cardinality one log
     /// record per commit instead of one record per physical store call.
     ///
-    /// **Replay-only** for bags already written to disk. Live capture emits
-    /// [`Self::MutationIntent`] instead of a physical-row bag.
+    /// Product mutations emit [`Self::MutationIntent`]. Ordered schema-authority
+    /// mixed KV writes use this existing replay format.
     LogicalCommit {
         changes: Vec<LogicalChange>,
     },

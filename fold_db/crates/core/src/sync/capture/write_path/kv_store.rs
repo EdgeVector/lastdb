@@ -46,10 +46,8 @@ impl KvStore for MutationLogCaptureKvStore {
         if policy::capture_should_skip_key(&self.namespace, key) {
             return self.inner.put(key, value).await;
         }
-        // db_catalog membership is a small JSON row. Clone the body so a
-        // member Mini can apply it from the org log. Other leftover catalog
-        // planes hash the body (PhysicalDigest) and skip apply on replay.
-        if policy::leftover_capture_is_applyable(&self.namespace) {
+        // Membership and schema authority must survive a snapshot plus tail.
+        if policy::leftover_capture_is_applyable(&self.namespace, key) {
             let reservation = self.router.reserve_capture().await?;
             let item = (key.to_vec(), value.clone());
             self.inner.put(key, value).await?;
@@ -57,11 +55,12 @@ impl KvStore for MutationLogCaptureKvStore {
                 reservation.submit(CaptureJobKind::ApplyablePut {
                     namespace: self.namespace.clone(),
                     items: vec![item],
+                    digests: Vec::new(),
                 });
             }
             return Ok(());
         }
-        // Leftover path (schemas / drain / tests): hash the body, do not
+        // Other leftover physical writes hash the body, do not
         // clone it into LogOp::Put. Product writes go through
         // capture_logical_commit (MutationIntent).
         let digest = leftover_body_digest(&value);
@@ -179,19 +178,26 @@ impl KvStore for MutationLogCaptureKvStore {
         if capture_items.is_empty() {
             return self.inner.batch_put(items).await;
         }
-        if policy::leftover_capture_is_applyable(&self.namespace) {
+        let (applyable, physical): (Vec<_>, Vec<_>) = capture_items
+            .into_iter()
+            .partition(|(key, _)| policy::leftover_capture_is_applyable(&self.namespace, key));
+        if !applyable.is_empty() {
             let reservation = self.router.reserve_capture().await?;
             self.inner.batch_put(items).await?;
             if let Some(reservation) = reservation {
                 reservation.submit(CaptureJobKind::ApplyablePut {
                     namespace: self.namespace.clone(),
-                    items: capture_items,
+                    items: applyable,
+                    digests: physical
+                        .into_iter()
+                        .map(|(key, value)| (key, leftover_body_digest(&value)))
+                        .collect(),
                 });
             }
             return Ok(());
         }
-        let capture_keys: Vec<Vec<u8>> = capture_items.iter().map(|(key, _)| key.clone()).collect();
-        let digests: Vec<(Vec<u8>, [u8; 32])> = capture_items
+        let capture_keys: Vec<Vec<u8>> = physical.iter().map(|(key, _)| key.clone()).collect();
+        let digests: Vec<(Vec<u8>, [u8; 32])> = physical
             .into_iter()
             .map(|(key, value)| (key, leftover_body_digest(&value)))
             .collect();
@@ -216,6 +222,18 @@ impl KvStore for MutationLogCaptureKvStore {
             return self.inner.batch_mutate(mutations).await;
         }
         let _activation_guard = self.router.enter_mutation().await;
+        if mutations.iter().any(|mutation| match mutation {
+            KvMutation::Put { key, .. } => {
+                !policy::capture_should_skip_key(&self.namespace, key)
+                    && crate::db_operations::schema_store::SchemaStore::is_replay_authority_key(
+                        &self.namespace,
+                        key,
+                    )
+            }
+            _ => false,
+        }) {
+            return self.capture_applyable_mixed(mutations).await;
+        }
         let mut digests = Vec::new();
         let mut deletes = Vec::new();
         for mutation in &mutations {

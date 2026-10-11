@@ -273,8 +273,18 @@ impl SyncEngine {
             }
         }
         let recovered = async {
-            if !puts.is_empty() {
-                let digests: Vec<(Vec<u8>, [u8; 32])> = puts
+            let (applyable, physical): (Vec<_>, Vec<_>) =
+                puts.iter().cloned().partition(|(key, _)| {
+                    crate::sync::policy::leftover_capture_is_applyable(&namespace, key)
+                });
+            if applyable.len() == 1 {
+                self.record_put(&namespace, &applyable[0].0, &applyable[0].1)
+                    .await?;
+            } else if !applyable.is_empty() {
+                self.record_batch_put(&namespace, &applyable).await?;
+            }
+            if !physical.is_empty() {
+                let digests: Vec<(Vec<u8>, [u8; 32])> = physical
                     .iter()
                     .map(|(key, value)| {
                         (key.clone(), {

@@ -305,6 +305,8 @@ pub struct SyncEngine {
     /// Optional callback invoked after sync replay writes schemas to Sled.
     /// This lets the SchemaCore cache refresh without a hard dependency.
     schema_reloader: Arc<Mutex<Option<SchemaReloadCallback>>>,
+    /// Fallible authoritative refresh required by a schema-dependent tail intent.
+    schema_replay_reloader: Arc<Mutex<Option<SchemaReloadCallback>>>,
     /// Apply [`crate::sync::log::LogOp::MutationIntent`] on the serving
     /// mutation path with capture suppressed.
     mutation_intent_applier: Arc<Mutex<Option<crate::sync::engine::types::MutationIntentApplier>>>,
