@@ -48,7 +48,17 @@ pub fn cut_backup_manifest_with_cloud_presence(
     previous_manifest: Option<&BackupManifest>,
     cloud: Option<&CloudChunkPresence>,
 ) -> StorageResult<BackupManifest> {
-    cut_backup_manifest_with_cloud_presence_inner(store, previous_manifest, cloud, false)
+    cut_backup_manifest_with_cloud_presence_inner(store, previous_manifest, cloud, false, false)
+}
+
+/// Normal publication may replace an atom ref with a verified strict append.
+/// The caller holds the normal serving fence and publication packing lock.
+pub(crate) fn cut_normal_backup_manifest_with_cloud_presence(
+    store: &LastStoreNamespacedStore,
+    previous_manifest: Option<&BackupManifest>,
+    cloud: Option<&CloudChunkPresence>,
+) -> StorageResult<BackupManifest> {
+    cut_backup_manifest_with_cloud_presence_inner(store, previous_manifest, cloud, false, true)
 }
 
 /// Refuse a backup-only cut if the snapshot left an unsealed capped group out.
@@ -57,7 +67,7 @@ pub fn cut_backup_manifest_with_cloud_presence_strict(
     previous_manifest: Option<&BackupManifest>,
     cloud: Option<&CloudChunkPresence>,
 ) -> StorageResult<BackupManifest> {
-    cut_backup_manifest_with_cloud_presence_inner(store, previous_manifest, cloud, true)
+    cut_backup_manifest_with_cloud_presence_inner(store, previous_manifest, cloud, true, false)
 }
 
 pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
@@ -65,6 +75,7 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
     previous_manifest: Option<&BackupManifest>,
     cloud: Option<&CloudChunkPresence>,
     require_complete_seal: bool,
+    allow_verified_atom_append: bool,
     // lint:fn-size-ok verbatim move from backup_manifest.rs; splitting this function is separate work
 ) -> StorageResult<BackupManifest> {
     let _retirement_guard = store
@@ -116,7 +127,12 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
 
     let selected = chunk_refs_from_walk(store, verified)?;
     let pending_purged = load_pending_purged_atom_retirements(store)?;
-    verify_selected_atom_replacements(previous_manifest, &selected, &pending_purged)?;
+    verify_selected_atom_replacements(
+        previous_manifest,
+        &selected,
+        &pending_purged,
+        allow_verified_atom_append,
+    )?;
     for (mut chunk, _path) in selected {
         if let Some(prior) = prior_by_key.get(&chunk_key(&chunk)) {
             if prior.sha256 == chunk.sha256 && prior.bytes == chunk.bytes {

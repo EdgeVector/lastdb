@@ -14,7 +14,7 @@ REPO_ROOT = File.expand_path("../..", __dir__)
 
 # Resolve the workspace member set. `cargo metadata --no-deps` does not build
 # anything, so this stays cheap enough for the required gate. The env override
-# exists for the self-test, which must not depend on the real manifest tree.
+# accepts an explicit workspace member set instead of the manifest metadata.
 def workspace_members
   override = ENV["HEAVY_CLIPPY_LINT_MEMBERS"]
   unless override.nil? || override.strip.empty?

@@ -8,8 +8,8 @@
 # Background (2026-07):
 #   cargo clippy --workspace --lib --bins
 # with packages that depend on schema_service_server_shared features=["fastembed"]
-# unifies schema-service FastEmbed/ONNX onto the ENTIRE graph (every workspace test
-# target included). Agents repeatedly rationalized multi-tens-of-minutes runs
+# unifies schema-service FastEmbed/ONNX onto the entire workspace product graph.
+# Agents repeatedly rationalized multi-tens-of-minutes runs
 # as "cold cache." This lint exists so that regression turns CI red with a
 # message that says "this is a feature-unification bug, not a cold start."
 #
@@ -130,7 +130,7 @@ assert_present() {
 # Matches hard-dep enablement: features = [..., "fastembed", ...]
 # Skips:
 #   - feature table keys like `fastembed = ["dep:fastembed"]`
-#   - `required-features = ["fastembed"]` on [[bin]] / [[test]] (opt-in only)
+#   - `required-features = ["fastembed"]` on [[bin]] (opt-in only)
 force_hits="$(
   rg -n --glob '**/Cargo.toml' --glob '!**/target/**' \
     'features\s*=\s*\[[^\]]*["'\'']fastembed["'\'']' \

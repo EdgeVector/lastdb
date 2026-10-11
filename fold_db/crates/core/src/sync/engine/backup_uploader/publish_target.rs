@@ -236,9 +236,14 @@ impl SyncEngine {
                 previous_manifest,
                 cloud_presence.as_ref(),
             )
-        } else {
+        } else if primary_resume_root {
             store
                 .cut_backup_manifest_with_cloud_presence(previous_manifest, cloud_presence.as_ref())
+        } else {
+            store.cut_normal_backup_manifest_with_cloud_presence(
+                previous_manifest,
+                cloud_presence.as_ref(),
+            )
         }
         .map_err(|e| SyncError::Storage(format!("cut backup manifest failed: {e}")))?;
         if missing_atom_groups > 0 && !accept_local_damage {
