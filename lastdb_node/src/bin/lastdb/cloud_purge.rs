@@ -16,11 +16,7 @@ pub(crate) fn cloud_purge_resync(
         return Err("the LastDB node socket is unavailable".into());
     }
     let operation_id = if action == "begin" {
-        Some(
-            operation_id
-                .map(str::to_string)
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-        )
+        Some(operation_id.map_or_else(|| uuid::Uuid::new_v4().to_string(), str::to_string))
     } else {
         operation_id.map(str::to_string)
     };
