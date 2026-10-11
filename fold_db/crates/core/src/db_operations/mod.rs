@@ -6,6 +6,7 @@ pub mod db_catalog_store;
 pub mod admin_db;
 pub mod atom_store;
 pub mod attribution_ledger;
+mod conflict_metadata;
 mod conflict_operations;
 pub mod delete_ledger;
 /// Local file-blob reachability GC. Gated on `sharing` because the
@@ -87,6 +88,7 @@ pub use keep_small::{
 };
 // Annotate matches on this. It stays public on a default build: the host
 // crate does not enable `cloud-sync` just to read the page flag.
+pub use conflict_metadata::{MoleculeConflictState, SELECTED_CONFLICT_MAX_MOLECULES};
 pub use conflict_operations::HomeConflictAnnotation;
 // Replay appends one event in the same batch that records a conflict. The
 // engine is gated behind `cloud-sync`. A default-feature build must not

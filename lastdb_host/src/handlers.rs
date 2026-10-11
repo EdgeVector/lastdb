@@ -50,6 +50,7 @@ use crate::host_node::{HostNode, ReadBusy};
 use crate::pagination::{clamp_request_limit, compute_has_more, INTERNAL_FETCH_CAP};
 use crate::qos::Lane;
 
+mod conflict_metadata;
 mod errors;
 mod history;
 mod mutation;
@@ -57,6 +58,7 @@ mod query;
 mod schema_resolve;
 mod search;
 
+pub use self::conflict_metadata::*;
 pub use self::errors::*;
 pub use self::history::*;
 pub use self::mutation::*;

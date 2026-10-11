@@ -196,6 +196,9 @@ pub(super) async fn dispatch_data_route(
     match route {
         DataRoute::Query => heap_route!(execute_query_route, req, ctx, host).await,
         DataRoute::QueryBatch => heap_route!(execute_query_batch_route, req, ctx, host).await,
+        DataRoute::ConflictMetadata => {
+            heap_route!(execute_conflict_metadata_route, req, ctx, host).await
+        }
         DataRoute::Mutation => heap_route!(execute_mutation_route, req, ctx, host).await,
         DataRoute::AggregateRepair => {
             heap_route!(execute_aggregate_repair_route, req, ctx, host).await
@@ -501,7 +504,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
             OpKind::Mutation
         }
         DataRoute::MutationBatch => OpKind::MutationBatch,
-        DataRoute::QueryBatch => OpKind::QueryBatch,
+        DataRoute::QueryBatch | DataRoute::ConflictMetadata => OpKind::QueryBatch,
         DataRoute::Status
         | DataRoute::AutoIdentity
         | DataRoute::BootIdentity
