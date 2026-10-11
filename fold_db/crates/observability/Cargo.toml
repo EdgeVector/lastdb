@@ -72,8 +72,6 @@ http = { workspace = true }
 # Only for `propagation::inject_w3c` (otel feature). Sentry brings its own
 # reqwest transport when the `sentry` feature is enabled.
 reqwest = { version = "0.12", default-features = false, optional = true }
-# `sync` powers the broadcast channel for the WEB layer.
-tokio = { workspace = true, features = ["sync"] }
 
 [lints]
 workspace = true

@@ -8,34 +8,17 @@
 //! only with the `schema-org-seed-data` feature (offline generators and
 //! dump-parse tests). The Lambda crate must not enable that feature.
 //!
-//! Historically, at cold start [`seed`] loaded two **pre-validated JSON
-//! snapshots** committed to the repo and inserted them into the schema
-//! service with no parsing, no semantic matching, and no classification
-//! work:
-//!
-//! - [`VALIDATED_CANONICAL_FIELDS_JSON`] — one aggregate file containing
-//!   every canonical field (curated + Schema.org-derived), with
-//!   descriptions, types, classifications, and interest categories
-//!   already baked in by the generator.
-//! - [`VALIDATED_SCHEMAS_DIR`] — one file per Schema.org class under
-//!   `data/schema_org/schemas/*.json`, embedded at build time via
-//!   `include_dir!`. Schemas are already post-validation:
-//!   `identity_hash` computed, `descriptive_name` canonicalized,
-//!   `field_data_classifications` propagated.
-//!
-//! Both snapshots are produced by the one-shot generator at
-//! `schema_service/scripts/generate_validated_schema_org_seeds`. It
-//! parses the Schema.org JSON-LD dump, applies the hand-curated
-//! classification overlay from
-//! `schema_service/scripts/generate_schema_org_classifications`, runs
-//! every class serially through [`SchemaServiceState::add_schema`] using
+//! Historically, [`seed`] loaded two pre-validated JSON snapshots
+//! (`data/schema_org/validated_canonical_fields.json` and
+//! `data/schema_org/schemas/*.json`) at cold start. That loader was removed
+//! when nothing called it; the snapshots remain in git as the output of the
+//! one-shot generator at
+//! `schema_service/scripts/generate_validated_schema_org_seeds`. It parses
+//! the Schema.org JSON-LD dump, applies the hand-curated classification
+//! overlay from `schema_service/scripts/generate_schema_org_classifications`,
+//! runs every class serially through [`SchemaServiceState::add_schema`] using
 //! the real fastembed embedder, and dumps the final state. Regenerate by
 //! running the binary and committing the JSON diff.
-//!
-//! Why this split: the expensive work (fastembed-based semantic
-//! canonicalization, classification propagation) happens once at dev
-//! time. Cold start is then a deterministic JSON-read pass, not a
-//! pipeline re-run.
 //!
 //! ## Parsing utilities
 //!
