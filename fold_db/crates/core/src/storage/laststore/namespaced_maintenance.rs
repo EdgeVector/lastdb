@@ -42,25 +42,6 @@ impl LastStoreNamespacedStore {
         self.store.hash_group_warm_stats_for(collection)
     }
 
-    /// Open an existing plaintext-frame LastStore home with backup high-water.
-    ///
-    /// Production Mini homes (post-P4) store collection frames without
-    /// `data_key` AEAD. Backup cut/restore still need the durable high-water
-    /// marker (`laststore_high_water.json`) so manifests can reserve counters
-    /// and refuse rollbacks. This is the matching open path for those homes.
-    pub fn open_with_high_water(
-        path: &Path,
-        high_water_path: impl Into<PathBuf>,
-    ) -> StorageResult<Self> {
-        // Same product defaults as Mini factory: hash-group warm budget on;
-        // durable layout still wins for legacy segment_log homes.
-        Self::open_with_options_and_high_water(
-            path,
-            Self::product_hash_group_options(),
-            high_water_path,
-        )
-    }
-
     pub fn open_with_options_and_high_water(
         path: &Path,
         mut opts: LastStoreOptions,

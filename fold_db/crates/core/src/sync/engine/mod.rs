@@ -75,11 +75,10 @@ tokio::task_local! {
 // `impl SyncEngine` there; re-export tick stats for callers/tests.
 pub use crate::sync::capture::{CaptureTickStats, HealStagingReport};
 pub use backup_restore::{
-    restore_laststore_cloud_backup, restore_laststore_cloud_backup_detailed,
     restore_laststore_cloud_backup_from_latest_pointer_with_cache,
     restore_laststore_cloud_backup_from_rescue_with_cache,
-    restore_laststore_cloud_backup_with_cache, restore_laststore_cloud_backup_with_progress,
-    LastStoreCloudRestoreReport, S0RestoreBoundary, S0RestoreFailure,
+    restore_laststore_cloud_backup_with_cache, LastStoreCloudRestoreReport, S0RestoreBoundary,
+    S0RestoreFailure,
 };
 pub use backup_uploader::{BackupOrphanGcReport, LastStoreCloudSnapshotReport};
 pub use prefix_inventory::{PrefixInventoryEntry, PrefixInventoryReport};
