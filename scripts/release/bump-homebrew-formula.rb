@@ -16,7 +16,6 @@
 #
 # It rewrites EXACTLY three kinds of line: `version`, `url`, and `sha256`.
 # The caller (release.yml) re-asserts that invariant with a git-diff guard, and
-# scripts/release/bump-homebrew-formula-test.sh proves a service block survives.
 #
 # The download URLs point at EdgeVector/homebrew-lastdb releases (NOT
 # EdgeVector/fold), because fold is private and GitHub 404s anonymous asset

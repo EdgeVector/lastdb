@@ -495,7 +495,7 @@ jobs:
       #
       # This job only reports the computed diff. Publish locally:
       #
-      #     scripts/release/forge-promote-homebrew-stable.sh --publish
+      #     scripts/release/forge-promote-homebrew-stable.sh --publish --tap-dir <registered-tap-DEV> --proof-report <owned-receipt.json>
       #
       - name: Report the computed bump (no tap write)
         env:
@@ -513,7 +513,7 @@ jobs:
           echo
           echo "Formula bump is not published from this workflow."
           echo "Publish it as a GitHub PR on EdgeVector/homebrew-lastdb:"
-          echo "  scripts/release/forge-promote-homebrew-stable.sh --publish"
+          echo "  scripts/release/forge-promote-homebrew-stable.sh --publish --tap-dir <registered-tap-DEV> --proof-report <owned-receipt.json>"
 
   # Discord status for tag releases (stable + canary prereleases). Soft-skips
   # when no webhook secret is configured. Never blocks the release.
@@ -561,7 +561,7 @@ jobs:
                 "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
             else
               TITLE="Mini stable released ${TAG}"
-              BODY="$(printf 'Public assets published on EdgeVector/homebrew-lastdb.\n\nTag: `%s`\nRun: %s\n\nFormula bump is NOT published from CI — run `scripts/release/forge-promote-homebrew-stable.sh --publish`, then `brew update && brew upgrade lastdb`.' \
+              BODY="$(printf 'Public assets published on EdgeVector/homebrew-lastdb.\n\nTag: `%s`\nRun: %s\n\nFormula bump is NOT published from CI — run `scripts/release/forge-promote-homebrew-stable.sh --publish --tap-dir <registered-tap-DEV> --proof-report <owned-receipt.json>`, For a live primary, use the lastdb-safe-upgrade procedure. Keep a durable backup and check the candidate on a copy. Upgrade the primary only after those checks pass.' \
                 "$TAG" \
                 "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
             fi
