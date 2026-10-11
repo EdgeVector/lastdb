@@ -113,7 +113,6 @@ impl AtomStore {
     }
 
     /// Run one bounded page of the compact two-pass rebuild.
-    // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub async fn reindex_atom_ref_v2_edges(
         &self,
         storage_prefix: Option<&str>,
@@ -151,160 +150,30 @@ impl AtomStore {
         let range_exhausted = rows.len() < raw_limit;
 
         let phase = status.phase;
-        let mut mutations = Vec::new();
-        let mut replay_edge_keys = BTreeSet::new();
-        let mut walked = 0u64;
-        let mut edge_writes = 0u64;
-        let mut last_key = status.after_tip_key.clone();
+        let mut acc = ReindexPage {
+            last_key: status.after_tip_key.clone(),
+            ..Default::default()
+        };
         for (key, value) in rows {
-            let full_key = String::from_utf8_lossy(&key).into_owned();
-            if status.after_tip_key.as_deref() == Some(full_key.as_str()) {
-                continue;
-            }
-            last_key = Some(full_key.clone());
-            walked = walked.saturating_add(1);
-            let Some(base_key) = strip_storage_prefix(storage_prefix, &full_key) else {
-                status.skipped_rows = status.skipped_rows.saturating_add(1);
-                continue;
-            };
-            let Some(rest) = base_key.strip_prefix("mk:") else {
-                status.skipped_rows = status.skipped_rows.saturating_add(1);
-                continue;
-            };
-            let Some((molecule_uuid, _)) = rest.split_once(':') else {
-                status.skipped_rows = status.skipped_rows.saturating_add(1);
-                continue;
-            };
-            let Some((disk_hash, disk_range)) =
-                molecule_key_codec::decode_hash_range(base_key, molecule_uuid)
-            else {
-                status.skipped_rows = status.skipped_rows.saturating_add(1);
-                continue;
-            };
-            let Ok(record): Result<PerKeyRecord, _> = serde_json::from_slice(&value) else {
-                status.skipped_rows = status.skipped_rows.saturating_add(1);
-                continue;
-            };
-
-            if status.current_molecule.as_deref() != Some(molecule_uuid) {
-                match phase {
-                    AtomRefBackfillPhase::Replay => {
-                        if let Some(previous) =
-                            status.current_molecule.replace(molecule_uuid.to_string())
-                        {
-                            mutations.push(compact_manifest_mutation(
-                                &AtomRefMoleculeManifest {
-                                    version: ATOM_REF_MANIFEST_VERSION_TIPS,
-                                    molecule_uuid: previous,
-                                    mutation_watermark_nanos: status.mutation_watermark_nanos,
-                                    replay_complete: true,
-                                },
-                                storage_prefix,
-                            )?);
-                            status.molecules_complete = status.molecules_complete.saturating_add(1);
-                        }
-                    }
-                    AtomRefBackfillPhase::Backfill => {
-                        status.current_molecule = Some(molecule_uuid.to_string());
-                        mutations.push(compact_manifest_mutation(
-                            &AtomRefMoleculeManifest {
-                                version: ATOM_REF_MANIFEST_VERSION_TIPS,
-                                molecule_uuid: molecule_uuid.to_string(),
-                                mutation_watermark_nanos: status.mutation_watermark_nanos,
-                                replay_complete: false,
-                            },
-                            storage_prefix,
-                        )?);
-                    }
-                    AtomRefBackfillPhase::Complete | AtomRefBackfillPhase::Blocked => {}
-                }
-            }
-
-            for edge in self
-                .reference_edges_for_record(
-                    molecule_uuid,
-                    &disk_hash,
-                    &disk_range,
-                    &record,
-                    storage_prefix,
-                )
-                .await?
-            {
-                if phase == AtomRefBackfillPhase::Replay {
-                    replay_edge_keys.insert(edge.storage_key_v2(storage_prefix)?.into_bytes());
-                } else {
-                    mutations.push(compact_edge_put_mutation(&edge, storage_prefix)?);
-                    edge_writes = edge_writes.saturating_add(1);
-                }
-            }
+            self.reindex_row(storage_prefix, &mut status, &mut acc, &key, &value)
+                .await?;
         }
 
-        if phase == AtomRefBackfillPhase::Replay && !replay_edge_keys.is_empty() {
-            let keys: Vec<Vec<u8>> = replay_edge_keys.into_iter().collect();
-            let values = self
-                .main_store
-                .inner()
-                .get_many(keys.clone())
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "probe compact atom reverse edges during replay: {error}"
-                    ))
-                })?;
-            for (key, value) in keys.into_iter().zip(values) {
-                if value.as_deref() != Some(ATOM_REF_V2_ACTIVE_MARKER) {
-                    mutations.push(KvMutation::put(key, ATOM_REF_V2_ACTIVE_MARKER));
-                    edge_writes = edge_writes.saturating_add(1);
-                }
-            }
+        if phase == AtomRefBackfillPhase::Replay && !acc.replay_edge_keys.is_empty() {
+            self.probe_replay_edges(&mut acc).await?;
         }
 
-        status.after_tip_key = last_key;
-        status.slots_walked = status.slots_walked.saturating_add(walked);
+        status.after_tip_key = acc.last_key.take();
+        status.slots_walked = status.slots_walked.saturating_add(acc.walked);
         if phase == AtomRefBackfillPhase::Backfill {
-            status.edges_written = status.edges_written.saturating_add(edge_writes);
+            status.edges_written = status.edges_written.saturating_add(acc.edge_writes);
         }
 
         if range_exhausted {
-            match phase {
-                AtomRefBackfillPhase::Backfill => {
-                    status.phase = AtomRefBackfillPhase::Replay;
-                    status.after_tip_key = None;
-                    status.current_molecule = None;
-                }
-                AtomRefBackfillPhase::Replay => {
-                    if let Some(last_molecule) = status.current_molecule.take() {
-                        mutations.push(compact_manifest_mutation(
-                            &AtomRefMoleculeManifest {
-                                version: ATOM_REF_MANIFEST_VERSION_TIPS,
-                                molecule_uuid: last_molecule,
-                                mutation_watermark_nanos: status.mutation_watermark_nanos,
-                                replay_complete: true,
-                            },
-                            storage_prefix,
-                        )?);
-                        status.molecules_complete = status.molecules_complete.saturating_add(1);
-                    }
-                    if status.skipped_rows == 0 {
-                        status.phase = AtomRefBackfillPhase::Complete;
-                        status.completed = true;
-                        mutations.push(KvMutation::put(
-                            build_storage_key(
-                                storage_prefix,
-                                molecule_key_codec::ATOM_REF_V2_COMPLETE_KEY,
-                            )
-                            .into_bytes(),
-                            ATOM_REF_V2_COMPLETE_MARKER,
-                        ));
-                    } else {
-                        status.phase = AtomRefBackfillPhase::Blocked;
-                    }
-                }
-                AtomRefBackfillPhase::Complete | AtomRefBackfillPhase::Blocked => {}
-            }
+            finish_reindex_phase(storage_prefix, &mut status, &mut acc.mutations)?;
         }
 
-        mutations.push(compact_json_put_mutation(
+        acc.mutations.push(compact_json_put_mutation(
             build_storage_key(
                 storage_prefix,
                 molecule_key_codec::ATOM_REF_V2_REINDEX_CHECKPOINT_KEY,
@@ -314,7 +183,7 @@ impl AtomStore {
         )?);
         self.main_store
             .inner()
-            .batch_mutate(mutations)
+            .batch_mutate(acc.mutations)
             .await
             .map_err(|error| {
                 SchemaError::InvalidData(format!(
@@ -323,10 +192,201 @@ impl AtomStore {
             })?;
 
         Ok(AtomRefBackfillReport {
-            slots_walked: walked,
-            edges_written: edge_writes,
+            slots_walked: acc.walked,
+            edges_written: acc.edge_writes,
             completed: status.completed,
             status,
         })
     }
+
+    /// Walk one `mk:` row of the page: close or open molecule manifests as the
+    /// scan crosses molecule boundaries, then stage the row's reverse edges.
+    async fn reindex_row(
+        &self,
+        storage_prefix: Option<&str>,
+        status: &mut AtomRefBackfillStatus,
+        acc: &mut ReindexPage,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(), SchemaError> {
+        let full_key = String::from_utf8_lossy(key).into_owned();
+        if status.after_tip_key.as_deref() == Some(full_key.as_str()) {
+            return Ok(());
+        }
+        acc.last_key = Some(full_key.clone());
+        acc.walked = acc.walked.saturating_add(1);
+        let Some((molecule_uuid, disk_hash, disk_range, record)) =
+            parse_mk_row(storage_prefix, &full_key, value)
+        else {
+            status.skipped_rows = status.skipped_rows.saturating_add(1);
+            return Ok(());
+        };
+
+        let phase = status.phase;
+        if status.current_molecule.as_deref() != Some(molecule_uuid.as_str()) {
+            enter_molecule(storage_prefix, status, &molecule_uuid, &mut acc.mutations)?;
+        }
+
+        for edge in self
+            .reference_edges_for_record(
+                &molecule_uuid,
+                &disk_hash,
+                &disk_range,
+                &record,
+                storage_prefix,
+            )
+            .await?
+        {
+            if phase == AtomRefBackfillPhase::Replay {
+                acc.replay_edge_keys
+                    .insert(edge.storage_key_v2(storage_prefix)?.into_bytes());
+            } else {
+                acc.mutations
+                    .push(compact_edge_put_mutation(&edge, storage_prefix)?);
+                acc.edge_writes = acc.edge_writes.saturating_add(1);
+            }
+        }
+        Ok(())
+    }
+
+    /// Replay pass: write only the edges that are not already active.
+    async fn probe_replay_edges(&self, acc: &mut ReindexPage) -> Result<(), SchemaError> {
+        let keys: Vec<Vec<u8>> = std::mem::take(&mut acc.replay_edge_keys)
+            .into_iter()
+            .collect();
+        let values = self
+            .main_store
+            .inner()
+            .get_many(keys.clone())
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "probe compact atom reverse edges during replay: {error}"
+                ))
+            })?;
+        for (key, value) in keys.into_iter().zip(values) {
+            if value.as_deref() != Some(ATOM_REF_V2_ACTIVE_MARKER) {
+                acc.mutations
+                    .push(KvMutation::put(key, ATOM_REF_V2_ACTIVE_MARKER));
+                acc.edge_writes = acc.edge_writes.saturating_add(1);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Accumulator for one page of [`AtomStore::reindex_atom_ref_v2_edges`].
+#[derive(Default)]
+struct ReindexPage {
+    mutations: Vec<KvMutation>,
+    replay_edge_keys: BTreeSet<Vec<u8>>,
+    walked: u64,
+    edge_writes: u64,
+    last_key: Option<String>,
+}
+
+/// Decode one `mk:` row into `(molecule, hash, range, record)`; `None` when
+/// the row is not a readable per-key record.
+fn parse_mk_row(
+    storage_prefix: Option<&str>,
+    full_key: &str,
+    value: &[u8],
+) -> Option<(String, String, String, PerKeyRecord)> {
+    let base_key = strip_storage_prefix(storage_prefix, full_key)?;
+    let rest = base_key.strip_prefix("mk:")?;
+    let (molecule_uuid, _) = rest.split_once(':')?;
+    let (disk_hash, disk_range) = molecule_key_codec::decode_hash_range(base_key, molecule_uuid)?;
+    let record: PerKeyRecord = serde_json::from_slice(value).ok()?;
+    Some((molecule_uuid.to_string(), disk_hash, disk_range, record))
+}
+
+fn molecule_manifest_mutation(
+    storage_prefix: Option<&str>,
+    status: &AtomRefBackfillStatus,
+    molecule_uuid: String,
+    replay_complete: bool,
+) -> Result<KvMutation, SchemaError> {
+    compact_manifest_mutation(
+        &AtomRefMoleculeManifest {
+            version: ATOM_REF_MANIFEST_VERSION_TIPS,
+            molecule_uuid,
+            mutation_watermark_nanos: status.mutation_watermark_nanos,
+            replay_complete,
+        },
+        storage_prefix,
+    )
+}
+
+/// The scan reached a new molecule: replay closes the previous molecule's
+/// manifest, backfill opens the new one.
+fn enter_molecule(
+    storage_prefix: Option<&str>,
+    status: &mut AtomRefBackfillStatus,
+    molecule_uuid: &str,
+    mutations: &mut Vec<KvMutation>,
+) -> Result<(), SchemaError> {
+    match status.phase {
+        AtomRefBackfillPhase::Replay => {
+            if let Some(previous) = status.current_molecule.replace(molecule_uuid.to_string()) {
+                mutations.push(molecule_manifest_mutation(
+                    storage_prefix,
+                    status,
+                    previous,
+                    true,
+                )?);
+                status.molecules_complete = status.molecules_complete.saturating_add(1);
+            }
+        }
+        AtomRefBackfillPhase::Backfill => {
+            status.current_molecule = Some(molecule_uuid.to_string());
+            mutations.push(molecule_manifest_mutation(
+                storage_prefix,
+                status,
+                molecule_uuid.to_string(),
+                false,
+            )?);
+        }
+        AtomRefBackfillPhase::Complete | AtomRefBackfillPhase::Blocked => {}
+    }
+    Ok(())
+}
+
+/// The `mk:` range ended: advance backfill to replay, or close replay as
+/// complete (or blocked when rows were skipped).
+fn finish_reindex_phase(
+    storage_prefix: Option<&str>,
+    status: &mut AtomRefBackfillStatus,
+    mutations: &mut Vec<KvMutation>,
+) -> Result<(), SchemaError> {
+    match status.phase {
+        AtomRefBackfillPhase::Backfill => {
+            status.phase = AtomRefBackfillPhase::Replay;
+            status.after_tip_key = None;
+            status.current_molecule = None;
+        }
+        AtomRefBackfillPhase::Replay => {
+            if let Some(last_molecule) = status.current_molecule.take() {
+                mutations.push(molecule_manifest_mutation(
+                    storage_prefix,
+                    status,
+                    last_molecule,
+                    true,
+                )?);
+                status.molecules_complete = status.molecules_complete.saturating_add(1);
+            }
+            if status.skipped_rows == 0 {
+                status.phase = AtomRefBackfillPhase::Complete;
+                status.completed = true;
+                mutations.push(KvMutation::put(
+                    build_storage_key(storage_prefix, molecule_key_codec::ATOM_REF_V2_COMPLETE_KEY)
+                        .into_bytes(),
+                    ATOM_REF_V2_COMPLETE_MARKER,
+                ));
+            } else {
+                status.phase = AtomRefBackfillPhase::Blocked;
+            }
+        }
+        AtomRefBackfillPhase::Complete | AtomRefBackfillPhase::Blocked => {}
+    }
+    Ok(())
 }

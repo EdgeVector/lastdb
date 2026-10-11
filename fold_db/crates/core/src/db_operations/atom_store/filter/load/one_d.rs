@@ -4,6 +4,7 @@ use super::*;
 /// The molecule a 1-D page is read from. These three always travel together —
 /// bundling them keeps [`AtomStore::load_1d_page_window`] inside the argument
 /// budget without splitting a routine that is one decision.
+#[derive(Clone, Copy)]
 pub(super) struct OneDPageTarget<'a> {
     molecule_uuid: &'a str,
     header: &'a MoleculeHeader,
@@ -15,7 +16,6 @@ impl AtomStore {
     ///
     /// Unified layout: hash-only at `(hash, "")`, range-only at `("", range)`
     /// under [`hash_range_record_key`].
-    // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub(crate) async fn load_filtered_1d(
         &self,
         molecule_uuid: &str,
@@ -25,8 +25,13 @@ impl AtomStore {
         slot: OneDSlot,
         fill: PageFill,
     ) -> Result<Option<MoleculeData>, SchemaError> {
-        use crate::schema::types::field::FilterUtils;
         use crate::schema::types::field::HashRangeFilter as F;
+
+        let target = OneDPageTarget {
+            molecule_uuid,
+            header,
+            storage_prefix,
+        };
 
         // Paged 1-D reads. `SampleN` is that page at offset 0.
         // Range stops at the filled window (one `mk:{M}:\0` partition).
@@ -43,24 +48,9 @@ impl AtomStore {
         if let Some((offset, limit)) = page_window {
             let want = offset.saturating_add(limit);
             let records = self
-                .load_1d_page_window(
-                    OneDPageTarget {
-                        molecule_uuid,
-                        header,
-                        storage_prefix,
-                    },
-                    slot,
-                    None,
-                    want,
-                    fill,
-                )
+                .load_1d_page_window(target, slot, None, want, fill)
                 .await?;
-            return Ok(Some(MoleculeHashRange::from_per_key_records(
-                molecule_uuid.to_string(),
-                header.version,
-                header.updated_at,
-                records,
-            )));
+            return Ok(Some(Self::wrap_1d_records(&target, records)));
         }
 
         if let F::PageAfter { after, limit } = filter {
@@ -77,154 +67,173 @@ impl AtomStore {
                 ),
             };
             let records = self
-                .load_1d_page_window(
-                    OneDPageTarget {
-                        molecule_uuid,
-                        header,
-                        storage_prefix,
-                    },
-                    slot,
-                    Some(cursor),
-                    *limit,
-                    fill,
-                )
+                .load_1d_page_window(target, slot, Some(cursor), *limit, fill)
                 .await?;
-            return Ok(Some(MoleculeHashRange::from_per_key_records(
-                molecule_uuid.to_string(),
-                header.version,
-                header.updated_at,
-                records,
-            )));
+            return Ok(Some(Self::wrap_1d_records(&target, records)));
         }
 
-        // Multi-get on a 1-D molecule: one grouped read for every pair, using
-        // only the slot's own dimension (hash for Hash-only, range for
-        // Range-only; the other component is ignored, as `apply_*_filter` does).
-        // Without this arm the batch fell to the O(field) full load and then
-        // compared API-form keys to storage-form keys, so it cost a whole-field
-        // read and could return no rows. Echo the caller's API key, as the
-        // composite arm does, so the in-memory apply matches it. Candidate
-        // order matches `get_per_key_1d`: each hash spelling, then each range
-        // spelling. The first visible spelling wins.
         if let F::HashRangeKeys(keys) = filter {
-            let mut groups = Vec::with_capacity(keys.len());
-            let mut api_keys = Vec::with_capacity(keys.len());
-            for (hash, range) in keys {
-                let (h, r) = match slot {
-                    OneDSlot::Hash => (hash.as_str(), EMPTY_KEY_COMPONENT),
-                    OneDSlot::Range => (EMPTY_KEY_COMPONENT, range.as_str()),
-                };
-                let hash_cands = self
-                    .key_codec_for_molecule(molecule_uuid)
-                    .storage_hash_read_candidates(molecule_uuid, h)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                let range_cands = self
-                    .key_codec_for_molecule(molecule_uuid)
-                    .storage_range_read_candidates(molecule_uuid, r)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                let mut group =
-                    Vec::with_capacity(hash_cands.len().saturating_mul(range_cands.len()));
-                for sh in &hash_cands {
-                    for sr in &range_cands {
-                        group.push(molecule_key_codec::hash_range_record_key(
-                            molecule_uuid,
-                            sh,
-                            sr,
-                        ));
-                    }
-                }
-                groups.push(group);
-                let (api_hash, api_range) = match slot {
-                    OneDSlot::Hash => (hash.clone(), EMPTY_KEY_COMPONENT.to_string()),
-                    OneDSlot::Range => (EMPTY_KEY_COMPONENT.to_string(), range.clone()),
-                };
-                api_keys.push((api_hash, api_range));
-            }
-            let hits = self
-                .load_first_present_candidate(storage_prefix, &groups)
-                .await?;
-            let mut records = Vec::with_capacity(keys.len());
-            for ((api_hash, api_range), hit) in api_keys.into_iter().zip(hits) {
-                if let Some(rec) = hit {
-                    records.push((api_hash, api_range, rec.entry, rec.meta));
-                }
-            }
-            return Ok(Some(MoleculeHashRange::from_per_key_records(
-                molecule_uuid.to_string(),
-                header.version,
-                header.updated_at,
-                records,
-            )));
+            let records = self.load_1d_multi_get(&target, slot, keys).await?;
+            return Ok(Some(Self::wrap_1d_records(&target, records)));
         }
 
-        match slot {
-            OneDSlot::Hash => {
-                let hash: &str = match filter {
-                    F::HashKey(h)
-                    | F::HashRangeKey { hash: h, .. }
-                    | F::HashRangePrefix { hash: h, .. }
-                    | F::HashRangeRange { hash: h, .. } => h,
-                    _ => return Ok(None),
-                };
-                let scanned = self
-                    .get_per_key_1d(molecule_uuid, hash, EMPTY_KEY_COMPONENT, storage_prefix)
+        let scanned = match slot {
+            OneDSlot::Hash => self.scan_1d_hash_slot(&target, filter).await?,
+            OneDSlot::Range => self.scan_1d_range_slot(&target, filter).await?,
+        };
+        Ok(scanned.map(|scanned| {
+            let records = Self::decode_1d_records(molecule_uuid, slot, scanned);
+            Self::wrap_1d_records(&target, records)
+        }))
+    }
+
+    fn wrap_1d_records(
+        target: &OneDPageTarget<'_>,
+        records: Vec<(String, String, AtomEntry, Option<KeyMetadata>)>,
+    ) -> MoleculeData {
+        MoleculeHashRange::from_per_key_records(
+            target.molecule_uuid.to_string(),
+            target.header.version,
+            target.header.updated_at,
+            records,
+        )
+    }
+
+    /// Multi-get on a 1-D molecule: one grouped read for every pair, using
+    /// only the slot's own dimension (hash for Hash-only, range for
+    /// Range-only; the other component is ignored, as `apply_*_filter` does).
+    /// Without this arm the batch fell to the O(field) full load and then
+    /// compared API-form keys to storage-form keys, so it cost a whole-field
+    /// read and could return no rows. Echo the caller's API key, as the
+    /// composite arm does, so the in-memory apply matches it. Candidate
+    /// order matches `get_per_key_1d`: each hash spelling, then each range
+    /// spelling. The first visible spelling wins.
+    async fn load_1d_multi_get(
+        &self,
+        target: &OneDPageTarget<'_>,
+        slot: OneDSlot,
+        keys: &[(String, String)],
+    ) -> Result<Vec<(String, String, AtomEntry, Option<KeyMetadata>)>, SchemaError> {
+        let molecule_uuid = target.molecule_uuid;
+        let mut groups = Vec::with_capacity(keys.len());
+        let mut api_keys = Vec::with_capacity(keys.len());
+        for (hash, range) in keys {
+            let (h, r) = match slot {
+                OneDSlot::Hash => (hash.as_str(), EMPTY_KEY_COMPONENT),
+                OneDSlot::Range => (EMPTY_KEY_COMPONENT, range.as_str()),
+            };
+            let hash_cands = self
+                .key_codec_for_molecule(molecule_uuid)
+                .storage_hash_read_candidates(molecule_uuid, h)
+                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+            let range_cands = self
+                .key_codec_for_molecule(molecule_uuid)
+                .storage_range_read_candidates(molecule_uuid, r)
+                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+            let mut group = Vec::with_capacity(hash_cands.len().saturating_mul(range_cands.len()));
+            for sh in &hash_cands {
+                for sr in &range_cands {
+                    group.push(molecule_key_codec::hash_range_record_key(
+                        molecule_uuid,
+                        sh,
+                        sr,
+                    ));
+                }
+            }
+            groups.push(group);
+            let (api_hash, api_range) = match slot {
+                OneDSlot::Hash => (hash.clone(), EMPTY_KEY_COMPONENT.to_string()),
+                OneDSlot::Range => (EMPTY_KEY_COMPONENT.to_string(), range.clone()),
+            };
+            api_keys.push((api_hash, api_range));
+        }
+        let hits = self
+            .load_first_present_candidate(target.storage_prefix, &groups)
+            .await?;
+        let mut records = Vec::with_capacity(keys.len());
+        for ((api_hash, api_range), hit) in api_keys.into_iter().zip(hits) {
+            if let Some(rec) = hit {
+                records.push((api_hash, api_range, rec.entry, rec.meta));
+            }
+        }
+        Ok(records)
+    }
+
+    /// Key-addressed read of a Hash-only molecule. `None` means the filter
+    /// does not address a hash key and the caller must fall back.
+    async fn scan_1d_hash_slot(
+        &self,
+        target: &OneDPageTarget<'_>,
+        filter: &crate::schema::types::field::HashRangeFilter,
+    ) -> Result<Option<Vec<(String, PerKeyRecord)>>, SchemaError> {
+        use crate::schema::types::field::HashRangeFilter as F;
+        let hash: &str = match filter {
+            F::HashKey(h)
+            | F::HashRangeKey { hash: h, .. }
+            | F::HashRangePrefix { hash: h, .. }
+            | F::HashRangeRange { hash: h, .. } => h,
+            _ => return Ok(None),
+        };
+        let scanned = self
+            .get_per_key_1d(
+                target.molecule_uuid,
+                hash,
+                EMPTY_KEY_COMPONENT,
+                target.storage_prefix,
+            )
+            .await?
+            .into_iter()
+            .collect();
+        Ok(Some(scanned))
+    }
+
+    /// Key, prefix, or range read of a Range-only molecule. `None` means the
+    /// filter cannot be answered from the range slot and the caller must fall
+    /// back.
+    async fn scan_1d_range_slot(
+        &self,
+        target: &OneDPageTarget<'_>,
+        filter: &crate::schema::types::field::HashRangeFilter,
+    ) -> Result<Option<Vec<(String, PerKeyRecord)>>, SchemaError> {
+        use crate::schema::types::field::FilterUtils;
+        use crate::schema::types::field::HashRangeFilter as F;
+        let (molecule_uuid, storage_prefix) = (target.molecule_uuid, target.storage_prefix);
+        let scanned: Vec<(String, PerKeyRecord)> = match filter {
+            F::RangeKey(k) | F::HashKey(k) | F::HashRangeKey { range: k, .. } => self
+                .get_per_key_1d(molecule_uuid, EMPTY_KEY_COMPONENT, k, storage_prefix)
+                .await?
+                .into_iter()
+                .collect(),
+            F::RangePrefix(p) | F::HashRangePrefix { prefix: p, .. } => {
+                if p.is_empty() {
+                    return Ok(None);
+                }
+                self.scan_per_key_1d_range(
+                    molecule_uuid,
+                    p,
+                    &FilterUtils::create_prefix_end(p),
+                    OneDSlot::Range,
+                    storage_prefix,
+                )
+                .await?
+            }
+            F::RangeRange { start, end } | F::HashRangeRange { start, end, .. } => {
+                if start >= end {
+                    Vec::new()
+                } else {
+                    self.scan_per_key_1d_range(
+                        molecule_uuid,
+                        start,
+                        end,
+                        OneDSlot::Range,
+                        storage_prefix,
+                    )
                     .await?
-                    .into_iter()
-                    .collect();
-                let records = Self::decode_1d_records(molecule_uuid, slot, scanned);
-                Ok(Some(MoleculeHashRange::from_per_key_records(
-                    molecule_uuid.to_string(),
-                    header.version,
-                    header.updated_at,
-                    records,
-                )))
+                }
             }
-            OneDSlot::Range => {
-                let scanned: Vec<(String, PerKeyRecord)> = match filter {
-                    F::RangeKey(k) | F::HashKey(k) | F::HashRangeKey { range: k, .. } => self
-                        .get_per_key_1d(molecule_uuid, EMPTY_KEY_COMPONENT, k, storage_prefix)
-                        .await?
-                        .into_iter()
-                        .collect(),
-                    F::RangePrefix(p) | F::HashRangePrefix { prefix: p, .. } => {
-                        if p.is_empty() {
-                            return Ok(None);
-                        }
-                        self.scan_per_key_1d_range(
-                            molecule_uuid,
-                            p,
-                            &FilterUtils::create_prefix_end(p),
-                            OneDSlot::Range,
-                            storage_prefix,
-                        )
-                        .await?
-                    }
-                    F::RangeRange { start, end } | F::HashRangeRange { start, end, .. } => {
-                        if start >= end {
-                            Vec::new()
-                        } else {
-                            self.scan_per_key_1d_range(
-                                molecule_uuid,
-                                start,
-                                end,
-                                OneDSlot::Range,
-                                storage_prefix,
-                            )
-                            .await?
-                        }
-                    }
-                    _ => return Ok(None),
-                };
-
-                let records = Self::decode_1d_records(molecule_uuid, slot, scanned);
-                Ok(Some(MoleculeHashRange::from_per_key_records(
-                    molecule_uuid.to_string(),
-                    header.version,
-                    header.updated_at,
-                    records,
-                )))
-            }
-        }
+            _ => return Ok(None),
+        };
+        Ok(Some(scanned))
     }
 
     /// One page of a 1-D molecule, in slot order, without sweeping the
