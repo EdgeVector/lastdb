@@ -10,6 +10,7 @@ impl SchemaServiceState {
     /// Unlike `POST /v1/schemas/resolve`, this helper surfaces partial-cover
     /// residue so the mutation path can register only the uncovered fields and
     /// avoid minting a fat whole-schema identity.
+    // lint:fn-size-ok verbatim move from state_native_resolve.rs; splitting this function is separate work
     pub fn try_native_component_cover_registration(
         &self,
         schema: &Schema,

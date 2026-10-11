@@ -6,6 +6,7 @@ impl SchemaServiceState {
     /// Try embedding-beam native resolve. Returns `Ok(Some(result))` when the
     /// native path produced a reuse-style outcome; `Ok(None)` when the caller
     /// should fall back to legacy matching.
+    // lint:fn-size-ok verbatim move from state_native_resolve.rs; splitting this function is separate work
     pub(crate) fn try_native_component_cover_resolve(
         &self,
         proposal: &SchemaResolveProposal,

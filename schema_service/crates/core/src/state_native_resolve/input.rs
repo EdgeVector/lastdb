@@ -25,6 +25,7 @@ impl SchemaServiceState {
         Ok(vec)
     }
 
+    // lint:fn-size-ok verbatim move from state_native_resolve.rs; splitting this function is separate work
     pub(super) fn build_native_resolver_input(
         &self,
         proposal: &SchemaResolveProposal,
