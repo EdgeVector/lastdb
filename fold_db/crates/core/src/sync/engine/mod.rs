@@ -16,7 +16,7 @@
 //! - [`configure`] — share/org target configuration
 //! - [`replay`] — convergent replay / merge paths
 //!
-//! This file keeps the `SyncEngine` struct definition and Drop scrub only.
+//! This file keeps the `SyncEngine` state definition.
 
 mod backup;
 pub mod backup_atom_rewrite;
@@ -56,6 +56,7 @@ pub use recovery_descriptor::{RecoveryDescriptorV1, RecoveryLayoutV1};
 pub use restore_chunk_cache::RestoreChunkCache;
 mod restore_progress;
 pub use restore_progress::{RestorePhase, RestoreProgress, RestoreProgressSnapshot};
+mod secret_scrub;
 mod status_disk_cache;
 mod thumb_pack;
 mod transfer;
@@ -642,14 +643,4 @@ pub struct SyncEngine {
     /// Most recent oversize durable-outbox drop, surfaced on [`SyncStatus`] so
     /// operators do not have to recover permanent drops from logs.
     last_oversize_outbox_drop: Arc<Mutex<Option<OversizeOutboxDropStatus>>>,
-}
-
-impl Drop for SyncEngine {
-    fn drop(&mut self) {
-        // Scrub the cached at-rest key from memory on drop (Gap G3).
-        use zeroize::Zeroize as _;
-        if let Some(key) = self.enc_key.as_mut() {
-            key.zeroize();
-        }
-    }
 }
