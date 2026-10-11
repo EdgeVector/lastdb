@@ -31,12 +31,10 @@ impl AtomStore {
     /// quadratic in tip count, and a single pass transiently allocated a vector
     /// proportional to the whole store on a node whose resident budget is the
     /// binding constraint.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn rekey_atoms_to_partition_prefix(
         &self,
         options: AtomPartitionRekeyOptions,
     ) -> Result<AtomPartitionRekeyReport, SchemaError> {
-        use crate::atom::{atom_key_codec, atom_locator_codec, AtomKeyEncoding, AtomPartition};
         use crate::schema::types::field::FilterUtils;
 
         // Bounds the transient allocation of a pass to the page, independent of
@@ -67,31 +65,7 @@ impl AtomStore {
             let checkpoint = self
                 .load_atom_partition_rekey_checkpoint(&checkpoint_key)
                 .await?;
-            return Ok(AtomPartitionRekeyReport {
-                dry_run: true,
-                remove_flat: options.remove_flat,
-                tips_scanned: 0,
-                slots_considered: 0,
-                dual_written: 0,
-                would_dual_write: 0,
-                already_prefixed: 0,
-                missing_body: 0,
-                flat_removed: 0,
-                flat_retained_unverified: 0,
-                completed: checkpoint.completed,
-                scan_reached_end: checkpoint.completed,
-                tips_walked_total: checkpoint.tips_walked_total,
-                tip_page: tip_page as u64,
-                unresolved_mis_derived: 0,
-                unresolved_orphan_locator: 0,
-                unresolved_undecodable_locator: 0,
-                unresolved_no_body: 0,
-                unresolved: Vec::new(),
-                unresolved_truncated: false,
-                would_dual_write_tips: Vec::new(),
-                would_dual_write_truncated: false,
-                checkpoint,
-            });
+            return Ok(Self::rekey_progress_report(&options, &checkpoint, tip_page));
         }
 
         let mut checkpoint = if options.dry_run {
@@ -124,31 +98,7 @@ impl AtomStore {
         let resume_after = checkpoint.after_tip_key.clone();
         let mut page_start = resume_after.clone().unwrap_or_else(|| mk_prefix.clone());
 
-        let mut report = AtomPartitionRekeyReport {
-            dry_run: options.dry_run,
-            remove_flat: options.remove_flat,
-            tips_scanned: 0,
-            slots_considered: 0,
-            dual_written: 0,
-            would_dual_write: 0,
-            already_prefixed: 0,
-            missing_body: 0,
-            flat_removed: 0,
-            flat_retained_unverified: 0,
-            completed: false,
-            scan_reached_end: false,
-            tips_walked_total: checkpoint.tips_walked_total,
-            tip_page: tip_page as u64,
-            unresolved_mis_derived: 0,
-            unresolved_orphan_locator: 0,
-            unresolved_undecodable_locator: 0,
-            unresolved_no_body: 0,
-            unresolved: Vec::new(),
-            unresolved_truncated: false,
-            would_dual_write_tips: Vec::new(),
-            would_dual_write_truncated: false,
-            checkpoint: checkpoint.clone(),
-        };
+        let mut report = Self::new_rekey_report(&options, &checkpoint, tip_page);
 
         // Baseline of the durable counters this call accumulates onto. Held
         // separately so the checkpoint can be re-derived and persisted after
@@ -180,49 +130,8 @@ impl AtomStore {
             // interpret (unparseable tip, no atom_uuid) must still be walked
             // past, exactly as the unpaginated walk skipped them.
             let head = skip_head.take();
-            let mut decoded: Vec<RekeySlot> = Vec::with_capacity(rows.len());
-            for (k, v) in rows {
-                let tip_key = String::from_utf8_lossy(&k).into_owned();
-                page_start = tip_key.clone();
-                if head.as_deref() == Some(tip_key.as_str()) {
-                    continue;
-                }
-                let Some(base_key) = strip_storage_prefix(storage_prefix, &tip_key) else {
-                    continue;
-                };
-                let Some(partition) = AtomPartition::from_record_key(base_key) else {
-                    continue;
-                };
-                let Ok(val) = serde_json::from_slice::<Value>(&v) else {
-                    continue;
-                };
-                let Some(uuid) = val
-                    .pointer("/entry/atom_uuid")
-                    .and_then(|x| x.as_str())
-                    .filter(|u| !u.is_empty())
-                else {
-                    continue;
-                };
-                let uuid = uuid.to_string();
-                decoded.push(RekeySlot {
-                    flat_key: build_storage_key(storage_prefix, &atom_key_codec::flat_key(&uuid)),
-                    prefixed_key: build_storage_key(
-                        storage_prefix,
-                        &atom_key_codec::storage_key(
-                            AtomKeyEncoding::PartitionPrefix,
-                            Some(&partition),
-                            &uuid,
-                        ),
-                    ),
-                    locator_key: build_storage_key(
-                        storage_prefix,
-                        &atom_locator_codec::locator_key(&uuid),
-                    ),
-                    tip_key,
-                    uuid,
-                    partition,
-                });
-            }
+            let mut decoded =
+                Self::decode_rekey_page(rows, head.as_deref(), storage_prefix, &mut page_start);
             skip_head = Some(page_start.clone());
 
             // `max_ops` now bites at page granularity. A tip trimmed off the end
@@ -267,18 +176,7 @@ impl AtomStore {
         report.completed = report.scan_reached_end && !options.dry_run;
 
         if options.dry_run {
-            checkpoint.after_tip_key = last_tip.or(checkpoint.after_tip_key);
-            checkpoint.tips_scanned = report.tips_scanned;
-            checkpoint.tips_walked_total = baseline
-                .tips_walked_total
-                .saturating_add(report.tips_scanned);
-            checkpoint.already_prefixed = baseline
-                .already_prefixed
-                .saturating_add(report.already_prefixed);
-            checkpoint.missing_body = baseline.missing_body.saturating_add(report.missing_body);
-            checkpoint.flat_removed = baseline.flat_removed.saturating_add(report.flat_removed);
-            checkpoint.completed = false;
-            checkpoint.version = 1;
+            Self::apply_dry_run_checkpoint(&mut checkpoint, &baseline, &report, last_tip);
         } else {
             checkpoint = self
                 .persist_rekey_checkpoint(
@@ -302,3 +200,4 @@ mod audit;
 mod checkpoint;
 mod exists;
 mod page;
+mod walk;

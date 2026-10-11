@@ -10,16 +10,18 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::abi::{
-    ComponentResolution, FieldCoverageEvidence, ProposalEmbeddings, ProposalMetadata,
-    RegistryEmbeddings, RegistryFieldHandle, RegistryMetadata, RegistrySchemaHandle,
-    ResidueFieldEvidence, ResolverDecision, ResolverEvidence, ResolverOutput, SchemaScoreEvidence,
-    UseExistingResolution,
+    FieldCoverageEvidence, ProposalEmbeddings, ProposalMetadata, RegistryEmbeddings,
+    RegistryFieldHandle, RegistryMetadata, ResidueFieldEvidence, ResolverDecision,
+    ResolverEvidence, ResolverOutput, SchemaScoreEvidence, UseExistingResolution,
 };
 use crate::config::{
     ResolverConfig, ResolverConfigError, NATIVE_COMPONENT_COVER_ALGORITHM_ID,
     NATIVE_COMPONENT_COVER_ALGORITHM_VERSION,
 };
 use crate::embedding::cosine_similarity;
+
+mod beam;
+mod shortlist;
 
 /// Input contract for the native evaluator (v1).
 #[derive(Debug, Clone)]
@@ -210,160 +212,12 @@ impl<'a> NativeComponentCover<'a> {
         let required_total = proposal.fields.iter().filter(|f| f.required).count() as u32;
 
         if proposal.fields.is_empty() {
-            return Ok(self.fallback(
-                ResolverDecision::NeedsLiveSchemaService,
-                0.0,
-                FieldCoverageEvidence {
-                    covered_fields: 0,
-                    total_fields: 0,
-                    required_fields_covered: 0,
-                    required_fields_total: 0,
-                },
-                vec![],
-                vec![],
-                vec!["empty_proposal".into()],
-            ));
+            return Ok(self.empty_proposal_fallback());
         }
 
-        let proposal_name_emb = self.input.proposal_embeddings.descriptive_name.as_slice();
-        let proposal_field_emb: HashMap<&str, &[f32]> = self
-            .input
-            .proposal_embeddings
-            .field_contexts
-            .iter()
-            .map(|r| (r.target_id.as_str(), r.vector.as_slice()))
-            .collect();
-
-        // Guardrail from the eval: field embeddings alone are insufficient.
-        // We always require descriptive-name shortlist first.
-        let mut candidates: Vec<SchemaCandidate> = Vec::new();
-        let mut schema_list: Vec<&RegistrySchemaHandle> =
-            self.input.registry_metadata.schemas.iter().collect();
-        schema_list.sort_by(|a, b| a.schema_id.cmp(&b.schema_id));
-
-        for schema in schema_list {
-            if !cfg.candidate_generation.allow_deprecated_schemas
-                && schema.lifecycle.eq_ignore_ascii_case("deprecated")
-            {
-                continue;
-            }
-            self.charge(1)?;
-            let Some(schema_name_vec) = self.name_emb.get(&schema.schema_id).copied() else {
-                // Missing name embedding → skip candidate (force live path later if none).
-                continue;
-            };
-            let name_sim = cosine_similarity(proposal_name_emb, schema_name_vec);
-            if !name_sim.is_finite() {
-                return Err(NativeResolverError::NonFiniteEmbedding);
-            }
-            if name_sim < cfg.scoring.schema.descriptive_name_min_similarity {
-                continue;
-            }
-
-            // Clone handles so we can charge work units without borrow conflicts.
-            let schema_fields: Vec<&RegistryFieldHandle> = self
-                .fields_by_schema
-                .get(&schema.schema_id)
-                .cloned()
-                .unwrap_or_default();
-            let mut covered = Vec::new();
-            for pf in &proposal.fields {
-                self.charge(1)?;
-                let Some(p_emb) = proposal_field_emb.get(pf.proposal_field_id.as_str()) else {
-                    return Err(NativeResolverError::MissingEmbedding(
-                        pf.proposal_field_id.clone(),
-                    ));
-                };
-                let mut best: Option<FieldMatch> = None;
-                let mut second = 0.0f32;
-                for sf in &schema_fields {
-                    if cfg.candidate_generation.require_compatible_field_types
-                        && !field_types_compatible(&pf.field_type, &sf.field_type)
-                    {
-                        continue;
-                    }
-                    self.charge(1)?;
-                    let Some(s_emb) = self.field_emb.get(&sf.field_id).copied() else {
-                        continue;
-                    };
-                    let score = cosine_similarity(p_emb, s_emb);
-                    if !score.is_finite() {
-                        return Err(NativeResolverError::NonFiniteEmbedding);
-                    }
-                    match &best {
-                        None => {
-                            best = Some(FieldMatch {
-                                proposal_field_id: pf.proposal_field_id.clone(),
-                                score,
-                            });
-                        }
-                        Some(b) if score > b.score => {
-                            second = b.score;
-                            best = Some(FieldMatch {
-                                proposal_field_id: pf.proposal_field_id.clone(),
-                                score,
-                            });
-                        }
-                        Some(b) if score > second && score <= b.score => second = score,
-                        _ => {}
-                    }
-                }
-                if let Some(b) = best {
-                    let margin_ok =
-                        b.score - second >= cfg.scoring.field.ambiguity_margin || second == 0.0;
-                    if b.score >= cfg.scoring.field.context_min_similarity && margin_ok {
-                        covered.push(b);
-                    }
-                }
-            }
-
-            let field_match_score = if total_fields == 0 {
-                0.0
-            } else {
-                covered.iter().map(|m| m.score).sum::<f32>() / total_fields as f32
-            };
-            let score = cfg.scoring.schema.weights.descriptive_name * name_sim
-                + cfg.scoring.schema.weights.field_match * field_match_score;
-            candidates.push(SchemaCandidate {
-                schema_id: schema.schema_id.clone(),
-                score,
-                covered,
-            });
-        }
-
-        // Deterministic sort: score desc, then schema_id asc.
-        candidates.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.schema_id.cmp(&b.schema_id))
-        });
-        let shortlist_n = cfg.candidate_generation.schema_candidates as usize;
-        if candidates.len() > shortlist_n {
-            candidates.truncate(shortlist_n);
-        }
-
+        let candidates = self.shortlist_candidates()?;
         if candidates.is_empty() {
-            return Ok(self.fallback(
-                ResolverDecision::NeedsLiveSchemaService,
-                0.0,
-                FieldCoverageEvidence {
-                    covered_fields: 0,
-                    total_fields,
-                    required_fields_covered: 0,
-                    required_fields_total: required_total,
-                },
-                vec![],
-                proposal
-                    .fields
-                    .iter()
-                    .map(|f| ResidueFieldEvidence {
-                        proposal_field_id: f.proposal_field_id.clone(),
-                        reason: "no_candidate_schema".into(),
-                    })
-                    .collect(),
-                vec!["no_candidate_schema".into()],
-            ));
+            return Ok(self.no_candidate_fallback());
         }
 
         let evidence_scores: Vec<SchemaScoreEvidence> = candidates
@@ -411,23 +265,12 @@ impl<'a> NativeComponentCover<'a> {
             && field_cov >= cfg.scoring.coverage.min_fields
             && req_cov >= cfg.scoring.coverage.min_required_fields
         {
-            return Ok(ResolverOutput {
-                abi_version: 1,
-                decision: ResolverDecision::UseExisting,
-                confidence: best.score,
-                evidence: ResolverEvidence {
-                    schema_scores: evidence_scores,
-                    field_coverage: coverage,
-                    ambiguity_margin: candidates.get(1).map(|c| best.score - c.score),
-                    residue_fields: residue_from_matches(&best.covered, proposal),
-                },
-                use_existing: Some(UseExistingResolution {
-                    schema_id: best.schema_id.clone(),
-                }),
-                use_components: vec![],
-                expand_existing_if_allowed: None,
-                fallback_reasons: vec![],
-            });
+            return Ok(use_existing_output(
+                &candidates,
+                evidence_scores,
+                coverage,
+                proposal,
+            ));
         }
 
         // Bounded beam component cover (embedding-beam).
@@ -450,205 +293,6 @@ impl<'a> NativeComponentCover<'a> {
                 format!("best_score={:.4}", best.score),
             ],
         ))
-    }
-
-    fn try_component_cover(
-        &mut self,
-        candidates: &[SchemaCandidate],
-        evidence_scores: &[SchemaScoreEvidence],
-        proposal: &ProposalMetadata,
-    ) -> Result<Option<ResolverOutput>, NativeResolverError> {
-        let cfg = &self.input.config;
-        let total_fields = proposal.fields.len();
-        if total_fields == 0 {
-            return Ok(None);
-        }
-
-        let component_pool: Vec<&SchemaCandidate> = candidates
-            .iter()
-            .filter(|c| c.score >= cfg.scoring.components.min_score && !c.covered.is_empty())
-            .take(cfg.candidate_generation.component_candidates as usize)
-            .collect();
-        if component_pool.is_empty() {
-            return Ok(None);
-        }
-
-        #[derive(Clone)]
-        struct BeamState {
-            chosen: Vec<SchemaCandidate>,
-            covered: HashSet<String>,
-            score: f32,
-        }
-
-        let mut beam = vec![BeamState {
-            chosen: vec![],
-            covered: HashSet::new(),
-            score: 0.0,
-        }];
-        let max_depth = cfg.candidate_generation.max_components_per_resolution as usize;
-        let beam_width = cfg.candidate_generation.beam_width as usize;
-
-        for _depth in 0..max_depth {
-            let mut next = beam.clone();
-            for state in &beam {
-                for c in &component_pool {
-                    self.charge(1)?;
-                    // Skip if already chose this schema id.
-                    if state.chosen.iter().any(|x| x.schema_id == c.schema_id) {
-                        continue;
-                    }
-                    let newly: Vec<FieldMatch> = c
-                        .covered
-                        .iter()
-                        .filter(|m| !state.covered.contains(&m.proposal_field_id))
-                        .cloned()
-                        .collect();
-                    if newly.is_empty() {
-                        continue;
-                    }
-                    let mut covered = state.covered.clone();
-                    for m in &newly {
-                        covered.insert(m.proposal_field_id.clone());
-                    }
-                    let mut chosen = state.chosen.clone();
-                    let mut piece = (*c).clone();
-                    piece.covered = newly;
-                    chosen.push(piece);
-                    // embedding-beam score: coverage + 0.18 * avg candidate score - 0.05 * depth
-                    let avg = chosen.iter().map(|x| x.score).sum::<f32>() / chosen.len() as f32;
-                    let score = covered.len() as f32 / total_fields as f32 + 0.18 * avg
-                        - 0.05 * (chosen.len().saturating_sub(1) as f32);
-                    next.push(BeamState {
-                        chosen,
-                        covered,
-                        score,
-                    });
-                }
-            }
-            next.sort_by(|a, b| {
-                b.score
-                    .partial_cmp(&a.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| {
-                        // Prefer fewer components, then stable schema id chain.
-                        a.chosen.len().cmp(&b.chosen.len()).then_with(|| {
-                            let a_ids: String =
-                                a.chosen.iter().map(|c| c.schema_id.as_str()).collect();
-                            let b_ids: String =
-                                b.chosen.iter().map(|c| c.schema_id.as_str()).collect();
-                            a_ids.cmp(&b_ids)
-                        })
-                    })
-            });
-            if next.len() > beam_width {
-                next.truncate(beam_width);
-            }
-            beam = next;
-        }
-
-        let Some(best) = beam
-            .into_iter()
-            .filter(|s| !s.chosen.is_empty())
-            .max_by(|a, b| {
-                a.score
-                    .partial_cmp(&b.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-        else {
-            return Ok(None);
-        };
-
-        let field_cov = best.covered.len() as f32 / total_fields as f32;
-        if field_cov < cfg.scoring.coverage.min_fields {
-            return Ok(None);
-        }
-
-        // Required-field coverage across union.
-        let required_ids: HashSet<&str> = proposal
-            .fields
-            .iter()
-            .filter(|f| f.required)
-            .map(|f| f.proposal_field_id.as_str())
-            .collect();
-        let required_total = required_ids.len() as u32;
-        let required_covered = required_ids
-            .iter()
-            .filter(|id| best.covered.contains(**id))
-            .count() as u32;
-        let req_cov = if required_total == 0 {
-            1.0
-        } else {
-            required_covered as f32 / required_total as f32
-        };
-        if req_cov < cfg.scoring.coverage.min_required_fields {
-            return Ok(None);
-        }
-
-        let mut use_components = Vec::new();
-        for c in &best.chosen {
-            for m in &c.covered {
-                use_components.push(ComponentResolution {
-                    proposal_field_id: m.proposal_field_id.clone(),
-                    schema_id: c.schema_id.clone(),
-                    confidence: m.score,
-                });
-            }
-        }
-        // Stable order by proposal_field_id.
-        use_components.sort_by(|a, b| a.proposal_field_id.cmp(&b.proposal_field_id));
-
-        let residue: Vec<ResidueFieldEvidence> = proposal
-            .fields
-            .iter()
-            .filter(|f| !best.covered.contains(&f.proposal_field_id))
-            .map(|f| ResidueFieldEvidence {
-                proposal_field_id: f.proposal_field_id.clone(),
-                reason: "uncovered_by_components".into(),
-            })
-            .collect();
-
-        // If there is residue, prefer the live service rather than resolving
-        // wholly locally. Keep the field-to-component mappings in the output
-        // so the live registration path can mint only the uncovered residual
-        // instead of registering the original mega-schema.
-        if !residue.is_empty() {
-            let mut output = self.fallback(
-                ResolverDecision::NeedsLiveSchemaService,
-                best.score,
-                FieldCoverageEvidence {
-                    covered_fields: best.covered.len() as u32,
-                    total_fields: total_fields as u32,
-                    required_fields_covered: required_covered,
-                    required_fields_total: required_total,
-                },
-                evidence_scores.to_vec(),
-                residue,
-                vec!["component_cover_residue".into()],
-            );
-            output.use_components = use_components;
-            return Ok(Some(output));
-        }
-
-        Ok(Some(ResolverOutput {
-            abi_version: 1,
-            decision: ResolverDecision::UseComponents,
-            confidence: best.score.clamp(0.0, 1.0),
-            evidence: ResolverEvidence {
-                schema_scores: evidence_scores.to_vec(),
-                field_coverage: FieldCoverageEvidence {
-                    covered_fields: best.covered.len() as u32,
-                    total_fields: total_fields as u32,
-                    required_fields_covered: required_covered,
-                    required_fields_total: required_total,
-                },
-                ambiguity_margin: None,
-                residue_fields: vec![],
-            },
-            use_existing: None,
-            use_components,
-            expand_existing_if_allowed: None,
-            fallback_reasons: vec![],
-        }))
     }
 
     fn fallback(
@@ -737,4 +381,30 @@ fn residue_from_matches(
             reason: "unmatched_or_ambiguous_field".into(),
         })
         .collect()
+}
+
+fn use_existing_output(
+    candidates: &[SchemaCandidate],
+    evidence_scores: Vec<SchemaScoreEvidence>,
+    coverage: FieldCoverageEvidence,
+    proposal: &ProposalMetadata,
+) -> ResolverOutput {
+    let best = &candidates[0];
+    ResolverOutput {
+        abi_version: 1,
+        decision: ResolverDecision::UseExisting,
+        confidence: best.score,
+        evidence: ResolverEvidence {
+            schema_scores: evidence_scores,
+            field_coverage: coverage,
+            ambiguity_margin: candidates.get(1).map(|c| best.score - c.score),
+            residue_fields: residue_from_matches(&best.covered, proposal),
+        },
+        use_existing: Some(UseExistingResolution {
+            schema_id: best.schema_id.clone(),
+        }),
+        use_components: vec![],
+        expand_existing_if_allowed: None,
+        fallback_reasons: vec![],
+    }
 }

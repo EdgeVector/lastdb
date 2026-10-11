@@ -84,6 +84,7 @@ mod predecessor;
 mod progress_recovery;
 mod publish_cycle;
 mod publish_target;
+mod publish_target_cut;
 mod retirement;
 mod stats_types;
 mod uploader_loop;

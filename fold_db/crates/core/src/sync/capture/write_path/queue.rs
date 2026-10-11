@@ -1,6 +1,7 @@
-// lint:file-size-ok moved verbatim from write_path.rs; one concern per file
 //! Capture queue jobs and the single worker that drains them in order.
 
+use super::logical_intent::process_logical_intent;
+use super::physical_jobs::{process_delete, process_mixed, process_physical_digest};
 use super::*;
 
 pub(super) struct CaptureReservation {
@@ -125,7 +126,6 @@ pub(super) fn capture_job_panic_message(payload: &(dyn std::any::Any + Send)) ->
 }
 
 pub(super) async fn process_capture_job(job: CaptureJob) {
-    // lint:fn-size-ok verbatim move from write_path.rs; splitting this function is separate work
     let CaptureJob {
         engine,
         kind,
@@ -144,161 +144,20 @@ pub(super) async fn process_capture_job(job: CaptureJob) {
             record_now,
             completion,
         } => {
-            // Product capture is async. Append the cloud row in this same
-            // step, under the drain lock, and delete the marker before any
-            // scan can append it a second time. Off and legacy capture stay
-            // on the later scan.
-            let product_mutation_log =
-                matches!(engine.config.capture_mode, CaptureMode::MutationLog)
-                    && !engine.config.legacy_personal_cloud_sync;
-            let _direct_drain_guard = if record_now || product_mutation_log {
-                Some(engine.capture_reexport_drain_lock.lock().await)
-            } else {
-                None
-            };
-            if let Some(barrier) = author_clock_barrier {
-                if let Err(error) = barrier.wait().await {
-                    let error =
-                        format!("logical mutation capture lost its author-clock barrier: {error}");
-                    engine
-                        .record_sync_failure(&SyncError::Storage(error.clone()))
-                        .await;
-                    tracing::error!(
-                        %error,
-                        "author-clock barrier failed after local commit; staging MutationIntent anyway"
-                    );
-                    // Do not return. Resident tips are already visible, so a
-                    // missing marker is a silent cloud hole. Stage, then let
-                    // the tick drain the intent.
-                }
-            }
-            let stage_started = std::time::Instant::now();
-            let marker = engine.stage_mutation_intent_reexport(&envelopes).await;
-            engine.capture_stage_us.fetch_add(
-                elapsed_micros(stage_started),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            let marker = match marker {
-                Ok(marker) => marker,
-                Err(error) => {
-                    engine.record_capture_reexport_failure(&error).await;
-                    // Best effort after the durable-marker failure. The
-                    // response stays failed, but a working pin-log path can
-                    // still preserve the mutation before the next retry.
-                    let fallback = engine
-                        .record_op_with_publication(
-                            crate::sync::mutation_intent::mutation_intent_op(envelopes),
-                        )
-                        .await;
-                    if let Err(fallback_error) = fallback {
-                        engine
-                            .record_capture_reexport_failure(&fallback_error)
-                            .await;
-                    }
-                    if let Some(completion) = completion {
-                        let _ = completion.send(LogicalCaptureCompletion::MarkerFailed(error));
-                    }
-                    return;
-                }
-            };
-            if record_now {
-                let record_started = std::time::Instant::now();
-                let result = if matches!(engine.config.capture_mode, CaptureMode::MutationLog)
-                    && !engine.config.legacy_personal_cloud_sync
-                {
-                    engine
-                        .record_mutation_intent_marker_with_publication(marker.clone(), envelopes)
-                        .await
-                } else {
-                    engine
-                        .record_op_with_publication(
-                            crate::sync::mutation_intent::mutation_intent_op(envelopes),
-                        )
-                        .await
-                }
-                .and_then(|append| {
-                        if append.targets.is_empty() {
-                            Err(
-                                "exact mutation-log append produced no required targets; durable marker retained"
-                                    .to_string(),
-                            )
-                        } else {
-                            Ok(append)
-                        }
-                    });
-                engine.capture_record_us.fetch_add(
-                    elapsed_micros(record_started),
-                    std::sync::atomic::Ordering::Relaxed,
-                );
-                if result.is_ok() {
-                    clear_marker(&engine, "mutation_intent", Some(&marker)).await;
-                    engine.note_mutation_log_local_append();
-                    engine.wake.notify_one();
-                } else if let Err(error) = &result {
-                    engine.record_capture_reexport_failure(error).await;
-                    engine
-                        .record_sync_failure(&SyncError::Storage(format!(
-                            "logical mutation capture failed after local commit: {error}"
-                        )))
-                        .await;
-                }
-                if let Some(completion) = completion {
-                    let completed = match result {
-                        Ok(append) => LogicalCaptureCompletion::Appended(append),
-                        Err(error) => LogicalCaptureCompletion::AppendFailed(error),
-                    };
-                    let _ = completion.send(completed);
-                }
-            } else if product_mutation_log {
-                let result = engine
-                    .record_mutation_intent_marker_with_publication(marker.clone(), envelopes)
-                    .await
-                    .and_then(|append| {
-                        if append.targets.is_empty() {
-                            Err(
-                                "exact mutation-log append produced no required targets; durable marker retained"
-                                    .to_string(),
-                            )
-                        } else {
-                            Ok(append)
-                        }
-                    });
-                if result.is_ok() {
-                    clear_marker(&engine, "mutation_intent", Some(&marker)).await;
-                } else if let Err(error) = &result {
-                    engine.record_capture_reexport_failure(error).await;
-                    // The marker stays. Wake the scan so it can retry.
-                    engine.wake.notify_one();
-                }
-                if let Some(completion) = completion {
-                    let _ = completion.send(LogicalCaptureCompletion::MarkerDurable);
-                }
-            } else {
-                engine.wake.notify_one();
-                if let Some(completion) = completion {
-                    let _ = completion.send(LogicalCaptureCompletion::MarkerDurable);
-                }
-            }
+            process_logical_intent(
+                &engine,
+                envelopes,
+                author_clock_barrier,
+                record_now,
+                completion,
+            )
+            .await;
         }
         CaptureJobKind::PhysicalDigest {
             namespace,
             keys,
             digests,
-        } => {
-            let stage_started = std::time::Instant::now();
-            let marker = stage_marker(&engine, &namespace, &keys).await;
-            engine.capture_stage_us.fetch_add(
-                elapsed_micros(stage_started),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            let record_started = std::time::Instant::now();
-            let result = engine.record_physical_digest(&namespace, &digests).await;
-            engine.capture_record_us.fetch_add(
-                elapsed_micros(record_started),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            finish_capture(&engine, &namespace, marker, result, "physical_digest").await;
-        }
+        } => process_physical_digest(&engine, namespace, keys, digests).await,
         CaptureJobKind::ApplyablePut {
             namespace,
             items,
@@ -327,55 +186,13 @@ pub(super) async fn process_capture_job(job: CaptureJob) {
             namespace,
             keys,
             batch,
-        } => {
-            let stage_started = std::time::Instant::now();
-            let marker = stage_marker(&engine, &namespace, &keys).await;
-            engine.capture_stage_us.fetch_add(
-                elapsed_micros(stage_started),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            let record_started = std::time::Instant::now();
-            let result = if batch {
-                engine.record_batch_delete(&namespace, &keys).await
-            } else {
-                engine.record_delete(&namespace, &keys[0]).await
-            };
-            engine.capture_record_us.fetch_add(
-                elapsed_micros(record_started),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            finish_capture(&engine, &namespace, marker, result, "delete").await;
-        }
+        } => process_delete(&engine, namespace, keys, batch).await,
         CaptureJobKind::Mixed {
             namespace,
             keys,
             digests,
             deletes,
-        } => {
-            let stage_started = std::time::Instant::now();
-            let marker = stage_marker(&engine, &namespace, &keys).await;
-            engine.capture_stage_us.fetch_add(
-                elapsed_micros(stage_started),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            let record_started = std::time::Instant::now();
-            let result = async {
-                let mut recorded = 0;
-                if !digests.is_empty() {
-                    recorded += engine.record_physical_digest(&namespace, &digests).await?;
-                }
-                if !deletes.is_empty() {
-                    recorded += engine.record_batch_delete(&namespace, &deletes).await?;
-                }
-                Ok(recorded)
-            }
-            .await;
-            engine.capture_record_us.fetch_add(
-                elapsed_micros(record_started),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            finish_capture(&engine, &namespace, marker, result, "mixed").await;
-        }
+        } => process_mixed(&engine, namespace, keys, digests, deletes).await,
     }
     drop(_pending_task);
 }
