@@ -17,7 +17,6 @@ use super::*;
 /// When every requested name looks like a 64-hex identity hash, each schema is
 /// fetched via `GET /v1/schema/{hash}` (fast) instead of downloading the full
 /// ~1.6MB available catalog. Descriptive-name scopes still use the catalog.
-// lint:fn-size-ok moved verbatim from exec.rs; splitting this function is separate work.
 pub async fn execute_load_schemas_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -43,11 +42,6 @@ pub async fn execute_load_schemas_route(
     let url = folddb_profile::endpoints::schema_service_url();
     let client = schema_service_client::SchemaServiceClient::new(&url);
 
-    let looks_like_identity_hash = |s: &str| {
-        let t = s.trim();
-        t.len() == 64 && t.chars().all(|c| c.is_ascii_hexdigit())
-    };
-
     let (locally_loaded_count, remote_schema_requests) = if request.schemas.is_empty() {
         (0usize, request.schemas.clone())
     } else {
@@ -60,70 +54,21 @@ pub async fn execute_load_schemas_route(
         }
     };
 
-    let (schemas, mut failed_schemas): (Vec<_>, Vec<String>) = if request.schemas.is_empty() {
-        // Full catalog load — heavy; clients should prefer a scoped list.
-        match client.get_available_schemas().await {
-            Ok(envelopes) => (
-                envelopes.into_iter().map(|e| e.schema).collect(),
-                Vec::new(),
-            ),
-            Err(e) => return error_response(503, &e.to_string(), ctx),
-        }
+    let fetched = if request.schemas.is_empty() {
+        fetch_full_catalog(&client).await
     } else if remote_schema_requests.is_empty() {
-        (Vec::new(), Vec::new())
+        Ok((Vec::new(), Vec::new()))
     } else if remote_schema_requests
         .iter()
         .all(|s| looks_like_identity_hash(s))
     {
-        // Fast path: identity hashes → per-schema GET (avoids the 20s catalog).
-        let mut kept = Vec::new();
-        let mut missing = Vec::new();
-        for name in &remote_schema_requests {
-            let key = name.trim();
-            match client.get_schema(key).await {
-                Ok(envelope) => kept.push(envelope.schema),
-                Err(e) => {
-                    tracing::warn!("schema service get_schema({key}) failed: {e}");
-                    missing.push(format!("{key} (not found)"));
-                }
-            }
-        }
-        (kept, missing)
+        Ok(fetch_schemas_by_hash(&client, &remote_schema_requests).await)
     } else {
-        // Descriptive names / mixed scope → catalog + filter.
-        let envelopes = match client.get_available_schemas().await {
-            Ok(envelopes) => envelopes,
-            Err(e) => return error_response(503, &e.to_string(), ctx),
-        };
-        let kept: Vec<_> = envelopes
-            .into_iter()
-            .map(|e| e.schema)
-            .filter(|s| {
-                remote_schema_requests.iter().any(|r| {
-                    schema_matches_load_request(
-                        &s.name,
-                        s.descriptive_name.as_deref(),
-                        s.owner_app_id.as_deref(),
-                        r,
-                    )
-                })
-            })
-            .collect();
-        let not_found = remote_schema_requests
-            .iter()
-            .filter(|r| {
-                !kept.iter().any(|s| {
-                    schema_matches_load_request(
-                        &s.name,
-                        s.descriptive_name.as_deref(),
-                        s.owner_app_id.as_deref(),
-                        r,
-                    )
-                })
-            })
-            .map(|r| format!("{r} (not found)"))
-            .collect();
-        (kept, not_found)
+        fetch_schemas_by_name(&client, &remote_schema_requests).await
+    };
+    let (schemas, mut failed_schemas) = match fetched {
+        Ok(fetched) => fetched,
+        Err(e) => return error_response(503, &e, ctx),
     };
 
     let available_schemas_loaded = locally_loaded_count + schemas.len();
@@ -150,6 +95,78 @@ pub async fn execute_load_schemas_route(
         "failed_schemas": failed_schemas,
     });
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
+}
+
+fn looks_like_identity_hash(s: &str) -> bool {
+    let t = s.trim();
+    t.len() == 64 && t.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Schemas fetched from the schema service, plus the requests it lacked.
+type FetchedSchemas = (Vec<schema_types::Schema>, Vec<String>);
+
+/// Full catalog load — heavy; clients should prefer a scoped list.
+async fn fetch_full_catalog(
+    client: &schema_service_client::SchemaServiceClient,
+) -> Result<FetchedSchemas, String> {
+    let envelopes = client
+        .get_available_schemas()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((
+        envelopes.into_iter().map(|e| e.schema).collect(),
+        Vec::new(),
+    ))
+}
+
+/// Fast path: identity hashes → per-schema GET (avoids the 20s catalog).
+async fn fetch_schemas_by_hash(
+    client: &schema_service_client::SchemaServiceClient,
+    requests: &[String],
+) -> FetchedSchemas {
+    let mut kept = Vec::new();
+    let mut missing = Vec::new();
+    for name in requests {
+        let key = name.trim();
+        match client.get_schema(key).await {
+            Ok(envelope) => kept.push(envelope.schema),
+            Err(e) => {
+                tracing::warn!("schema service get_schema({key}) failed: {e}");
+                missing.push(format!("{key} (not found)"));
+            }
+        }
+    }
+    (kept, missing)
+}
+
+/// Descriptive names / mixed scope → catalog + filter.
+async fn fetch_schemas_by_name(
+    client: &schema_service_client::SchemaServiceClient,
+    requests: &[String],
+) -> Result<FetchedSchemas, String> {
+    let envelopes = client
+        .get_available_schemas()
+        .await
+        .map_err(|e| e.to_string())?;
+    let matches = |s: &schema_types::Schema, r: &String| {
+        schema_matches_load_request(
+            &s.name,
+            s.descriptive_name.as_deref(),
+            s.owner_app_id.as_deref(),
+            r,
+        )
+    };
+    let kept: Vec<_> = envelopes
+        .into_iter()
+        .map(|e| e.schema)
+        .filter(|s| requests.iter().any(|r| matches(s, r)))
+        .collect();
+    let not_found = requests
+        .iter()
+        .filter(|r| !kept.iter().any(|s| matches(s, r)))
+        .map(|r| format!("{r} (not found)"))
+        .collect();
+    Ok((kept, not_found))
 }
 
 /// Optional `/api/schemas/load` name scoping, matching the full node's

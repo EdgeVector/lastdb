@@ -169,7 +169,6 @@ pub(crate) fn audit_resolution(
     event.bind_eligible = true;
 }
 
-// lint:fn-size-ok moved verbatim from schema_declare.rs; splitting this function is separate work
 pub(crate) async fn execute_catalog_schema_sync(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -233,7 +232,28 @@ pub(crate) async fn execute_catalog_schema_sync(
         "canonical app schema sync completed"
     );
 
-    let mut payload = declare_resolution_payload(&declare, &resolution);
+    let mut payload = sync_response_payload(&declare, &resolution, &audit);
+    retire_superseded_claims_into_payload(host, &declare, &mut payload).await;
+
+    if let Err(e) = insert_declare_catalog_membership(host, ctx, &declare.local_schema_id).await {
+        return error_response(
+            500,
+            &format!("schema declared but named-db catalog membership failed: {e}"),
+            ctx,
+        );
+    }
+
+    json_ok(&envelope(&payload, ctx.user_id.as_str()))
+}
+
+/// Response body for a completed catalog sync: the resolution payload plus
+/// the audit event identity.
+fn sync_response_payload(
+    declare: &DirectDeclareProposal,
+    resolution: &DirectDeclareResolution,
+    audit: &SchemaSyncAuditEvent,
+) -> Value {
+    let mut payload = declare_resolution_payload(declare, resolution);
     payload["app_id"] = serde_json::json!(declare.namespace);
     payload["schema"] = serde_json::json!(declare.local_schema_id);
     payload["audit_event_id"] = serde_json::json!(audit.event_id);
@@ -243,7 +263,17 @@ pub(crate) async fn execute_catalog_schema_sync(
             payload["canonical"] = hash;
         }
     }
+    payload
+}
 
+/// Retire name claims that a rekey superseded and report them in `payload`.
+/// A retirement failure is logged, not returned: the declare already
+/// succeeded and is audited.
+async fn retire_superseded_claims_into_payload(
+    host: &Host,
+    declare: &DirectDeclareProposal,
+    payload: &mut Value,
+) {
     // A rekey declares the same product under the same readable name with a
     // different key layout, which mints a new identity and leaves the
     // predecessor Available under the SAME `descriptive_name`. That is the
@@ -281,16 +311,6 @@ pub(crate) async fn execute_catalog_schema_sync(
             );
         }
     }
-
-    if let Err(e) = insert_declare_catalog_membership(host, ctx, &declare.local_schema_id).await {
-        return error_response(
-            500,
-            &format!("schema declared but named-db catalog membership failed: {e}"),
-            ctx,
-        );
-    }
-
-    json_ok(&envelope(&payload, ctx.user_id.as_str()))
 }
 
 /// Read-only `check` intent: report what catalog sync would do.

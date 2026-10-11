@@ -29,7 +29,6 @@ pub(super) fn writer_and_seq(key: &str) -> Option<(Option<&str>, u64)> {
     Some((Some(writer), seq))
 }
 
-// lint:fn-size-ok moved verbatim from its original module
 pub(super) async fn collect_writer_inventory(
     home: &Path,
     db_hash: &str,
@@ -81,36 +80,9 @@ pub(super) async fn collect_writer_inventory(
         .await
         .map_err(|error| format!("list cloud peer writers: {error}"))?;
     require_first_backup_writer_inventory(prior.is_some(), visible_count, unparsed)?;
-    let mut peer_newer = false;
-    let mut unknown_newer = false;
-    let summary = writers
-        .iter()
-        .enumerate()
-        .map(|(ordinal, (writer, (count, seq, modified)))| {
-            let local = if writer.is_empty() {
-                None
-            } else {
-                Some(local_id.as_str() == writer.as_str())
-            };
-            if prior
-                .as_ref()
-                .is_some_and(|prior| *modified > prior.created_at_unix_secs)
-            {
-                match local {
-                    Some(false) => peer_newer = true,
-                    None => unknown_newer = true,
-                    Some(true) => {}
-                }
-            }
-            serde_json::json!({
-                "writer": ordinal + 1,
-                "local": local,
-                "objects": count,
-                "max_seq": seq,
-                "latest_modified_unix_secs": modified,
-            })
-        })
-        .collect::<Vec<_>>();
+    let prior_created_at = prior.as_ref().map(|prior| prior.created_at_unix_secs);
+    let (summary, peer_newer, unknown_newer) =
+        summarize_writers(&writers, &local_id, prior_created_at);
     let report = serde_json::json!({
         "ok": true,
         "cloud_write": false,
@@ -132,6 +104,43 @@ pub(super) async fn collect_writer_inventory(
         "writers": summary,
     });
     Ok(report)
+}
+
+/// Per-writer summary rows, plus whether a peer writer or an unidentified
+/// writer has logs newer than the prior backup manifest.
+fn summarize_writers(
+    writers: &BTreeMap<String, (u64, u64, u64)>,
+    local_id: &str,
+    prior_created_at: Option<u64>,
+) -> (Vec<serde_json::Value>, bool, bool) {
+    let mut peer_newer = false;
+    let mut unknown_newer = false;
+    let summary = writers
+        .iter()
+        .enumerate()
+        .map(|(ordinal, (writer, (count, seq, modified)))| {
+            let local = if writer.is_empty() {
+                None
+            } else {
+                Some(local_id == writer.as_str())
+            };
+            if prior_created_at.is_some_and(|created| *modified > created) {
+                match local {
+                    Some(false) => peer_newer = true,
+                    None => unknown_newer = true,
+                    Some(true) => {}
+                }
+            }
+            serde_json::json!({
+                "writer": ordinal + 1,
+                "local": local,
+                "objects": count,
+                "max_seq": seq,
+                "latest_modified_unix_secs": modified,
+            })
+        })
+        .collect::<Vec<_>>();
+    (summary, peer_newer, unknown_newer)
 }
 
 pub(super) fn print_writer_inventory(report: &serde_json::Value, json: bool) {

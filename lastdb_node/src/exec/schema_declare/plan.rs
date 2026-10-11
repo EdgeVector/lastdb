@@ -38,7 +38,6 @@ pub(crate) async fn check_reuse_bind(
 /// validation, but it never registers with Schema Service, never loads a
 /// schema, never persists an alias, and never binds. Schema Service is only
 /// read (`GET /v1/schema/{hash}` and resolve).
-// lint:fn-size-ok moved verbatim from schema_declare.rs; splitting this function is separate work
 pub(crate) async fn plan_catalog_schema_for_direct_declare(
     host: &Host,
     declare: &DirectDeclareProposal,
@@ -59,116 +58,158 @@ pub(crate) async fn plan_catalog_schema_for_direct_declare(
         .get_schemas()
         .map_err(|e| format!("failed to inspect loaded schemas: {e}"))?;
 
+    if let Some(plan) =
+        plan_from_loaded_schemas(host, declare, proposed_hash, &loaded_schemas).await?
+    {
+        return Ok(plan);
+    }
+    if let Some(plan) =
+        plan_from_exact_catalog(host, &client, declare, proposed_hash, &loaded_schemas).await?
+    {
+        return Ok(plan);
+    }
+    plan_from_resolver(host, &client, &url, declare, proposed_hash, &loaded_schemas).await
+}
+
+/// Plan step 1: a locally loaded schema already satisfies the proposal.
+async fn plan_from_loaded_schemas(
+    host: &Host,
+    declare: &DirectDeclareProposal,
+    proposed_hash: &str,
+    loaded_schemas: &HashMap<String, Schema>,
+) -> Result<Option<DirectDeclarePlan>, String> {
     let persisted_aliases = load_persisted_proposal_catalog_aliases(
         host,
         Some(declare.namespace.as_str()),
-        &loaded_schemas,
+        loaded_schemas,
         loaded_schemas.values().filter(|schema| {
             schema.identity_hash.as_deref() == Some(proposed_hash)
                 && schema.owner_app_id.as_deref() == Some(declare.namespace.as_str())
         }),
     )
     .await?;
-    if let Some(resolution) = locally_loaded_catalog_reuse_resolution(
-        &loaded_schemas,
+    let Some(resolution) = locally_loaded_catalog_reuse_resolution(
+        loaded_schemas,
         declare,
         proposed_hash,
         &persisted_aliases,
-    )? {
-        if let DirectDeclareResolution::Reuse {
+    )?
+    else {
+        return Ok(None);
+    };
+    if let DirectDeclareResolution::Reuse {
+        catalog_hash,
+        field_mappers,
+        ..
+    } = &resolution
+    {
+        if let Some(schema) = loaded_schemas.get(catalog_hash) {
+            persist_repaired_mapper_source_aliases(
+                host,
+                schema,
+                loaded_schemas,
+                field_mappers,
+                false,
+            )
+            .await?;
+        }
+        let catalog_fields = loaded_schemas
+            .get(catalog_hash)
+            .and_then(|schema| schema.fields.clone());
+        check_reuse_bind(
+            host,
+            declare,
+            proposed_hash,
             catalog_hash,
             field_mappers,
-            ..
-        } = &resolution
-        {
-            if let Some(schema) = loaded_schemas.get(catalog_hash) {
-                persist_repaired_mapper_source_aliases(
-                    host,
-                    schema,
-                    &loaded_schemas,
-                    field_mappers,
-                    false,
-                )
-                .await?;
-            }
-            let catalog_fields = loaded_schemas
-                .get(catalog_hash)
-                .and_then(|schema| schema.fields.clone());
-            check_reuse_bind(
-                host,
-                declare,
-                proposed_hash,
-                catalog_hash,
-                field_mappers,
-                catalog_fields.as_deref(),
-            )
-            .await?;
-        }
-        return Ok(DirectDeclarePlan {
-            resolution,
-            register_reason: None,
-        });
+            catalog_fields.as_deref(),
+        )
+        .await?;
     }
+    Ok(Some(DirectDeclarePlan {
+        resolution,
+        register_reason: None,
+    }))
+}
 
-    match client.find_schema(proposed_hash).await {
-        Ok(Some(envelope)) => {
-            let fold_schema: Schema = envelope.schema.into();
-            let mut persisted_aliases = load_persisted_proposal_catalog_aliases(
-                host,
-                fold_schema.owner_app_id.as_deref(),
-                &loaded_schemas,
-                std::iter::once(&fold_schema),
-            )
-            .await?;
-            recover_proposal_catalog_aliases_from_exact_target(
-                &fold_schema,
-                &loaded_schemas,
-                &mut persisted_aliases,
-            )?;
-            let resolution = exact_catalog_reuse_resolution(
-                proposed_hash,
-                &fold_schema,
-                Some(&loaded_schemas),
-                &persisted_aliases,
-            )?;
-            if let DirectDeclareResolution::Reuse {
-                catalog_hash,
-                field_mappers,
-                ..
-            } = &resolution
-            {
-                persist_repaired_mapper_source_aliases(
-                    host,
-                    &fold_schema,
-                    &loaded_schemas,
-                    field_mappers,
-                    false,
-                )
-                .await?;
-                check_reuse_bind(
-                    host,
-                    declare,
-                    proposed_hash,
-                    catalog_hash,
-                    field_mappers,
-                    fold_schema.fields.as_deref(),
-                )
-                .await?;
-            }
-            return Ok(DirectDeclarePlan {
-                resolution,
-                register_reason: None,
-            });
-        }
-        Ok(None) => {}
+/// Plan step 2: Schema Service already holds a schema with the proposal's
+/// exact identity hash.
+async fn plan_from_exact_catalog(
+    host: &Host,
+    client: &schema_service_client::SchemaServiceClient,
+    declare: &DirectDeclareProposal,
+    proposed_hash: &str,
+    loaded_schemas: &HashMap<String, Schema>,
+) -> Result<Option<DirectDeclarePlan>, String> {
+    let envelope = match client.find_schema(proposed_hash).await {
+        Ok(Some(envelope)) => envelope,
+        Ok(None) => return Ok(None),
         Err(e) => {
             return Err(format!(
                 "exact catalog lookup failed for {proposed_hash}; refusing ambiguous registration: {e}"
             ));
         }
+    };
+    let fold_schema: Schema = envelope.schema.into();
+    let mut persisted_aliases = load_persisted_proposal_catalog_aliases(
+        host,
+        fold_schema.owner_app_id.as_deref(),
+        loaded_schemas,
+        std::iter::once(&fold_schema),
+    )
+    .await?;
+    recover_proposal_catalog_aliases_from_exact_target(
+        &fold_schema,
+        loaded_schemas,
+        &mut persisted_aliases,
+    )?;
+    let resolution = exact_catalog_reuse_resolution(
+        proposed_hash,
+        &fold_schema,
+        Some(loaded_schemas),
+        &persisted_aliases,
+    )?;
+    if let DirectDeclareResolution::Reuse {
+        catalog_hash,
+        field_mappers,
+        ..
+    } = &resolution
+    {
+        persist_repaired_mapper_source_aliases(
+            host,
+            &fold_schema,
+            loaded_schemas,
+            field_mappers,
+            false,
+        )
+        .await?;
+        check_reuse_bind(
+            host,
+            declare,
+            proposed_hash,
+            catalog_hash,
+            field_mappers,
+            fold_schema.fields.as_deref(),
+        )
+        .await?;
     }
+    Ok(Some(DirectDeclarePlan {
+        resolution,
+        register_reason: None,
+    }))
+}
 
-    let result = resolve_direct_declare_result(host, &url, declare).await?;
+/// Plan step 3: ask the resolver; reuse its answer or report the
+/// registration fallback.
+async fn plan_from_resolver(
+    host: &Host,
+    client: &schema_service_client::SchemaServiceClient,
+    url: &str,
+    declare: &DirectDeclareProposal,
+    proposed_hash: &str,
+    loaded_schemas: &HashMap<String, Schema>,
+) -> Result<DirectDeclarePlan, String> {
+    let result = resolve_direct_declare_result(host, url, declare).await?;
     let resolved = result
         .as_ref()
         .map(|result| resolve_declare_bind(&declare.catalog_schema, result));
