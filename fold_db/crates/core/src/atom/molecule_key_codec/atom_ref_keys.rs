@@ -7,9 +7,6 @@ use super::*;
 /// contains the edge type, molecule, disk key, and version identity.
 pub const ATOM_REF_EDGE_PREFIX: &str = "aref:v1:e:";
 
-/// Durable cursor and phase for the compact v2 two-pass rebuild.
-pub const ATOM_REF_V2_REINDEX_CHECKPOINT_KEY: &str = "aref:v2:m:reindex";
-
 /// Global compact-plane completion marker for one storage prefix.
 pub const ATOM_REF_V2_COMPLETE_KEY: &str = "aref:v2:m:complete";
 
@@ -66,16 +63,4 @@ pub fn atom_ref_history_upgrade_key(molecule_uuid: &str) -> String {
         "aref",
         &format!("v1:m:history:{}", hex_key_component(molecule_uuid)),
     )
-}
-
-/// Per-molecule compact reverse-reference completeness manifest.
-#[must_use]
-pub fn atom_ref_v2_molecule_manifest_key(molecule_uuid: &str) -> String {
-    format!("aref:v2:m:molecule:{}", hex_key_component(molecule_uuid))
-}
-
-/// Durable cursor for one molecule's compact mutation-history edge upgrade.
-#[must_use]
-pub fn atom_ref_v2_history_upgrade_key(molecule_uuid: &str) -> String {
-    format!("aref:v2:m:history:{}", hex_key_component(molecule_uuid))
 }

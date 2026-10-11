@@ -43,7 +43,7 @@ pub fn spawn_sampler(
             }
             maybe_spawn_drain(&host, cap);
             crate::ttl_sweep::maybe_spawn_ttl_sweep(&host);
-            crate::atom_ref_backfill::maybe_spawn_atom_ref_backfill(&host);
+            crate::atom_ref_health::maybe_spawn_atom_ref_health_refresh(&host);
             let until = tokio::time::Instant::now() + interval;
             while !shutdown.load(std::sync::atomic::Ordering::Acquire)
                 && tokio::time::Instant::now() < until

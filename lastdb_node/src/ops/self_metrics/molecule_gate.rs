@@ -157,55 +157,6 @@ impl AtomRefEdgeHealth {
             ..Self::default_off(v1_bytes, v2_bytes)
         }
     }
-
-    pub(super) fn backfill(
-        v1_bytes: Option<u64>,
-        v2_bytes: u64,
-        status: &fold_db::db_operations::atom_store::AtomRefBackfillStatus,
-        history_complete: bool,
-    ) -> Self {
-        let active_edges = status.edges_written;
-        let bytes_per_edge = v2_bytes.checked_div(active_edges).unwrap_or(0);
-        let projected_final_bytes =
-            crate::atom_ref_backfill::projected_atom_ref_v2_bytes(v2_bytes, active_edges);
-        let phase = if projected_final_bytes > crate::atom_ref_backfill::atom_ref_v2_max_bytes() {
-            "growth_blocked".to_string()
-        } else {
-            match status.phase {
-                fold_db::db_operations::atom_store::AtomRefBackfillPhase::Backfill => {
-                    "backfill".to_string()
-                }
-                fold_db::db_operations::atom_store::AtomRefBackfillPhase::Replay => {
-                    "replay".to_string()
-                }
-                fold_db::db_operations::atom_store::AtomRefBackfillPhase::Complete => {
-                    if history_complete {
-                        "complete".to_string()
-                    } else {
-                        "molecule_audit".to_string()
-                    }
-                }
-                fold_db::db_operations::atom_store::AtomRefBackfillPhase::Blocked => {
-                    "blocked".to_string()
-                }
-            }
-        };
-        Self {
-            v1_bytes: gauge_from_wire(v1_bytes, Unit::Bytes, GAUGE_INSTANT),
-            v2_bytes: g_instant(v2_bytes, Unit::Bytes),
-            active_edges: g_instant(active_edges, Unit::Edges),
-            inactive_keys: g_instant(0, Unit::Keys),
-            bytes_per_edge: g_instant(bytes_per_edge, Unit::Bytes),
-            projected_final_bytes: g_instant(projected_final_bytes, Unit::Bytes),
-            phase,
-            molecule_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-            molecule_complete: None,
-            molecule_phase: "mixed_write".to_string(),
-            blob_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-            blob_complete: None,
-            blob_phase: "mixed_write".to_string(),
-        }
-    }
 }
 
 /// Build a status-safe atom-ref view from configuration and filesystem
@@ -244,22 +195,7 @@ pub(crate) async fn refresh_atom_ref_edge_health(host: &Host) {
         .unwrap_or(0);
     let atom_ref_store = host.db.db_ops().atoms();
     // Compact reverse-edge writes, reads and compact-only writes are always on.
-    let mut health = if crate::atom_ref_backfill::atom_ref_v2_backfill_enabled() {
-        match atom_ref_store.atom_ref_v2_backfill_status(None).await {
-            Ok(status) => AtomRefEdgeHealth::backfill(
-                v1_bytes,
-                v2_bytes,
-                &status,
-                atom_ref_store
-                    .atom_ref_v2_history_complete(None)
-                    .await
-                    .unwrap_or(false),
-            ),
-            Err(_) => AtomRefEdgeHealth::dual_write(v1_bytes, v2_bytes),
-        }
-    } else {
-        AtomRefEdgeHealth::dual_write(v1_bytes, v2_bytes)
-    };
+    let mut health = AtomRefEdgeHealth::dual_write(v1_bytes, v2_bytes);
     health.phase = match atom_ref_store.atom_ref_v2_reads_ready(None).await {
         Ok(true) => "v2_only_writes",
         Ok(false) => "read_blocked",
