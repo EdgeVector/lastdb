@@ -257,6 +257,8 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AggregateRepair
         | DataRoute::DeclareSchema
         | DataRoute::DbCatalogReclaim
+        | DataRoute::OrgAuthorityPublish
+        | DataRoute::OrgAuthorityStatus
         | DataRoute::LivenessBootstrap => admin_handler_timeout(),
 
         DataRoute::Status => Duration::from_secs(CANARY_STATUS_HANDLER_TIMEOUT_SECS),

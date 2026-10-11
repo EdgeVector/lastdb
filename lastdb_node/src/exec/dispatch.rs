@@ -397,6 +397,12 @@ pub(super) async fn dispatch_data_route(
         | DataRoute::AppOrgBlobPut
         | DataRoute::AppOrgBlobGet
         | DataRoute::AppBlobFootprint => content_free(404, "Not Found"),
+        DataRoute::OrgAuthorityPublish => {
+            heap_route!(execute_org_authority_publish_route, req, ctx, host).await
+        }
+        DataRoute::OrgAuthorityStatus => {
+            heap_route!(execute_org_authority_status_route, req, ctx, host).await
+        }
         DataRoute::OrgSyncRegister => execute_org_sync_register_route(req, ctx, host).await,
         DataRoute::DbCatalogGet => heap_route!(execute_db_catalog_get_route, req, ctx, host).await,
         DataRoute::DbCatalogPut => heap_route!(execute_db_catalog_put_route, req, ctx, host).await,

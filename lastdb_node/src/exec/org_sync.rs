@@ -150,6 +150,9 @@ pub(super) async fn execute_org_sync_grant_member_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    if let Some(response) = org_authority::reject_request(req, ctx) {
+        return response;
+    }
     #[derive(Deserialize)]
     struct Body {
         org_hash: String,
@@ -168,15 +171,11 @@ pub(super) async fn execute_org_sync_grant_member_route(
         }
     };
     let role = body.role.as_deref().unwrap_or("writer");
-    let Some(engine) = host.db.sync_engine() else {
-        return error_response(
-            400,
-            "cloud sync is not enabled; configure cloud_sync.json first",
-            ctx,
-        );
+    let Ok(auth) = org_authority::signed_auth(host).await else {
+        return error_response(503, "signed cloud account credentials are unavailable", ctx);
     };
-    match engine
-        .grant_cloud_head_member(&body.org_hash, &body.target_user_hash, role)
+    match auth
+        .register_db_member(&body.org_hash, &body.target_user_hash, role)
         .await
     {
         Ok(reg) => json_ok(&envelope(
@@ -188,7 +187,7 @@ pub(super) async fn execute_org_sync_grant_member_route(
             }),
             ctx.user_id.as_str(),
         )),
-        Err(e) => error_response(400, &format!("grant member failed: {e}"), ctx),
+        Err(error) => org_authority::cloud_error(&error, ctx),
     }
 }
 
@@ -200,6 +199,9 @@ pub(super) async fn execute_org_sync_revoke_member_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    if let Some(response) = org_authority::reject_request(req, ctx) {
+        return response;
+    }
     #[derive(Deserialize)]
     struct Body {
         org_hash: String,
@@ -217,17 +219,10 @@ pub(super) async fn execute_org_sync_revoke_member_route(
         }
     };
     let target = body.target_user_hash.unwrap_or_else(|| ctx.user_id.clone());
-    let Some(engine) = host.db.sync_engine() else {
-        return error_response(
-            400,
-            "cloud sync is not enabled; configure cloud_sync.json first",
-            ctx,
-        );
+    let Ok(auth) = org_authority::signed_auth(host).await else {
+        return error_response(503, "signed cloud account credentials are unavailable", ctx);
     };
-    match engine
-        .revoke_cloud_head_member(&body.org_hash, &target)
-        .await
-    {
+    match auth.unregister_db_member(&body.org_hash, &target).await {
         Ok(()) => json_ok(&envelope(
             &serde_json::json!({
                 "ok": true,
@@ -237,7 +232,7 @@ pub(super) async fn execute_org_sync_revoke_member_route(
             }),
             ctx.user_id.as_str(),
         )),
-        Err(e) => error_response(400, &format!("revoke member failed: {e}"), ctx),
+        Err(error) => org_authority::cloud_error(&error, ctx),
     }
 }
 

@@ -346,6 +346,8 @@ fn is_control_action(action: &str) -> bool {
     matches!(
         action,
         "cloud_control_get"
+            | "cloud_org_authority_get"
+            | "cloud_org_authority_publish"
             | "cloud_control_adopt"
             | "cloud_control_continue"
             | "cloud_control_download"
