@@ -289,7 +289,6 @@ pub(crate) fn db_stamp_purged_atom_retirements(
     Ok(())
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_compact(
     socket: &Path,
     collection: Option<&str>,
@@ -349,52 +348,38 @@ pub(crate) fn db_compact(
         print_one_compact_plane(&report, collection, dry_run);
     }
     print_named_only_note(&report);
-    let skipped_cut = report
-        .get("skipped_backup_cut")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
+    let skipped_cut = report_bool(&report, "skipped_backup_cut")
         || report
             .get("reports")
             .and_then(|v| v.as_array())
             .is_some_and(|reports| {
-                reports.iter().any(|plane| {
-                    plane
-                        .get("skipped_backup_cut")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false)
-                })
+                reports
+                    .iter()
+                    .any(|plane| report_bool(plane, "skipped_backup_cut"))
             });
     if skipped_cut {
         println!("Compact skipped: a backup cut is held.");
     }
     if let Some(cloud) = report.get("cloud") {
-        let paused = cloud
-            .get("paused")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let restored = cloud
-            .get("restored")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let was_on = cloud
-            .get("was_enabled")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let needed = cloud
-            .get("isolation_needed")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        if let Some(err) = cloud
-            .get("restore_error")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-        {
-            println!("  cloud: RESTORE FAILED — {err}");
-        } else if paused && restored {
-            println!("  cloud: paused for rewrite, then restored (was on)");
-        } else if needed && !was_on && !dry_run {
-            println!("  cloud: already off/unset — left as-is");
-        }
+        print_compact_cloud_note(cloud, dry_run);
     }
     Ok(())
+}
+
+fn print_compact_cloud_note(cloud: &serde_json::Value, dry_run: bool) {
+    let paused = report_bool(cloud, "paused");
+    let restored = report_bool(cloud, "restored");
+    let was_on = report_bool(cloud, "was_enabled");
+    let needed = report_bool(cloud, "isolation_needed");
+    if let Some(err) = cloud
+        .get("restore_error")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        println!("  cloud: RESTORE FAILED — {err}");
+    } else if paused && restored {
+        println!("  cloud: paused for rewrite, then restored (was on)");
+    } else if needed && !was_on && !dry_run {
+        println!("  cloud: already off/unset — left as-is");
+    }
 }

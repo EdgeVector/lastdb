@@ -152,5 +152,3 @@ pub(super) fn print_unresolved_tips(report: &serde_json::Value, scoped: bool) {
         }
     }
 }
-
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.

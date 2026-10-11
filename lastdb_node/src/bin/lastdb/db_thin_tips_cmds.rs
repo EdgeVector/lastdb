@@ -158,7 +158,6 @@ pub(crate) fn print_reap_unsealed_human(report: &serde_json::Value) {
 /// human interval on a multi-million-tip plane.
 pub(crate) const THIN_TIP_KEYS_PER_CALL: u64 = 200_000;
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_migrate_thin_tips(
     socket: &Path,
     execute: bool,
@@ -184,40 +183,18 @@ pub(crate) fn db_migrate_thin_tips(
             .cloned()
             .ok_or_else(|| "response missing migrate_thin_tips".to_string())?;
         passes += 1;
-        for key in [
-            "tips_scanned",
-            "tips_already_thin",
-            "tips_rewritten",
-            "tips_unreadable",
-            "bytes_before_approx",
-            "bytes_after_approx",
-        ] {
-            let add = report
-                .get(key)
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
-            let slot = totals.entry(key).or_insert_with(|| serde_json::json!(0));
-            let sum = slot.as_u64().unwrap_or(0) + add;
-            *slot = serde_json::json!(sum);
-        }
-        let more = report
-            .get("more_remaining")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
+        accumulate_thin_tip_pass(&mut totals, &report);
+        let more = report_bool(&report, "more_remaining");
         let next = report
             .get("next_after_key")
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned);
         if !json_only {
-            let scanned = totals
-                .get("tips_scanned")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
-            let rewritten = totals
-                .get("tips_rewritten")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
-            eprintln!("  pass {passes}: {scanned} tips decided, {rewritten} fat so far");
+            eprintln!(
+                "  pass {passes}: {} tips decided, {} fat so far",
+                map_u64(&totals, "tips_scanned"),
+                map_u64(&totals, "tips_rewritten")
+            );
         }
         // A cursor that did not advance would resume forever at the same key;
         // stop rather than loop, and let the counts say how far this got.
@@ -238,6 +215,35 @@ pub(crate) fn db_migrate_thin_tips(
         );
         return Ok(());
     }
+    print_thin_tips_report(&report, execute, passes);
+    Ok(())
+}
+
+fn map_u64(map: &serde_json::Map<String, serde_json::Value>, key: &str) -> u64 {
+    map.get(key)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+}
+
+/// Add one pass's counters into the running totals.
+fn accumulate_thin_tip_pass(
+    totals: &mut serde_json::Map<String, serde_json::Value>,
+    report: &serde_json::Value,
+) {
+    for key in [
+        "tips_scanned",
+        "tips_already_thin",
+        "tips_rewritten",
+        "tips_unreadable",
+        "bytes_before_approx",
+        "bytes_after_approx",
+    ] {
+        let sum = map_u64(totals, key) + report_u64(report, key);
+        totals.insert(key.to_string(), serde_json::json!(sum));
+    }
+}
+
+fn print_thin_tips_report(report: &serde_json::Value, execute: bool, passes: u64) {
     let mode = if execute { "EXECUTED" } else { "DRY RUN" };
     println!("Fat → thin tip migration — {mode} ({passes} pass(es))");
     for key in [
@@ -246,22 +252,10 @@ pub(crate) fn db_migrate_thin_tips(
         "tips_rewritten",
         "tips_unreadable",
     ] {
-        println!(
-            "  {key}: {}",
-            report
-                .get(key)
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0)
-        );
+        println!("  {key}: {}", report_u64(report, key));
     }
-    let before = report
-        .get("bytes_before_approx")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let after = report
-        .get("bytes_after_approx")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
+    let before = report_u64(report, "bytes_before_approx");
+    let after = report_u64(report, "bytes_after_approx");
     println!("  bytes_before: {}", format_bytes(before));
     println!("  bytes_after:  {}", format_bytes(after));
     println!(
@@ -272,5 +266,4 @@ pub(crate) fn db_migrate_thin_tips(
         println!();
         println!("Re-run with --execute to rewrite fat mk: tips in place.");
     }
-    Ok(())
 }

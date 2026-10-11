@@ -62,21 +62,10 @@ pub(crate) fn db_repair_schema_molecule_map(
     expected_current_fingerprint: Option<&str>,
     json_only: bool,
 ) -> Result<(), String> {
-    // lint:fn-size-ok moved verbatim from the original file; splitting is a separate change
     if map_file.is_none() && execute {
         return Err("--execute requires --map-file".to_string());
     }
-    let mut field_molecule_uuids: Option<std::collections::HashMap<String, String>> = None;
-    if let Some(map_file) = map_file {
-        let raw = std::fs::read(map_file)
-            .map_err(|error| format!("read molecule map {}: {error}", map_file.display()))?;
-        let parsed: std::collections::HashMap<String, String> = serde_json::from_slice(&raw)
-            .map_err(|error| format!("parse molecule map {}: {error}", map_file.display()))?;
-        if parsed.is_empty() {
-            return Err("molecule map must not be empty".to_string());
-        }
-        field_molecule_uuids = Some(parsed);
-    }
+    let field_molecule_uuids = map_file.map(read_molecule_map_file).transpose()?;
     let inspect_only = field_molecule_uuids.is_none();
     let response = db_post_json(
         socket,
@@ -89,16 +78,7 @@ pub(crate) fn db_repair_schema_molecule_map(
         }),
     )?;
     if let Some(path) = write_map_file {
-        let suggested = response
-            .get("suggested_field_molecule_uuids")
-            .filter(|value| !value.is_null())
-            .ok_or_else(|| {
-                "no candidate map has live rows, so there is nothing to write".to_string()
-            })?;
-        let body = serde_json::to_string_pretty(suggested)
-            .map_err(|error| format!("serialize suggested molecule map: {error}"))?;
-        std::fs::write(path, format!("{body}\n"))
-            .map_err(|error| format!("write molecule map {}: {error}", path.display()))?;
+        write_suggested_molecule_map(path, &response)?;
         if !json_only {
             println!("Wrote suggested molecule map to {}", path.display());
         }
@@ -112,14 +92,47 @@ pub(crate) fn db_repair_schema_molecule_map(
         return Ok(());
     }
 
+    print_schema_molecule_map_summary(&response, schema, execute, inspect_only);
+    Ok(())
+}
+
+fn read_molecule_map_file(
+    map_file: &Path,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let raw = std::fs::read(map_file)
+        .map_err(|error| format!("read molecule map {}: {error}", map_file.display()))?;
+    let parsed: std::collections::HashMap<String, String> = serde_json::from_slice(&raw)
+        .map_err(|error| format!("parse molecule map {}: {error}", map_file.display()))?;
+    if parsed.is_empty() {
+        return Err("molecule map must not be empty".to_string());
+    }
+    Ok(parsed)
+}
+
+fn write_suggested_molecule_map(path: &Path, response: &serde_json::Value) -> Result<(), String> {
+    let suggested = response
+        .get("suggested_field_molecule_uuids")
+        .filter(|value| !value.is_null())
+        .ok_or_else(|| {
+            "no candidate map has live rows, so there is nothing to write".to_string()
+        })?;
+    let body = serde_json::to_string_pretty(suggested)
+        .map_err(|error| format!("serialize suggested molecule map: {error}"))?;
+    std::fs::write(path, format!("{body}\n"))
+        .map_err(|error| format!("write molecule map {}: {error}", path.display()))
+}
+
+fn print_schema_molecule_map_summary(
+    response: &serde_json::Value,
+    schema: &str,
+    execute: bool,
+    inspect_only: bool,
+) {
     let shown_schema = response
         .get("schema")
         .and_then(serde_json::Value::as_str)
         .unwrap_or(schema);
-    let changed = response
-        .get("changed")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+    let changed = report_bool(response, "changed");
     let changed_count = response
         .get("changed_fields")
         .and_then(serde_json::Value::as_array)
@@ -132,9 +145,6 @@ pub(crate) fn db_repair_schema_molecule_map(
         .get("proposed_fingerprint")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("<missing>");
-    let proposed_has_rows = response
-        .get("proposed_key_has_live_rows")
-        .and_then(serde_json::Value::as_bool);
     let mode = if execute {
         "repair"
     } else if inspect_only {
@@ -148,18 +158,20 @@ pub(crate) fn db_repair_schema_molecule_map(
     println!("  current fingerprint:  {current}");
     if !inspect_only {
         println!("  proposed fingerprint: {proposed}");
-        match proposed_has_rows {
+        match response
+            .get("proposed_key_has_live_rows")
+            .and_then(serde_json::Value::as_bool)
+        {
             Some(value) => println!("  proposed key has live rows: {value}"),
             None => println!("  proposed key has live rows: unknown"),
         }
     }
     if inspect_only {
-        print_schema_molecule_map_inspection(&response);
+        print_schema_molecule_map_inspection(response);
     }
     if !execute && changed {
         println!("  next: rerun with --execute --expected-current-fingerprint {current}");
     }
-    Ok(())
 }
 
 /// Print the inspect-mode report: the installed map and the candidate maps.

@@ -1,6 +1,5 @@
 use super::*;
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_legacy_key_forks(
     socket: &Path,
     execute: bool,
@@ -34,39 +33,13 @@ pub(crate) fn db_legacy_key_forks(
         )
         .map_err(|e| format!("decode legacy-key-fork audit: {e}"))?;
         passes += 1;
-        // Captured before `pass.per_molecule` is moved below, and kept as this
+        // Captured before the pass is consumed below, and kept as this
         // pass's own delta: `total.twin_atoms_live` is the running sum.
         let pass_twin_atoms_live = pass.twin_atoms_live;
-        total.keys_scanned += pass.keys_scanned;
-        total.keys_unreadable += pass.keys_unreadable;
-        total.current_form += pass.current_form;
-        total.legacy_form += pass.legacy_form;
-        total.forked += pass.forked;
-        total.legacy_only += pass.legacy_only;
-        total.twin_atoms_live += pass.twin_atoms_live;
-        total.twin_atoms_missing += pass.twin_atoms_missing;
-        total.twin_atoms_tombstoned += pass.twin_atoms_tombstoned;
-        total.legacy_tips_deleted += pass.legacy_tips_deleted;
-        total.bytes_freed_approx += pass.bytes_freed_approx;
-        for row in pass.per_molecule {
-            let aggregate = by_molecule.entry(row.molecule.clone()).or_insert_with(|| {
-                LegacyKeyForkMoleculeStat {
-                    molecule: row.molecule.clone(),
-                    ..Default::default()
-                }
-            });
-            aggregate.keys += row.keys;
-            aggregate.current_form += row.current_form;
-            aggregate.legacy_form += row.legacy_form;
-            aggregate.forked += row.forked;
-            aggregate.legacy_only += row.legacy_only;
-            aggregate.twin_atoms_live += row.twin_atoms_live;
-            aggregate.twin_atoms_missing += row.twin_atoms_missing;
-            aggregate.twin_atoms_tombstoned += row.twin_atoms_tombstoned;
-            aggregate.legacy_tips_deleted += row.legacy_tips_deleted;
-        }
-        after_key = pass.next_after_key;
-        if !pass.more_remaining || after_key.is_none() {
+        after_key = pass.next_after_key.clone();
+        let more_remaining = pass.more_remaining;
+        merge_legacy_key_fork_pass(&mut total, &mut by_molecule, pass);
+        if !more_remaining || after_key.is_none() {
             break;
         }
         if !json_only {
@@ -93,6 +66,54 @@ pub(crate) fn db_legacy_key_forks(
         );
         return Ok(());
     }
+    print_legacy_key_fork_report(&total, passes, execute);
+    Ok(())
+}
+
+/// Fold one audit page into the running total and the per-molecule map.
+fn merge_legacy_key_fork_pass(
+    total: &mut fold_db::db_operations::LegacyKeyForkAudit,
+    by_molecule: &mut HashMap<String, fold_db::db_operations::LegacyKeyForkMoleculeStat>,
+    pass: fold_db::db_operations::LegacyKeyForkAudit,
+) {
+    use fold_db::db_operations::LegacyKeyForkMoleculeStat;
+
+    total.keys_scanned += pass.keys_scanned;
+    total.keys_unreadable += pass.keys_unreadable;
+    total.current_form += pass.current_form;
+    total.legacy_form += pass.legacy_form;
+    total.forked += pass.forked;
+    total.legacy_only += pass.legacy_only;
+    total.twin_atoms_live += pass.twin_atoms_live;
+    total.twin_atoms_missing += pass.twin_atoms_missing;
+    total.twin_atoms_tombstoned += pass.twin_atoms_tombstoned;
+    total.legacy_tips_deleted += pass.legacy_tips_deleted;
+    total.bytes_freed_approx += pass.bytes_freed_approx;
+    for row in pass.per_molecule {
+        let aggregate =
+            by_molecule
+                .entry(row.molecule.clone())
+                .or_insert_with(|| LegacyKeyForkMoleculeStat {
+                    molecule: row.molecule.clone(),
+                    ..Default::default()
+                });
+        aggregate.keys += row.keys;
+        aggregate.current_form += row.current_form;
+        aggregate.legacy_form += row.legacy_form;
+        aggregate.forked += row.forked;
+        aggregate.legacy_only += row.legacy_only;
+        aggregate.twin_atoms_live += row.twin_atoms_live;
+        aggregate.twin_atoms_missing += row.twin_atoms_missing;
+        aggregate.twin_atoms_tombstoned += row.twin_atoms_tombstoned;
+        aggregate.legacy_tips_deleted += row.legacy_tips_deleted;
+    }
+}
+
+fn print_legacy_key_fork_report(
+    total: &fold_db::db_operations::LegacyKeyForkAudit,
+    passes: u32,
+    execute: bool,
+) {
     println!("Legacy HashKey-encoding fork audit ({passes} pass(es))");
     println!("  keys scanned:          {}", total.keys_scanned);
     println!("  current-form tips:     {}", total.current_form);
@@ -107,7 +128,6 @@ pub(crate) fn db_legacy_key_forks(
     if !execute {
         println!("\nDry run only. Prove on a CoW clone before re-running `drain-legacy-key-forks --execute`.");
     }
-    Ok(())
 }
 
 type OrderLogTotals = HashMap<String, u64>;
