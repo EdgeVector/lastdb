@@ -180,20 +180,13 @@ fn run() -> Result<ProbeReport, String> {
         );
     }
 
-    let snapshot_report = snapshot.get("report").unwrap_or(&snapshot);
-    let snapshot_counter = u64_field(snapshot_report, "counter");
-    let snapshot_chunks_referenced = u64_field(snapshot_report, "chunks_referenced");
-    if snapshot_counter == 0 || snapshot_chunks_referenced == 0 {
-        notes.push("snapshot report did not show a committed LastStore backup".to_string());
-    }
-
-    let restore_counter = u64_field(&restore, "counter");
-    let restore_chunks_installed = u64_field(&restore, "chunks_installed");
-    let restore_bytes_installed = u64_field(&restore, "bytes_installed");
-    if restore_counter == 0 || restore_chunks_installed == 0 || restore_bytes_installed == 0 {
-        notes.push("restore report did not show installed backup chunks".to_string());
-    }
-
+    let RestoreCounters {
+        snapshot_counter,
+        snapshot_chunks_referenced,
+        restore_counter,
+        restore_chunks_installed,
+        restore_bytes_installed,
+    } = read_restore_counters(&snapshot, &restore, &mut notes);
     let before = read_pid_set(&args.primary_pids_before)?;
     let after = read_pid_set(&args.primary_pids_after)?;
     let primary_pid_set_unchanged = before == after;
@@ -242,6 +235,43 @@ fn run() -> Result<ProbeReport, String> {
 
     write_report(&args, &report)?;
     Ok(report)
+}
+
+/// Counters read from the snapshot and restore reports.
+struct RestoreCounters {
+    snapshot_counter: u64,
+    snapshot_chunks_referenced: u64,
+    restore_counter: u64,
+    restore_chunks_installed: u64,
+    restore_bytes_installed: u64,
+}
+
+fn read_restore_counters(
+    snapshot: &Value,
+    restore: &Value,
+    notes: &mut Vec<String>,
+) -> RestoreCounters {
+    let snapshot_report = snapshot.get("report").unwrap_or(snapshot);
+    let snapshot_counter = u64_field(snapshot_report, "counter");
+    let snapshot_chunks_referenced = u64_field(snapshot_report, "chunks_referenced");
+    if snapshot_counter == 0 || snapshot_chunks_referenced == 0 {
+        notes.push("snapshot report did not show a committed LastStore backup".to_string());
+    }
+
+    let restore_counter = u64_field(restore, "counter");
+    let restore_chunks_installed = u64_field(restore, "chunks_installed");
+    let restore_bytes_installed = u64_field(restore, "bytes_installed");
+    if restore_counter == 0 || restore_chunks_installed == 0 || restore_bytes_installed == 0 {
+        notes.push("restore report did not show installed backup chunks".to_string());
+    }
+
+    RestoreCounters {
+        snapshot_counter,
+        snapshot_chunks_referenced,
+        restore_counter,
+        restore_chunks_installed,
+        restore_bytes_installed,
+    }
 }
 
 /// Count the fixture records whose bucket, title and body hash match in both
