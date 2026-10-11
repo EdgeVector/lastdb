@@ -30,7 +30,12 @@ use super::types::{
 };
 
 mod add_schema;
+mod add_schema_guards;
+mod add_schema_persist;
+mod add_schema_race;
+mod add_schema_validate;
 mod backfill;
+mod candidate_seams;
 mod canonical_field;
 mod canonicalization_candidates;
 mod collection_names;

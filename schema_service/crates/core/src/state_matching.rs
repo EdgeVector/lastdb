@@ -502,5 +502,6 @@ impl SchemaServiceState {
 
 mod coverage;
 mod reuse;
+mod reuse_scoring;
 mod tokens;
 use tokens::*;
