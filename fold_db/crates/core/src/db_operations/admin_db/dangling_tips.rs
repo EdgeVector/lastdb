@@ -75,80 +75,25 @@ impl AtomStore {
         Ok(report)
     }
 
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn repair_dangling_tips(
         &self,
         options: DanglingTipRepairOptions,
     ) -> Result<DanglingTipRepairReport, SchemaError> {
-        use crate::atom::{atom_key_codec, atom_locator_codec, AtomKeyEncoding, AtomPartition};
-        use crate::schema::types::field::FilterUtils;
-
         let tip_page = options
             .tip_page
             .unwrap_or(ATOM_PARTITION_REKEY_TIP_PAGE)
             .max(ATOM_PARTITION_REKEY_MIN_TIP_PAGE);
         let storage_prefix = options.storage_prefix.as_deref();
         let scan_started_at = Utc::now().to_rfc3339();
-        let mk_prefix = build_storage_key(storage_prefix, "mk:");
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
-        // A `key_window` narrows the walk to one sub-range of `mk:`; a `scope`
-        // narrows it to one prefix range per scoped molecule (and hash);
-        // without either the one window IS `mk:`, so every path shares the
-        // walk below.
-        let windows: Vec<(String, String)> =
-            match (options.scope.as_ref(), options.key_window.as_ref()) {
-                (Some(_), Some(_)) => {
-                    return Err(SchemaError::InvalidData(
-                        "repair-dangling-tips: scope and key_window are exclusive".to_string(),
-                    ))
-                }
-                (Some(scope), None) => self.dangling_tip_scope_windows(scope, storage_prefix)?,
-                (None, Some((start, end))) => vec![(
-                    build_storage_key(storage_prefix, start),
-                    end.as_ref()
-                        .map_or_else(|| mk_end.clone(), |e| build_storage_key(storage_prefix, e)),
-                )],
-                (None, None) => vec![(mk_prefix.clone(), mk_end.clone())],
-            };
-        let window_count = windows.len() as u64;
+        let windows = self.dangling_tip_walk_windows(&options, storage_prefix)?;
         let mut all_windows_exhausted = true;
-        let mut saw_remaining = false;
-        let mut ops = 0usize;
         let mut consecutive_failures = 0u64;
-        let mut repair_groups: BTreeMap<String, Vec<RepairCandidate>> = BTreeMap::new();
-        let mut report = DanglingTipRepairReport {
-            dry_run: options.dry_run,
-            scan_started_at: scan_started_at.clone(),
-            tip_page: tip_page as u64,
-            tips_scanned: 0,
-            repairable_tips: 0,
-            tips_repaired: 0,
-            skipped_changed: 0,
-            skipped_molecule_missing: 0,
-            skipped_atom_not_in_molecule: 0,
-            skipped_body_restored: 0,
-            skipped_mis_derived: 0,
-            skipped_unparseable_key: 0,
-            skipped_unrepairable: 0,
-            refused_molecules: Vec::new(),
-            rescued_by_live_probe: 0,
-            failed_repairs: 0,
-            aborted_on_repeated_failures: false,
-            molecule_loads: 0,
-            storage_keys_deleted: 0,
-            completed: false,
-            unresolved: Vec::new(),
-            unresolved_truncated: false,
-            scope: options
-                .scope
-                .as_ref()
-                .map(|scope| DanglingTipRepairScopeReport {
-                    schemas: Vec::new(),
-                    molecule_uuids: scope.molecule_uuids.clone(),
-                    hash_key: scope.hash_key.clone(),
-                    key_ranges: window_count,
-                }),
-        };
+        let mut report = new_dangling_tip_report(
+            &options,
+            tip_page,
+            scan_started_at.clone(),
+            windows.len() as u64,
+        );
 
         let ledger = if options.dry_run {
             None
@@ -165,218 +110,30 @@ impl AtomStore {
             )
         };
 
-        'windows: for (scan_start, scan_end) in windows {
-            let mut page_start = scan_start;
-            let mut skip_head: Option<String> = None;
-            let mut range_exhausted = false;
-            while !range_exhausted {
-                let rows = self
-                    .raw()
-                    .inner()
-                    .scan_range_paged(page_start.as_bytes(), scan_end.as_bytes(), tip_page)
-                    .await
-                    .map_err(|e| SchemaError::InvalidData(format!("repair scan mk: {e}")))?;
-                if rows.len() < tip_page {
-                    range_exhausted = true;
-                }
-                if rows.is_empty() {
-                    break;
-                }
-
-                let head = skip_head.take();
-                let mut decoded: Vec<RekeySlot> = Vec::with_capacity(rows.len());
-                for (k, v) in rows {
-                    let tip_key = String::from_utf8_lossy(&k).into_owned();
-                    page_start = tip_key.clone();
-                    if head.as_deref() == Some(tip_key.as_str()) {
-                        continue;
-                    }
-                    let Some(base_key) = strip_storage_prefix(storage_prefix, &tip_key) else {
-                        continue;
-                    };
-                    let Some(partition) = AtomPartition::from_record_key(base_key) else {
-                        continue;
-                    };
-                    let Ok(val) = serde_json::from_slice::<Value>(&v) else {
-                        continue;
-                    };
-                    let Some(uuid) = val
-                        .pointer("/entry/atom_uuid")
-                        .and_then(|x| x.as_str())
-                        .filter(|u| !u.is_empty())
-                    else {
-                        continue;
-                    };
-                    let uuid = uuid.to_string();
-                    decoded.push(RekeySlot {
-                        flat_key: build_storage_key(
-                            storage_prefix,
-                            &atom_key_codec::flat_key(&uuid),
-                        ),
-                        prefixed_key: build_storage_key(
-                            storage_prefix,
-                            &atom_key_codec::storage_key(
-                                AtomKeyEncoding::PartitionPrefix,
-                                Some(&partition),
-                                &uuid,
-                            ),
-                        ),
-                        locator_key: build_storage_key(
-                            storage_prefix,
-                            &atom_locator_codec::locator_key(&uuid),
-                        ),
-                        tip_key,
-                        uuid,
-                        partition,
-                    });
-                }
-                skip_head = Some(page_start.clone());
-
-                if let Some(max) = options.max_ops {
-                    let budget = max.saturating_sub(ops);
-                    if decoded.len() > budget {
-                        decoded.truncate(budget);
-                        saw_remaining = true;
-                    }
-                }
-                if decoded.is_empty() {
-                    if saw_remaining {
-                        break 'windows;
-                    }
-                    continue;
-                }
-                ops += decoded.len();
-                report.tips_scanned += decoded.len() as u64;
-
-                // Decide the healthy majority with ONE probe for the page.
-                //
-                // Almost every tip a full walk sees has its body exactly where the
-                // tip derives it, and `classify_repairable_dangling_tip` settles
-                // that case on its first `exists` alone. Asking that question one
-                // tip at a time made the walk's cheap-tier round trips scale with
-                // the page — the cost `rekey_page_round_trips_do_not_scale_with_page_size`
-                // exists to hold down on the migration walk over the same `mk:`
-                // plane, which this walk did not inherit.
-                //
-                // Measured on the live primary (0.23.3-1663-gd5a4bba77, 16.5 GiB
-                // store, 8.68 GiB of tips): a bounded dry run cost 49.7 s for 100
-                // tips and 62.2 s for 1000 within one page, i.e. ~13.9 ms of
-                // marginal classify per tip against hash-scattered partitions. At
-                // the ~750K-1.9M tips that plane has held, sizing a repair is a
-                // multi-hour job, and `probe_locator_only_population` — a cheap
-                // bounded gauge, 4096 tips over 512 windows — inherits the same
-                // per-tip cost. A full `mk:` dry run exceeded the CLI's own 600 s
-                // admin deadline on that store on 2026-09-07, against 2m35s for the
-                // same walk on 2026-08-18, so the bounded probe is now the only
-                // affordable instrument and its spread has to carry the answer.
-                //
-                // The probe below asks the same question on the same tier for the
-                // same keys, so a slot it calls present takes exactly the branch the
-                // per-slot classifier took. Only the slots it calls absent — bounded
-                // by the damage, not by the store — walk on to the locator reads and
-                // the live re-confirmation, which are deliberately left per-slot.
-                let page_present = {
-                    let mut probe_keys = Vec::with_capacity(decoded.len() * 2);
-                    for slot in &decoded {
-                        probe_keys.push(slot.prefixed_key.clone());
-                        probe_keys.push(slot.flat_key.clone());
-                    }
-                    let found = self
-                        .rekey_exists(&probe_keys, "repair exists body (page)")
-                        .await?;
-                    decoded
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _)| {
-                            found.get(i * 2).copied().unwrap_or(false)
-                                || found.get(i * 2 + 1).copied().unwrap_or(false)
-                        })
-                        .collect::<Vec<bool>>()
-                };
-
-                for (slot_idx, slot) in decoded.into_iter().enumerate() {
-                    if page_present.get(slot_idx).copied().unwrap_or(false) {
-                        report.skipped_body_restored += 1;
-                        continue;
-                    }
-                    let Some(class) = self
-                        .classify_repairable_dangling_tip(
-                            &slot,
-                            storage_prefix,
-                            ExistsAuthority::Cached,
-                        )
-                        .await?
-                    else {
-                        report.skipped_body_restored += 1;
-                        continue;
-                    };
-                    if class == UnresolvedTipClass::MisDerivedPartition {
-                        report.skipped_mis_derived += 1;
-                        continue;
-                    }
-                    // The paged walk answered from whatever tier was warm. Before a
-                    // tip is called repairable — reported as such in a dry run, and
-                    // deleted in an execute — confirm it against the live group.
-                    // The candidate set is small by construction, so the live loads
-                    // this costs are bounded by the damage, not by the store.
-                    let Some(class) = self
-                        .classify_repairable_dangling_tip(
-                            &slot,
-                            storage_prefix,
-                            ExistsAuthority::Live,
-                        )
-                        .await?
-                    else {
-                        report.skipped_body_restored += 1;
-                        report.rescued_by_live_probe += 1;
-                        continue;
-                    };
-                    if class == UnresolvedTipClass::MisDerivedPartition {
-                        report.skipped_mis_derived += 1;
-                        report.rescued_by_live_probe += 1;
-                        continue;
-                    }
-                    report.repairable_tips += 1;
-                    if let Some(cap) = options.audit_unresolved {
-                        if report.unresolved.len() < cap {
-                            report.unresolved.push(UnresolvedTip {
-                                tip_key: slot.tip_key.clone(),
-                                atom_uuid: slot.uuid.clone(),
-                                derived_partition: slot.partition.as_str().to_string(),
-                                molecule_uuid: slot
-                                    .partition
-                                    .molecule_uuid()
-                                    .unwrap_or_default()
-                                    .to_string(),
-                                schema: None,
-                                locator_partition: self
-                                    .locator_partition_for_report(&slot.locator_key)
-                                    .await?,
-                                class,
-                            });
-                        } else {
-                            report.unresolved_truncated = true;
-                        }
-                    }
-                    if options.dry_run {
-                        continue;
-                    }
-                    let Some(key) = decode_repair_key(storage_prefix, &slot.tip_key) else {
-                        report.skipped_unparseable_key += 1;
-                        continue;
-                    };
-                    repair_groups
-                        .entry(key.molecule_uuid.clone())
-                        .or_default()
-                        .push(RepairCandidate { slot, key });
-                }
-
-                if saw_remaining {
-                    break 'windows;
-                }
+        let mut walk = DanglingTipWalk {
+            options: &options,
+            storage_prefix,
+            tip_page,
+            ops: 0,
+            saw_remaining: false,
+            repair_groups: BTreeMap::new(),
+        };
+        for (scan_start, scan_end) in windows {
+            let range_exhausted = self
+                .walk_dangling_tip_window(scan_start, scan_end, &mut report, &mut walk)
+                .await?;
+            // An early stop skips the tail windows; it only happens with
+            // `saw_remaining` set, so it can never read as complete.
+            if walk.saw_remaining {
+                break;
             }
             all_windows_exhausted &= range_exhausted;
         }
+        let DanglingTipWalk {
+            mut saw_remaining,
+            repair_groups,
+            ..
+        } = walk;
 
         // The repairable set is bounded by the damage, not by store size. Hold
         // that small set until the walk finishes so exact slots from one
@@ -409,8 +166,9 @@ impl AtomStore {
             }
         }
 
-        // A `break 'windows` skips the tail windows, and it only happens with
-        // `saw_remaining` set, so an early stop can never read as complete.
+        // A `break` out of the window loop skips the tail windows, and it only
+        // happens with `saw_remaining` set, so an early stop can never read as
+        // complete.
         report.completed = all_windows_exhausted && !saw_remaining;
         if let Some(handle) = ledger {
             self.commit_delete_ledger_row(handle, |entry| {
@@ -428,6 +186,237 @@ impl AtomStore {
             let _ = self.flush().await;
         }
         Ok(report)
+    }
+
+    /// The `[start, end)` ranges the dangling-tip walk covers.
+    fn dangling_tip_walk_windows(
+        &self,
+        options: &DanglingTipRepairOptions,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<(String, String)>, SchemaError> {
+        use crate::schema::types::field::FilterUtils;
+
+        let mk_prefix = build_storage_key(storage_prefix, "mk:");
+        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
+        // A `key_window` narrows the walk to one sub-range of `mk:`; a `scope`
+        // narrows it to one prefix range per scoped molecule (and hash);
+        // without either the one window IS `mk:`, so every path shares the
+        // walk.
+        Ok(
+            match (options.scope.as_ref(), options.key_window.as_ref()) {
+                (Some(_), Some(_)) => {
+                    return Err(SchemaError::InvalidData(
+                        "repair-dangling-tips: scope and key_window are exclusive".to_string(),
+                    ))
+                }
+                (Some(scope), None) => self.dangling_tip_scope_windows(scope, storage_prefix)?,
+                (None, Some((start, end))) => vec![(
+                    build_storage_key(storage_prefix, start),
+                    end.as_ref()
+                        .map_or_else(|| mk_end, |e| build_storage_key(storage_prefix, e)),
+                )],
+                (None, None) => vec![(mk_prefix, mk_end)],
+            },
+        )
+    }
+
+    /// Page through one `mk:` window, classifying each page's tips. Returns
+    /// whether the window's range was read to its end. Stops early (with
+    /// `walk.saw_remaining` set) once the `max_ops` budget is spent.
+    async fn walk_dangling_tip_window(
+        &self,
+        scan_start: String,
+        scan_end: String,
+        report: &mut DanglingTipRepairReport,
+        walk: &mut DanglingTipWalk<'_>,
+    ) -> Result<bool, SchemaError> {
+        let mut page_start = scan_start;
+        let mut skip_head: Option<String> = None;
+        let mut range_exhausted = false;
+        while !range_exhausted {
+            let rows = self
+                .raw()
+                .inner()
+                .scan_range_paged(page_start.as_bytes(), scan_end.as_bytes(), walk.tip_page)
+                .await
+                .map_err(|e| SchemaError::InvalidData(format!("repair scan mk: {e}")))?;
+            if rows.len() < walk.tip_page {
+                range_exhausted = true;
+            }
+            if rows.is_empty() {
+                break;
+            }
+
+            let head = skip_head.take();
+            let decoded = decode_dangling_tip_page(
+                rows,
+                head.as_deref(),
+                &mut page_start,
+                walk.storage_prefix,
+            );
+            skip_head = Some(page_start.clone());
+
+            self.process_dangling_tip_page(decoded, report, walk)
+                .await?;
+            if walk.saw_remaining {
+                return Ok(range_exhausted);
+            }
+        }
+        Ok(range_exhausted)
+    }
+
+    /// Apply the `max_ops` budget to one decoded page, then classify each
+    /// slot. Sets `walk.saw_remaining` when the budget cut the page short.
+    async fn process_dangling_tip_page(
+        &self,
+        mut decoded: Vec<RekeySlot>,
+        report: &mut DanglingTipRepairReport,
+        walk: &mut DanglingTipWalk<'_>,
+    ) -> Result<(), SchemaError> {
+        if let Some(max) = walk.options.max_ops {
+            let budget = max.saturating_sub(walk.ops);
+            if decoded.len() > budget {
+                decoded.truncate(budget);
+                walk.saw_remaining = true;
+            }
+        }
+        if decoded.is_empty() {
+            return Ok(());
+        }
+        walk.ops += decoded.len();
+        report.tips_scanned += decoded.len() as u64;
+
+        let page_present = self.probe_page_bodies_present(&decoded).await?;
+        for (slot_idx, slot) in decoded.into_iter().enumerate() {
+            if page_present.get(slot_idx).copied().unwrap_or(false) {
+                report.skipped_body_restored += 1;
+                continue;
+            }
+            self.classify_dangling_tip_slot(slot, report, walk).await?;
+        }
+        Ok(())
+    }
+
+    /// For each slot, whether its body already exists at either derived key.
+    async fn probe_page_bodies_present(
+        &self,
+        decoded: &[RekeySlot],
+    ) -> Result<Vec<bool>, SchemaError> {
+        // Decide the healthy majority with ONE probe for the page.
+        //
+        // Almost every tip a full walk sees has its body exactly where the
+        // tip derives it, and `classify_repairable_dangling_tip` settles
+        // that case on its first `exists` alone. Asking that question one
+        // tip at a time made the walk's cheap-tier round trips scale with
+        // the page — the cost `rekey_page_round_trips_do_not_scale_with_page_size`
+        // exists to hold down on the migration walk over the same `mk:`
+        // plane, which this walk did not inherit.
+        //
+        // Measured on the live primary (0.23.3-1663-gd5a4bba77, 16.5 GiB
+        // store, 8.68 GiB of tips): a bounded dry run cost 49.7 s for 100
+        // tips and 62.2 s for 1000 within one page, i.e. ~13.9 ms of
+        // marginal classify per tip against hash-scattered partitions. At
+        // the ~750K-1.9M tips that plane has held, sizing a repair is a
+        // multi-hour job, and `probe_locator_only_population` — a cheap
+        // bounded gauge, 4096 tips over 512 windows — inherits the same
+        // per-tip cost. A full `mk:` dry run exceeded the CLI's own 600 s
+        // admin deadline on that store on 2026-09-07, against 2m35s for the
+        // same walk on 2026-08-18, so the bounded probe is now the only
+        // affordable instrument and its spread has to carry the answer.
+        //
+        // The probe below asks the same question on the same tier for the
+        // same keys, so a slot it calls present takes exactly the branch the
+        // per-slot classifier took. Only the slots it calls absent — bounded
+        // by the damage, not by the store — walk on to the locator reads and
+        // the live re-confirmation, which are deliberately left per-slot.
+        let mut probe_keys = Vec::with_capacity(decoded.len() * 2);
+        for slot in decoded {
+            probe_keys.push(slot.prefixed_key.clone());
+            probe_keys.push(slot.flat_key.clone());
+        }
+        let found = self
+            .rekey_exists(&probe_keys, "repair exists body (page)")
+            .await?;
+        Ok(decoded
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                found.get(i * 2).copied().unwrap_or(false)
+                    || found.get(i * 2 + 1).copied().unwrap_or(false)
+            })
+            .collect::<Vec<bool>>())
+    }
+
+    /// Classify one slot whose body the page probe did not find: skip it,
+    /// or count it as repairable (and queue it for repair on an execute run).
+    async fn classify_dangling_tip_slot(
+        &self,
+        slot: RekeySlot,
+        report: &mut DanglingTipRepairReport,
+        walk: &mut DanglingTipWalk<'_>,
+    ) -> Result<(), SchemaError> {
+        let storage_prefix = walk.storage_prefix;
+        let Some(class) = self
+            .classify_repairable_dangling_tip(&slot, storage_prefix, ExistsAuthority::Cached)
+            .await?
+        else {
+            report.skipped_body_restored += 1;
+            return Ok(());
+        };
+        if class == UnresolvedTipClass::MisDerivedPartition {
+            report.skipped_mis_derived += 1;
+            return Ok(());
+        }
+        // The paged walk answered from whatever tier was warm. Before a
+        // tip is called repairable — reported as such in a dry run, and
+        // deleted in an execute — confirm it against the live group.
+        // The candidate set is small by construction, so the live loads
+        // this costs are bounded by the damage, not by the store.
+        let Some(class) = self
+            .classify_repairable_dangling_tip(&slot, storage_prefix, ExistsAuthority::Live)
+            .await?
+        else {
+            report.skipped_body_restored += 1;
+            report.rescued_by_live_probe += 1;
+            return Ok(());
+        };
+        if class == UnresolvedTipClass::MisDerivedPartition {
+            report.skipped_mis_derived += 1;
+            report.rescued_by_live_probe += 1;
+            return Ok(());
+        }
+        report.repairable_tips += 1;
+        if let Some(cap) = walk.options.audit_unresolved {
+            if report.unresolved.len() < cap {
+                report.unresolved.push(UnresolvedTip {
+                    tip_key: slot.tip_key.clone(),
+                    atom_uuid: slot.uuid.clone(),
+                    derived_partition: slot.partition.as_str().to_string(),
+                    molecule_uuid: slot
+                        .partition
+                        .molecule_uuid()
+                        .unwrap_or_default()
+                        .to_string(),
+                    schema: None,
+                    locator_partition: self.locator_partition_for_report(&slot.locator_key).await?,
+                    class,
+                });
+            } else {
+                report.unresolved_truncated = true;
+            }
+        }
+        if walk.options.dry_run {
+            return Ok(());
+        }
+        let Some(key) = decode_repair_key(storage_prefix, &slot.tip_key) else {
+            report.skipped_unparseable_key += 1;
+            return Ok(());
+        };
+        walk.repair_groups
+            .entry(key.molecule_uuid.clone())
+            .or_default()
+            .push(RepairCandidate { slot, key });
+        Ok(())
     }
 
     /// Storage-scoped `[start, end)` prefix ranges for a
@@ -700,4 +689,112 @@ impl AtomStore {
             .and_then(crate::atom::atom_locator_codec::decode_value)
             .map(|p| p.as_str().to_string()))
     }
+}
+
+/// Mutable state shared by the dangling-tip walk's helpers.
+struct DanglingTipWalk<'a> {
+    options: &'a DanglingTipRepairOptions,
+    storage_prefix: Option<&'a str>,
+    tip_page: usize,
+    /// Tips counted against `options.max_ops` so far.
+    ops: usize,
+    /// Set when the `max_ops` budget cut the walk short.
+    saw_remaining: bool,
+    /// Repairable slots grouped by molecule, held until the walk finishes.
+    repair_groups: BTreeMap<String, Vec<RepairCandidate>>,
+}
+
+fn new_dangling_tip_report(
+    options: &DanglingTipRepairOptions,
+    tip_page: usize,
+    scan_started_at: String,
+    window_count: u64,
+) -> DanglingTipRepairReport {
+    DanglingTipRepairReport {
+        dry_run: options.dry_run,
+        scan_started_at,
+        tip_page: tip_page as u64,
+        tips_scanned: 0,
+        repairable_tips: 0,
+        tips_repaired: 0,
+        skipped_changed: 0,
+        skipped_molecule_missing: 0,
+        skipped_atom_not_in_molecule: 0,
+        skipped_body_restored: 0,
+        skipped_mis_derived: 0,
+        skipped_unparseable_key: 0,
+        skipped_unrepairable: 0,
+        refused_molecules: Vec::new(),
+        rescued_by_live_probe: 0,
+        failed_repairs: 0,
+        aborted_on_repeated_failures: false,
+        molecule_loads: 0,
+        storage_keys_deleted: 0,
+        completed: false,
+        unresolved: Vec::new(),
+        unresolved_truncated: false,
+        scope: options
+            .scope
+            .as_ref()
+            .map(|scope| DanglingTipRepairScopeReport {
+                schemas: Vec::new(),
+                molecule_uuids: scope.molecule_uuids.clone(),
+                hash_key: scope.hash_key.clone(),
+                key_ranges: window_count,
+            }),
+    }
+}
+
+/// Decode one `mk:` page into slots. Advances `page_start` to the last key
+/// read, and skips `head` (the previous page's last key, re-read by the
+/// inclusive range start). Rows that do not parse are dropped.
+fn decode_dangling_tip_page(
+    rows: Vec<(Vec<u8>, Vec<u8>)>,
+    head: Option<&str>,
+    page_start: &mut String,
+    storage_prefix: Option<&str>,
+) -> Vec<RekeySlot> {
+    use crate::atom::{atom_key_codec, atom_locator_codec, AtomKeyEncoding, AtomPartition};
+
+    let mut decoded: Vec<RekeySlot> = Vec::with_capacity(rows.len());
+    for (k, v) in rows {
+        let tip_key = String::from_utf8_lossy(&k).into_owned();
+        *page_start = tip_key.clone();
+        if head == Some(tip_key.as_str()) {
+            continue;
+        }
+        let Some(base_key) = strip_storage_prefix(storage_prefix, &tip_key) else {
+            continue;
+        };
+        let Some(partition) = AtomPartition::from_record_key(base_key) else {
+            continue;
+        };
+        let Ok(val) = serde_json::from_slice::<Value>(&v) else {
+            continue;
+        };
+        let Some(uuid) = val
+            .pointer("/entry/atom_uuid")
+            .and_then(|x| x.as_str())
+            .filter(|u| !u.is_empty())
+        else {
+            continue;
+        };
+        let uuid = uuid.to_string();
+        decoded.push(RekeySlot {
+            flat_key: build_storage_key(storage_prefix, &atom_key_codec::flat_key(&uuid)),
+            prefixed_key: build_storage_key(
+                storage_prefix,
+                &atom_key_codec::storage_key(
+                    AtomKeyEncoding::PartitionPrefix,
+                    Some(&partition),
+                    &uuid,
+                ),
+            ),
+            locator_key: build_storage_key(storage_prefix, &atom_locator_codec::locator_key(&uuid)),
+            tip_key,
+            uuid,
+            partition,
+        });
+    }
+    decoded
 }

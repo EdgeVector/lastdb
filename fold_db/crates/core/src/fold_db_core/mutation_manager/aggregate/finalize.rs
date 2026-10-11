@@ -26,23 +26,7 @@ impl MutationManager {
         finalize: AggregateFinalize,
         access_context: &crate::access::AccessContext,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        // lint:fn-size-ok moved verbatim from the original impl; splitting is a separate change
-        if finalize.source_schema_name.trim().is_empty()
-            || finalize.target_schema_name.trim().is_empty()
-            || finalize.member_schema_name.trim().is_empty()
-            || finalize.expected_guard_token.trim().is_empty()
-        {
-            return Err(SchemaError::InvalidData(
-                "aggregate finalize identities and expected_guard_token must not be empty".into(),
-            ));
-        }
-        if finalize.source_partition_key_value.hash.is_none()
-            || finalize.source_partition_key_value.range.is_some()
-        {
-            return Err(SchemaError::InvalidData(
-                "aggregate finalize source_partition_key_value must be hash-only".into(),
-            ));
-        }
+        Self::validate_finalize_request(&finalize)?;
         let target_key = self.resolve_aggregate_target_key(
             &finalize.target_schema_name,
             &finalize.target_key_value,
@@ -104,24 +88,8 @@ impl MutationManager {
             .aggregate_named_lock(target_lock_key)
             .lock_owned()
             .await;
-        let reverse_key = aggregate_target_guard_key(
-            storage_prefix.as_deref(),
-            &guard.target_schema_name,
-            &guard.target_key,
-        );
-        let reverse = self
-            .read_active_target_guard(&reverse_key, storage_prefix.as_deref())
-            .await?
-            .ok_or_else(|| {
-                SchemaError::InvalidData("aggregate target has no committed owner".into())
-            })?;
-        if !reverse.same_association(&guard)
-            || reverse.cmp_enrollment(&guard) != std::cmp::Ordering::Equal
-        {
-            return Err(SchemaError::InvalidData(
-                "aggregate target owner does not match the finalize source partition".into(),
-            ));
-        }
+        self.check_finalize_target_owner(&guard, storage_prefix.as_deref())
+            .await?;
         let grant_key = Self::aggregate_repair_grant_key(
             storage_prefix.as_deref(),
             &guard.target_schema_name,
@@ -150,12 +118,114 @@ impl MutationManager {
                     "aggregate finalize requires a durable repair grant".into(),
                 )
             })?;
+        let valid = self
+            .read_finalize_summary_state(
+                &finalize,
+                &target_key,
+                &guard,
+                grant,
+                storage_prefix.as_deref(),
+            )
+            .await?;
+        if valid == 1 {
+            if active_grant.is_some() {
+                self.db_ops
+                    .metadata()
+                    .put_typed_durable(&finalized_key, grant)
+                    .await?;
+                self.db_ops
+                    .metadata()
+                    .delete_typed_durable(&grant_key)
+                    .await?;
+            }
+            let mut receipt = ResidentCommitReceipt::empty();
+            receipt.durability = ResidentDurability::Durable;
+            return Ok(receipt);
+        }
+        if active_grant.is_none() {
+            return Err(SchemaError::InvalidData(
+                "aggregate finalized proof cannot authorize a new valid marker".into(),
+            ));
+        }
+
+        let receipt = self
+            .write_finalize_marker(finalize, target_key, storage_prefix.as_deref())
+            .await?;
+        self.db_ops
+            .metadata()
+            .put_typed_durable(&finalized_key, grant)
+            .await?;
+        self.db_ops
+            .metadata()
+            .delete_typed_durable(&grant_key)
+            .await?;
+        Ok(receipt)
+    }
+
+    fn validate_finalize_request(finalize: &AggregateFinalize) -> Result<(), SchemaError> {
+        if finalize.source_schema_name.trim().is_empty()
+            || finalize.target_schema_name.trim().is_empty()
+            || finalize.member_schema_name.trim().is_empty()
+            || finalize.expected_guard_token.trim().is_empty()
+        {
+            return Err(SchemaError::InvalidData(
+                "aggregate finalize identities and expected_guard_token must not be empty".into(),
+            ));
+        }
+        if finalize.source_partition_key_value.hash.is_none()
+            || finalize.source_partition_key_value.range.is_some()
+        {
+            return Err(SchemaError::InvalidData(
+                "aggregate finalize source_partition_key_value must be hash-only".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The committed target owner must be the guard being finalized.
+    async fn check_finalize_target_owner(
+        &self,
+        guard: &AggregateGuard,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        let reverse_key = aggregate_target_guard_key(
+            storage_prefix,
+            &guard.target_schema_name,
+            &guard.target_key,
+        );
+        let reverse = self
+            .read_active_target_guard(&reverse_key, storage_prefix)
+            .await?
+            .ok_or_else(|| {
+                SchemaError::InvalidData("aggregate target has no committed owner".into())
+            })?;
+        if !reverse.same_association(guard)
+            || reverse.cmp_enrollment(guard) != std::cmp::Ordering::Equal
+        {
+            return Err(SchemaError::InvalidData(
+                "aggregate target owner does not match the finalize source partition".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Read the summary row, check its token and metrics against the repair
+    /// grant, and return the current `valid` marker (0 or 1). A corrupt
+    /// summary invalidates the guard.
+    async fn read_finalize_summary_state(
+        &self,
+        finalize: &AggregateFinalize,
+        target_key: &KeyValue,
+        guard: &AggregateGuard,
+        grant: &AggregateRepairGrant,
+        storage_prefix: Option<&str>,
+    ) -> Result<i64, SchemaError> {
         let probe = Self::aggregate_probe(finalize.target_schema_name.clone(), target_key.clone());
         let mut summary_field_names = guard.metric_fields.clone();
         summary_field_names.push(AGGREGATE_VALID_FIELD.to_string());
         summary_field_names.push(AGGREGATE_GUARD_TOKEN_FIELD.to_string());
         let status = match self
-            .read_current_row_fields(&probe, &summary_field_names, storage_prefix.as_deref())
+            .read_current_row_fields(&probe, &summary_field_names, storage_prefix)
             .await?
         {
             CurrentRowFields::Absent => {
@@ -166,10 +236,10 @@ impl MutationManager {
             CurrentRowFields::Present(fields) => fields,
             CurrentRowFields::Corrupt { field, atom_uuid } => {
                 self.invalidate_guard_targets_durable(
-                    &[&guard],
+                    &[guard],
                     &format!("finalize-corrupt:{}", uuid::Uuid::new_v4()),
                     "",
-                    storage_prefix.as_deref(),
+                    storage_prefix,
                     WriteOrigin::Replay,
                 )
                 .await?;
@@ -224,27 +294,16 @@ impl MutationManager {
                 "aggregate summary valid marker must be 0 or 1".into(),
             ));
         }
-        if valid == 1 {
-            if active_grant.is_some() {
-                self.db_ops
-                    .metadata()
-                    .put_typed_durable(&finalized_key, grant)
-                    .await?;
-                self.db_ops
-                    .metadata()
-                    .delete_typed_durable(&grant_key)
-                    .await?;
-            }
-            let mut receipt = ResidentCommitReceipt::empty();
-            receipt.durability = ResidentDurability::Durable;
-            return Ok(receipt);
-        }
-        if active_grant.is_none() {
-            return Err(SchemaError::InvalidData(
-                "aggregate finalized proof cannot authorize a new valid marker".into(),
-            ));
-        }
+        Ok(valid)
+    }
 
+    /// Write the `valid=1` marker mutation and return its durable receipt.
+    async fn write_finalize_marker(
+        &self,
+        finalize: AggregateFinalize,
+        target_key: KeyValue,
+        storage_prefix: Option<&str>,
+    ) -> Result<ResidentCommitReceipt, SchemaError> {
         let mut summary = Mutation::new(
             finalize.target_schema_name,
             HashMap::from([
@@ -266,31 +325,16 @@ impl MutationManager {
             reservation.submit_and_wait(state).await?;
         }
         #[cfg(feature = "cloud-sync")]
-        let result =
-            crate::sync::capture::with_capture_suppressed(self.write_mutations_batch_inner(
-                vec![summary],
-                storage_prefix.as_deref(),
-                WriteOrigin::Request,
-            ))
-            .await;
+        let result = crate::sync::capture::with_capture_suppressed(
+            self.write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request),
+        )
+        .await;
         #[cfg(not(feature = "cloud-sync"))]
         let result = self
-            .write_mutations_batch_inner(
-                vec![summary],
-                storage_prefix.as_deref(),
-                WriteOrigin::Request,
-            )
+            .write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request)
             .await;
         let mut receipt = Self::require_durable_receipt(result?, "finalize marker")?;
         receipt.revision = Some(revision);
-        self.db_ops
-            .metadata()
-            .put_typed_durable(&finalized_key, grant)
-            .await?;
-        self.db_ops
-            .metadata()
-            .delete_typed_durable(&grant_key)
-            .await?;
         Ok(receipt)
     }
 }
