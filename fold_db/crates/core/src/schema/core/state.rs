@@ -105,11 +105,6 @@ impl SchemaCore {
         Ok(())
     }
 
-    pub async fn block_schema(&self, schema_name: &str) -> Result<(), SchemaError> {
-        self.set_schema_state(schema_name, SchemaState::Blocked)
-            .await
-    }
-
     /// Block a schema and record its successor for query redirection.
     /// Used during schema expansion: the old schema is blocked locally,
     /// and queries against it transparently redirect to the new schema.

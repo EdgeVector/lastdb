@@ -3,13 +3,6 @@
 use super::*;
 
 impl KeepSmallMeters {
-    /// Record a newly stored atom (logical serialized size).
-    ///
-    /// Increments live atom bytes, atom count, and today's append counter.
-    pub fn record_atom_put(&self, schema: &str, atom_uuid: &str, logical_bytes: u64) {
-        self.record_atom_put_with_blob(schema, atom_uuid, logical_bytes, 0, true);
-    }
-
     /// Record a stored atom and the logical blob bytes named by its pointer.
     pub fn record_atom_put_with_blob(
         &self,

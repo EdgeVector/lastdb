@@ -9,13 +9,6 @@ use serde_json::{json, Map, Value};
 /// Envelope version stamped by compact and document writes.
 pub const ENVELOPE_VERSION: u64 = 1;
 
-/// True when `value` is a document envelope (`v == 1` and `fields` is an object).
-/// Unknown `v` is not an envelope (forward-safe: dual-read zips).
-#[must_use]
-pub fn is_document_envelope(value: &Value) -> bool {
-    parse_document_fields(value).is_some()
-}
-
 /// Project the `fields` object from a document envelope. `None` if this is not
 /// an envelope (missing tip, field-shaped JSON, unknown `v`).
 #[must_use]
@@ -26,17 +19,6 @@ pub fn parse_document_fields(value: &Value) -> Option<&Map<String, Value>> {
         return None;
     }
     obj.get("fields")?.as_object()
-}
-
-/// Stamp a document envelope around `fields`.
-///
-/// Compact sets `complete: true` only when every declared field that still
-/// has a live tip is in `fields`. Dual-read treats a missing `complete` flag
-/// as incomplete (fail-closed): overlay keeps the zip, HashRangeKey does not
-/// take the envelope-first path.
-#[must_use]
-pub fn stamp_document_envelope(fields: Map<String, Value>) -> Value {
-    stamp_document_envelope_marked(fields, true)
 }
 
 /// Stamp a document envelope and set the completeness flag.

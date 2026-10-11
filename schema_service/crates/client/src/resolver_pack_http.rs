@@ -166,13 +166,3 @@ pub fn join_object_url(base_url: &str, key: &str) -> Result<String, ResolverPack
     }
     Ok(format!("{base}/{key}"))
 }
-
-/// True when a content-length header would exceed the configured cap.
-pub fn content_length_exceeds_cap(
-    content_length_header: Option<&str>,
-    max_download_bytes: u64,
-) -> bool {
-    content_length_header
-        .and_then(|v| v.parse::<u64>().ok())
-        .is_some_and(|len| len > max_download_bytes)
-}

@@ -9,13 +9,11 @@ use crate::security::{Ed25519KeyPair, KeyUtils};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use rand::{rngs::OsRng, RngCore};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::Write;
 
 pub fn canonical_payload_bytes(payload: &LastDbSlicePayload) -> Result<Vec<u8>, FoldDbError> {
     serde_json::to_vec(payload).map_err(FoldDbError::from)
@@ -51,15 +49,6 @@ fn gzip_bytes(raw: &[u8]) -> Result<Vec<u8>, FoldDbError> {
         .map_err(|e| FoldDbError::SecurityError(format!("gzip compress: {e}")))?;
     enc.finish()
         .map_err(|e| FoldDbError::SecurityError(format!("gzip finish: {e}")))
-}
-
-/// Inverse of [`gzip_bytes`].
-fn gunzip_bytes(raw: &[u8]) -> Result<Vec<u8>, FoldDbError> {
-    let mut dec = GzDecoder::new(raw);
-    let mut out = Vec::new();
-    dec.read_to_end(&mut out)
-        .map_err(|e| FoldDbError::SecurityError(format!("gzip decompress: {e}")))?;
-    Ok(out)
 }
 
 pub fn encrypt_signed_slice_jwe(
@@ -102,61 +91,4 @@ pub fn encrypt_signed_slice_jwe(
         ciphertext: URL_SAFE_NO_PAD.encode(ciphertext),
         tag: URL_SAFE_NO_PAD.encode(tag),
     })
-}
-
-pub fn decrypt_signed_slice_jwe(
-    envelope: &JweEnvelope,
-    content_key: &[u8; 32],
-) -> Result<SignedLastDbSlicePayload, FoldDbError> {
-    let protected_bytes = URL_SAFE_NO_PAD
-        .decode(&envelope.protected)
-        .map_err(|e| FoldDbError::SecurityError(format!("JWE protected header base64url: {e}")))?;
-    let header: BTreeMap<String, String> =
-        serde_json::from_slice(&protected_bytes).map_err(FoldDbError::from)?;
-    if header.get("alg").map(String::as_str) != Some("dir")
-        || header.get("enc").map(String::as_str) != Some("A256GCM")
-    {
-        return Err(FoldDbError::SecurityError(
-            "unsupported JWE header; expected alg=dir enc=A256GCM".to_string(),
-        ));
-    }
-    let zip = header.get("zip").map(String::as_str);
-    if let Some(z) = zip {
-        if z != JWE_ZIP_GZIP {
-            return Err(FoldDbError::SecurityError(format!(
-                "unsupported JWE zip={z}; expected {JWE_ZIP_GZIP} or absent"
-            )));
-        }
-    }
-    let iv = URL_SAFE_NO_PAD
-        .decode(&envelope.iv)
-        .map_err(|e| FoldDbError::SecurityError(format!("JWE iv base64url: {e}")))?;
-    if iv.len() != 12 {
-        return Err(FoldDbError::SecurityError(
-            "JWE iv must be 12 bytes".to_string(),
-        ));
-    }
-    let mut sealed = URL_SAFE_NO_PAD
-        .decode(&envelope.ciphertext)
-        .map_err(|e| FoldDbError::SecurityError(format!("JWE ciphertext base64url: {e}")))?;
-    let tag = URL_SAFE_NO_PAD
-        .decode(&envelope.tag)
-        .map_err(|e| FoldDbError::SecurityError(format!("JWE tag base64url: {e}")))?;
-    sealed.extend_from_slice(&tag);
-
-    let key = Key::<Aes256Gcm>::from_slice(content_key);
-    let cipher = Aes256Gcm::new(key);
-    let mut plaintext = cipher
-        .decrypt(
-            Nonce::from_slice(&iv),
-            aes_gcm::aead::Payload {
-                msg: &sealed,
-                aad: envelope.protected.as_bytes(),
-            },
-        )
-        .map_err(|e| FoldDbError::SecurityError(format!("JWE A256GCM decrypt failed: {e}")))?;
-    if zip == Some(JWE_ZIP_GZIP) {
-        plaintext = gunzip_bytes(&plaintext)?;
-    }
-    serde_json::from_slice(&plaintext).map_err(FoldDbError::from)
 }

@@ -30,22 +30,6 @@ impl AtomStore {
         self.write_keep_small().await
     }
 
-    /// Point-put the meters now if anything changed since the last durable
-    /// write. Use on shutdown, or wherever the snapshot must be current
-    /// rather than up to [`KEEP_SMALL_PERSIST_INTERVAL`] stale.
-    ///
-    /// Not from a write path. In-process readers (`status`, the budget and
-    /// churn reports, the schema storage report) read the live meters and
-    /// never need this; only a *later process* reads the durable copy. A
-    /// flush per write is the 2026-09-21 flush storm — see
-    /// [`KEEP_SMALL_PERSIST_INTERVAL`].
-    ///
-    /// Writes `clean_stop = false`: a runtime flush is not a clean stop. The
-    /// shutdown path calls [`Self::flush_keep_small_for_clean_stop`].
-    pub async fn flush_keep_small(&self) -> Result<(), crate::schema::SchemaError> {
-        self.flush_keep_small_inner(false).await
-    }
-
     /// The shutdown flush: lands the last debounce interval and stamps the
     /// snapshot `clean_stop = true`, so the next boot hydrates it as exact
     /// without a bootstrap. Call it after every metered writer has stopped.

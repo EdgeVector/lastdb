@@ -34,7 +34,6 @@ const RESTORE_NAMESPACE_CONCURRENCY: usize = 4;
 
 enum SnapshotNamespaceMode<'a> {
     All,
-    Reporting(&'a mut SnapshotScrubReport),
     Scoped(&'a [String]),
 }
 
@@ -56,38 +55,6 @@ impl Snapshot {
             last_seq,
             namespaces,
             SnapshotValueEncoding::Logical,
-        ))
-    }
-
-    /// Like [`create`](Self::create) but **non-aborting**: rows whose at-rest
-    /// value cannot be decrypted are skipped and reported in the returned
-    /// [`SnapshotScrubReport`] instead of failing the whole snapshot at the
-    /// first bad row.
-    ///
-    /// This is what lets a backup complete on a store holding a few local
-    /// at-rest "poison" rows (unrecoverable data written by a wrong-crypto-state
-    /// process) rather than dying on the first one: the snapshot omits only the
-    /// unreadable rows — which carry no recoverable data — and the caller logs
-    /// the skipped count loudly. Every readable row is still captured exactly.
-    pub async fn create_reporting(
-        store: &dyn NamespacedStore,
-        device_id: &str,
-        last_seq: u64,
-    ) -> SyncResult<(Self, SnapshotScrubReport)> {
-        let mut report = SnapshotScrubReport::default();
-        let namespaces = prepare_logical_photograph(
-            collect_snapshot_namespaces(store, SnapshotNamespaceMode::Reporting(&mut report))
-                .await?,
-            true,
-        )?;
-        Ok((
-            snapshot_from_namespaces(
-                device_id,
-                last_seq,
-                namespaces,
-                SnapshotValueEncoding::Logical,
-            ),
-            report,
         ))
     }
 

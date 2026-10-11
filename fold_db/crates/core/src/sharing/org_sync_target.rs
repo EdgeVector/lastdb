@@ -250,38 +250,6 @@ pub async fn list_org_sync_targets_in_ops(
     Ok(items)
 }
 
-/// Delete empty/corrupt `org_sync_targets` rows from the primary backend.
-pub async fn repair_org_sync_targets_in_ops(
-    ops: &DbOperations,
-    deactivate_all_active: bool,
-) -> Result<(u64, u64), FoldDbError> {
-    let store = namespace(ops).await?;
-    let mut removed_bad = 0u64;
-    let mut deactivated = 0u64;
-    let keys: Vec<Vec<u8>> = store.scan_prefix_keys(b"").await?.into_iter().collect();
-    for key in keys {
-        let Some(value) = store.get(&key).await? else {
-            continue;
-        };
-        if value.is_empty() || serde_json::from_slice::<OrgSyncTarget>(&value).is_err() {
-            store.delete(&key).await?;
-            removed_bad += 1;
-            continue;
-        }
-        if deactivate_all_active {
-            let mut target: OrgSyncTarget = serde_json::from_slice(&value)?;
-            if target.active {
-                target.active = false;
-                let encoded = serde_json::to_vec(&target)?;
-                store.put(&key, encoded).await?;
-                deactivated += 1;
-            }
-        }
-    }
-    store.flush().await?;
-    Ok((removed_bad, deactivated))
-}
-
 /// Active targets only from the primary backend.
 pub async fn list_active_org_sync_targets_in_ops(
     ops: &DbOperations,
@@ -291,26 +259,6 @@ pub async fn list_active_org_sync_targets_in_ops(
         .into_iter()
         .filter(|t| t.active)
         .collect())
-}
-
-/// Deactivate an org sync target in the primary backend.
-pub async fn deactivate_org_sync_target_in_ops(
-    ops: &DbOperations,
-    org_hash: &str,
-) -> Result<(), FoldDbError> {
-    validate_org_hash(org_hash)?;
-    let store = namespace(ops).await?;
-    let key = format!("org_sync:{}", org_hash.trim().to_lowercase());
-    if let Some(value) = store.get(key.as_bytes()).await? {
-        let mut target: OrgSyncTarget = serde_json::from_slice(&value)?;
-        target.active = false;
-        let value = serde_json::to_vec(&target)?;
-        store.put(key.as_bytes(), value).await?;
-        return Ok(());
-    }
-    Err(FoldDbError::Database(format!(
-        "org sync target not found: {org_hash}"
-    )))
 }
 
 /// Deactivate every ACTIVE org sync target that matches the selector.
@@ -373,10 +321,8 @@ fn chrono_like_now() -> String {
 
 // Back-compat aliases used by some call sites that still import the old names.
 // These are the same as the `_in_ops` variants.
-pub use deactivate_org_sync_target_in_ops as deactivate_org_sync_target;
 pub use list_active_org_sync_targets_in_ops as list_active_org_sync_targets;
 pub use list_org_sync_targets_in_ops as list_org_sync_targets;
-pub use repair_org_sync_targets_in_ops as repair_org_sync_targets;
 pub use upsert_org_sync_target_for_storage_prefix_and_schema_in_ops as upsert_org_sync_target_for_storage_prefix_and_schema;
 pub use upsert_org_sync_target_for_storage_prefix_in_ops as upsert_org_sync_target_for_storage_prefix;
 pub use upsert_org_sync_target_in_ops as upsert_org_sync_target;

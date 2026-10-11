@@ -12,8 +12,8 @@ pub use compact::{compact_record_molecule, compact_record_molecule_key, CompactR
 pub use dual_read::{hash_range_key_from_envelope, overlay_document_envelope};
 pub use dual_write::fold_mutations_to_record_envelope;
 pub use envelope::{
-    envelope_is_complete, is_document_envelope, merge_sent_fields, parse_document_fields,
-    stamp_document_envelope, stamp_document_envelope_marked, ENVELOPE_VERSION,
+    envelope_is_complete, merge_sent_fields, parse_document_fields, stamp_document_envelope_marked,
+    ENVELOPE_VERSION,
 };
 
 use crate::schema::Schema;

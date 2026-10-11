@@ -499,14 +499,3 @@ pub fn observe_legacy_schema_caller(
     );
     kind
 }
-
-/// True when a Mini private declare body cannot be mistaken for a shared
-/// publish request.
-///
-/// Private declare uses `{ namespace, schema }` (or apps declare
-/// `{ app_id, schema }`). Shared publish requires `local_schema_id` +
-/// `surface` with purpose/compatibility/provenance. Deserializing a private
-/// declare body as [`SharedSurfacePublishAttachRequest`] must fail.
-pub fn private_declare_body_is_not_shared_surface(private_declare_json: &str) -> bool {
-    serde_json::from_str::<SharedSurfacePublishAttachRequest>(private_declare_json).is_err()
-}

@@ -318,15 +318,6 @@ struct Held<T> {
     token: Option<DurabilityToken>,
 }
 
-/// Token, hold, and atom body `delete_resident` takes with a tip.
-#[derive(Debug)]
-struct UndoDeleteSnapshot {
-    hold: u32,
-    token: Option<DurabilityToken>,
-    atom_body: Option<Vec<u8>>,
-    tip_body: Option<Vec<u8>>,
-}
-
 impl<T> Held<T> {
     fn admit(value: T) -> Self {
         Self {
@@ -385,10 +376,6 @@ pub struct LogicalResidentSet {
     /// that wrote them can admit its plaintext.
     pending_write_tokens: HashMap<Vec<u8>, PendingWrite>,
     tombstones: HashMap<TipKey, Held<()>>,
-    /// Tip token and atom body removed by [`Self::delete_resident`].
-    /// [`Self::undo_delete`] restores them. A successful delete drops this
-    /// when the tombstone leaves.
-    undo_snapshots: HashMap<TipKey, UndoDeleteSnapshot>,
     /// Per-hash ordered molecule view. Completeness is this hash only.
     hash_views: HashMap<(MoleculeId, String), HashView>,
     recency: HashMap<ResidentKey, u64>,

@@ -36,8 +36,8 @@ pub use core::SchemaCore;
 pub use field_hash_coherence::{
     are_multi_key_siblings, bind_cross_key_field_protein, bind_cross_key_record_protein,
     declared_field_identities, declared_identities_match, field_identity_hashes,
-    overlap_coefficient, protein_write_field_with_sync_fold, shared_field_identities,
-    KeyLayoutFingerprint, SharedFieldIdentity, MULTI_KEY_SIBLING_OVERLAP,
+    overlap_coefficient, shared_field_identities, KeyLayoutFingerprint, SharedFieldIdentity,
+    MULTI_KEY_SIBLING_OVERLAP,
 };
 pub use field_mapper::FieldMapperService;
 pub use interpreter::SchemaInterpreter;

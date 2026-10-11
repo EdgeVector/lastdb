@@ -2,16 +2,6 @@
 
 use super::*;
 
-/// Mark the current session in `$FOLDDB_HOME/sessions.jsonl` as cleanly shut
-/// down. Remove `current-session.json` first, then stamp `end_ts` and
-/// `exit: "clean"` on the newest ledger line whose pid matches.
-///
-/// The caller must stop the heartbeat before this call. A marker removal error
-/// prevents the clean stamp. A repeated call keeps the first exit reason.
-pub fn mark_clean_shutdown(home: &Path, pid: u32) -> std::io::Result<()> {
-    mark_clean_shutdown_with_reason(home, pid, None)
-}
-
 /// Persist the supervisor's shutdown request before asynchronous drain work.
 ///
 /// This leaves `current-session.json` in place while the process is still

@@ -61,27 +61,6 @@ impl LogicalResidentSet {
         previous
     }
 
-    /// Failed-transaction undo. Removes the tombstone and restores the held
-    /// tip, its durability token, and the atom body `take_tip_for_delete`
-    /// removed. This does not admit a clean tip in place of a dirty one.
-    pub fn undo_delete(
-        &mut self,
-        molecule: MoleculeId,
-        hash: &str,
-        range: &str,
-        previous: Option<Tip>,
-    ) {
-        let key = tip_key(molecule, hash, range);
-        self.drop_tombstone_record(&key);
-        let snapshot = self.undo_snapshots.remove(&key);
-        if let Some(tip) = previous {
-            match snapshot {
-                Some(snapshot) => self.restore_deleted_tip(key, tip, snapshot),
-                None => self.insert_new_tip(key, tip),
-            }
-        }
-    }
-
     /// A newer put of the key supersedes its delete overlay.
     pub fn supersede_tombstone(&mut self, molecule: MoleculeId, hash: &str, range: &str) {
         self.clear_tombstone(&tip_key(molecule, hash, range));

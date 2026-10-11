@@ -60,8 +60,6 @@ use schema_types::FieldValueType;
 use schema_types::FoldDbError;
 use schema_types::FoldDbResult;
 #[cfg(feature = "schema-org-seed-data")]
-use schema_types::Schema;
-#[cfg(feature = "schema-org-seed-data")]
 use serde::Deserialize;
 
 use crate::state::SchemaServiceState;
@@ -160,29 +158,6 @@ fn classify_schema_org_field(
     Ok((classification, interest))
 }
 
-/// Committed validated canonical-fields aggregate. Emitted by
-/// `generate_validated_schema_org_seeds` — one entry per property, with
-/// the classification already applied.
-#[cfg(feature = "schema-org-seed-data")]
-const VALIDATED_CANONICAL_FIELDS_JSON: &str =
-    include_str!("../data/schema_org/validated_canonical_fields.json");
-
-/// Committed per-schema files under `data/schema_org/schemas/*.json`.
-/// `include_dir!` embeds the whole directory at build time so cold start
-/// needs no filesystem I/O.
-#[cfg(feature = "schema-org-seed-data")]
-static VALIDATED_SCHEMAS_DIR: include_dir::Dir<'_> =
-    include_dir::include_dir!("$CARGO_MANIFEST_DIR/data/schema_org/schemas");
-
-/// Envelope shape of the committed canonical-fields aggregate. The
-/// `version` and generator-metadata keys on disk are informational and
-/// ignored by serde.
-#[cfg(feature = "schema-org-seed-data")]
-#[derive(Deserialize)]
-struct ValidatedCanonicalFieldsDoc {
-    entries: HashMap<String, CanonicalField>,
-}
-
 /// Cold-start hook. **Does not insert Schema.org types or properties.**
 ///
 /// The live language is the curated builtin field catalog plus
@@ -194,95 +169,6 @@ pub fn seed(_state: &SchemaServiceState) -> FoldDbResult<()> {
     tracing::info!(
         target: "schema_service::schema",
         "Skipping Schema.org starter seed (not live language)"
-    );
-    Ok(())
-}
-
-/// Load the aggregate canonical-fields JSON into the in-memory registry.
-/// Classification travels with each entry from the committed JSON; no
-/// runtime clustering, no LLM calls, no S3 writes, no embedding. The
-/// warm-embeddings admin endpoint is responsible for populating
-/// similarity-lookup embeddings afterward.
-#[cfg(feature = "schema-org-seed-data")]
-pub fn load_validated_canonical_fields(state: &SchemaServiceState) -> FoldDbResult<()> {
-    let doc: ValidatedCanonicalFieldsDoc = serde_json::from_str(VALIDATED_CANONICAL_FIELDS_JSON)
-        .map_err(|e| {
-            FoldDbError::Config(format!(
-                "Failed to parse committed validated_canonical_fields.json: {e}. \
-                 Regenerate via `cargo run --release --bin generate-validated-schema-org-seeds`."
-            ))
-        })?;
-
-    let total = doc.entries.len();
-    for (name, canonical) in doc.entries {
-        state.insert_pre_validated_canonical_field(&name, canonical);
-    }
-
-    tracing::info!(
-            target: "schema_service::schema",
-        "Loaded {} validated Schema.org canonical fields from JSON (in-memory only)",
-        total
-    );
-    Ok(())
-}
-
-/// Load every committed per-schema JSON file under
-/// `data/schema_org/schemas/` into the registry via
-/// [`SchemaServiceState::insert_pre_validated_schema`] — no re-validation,
-/// no semantic matching, no classification propagation.
-#[cfg(feature = "schema-org-seed-data")]
-pub fn load_validated_schemas(state: &SchemaServiceState) -> FoldDbResult<()> {
-    let mut loaded = 0usize;
-    let mut skipped_non_files = 0usize;
-
-    for file in VALIDATED_SCHEMAS_DIR.files() {
-        let path = file.path().display().to_string();
-        let contents = file.contents_utf8().ok_or_else(|| {
-            FoldDbError::Config(format!("Validated schema file '{path}' is not valid UTF-8"))
-        })?;
-
-        // Tolerate unexpected non-.json files in the directory rather
-        // than crashing the service — if someone accidentally commits a
-        // README or editor swap file, log and skip.
-        if !path.ends_with(".json") {
-            skipped_non_files += 1;
-            continue;
-        }
-
-        let mut schema: Schema = serde_json::from_str(contents).map_err(|e| {
-            FoldDbError::Config(format!(
-                "Failed to parse committed validated schema file '{path}': {e}. \
-                 Regenerate via `cargo run --release --bin generate-validated-schema-org-seeds`."
-            ))
-        })?;
-
-        // Phase A of dual-signal canonicalization defaults `purpose_statement`
-        // to `descriptive_name` for user-source schemas in `add_schema`. The
-        // committed starter-seed JSON files predate that field and omit it, so
-        // apply the same default here before insertion — otherwise the dual-
-        // signal gate has no purpose embedding to compare against on the 914
-        // StarterSeed schemas.
-        if schema
-            .purpose_statement
-            .as_deref()
-            .is_none_or(|p| p.trim().is_empty())
-        {
-            if let Some(desc) = schema.descriptive_name.as_ref() {
-                if !desc.trim().is_empty() {
-                    schema.purpose_statement = Some(desc.clone());
-                }
-            }
-        }
-
-        state.insert_pre_validated_schema(&schema)?;
-        loaded += 1;
-    }
-
-    tracing::info!(
-            target: "schema_service::schema",
-        "Loaded {} validated Schema.org StarterSeed schemas from JSON (skipped {} non-json entries)",
-        loaded,
-        skipped_non_files
     );
     Ok(())
 }

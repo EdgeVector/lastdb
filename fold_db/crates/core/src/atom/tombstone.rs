@@ -10,23 +10,10 @@
 //! `MutationType::Delete`) is intentionally NOT done here — that's a
 //! follow-up task (T2 in the tombstoning plan).
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// The single top-level key that identifies a tombstone content object.
 pub const TOMBSTONE_KEY: &str = "_fold_tombstone";
-
-/// Build a tombstone content payload — used by future delete-writers (T2)
-/// and by tests that need to synthesize a tombstone atom directly.
-#[must_use]
-pub fn tombstone_content(key: &str, reason: &str, actor: &str) -> Value {
-    json!({
-        TOMBSTONE_KEY: {
-            "key": key,
-            "reason": reason,
-            "actor": actor,
-        }
-    })
-}
 
 /// Returns `true` if `content` is the reserved tombstone shape:
 /// a JSON object with exactly one top-level key (`_fold_tombstone`)

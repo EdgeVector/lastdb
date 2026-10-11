@@ -12,42 +12,11 @@ impl ResidentGraph {
         self.charge_and_enforce(DirtyKey::Schema(name), APPROX_SCHEMA_BYTES);
     }
 
-    pub fn apply_schema(&self, schema: Schema) {
-        // Dirty BEFORE install: the install's budget-enforcement pass must
-        // already see this entry as dirty, or it could evict the write it is
-        // in the middle of applying.
-        self.mark_dirty(DirtyKey::Schema(schema.name.clone()));
-        self.install_schema(schema);
-    }
-
     pub fn has_schema(&self, name: &str) -> bool {
         self.schemas
             .read()
             .expect("schemas lock")
             .contains_key(name)
-    }
-
-    pub fn resolve_schema(
-        &self,
-        name: &str,
-        loader: &dyn SchemaLoader,
-    ) -> Result<Option<ResolveOutcome<Schema>>, String> {
-        {
-            let map = self.schemas.read().expect("schemas lock");
-            if let Some(schema) = map.get(name) {
-                self.metrics.record_hit(ResidentKind::Schema);
-                let outcome = ResolveOutcome::hit(schema.clone());
-                drop(map);
-                self.note_touch(&DirtyKey::Schema(name.to_string()));
-                return Ok(Some(outcome));
-            }
-        }
-        let Some(schema) = loader.load_schema(name)? else {
-            return Ok(None);
-        };
-        self.install_schema(schema.clone());
-        self.metrics.record_rehydrate(ResidentKind::Schema);
-        Ok(Some(ResolveOutcome::rehydrated(schema)))
     }
 
     pub fn schema_count(&self) -> usize {

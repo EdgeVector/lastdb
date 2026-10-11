@@ -101,21 +101,6 @@ impl ChannelRecord {
 
 // ─── Release id ───────────────────────────────────────────────────────────
 
-/// `release_id = SHA-256(JCS(manifest))`.
-///
-/// The value is content-addressed, so two publishers that submit the same
-/// manifest submit the same release, and no publisher can move a release id
-/// onto different bytes.
-///
-/// # Errors
-/// Returns the canonicalization failure if the manifest does not serialize
-/// to canonical JSON (NaN, non-string keys — unreachable for this type).
-pub fn compute_release_id(manifest: &ReleaseManifest) -> Result<String, String> {
-    let value = serde_json::to_value(manifest)
-        .map_err(|e| format!("release manifest does not serialize: {e}"))?;
-    compute_release_id_from_value(&value)
-}
-
 /// [`compute_release_id`] over an already-parsed manifest body — used on the
 /// request path so the digest covers exactly the JSON the developer signed.
 ///

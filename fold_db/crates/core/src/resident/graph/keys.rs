@@ -237,12 +237,6 @@ impl ResidentGraph {
         }
     }
 
-    /// Mark a molecule key as explicitly deleted in the resident overlay.
-    pub fn apply_key_tombstone(&self, molecule_uuid: &str, hash: &str, range: &str) {
-        let tombstone_id = self.next_tombstone_id();
-        self.apply_key_tombstone_with_id(molecule_uuid, hash, range, tombstone_id);
-    }
-
     pub fn apply_key_tombstone_with_id(
         &self,
         molecule_uuid: &str,
@@ -312,17 +306,6 @@ impl ResidentGraph {
         self.discharge(&key.tombstone_dirty_key(molecule_uuid));
         drop(tombstones);
         self.enforce_budget();
-    }
-
-    /// Declare that resident holds the complete key set for this molecule.
-    pub fn mark_key_set_complete(&self, molecule_uuid: &str, as_of: u64) {
-        self.key_completeness
-            .write()
-            .expect("key completeness lock")
-            .insert(
-                molecule_uuid.to_string(),
-                ResidentKeySetCompleteness::Complete { as_of },
-            );
     }
 
     /// Ordered resident key-set walk for one molecule.

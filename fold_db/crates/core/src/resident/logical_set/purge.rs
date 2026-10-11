@@ -121,50 +121,10 @@ impl LogicalResidentSet {
         let entry = self.tips.remove(key)?;
         self.note_used_remove(entry.hold, entry.token.is_some());
         self.forget_key(&resident_tip_key(key));
-        let atom_body = self.atom_bodies.get(&entry.value.atom).cloned();
-        let tip_body = self.tip_bodies.remove(key);
-        self.undo_snapshots.insert(
-            key.clone(),
-            UndoDeleteSnapshot {
-                hold: entry.hold,
-                token: entry.token,
-                atom_body,
-                tip_body,
-            },
-        );
+        self.tip_bodies.remove(key);
         self.unlink_atom(&entry.value.atom, key);
         self.note_tip_removed(key.molecule);
         Some(entry.value)
-    }
-
-    pub(super) fn restore_deleted_tip(
-        &mut self,
-        key: TipKey,
-        tip: Tip,
-        snapshot: UndoDeleteSnapshot,
-    ) {
-        // Link before the body lands so a cap purge cannot drop an
-        // unlinked restored atom. Purge runs only after the tip is in.
-        self.link_atom(&tip.atom, &key);
-        if let Some(body) = snapshot.atom_body {
-            self.store_atom_body(tip.atom.clone(), body);
-        }
-        if let Some(body) = snapshot.tip_body {
-            self.tip_bodies.insert(key.clone(), body);
-        }
-        *self.molecule_tips.entry(key.molecule).or_default() += 1;
-        self.touch(resident_tip_key(&key));
-        self.note_live_tip(&key);
-        self.note_used_insert(snapshot.hold, snapshot.token.is_some());
-        self.tips.insert(
-            key,
-            Held {
-                value: tip,
-                hold: snapshot.hold,
-                token: snapshot.token,
-            },
-        );
-        self.purge_over_cap();
     }
 
     pub(super) fn insert_new_tip(&mut self, key: TipKey, tip: Tip) {
@@ -214,8 +174,7 @@ impl LogicalResidentSet {
         }
     }
 
-    /// Remove the counted tombstone. Keeps the undo snapshot for
-    /// [`Self::undo_delete`].
+    /// Remove the counted tombstone.
     pub(super) fn drop_tombstone_record(&mut self, key: &TipKey) {
         let removed = if let Some(entry) = self.tombstones.remove(key) {
             self.note_used_remove(entry.hold, entry.token.is_some());
@@ -232,7 +191,6 @@ impl LogicalResidentSet {
     /// A later put of the same key supersedes a delete overlay.
     pub(super) fn clear_tombstone(&mut self, key: &TipKey) {
         self.drop_tombstone_record(key);
-        self.undo_snapshots.remove(key);
     }
 
     pub(super) fn drop_tip(&mut self, key: &TipKey) {

@@ -11,9 +11,9 @@ use super::lane::PersistSlotRevision;
 use super::ledger::ResidentLedger;
 use super::metrics::ResidentMetrics;
 use super::types::{
-    DirtyKey, PersistPlan, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot,
-    ResidentKind, ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip,
-    ResolveOutcome, APPROX_SCHEMA_BYTES,
+    DirtyKey, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot, ResidentKind,
+    ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip, ResolveOutcome,
+    APPROX_SCHEMA_BYTES,
 };
 use crate::schema::types::Schema;
 

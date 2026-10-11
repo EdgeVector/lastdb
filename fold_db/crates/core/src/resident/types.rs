@@ -340,12 +340,6 @@ impl ResidentAtom {
         self
     }
 
-    /// Reconstruct the domain atom without JSON conversion.
-    /// Missing creation time means partial fidelity; callers load from storage.
-    pub fn to_atom(&self) -> Option<crate::atom::Atom> {
-        self.clone().into_atom()
-    }
-
     /// Move an owned resident hit into the domain atom without another content copy.
     pub fn into_atom(self) -> Option<crate::atom::Atom> {
         Some(crate::atom::Atom::from_stored_parts(

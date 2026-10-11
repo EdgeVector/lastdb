@@ -9,36 +9,12 @@
 //! backs off PUT fan-out on the same 30 s → 15 min curve as CAS, while the
 //! enumerate / remaining-count half keeps running every interval.
 
-use std::collections::HashSet;
 use std::time::Duration;
 
 /// First drain-PUT backoff after a fully-failed cycle (matches CAS start).
 pub const DRAIN_PUT_BACKOFF_INITIAL: Duration = Duration::from_secs(30);
 /// Cap for drain-PUT exponential backoff (matches CAS 15 min).
 pub const DRAIN_PUT_BACKOFF_MAX: Duration = Duration::from_secs(900);
-
-/// Plan the next digests to upload.
-///
-/// `candidates` is ordered `(sha256, bytes)`. `already_present` are digests
-/// already confirmed in cloud (or known from prior cycles). Returns at most
-/// `upload_target` missing digests from the full walk.
-pub fn plan_backup_uploads(
-    candidates: &[(String, u64)],
-    already_present: &HashSet<String>,
-    upload_target: usize,
-) -> Vec<String> {
-    let mut out = Vec::new();
-    for (sha, _bytes) in candidates {
-        if out.len() >= upload_target {
-            break;
-        }
-        if already_present.contains(sha) {
-            continue;
-        }
-        out.push(sha.clone());
-    }
-    out
-}
 
 /// True when this drain cycle **attempted PUT work and completed none of it**.
 ///

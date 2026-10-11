@@ -77,11 +77,10 @@ pub use delete_ledger::{
 };
 pub use keep_small::{
     atom_histogram, keep_small_schema_shard_key, physical_compact_rewrite_capture_records,
-    physical_compact_rewrite_is_capture_neutral, sum_physical_plane_bytes, AtomHistogram,
-    KeepSmallHardEraseDebit, KeepSmallHardEraseTotals, KeepSmallMeters, KeepSmallSchemaShard,
-    KeepSmallSnapshot, LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload, MeterTrustState,
-    MoleculeStorageCounter, MoleculeTipCounterSource, SchemaMeter, ATOM_HISTOGRAM_16KIB,
-    ATOM_HISTOGRAM_32KIB, ATOM_HISTOGRAM_64KIB, BUDGET_PHYSICAL_PLANES,
+    AtomHistogram, KeepSmallHardEraseDebit, KeepSmallHardEraseTotals, KeepSmallMeters,
+    KeepSmallSchemaShard, KeepSmallSnapshot, LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload,
+    MeterTrustState, MoleculeStorageCounter, MoleculeTipCounterSource, SchemaMeter,
+    ATOM_HISTOGRAM_16KIB, ATOM_HISTOGRAM_32KIB, ATOM_HISTOGRAM_64KIB, BUDGET_PHYSICAL_PLANES,
     KEEP_SMALL_HARD_ERASE_TOTALS_KEY, KEEP_SMALL_SCHEMA_SHARD_PREFIX,
     KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY, KEEP_SMALL_TRUST_VERSION,
     KEEP_SMALL_UNATTRIBUTED_SCHEMA, KEEP_SMALL_UNATTRIBUTED_SHARD_KEY, LIVE_BUDGET_BYTES,

@@ -213,12 +213,6 @@ impl Gauge {
     pub const fn as_wire_u64(self) -> Option<u64> {
         self.value.as_wire_u64()
     }
-
-    /// Restore a gauge from a bare-numeric wire value plus unit/window metadata
-    /// that lives in the type (not on the wire in the transparent path).
-    pub const fn from_wire_u64(n: u64, unit: Unit, window: Window) -> Self {
-        Self::measured(n, unit, window)
-    }
 }
 
 impl fmt::Display for Gauge {
@@ -305,14 +299,6 @@ pub mod serde_u64 {
 /// Attach unit/window after a transparent wire round-trip that only carried the
 /// number. Prefer constructing with the correct unit/window up front.
 impl Gauge {
-    pub const fn with_unit_window(self, unit: Unit, window: Window) -> Self {
-        Self {
-            value: self.value,
-            unit,
-            window,
-        }
-    }
-
     /// Availability token for the contract block (`measured` / `unavailable`).
     pub const fn availability_token(self) -> &'static str {
         match self.value {

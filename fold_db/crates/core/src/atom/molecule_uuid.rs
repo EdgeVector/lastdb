@@ -62,12 +62,6 @@ pub fn encode_molecule_uuid_hex(digest: &[u8; 32]) -> String {
     out
 }
 
-/// Legacy hex identity — the form already on disk for existing homes.
-#[must_use]
-pub fn legacy_hex_molecule_uuid(schema_name: &str, field_name: &str) -> String {
-    encode_molecule_uuid_hex(&molecule_uuid_digest(schema_name, field_name))
-}
-
 /// Decode a write-form or legacy-hex molecule UUID to the 32-byte digest.
 #[must_use]
 pub fn parse_molecule_uuid_bytes(uuid: &str) -> Option<[u8; 32]> {

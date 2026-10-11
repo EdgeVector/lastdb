@@ -126,26 +126,6 @@ impl Environment {
         }
     }
 
-    /// Fail-closed resolution of `var_name` for security-sensitive cold-start
-    /// checks: panics with a clear message when the var is unset, empty, or
-    /// unrecognized — no silent default. Does not use the process-wide cache,
-    /// so it's safe to call from a crate that reads a different var name than
-    /// `from_env()`'s `ENVIRONMENT`/`EXEMEM_ENV` pair.
-    pub fn require_from_env(var_name: &str) -> Self {
-        match std::env::var(var_name) {
-            Ok(v) if !v.is_empty() => Self::try_from_str(&v).unwrap_or_else(|_| {
-                panic!(
-                    "CRITICAL: {var_name} env var has unrecognized value {v:?} \
-                     (expected 'dev' or 'prod')."
-                )
-            }),
-            _ => panic!(
-                "CRITICAL: {var_name} env var must be set (expected 'dev' or 'prod'). \
-                 Refusing to start."
-            ),
-        }
-    }
-
     /// Lowercase name (`"dev"` / `"prod"`) — for logging and for embedding
     /// in externally-visible artifacts (e.g. a signed cert's `env` field)
     /// where the exact literal matters, not just `Debug`'s `Dev`/`Prod`.

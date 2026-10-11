@@ -50,15 +50,6 @@ impl Frontier {
         }
     }
 
-    /// Scalar through-id when this is a v1 frontier; `None` for pure vector form.
-    pub fn as_scalar_through(&self) -> Option<u64> {
-        match self {
-            Self::Scalar { through } => Some(*through),
-            Self::Vector { through } if through.len() == 1 => through.values().next().copied(),
-            Self::Vector { .. } => None,
-        }
-    }
-
     /// Max through across writers (scalar max of vector F; identity for scalar).
     pub fn max_through(&self) -> u64 {
         match self {

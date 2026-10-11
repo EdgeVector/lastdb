@@ -7,9 +7,7 @@
 
 use super::sink::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::atom::is_tombstone_value;
-use crate::db_operations::search_index::{
-    resolve_search_inbox_dir, resolve_search_inbox_dir_for_home,
-};
+use crate::db_operations::search_index::resolve_search_inbox_dir_for_home;
 use crate::db_operations::DbOperations;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::Schema;
@@ -247,25 +245,6 @@ pub fn write_batches_to_search_inbox(
         n += 1;
     }
     Ok(n)
-}
-
-/// Full iterative rebuild emit: page all product records into Search inbox.
-///
-/// **Off hot path** — call from restore hooks, CLI, or background task only.
-/// Never from `spawn_index_mutations`.
-///
-/// Resolves the inbox from the environment. Callers that already know the home
-/// must use [`rebuild_search_outbox_into_inbox`] and pass the path explicitly.
-pub async fn rebuild_search_outbox_from_source(
-    ops: &DbOperations,
-    page_size: usize,
-) -> Result<SearchRebuildReport, SchemaError> {
-    let inbox = resolve_search_inbox_dir().ok_or_else(|| {
-        SchemaError::InvalidData(
-            "Search rebuild requires LASTDB_HOME or LASTDB_SEARCH_INBOX".into(),
-        )
-    })?;
-    rebuild_search_outbox_into_inbox(ops, page_size, &inbox).await
 }
 
 /// Full iterative rebuild emit into an **explicitly supplied** inbox.

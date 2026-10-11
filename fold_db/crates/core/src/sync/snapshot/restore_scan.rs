@@ -85,7 +85,7 @@ pub(super) fn namespace_scan_error(
 
 pub(super) async fn collect_snapshot_namespaces(
     store: &dyn NamespacedStore,
-    mut mode: SnapshotNamespaceMode<'_>,
+    mode: SnapshotNamespaceMode<'_>,
 ) -> SyncResult<Vec<NamespaceData>> {
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
@@ -98,7 +98,7 @@ pub(super) async fn collect_snapshot_namespaces(
         }
 
         let kv = store.open_namespace(ns_name).await?;
-        let entries = match &mut mode {
+        let entries = match &mode {
             SnapshotNamespaceMode::All => kv
                 .scan_prefix(&[])
                 .await
@@ -109,25 +109,6 @@ pub(super) async fn collect_snapshot_namespaces(
                     value: BASE64.encode(&v),
                 })
                 .collect(),
-            SnapshotNamespaceMode::Reporting(report) => {
-                let scan = kv
-                    .scan_prefix_partition_undecryptable(&[])
-                    .await
-                    .map_err(|e| namespace_scan_error(ns_name, &e))?;
-                for key in &scan.undecryptable {
-                    report.undecryptable.push(UndecryptableRow {
-                        namespace: ns_name.clone(),
-                        key_b64: BASE64.encode(key),
-                    });
-                }
-                scan.rows
-                    .into_iter()
-                    .map(|(k, v)| SnapshotEntry {
-                        key: BASE64.encode(&k),
-                        value: BASE64.encode(&v),
-                    })
-                    .collect()
-            }
             SnapshotNamespaceMode::Scoped(target_prefixes) => kv
                 .scan_prefix(&[])
                 .await

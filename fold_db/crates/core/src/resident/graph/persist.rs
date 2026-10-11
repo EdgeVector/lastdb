@@ -5,60 +5,6 @@ use super::*;
 impl ResidentGraph {
     // ── Persist plan (fidelity surface) ─────────────────────────────────
 
-    /// Build the exact plan of dirty objects that will be written to disk.
-    ///
-    /// **Fidelity:** this plan is a pure projection of resident dirty state —
-    /// same tips, atoms, schemas. Persist workers must write this plan
-    /// without rewriting content.
-    pub fn dirty_persist_plan(&self) -> PersistPlan {
-        let dirty = self.dirty.read().expect("dirty lock").clone();
-        let schemas_map = self.schemas.read().expect("schemas lock");
-        let tips_map = self.tips.read().expect("tips lock");
-        let atoms_map = self.atoms.read().expect("atoms lock");
-
-        let mut plan = PersistPlan::default();
-        for key in dirty {
-            match key {
-                DirtyKey::Schema(name) => {
-                    if let Some(s) = schemas_map.get(&name) {
-                        plan.schemas.push(s.clone());
-                    }
-                }
-                DirtyKey::MoleculeTip {
-                    molecule_uuid,
-                    hash,
-                    range,
-                } => {
-                    let k = tip_map_key(&molecule_uuid, &hash, &range);
-                    if let Some(t) = tips_map.get(&k) {
-                        plan.tips.push(t.clone());
-                    }
-                }
-                DirtyKey::MoleculeKeyIndex { .. }
-                | DirtyKey::MoleculeKeyTombstone { .. }
-                | DirtyKey::QueryPage(_)
-                | DirtyKey::Protein(_) => {
-                    // Key-set index/tombstone dirty markers are model state in
-                    // this slice (tip persistence clears paired key-index dirty;
-                    // tombstone persistence lands with the read-path overlay).
-                    // Protein dirty remains deferred (PR3).
-                }
-                DirtyKey::Atom(uuid) => {
-                    if let Some(a) = atoms_map.get(&uuid) {
-                        plan.atoms.push(a.clone());
-                    }
-                }
-            }
-        }
-        // Stable order for equality tests
-        plan.schemas.sort_by(|a, b| a.name.cmp(&b.name));
-        plan.tips.sort_by(|a, b| {
-            (&a.molecule_uuid, &a.hash, &a.range).cmp(&(&b.molecule_uuid, &b.hash, &b.range))
-        });
-        plan.atoms.sort_by(|a, b| a.uuid.cmp(&b.uuid));
-        plan
-    }
-
     /// Clear dirty for explicit non-tip keys after their durable put succeeds.
     ///
     /// Molecule tips are versioned by their current `atom_uuid`; use

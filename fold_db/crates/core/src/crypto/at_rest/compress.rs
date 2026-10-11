@@ -3,7 +3,6 @@
 
 use super::config::{
     at_rest_compress_min_bytes, at_rest_compression_enabled, at_rest_max_inflated_bytes,
-    at_rest_raw_enabled,
 };
 use super::stats::{current_thread_cpu_ns, AtRestCompressionCounters, COMPRESS_COUNTERS};
 use super::{
@@ -168,33 +167,6 @@ fn compress_for_seal_with_counters(
 /// decompressor in the product, not one per seal site.
 pub(crate) fn inflate_at_rest(compressed: &[u8]) -> CryptoResult<Vec<u8>> {
     inflate_bounded(compressed, at_rest_max_inflated_bytes())
-}
-
-/// Seal `plaintext`, compressing first when that is smaller.
-///
-/// Emits `ENZ:` ++ base64(envelope(deflate(plaintext))) when compression helps,
-/// and otherwise falls back to exactly [`seal_at_rest`] (`ENC:`). Callers get a
-/// value that [`open_at_rest`] and [`is_sealed_at_rest`] already understand, so
-/// adopting this is a drop-in swap at any seal site.
-///
-/// Compression is skipped when the plaintext is under
-/// [`at_rest_compress_min_bytes`], when it is over
-/// [`at_rest_max_inflated_bytes`], when the kill switch is off, or when the
-/// compressed form is not actually smaller — so this never *grows* a value
-/// relative to `seal_at_rest`, and never produces a row [`open_at_rest`]
-/// would refuse to inflate.
-pub fn seal_at_rest_deflate(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
-    // Read the process-global config exactly once, here at the entry point, and
-    // pass it down explicitly. Everything below is a pure function of its
-    // arguments, which is what lets the tests exercise the codec without
-    // touching env vars — see `seal_at_rest_deflate_with`.
-    seal_at_rest_deflate_with_format(
-        key,
-        plaintext,
-        at_rest_compress_min_bytes(),
-        at_rest_compression_enabled(),
-        at_rest_raw_enabled(),
-    )
 }
 
 /// Seal `plaintext` through the raw `ENB:` form, with compression when useful.

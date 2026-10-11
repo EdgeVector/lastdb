@@ -2,48 +2,6 @@ use super::{DeclarativeSchemaDefinition, FieldMapper};
 use std::collections::HashMap;
 
 impl DeclarativeSchemaDefinition {
-    /// Clone this schema for the **query read path** without deep-copying the
-    /// in-memory hydrated molecules on its `runtime_fields`.
-    ///
-    /// The query executor needs an owned, mutable schema to drive
-    /// `resolve_value` (it temporarily mutates each field while hydrating), but
-    /// it never reads the molecule it was handed — every read re-hydrates from
-    /// storage keyed off `FieldCommon::molecule_uuid`. A plain `.clone()` of the
-    /// registry's cached schema therefore copies every field's full hydrated
-    /// molecule (one Sled value holding every key for that field) only for it to
-    /// be overwritten before first use — an O(field cardinality) per-query cost
-    /// that re-introduced linear scaling on top of the now-O(1) keyed storage
-    /// read (#905). This clone strips those molecules (each becomes `None`),
-    /// keeping the per-query schema copy flat in the field's data size while
-    /// preserving all structure the executor relies on.
-    ///
-    /// Takes `&mut self` so the heavy molecules are never themselves
-    /// deep-copied: they are moved out (`std::mem::take`) before the derived
-    /// `Clone` runs and restored immediately after, leaving `self` observably
-    /// unchanged. Callers hold the registry mutex, so the brief `&mut` borrow of
-    /// the cached schema is local to the read.
-    #[must_use]
-    pub fn clone_for_read(&mut self) -> Self {
-        // 1. Build molecule-stripped field clones up front (cheap — FieldCommon
-        //    only, no molecule bytes).
-        let stripped_fields: HashMap<String, crate::schema::types::field::FieldVariant> = self
-            .runtime_fields
-            .iter()
-            .map(|(name, field)| (name.clone(), field.cloned_without_molecule()))
-            .collect();
-
-        // 2. Clone the rest of the schema without the molecules: move the
-        //    hydrated `runtime_fields` aside, clone (now cheap), then restore so
-        //    `self` is unchanged.
-        let original_fields = std::mem::take(&mut self.runtime_fields);
-        let mut cloned = self.clone();
-        self.runtime_fields = original_fields;
-
-        // 3. Hand the clone the stripped fields.
-        cloned.runtime_fields = stripped_fields;
-        cloned
-    }
-
     /// `&self` twin of [`Self::clone_for_read`], for the **concurrent** read path.
     ///
     /// `clone_for_read` takes `&mut self` purely as an optimization: it

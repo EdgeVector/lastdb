@@ -1,4 +1,3 @@
-use super::backup_descriptor::{DescriptorRootView, RetirementReceiptV2};
 use super::{LastStoreKvStore, LastStoreNamespacedStore};
 use crate::hex::{hex_lower, sha256_hex};
 use crate::storage::error::{StorageError, StorageResult};

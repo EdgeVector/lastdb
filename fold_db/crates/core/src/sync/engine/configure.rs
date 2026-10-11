@@ -64,15 +64,6 @@ impl SyncEngine {
             .fetch_add(1, std::sync::atomic::Ordering::Release);
     }
 
-    /// Alias for [`configure_targets`] used by sharing-related call sites.
-    pub async fn reconfigure_sharing(
-        &self,
-        partitioner: SyncPartitioner,
-        extra_targets: Vec<SyncTarget>,
-    ) {
-        self.configure_targets(partitioner, extra_targets).await;
-    }
-
     /// Return the R2 prefix of every configured sync target, in order.
     ///
     /// Index 0 is the personal prefix. Remaining entries are share prefixes in

@@ -34,9 +34,8 @@
 //!   callers in this PR, that is acceptable; the future project must add
 //!   serialisation if concurrent writers touch the same derived UUID.
 
-use crate::atom::{merkle::merkle_root, provenance::MoleculeRef};
+use crate::atom::provenance::MoleculeRef;
 use crate::error::FoldDbError;
-use crate::hex::hex_lower;
 use crate::schema::SchemaError;
 use crate::storage::traits::KvStore;
 use std::sync::Arc;
@@ -128,14 +127,6 @@ impl LineageIndex {
         Ok(())
     }
 
-    /// List every derived molecule that consumed `source_ref`. Returns an
-    /// empty `Vec` when the source has no known derivatives. The returned
-    /// list is sorted ascending — callers may rely on this ordering.
-    pub async fn get_reverse(&self, source_ref: &MoleculeRef) -> Result<Vec<String>, FoldDbError> {
-        let key = source_ref.canonical_bytes();
-        Self::read_reverse(&self.reverse, &key).await
-    }
-
     /// Drop every trace of `derived_uuid`. Removes the forward entry, then
     /// removes `derived_uuid` from every reverse entry its sources recorded.
     /// Reverse entries that become empty are deleted outright so scans stay
@@ -172,20 +163,6 @@ impl LineageIndex {
         }
 
         Ok(())
-    }
-
-    /// Check that `merkle_root(sources.canonical_bytes())` matches
-    /// `expected_root_hex`. Used during rebuild-from-replay to confirm that
-    /// the stored source list is consistent with the derived molecule's
-    /// on-wire `Provenance::Derived::sources_merkle_root`. Any mismatch —
-    /// reorder, added source, dropped source, mutated field — flips the
-    /// return value to `false`.
-    #[must_use]
-    pub fn verify_merkle_consistency(sources: &[MoleculeRef], expected_root_hex: &str) -> bool {
-        let leaves: Vec<Vec<u8>> = sources.iter().map(MoleculeRef::canonical_bytes).collect();
-        let computed = merkle_root(&leaves);
-        let computed_hex = hex_lower(computed);
-        computed_hex == expected_root_hex
     }
 
     async fn read_reverse(

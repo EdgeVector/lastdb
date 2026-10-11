@@ -12,7 +12,7 @@ use crate::schema::SchemaError;
 use async_trait::async_trait;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{debug, warn};
+use tracing::debug;
 use uuid::Uuid;
 
 /// Inbox directory for a node home, by layout alone (no environment reads).
@@ -106,14 +106,4 @@ fn chrono_like_stamp() -> String {
     // Avoid pulling chrono solely for a filename; millis since epoch is enough.
     let ms = crate::clock::unix_millis();
     format!("{ms}")
-}
-
-/// Best-effort deliver `batch` to the Search outbox. Never fails the write path.
-pub async fn deliver_search_outbox_best_effort(batch: IndexChangeBatch) {
-    let Some(sink) = SearchOutboxSink::from_env() else {
-        return;
-    };
-    if let Err(e) = sink.apply_change_batch(batch).await {
-        warn!("Search outbox delivery failed: {e}");
-    }
 }

@@ -49,11 +49,9 @@
 
 use std::collections::BTreeMap;
 
-use schema_types::FoldDbResult;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
 
 /// Wire-format version of [`SchemaEmbeddingArtifact`] and
@@ -224,19 +222,6 @@ pub fn artifact_sha256_hex(bytes: &[u8]) -> String {
     schema_types::hex::sha256_hex(bytes)
 }
 
-/// Serialize an artifact to its canonical, deterministic JSON bytes.
-///
-/// The three embedding classes are already stored sorted by `target_id` (see
-/// [`SchemaServiceState::export_embedding_artifact`]); `serde_json` preserves
-/// struct field order, so identical registry state yields byte-identical
-/// output — which is what makes the SHA-256 content address stable across
-/// independent publishers.
-pub fn serialize_artifact(
-    artifact: &SchemaEmbeddingArtifact,
-) -> Result<Vec<u8>, serde_json::Error> {
-    serde_json::to_vec(artifact)
-}
-
 /// Parse artifact bytes.
 pub fn parse_artifact(bytes: &[u8]) -> Result<SchemaEmbeddingArtifact, serde_json::Error> {
     serde_json::from_slice(bytes)
@@ -245,30 +230,6 @@ pub fn parse_artifact(bytes: &[u8]) -> Result<SchemaEmbeddingArtifact, serde_jso
 /// Parse manifest bytes.
 pub fn parse_manifest(bytes: &[u8]) -> Result<SchemaEmbeddingArtifactManifest, serde_json::Error> {
     serde_json::from_slice(bytes)
-}
-
-/// Build the [`SchemaEmbeddingArtifactManifest`] that describes a serialized
-/// artifact. `artifact_bytes` must be the exact canonical bytes produced by
-/// [`serialize_artifact`] — the manifest's `artifact_sha256` and
-/// `artifact_bytes` are computed from them.
-pub fn build_manifest(
-    artifact: &SchemaEmbeddingArtifact,
-    artifact_bytes: &[u8],
-) -> SchemaEmbeddingArtifactManifest {
-    SchemaEmbeddingArtifactManifest {
-        format_version: artifact.format_version,
-        embedder_id: artifact.embedder_id.clone(),
-        schema_snapshot_hash: artifact.schema_snapshot_hash.clone(),
-        generated_at: artifact.generated_at.clone(),
-        dimensions: artifact.dimensions,
-        artifact_sha256: artifact_sha256_hex(artifact_bytes),
-        artifact_bytes: artifact_bytes.len() as u64,
-        counts: SchemaEmbeddingArtifactCounts {
-            descriptive_names: artifact.descriptive_names.len() as u32,
-            schema_field_contexts: artifact.schema_field_contexts.len() as u32,
-            canonical_fields: artifact.canonical_fields.len() as u32,
-        },
-    }
 }
 
 /// R2 object key for one object of a content-addressed artifact.
@@ -297,11 +258,6 @@ pub fn schema_embedding_artifact_object_key(
         "{R2_PREFIX}/{}/artifacts/sha256/{artifact_sha256}/{filename}",
         env.segment()
     )
-}
-
-/// Convenience: the content-addressed key of the artifact body itself.
-pub fn schema_embedding_artifact_key(env: ArtifactEnv, artifact_sha256: &str) -> String {
-    schema_embedding_artifact_object_key(env, ArtifactObject::Artifact, artifact_sha256)
 }
 
 /// R2 object key for the mutable "latest compatible" discovery pointer.
@@ -375,41 +331,6 @@ pub struct PublishPlan {
     pub artifact_sha256: String,
 }
 
-/// Build the atomic [`PublishPlan`] for a manifest describing a serialized
-/// artifact in the given environment.
-///
-/// The manifest's `artifact_sha256` is the content address every immutable
-/// key is derived from, so the plan is fully determined by
-/// `(env, manifest)`. The caller uploads `manifest`'s JSON to the manifest
-/// key, the artifact body's JSON to the artifact key, then the manifest JSON
-/// again to the `latest` pointer key.
-pub fn build_publish_plan(
-    env: ArtifactEnv,
-    manifest: &SchemaEmbeddingArtifactManifest,
-) -> PublishPlan {
-    let sha = &manifest.artifact_sha256;
-    PublishPlan {
-        content_addressed: vec![
-            PublishObject {
-                key: schema_embedding_artifact_object_key(env, ArtifactObject::Manifest, sha),
-                content_type: "application/json",
-                precondition: PutPrecondition::IfAbsent,
-            },
-            PublishObject {
-                key: schema_embedding_artifact_object_key(env, ArtifactObject::Artifact, sha),
-                content_type: "application/json",
-                precondition: PutPrecondition::IfAbsent,
-            },
-        ],
-        latest_pointer: PublishObject {
-            key: latest_compatible_manifest_pointer_key(env, &manifest.embedder_id),
-            content_type: "application/json",
-            precondition: PutPrecondition::Overwrite,
-        },
-        artifact_sha256: sha.clone(),
-    }
-}
-
 /// The three validated embedding caches a node imports in place of a full
 /// recompute. Field names mirror [`crate::snapshot::SnapshotEmbeddings`] so a
 /// caller can move the maps straight into that struct.
@@ -427,237 +348,4 @@ impl ImportedEmbeddings {
     }
 }
 
-/// Validate a downloaded manifest + artifact against the local node's
-/// embedder and the schema snapshot it just installed, then produce the
-/// embedding caches to persist.
-///
-/// This is the local-import gate the card requires. It rejects:
-///
-/// * an unsupported `format_version` (manifest or artifact),
-/// * an `embedder_id` that doesn't match the local embedder (vectors from a
-///   different model),
-/// * a `schema_snapshot_hash` that doesn't match the snapshot just installed
-///   (embeddings for a different registry state),
-/// * a checksum failure (the artifact bytes don't hash to the manifest's
-///   `artifact_sha256`),
-/// * a manifest whose metadata disagrees with the artifact body,
-/// * any vector whose length isn't `dimensions` (a corrupt or truncated
-///   artifact).
-///
-/// On success the caller writes [`ImportedEmbeddings`] into its three caches
-/// and skips the minutes-scale recompute entirely. On *any* error the caller
-/// falls back to local compute with visible progress — see the module docs
-/// and `docs/designs/schema_embedding_artifacts_r2.md`.
-///
-/// `artifact_bytes` must be the exact bytes downloaded from the
-/// content-addressed key (so the checksum reflects what was received, not a
-/// re-serialization).
-pub fn import_embedding_artifact(
-    manifest_bytes: &[u8],
-    artifact_bytes: &[u8],
-    local_embedder_id: &str,
-    installed_snapshot_hash: &str,
-) -> Result<ImportedEmbeddings, EmbeddingArtifactVerifyError> {
-    let manifest: SchemaEmbeddingArtifactManifest = parse_manifest(manifest_bytes)
-        .map_err(|e| EmbeddingArtifactVerifyError::ManifestJson(e.to_string()))?;
-
-    if manifest.format_version != SCHEMA_EMBEDDING_ARTIFACT_FORMAT_VERSION {
-        return Err(EmbeddingArtifactVerifyError::UnsupportedFormatVersion(
-            manifest.format_version,
-        ));
-    }
-    validate_hash_field("schema_snapshot_hash", &manifest.schema_snapshot_hash)?;
-    validate_hash_field("artifact_sha256", &manifest.artifact_sha256)?;
-
-    // Compatibility checks happen before parsing the (potentially large)
-    // body: a node can bail on a wrong-embedder artifact without paying to
-    // deserialize thousands of vectors.
-    if manifest.embedder_id != local_embedder_id {
-        return Err(EmbeddingArtifactVerifyError::EmbedderMismatch {
-            artifact: manifest.embedder_id,
-            local: local_embedder_id.to_string(),
-        });
-    }
-    if manifest.schema_snapshot_hash != installed_snapshot_hash {
-        return Err(EmbeddingArtifactVerifyError::SnapshotHashMismatch {
-            artifact: manifest.schema_snapshot_hash,
-            expected: installed_snapshot_hash.to_string(),
-        });
-    }
-
-    // Checksum the received bytes against the content address the manifest
-    // claims — this is what guarantees the node never imports a partial or
-    // tampered download.
-    let actual_sha = artifact_sha256_hex(artifact_bytes);
-    if actual_sha != manifest.artifact_sha256 {
-        return Err(EmbeddingArtifactVerifyError::ChecksumMismatch {
-            expected: manifest.artifact_sha256,
-            actual: actual_sha,
-        });
-    }
-
-    let artifact: SchemaEmbeddingArtifact = parse_artifact(artifact_bytes)
-        .map_err(|e| EmbeddingArtifactVerifyError::ArtifactJson(e.to_string()))?;
-
-    if artifact.format_version != SCHEMA_EMBEDDING_ARTIFACT_FORMAT_VERSION {
-        return Err(EmbeddingArtifactVerifyError::UnsupportedFormatVersion(
-            artifact.format_version,
-        ));
-    }
-    // The manifest is derived from the body, so the two must agree. A
-    // disagreement means the manifest was built for different bytes — treat
-    // it as corruption even though the checksum passed (which would only
-    // happen if a publisher mislabeled).
-    if artifact.embedder_id != manifest.embedder_id {
-        return Err(EmbeddingArtifactVerifyError::ManifestBodyMismatch {
-            field: "embedder_id",
-        });
-    }
-    if artifact.schema_snapshot_hash != manifest.schema_snapshot_hash {
-        return Err(EmbeddingArtifactVerifyError::ManifestBodyMismatch {
-            field: "schema_snapshot_hash",
-        });
-    }
-    if artifact.dimensions != manifest.dimensions {
-        return Err(EmbeddingArtifactVerifyError::ManifestBodyMismatch {
-            field: "dimensions",
-        });
-    }
-
-    let descriptive_names = collect_class(
-        "descriptive_names",
-        &artifact.descriptive_names,
-        artifact.dimensions,
-    )?;
-    let fields = collect_class(
-        "schema_field_contexts",
-        &artifact.schema_field_contexts,
-        artifact.dimensions,
-    )?;
-    let canonical_fields = collect_class(
-        "canonical_fields",
-        &artifact.canonical_fields,
-        artifact.dimensions,
-    )?;
-
-    Ok(ImportedEmbeddings {
-        descriptive_names,
-        fields,
-        canonical_fields,
-    })
-}
-
-fn collect_class(
-    class: &'static str,
-    records: &[EmbeddingVectorRecord],
-    dimensions: u32,
-) -> Result<BTreeMap<String, Vec<f32>>, EmbeddingArtifactVerifyError> {
-    let mut out = BTreeMap::new();
-    for record in records {
-        if record.vector.len() != dimensions as usize {
-            return Err(EmbeddingArtifactVerifyError::DimensionMismatch {
-                class,
-                target: record.target_id.clone(),
-                expected: dimensions,
-                actual: record.vector.len(),
-            });
-        }
-        out.insert(record.target_id.clone(), record.vector.clone());
-    }
-    Ok(out)
-}
-
-fn validate_hash_field(
-    field: &'static str,
-    hash: &str,
-) -> Result<(), EmbeddingArtifactVerifyError> {
-    let ok = hash.len() == 64
-        && hash
-            .bytes()
-            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
-    if ok {
-        Ok(())
-    } else {
-        Err(EmbeddingArtifactVerifyError::MalformedHash { field })
-    }
-}
-
-/// Sort a cache HashMap's `(key, vector)` pairs into `EmbeddingVectorRecord`s
-/// ordered by `target_id`, so the generated artifact is byte-stable.
-fn records_sorted(map: &std::collections::HashMap<String, Vec<f32>>) -> Vec<EmbeddingVectorRecord> {
-    let mut records: Vec<EmbeddingVectorRecord> = map
-        .iter()
-        .map(|(target_id, vector)| EmbeddingVectorRecord {
-            target_id: target_id.clone(),
-            vector: vector.clone(),
-        })
-        .collect();
-    records.sort_by(|a, b| a.target_id.cmp(&b.target_id));
-    records
-}
-
-/// Infer the embedding dimension from the first non-empty vector across the
-/// three classes. Every model this service uses emits fixed-width vectors, so
-/// the first present vector's length is the artifact's `dimensions`. Returns
-/// 0 for an empty registry (no vectors at all) — an artifact a node imports
-/// as a valid no-op.
-fn infer_dimensions(classes: &[&[EmbeddingVectorRecord]]) -> u32 {
-    for class in classes {
-        if let Some(first) = class.iter().find(|r| !r.vector.is_empty()) {
-            return first.vector.len() as u32;
-        }
-    }
-    0
-}
-
-impl SchemaServiceState {
-    /// Assemble a standalone [`SchemaEmbeddingArtifact`] from the three
-    /// in-memory embedding caches, content-addressed to `schema_snapshot_hash`
-    /// (the SHA-256 of the schema snapshot these embeddings were computed
-    /// against — the caller supplies it because snapshot hashing is a
-    /// snapshot-layer concern).
-    ///
-    /// The artifact is deterministic: each class is sorted by `target_id` and
-    /// the `embedder_id` is read from the injected embedder, so two services
-    /// with identical registry state and the same snapshot hash produce
-    /// byte-identical artifacts (and therefore the same content address).
-    ///
-    /// This is the *generation* half of the publish path. A publisher then
-    /// [`serialize_artifact`]s it, [`build_manifest`]s the description, and
-    /// walks [`build_publish_plan`] to atomically upload to R2.
-    pub fn export_embedding_artifact(
-        &self,
-        schema_snapshot_hash: &str,
-    ) -> FoldDbResult<SchemaEmbeddingArtifact> {
-        let descriptive = read_lock(
-            &self.descriptive_name_embeddings,
-            "descriptive_name_embeddings",
-        )?;
-        let fields = read_lock(&self.field_embeddings, "field_embeddings")?;
-        let canonical = read_lock(
-            &self.canonical_field_embeddings,
-            "canonical_field_embeddings",
-        )?;
-
-        let descriptive_names = records_sorted(&descriptive);
-        let schema_field_contexts = records_sorted(&fields);
-        let canonical_fields = records_sorted(&canonical);
-
-        let dimensions = infer_dimensions(&[
-            &descriptive_names,
-            &schema_field_contexts,
-            &canonical_fields,
-        ]);
-
-        Ok(SchemaEmbeddingArtifact {
-            format_version: SCHEMA_EMBEDDING_ARTIFACT_FORMAT_VERSION,
-            embedder_id: self.embedder.embedder_id().to_string(),
-            schema_snapshot_hash: schema_snapshot_hash.to_string(),
-            generated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-            dimensions,
-            descriptive_names,
-            schema_field_contexts,
-            canonical_fields,
-        })
-    }
-}
+impl SchemaServiceState {}

@@ -401,44 +401,6 @@ impl DeclaredFieldRegistry {
         Ok(record)
     }
 
-    /// Move a declaration to a new owner.
-    ///
-    /// The declaration id does not change, so **every field identity is
-    /// byte-identical afterwards**. That is the whole reason ownership is not
-    /// hashed.
-    pub fn transfer_declaration(
-        &mut self,
-        declaration_id: &str,
-        current_owner: &str,
-        new_owner: &str,
-    ) -> Result<DeclaredFieldRecord, DeclaredFieldError> {
-        let new_owner = new_owner.trim();
-        if new_owner.is_empty() {
-            return Err(DeclaredFieldError::OwnerRequired(
-                "new owner_app_id is required".to_string(),
-            ));
-        }
-        let record = self
-            .by_id
-            .get_mut(declaration_id)
-            .ok_or_else(|| DeclaredFieldError::UnknownDeclaration(declaration_id.to_string()))?;
-        if record.owner_app_id != current_owner {
-            return Err(DeclaredFieldError::NotOwner {
-                declaration_id: declaration_id.to_string(),
-                owner_app_id: record.owner_app_id.clone(),
-            });
-        }
-        let old_key = (record.owner_app_id.clone(), record.handle.clone());
-        record.owner_app_id = new_owner.to_string();
-        record.readers.retain(|r| r != new_owner);
-        let new_key = (new_owner.to_string(), record.handle.clone());
-        let updated = record.clone();
-        self.by_owner_handle.remove(&old_key);
-        self.by_owner_handle
-            .insert(new_key, declaration_id.to_string());
-        Ok(updated)
-    }
-
     /// Refuse a reference to any identity the submitting app is not permitted
     /// to use.
     ///

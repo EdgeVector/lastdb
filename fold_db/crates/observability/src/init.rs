@@ -84,7 +84,7 @@ use crate::layers::error::{build_error_layer, SentryGuard};
 use crate::layers::fmt::{build_fmt_writer, FmtGuard, FmtTarget, RedactingFormat};
 use crate::layers::reload::{build_reload_layer, ReloadHandle};
 use crate::layers::ring::{build_ring_layer, RingHandle, OBS_RING_CAPACITY};
-use crate::layers::web::{build_web_layer, WebHandle, OBS_WEB_CAPACITY};
+use crate::layers::web::WebHandle;
 use crate::ObsError;
 
 /// Override for the node log file path. Read once per `init_node` call.
@@ -99,17 +99,6 @@ static INIT_ONCE: OnceCell<()> = OnceCell::new();
 /// passes. Exposed via [`installed_service_name`] for tests and operators that
 /// need to confirm what the observability stack ultimately advertised.
 static SERVICE_NAME: OnceCell<&'static str> = OnceCell::new();
-
-/// Returns the `service.name` that was passed to the most recent successful
-/// `init_*` helper, or `None` if no helper has run yet (or the only call
-/// panicked before claiming the slot).
-///
-/// Used by integration tests to assert that the value flowing through
-/// `init_*` matches the value the global TracerProvider's Resource ended up
-/// carrying.
-pub fn installed_service_name() -> Option<&'static str> {
-    SERVICE_NAME.get().copied()
-}
 
 /// RAII handle returned by every `init_*` helper.
 ///
@@ -346,84 +335,6 @@ pub struct ObsHandles {
     pub ring: RingHandle,
     pub web: WebHandle,
     pub reload: Arc<ReloadHandle>,
-}
-
-/// Initialize observability for a node binary that ALSO needs a WEB
-/// broadcast layer (i.e. anything serving `/api/logs/stream` SSE).
-///
-/// Composition matches [`init_node`] exactly — redacting JSON FMT to the
-/// resolved node log file + RELOAD + RING + a no-op-traces OTel layer
-/// stamping W3C `trace_id` / `span_id` + the env-gated Sentry sink — and
-/// adds a [`crate::layers::web::WebLayer`] whose [`WebHandle`] the returned
-/// guard exposes via [`NodeObsGuardWithWeb::web`].
-///
-/// The `service_name` validation, `INIT_ONCE` claim, log-file path
-/// resolution, and `LogTracer` / W3C-propagator install are identical to
-/// [`init_node`] — both helpers route through the same private plumbing so
-/// they cannot drift.
-///
-/// OTLP / Sentry defaults are unchanged from [`init_node`]: no OTLP
-/// exporter is wired, and the Sentry layer is composed only when
-/// `OBS_SENTRY_DSN` is set at startup.
-pub fn init_node_with_web(service_name: &'static str) -> Result<NodeObsGuardWithWeb, ObsError> {
-    assert_service_name(service_name);
-    try_claim_init(&INIT_ONCE)?;
-    install_log_tracer();
-
-    let path = default_node_log_path()?;
-    let (writer, fmt_guard) = build_fmt_writer(FmtTarget::File(path))?;
-    let (reload_layer, reload) = build_reload_layer::<Registry>(default_env_filter());
-    let (ring_layer, ring) = build_ring_layer(OBS_RING_CAPACITY);
-    let (web_layer, web) = build_web_layer(OBS_WEB_CAPACITY);
-
-    let (error_layer, sentry_guard) = match build_error_layer() {
-        Some((layer, guard)) => (Some(layer), Some(guard)),
-        None => (None, None),
-    };
-
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .event_format(RedactingFormat::from_env_with_service(service_name))
-        .with_writer(writer);
-
-    // Layer order mirrors `init_node` — RELOAD innermost so its `S = Registry`
-    // binding pins the type; OTel before FMT/RING/WEB so its `on_new_span`
-    // attaches `OtelData` before the downstream layers' `on_event` runs and
-    // their lookups for trace/span ids succeed; WEB after RING because both
-    // independently lift trace/span ids off the same `OtelData` extension and
-    // their relative order is irrelevant for correctness; ERROR last so its
-    // `event_span` lookup sees `OtelData` already attached.
-    #[cfg(feature = "otel")]
-    {
-        let otel_layer = build_noop_traces_layer(service_name);
-        let subscriber = Registry::default()
-            .with(reload_layer)
-            .with(otel_layer)
-            .with(fmt_layer)
-            .with(ring_layer)
-            .with(web_layer)
-            .with(error_layer);
-        install_subscriber(subscriber)?;
-    }
-    #[cfg(not(feature = "otel"))]
-    {
-        let subscriber = Registry::default()
-            .with(reload_layer)
-            .with(fmt_layer)
-            .with(ring_layer)
-            .with(web_layer)
-            .with(error_layer);
-        install_subscriber(subscriber)?;
-    }
-    install_globals();
-    record_service_name(service_name);
-
-    Ok(NodeObsGuardWithWeb {
-        fmt_guard: Some(fmt_guard),
-        ring,
-        reload: Arc::new(reload),
-        web,
-        cloud_shutdown: Some(CloudShutdown { sentry_guard }),
-    })
 }
 
 /// Initialize observability for an AWS Lambda handler.
