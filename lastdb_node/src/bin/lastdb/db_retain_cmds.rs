@@ -1,13 +1,10 @@
 use super::*;
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_retain_superseded_versions(
     socket: &Path,
     opts: &RetainSupersededVersionsCliOpts,
 ) -> Result<(), String> {
     let execute = opts.execute;
-    let max_keys = opts.max_keys;
-    let max_prunes = opts.max_prunes;
     let after_key = opts.after_key.clone();
     let from_checkpoint = opts.from_checkpoint;
     let retention_seconds = opts.retention_seconds;
@@ -32,65 +29,12 @@ pub(crate) fn db_retain_superseded_versions(
     });
     let mut cursor = after_key;
     loop {
-        let mut body = serde_json::json!({
-            "dry_run": !execute,
-            "from_checkpoint": from_checkpoint,
-        });
-        if let Some(n) = max_keys {
-            body["max_keys"] = serde_json::json!(n);
-        }
-        if let Some(n) = max_prunes {
-            body["max_prunes"] = serde_json::json!(n);
-        }
-        if let Some(secs) = retention_seconds {
-            body["retention_seconds"] = serde_json::json!(secs);
-        }
-        if let Some(k) = &cursor {
-            body["after_key"] = serde_json::Value::String(k.clone());
-        }
+        let body = retain_request_body(opts, &cursor);
         let value = db_post_json(socket, "/api/db/retain-superseded-versions", &body)?;
         let pass = value
             .get("retain_superseded_versions")
             .ok_or_else(|| "response missing retain_superseded_versions".to_string())?;
-        totals["passes"] =
-            serde_json::json!(totals["passes"].as_u64().unwrap_or(0).saturating_add(1));
-        for key in [
-            "keys_scanned",
-            "tips_with_chain",
-            "tips_skipped_tombstoned",
-            "tips_skipped_changed",
-            "tips_skipped_unreadable",
-            "tips_truncated",
-            "tip_versions_pruned",
-            "tip_versions_kept",
-            "tip_version_bytes_approx",
-        ] {
-            totals[key] = serde_json::json!(totals[key].as_u64().unwrap_or(0).saturating_add(
-                pass.get(key)
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0)
-            ));
-        }
-        if pass
-            .get("skipped_backup_cut")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-        {
-            totals["skipped_backup_cut"] = serde_json::json!(true);
-        }
-        if pass
-            .get("settled")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-        {
-            totals["settled"] = serde_json::json!(true);
-        }
-        if let Some(secs) = pass
-            .get("retention_seconds")
-            .and_then(serde_json::Value::as_u64)
-        {
-            totals["retention_seconds"] = serde_json::json!(secs);
-        }
+        fold_retain_pass(&mut totals, pass);
         let more = pass
             .get("more_remaining")
             .and_then(serde_json::Value::as_bool)
@@ -144,6 +88,77 @@ pub(crate) fn db_retain_superseded_versions(
         println!("Superseded-version retention skipped: a backup cut is held.");
         return Ok(());
     }
+    print_retain_summary(&totals, execute);
+    Ok(())
+}
+
+/// Request body for one retention pass, from the CLI options and the cursor.
+fn retain_request_body(
+    opts: &RetainSupersededVersionsCliOpts,
+    cursor: &Option<String>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "dry_run": !opts.execute,
+        "from_checkpoint": opts.from_checkpoint,
+    });
+    if let Some(n) = opts.max_keys {
+        body["max_keys"] = serde_json::json!(n);
+    }
+    if let Some(n) = opts.max_prunes {
+        body["max_prunes"] = serde_json::json!(n);
+    }
+    if let Some(secs) = opts.retention_seconds {
+        body["retention_seconds"] = serde_json::json!(secs);
+    }
+    if let Some(k) = cursor {
+        body["after_key"] = serde_json::Value::String(k.clone());
+    }
+    body
+}
+
+/// Add one pass's counters into the running totals.
+fn fold_retain_pass(totals: &mut serde_json::Value, pass: &serde_json::Value) {
+    totals["passes"] = serde_json::json!(totals["passes"].as_u64().unwrap_or(0).saturating_add(1));
+    for key in [
+        "keys_scanned",
+        "tips_with_chain",
+        "tips_skipped_tombstoned",
+        "tips_skipped_changed",
+        "tips_skipped_unreadable",
+        "tips_truncated",
+        "tip_versions_pruned",
+        "tip_versions_kept",
+        "tip_version_bytes_approx",
+    ] {
+        totals[key] = serde_json::json!(totals[key].as_u64().unwrap_or(0).saturating_add(
+            pass.get(key)
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0)
+        ));
+    }
+    if pass
+        .get("skipped_backup_cut")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        totals["skipped_backup_cut"] = serde_json::json!(true);
+    }
+    if pass
+        .get("settled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        totals["settled"] = serde_json::json!(true);
+    }
+    if let Some(secs) = pass
+        .get("retention_seconds")
+        .and_then(serde_json::Value::as_u64)
+    {
+        totals["retention_seconds"] = serde_json::json!(secs);
+    }
+}
+
+fn print_retain_summary(totals: &serde_json::Value, execute: bool) {
     let mode = if execute { "EXECUTED" } else { "DRY RUN" };
     println!("Superseded-version retention (7d, live records) — {mode}");
     for key in [
@@ -166,7 +181,6 @@ pub(crate) fn db_retain_superseded_versions(
         println!();
         println!("Re-run with --execute to drop tv: nodes older than 7 days on live records.");
     }
-    Ok(())
 }
 
 /// Per-key detail rows a `--schema` repair reports when `--audit-limit` is
