@@ -1,5 +1,6 @@
 //! Live byte inventory and key-class accounting.
 
+use super::inventory_key_classes::MAIN_KEY_CLASSES;
 use super::*;
 
 impl AtomStore {
@@ -57,111 +58,13 @@ impl AtomStore {
     }
 
     /// Scan `main` by known key prefixes and sum live key+value sizes.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn inventory_main_key_classes(
         &self,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<MainKeyClass>, SchemaError> {
         // Prefixes must be ordered longest-first for classification; we scan
         // each prefix independently (they don't nest).
-        let classes: &[(&str, &str, &str)] = &[
-            ("atom_content", "atom:", "atom:{uuid} — field VALUES"),
-            (
-                "legacy_schema_secondary_index",
-                "schemaidx:",
-                "schemaidx:{len}:{schema}:{atom} — legacy main-tree marker",
-            ),
-            (
-                "mutation_history",
-                "history:",
-                "history:{molecule}:{ts} — per-field mutation log",
-            ),
-            (
-                "molecule_per_key_index",
-                "mk:",
-                "mk:{M}:… — current tip pointer per record key",
-            ),
-            (
-                "tip_version_chain",
-                "tv:",
-                "tv:{id} — archived tip versions (prev_tip_id chain for as_of)",
-            ),
-            (
-                "molecule_update_order_log",
-                "mord:",
-                "mord:{M}:{seq} — append-only update order",
-            ),
-            (
-                "molecule_hash_range_page_index",
-                "mhr:",
-                "mhr:{M}\\0… — HashRange page index",
-            ),
-            (
-                "molecule_legacy_blob",
-                "ref:",
-                "ref:{M} — pre per-key whole-molecule blob",
-            ),
-            ("molecule_header", "mh:", "mh:{M} — molecule header"),
-            (
-                "molecule_update_order_count",
-                "moc:",
-                "moc:{M} — order log count",
-            ),
-            (
-                "molecule_hash_range_index_complete",
-                "mhi:",
-                "mhi:v2:{M} — page index complete marker",
-            ),
-            (
-                "molecule_update_order_legacy",
-                "mo:",
-                "mo:{M} — legacy single-record order",
-            ),
-            (
-                "conflict",
-                "conflict:",
-                "conflict:… — merge conflict records",
-            ),
-            (
-                "legacy_schema_index_sentinel",
-                "schemaidx_v1_done",
-                "schemaidx_v1_done legacy main-tree sentinel",
-            ),
-            // Protein membership. Absent from this table until 2026-07-30, which
-            // is why an orphan-protein leak grew unnoticed: each prefix is
-            // scanned independently and there is no catch-all bucket, so an
-            // unlisted key class is not merely mis-labelled — it is invisible,
-            // and `lastdb db inventory` under-reports the main tree by its size.
-            (
-                "protein_record",
-                "protein:",
-                "protein:{uuid} — protein record (member list). Nothing deletes these; empty ones are orphans.",
-            ),
-            (
-                "protein_member_backref",
-                "molprot:",
-                "molprot:{M} → protein uuid — molecule's binding back-ref",
-            ),
-            (
-                "protein_fold_state",
-                "fldprot:",
-                "fldprot:{field_hash} — per-field protein fold state",
-            ),
-            (
-                "protein_fold_queue",
-                "pfq:",
-                "pfq:{job_id} — pending sibling-tip fold job",
-            ),
-            // Listed so the audit trail's own footprint stays visible. Nothing
-            // reaps these by design (see `db_operations::delete_ledger`), so an
-            // unbounded class that is NOT reported would be exactly the kind of
-            // invisible growth the protein-record entry above was added for.
-            (
-                "atom_delete_ledger",
-                super::super::delete_ledger::ATOM_DELETE_LEDGER_PREFIX,
-                "dellog:{ts}:{uuid} — hard-delete audit row (purge / gc-atoms). Never auto-reaped.",
-            ),
-        ];
+        let classes = MAIN_KEY_CLASSES;
 
         let mut out = Vec::with_capacity(classes.len());
         for (class, bare_prefix, label) in classes {
@@ -181,7 +84,6 @@ impl AtomStore {
     }
 
     /// Build a full inventory: main key classes + per-schema atom sizes + history stats.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn db_inventory(
         &self,
         schema_names: &[String],
@@ -195,6 +97,33 @@ impl AtomStore {
 
         let atoms: StorageBreakdown = self.storage_breakdown(schema_names, storage_prefix).await?;
 
+        let (per_schema_history, per_schema_order_log) = self
+            .inventory_schema_history(schema_field_molecules, storage_prefix)
+            .await?;
+
+        let tip_format = self.scan_tip_format(None, None, storage_prefix).await?;
+        let notes = inventory_notes(&main_classes, &tip_format);
+
+        Ok(DbInventory {
+            main_classes,
+            main_total_keys,
+            main_total_bytes,
+            per_schema_atoms: atoms.per_schema,
+            per_schema_atoms_total_bytes: atoms.total_logical_bytes,
+            per_schema_history,
+            per_schema_order_log,
+            tip_format,
+            attribution: crate::db_operations::AttributionSummary::default(),
+            notes,
+        })
+    }
+    /// Per-schema history and order-log sizes, summed over each schema's field
+    /// molecules, largest first.
+    async fn inventory_schema_history(
+        &self,
+        schema_field_molecules: &[(String, Vec<String>)],
+        storage_prefix: Option<&str>,
+    ) -> Result<(Vec<SchemaHistoryStat>, Vec<SchemaOrderLogStat>), SchemaError> {
         let mut per_schema_history = Vec::new();
         let mut per_schema_order_log = Vec::new();
         for (schema_name, mols) in schema_field_molecules {
@@ -258,66 +187,57 @@ impl AtomStore {
         }
         per_schema_history.sort_by_key(|b| std::cmp::Reverse(b.history_bytes_approx));
         per_schema_order_log.sort_by_key(|b| std::cmp::Reverse(b.order_log_bytes_approx));
+        Ok((per_schema_history, per_schema_order_log))
+    }
+}
 
-        let mut notes = vec![
+/// Human-readable caveats and residue warnings for a finished inventory.
+fn inventory_notes(main_classes: &[MainKeyClass], tip_format: &TipFormatStats) -> Vec<String> {
+    let mut notes = vec![
             "main = single sled namespace holding atoms, molecule indexes, and history (not a schema itself).".into(),
             "Sizes are live key+value lengths (decrypted path when store is encrypting); sled freelist not included.".into(),
             "clear-history: keep_last=N trims; keep_last=0 purges all history: rows. New writes no longer append history: (prev is tip prev_atom_uuid). Tips/atoms kept; orphan atoms need gc-atoms.".into(),
             "schemaidx markers now live in the local-only schema_index namespace; main-tree schemaidx rows are legacy leftovers.".into(),
             "live dual-read for schemaidx: is indexes → tips only; legacy_schema_secondary_index is not consulted (explicit CoW drain still available).".into(),
         ];
-        if main_classes
-            .iter()
-            .any(|c| c.class == "legacy_schema_secondary_index")
-        {
-            notes.push(
-                "legacy_schema_secondary_index residue may still exist on disk: purge via \
+    if main_classes
+        .iter()
+        .any(|c| c.class == "legacy_schema_secondary_index")
+    {
+        notes.push(
+            "legacy_schema_secondary_index residue may still exist on disk: purge via \
                  `lastdb-local-maintain drain-index-residue --source legacy-schema-secondary-index \
                  --execute --drop-empty-source` on CoW first; active listings use schema_index."
-                    .into(),
-            );
-        }
+                .into(),
+        );
+    }
 
-        // A protein is reachable only through some molecule's `molprot:` back-ref,
-        // and at most one back-ref points at each protein a client created for a
-        // single molecule. So `protein:` rows far exceeding `molprot:` rows means
-        // proteins were created and never bound — orphans, which nothing reclaims.
-        let class_keys = |class: &str| {
-            main_classes
-                .iter()
-                .find(|c| c.class == class)
-                .map_or(0, |c| c.keys)
-        };
-        let proteins = class_keys("protein_record");
-        let backrefs = class_keys("protein_member_backref");
-        if proteins > backrefs.saturating_mul(2) && proteins.saturating_sub(backrefs) > 1_000 {
-            notes.push(format!(
+    // A protein is reachable only through some molecule's `molprot:` back-ref,
+    // and at most one back-ref points at each protein a client created for a
+    // single molecule. So `protein:` rows far exceeding `molprot:` rows means
+    // proteins were created and never bound — orphans, which nothing reclaims.
+    let class_keys = |class: &str| {
+        main_classes
+            .iter()
+            .find(|c| c.class == class)
+            .map_or(0, |c| c.keys)
+    };
+    let proteins = class_keys("protein_record");
+    let backrefs = class_keys("protein_member_backref");
+    if proteins > backrefs.saturating_mul(2) && proteins.saturating_sub(backrefs) > 1_000 {
+        notes.push(format!(
                 "ORPHAN PROTEINS LIKELY: {proteins} protein: rows vs {backrefs} molprot: back-refs (~{} unbound). A client that creates a protein before checking `GET /api/protein/of-molecule/{{mol}}` leaks one per call, and no code path deletes protein: rows.",
                 proteins.saturating_sub(backrefs)
             ));
-        }
+    }
 
-        let tip_format = self.scan_tip_format(None, None, storage_prefix).await?;
-        if tip_format.tips_fat > 0 {
-            notes.push(format!(
+    if tip_format.tips_fat > 0 {
+        notes.push(format!(
                 "LEGACY fat tips still present: {} of {} mk: values — run `lastdb db migrate-thin-tips --execute`.",
                 tip_format.tips_fat, tip_format.tips_scanned
             ));
-        } else if tip_format.tips_scanned > 0 {
-            notes.push("All scanned mk: tips are thin (no per-tip signature/pubkey).".into());
-        }
-
-        Ok(DbInventory {
-            main_classes,
-            main_total_keys,
-            main_total_bytes,
-            per_schema_atoms: atoms.per_schema,
-            per_schema_atoms_total_bytes: atoms.total_logical_bytes,
-            per_schema_history,
-            per_schema_order_log,
-            tip_format,
-            attribution: crate::db_operations::AttributionSummary::default(),
-            notes,
-        })
+    } else if tip_format.tips_scanned > 0 {
+        notes.push("All scanned mk: tips are thin (no per-tip signature/pubkey).".into());
     }
+    notes
 }

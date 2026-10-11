@@ -1,7 +1,46 @@
 // lint:file-size-ok verbatim move out of the 9.8k-line admin_db.rs; one admin theme per file, split further when next touched
 //! Tombstone-flag audit/backfill and legacy key-fork audit.
 
+use super::super::atom_store::PerKeyRecord;
 use super::*;
+
+/// Atom bodies per batched fetch. Bounds peak memory on a store whose live set
+/// is far larger than the tombstoned one.
+const FETCH_CHUNK: usize = 512;
+/// `mk:` rewrites per batched put.
+const PUT_CHUNK: usize = 1000;
+/// Raw `mk:` rows to fetch per storage page. This bounds one resumed pass's
+/// transient scan allocation independently of store size.
+const SCAN_PAGE: usize = 2048;
+/// Wall-clock budget for one pass, well under the 600s control-socket read
+/// deadline.
+///
+/// A key-count cap alone cannot bound a pass. The per-row cost here is an atom
+/// body read, which varies by orders of magnitude across homes, so any count
+/// large enough to be useful on a small store is unbounded in time on a large
+/// one. That is exactly how a 200,000-key cap let a ~150,000-key workload run
+/// twelve minutes and trip the deadline the cap was added to avoid. The bound
+/// the caller needs is the one the socket enforces, so bound on that.
+const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(240);
+
+/// Mutable state of one `audit_legacy_key_forks` pass.
+#[derive(Default)]
+struct KeyForkAuditState {
+    report: LegacyKeyForkAudit,
+    per_molecule: HashMap<String, LegacyKeyForkMoleculeStat>,
+    pending: Vec<LegacyKeyForkCandidate>,
+}
+
+/// Mutable state of one `audit_key_tombstone_flags` pass.
+#[derive(Default)]
+struct TombstoneAuditState {
+    report: TombstoneFlagBackfillReport,
+    per_molecule: HashMap<String, MoleculeTombstoneFlagStat>,
+    /// (storage key, molecule, record) for rows the flag calls live.
+    pending: Vec<(String, String, PerKeyRecord)>,
+    to_stamp: Vec<(String, Value)>,
+    last_key: Option<String>,
+}
 
 impl AtomStore {
     /// Audit `KeyMetadata.tombstoned` against atom content, optionally stamping
@@ -33,7 +72,6 @@ impl AtomStore {
     /// range paging over the ordered storage keyspace: it keeps the cursor
     /// meaningful without materializing and sorting the whole `mk:` prefix on
     /// every resumed pass.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn audit_key_tombstone_flags(
         &self,
         molecules: Option<&HashMap<String, String>>,
@@ -42,56 +80,27 @@ impl AtomStore {
         after_key: Option<&str>,
         storage_prefix: Option<&str>,
     ) -> Result<TombstoneFlagBackfillReport, SchemaError> {
-        use super::super::atom_store::PerKeyRecord;
-
-        /// Atom bodies per batched fetch. Bounds peak memory on a store whose
-        /// live set is far larger than the tombstoned one.
-        const FETCH_CHUNK: usize = 512;
-        /// `mk:` rewrites per batched put.
-        const PUT_CHUNK: usize = 1000;
-        /// Raw `mk:` rows to fetch per storage page. This bounds one resumed
-        /// pass's transient scan allocation independently of store size.
-        const SCAN_PAGE: usize = 2048;
-        /// Wall-clock budget for one pass, well under the 600s control-socket
-        /// read deadline.
-        ///
-        /// A key-count cap alone cannot bound a pass. The per-row cost here is
-        /// an atom body read, which varies by orders of magnitude across homes,
-        /// so any count large enough to be useful on a small store is unbounded
-        /// in time on a large one. That is exactly how a 200,000-key cap let a
-        /// ~150,000-key workload run twelve minutes and trip the deadline the
-        /// cap was added to avoid. The bound the caller needs is the one the
-        /// socket enforces, so bound on that.
-        const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(240);
-
         // Started before the scan: the scan is part of what the deadline is
         // measuring, so it has to be part of what the budget measures.
         let pass_started = std::time::Instant::now();
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
         let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
 
-        let mut report = TombstoneFlagBackfillReport {
-            dry_run: !stamp,
+        let mut state = TombstoneAuditState {
+            report: TombstoneFlagBackfillReport {
+                dry_run: !stamp,
+                ..Default::default()
+            },
             ..Default::default()
         };
-        let mut per_molecule: HashMap<String, MoleculeTombstoneFlagStat> = HashMap::new();
-        // (storage key, molecule, record) for rows the flag calls live.
-        let mut pending: Vec<(String, String, PerKeyRecord)> = Vec::new();
-        let mut to_stamp: Vec<(String, Value)> = Vec::new();
-        let mut last_key: Option<String> = None;
         let mut page_start = after_key.map_or_else(|| mk_prefix.clone(), str::to_owned);
         let mut skip_head = after_key.map(str::to_owned);
         let mut range_exhausted = false;
 
         while !range_exhausted {
             let rows = self
-                .raw()
-                .inner()
-                .scan_range_paged(page_start.as_bytes(), mk_end.as_bytes(), SCAN_PAGE)
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!("range scan mk tombstone audit: {e}"))
-                })?;
+                .scan_mk_page(&page_start, &mk_end, "range scan mk tombstone audit")
+                .await?;
             if rows.len() < SCAN_PAGE {
                 range_exhausted = true;
             }
@@ -117,92 +126,142 @@ impl AtomStore {
                 if molecules.is_some_and(|m| !m.contains_key(&molecule)) {
                     continue;
                 }
-                if max_keys.is_some_and(|max| report.audit.keys_scanned as usize >= max) {
-                    report.more_remaining = true;
-                    stop_after_page = true;
-                    break;
-                }
+                let over_count =
+                    max_keys.is_some_and(|max| state.report.audit.keys_scanned as usize >= max);
                 // Same cursor discipline as the count cap: yield before the
                 // socket deadline and let the caller resume. Requiring at least
                 // one decided row guarantees `next_after_key` advances, so a
                 // pass that is slow enough to blow its whole budget on the scan
                 // still makes progress rather than resuming forever at the same
                 // cursor.
-                if report.audit.keys_scanned > 0 && pass_started.elapsed() >= PASS_TIME_BUDGET {
-                    report.more_remaining = true;
+                let over_time = state.report.audit.keys_scanned > 0
+                    && pass_started.elapsed() >= PASS_TIME_BUDGET;
+                if over_count || over_time {
+                    state.report.more_remaining = true;
                     stop_after_page = true;
                     break;
                 }
-                last_key = Some(key.clone());
-
-                report.audit.keys_scanned += 1;
-                let stat = per_molecule.entry(molecule.clone()).or_insert_with(|| {
-                    MoleculeTombstoneFlagStat {
-                        molecule: molecule.clone(),
-                        label: molecules.and_then(|m| m.get(&molecule).cloned()),
-                        ..Default::default()
-                    }
-                });
-                stat.keys += 1;
-
-                let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(&v) else {
-                    report.audit.keys_unreadable += 1;
-                    continue;
-                };
-                if rec.meta.as_ref().is_some_and(|m| m.tombstoned) {
-                    report.audit.meta_tombstoned += 1;
-                    stat.meta_tombstoned += 1;
-                    continue;
-                }
-                pending.push((key, molecule, rec));
-                if pending.len() >= FETCH_CHUNK {
-                    self.classify_tombstone_candidates(
-                        &mut pending,
-                        &mut report,
-                        &mut per_molecule,
-                        stamp.then_some(&mut to_stamp),
-                        storage_prefix,
-                    )
-                    .await?;
-                    // Drain writes as they accumulate rather than saving them
-                    // all for after the loop. Stamping is the expensive half,
-                    // and a budget that only covers the decision loop does not
-                    // bound the call: the first real run broke out at its 240s
-                    // budget and then spent another six minutes writing,
-                    // tripping the very deadline the bound exists to stay under.
-                    self.drain_tombstone_stamps(&mut to_stamp, &mut report, PUT_CHUNK)
-                        .await?;
-                }
+                self.audit_tombstone_row(
+                    &mut state,
+                    (key, molecule, &v),
+                    molecules,
+                    stamp,
+                    storage_prefix,
+                )
+                .await?;
             }
             skip_head = Some(page_start.clone());
             if stop_after_page {
                 break;
             }
         }
+        self.finish_tombstone_audit(state, stamp, storage_prefix)
+            .await
+    }
+
+    /// Fetch one storage page of raw `mk:` rows starting at `page_start`.
+    async fn scan_mk_page(
+        &self,
+        page_start: &str,
+        mk_end: &str,
+        what: &str,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, SchemaError> {
+        self.raw()
+            .inner()
+            .scan_range_paged(page_start.as_bytes(), mk_end.as_bytes(), SCAN_PAGE)
+            .await
+            .map_err(|e| SchemaError::InvalidData(format!("{what}: {e}")))
+    }
+
+    /// Count one `mk:` row into the audit and queue it for classification when
+    /// its flag says live. Classifies and drains writes once a batch fills.
+    async fn audit_tombstone_row(
+        &self,
+        state: &mut TombstoneAuditState,
+        (key, molecule, value): (String, String, &[u8]),
+        molecules: Option<&HashMap<String, String>>,
+        stamp: bool,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        state.last_key = Some(key.clone());
+        state.report.audit.keys_scanned += 1;
+        let stat = state
+            .per_molecule
+            .entry(molecule.clone())
+            .or_insert_with(|| MoleculeTombstoneFlagStat {
+                molecule: molecule.clone(),
+                label: molecules.and_then(|m| m.get(&molecule).cloned()),
+                ..Default::default()
+            });
+        stat.keys += 1;
+
+        let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(value) else {
+            state.report.audit.keys_unreadable += 1;
+            return Ok(());
+        };
+        if rec.meta.as_ref().is_some_and(|m| m.tombstoned) {
+            state.report.audit.meta_tombstoned += 1;
+            stat.meta_tombstoned += 1;
+            return Ok(());
+        }
+        state.pending.push((key, molecule, rec));
+        if state.pending.len() >= FETCH_CHUNK {
+            self.classify_pending_tombstones(state, stamp, storage_prefix)
+                .await?;
+            // Drain writes as they accumulate rather than saving them
+            // all for after the loop. Stamping is the expensive half,
+            // and a budget that only covers the decision loop does not
+            // bound the call: the first real run broke out at its 240s
+            // budget and then spent another six minutes writing,
+            // tripping the very deadline the bound exists to stay under.
+            self.drain_tombstone_stamps(&mut state.to_stamp, &mut state.report, PUT_CHUNK)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn classify_pending_tombstones(
+        &self,
+        state: &mut TombstoneAuditState,
+        stamp: bool,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
         self.classify_tombstone_candidates(
-            &mut pending,
-            &mut report,
-            &mut per_molecule,
-            stamp.then_some(&mut to_stamp),
+            &mut state.pending,
+            &mut state.report,
+            &mut state.per_molecule,
+            stamp.then_some(&mut state.to_stamp),
             storage_prefix,
         )
-        .await?;
+        .await
+    }
 
+    /// Classify the last partial batch, flush remaining stamps, and sort the
+    /// per-molecule rows into the report.
+    async fn finish_tombstone_audit(
+        &self,
+        mut state: TombstoneAuditState,
+        stamp: bool,
+        storage_prefix: Option<&str>,
+    ) -> Result<TombstoneFlagBackfillReport, SchemaError> {
+        self.classify_pending_tombstones(&mut state, stamp, storage_prefix)
+            .await?;
         if stamp {
-            self.drain_tombstone_stamps(&mut to_stamp, &mut report, 0)
+            self.drain_tombstone_stamps(&mut state.to_stamp, &mut state.report, 0)
                 .await?;
             let _ = self.flush().await;
         }
 
-        let mut rows: Vec<MoleculeTombstoneFlagStat> = per_molecule.into_values().collect();
+        let mut rows: Vec<MoleculeTombstoneFlagStat> = state.per_molecule.into_values().collect();
         rows.sort_by(|a, b| {
             b.content_tombstoned_meta_false
                 .cmp(&a.content_tombstoned_meta_false)
                 .then_with(|| b.keys.cmp(&a.keys))
                 .then_with(|| a.molecule.cmp(&b.molecule))
         });
+        let mut report = state.report;
         report.audit.per_molecule = rows;
-        report.next_after_key = last_key;
+        report.next_after_key = state.last_key;
         Ok(report)
     }
 
@@ -217,12 +276,6 @@ impl AtomStore {
         after_key: Option<&str>,
         storage_prefix: Option<&str>,
     ) -> Result<LegacyTombstoneScan, SchemaError> {
-        use super::super::atom_store::PerKeyRecord;
-
-        const FETCH_CHUNK: usize = 512;
-        const SCAN_PAGE: usize = 2048;
-        const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(240);
-
         let pass_started = std::time::Instant::now();
         let mk_prefix = build_storage_key(storage_prefix, molecule_key_codec::MK_PREFIX);
         let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
@@ -242,13 +295,8 @@ impl AtomStore {
 
         while !range_exhausted {
             let rows = self
-                .raw()
-                .inner()
-                .scan_range_paged(page_start.as_bytes(), mk_end.as_bytes(), SCAN_PAGE)
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!("range scan legacy tombstones: {e}"))
-                })?;
+                .scan_mk_page(&page_start, &mk_end, "range scan legacy tombstones")
+                .await?;
             if rows.len() < SCAN_PAGE {
                 range_exhausted = true;
             }
@@ -311,7 +359,7 @@ impl AtomStore {
 
     pub(super) async fn classify_legacy_tombstone_slots(
         &self,
-        pending: &mut Vec<(String, String, super::super::atom_store::PerKeyRecord)>,
+        pending: &mut Vec<(String, String, PerKeyRecord)>,
         scan: &mut LegacyTombstoneScan,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
@@ -378,7 +426,7 @@ impl AtomStore {
     /// content. Drains `pending`; queues rewrites into `to_stamp` when stamping.
     pub(super) async fn classify_tombstone_candidates(
         &self,
-        pending: &mut Vec<(String, String, super::super::atom_store::PerKeyRecord)>,
+        pending: &mut Vec<(String, String, PerKeyRecord)>,
         report: &mut TombstoneFlagBackfillReport,
         per_molecule: &mut HashMap<String, MoleculeTombstoneFlagStat>,
         mut to_stamp: Option<&mut Vec<(String, Value)>>,
@@ -425,7 +473,6 @@ impl AtomStore {
     }
 
     /// Audit or drain one bounded page of legacy/plain HashKey-encoding tips.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn audit_legacy_key_forks(
         &self,
         dry_run: bool,
@@ -433,30 +480,24 @@ impl AtomStore {
         after_key: Option<&str>,
         storage_prefix: Option<&str>,
     ) -> Result<LegacyKeyForkAudit, SchemaError> {
-        const SCAN_PAGE: usize = 2048;
-        const FETCH_CHUNK: usize = 512;
-        const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(240);
-
         let pass_started = std::time::Instant::now();
         let mk_prefix = build_storage_key(storage_prefix, molecule_key_codec::MK_PREFIX);
         let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
-        let mut report = LegacyKeyForkAudit {
-            dry_run,
+        let mut state = KeyForkAuditState {
+            report: LegacyKeyForkAudit {
+                dry_run,
+                ..Default::default()
+            },
             ..Default::default()
         };
-        let mut per_molecule: HashMap<String, LegacyKeyForkMoleculeStat> = HashMap::new();
-        let mut pending: Vec<LegacyKeyForkCandidate> = Vec::new();
         let mut page_start = after_key.map_or_else(|| mk_prefix.clone(), str::to_owned);
         let mut skip_head = after_key.map(str::to_owned);
         let mut range_exhausted = false;
 
         while !range_exhausted {
             let rows = self
-                .raw()
-                .inner()
-                .scan_range_paged(page_start.as_bytes(), mk_end.as_bytes(), SCAN_PAGE)
-                .await
-                .map_err(|e| SchemaError::InvalidData(format!("scan legacy key forks: {e}")))?;
+                .scan_mk_page(&page_start, &mk_end, "scan legacy key forks")
+                .await?;
             if rows.len() < SCAN_PAGE {
                 range_exhausted = true;
             }
@@ -471,63 +512,16 @@ impl AtomStore {
                 if head.as_deref() == Some(key.as_str()) {
                     continue;
                 }
-                if report.keys_scanned as usize >= max_keys
-                    || (report.keys_scanned > 0 && pass_started.elapsed() >= PASS_TIME_BUDGET)
+                if state.report.keys_scanned as usize >= max_keys
+                    || (state.report.keys_scanned > 0 && pass_started.elapsed() >= PASS_TIME_BUDGET)
                 {
-                    report.more_remaining = true;
+                    state.report.more_remaining = true;
                     stop_after_page = true;
                     break;
                 }
-                report.keys_scanned += 1;
-                report.next_after_key = Some(key.clone());
-
-                let Some(suffix) = key.strip_prefix(&mk_prefix) else {
-                    report.keys_unreadable += 1;
-                    continue;
-                };
-                let base_key = format!("{}{}", molecule_key_codec::MK_PREFIX, suffix);
-                let Some(molecule) = suffix.split_once(':').map(|(m, _)| m.to_string()) else {
-                    report.keys_unreadable += 1;
-                    continue;
-                };
-                let stat = per_molecule.entry(molecule.clone()).or_insert_with(|| {
-                    LegacyKeyForkMoleculeStat {
-                        molecule: molecule.clone(),
-                        ..Default::default()
-                    }
-                });
-                stat.keys += 1;
-                let Some((hash, range)) =
-                    molecule_key_codec::decode_hash_range(&base_key, &molecule)
-                else {
-                    report.keys_unreadable += 1;
-                    continue;
-                };
-                if hash.is_empty() || self.key_codec().looks_like_storage_hash(&hash) {
-                    report.current_form += 1;
-                    stat.current_form += 1;
-                    continue;
-                }
-                report.legacy_form += 1;
-                stat.legacy_form += 1;
-                let twin_hash = self.storage_hash(&molecule, &hash)?;
-                let twin_base =
-                    molecule_key_codec::hash_range_record_key(&molecule, &twin_hash, &range);
-                pending.push(LegacyKeyForkCandidate {
-                    legacy_key: key,
-                    twin_key: build_storage_key(storage_prefix, &twin_base),
-                    molecule,
-                    bytes: (raw_key.len() + raw_value.len()) as u64,
-                });
-                if pending.len() >= FETCH_CHUNK {
-                    self.classify_legacy_key_fork_candidates(
-                        &mut pending,
-                        &mut report,
-                        &mut per_molecule,
-                        storage_prefix,
-                    )
+                let bytes = (raw_key.len() + raw_value.len()) as u64;
+                self.audit_key_fork_row(&mut state, key, &mk_prefix, bytes, storage_prefix)
                     .await?;
-                }
             }
             skip_head = Some(page_start.clone());
             if stop_after_page {
@@ -535,16 +529,17 @@ impl AtomStore {
             }
         }
         self.classify_legacy_key_fork_candidates(
-            &mut pending,
-            &mut report,
-            &mut per_molecule,
+            &mut state.pending,
+            &mut state.report,
+            &mut state.per_molecule,
             storage_prefix,
         )
         .await?;
+        let mut report = state.report;
         if !dry_run && report.legacy_tips_deleted > 0 {
             let _ = self.flush().await;
         }
-        let mut rows: Vec<_> = per_molecule.into_values().collect();
+        let mut rows: Vec<_> = state.per_molecule.into_values().collect();
         rows.sort_by(|a, b| {
             b.forked
                 .cmp(&a.forked)
@@ -557,7 +552,69 @@ impl AtomStore {
         Ok(report)
     }
 
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
+    /// Count one `mk:` row and queue it as a fork candidate when it is in the
+    /// legacy key form. Classifies the batch once it fills.
+    async fn audit_key_fork_row(
+        &self,
+        state: &mut KeyForkAuditState,
+        key: String,
+        mk_prefix: &str,
+        bytes: u64,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        let report = &mut state.report;
+        report.keys_scanned += 1;
+        report.next_after_key = Some(key.clone());
+
+        let Some(suffix) = key.strip_prefix(mk_prefix) else {
+            report.keys_unreadable += 1;
+            return Ok(());
+        };
+        let base_key = format!("{}{}", molecule_key_codec::MK_PREFIX, suffix);
+        let Some(molecule) = suffix.split_once(':').map(|(m, _)| m.to_string()) else {
+            report.keys_unreadable += 1;
+            return Ok(());
+        };
+        let stat = state
+            .per_molecule
+            .entry(molecule.clone())
+            .or_insert_with(|| LegacyKeyForkMoleculeStat {
+                molecule: molecule.clone(),
+                ..Default::default()
+            });
+        stat.keys += 1;
+        let Some((hash, range)) = molecule_key_codec::decode_hash_range(&base_key, &molecule)
+        else {
+            report.keys_unreadable += 1;
+            return Ok(());
+        };
+        if hash.is_empty() || self.key_codec().looks_like_storage_hash(&hash) {
+            report.current_form += 1;
+            stat.current_form += 1;
+            return Ok(());
+        }
+        report.legacy_form += 1;
+        stat.legacy_form += 1;
+        let twin_hash = self.storage_hash(&molecule, &hash)?;
+        let twin_base = molecule_key_codec::hash_range_record_key(&molecule, &twin_hash, &range);
+        state.pending.push(LegacyKeyForkCandidate {
+            legacy_key: key,
+            twin_key: build_storage_key(storage_prefix, &twin_base),
+            molecule,
+            bytes,
+        });
+        if state.pending.len() >= FETCH_CHUNK {
+            self.classify_legacy_key_fork_candidates(
+                &mut state.pending,
+                &mut state.report,
+                &mut state.per_molecule,
+                storage_prefix,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn classify_legacy_key_fork_candidates(
         &self,
         pending: &mut Vec<LegacyKeyForkCandidate>,
@@ -565,8 +622,6 @@ impl AtomStore {
         per_molecule: &mut HashMap<String, LegacyKeyForkMoleculeStat>,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
-        use super::super::atom_store::PerKeyRecord;
-
         if pending.is_empty() {
             return Ok(());
         }
@@ -594,6 +649,31 @@ impl AtomStore {
         if forked.is_empty() {
             return Ok(());
         }
+        let eligible = self
+            .judge_fork_twin_atoms(forked, report, per_molecule, storage_prefix)
+            .await?;
+        for (molecule, candidates) in eligible {
+            self.delete_eligible_legacy_forks(
+                &molecule,
+                candidates,
+                report,
+                per_molecule,
+                storage_prefix,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Count each fork twin's atom as missing, tombstoned or live. Under
+    /// execute, returns the candidates with a live twin grouped by molecule.
+    async fn judge_fork_twin_atoms(
+        &self,
+        forked: Vec<(LegacyKeyForkCandidate, PerKeyRecord)>,
+        report: &mut LegacyKeyForkAudit,
+        per_molecule: &mut HashMap<String, LegacyKeyForkMoleculeStat>,
+        storage_prefix: Option<&str>,
+    ) -> Result<HashMap<String, Vec<LegacyKeyForkCandidate>>, SchemaError> {
         let atom_slots: Vec<_> = forked
             .iter()
             .map(|(_, twin)| (twin.entry.atom_uuid.as_str(), None))
@@ -630,52 +710,61 @@ impl AtomStore {
                 }
             }
         }
+        Ok(eligible)
+    }
 
-        for (molecule, candidates) in eligible {
-            let _guard = self.lock_molecule_commit(&molecule, storage_prefix).await;
-            let twin_keys: Vec<_> = candidates.iter().map(|c| c.twin_key.clone()).collect();
-            let twins = self
-                .raw()
-                .get_items::<PerKeyRecord>(&twin_keys)
-                .await
-                .map_err(|e| SchemaError::InvalidData(format!("recheck legacy fork twins: {e}")))?;
-            let present: Vec<_> = candidates
-                .into_iter()
-                .zip(twins)
-                .filter_map(|(candidate, twin)| twin.map(|twin| (candidate, twin)))
-                .collect();
-            let atom_slots: Vec<_> = present
-                .iter()
-                .map(|(_, twin)| (twin.entry.atom_uuid.as_str(), None))
-                .collect();
-            let atoms = self.get_atoms_located(&atom_slots, storage_prefix).await?;
-            let mut delete = Vec::new();
-            let mut bytes = 0u64;
-            for ((candidate, _), atom) in present.into_iter().zip(atoms) {
-                if atom
-                    .as_ref()
-                    .is_some_and(|atom| !crate::atom::is_tombstone_value(atom.content()))
-                {
-                    bytes += candidate.bytes;
-                    delete.push(candidate.legacy_key);
-                }
-            }
-            if !delete.is_empty() {
-                self.raw()
-                    .batch_delete_keys(delete.clone())
-                    .await
-                    .map_err(|e| {
-                        SchemaError::InvalidData(format!("delete legacy fork tips: {e}"))
-                    })?;
-                let deleted = delete.len() as u64;
-                report.legacy_tips_deleted += deleted;
-                report.bytes_freed_approx += bytes;
-                per_molecule
-                    .get_mut(&molecule)
-                    .expect("candidate molecule was counted")
-                    .legacy_tips_deleted += deleted;
+    /// Re-check each twin under the molecule commit lock, then delete the
+    /// legacy tips whose twin still holds a live atom.
+    async fn delete_eligible_legacy_forks(
+        &self,
+        molecule: &str,
+        candidates: Vec<LegacyKeyForkCandidate>,
+        report: &mut LegacyKeyForkAudit,
+        per_molecule: &mut HashMap<String, LegacyKeyForkMoleculeStat>,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        let _guard = self.lock_molecule_commit(molecule, storage_prefix).await;
+        let twin_keys: Vec<_> = candidates.iter().map(|c| c.twin_key.clone()).collect();
+        let twins = self
+            .raw()
+            .get_items::<PerKeyRecord>(&twin_keys)
+            .await
+            .map_err(|e| SchemaError::InvalidData(format!("recheck legacy fork twins: {e}")))?;
+        let present: Vec<_> = candidates
+            .into_iter()
+            .zip(twins)
+            .filter_map(|(candidate, twin)| twin.map(|twin| (candidate, twin)))
+            .collect();
+        let atom_slots: Vec<_> = present
+            .iter()
+            .map(|(_, twin)| (twin.entry.atom_uuid.as_str(), None))
+            .collect();
+        let atoms = self.get_atoms_located(&atom_slots, storage_prefix).await?;
+        let mut delete = Vec::new();
+        let mut bytes = 0u64;
+        for ((candidate, _), atom) in present.into_iter().zip(atoms) {
+            if atom
+                .as_ref()
+                .is_some_and(|atom| !crate::atom::is_tombstone_value(atom.content()))
+            {
+                bytes += candidate.bytes;
+                delete.push(candidate.legacy_key);
             }
         }
+        if delete.is_empty() {
+            return Ok(());
+        }
+        self.raw()
+            .batch_delete_keys(delete.clone())
+            .await
+            .map_err(|e| SchemaError::InvalidData(format!("delete legacy fork tips: {e}")))?;
+        let deleted = delete.len() as u64;
+        report.legacy_tips_deleted += deleted;
+        report.bytes_freed_approx += bytes;
+        per_molecule
+            .get_mut(molecule)
+            .expect("candidate molecule was counted")
+            .legacy_tips_deleted += deleted;
         Ok(())
     }
 }
