@@ -81,31 +81,6 @@ fn validate_e2e_key_b64(e2e_key_b64: &str) -> Result<[u8; 32], FoldDbError> {
     Ok(key)
 }
 
-/// Insert or update an active org sync target in the primary backend.
-pub async fn upsert_org_sync_target_in_ops(
-    ops: &DbOperations,
-    org_hash: &str,
-    e2e_key_b64: &str,
-    slug: &str,
-) -> Result<OrgSyncTarget, FoldDbError> {
-    validate_org_hash(org_hash)?;
-    let _ = validate_e2e_key_b64(e2e_key_b64)?;
-    let target = OrgSyncTarget {
-        org_hash: org_hash.trim().to_lowercase(),
-        storage_prefixes: Vec::new(),
-        unprefixed_schema_names: Vec::new(),
-        e2e_key_b64: e2e_key_b64.trim().to_string(),
-        slug: slug.trim().to_string(),
-        active: true,
-        registered_at: chrono_like_now(),
-    };
-    let store = namespace(ops).await?;
-    let key = format!("org_sync:{}", target.org_hash);
-    let value = serde_json::to_vec(&target)?;
-    store.put(key.as_bytes(), value).await?;
-    Ok(target)
-}
-
 /// Insert or update an org target and explicitly attach one local database.
 ///
 /// The local storage prefix and the remote org cloud prefix are different

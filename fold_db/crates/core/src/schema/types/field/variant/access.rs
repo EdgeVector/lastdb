@@ -5,31 +5,6 @@ use crate::schema::types::SchemaError;
 use super::FieldVariant;
 
 impl FieldVariant {
-    /// Extracts the molecule signature for this field's entry at `key` in
-    /// transplantable form. See prior docs.
-    #[must_use]
-    pub fn signed_entry_provenance(
-        &self,
-        key: &KeyValue,
-    ) -> Option<crate::atom::ImportedFieldProvenance> {
-        fn from_entry(
-            entry: &crate::atom::AtomEntry,
-        ) -> Option<crate::atom::ImportedFieldProvenance> {
-            if entry.signature_version == 0 || entry.signature.is_empty() {
-                return None;
-            }
-            Some(crate::atom::ImportedFieldProvenance {
-                atom_uuid: entry.atom_uuid.clone(),
-                written_at: entry.written_at,
-                version: None,
-                writer_pubkey: entry.writer_pubkey.clone(),
-                signature: entry.signature.clone(),
-                signature_version: entry.signature_version,
-            })
-        }
-        self.atom_entry_at_key(key).and_then(from_entry)
-    }
-
     /// AtomEntry at `key`, using the field kind's unified HashRange disk slot.
     #[must_use]
     pub(crate) fn atom_entry_at_key(&self, key: &KeyValue) -> Option<&crate::atom::AtomEntry> {

@@ -17,7 +17,6 @@ mod planes;
 mod snapshot_rows;
 mod types;
 
-pub use planes::*;
 pub use snapshot_rows::*;
 pub use types::*;
 

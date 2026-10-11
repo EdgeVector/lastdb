@@ -373,11 +373,6 @@ impl ResidentAtom {
 /// Fixed per-entry charge covering map slot, key strings, and allocator slack.
 pub(crate) const PER_ENTRY_OVERHEAD_BYTES: u64 = 64;
 
-/// Flat charge for a resident schema. The catalog is bounded by schema count
-/// (dozens, not millions) and `Schema` has no cheap size probe; a flat charge
-/// keeps the ledger honest enough without serializing the schema per install.
-pub(crate) const APPROX_SCHEMA_BYTES: u64 = 4096;
-
 /// Cheap recursive estimate of a `serde_json::Value`'s in-memory footprint.
 ///
 /// Deliberately approximate: string/number payloads plus a fixed per-node
@@ -397,15 +392,4 @@ pub(crate) fn approx_json_bytes(value: &Value) -> u64 {
                     .sum::<u64>()
         }
     }
-}
-
-/// Snapshot of dirty ladder objects ready to persist — **isomorphic** to resident.
-///
-/// Fidelity tests compare this plan to a rehydrate-from-plan graph.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct PersistPlan {
-    pub schemas: Vec<crate::schema::types::Schema>,
-    pub tips: Vec<ResidentTip>,
-    pub atoms: Vec<ResidentAtom>,
-    // proteins: later
 }

@@ -173,12 +173,3 @@ fn validate_pack_locations(
     }
     Ok(())
 }
-
-/// Classification of one v2 descriptor chain step.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DescriptorChainStep {
-    /// The successor references every predecessor instance.
-    OrdinaryAppend,
-    /// The successor drops predecessor instances and a receipt names each.
-    SanctionedRetirement,
-}

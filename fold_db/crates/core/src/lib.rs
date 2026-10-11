@@ -37,7 +37,7 @@ pub use protein::{
 pub mod resident;
 pub use resident::{
     DirtyKey, PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey,
-    PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistPlan, PersistReservation,
+    PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistReservation,
     PersistSlotRevision, ResidentAtom, ResidentGraph, ResidentKind, ResidentMetrics,
     ResidentSlotControl, ResidentSlotState, ResidentTip, ResolveOutcome, ResolveSource,
 };
@@ -93,5 +93,5 @@ pub use schema::SchemaState;
 
 // Re-export storage types
 pub use storage::DatabaseConfig;
-pub use storage::{NodeConfigStore, NodeIdentity};
+pub use storage::NodeConfigStore;
 pub use sync_conflict::SyncConflict;

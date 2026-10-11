@@ -87,34 +87,6 @@ impl Provenance {
     }
 }
 
-/// A field's molecule signature in transplantable form: everything a remote
-/// node needs to (a) verify the original author signed this exact value
-/// (`verify_imported_parts` on the matching molecule type, with the
-/// content-derived `atom_uuid` and deterministic `molecule_uuid` recomputed
-/// locally) and (b) store the entry so the same signature stays verifiable
-/// at rest (the `*_imported` setters with the signed `written_at`/`version`
-/// preserved). Produced by `FieldVariant::signed_entry_provenance`; carried
-/// on the `data_share` wire by fold_db_node.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ImportedFieldProvenance {
-    /// Content-derived atom UUID the author signed. The importer MUST
-    /// re-derive this from the received value and reject on mismatch --
-    /// it is the link between the signature and the actual data.
-    pub atom_uuid: String,
-    /// The `written_at` (nanos) inside the signed canonical bytes.
-    pub written_at: u64,
-    /// The signed `version` -- `Some` only for single (non-keyed) molecules;
-    /// per-key entries do not sign a version.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<u64>,
-    /// Base64 Ed25519 public key of the original author.
-    pub writer_pubkey: String,
-    /// Base64 Ed25519 signature over the molecule canonical bytes.
-    pub signature: String,
-    /// Signature scheme version (1 = current canonical layout).
-    pub signature_version: u8,
-}
-
 /// Canonical reference to a single atom version on a single molecule.
 ///
 /// Used as a Merkle leaf for `Provenance::Derived::sources_merkle_root` and

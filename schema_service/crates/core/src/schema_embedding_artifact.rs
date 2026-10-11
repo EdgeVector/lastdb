@@ -47,10 +47,7 @@
 //! artifact bytes — which makes the content address stable and lets two
 //! independent services publish to the same R2 key.
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::state::SchemaServiceState;
 
@@ -74,43 +71,6 @@ pub const R2_PREFIX: &str = "schema-embedding-artifacts";
 pub struct EmbeddingVectorRecord {
     pub target_id: String,
     pub vector: Vec<f32>,
-}
-
-/// The publishable schema-embedding artifact: the three canonical embedding
-/// classes plus enough metadata to validate them against a local node's
-/// embedder and schema snapshot before import.
-///
-/// This is the object stored at the content-addressed R2 key. Its SHA-256
-/// (see [`artifact_sha256_hex`]) is the content address and is recorded in
-/// the [`SchemaEmbeddingArtifactManifest`] so the two can be cross-checked.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SchemaEmbeddingArtifact {
-    /// See [`SCHEMA_EMBEDDING_ARTIFACT_FORMAT_VERSION`].
-    pub format_version: u32,
-    /// Stable identity of the embedder that produced these vectors (e.g.
-    /// `"fastembed/all-MiniLM-L6-v2"`). A node refuses an artifact whose
-    /// `embedder_id` does not equal its own embedder's id — vectors from
-    /// different models live in different spaces and cannot be mixed.
-    pub embedder_id: String,
-    /// SHA-256 (lowercase hex) of the schema snapshot these embeddings were
-    /// computed against. Content-addresses the artifact to a specific
-    /// registry state so a node never imports embeddings that don't match
-    /// the schemas it just installed.
-    pub schema_snapshot_hash: String,
-    /// RFC 3339 UTC timestamp produced by the artifact builder.
-    pub generated_at: String,
-    /// Embedding vector length every record must have (e.g. 384). A record
-    /// whose vector length differs is rejected at validation — a corrupt or
-    /// mixed-model artifact.
-    pub dimensions: u32,
-    /// `descriptive_name` → vector. Sorted by `target_id`.
-    pub descriptive_names: Vec<EmbeddingVectorRecord>,
-    /// `"<descriptive_name>:<field_name>"` → vector. Sorted by `target_id`.
-    /// The expensive class.
-    pub schema_field_contexts: Vec<EmbeddingVectorRecord>,
-    /// canonical field name → vector. Sorted by `target_id`.
-    pub canonical_fields: Vec<EmbeddingVectorRecord>,
 }
 
 /// Per-class counts, duplicated into the discovery manifest so a dashboard
@@ -173,91 +133,15 @@ impl ArtifactEnv {
     }
 }
 
-/// Which object a key names inside one artifact's content-addressed
-/// directory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArtifactObject {
-    /// `manifest.json` — the discovery metadata.
-    Manifest,
-    /// `artifact.json` — the embedding vectors themselves.
-    Artifact,
-}
-
-/// Errors from validating a downloaded artifact against a local node's
-/// embedder and the snapshot it just installed.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum EmbeddingArtifactVerifyError {
-    #[error("unsupported schema-embedding artifact format version: {0}")]
-    UnsupportedFormatVersion(u32),
-    #[error("artifact embedder_id {artifact:?} does not match local embedder {local:?}")]
-    EmbedderMismatch { artifact: String, local: String },
-    #[error(
-        "artifact schema_snapshot_hash {artifact:?} does not match installed snapshot {expected:?}"
-    )]
-    SnapshotHashMismatch { artifact: String, expected: String },
-    #[error("artifact hash is not lowercase hex sha256: {field}")]
-    MalformedHash { field: &'static str },
-    #[error("artifact bytes hash {actual} does not match manifest artifact_sha256 {expected}")]
-    ChecksumMismatch { expected: String, actual: String },
-    #[error("manifest metadata field {field} disagrees with artifact body")]
-    ManifestBodyMismatch { field: &'static str },
-    #[error(
-        "vector for {class} target {target:?} has length {actual}, expected dimensions {expected}"
-    )]
-    DimensionMismatch {
-        class: &'static str,
-        target: String,
-        expected: u32,
-        actual: usize,
-    },
-    #[error("artifact JSON parse failed: {0}")]
-    ArtifactJson(String),
-    #[error("manifest JSON parse failed: {0}")]
-    ManifestJson(String),
-}
-
 /// SHA-256 of `bytes` as lowercase hex. Same helper contract as
 /// [`crate::resolver_pack::artifact_sha256_hex`].
 pub fn artifact_sha256_hex(bytes: &[u8]) -> String {
     schema_types::hex::sha256_hex(bytes)
 }
 
-/// Parse artifact bytes.
-pub fn parse_artifact(bytes: &[u8]) -> Result<SchemaEmbeddingArtifact, serde_json::Error> {
-    serde_json::from_slice(bytes)
-}
-
 /// Parse manifest bytes.
 pub fn parse_manifest(bytes: &[u8]) -> Result<SchemaEmbeddingArtifactManifest, serde_json::Error> {
     serde_json::from_slice(bytes)
-}
-
-/// R2 object key for one object of a content-addressed artifact.
-///
-/// Layout (mirrors the resolver-pack scheme):
-///
-/// ```text
-/// schema-embedding-artifacts/{dev|prod}/artifacts/sha256/{artifact_sha256}/manifest.json
-/// schema-embedding-artifacts/{dev|prod}/artifacts/sha256/{artifact_sha256}/artifact.json
-/// ```
-///
-/// Content addressing makes every published key immutable: the same bytes
-/// always land at the same key, and a byte-different artifact lands at a
-/// different key. Publishers therefore never overwrite in place, and a node
-/// that fetched a key can cache it forever.
-pub fn schema_embedding_artifact_object_key(
-    env: ArtifactEnv,
-    object: ArtifactObject,
-    artifact_sha256: &str,
-) -> String {
-    let filename = match object {
-        ArtifactObject::Manifest => "manifest.json",
-        ArtifactObject::Artifact => "artifact.json",
-    };
-    format!(
-        "{R2_PREFIX}/{}/artifacts/sha256/{artifact_sha256}/{filename}",
-        env.segment()
-    )
 }
 
 /// R2 object key for the mutable "latest compatible" discovery pointer.
@@ -329,23 +213,6 @@ pub struct PublishPlan {
     /// The artifact's content address (SHA-256 of the serialized body),
     /// echoed for logging/observability.
     pub artifact_sha256: String,
-}
-
-/// The three validated embedding caches a node imports in place of a full
-/// recompute. Field names mirror [`crate::snapshot::SnapshotEmbeddings`] so a
-/// caller can move the maps straight into that struct.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct ImportedEmbeddings {
-    pub descriptive_names: BTreeMap<String, Vec<f32>>,
-    pub fields: BTreeMap<String, Vec<f32>>,
-    pub canonical_fields: BTreeMap<String, Vec<f32>>,
-}
-
-impl ImportedEmbeddings {
-    /// Total entries across the three classes.
-    pub fn total(&self) -> usize {
-        self.descriptive_names.len() + self.fields.len() + self.canonical_fields.len()
-    }
 }
 
 impl SchemaServiceState {}

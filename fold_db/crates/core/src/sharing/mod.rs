@@ -16,5 +16,5 @@ pub use org_sync_target::{
     deactivate_org_sync_targets_matching_in_ops, e2e_key_bytes,
     list_active_org_sync_targets_in_ops, list_org_sync_targets_in_ops,
     upsert_org_sync_target_for_storage_prefix_and_schema_in_ops,
-    upsert_org_sync_target_for_storage_prefix_in_ops, upsert_org_sync_target_in_ops, OrgSyncTarget,
+    upsert_org_sync_target_for_storage_prefix_in_ops, OrgSyncTarget,
 };

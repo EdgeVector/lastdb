@@ -109,28 +109,4 @@ impl SyncEngine {
     {
         self.auth.register_db_for_hash(head_hash).await
     }
-
-    /// Grant another principal writer/reader on a cloud head (owner only).
-    pub async fn grant_cloud_head_member(
-        &self,
-        head_hash: &str,
-        target_user_hash: &str,
-        role: &str,
-    ) -> Result<crate::sync::auth::ops::register_db::DbRegistration, crate::sync::error::SyncError>
-    {
-        self.auth
-            .register_db_member(head_hash, target_user_hash, role)
-            .await
-    }
-
-    /// Revoke a principal's live access to a cloud head (owner kick or self-leave).
-    pub async fn revoke_cloud_head_member(
-        &self,
-        head_hash: &str,
-        target_user_hash: &str,
-    ) -> Result<(), crate::sync::error::SyncError> {
-        self.auth
-            .unregister_db_member(head_hash, target_user_hash)
-            .await
-    }
 }

@@ -70,9 +70,9 @@ pub use logical_set::{
 };
 pub use metrics::{ResidentMetrics, ResidentMetricsSnapshot};
 pub use types::{
-    DirtyKey, PersistPlan, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot,
-    ResidentKind, ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip,
-    ResolveOutcome, ResolveSource, RESIDENT_KIND_ATOM, RESIDENT_KIND_FILE_BLOB,
-    RESIDENT_KIND_MOLECULE, RESIDENT_KIND_PROTEIN, RESIDENT_KIND_SCHEMA,
+    DirtyKey, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot, ResidentKind,
+    ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip, ResolveOutcome,
+    ResolveSource, RESIDENT_KIND_ATOM, RESIDENT_KIND_FILE_BLOB, RESIDENT_KIND_MOLECULE,
+    RESIDENT_KIND_PROTEIN, RESIDENT_KIND_SCHEMA,
 };
 pub use worker::BackgroundPersistTask;
