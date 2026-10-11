@@ -74,6 +74,7 @@ pub mod state;
 mod state_canonicalization;
 mod state_compositional;
 mod state_expansion;
+mod state_expansion_persist;
 mod state_fields;
 mod state_matching;
 mod state_native_resolve;
