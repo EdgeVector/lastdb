@@ -49,10 +49,17 @@ pub(super) enum CaptureJobKind {
         keys: Vec<Vec<u8>>,
         digests: Vec<(Vec<u8>, [u8; 32])>,
     },
-    /// Small leftover catalog rows that a member node must apply from the log.
+    /// Membership and schema authority bodies, with other rows still hashed.
     ApplyablePut {
         namespace: String,
         items: Vec<(Vec<u8>, Vec<u8>)>,
+        digests: Vec<(Vec<u8>, [u8; 32])>,
+    },
+    ApplyableMixed {
+        namespace: String,
+        keys: Vec<Vec<u8>>,
+        changes: Vec<crate::sync::log::LogicalChange>,
+        digests: Vec<(Vec<u8>, [u8; 32])>,
     },
     Delete {
         namespace: String,
@@ -292,27 +299,29 @@ pub(super) async fn process_capture_job(job: CaptureJob) {
             );
             finish_capture(&engine, &namespace, marker, result, "physical_digest").await;
         }
-        CaptureJobKind::ApplyablePut { namespace, items } => {
-            let keys: Vec<Vec<u8>> = items.iter().map(|(key, _)| key.clone()).collect();
-            let stage_started = std::time::Instant::now();
-            let marker = stage_marker(&engine, &namespace, &keys).await;
-            engine.capture_stage_us.fetch_add(
-                elapsed_micros(stage_started),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            let record_started = std::time::Instant::now();
-            let result = if items.len() == 1 {
-                engine
-                    .record_put(&namespace, &items[0].0, &items[0].1)
-                    .await
-            } else {
-                engine.record_batch_put(&namespace, &items).await
-            };
-            engine.capture_record_us.fetch_add(
-                elapsed_micros(record_started),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            finish_capture(&engine, &namespace, marker, result, "applyable_put").await;
+        CaptureJobKind::ApplyablePut {
+            namespace,
+            items,
+            digests,
+        } => {
+            catalog_capture::process_catalog_put(&engine, &namespace, &items, &digests).await;
+        }
+        CaptureJobKind::ApplyableMixed {
+            namespace,
+            keys,
+            changes,
+            digests,
+        } => {
+            let op = crate::sync::log::LogOp::LogicalCommit { changes };
+            catalog_capture::process_catalog_capture(
+                &engine,
+                &namespace,
+                &keys,
+                op,
+                &digests,
+                "applyable_mixed",
+            )
+            .await;
         }
         CaptureJobKind::Delete {
             namespace,

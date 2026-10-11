@@ -23,6 +23,7 @@ use std::cell::RefCell;
 use std::future::Future;
 use std::sync::{Arc, OnceLock, RwLock};
 
+mod catalog_capture;
 mod kv_store;
 mod logical_admission;
 mod logical_commit;

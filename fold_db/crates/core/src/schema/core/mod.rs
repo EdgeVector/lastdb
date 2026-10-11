@@ -10,6 +10,7 @@ mod cache;
 mod declare;
 mod load;
 mod locks;
+mod replay_reload;
 mod state;
 
 /// Core schema management system that combines schema interpretation, validation, and management.
@@ -103,8 +104,7 @@ pub(crate) struct CoherenceBinding {
     pub(crate) peer_layout: crate::schema::field_hash_coherence::KeyLayoutFingerprint,
 }
 
-/// SchemaCore is THE schema owner; the resident graph's schema half stays a
-/// test/fidelity surface. This impl is the sanctioned bridge: a resident
+/// SchemaCore is THE schema owner. This impl is the sanctioned bridge: a resident
 /// schema miss loads from the catalog instead of growing a second cache.
 impl crate::resident::SchemaLoader for SchemaCore {
     fn load_schema(&self, name: &str) -> Result<Option<Schema>, String> {

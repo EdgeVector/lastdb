@@ -13,7 +13,36 @@ pub(super) struct OrgRowExport<'a> {
     pub instances: &'a BTreeMap<String, BTreeSet<String>>,
     pub replacements: &'a BTreeMap<String, String>,
     pub bundles: &'a BTreeMap<String, MoleculeKeyBundle>,
+    pub admission: &'a super::memory::Admission,
+    pub destination: &'a crate::storage::LastStoreNamespacedStore,
     pub target_key: &'a [u8; 32],
+}
+
+pub(super) async fn source_atom_keys(
+    ops: &DbOperations,
+    main: &dyn KvStore,
+    physical: &BTreeMap<String, Vec<u8>>,
+    instances: &BTreeMap<String, BTreeSet<String>>,
+    admission: &super::memory::Admission,
+) -> SyncResult<Vec<String>> {
+    reserve_scope(ops, physical, instances, admission)?;
+    let mut keys = BTreeSet::new();
+    for (instance, molecules) in instances {
+        let (mut rows, mut owners, mut versions) =
+            current_rows(ops, main, instance, molecules).await?;
+        expand_versions(
+            ops,
+            main,
+            instance,
+            &mut rows,
+            &mut owners,
+            &mut versions,
+            admission,
+        )
+        .await?;
+        keys.extend(reachable_atom_keys(physical, instance, &owners)?);
+    }
+    Ok(keys.into_iter().collect())
 }
 
 pub(super) async fn export_main_rows(
@@ -27,7 +56,10 @@ pub(super) async fn export_main_rows(
         replacements,
         bundles,
         target_key,
+        destination,
+        admission,
     } = context;
+    reserve_scope(ops, physical, instances, admission)?;
     let mut output = Vec::new();
     let mut blob_refs = BTreeSet::new();
     for (instance, molecules) in instances {
@@ -35,10 +67,22 @@ pub(super) async fn export_main_rows(
         // shadows, deletion rows, order logs, or derived completion markers.
         let (mut rows, mut owners, mut versions) =
             current_rows(ops, main, instance, molecules).await?;
-        expand_versions(main, instance, &mut rows, &mut owners, &mut versions).await?;
-        let atom_rows = read_atoms(ops, physical, instance, &owners).await?;
+        expand_versions(
+            ops,
+            main,
+            instance,
+            &mut rows,
+            &mut owners,
+            &mut versions,
+            admission,
+        )
+        .await?;
+        let atom_rows = read_atoms(ops, physical, instance, &owners, admission).await?;
         rows.extend(
-            super::org_proteins::scoped_protein_rows(main, physical, instance, molecules).await?,
+            super::org_proteins::scoped_protein_rows(
+                ops, main, physical, instance, molecules, admission,
+            )
+            .await?,
         );
         let hashes = plaintext_hashes(&atom_rows);
         let fresh = &replacements[instance];
@@ -74,7 +118,7 @@ pub(super) async fn export_main_rows(
             ));
         }
     }
-    copy_blobs(ops, &blob_refs, target_key, &mut output).await?;
+    super::org_files::copy_blobs(ops, &blob_refs, target_key, destination, admission).await?;
     Ok(output)
 }
 
@@ -159,11 +203,13 @@ fn attach_references(
 }
 
 async fn expand_versions(
+    ops: &DbOperations,
     main: &dyn KvStore,
     instance: &str,
     rows: &mut BTreeMap<String, serde_json::Value>,
     atoms: &mut BTreeMap<String, String>,
     versions: &mut BTreeMap<String, String>,
+    admission: &super::memory::Admission,
 ) -> SyncResult<()> {
     let mut loaded = BTreeSet::new();
     loop {
@@ -176,13 +222,15 @@ async fn expand_versions(
         if next.is_empty() {
             break;
         }
-        let keys = next
+        let keys: Vec<String> = next
             .iter()
-            .map(|(id, _)| {
-                scoped(instance, &crate::kind_partition::anchored("tv", id)).into_bytes()
-            })
+            .map(|(id, _)| scoped(instance, &crate::kind_partition::anchored("tv", id)))
             .collect();
-        let values = main.get_many(keys).await.map_err(error)?;
+        reserve_keys(ops, &keys, admission)?;
+        let values = main
+            .get_many(keys.into_iter().map(String::into_bytes).collect())
+            .await
+            .map_err(error)?;
         for ((id, owner), value) in next.into_iter().zip(values) {
             let value: serde_json::Value = serde_json::from_slice(
                 &value.ok_or_else(|| error("org source lacks referenced tip history"))?,
@@ -201,27 +249,20 @@ async fn read_atoms(
     physical: &BTreeMap<String, Vec<u8>>,
     instance: &str,
     owners: &BTreeMap<String, String>,
+    admission: &super::memory::Admission,
 ) -> SyncResult<Vec<(Atom, String)>> {
-    let mut keys = BTreeMap::new();
-    for key in physical.keys() {
-        let (scope, bare) = org_rows::bare(key);
-        if scope == instance {
-            if let Some(id) = crate::atom::atom_key_codec::uuid_of(bare) {
-                if owners.contains_key(id) {
-                    keys.entry(id.to_string()).or_insert_with(|| key.clone());
-                }
-            }
-        }
-    }
-    if keys.len() != owners.len() {
-        return Err(error("org source lacks an exact reachable atom body"));
-    }
+    let keys = reachable_atom_keys(physical, instance, owners)?;
+    reserve_keys(ops, &keys, admission)?;
     let mut output = Vec::new();
-    let keys: Vec<_> = keys.into_values().collect();
-    for batch in keys.chunks(128) {
+    let sizes =
+        super::memory::raw_lengths(admission, 0, ops.namespaced_store().as_ref(), "main", &keys)?;
+    for (key, size) in keys.iter().zip(sizes) {
+        admission.check(super::memory::read_peak(
+            size.ok_or_else(|| error("org atom metadata disappeared"))?,
+        )?)?;
         let atoms = ops
             .atoms()
-            .get_atoms_by_storage_keys(batch)
+            .get_atoms_by_storage_keys(std::slice::from_ref(key))
             .await
             .map_err(error)?;
         for atom in atoms {
@@ -236,29 +277,26 @@ async fn read_atoms(
     Ok(output)
 }
 
-async fn copy_blobs(
-    ops: &DbOperations,
-    refs: &BTreeSet<String>,
-    key: &[u8; 32],
-    output: &mut Vec<(Vec<u8>, Vec<u8>)>,
-) -> SyncResult<()> {
-    // CAS rows belong to a separate namespace, added by the exporter after this result.
-    if refs.is_empty() {
-        return Ok(());
+fn reachable_atom_keys(
+    physical: &BTreeMap<String, Vec<u8>>,
+    instance: &str,
+    owners: &BTreeMap<String, String>,
+) -> SyncResult<Vec<String>> {
+    let mut keys = BTreeMap::new();
+    for key in physical.keys() {
+        let (scope, bare) = org_rows::bare(key);
+        if scope == instance {
+            if let Some(id) = crate::atom::atom_key_codec::uuid_of(bare) {
+                if owners.contains_key(id) {
+                    keys.entry(id.to_string()).or_insert_with(|| key.clone());
+                }
+            }
+        }
     }
-    let store = ops.open_namespace("cas_blobs").await.map_err(error)?;
-    let values = store
-        .get_many(refs.iter().map(|value| value.as_bytes().to_vec()).collect())
-        .await
-        .map_err(error)?;
-    for (blob_ref, value) in refs.iter().zip(values) {
-        let bytes = value.ok_or_else(|| error("org source lacks an exact referenced file blob"))?;
-        output.push((
-            format!("__purge_cas__{blob_ref}").into_bytes(),
-            crate::crypto::seal_at_rest_utf8(key, &bytes).map_err(error)?,
-        ));
+    if keys.len() != owners.len() {
+        return Err(error("org source lacks an exact reachable atom body"));
     }
-    Ok(())
+    Ok(keys.into_values().collect())
 }
 
 fn scoped(instance: &str, key: &str) -> String {
@@ -267,4 +305,45 @@ fn scoped(instance: &str, key: &str) -> String {
     } else {
         format!("{instance}:{key}")
     }
+}
+
+fn reserve_scope(
+    ops: &DbOperations,
+    physical: &BTreeMap<String, Vec<u8>>,
+    instances: &BTreeMap<String, BTreeSet<String>>,
+    admission: &super::memory::Admission,
+) -> SyncResult<()> {
+    let keys = physical
+        .keys()
+        .filter(|key| {
+            let (instance, _) = org_rows::bare(key);
+            instances.get(instance).is_some_and(|molecules| {
+                org_rows::molecule(key).is_some_and(|molecule| molecules.contains(molecule))
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    reserve_keys(ops, &keys, admission)
+}
+
+pub(super) fn reserve_keys(
+    ops: &DbOperations,
+    keys: &[String],
+    admission: &super::memory::Admission,
+) -> SyncResult<()> {
+    let sizes =
+        super::memory::raw_lengths(admission, 0, ops.namespaced_store().as_ref(), "main", keys)?;
+    let bound = sizes.iter().flatten().try_fold(0u64, |sum, size| {
+        super::memory::checked_sum(&[sum, super::memory::outer_bound(*size), 512])
+    })?;
+    let open = sizes
+        .iter()
+        .flatten()
+        .map(|size| size.open_peak)
+        .max()
+        .unwrap_or(0);
+    admission.check(super::memory::checked_sum(&[
+        super::memory::checked_scale(bound, 16)?,
+        open,
+    ])?)
 }

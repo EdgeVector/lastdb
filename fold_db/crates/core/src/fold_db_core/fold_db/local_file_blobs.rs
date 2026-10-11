@@ -86,6 +86,19 @@ impl FoldDB {
         name: Option<&str>,
         media_type: Option<&str>,
     ) -> Result<LocalFileBlobPut, FoldDbError> {
+        let put = self.put_local_file_blob_admitted(plaintext, name, media_type);
+        self.acquire_local_mutation_admission()
+            .await
+            .run(Box::pin(put))
+            .await
+    }
+
+    async fn put_local_file_blob_admitted(
+        &self,
+        plaintext: &[u8],
+        name: Option<&str>,
+        media_type: Option<&str>,
+    ) -> Result<LocalFileBlobPut, FoldDbError> {
         let max = local_file_blob_max_bytes();
         if plaintext.len() > max {
             return Err(FoldDbError::Config(format!(

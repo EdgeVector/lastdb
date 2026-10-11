@@ -73,6 +73,22 @@ impl FoldDB {
         request: PersonalFileBlobWrite,
         plaintext: &[u8],
     ) -> Result<PersonalFileBlobWriteResult, FoldDbError> {
+        self.acquire_local_mutation_admission()
+            .await
+            .run(Box::pin(self.put_personal_file_blob_admitted(
+                sync_engine,
+                request,
+                plaintext,
+            )))
+            .await
+    }
+
+    async fn put_personal_file_blob_admitted(
+        &self,
+        sync_engine: &crate::sync::SyncEngine,
+        request: PersonalFileBlobWrite,
+        plaintext: &[u8],
+    ) -> Result<PersonalFileBlobWriteResult, FoldDbError> {
         let blob_ref = sync_engine
             .upload_file_blob(plaintext)
             .await

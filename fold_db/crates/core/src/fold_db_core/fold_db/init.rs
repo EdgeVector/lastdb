@@ -169,11 +169,19 @@ impl FoldDB {
             )
             .await?,
         );
+        let restore_home = std::path::Path::new(db_path)
+            .parent()
+            .filter(|home| !home.as_os_str().is_empty())
+            .ok_or_else(|| {
+                StorageError::BackendError("restore data path has no destination home".into())
+            })?;
+        let restore_inbox =
+            crate::db_operations::search_index::search_inbox_dir_for_home(restore_home);
         Self::initialize_from_init(FoldDbInit {
             db_ops,
             db_path: db_path.to_string(),
             signer,
-            search_outbox_inbox: None,
+            search_outbox_inbox: Some(restore_inbox),
             mutation_log_capture: None,
             packing_slots: None,
         })

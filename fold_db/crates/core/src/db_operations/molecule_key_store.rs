@@ -348,16 +348,16 @@ fn validate_identity(molecule_uuid: &str, domain: &str) -> StorageResult<()> {
     Ok(())
 }
 
-fn metadata_key(molecule_uuid: &str) -> String {
+pub(crate) fn metadata_key(molecule_uuid: &str) -> String {
     format!("mkb:{molecule_uuid}")
 }
 
-fn wrap_key_for(molecule_uuid: &str, domain: &str) -> String {
+pub(crate) fn wrap_key_for(molecule_uuid: &str, domain: &str) -> String {
     let domain_hash = Sha256::digest(domain.as_bytes());
     format!("mkw:{molecule_uuid}:{domain_hash:x}")
 }
 
-fn schema_molecule_uuids(schema: &Schema) -> Vec<String> {
+pub(crate) fn schema_molecule_uuids(schema: &Schema) -> Vec<String> {
     let mut molecules = schema
         .runtime_fields
         .iter()

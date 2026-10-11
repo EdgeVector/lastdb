@@ -1,7 +1,10 @@
-// lint:file-size-ok verbatim move from the original module; one long function remains, splitting it is separate work
 //! Automatic `gc-atoms` trigger: settings, step state machine and runtime.
 
 use super::*;
+
+mod phases;
+
+use phases::*;
 
 /// Unreferenced-atom bytes tolerated before the automatic delete pass arms.
 ///
@@ -221,7 +224,6 @@ pub(super) async fn audit_and_reap_zero_ref_candidates(
         .await
 }
 
-// lint:fn-size-ok moved verbatim from the original module; splitting it is a separate change
 pub(super) async fn advance_automatic_gc_atoms<F, Fut, G>(
     runtime: AutomaticGcAtomsRuntime<'_>,
     last_step: &AtomicU64,
@@ -236,32 +238,7 @@ where
     Fut: std::future::Future<Output = Option<G>>,
 {
     let atoms = runtime.atoms;
-    let engine = runtime.engine;
-    if !settings.enabled() {
-        return AutomaticGcAtomsStep::Skipped;
-    }
-    let previous = last_step.load(Ordering::Relaxed);
-    if !automatic_gc_atoms_due(previous, now, settings.step_interval_secs) {
-        info!(
-            target: "fold_db::gc_atoms",
-            reason = "not-due",
-            last_step = previous,
-            interval_secs = settings.step_interval_secs,
-            "automatic gc-atoms Skipped"
-        );
-        return AutomaticGcAtomsStep::Skipped;
-    }
-    // Claim the slot before any measurement, so two wakes in one interval
-    // cannot both walk the plane.
-    if last_step
-        .compare_exchange(previous, now.max(1), Ordering::SeqCst, Ordering::Relaxed)
-        .is_err()
-    {
-        info!(
-            target: "fold_db::gc_atoms",
-            reason = "slot-taken",
-            "automatic gc-atoms Skipped"
-        );
+    if !settings.enabled() || !claim_automatic_gc_atoms_slot(last_step, &settings, now) {
         return AutomaticGcAtomsStep::Skipped;
     }
 
@@ -269,153 +246,30 @@ where
     // the trigger would either re-walk the whole plane every step or never
     // refresh a measurement it already took.
     let scheduled_restart = restart_lap_at.load(Ordering::Relaxed);
-    let mut restart_completed = scheduled_restart != 0 && now >= scheduled_restart;
+    let restart_completed = scheduled_restart != 0 && now >= scheduled_restart;
 
-    let mut lap = None;
-    let mut last_generation = 0u64;
-    let mut last_phase = None;
-    let mut last_rows_scanned = 0u64;
-    for _ in 0..GC_ATOMS_MAX_CALLS_PER_STEP {
-        if tokio::time::Instant::now() >= deadline {
-            break;
-        }
-        let checkpoint = match atoms.automatic_gc_atoms_probe_checkpoint(None).await {
-            Ok(checkpoint) => checkpoint,
-            Err(error) => {
-                warn!(target: "fold_db::gc_atoms", %error, "automatic gc-atoms checkpoint read failed");
-                return AutomaticGcAtomsStep::Failed;
-            }
-        };
-        if let Some(engine) = engine {
-            if checkpoint.version != 2
-                || checkpoint.phase
-                    == crate::db_operations::AutomaticGcAtomsProbePhase::ClearReferenceMarkers
-                || (checkpoint.phase == crate::db_operations::AutomaticGcAtomsProbePhase::Complete
-                    && restart_completed)
-            {
-                engine
-                    .automatic_gc_pin_log_activation_pending
-                    .store(true, Ordering::Release);
-            }
-        }
-        let pin_log_reference_page = if checkpoint.version == 2
-            && checkpoint.phase
-                == crate::db_operations::AutomaticGcAtomsProbePhase::PinLogReferences
-        {
-            match engine {
-                Some(engine) => match engine
-                    .pin_log
-                    .pending_pin_log_atom_uuids_page(
-                        checkpoint.pin_log_after_key.as_deref(),
-                        crate::db_operations::AtomStore::GC_PLANE_SCAN_PAGE,
-                    )
-                    .await
-                {
-                    Ok(page) => Some(page),
-                    Err(error) => {
-                        warn!(
-                            target: "fold_db::gc_atoms",
-                            %error,
-                            "automatic gc-atoms pin-log reference read failed"
-                        );
-                        return AutomaticGcAtomsStep::Failed;
-                    }
-                },
-                None => Some(crate::db_operations::AutomaticGcAtomsPinLogReferencePage {
-                    scan_complete: true,
-                    ..Default::default()
-                }),
-            }
-        } else {
-            None
-        };
-        let options = AutomaticGcAtomsProbeOptions {
-            restart_completed,
-            pin_log_reference_page,
-            ..Default::default()
-        };
-        match atoms.probe_orphan_atoms_from_checkpoint(options).await {
-            Ok(report) => {
-                if report.phase
-                    == crate::db_operations::AutomaticGcAtomsProbePhase::ClearTipVersionSkipMarkers
-                    && atoms.automatic_gc_atoms_generation() == 0
-                {
-                    if let Some(engine) = engine {
-                        let _activation = engine.automatic_gc_pin_log_barrier.lock().await;
-                        atoms.set_automatic_gc_atoms_generation(report.generation);
-                        engine
-                            .automatic_gc_pin_log_activation_pending
-                            .store(false, Ordering::Release);
-                    } else {
-                        atoms.set_automatic_gc_atoms_generation(report.generation);
-                    }
-                }
-                last_generation = report.generation;
-                last_phase = Some(report.phase);
-                last_rows_scanned = report.rows_scanned_this_call;
-                if restart_completed {
-                    restart_lap_at.store(0, Ordering::Relaxed);
-                    restart_completed = false;
-                }
-                if let Some(result) = report.result {
-                    lap = Some(result);
-                    break;
-                }
-            }
-            Err(error) => {
-                warn!(
+    let lap =
+        match advance_gc_atoms_probe(&runtime, restart_lap_at, restart_completed, deadline).await {
+            ProbeStepOutcome::Failed => return AutomaticGcAtomsStep::Failed,
+            ProbeStepOutcome::Progressed {
+                generation,
+                phase,
+                rows_scanned,
+            } => {
+                info!(
                     target: "fold_db::gc_atoms",
-                    %error,
-                    "automatic gc-atoms probe failed"
+                    generation,
+                    phase = ?phase,
+                    rows_scanned,
+                    "automatic gc-atoms probe progressed"
                 );
-                return AutomaticGcAtomsStep::Failed;
+                return AutomaticGcAtomsStep::ProbeAdvanced;
             }
-        }
-    }
+            ProbeStepOutcome::LapComplete(lap) => lap,
+        };
 
-    let Some(lap) = lap else {
-        info!(
-            target: "fold_db::gc_atoms",
-            generation = last_generation,
-            phase = ?last_phase,
-            rows_scanned = last_rows_scanned,
-            "automatic gc-atoms probe progressed"
-        );
-        return AutomaticGcAtomsStep::ProbeAdvanced;
-    };
-
-    let now_unix_nanos = now.saturating_mul(1_000_000_000);
-    match audit_and_reap_zero_ref_candidates(
-        atoms,
-        &lap,
-        settings.delete_candidate_cap,
-        now_unix_nanos,
-        DEFAULT_ATOM_GC_GRACE_WINDOW,
-        true,
-    )
-    .await
-    {
-        Ok(report) if report.atoms_deleted > 0 => {
-            info!(
-                target: "fold_db::gc_atoms",
-                generation = lap.generation,
-                candidates_examined = report.candidates_examined,
-                atoms_deleted = report.atoms_deleted,
-                bytes_deleted_approx = report.bytes_deleted_approx,
-                truncated = report.truncated,
-                "automatic gc-atoms reaped audited zero-count candidates"
-            );
-        }
-        Ok(_) => {}
-        Err(error) => {
-            warn!(
-                target: "fold_db::gc_atoms",
-                generation = lap.generation,
-                %error,
-                "automatic gc-atoms candidate audit or reaper failed"
-            );
-            return AutomaticGcAtomsStep::Failed;
-        }
+    if !reap_lap_zero_ref_candidates(atoms, &lap, &settings, now).await {
+        return AutomaticGcAtomsStep::Failed;
     }
 
     // Ask the byte cap before taking any lock. A lap under the cap must not
@@ -456,37 +310,14 @@ where
     }
     let _cut_guard = cut_guard;
 
-    let mut atoms_deleted = 0u64;
-    let mut bytes_freed_approx = 0u64;
-    let mut drained = false;
-    for _ in 0..GC_ATOMS_MAX_CALLS_PER_STEP {
-        if tokio::time::Instant::now() >= deadline {
-            break;
-        }
-        let options = AutomaticGcAtomsDeleteOptions {
-            candidate_cap: settings.delete_candidate_cap,
-            ..Default::default()
-        };
-        match atoms.delete_orphan_atoms_from_probe(options).await {
-            Ok(report) => {
-                atoms_deleted = atoms_deleted.saturating_add(report.atoms_deleted_this_call);
-                bytes_freed_approx =
-                    bytes_freed_approx.saturating_add(report.bytes_freed_approx_this_call);
-                if report.result.is_some() {
-                    drained = true;
-                    break;
-                }
-            }
-            Err(error) => {
-                warn!(
-                    target: "fold_db::gc_atoms",
-                    %error,
-                    "automatic gc-atoms delete failed"
-                );
-                return AutomaticGcAtomsStep::Failed;
-            }
-        }
-    }
+    let Some(DeletePassOutcome {
+        atoms_deleted,
+        bytes_freed_approx,
+        drained,
+    }) = run_gc_atoms_delete_pass(atoms, &settings, deadline).await
+    else {
+        return AutomaticGcAtomsStep::Failed;
+    };
 
     if drained {
         // The generation is drained. Measure again after a lap interval.

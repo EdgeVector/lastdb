@@ -24,6 +24,7 @@ pub struct SchemaDropReceipt {
 
 mod catalog_keys;
 mod claims_retention;
+mod replay_catalog;
 
 use catalog_keys::*;
 

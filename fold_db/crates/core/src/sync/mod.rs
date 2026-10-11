@@ -104,6 +104,8 @@ const SHARED_HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::fr
 /// `auth::AuthClient`. HTTPS and no redirects protect credentials and signed URLs.
 /// Construction failure reaches the caller; it never weakens transport policy.
 pub fn build_shared_http_client() -> Result<reqwest::Client, reqwest::Error> {
+    // trace-egress: propagate — AuthClient injects W3C on its service requests.
+    // trace-egress: skip-s3 — S3Client preserves signed provider request headers.
     reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())

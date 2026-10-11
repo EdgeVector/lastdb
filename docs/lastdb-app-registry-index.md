@@ -105,4 +105,4 @@ The `--env` / `--schema-url` flags keep the legacy live-service path for
   node, the index gets the rows. Stable stays a human action until five clean
   manual promotes.
 
-Hermetic proof: `lastdb_node/scripts/app-registry-index-e2e.sh`.
+Use the normal signed registry commands with real release records. Keep the build, format, lint, secret, and release checks.

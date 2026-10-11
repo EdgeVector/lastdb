@@ -1,5 +1,5 @@
 //! Guards and key loading shared by the offline maintenance binaries
-//! (`lastdb_local_maintain`, `lastdb_restore_probe`, the atom-content tools and
+//! (`lastdb_local_maintain`, the atom-content tools and
 //! the smoke and proof binaries).
 //!
 //! Each binary used to carry its own copy of the primary-home guard. Two copies

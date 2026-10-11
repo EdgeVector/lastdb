@@ -1,15 +1,18 @@
 //! Inbound canonical schema and local key closure.
 
 use super::*;
+use crate::sync::cloud_purge::memory::{self, Admission};
 
 pub(super) async fn preserve_metadata(
     previous: &DbOperations,
     candidate: &DbOperations,
     molecules: &BTreeSet<String>,
+    admission: &Admission,
 ) -> SyncResult<()> {
     if molecules.is_empty() {
         return Ok(());
     }
+    admit_schemas(previous, admission)?;
     let mut covered = BTreeSet::new();
     let schemas = previous
         .schemas()
@@ -37,7 +40,32 @@ pub(super) async fn preserve_metadata(
             "prior inbound molecules lack their canonical schemas",
         ));
     }
+    let definitions = prepare_definitions(candidate, &selected, admission).await?;
+    preserve_bundles(previous, candidate, molecules, admission).await?;
+    candidate
+        .open_namespace("schemas")
+        .await
+        .map_err(error)?
+        .batch_put(definitions)
+        .await
+        .map_err(error)?;
+    preserve_states(previous, candidate, &selected, admission).await?;
+    Ok(())
+}
+
+async fn prepare_definitions(
+    candidate: &DbOperations,
+    selected: &BTreeMap<String, crate::schema::Schema>,
+    admission: &Admission,
+) -> SyncResult<Vec<(Vec<u8>, Vec<u8>)>> {
     let existing = candidate.open_namespace("schemas").await.map_err(error)?;
+    let schema_names: Vec<_> = selected.keys().cloned().collect();
+    admission.check(memory::keys_peak(
+        admission,
+        candidate.namespaced_store().as_ref(),
+        "schemas",
+        &schema_names,
+    )?)?;
     let names = selected
         .keys()
         .map(|name| name.as_bytes().to_vec())
@@ -66,17 +94,40 @@ pub(super) async fn preserve_metadata(
             ));
         }
     }
+    Ok(definitions)
+}
+
+async fn preserve_bundles(
+    previous: &DbOperations,
+    candidate: &DbOperations,
+    molecules: &BTreeSet<String>,
+    admission: &Admission,
+) -> SyncResult<()> {
     let source_keys = previous
         .open_namespace("molecule_keys")
         .await
         .map_err(error)?;
+    let bundle_keys: Vec<_> = molecules
+        .iter()
+        .flat_map(|id| {
+            [
+                crate::db_operations::molecule_key_store::metadata_key(id),
+                crate::db_operations::molecule_key_store::wrap_key_for(id, "node"),
+            ]
+        })
+        .collect();
+    memory::reserve_pair(
+        admission,
+        previous.namespaced_store().as_ref(),
+        candidate.namespaced_store().as_ref(),
+        "molecule_keys",
+        &bundle_keys,
+    )?;
     candidate
         .molecule_keys()
         .preserve_local_node_bundles(source_keys.as_ref(), molecules)
         .await
         .map_err(error)?;
-    existing.batch_put(definitions).await.map_err(error)?;
-    preserve_states(previous, candidate, &selected).await?;
     Ok(())
 }
 
@@ -84,7 +135,15 @@ async fn preserve_states(
     previous: &DbOperations,
     candidate: &DbOperations,
     selected: &BTreeMap<String, crate::schema::Schema>,
+    admission: &Admission,
 ) -> SyncResult<()> {
+    memory::reserve_pair(
+        admission,
+        previous.namespaced_store().as_ref(),
+        candidate.namespaced_store().as_ref(),
+        "schema_states",
+        &selected.keys().cloned().collect::<Vec<_>>(),
+    )?;
     let state_keys = selected
         .keys()
         .map(|name| name.as_bytes().to_vec())
@@ -115,4 +174,20 @@ async fn preserve_states(
         .collect();
     states.batch_put(additions).await.map_err(error)?;
     Ok(())
+}
+
+fn admit_schemas(previous: &DbOperations, admission: &Admission) -> SyncResult<()> {
+    let store = previous.namespaced_store();
+    let raw = store
+        .raw_last_store()
+        .ok_or_else(|| error("inbound schema preservation requires LastStore"))?;
+    let keys = crate::sync::cloud_purge::org_rows::physical_keys(&raw, "schemas", admission)?
+        .into_keys()
+        .collect::<Vec<_>>();
+    admission.check(memory::keys_peak(
+        admission,
+        store.as_ref(),
+        "schemas",
+        &keys,
+    )?)
 }

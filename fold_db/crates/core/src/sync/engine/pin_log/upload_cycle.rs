@@ -15,7 +15,6 @@ impl PinLog {
         plane: &mut MutationLogLocalCloud,
         max_segments: usize,
     ) -> Result<MutationLogUploadReport, String> {
-        // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         if !matches!(self.config.capture_mode, CaptureMode::MutationLog) {
             return Ok(MutationLogUploadReport::default());
         }
@@ -42,51 +41,15 @@ impl PinLog {
         // Only the flushed durable map may classify a row as confirmed and
         // authorize its deletion; volatile process state cannot.
         let durable_per_writer_before = self.read_published_f(&target_id).await;
-        // Phase B: filter by each record's writer HWM, not a single scalar.
-        // Phase A single-writer homes still work (one key in the map / 0).
-        //
-        // Applied DURING the durable scan, not after it. Filtering after a full
-        // read is what made the plane's size the cycle's memory cost; the
-        // predicate needs only the one record it is handed, so the scan can
-        // stop as soon as the batch is full.
-        //
-        // Scoped so the predicate's shared borrow of `plane` ends before the
-        // publish loop below takes it mutably.
         let scan_started = std::time::Instant::now();
-        let page = {
-            let is_pending = |r: &PinLogRecord| {
-                let hwm = durable_per_writer_before
-                    .get(&r.writer_id)
-                    .copied()
-                    .unwrap_or(0);
-                r.frontier_after > hwm
-            };
-            let record_cap = if max_segments == 0 {
-                0
-            } else {
-                max_segments.saturating_mul(MUTATION_LOG_SEGMENT_MAX_RECORDS)
-            };
-            self.read_pending_pin_log_records_paged(
+        let page = self
+            .scan_pending_records_for_upload(
                 &target,
-                &is_pending,
-                record_cap,
-                self.config.max_upload_bytes_per_cycle,
-                pin_log_scan_row_budget(),
+                &target_id,
+                &durable_per_writer_before,
+                max_segments,
             )
-            .await?
-        };
-        if page.row_budget_exhausted {
-            tracing::warn!(
-                target: "fold_db::sync::mutation_log",
-                target_id = %target_id,
-                rows_scanned = page.rows_scanned,
-                pending_found = page.records.len(),
-                "pin-log scan hit its per-cycle row budget before filling the batch; \
-                 the front of the log is a long run of already-published records whose \
-                 truncation delete did not land — set LASTDB_PIN_LOG_SCAN_ROW_BUDGET higher \
-                 to walk further per cycle"
-            );
-        }
+            .await?;
         // A prior cloud publish can succeed while its best-effort local delete
         // fails. Those rows are no longer pending, so retry their exact deletes
         // while the bounded scan has them in hand. Without this retry they stay
@@ -99,19 +62,173 @@ impl PinLog {
         let retried_truncations = self
             .truncate_confirmed_pin_log_records(&target_id, &retry_confirmed)
             .await;
-        // `(frontier, seal error)`. The error carries the missing atom id and
-        // field name, and is the only surviving description of the hole once
-        // the durable row is gone — so it is tombstoned with the frontier, not
-        // collapsed into a single `last_reason`.
-        let mut quarantined: Vec<(u64, String)> = Vec::new();
-        let mut last_quarantine_reason = None;
         let scan_ms = scan_started.elapsed().as_millis();
         let materialize_started = std::time::Instant::now();
-        let mut batch = Vec::with_capacity(page.records.len());
+        let (batch, quarantined, last_quarantine_reason) =
+            Self::materialize_pending_records(engine, target_prefix, page.records).await?;
+        let materialize_ms = materialize_started.elapsed().as_millis();
+        let records_quarantined = quarantined.len();
+        let page_record_count = batch.len();
+        self.record_and_drop_quarantined(
+            engine,
+            &target_id,
+            target_prefix,
+            &quarantined,
+            last_quarantine_reason.as_ref(),
+        )
+        .await;
+
+        // Group this page by kind of data, then seal each kind into files of
+        // at most 1,000 records or 4 MiB of plaintext. Scan order alternates
+        // schemas, and a flush on every schema change sealed one record per
+        // file. A single oversized record is still emitted alone so it cannot
+        // wedge the frontier. `max_segments` keeps a frontier-ordered prefix:
+        // a higher frontier is never published while a lower one is dropped.
+        let segment_byte_target = if self.config.max_upload_bytes_per_cycle == 0 {
+            MUTATION_LOG_SEGMENT_TARGET_BYTES
+        } else {
+            MUTATION_LOG_SEGMENT_TARGET_BYTES.min(self.config.max_upload_bytes_per_cycle)
+        };
+        let record_batches =
+            plan_mutation_log_record_batches(batch, max_segments, segment_byte_target)?;
+        let records_selected: usize = record_batches.iter().map(Vec::len).sum();
+
+        let mut report = MutationLogUploadReport {
+            target_id: target_id.clone(),
+            writer_id: String::new(),
+            records_considered: records_selected,
+            segments_uploaded: 0,
+            bytes_uploaded: 0,
+            published_frontier_before: published_before_max,
+            published_frontier_after: published_before_max,
+            upload_backlog_after: 0,
+            object_keys: Vec::new(),
+            records_truncated: retried_truncations,
+            records_quarantined,
+            last_quarantine_reason: last_quarantine_reason.clone(),
+            put_concurrency: 0,
+            rows_scanned: page.rows_scanned,
+            records_considered_is_lower_bound: !page.scan_complete
+                || records_selected < page_record_count,
+            scan_row_budget_exhausted: page.row_budget_exhausted,
+        };
+        self.mark_upload_scan_pending(target_prefix, &report).await;
+
+        let seal_started = std::time::Instant::now();
+        let (sealed_units, confirmed_frontiers) =
+            Self::seal_upload_units(&target, &record_batches, &mut report).await?;
+        let seal_ms = seal_started.elapsed().as_millis();
+
+        let upload_started = std::time::Instant::now();
+        let advanced = self
+            .publish_sealed_units(
+                engine,
+                &target,
+                plane,
+                &sealed_units,
+                &record_batches,
+                &confirmed_frontiers,
+                &mut report,
+            )
+            .await?;
+
+        self.refresh_report_from_runtime(&target_id, &advanced, &mut report)
+            .await;
+        if report.segments_uploaded > 0 {
+            // Vector F geometry is recorded on plane/runtime maps; status still
+            // surfaces scalar max. Log writer count so multi-writer cycles are
+            // visible without constructing an unused Frontier value.
+            tracing::info!(
+                target: "fold_db::sync::mutation_log",
+                target_id = %target_id,
+                writer_id = %report.writer_id,
+                writers = advanced.len(),
+                records = report.records_considered,
+                segments = report.segments_uploaded,
+                bytes = report.bytes_uploaded,
+                published_f = report.published_frontier_after,
+                backlog = report.upload_backlog_after,
+                put_concurrency = report.put_concurrency,
+                scan_ms,
+                materialize_ms,
+                seal_ms,
+                upload_ms = upload_started.elapsed().as_millis(),
+                "continuous mutation-log segment upload cycle"
+            );
+        }
+        self.clear_upload_scan_pending(target_prefix, &report).await;
+        Ok(report)
+    }
+
+    /// Bounded durable scan for records above each writer's published HWM.
+    async fn scan_pending_records_for_upload(
+        &self,
+        target: &SyncTarget,
+        target_id: &str,
+        durable_per_writer_before: &BTreeMap<String, u64>,
+        max_segments: usize,
+    ) -> Result<PendingPinLogPage, String> {
+        // Phase B: filter by each record's writer HWM, not a single scalar.
+        // Phase A single-writer homes still work (one key in the map / 0).
+        //
+        // Applied DURING the durable scan, not after it. Filtering after a full
+        // read is what made the plane's size the cycle's memory cost; the
+        // predicate needs only the one record it is handed, so the scan can
+        // stop as soon as the batch is full.
+        let is_pending = |r: &PinLogRecord| {
+            let hwm = durable_per_writer_before
+                .get(&r.writer_id)
+                .copied()
+                .unwrap_or(0);
+            r.frontier_after > hwm
+        };
+        let record_cap = if max_segments == 0 {
+            0
+        } else {
+            max_segments.saturating_mul(MUTATION_LOG_SEGMENT_MAX_RECORDS)
+        };
+        let page = self
+            .read_pending_pin_log_records_paged(
+                target,
+                &is_pending,
+                record_cap,
+                self.config.max_upload_bytes_per_cycle,
+                pin_log_scan_row_budget(),
+            )
+            .await?;
+        if page.row_budget_exhausted {
+            tracing::warn!(
+                target: "fold_db::sync::mutation_log",
+                target_id = %target_id,
+                rows_scanned = page.rows_scanned,
+                pending_found = page.records.len(),
+                "pin-log scan hit its per-cycle row budget before filling the batch; \
+                 the front of the log is a long run of already-published records whose \
+                 truncation delete did not land — set LASTDB_PIN_LOG_SCAN_ROW_BUDGET higher \
+                 to walk further per cycle"
+            );
+        }
+        Ok(page)
+    }
+
+    /// Materialize `MutationIntent` atoms for each pending record, in log
+    /// order. Returns the sealable batch plus the quarantined
+    /// `(frontier, seal error)` pairs. The error carries the missing atom id
+    /// and field name, and is the only surviving description of the hole once
+    /// the durable row is gone — so it is tombstoned with the frontier, not
+    /// collapsed into a single `last_reason`.
+    async fn materialize_pending_records(
+        engine: &SyncEngine,
+        target_prefix: &str,
+        records: Vec<PinLogRecord>,
+    ) -> Result<(Vec<PinLogRecord>, Vec<(u64, String)>, Option<String>), String> {
+        let mut quarantined: Vec<(u64, String)> = Vec::new();
+        let mut last_quarantine_reason = None;
+        let mut batch = Vec::with_capacity(records.len());
         // Atom reads per record used to run one at a time. `buffered` keeps
         // log order, so quarantine, batching and F are exactly as before.
         let mut materialized =
-            futures::stream::iter(page.records.into_iter().map(|mut record| async move {
+            futures::stream::iter(records.into_iter().map(|mut record| async move {
                 let result = async {
                     crate::sync::cloud_purge_peer::scope_alias::rebind_entry(
                         engine.store.as_ref(),
@@ -160,59 +277,43 @@ impl PinLog {
             batch.push(record);
         }
         drop(materialized);
-        let materialize_ms = materialize_started.elapsed().as_millis();
+        Ok((batch, quarantined, last_quarantine_reason))
+    }
+
+    /// Count quarantined records in runtime state, then tombstone and drop
+    /// their durable rows.
+    async fn record_and_drop_quarantined(
+        &self,
+        engine: &SyncEngine,
+        target_id: &str,
+        target_prefix: &str,
+        quarantined: &[(u64, String)],
+        last_quarantine_reason: Option<&String>,
+    ) {
         let records_quarantined = quarantined.len();
-        let page_record_count = batch.len();
         if records_quarantined > 0 {
             let mut state = self.state.lock().await;
-            if let Some(runtime) = state.get_mut(&target_id) {
+            if let Some(runtime) = state.get_mut(target_id) {
                 runtime.records_quarantined = runtime
                     .records_quarantined
                     .saturating_add(records_quarantined as u64);
-                runtime.last_quarantine_reason = last_quarantine_reason.clone();
+                runtime.last_quarantine_reason = last_quarantine_reason.cloned();
             }
         }
         if !quarantined.is_empty() {
-            self.drop_unsealable_pin_log_records(engine, &target_id, target_prefix, &quarantined)
+            self.drop_unsealable_pin_log_records(engine, target_id, target_prefix, quarantined)
                 .await;
         }
+    }
 
-        // Group this page by kind of data, then seal each kind into files of
-        // at most 1,000 records or 4 MiB of plaintext. Scan order alternates
-        // schemas, and a flush on every schema change sealed one record per
-        // file. A single oversized record is still emitted alone so it cannot
-        // wedge the frontier. `max_segments` keeps a frontier-ordered prefix:
-        // a higher frontier is never published while a lower one is dropped.
-        let segment_byte_target = if self.config.max_upload_bytes_per_cycle == 0 {
-            MUTATION_LOG_SEGMENT_TARGET_BYTES
-        } else {
-            MUTATION_LOG_SEGMENT_TARGET_BYTES.min(self.config.max_upload_bytes_per_cycle)
-        };
-        let record_batches =
-            plan_mutation_log_record_batches(batch, max_segments, segment_byte_target)?;
-        let records_selected: usize = record_batches.iter().map(Vec::len).sum();
-
-        let mut report = MutationLogUploadReport {
-            target_id: target_id.clone(),
-            writer_id: String::new(),
-            records_considered: records_selected,
-            segments_uploaded: 0,
-            bytes_uploaded: 0,
-            published_frontier_before: published_before_max,
-            published_frontier_after: published_before_max,
-            upload_backlog_after: 0,
-            object_keys: Vec::new(),
-            records_truncated: retried_truncations,
-            records_quarantined,
-            last_quarantine_reason: last_quarantine_reason.clone(),
-            put_concurrency: 0,
-            rows_scanned: page.rows_scanned,
-            records_considered_is_lower_bound: !page.scan_complete
-                || records_selected < page_record_count,
-            scan_row_budget_exhausted: page.row_budget_exhausted,
-        };
-        self.mark_upload_scan_pending(target_prefix, &report).await;
-
+    /// Seal every planned batch under the *target* crypto provider. Returns
+    /// the sealed units and the frontiers they cover; records the first
+    /// writer id on `report`.
+    async fn seal_upload_units(
+        target: &SyncTarget,
+        record_batches: &[Vec<PinLogRecord>],
+        report: &mut MutationLogUploadReport,
+    ) -> Result<(Vec<Vec<MutationLogSegment>>, Vec<u64>), String> {
         // Seal first, then publish to cloud, and only then advance F.
         //
         // Ordering is the whole point. This loop used to seal a record, insert
@@ -227,11 +328,11 @@ impl PinLog {
         // never a local write. If the upload fails we advance nothing, keep the
         // records pending, and let the next cycle retry — local R/W is never
         // blocked either way.
-        let seal_started = std::time::Instant::now();
+        let records_selected: usize = record_batches.iter().map(Vec::len).sum();
         let mut sealed_units: Vec<Vec<MutationLogSegment>> =
             Vec::with_capacity(record_batches.len());
         let mut confirmed_frontiers = Vec::with_capacity(records_selected);
-        for records in &record_batches {
+        for records in record_batches {
             // Keep first writer_id for the single-field report; plane + runtime
             // still track every writer (typical multi-device = one writer/process).
             if report.writer_id.is_empty() {
@@ -244,130 +345,145 @@ impl PinLog {
             // with only the scoped E2E key cannot open the segment.
             sealed_units.push(seal_mutation_log_publish_unit(records, &target.crypto).await?);
         }
+        Ok((sealed_units, confirmed_frontiers))
+    }
 
-        let seal_ms = seal_started.elapsed().as_millis();
-        let upload_started = std::time::Instant::now();
+    /// PUT the sealed units to cloud, flush the per-writer HWM, mirror to the
+    /// local plane, and truncate confirmed rows. Returns the per-writer
+    /// `(through, record timestamp)` confirmed this cycle (empty when there
+    /// was nothing to publish).
+    #[allow(clippy::too_many_arguments)]
+    async fn publish_sealed_units(
+        &self,
+        engine: &SyncEngine,
+        target: &SyncTarget,
+        plane: &mut MutationLogLocalCloud,
+        sealed_units: &[Vec<MutationLogSegment>],
+        record_batches: &[Vec<PinLogRecord>],
+        confirmed_frontiers: &[u64],
+        report: &mut MutationLogUploadReport,
+    ) -> Result<HashMap<String, (u64, u64)>, String> {
+        let target_id = &report.target_id.clone();
         // writer_id → (through, record timestamp) confirmed this cycle.
         let mut advanced: HashMap<String, (u64, u64)> = HashMap::new();
-        if !sealed_units.is_empty() {
-            let objects_in_cycle: usize = sealed_units.iter().map(Vec::len).sum();
-            let policy_concurrency = engine.active_upload_caps().await.concurrency;
-            report.put_concurrency = mutation_log_put_concurrency(
-                policy_concurrency,
-                objects_in_cycle,
-                mutation_log_put_concurrency_env(),
-            );
-            let bytes_uploaded =
-                upload_publish_units_batched(engine, &target, &sealed_units).await?;
+        if sealed_units.is_empty() {
+            return Ok(advanced);
+        }
+        let objects_in_cycle: usize = sealed_units.iter().map(Vec::len).sum();
+        let policy_concurrency = engine.active_upload_caps().await.concurrency;
+        report.put_concurrency = mutation_log_put_concurrency(
+            policy_concurrency,
+            objects_in_cycle,
+            mutation_log_put_concurrency_env(),
+        );
+        let bytes_uploaded = upload_publish_units_batched(engine, target, sealed_units).await?;
 
-            for (unit, records) in sealed_units.iter().zip(&record_batches) {
-                let last = records.last().ok_or_else(|| {
-                    "sealed mutation-log unit lost its source records".to_string()
-                })?;
-                let wid = if last.writer_id.is_empty() {
-                    "unknown-writer".to_string()
-                } else {
-                    last.writer_id.clone()
-                };
-                let published_at_ms = records.last().map_or(0, |record| record.timestamp_ms);
-                let e = advanced.entry(wid).or_insert((0, 0));
-                if last.frontier_after >= e.0 {
-                    *e = (last.frontier_after, published_at_ms);
-                }
-                report.segments_uploaded = report.segments_uploaded.saturating_add(unit.len());
+        for (unit, records) in sealed_units.iter().zip(record_batches) {
+            let last = records
+                .last()
+                .ok_or_else(|| "sealed mutation-log unit lost its source records".to_string())?;
+            let wid = if last.writer_id.is_empty() {
+                "unknown-writer".to_string()
+            } else {
+                last.writer_id.clone()
+            };
+            let published_at_ms = records.last().map_or(0, |record| record.timestamp_ms);
+            let e = advanced.entry(wid).or_insert((0, 0));
+            if last.frontier_after >= e.0 {
+                *e = (last.frontier_after, published_at_ms);
             }
-            report.bytes_uploaded = report.bytes_uploaded.saturating_add(bytes_uploaded);
+            report.segments_uploaded = report.segments_uploaded.saturating_add(unit.len());
+        }
+        report.bytes_uploaded = report.bytes_uploaded.saturating_add(bytes_uploaded);
 
-            // The cloud PUT is not yet a crash-safe confirmation. First
-            // max-merge and flush the per-writer HWM. If this fails, return an
-            // error without advancing any volatile frontier or deleting a row;
-            // the next cycle safely uploads the same cloud object again.
-            let confirmed = advanced
-                .iter()
-                .map(|(writer_id, (through, _))| (writer_id.clone(), *through))
-                .collect::<BTreeMap<_, _>>();
-            self.persist_published_f(&target_id, &confirmed).await?;
+        // The cloud PUT is not yet a crash-safe confirmation. First
+        // max-merge and flush the per-writer HWM. If this fails, return an
+        // error without advancing any volatile frontier or deleting a row;
+        // the next cycle safely uploads the same cloud object again.
+        let confirmed = advanced
+            .iter()
+            .map(|(writer_id, (through, _))| (writer_id.clone(), *through))
+            .collect::<BTreeMap<_, _>>();
+        self.persist_published_f(target_id, &confirmed).await?;
 
-            // Local mirror is geometry/bookkeeping only. Update it only after
-            // the durable Cloud HWM exists, so a failed HWM flush cannot make a
-            // later cycle suppress an unconfirmed local row.
-            for (unit, records) in sealed_units.iter().zip(&record_batches) {
-                for sealed in unit {
-                    plane.put_segment(sealed)?;
-                    report.object_keys.push(sealed.segment.object_key.clone());
-                }
-                let last = records.last().ok_or_else(|| {
-                    "sealed mutation-log unit lost its source records".to_string()
-                })?;
-                let writer_id = if last.writer_id.is_empty() {
-                    "unknown-writer"
-                } else {
-                    last.writer_id.as_str()
-                };
-                plane.advance_published_f(writer_id, last.frontier_after);
+        // Local mirror is geometry/bookkeeping only. Update it only after
+        // the durable Cloud HWM exists, so a failed HWM flush cannot make a
+        // later cycle suppress an unconfirmed local row.
+        for (unit, records) in sealed_units.iter().zip(record_batches) {
+            for sealed in unit {
+                plane.put_segment(sealed)?;
+                report.object_keys.push(sealed.segment.object_key.clone());
             }
-
-            // Only the flushed HWM above authorizes deletion. Drop exact rows,
-            // never a range.
-            report.records_truncated = report.records_truncated.saturating_add(
-                self.truncate_confirmed_pin_log_records(&target_id, &confirmed_frontiers)
-                    .await,
-            );
+            let last = records
+                .last()
+                .ok_or_else(|| "sealed mutation-log unit lost its source records".to_string())?;
+            let writer_id = if last.writer_id.is_empty() {
+                "unknown-writer"
+            } else {
+                last.writer_id.as_str()
+            };
+            plane.advance_published_f(writer_id, last.frontier_after);
         }
 
+        // Only the flushed HWM above authorizes deletion. Drop exact rows,
+        // never a range.
+        report.records_truncated = report.records_truncated.saturating_add(
+            self.truncate_confirmed_pin_log_records(target_id, confirmed_frontiers)
+                .await,
+        );
+        Ok(advanced)
+    }
+
+    /// Refresh the report's published frontier and backlog from runtime state.
+    /// When segments were uploaded, first fold this cycle's confirmed
+    /// per-writer frontiers into that state.
+    async fn refresh_report_from_runtime(
+        &self,
+        target_id: &str,
+        advanced: &HashMap<String, (u64, u64)>,
+        report: &mut MutationLogUploadReport,
+    ) {
         if report.segments_uploaded > 0 {
-            {
-                let mut state = self.state.lock().await;
-                if let Some(runtime) = state.get_mut(&target_id) {
-                    for (wid, (through, published_at_ms)) in &advanced {
-                        runtime.advance_published_f(wid, *through, *published_at_ms);
-                    }
-                    runtime.segments_uploaded = runtime
-                        .segments_uploaded
-                        .saturating_add(report.segments_uploaded as u64);
-                    report.published_frontier_after = runtime.published_frontier;
-                    report.upload_backlog_after = runtime
-                        .last_durable_frontier
-                        .saturating_sub(runtime.published_frontier);
-                } else {
-                    report.published_frontier_after = advanced
-                        .values()
-                        .map(|(through, _)| *through)
-                        .max()
-                        .unwrap_or(0);
-                }
-            }
-            // Vector F geometry is recorded on plane/runtime maps; status still
-            // surfaces scalar max. Log writer count so multi-writer cycles are
-            // visible without constructing an unused Frontier value.
-            tracing::info!(
-                target: "fold_db::sync::mutation_log",
-                target_id = %target_id,
-                writer_id = %report.writer_id,
-                writers = advanced.len(),
-                records = report.records_considered,
-                segments = report.segments_uploaded,
-                bytes = report.bytes_uploaded,
-                published_f = report.published_frontier_after,
-                backlog = report.upload_backlog_after,
-                put_concurrency = report.put_concurrency,
-                scan_ms,
-                materialize_ms,
-                seal_ms,
-                upload_ms = upload_started.elapsed().as_millis(),
-                "continuous mutation-log segment upload cycle"
-            );
+            self.advance_runtime_after_upload(target_id, advanced, report)
+                .await;
         } else {
             let state = self.state.lock().await;
-            if let Some(runtime) = state.get(&target_id) {
+            if let Some(runtime) = state.get(target_id) {
                 report.published_frontier_after = runtime.published_frontier;
                 report.upload_backlog_after = runtime
                     .last_durable_frontier
                     .saturating_sub(runtime.published_frontier);
             }
         }
-        self.clear_upload_scan_pending(target_prefix, &report).await;
-        Ok(report)
+    }
+
+    /// Fold this cycle's confirmed per-writer frontiers into runtime state and
+    /// refresh the report's published frontier and backlog.
+    async fn advance_runtime_after_upload(
+        &self,
+        target_id: &str,
+        advanced: &HashMap<String, (u64, u64)>,
+        report: &mut MutationLogUploadReport,
+    ) {
+        let mut state = self.state.lock().await;
+        if let Some(runtime) = state.get_mut(target_id) {
+            for (wid, (through, published_at_ms)) in advanced {
+                runtime.advance_published_f(wid, *through, *published_at_ms);
+            }
+            runtime.segments_uploaded = runtime
+                .segments_uploaded
+                .saturating_add(report.segments_uploaded as u64);
+            report.published_frontier_after = runtime.published_frontier;
+            report.upload_backlog_after = runtime
+                .last_durable_frontier
+                .saturating_sub(runtime.published_frontier);
+        } else {
+            report.published_frontier_after = advanced
+                .values()
+                .map(|(through, _)| *through)
+                .max()
+                .unwrap_or(0);
+        }
     }
 }
 

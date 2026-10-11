@@ -43,6 +43,11 @@ impl SyncEngine {
                     "selected source requires a serving mutation admission fence".into(),
                 )
             })?;
+        if router.current_task_has_mutation_admission() {
+            return Err(SyncError::CloudPurgeHeld(
+                "cloud adoption waits until the admitted local operation finishes".into(),
+            ));
+        }
         Ok(CloudPurgeWriteFence {
             _guard: router.fence_mutations().await,
             source_id: self.device_id.clone(),
@@ -154,7 +159,7 @@ impl SyncEngine {
         }
         self.prepare_backup_restore_frontier().await?;
         let frontier = self.cloud_purge_source_frontier().await?;
-        let shares = self.cloud_purge_owned_share_cuts(ops).await?;
+        let shares = self.cloud_purge_owned_share_cuts(ops, directory).await?;
         let mut manifest = source
             .cut_backup_manifest_with_cloud_presence_strict(None, None)
             .map_err(|error| SyncError::Storage(error.to_string()))?;

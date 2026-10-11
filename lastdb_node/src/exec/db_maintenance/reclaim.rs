@@ -149,11 +149,21 @@ pub(in crate::exec) async fn execute_db_migrate_photo_blobs_route(
         }
     };
     let dry_run = body.dry_run.unwrap_or(true);
-    match host.db.migrate_photo_file_bytes_to_blobs(dry_run).await {
-        Ok(report) => json_ok(&envelope(
+    match crate::maintenance_write_gate::run(
+        host,
+        host.db.migrate_photo_file_bytes_to_blobs(dry_run),
+    )
+    .await
+    {
+        Some(Ok(report)) => json_ok(&envelope(
             &serde_json::json!({ "migrate_photo_blobs": report }),
             ctx.user_id.as_str(),
         )),
-        Err(e) => error_response(500, &format!("migrate-photo-blobs failed: {e}"), ctx),
+        Some(Err(e)) => error_response(500, &format!("migrate-photo-blobs failed: {e}"), ctx),
+        None => error_response(
+            409,
+            "local writes are paused for the selected cloud source",
+            ctx,
+        ),
     }
 }

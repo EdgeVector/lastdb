@@ -88,7 +88,7 @@ impl SyncEngine {
         Ok(Some(bytes))
     }
 
-    async fn cached_thumb_pack_entry(
+    pub(super) async fn cached_thumb_pack_entry(
         &self,
         thumb_hash: &str,
     ) -> SyncResult<Option<CachedThumbPackEntry>> {

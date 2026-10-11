@@ -17,7 +17,8 @@ impl AuthClient {
             ));
         }
         let mut body = serde_json::json!({"action":"cloud_delete_complete", "account":account, "deletion_ticket":ticket});
-        self.guard_cloud_request("/api/sync", &mut body).await?;
+        self.guard_cloud_request("/api/sync/presign", &mut body)
+            .await?;
         if body.get("account") != Some(&serde_json::to_value(account)?) {
             return Err(SyncError::CloudPurgeHeld(
                 "delete completion resolved a different account".into(),
@@ -28,7 +29,7 @@ impl AuthClient {
         let send = || async {
             tokio::time::timeout(
                 self.request_timeout,
-                self.post_once_inner("/api/sync", body.clone()),
+                self.post_once_inner("/api/sync/presign", body.clone()),
             )
             .await
             .map_err(|_| SyncError::Auth("cloud delete completion request timeout".into()))?

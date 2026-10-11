@@ -148,17 +148,25 @@ pub(super) async fn execute_db_put_blob_local_route(
         if plaintext.len() > lastdb_uds::uds_http::MAX_BODY_LEN {
             return error_response(413, "blob is larger than the request body cap", ctx);
         }
-        let put = match host
-            .db
-            .put_local_file_blob(
+        let put = match crate::maintenance_write_gate::run(
+            host,
+            host.db.put_local_file_blob(
                 &plaintext,
                 metadata.name.as_deref(),
                 metadata.media_type.as_deref(),
-            )
-            .await
+            ),
+        )
+        .await
         {
-            Ok(put) => put,
-            Err(e) => return mapped_error_response("local blob put failed", e, ctx),
+            Some(Ok(put)) => put,
+            Some(Err(e)) => return mapped_error_response("local blob put failed", e, ctx),
+            None => {
+                return error_response(
+                    409,
+                    "local writes are paused for the selected cloud source",
+                    ctx,
+                )
+            }
         };
         json_ok(&envelope(
             &serde_json::json!({
@@ -182,16 +190,28 @@ pub(super) async fn resolve_pointer_bytes(
     host: &Host,
     pointer: &Value,
 ) -> Result<Option<Vec<u8>>, fold_db::error::FoldDbError> {
+    let local = fold_db::sharing::query_slice::resolve_file_bytes(&host.db, pointer).await?;
+    if local.is_some() {
+        return Ok(local);
+    }
     #[cfg(feature = "cloud-sync")]
     if let Some(engine) = host.db.sync_engine() {
-        return fold_db::sharing::query_slice::resolve_file_bytes_on_demand(
-            &host.db,
-            engine.as_ref(),
-            pointer,
+        return crate::maintenance_write_gate::run(
+            host,
+            fold_db::sharing::query_slice::resolve_file_bytes_on_demand(
+                &host.db,
+                engine.as_ref(),
+                pointer,
+            ),
         )
-        .await;
+        .await
+        .ok_or_else(|| {
+            fold_db::error::FoldDbError::Config(
+                "local file cache writes are paused for the selected cloud source".into(),
+            )
+        })?;
     }
-    fold_db::sharing::query_slice::resolve_file_bytes(&host.db, pointer).await
+    Ok(None)
 }
 
 /// The 404 text for a pointer whose blob is not on this node.

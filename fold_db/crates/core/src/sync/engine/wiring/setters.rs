@@ -150,6 +150,11 @@ impl SyncEngine {
         *self.schema_reloader.lock().await = Some(reloader);
     }
 
+    /// Register the fallible schema authority refresh used by ordered tail replay.
+    pub async fn set_schema_replay_reloader(&self, reloader: SchemaReloadCallback) {
+        *self.schema_replay_reloader.lock().await = Some(reloader);
+    }
+
     /// Register the serving mutation apply path for [`LogOp::MutationIntent`].
     pub async fn set_mutation_intent_applier(
         &self,

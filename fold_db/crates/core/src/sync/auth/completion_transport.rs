@@ -29,7 +29,7 @@ impl AuthClient {
         let send = || async {
             tokio::time::timeout(
                 self.request_timeout,
-                self.post_once_inner("/api/sync", body.clone()),
+                self.post_once_inner("/api/sync/presign", body.clone()),
             )
             .await
             .map_err(|_| SyncError::Auth("multipart completion request timeout".into()))?

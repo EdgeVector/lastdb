@@ -1,9 +1,7 @@
 // Emit a `lastdb app …` manifest (app_id, metadata, version, uses[], schemas[],
 // optional source/run) from a first-party app's real `src/schemas.ts` module —
 // the same `schemaFor()` definitions the app already declares on its own local
-// Mini. Used by app-registry-first-party-dogfood.sh so the dogfood manifest is
-// never a hand-written fixture; it is always derived from the shipped schema
-// source.
+// Mini. The manifest comes from the shipped schema source.
 //
 // Env in (required):
 //   APP_ID, DISPLAY_NAME, DESCRIPTION, HOMEPAGE_URL, SCHEMAS_MODULE, OUT_FILE

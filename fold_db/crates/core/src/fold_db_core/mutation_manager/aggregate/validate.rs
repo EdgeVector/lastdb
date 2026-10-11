@@ -4,13 +4,31 @@
 use super::*;
 
 impl MutationManager {
-    // lint:fn-size-ok verbatim move from aggregate.rs; splitting this function is separate work
     pub(super) fn validate_aggregate_contract(
         &self,
         source: &Mutation,
         aggregate: &AggregateSet,
     ) -> Result<(KeyValue, AggregateSet), SchemaError> {
         aggregate.validate().map_err(SchemaError::InvalidData)?;
+        let source_key = self.validate_aggregate_source(source, aggregate)?;
+        let target_key = self.validate_aggregate_target(aggregate)?;
+        let member_key = self.validate_aggregate_member(aggregate, &source_key)?;
+        let normalized = AggregateSet {
+            target_schema_name: aggregate.target_schema_name.clone(),
+            target_key_value: target_key,
+            member_schema_name: aggregate.member_schema_name.clone(),
+            member_key_value: member_key,
+            contribution: aggregate.contribution.clone(),
+        };
+        Ok((source_key, normalized))
+    }
+
+    /// Validates the source mutation and schema; returns the resolved source key.
+    fn validate_aggregate_source(
+        &self,
+        source: &Mutation,
+        aggregate: &AggregateSet,
+    ) -> Result<KeyValue, SchemaError> {
         if !matches!(
             source.mutation_type,
             MutationType::Create | MutationType::Update
@@ -96,10 +114,16 @@ impl MutationManager {
         }
         let source_key =
             Self::resolve_mutation_key_value(&source.schema_name, &source_schema, source)?;
-        let source_hash = source_key.hash.clone().ok_or_else(|| {
-            SchemaError::InvalidData("aggregate source key has no hash partition".into())
-        })?;
+        if source_key.hash.is_none() {
+            return Err(SchemaError::InvalidData(
+                "aggregate source key has no hash partition".into(),
+            ));
+        }
+        Ok(source_key)
+    }
 
+    /// Validates the target schema and metric fields; returns the resolved target key.
+    fn validate_aggregate_target(&self, aggregate: &AggregateSet) -> Result<KeyValue, SchemaError> {
         let target_schema = self
             .schema_manager
             .get_schema_metadata(&aggregate.target_schema_name)?
@@ -166,7 +190,15 @@ impl MutationManager {
                 )));
             }
         }
+        Ok(target_key)
+    }
 
+    /// Validates the member schema against the canonical source key; returns the member key.
+    fn validate_aggregate_member(
+        &self,
+        aggregate: &AggregateSet,
+        source_key: &KeyValue,
+    ) -> Result<KeyValue, SchemaError> {
         let member_schema = self
             .schema_manager
             .get_schema_metadata(&aggregate.member_schema_name)?
@@ -203,11 +235,10 @@ impl MutationManager {
             &member_schema,
             &member_probe,
         )?;
-        let canonical_member_key = source_key.clone();
-        if member_key != canonical_member_key {
+        if &member_key != source_key {
             return Err(SchemaError::InvalidData(format!(
                 "aggregate member_key_value must use the canonical source identity {}",
-                canonical_member_key.to_storage_key()
+                source_key.to_storage_key()
             )));
         }
         for field in AGGREGATE_MEMBER_RESERVED_FIELDS {
@@ -257,16 +288,7 @@ impl MutationManager {
                 )));
             }
         }
-
-        let normalized = AggregateSet {
-            target_schema_name: aggregate.target_schema_name.clone(),
-            target_key_value: target_key,
-            member_schema_name: aggregate.member_schema_name.clone(),
-            member_key_value: member_key,
-            contribution: aggregate.contribution.clone(),
-        };
-        let _ = source_hash;
-        Ok((source_key, normalized))
+        Ok(member_key)
     }
 
     pub(in crate::fold_db_core::mutation_manager) fn preflight_replayed_aggregate_set(

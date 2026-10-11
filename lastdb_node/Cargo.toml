@@ -49,12 +49,6 @@ path = "src/bin/lastdb_laststore_empty_home_smoke.rs"
 [[bin]]
 bench = false
 test = false
-name = "lastdb_restore_probe"
-path = "src/bin/lastdb_restore_probe.rs"
-
-[[bin]]
-bench = false
-test = false
 name = "lastdb_reseal_atom_content"
 path = "src/bin/lastdb_reseal_atom_content.rs"
 

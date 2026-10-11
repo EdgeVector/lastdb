@@ -12,6 +12,7 @@ use cloud_purge_source::prepare_photograph_cut_components;
 mod inbound_targets;
 mod replay_applier;
 mod runtime_activation;
+mod schema_reload;
 
 impl FoldDB {
     /// Returns a reference to the sync coordinator.
@@ -136,17 +137,7 @@ impl FoldDB {
         engine: Arc<crate::sync::SyncEngine>,
         capture_enabled: bool,
     ) {
-        let schema_mgr = Arc::clone(&self.schema_manager);
-        engine
-            .set_schema_reloader(Arc::new(move || {
-                let mgr = Arc::clone(&schema_mgr);
-                Box::pin(async move {
-                    mgr.reload_from_store()
-                        .await
-                        .map_err(|e| format!("SchemaCore reload failed: {e}"))
-                })
-            }))
-            .await;
+        self.register_sync_schema_reloaders(&engine).await;
 
         if capture_enabled {
             if let Some(capture) = &self.mutation_log_capture {

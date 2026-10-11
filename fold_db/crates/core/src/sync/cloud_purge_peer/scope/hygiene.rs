@@ -51,23 +51,22 @@ pub async fn remove_inherited_orgs_from_inactive_store(ops: &DbOperations) -> Sy
         removed += 1;
     }
     let store = ops.namespaced_store();
-    let main = store.open_namespace("main").await.map_err(storage)?;
+    let admission = crate::sync::cloud_purge::memory::Admission::acquire(0).await?;
+    let raw = store
+        .raw_last_store()
+        .ok_or_else(|| fail("org cleanup requires LastStore"))?;
+    let all_keys = crate::sync::cloud_purge::org_rows::main_rows(&raw, &admission)?;
     for prefix in removed_prefixes.difference(&survivor_prefixes) {
         let prefix = format!("{prefix}:");
-        loop {
-            let keys = main
-                .scan_prefix_paged(prefix.as_bytes(), 128)
-                .await
-                .map_err(storage)?
-                .into_iter()
-                .map(|(key, _)| key)
-                .collect::<Vec<_>>();
-            if keys.is_empty() {
-                break;
-            }
-            main.batch_delete(keys).await.map_err(storage)?;
-        }
+        let keys: Vec<_> = all_keys
+            .keys()
+            .filter(|key| key.starts_with(&prefix))
+            .cloned()
+            .collect();
+        crate::sync::cloud_purge::row_copy::delete(store.as_ref(), "main", &keys, &admission)
+            .await?;
     }
+    drop(admission);
     reset_device_registry(ops).await?;
     store.restore_durability_barrier().await.map_err(storage)?;
     Ok(removed)

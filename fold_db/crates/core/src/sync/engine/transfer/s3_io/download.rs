@@ -6,6 +6,9 @@ use crate::sync::org_sync::SyncTarget;
 use futures::stream::StreamExt;
 
 mod dispatch;
+mod replay;
+
+use replay::{ensure_contiguous_org_seqs, DownloadProgress};
 
 impl SyncEngine {
     /// Attach the pin location (target + seq) to an apply failure that stopped
@@ -159,52 +162,7 @@ impl SyncEngine {
         let mut new_seqs = self.new_log_seqs_after_cursor(target, cursor).await?;
         new_seqs.sort_unstable();
 
-        // Loud-failure invariant: for ORG prefixes, the set of new seqs must
-        // be contiguous (no holes between the smallest and largest) because
-        // org seqs are server-allocated in atomic blocks. A hole there means
-        // S3 returned a partial view of the log — the exact silent-drop
-        // pattern 30a7b produced — and would cause `max_contiguous_seq` to
-        // advance past a seq that later appears.
-        //
-        // PERSONAL prefixes (empty prefix) use client-assigned nanosecond
-        // timestamps, so the seq space is inherently sparse: a device writes
-        // at T1, then again at T1+100000, and the listing has "gaps" of
-        // hundreds of thousands of unused seq values between them. The
-        // contiguity check can't distinguish natural sparseness from S3
-        // dropping a seq, so it's skipped for personal and we trust the
-        // listing's completeness (typical path) plus cursor-replay semantics
-        // (missed seqs re-appear in future listings because cursor only
-        // advances to seqs we saw). See `designs/unified_sync.md` for the
-        // personal-vs-org split rationale.
-        let is_org_prefix = !target.prefix.is_empty();
-        if is_org_prefix {
-            if let (Some(&first), Some(&last)) = (new_seqs.first(), new_seqs.last()) {
-                let expected = (last - first + 1) as usize;
-                if new_seqs.len() != expected {
-                    let set: std::collections::BTreeSet<u64> = new_seqs.iter().copied().collect();
-                    let missing: Vec<u64> = (first..=last).filter(|s| !set.contains(s)).collect();
-                    tracing::error!(
-                        "sync list '{}' returned non-contiguous seqs after cursor={}: first={} last={} count={} expected={} missing_sample={:?}",
-                        target.label,
-                        cursor,
-                        first,
-                        last,
-                        new_seqs.len(),
-                        expected,
-                        missing.iter().take(16).collect::<Vec<_>>()
-                    );
-                    return Err(SyncError::S3(format!(
-                        "non-contiguous log listing for '{}': cursor={} got {} seqs in range {}..={} (expected {})",
-                        target.label,
-                        cursor,
-                        new_seqs.len(),
-                        first,
-                        last,
-                        expected
-                    )));
-                }
-            }
-        }
+        ensure_contiguous_org_seqs(target, cursor, &new_seqs)?;
 
         if new_seqs.is_empty() {
             tracing::info!(
@@ -255,18 +213,11 @@ impl SyncEngine {
             "download: starting cycle"
         );
 
-        let mut total_replayed = 0u64;
-        // Advance the cursor contiguously: if any seq in this batch fails, we
-        // stop before it so the next cycle re-downloads it. Silent drops (where
-        // the cursor skips past a failed entry) caused alpha BLOCKER 4439b.
-        let mut max_contiguous_seq = cursor;
-        let mut schemas_replayed = false;
-        let mut embeddings_replayed = false;
-        let mut entries_skipped_self = 0u64;
-        let mut bytes_downloaded: u64 = 0;
-        let mut entries_skipped_oversize: u64 = 0;
+        let mut progress = DownloadProgress {
+            max_contiguous_seq: cursor,
+            ..DownloadProgress::default()
+        };
         let mut truncated_by_byte_cap = false;
-        let mut entries_attempted: usize = 0;
 
         // Chunk the presign call at MAX_PRESIGN_BATCH — storage_service caps
         // `seq_numbers` per request and a fresh node can easily list >1000
@@ -314,118 +265,19 @@ impl SyncEngine {
             // immediately.
             while let Some(res) = fetch_stream.next().await {
                 let fetched = res?;
-                entries_attempted += 1;
-                bytes_downloaded = bytes_downloaded.saturating_add(fetched.ciphertext_bytes);
-                if fetched.skipped_oversize {
-                    entries_skipped_oversize += 1;
-                    max_contiguous_seq = fetched.seq;
-                    self.checkpoint_download_cursor_after_replay(target, max_contiguous_seq)
-                        .await;
-                    continue;
-                }
-                // Continuous mutation-log segments land on the legacy flat
-                // `log/{seq}.enc` key. Apply every unsealed PinLogRecord
-                // entry before claiming cursor progress — never advance past
-                // unapplied mutation-log data.
-                if let Some(records) = fetched.mutation_log_records {
-                    for record in records {
-                        let entry = &record.entry;
-                        if self.is_personal_self_echo(target, &entry.device_id) {
-                            entries_skipped_self += 1;
-                            tracing::debug!(
-                                "skip self-authored mutation-log entry '{}' seq={} frontier_after={}",
-                                target.label,
-                                fetched.seq,
-                                record.frontier_after,
-                            );
-                            continue;
-                        }
-                        match entry.op.namespace() {
-                            "schemas" | "schema_states" => schemas_replayed = true,
-                            "native_index" => embeddings_replayed = true,
-                            _ => {}
-                        }
-                        tracing::info!(
-                            "replay mutation-log '{}' seq={} frontier_after={}: {}",
-                            target.label,
-                            fetched.seq,
-                            record.frontier_after,
-                            entry.op.describe()
-                        );
-                        self.replay_entry(entry, Some(target)).await.map_err(|e| {
-                            tracing::error!(
-                                "sync replay aborted: mutation-log apply failed in '{}' seq={}: {}; cursor will NOT advance past seq={}",
-                                target.label,
-                                fetched.seq,
-                                e,
-                                max_contiguous_seq
-                            );
-                            Self::pin_replay_error(&target.label, fetched.seq, e)
-                                .with_replay_operation(entry.seq, (&entry.op).into())
-                        })?;
-                        total_replayed += 1;
-                    }
-                    max_contiguous_seq = fetched.seq;
-                    self.checkpoint_download_cursor_after_replay(target, max_contiguous_seq)
-                        .await;
-                } else if let Some(entry) = fetched.entry {
-                    if self.is_personal_self_echo(target, &entry.device_id) {
-                        entries_skipped_self += 1;
-                        tracing::debug!(
-                            "skip self-authored log entry '{}' seq={}",
-                            target.label,
-                            fetched.seq,
-                        );
-                        max_contiguous_seq = fetched.seq;
-                        self.checkpoint_download_cursor_after_replay(target, max_contiguous_seq)
-                            .await;
-                        continue;
-                    }
-                    // `schema_states` shares the schema reloader: replaying a pure
-                    // state flip on an org schema (approve/block) must still refresh
-                    // the in-memory state cache, otherwise `/api/schemas` lags the
-                    // on-disk truth until the next schemas-namespace write lands.
-                    match entry.op.namespace() {
-                        "schemas" | "schema_states" => schemas_replayed = true,
-                        "native_index" => embeddings_replayed = true,
-                        _ => {}
-                    }
-                    tracing::info!(
-                        "replay '{}' seq={}: {}",
-                        target.label,
-                        fetched.seq,
-                        entry.op.describe()
-                    );
-                    self.replay_entry(&entry, Some(target)).await.map_err(|e| {
-                        tracing::error!(
-                            "sync replay aborted: apply failed in '{}' seq={}: {}; cursor will NOT advance past seq={}",
-                            target.label,
-                            fetched.seq,
-                            e,
-                            max_contiguous_seq
-                        );
-                        Self::pin_replay_error(&target.label, fetched.seq, e)
-                            .with_replay_operation(entry.seq, (&entry.op).into())
-                    })?;
-                    total_replayed += 1;
-                    max_contiguous_seq = fetched.seq;
-                    self.checkpoint_download_cursor_after_replay(target, max_contiguous_seq)
-                        .await;
-                } else {
-                    // Quarantine / empty-skip paths: no payload to apply.
-                    max_contiguous_seq = fetched.seq;
-                    self.checkpoint_download_cursor_after_replay(target, max_contiguous_seq)
-                        .await;
-                }
-
-                if byte_budget > 0 && bytes_downloaded as usize >= byte_budget {
+                if self
+                    .apply_fetched_entry(target, fetched, &mut progress)
+                    .await?
+                    && byte_budget > 0
+                    && progress.bytes_downloaded as usize >= byte_budget
+                {
                     truncated_by_byte_cap = true;
                     tracing::info!(
                         target: "fold_db::sync::memory",
                         target_label = %target.label,
-                        bytes_downloaded,
+                        bytes_downloaded = progress.bytes_downloaded,
                         byte_budget,
-                        cursor_now = max_contiguous_seq,
+                        cursor_now = progress.max_contiguous_seq,
                         "download: byte budget reached; deferring remainder to next cycle"
                     );
                     // Drop the remaining fetch stream — in-flight GETs cancel.
@@ -434,57 +286,33 @@ impl SyncEngine {
             }
         }
 
-        // Invoke reloaders for any namespaces that received new entries
-        if schemas_replayed {
+        if progress.schemas_replayed {
             self.invoke_reloader(&self.schema_reloader, "schema", &target.label)
                 .await;
         }
-        if embeddings_replayed {
+        if progress.embeddings_replayed {
             self.invoke_reloader(&self.embedding_reloader, "embedding", &target.label)
                 .await;
         }
 
         let entries_deferred = entries_deferred_from_cap
             + if truncated_by_byte_cap {
-                new_seqs.iter().filter(|s| **s > max_contiguous_seq).count()
+                new_seqs
+                    .iter()
+                    .filter(|s| **s > progress.max_contiguous_seq)
+                    .count()
             } else {
                 0
             };
-        let entries_health_deferred =
-            if target.prefix.is_empty() && entries_skipped_self > 0 && total_replayed == 0 {
-                0
-            } else {
-                entries_deferred
-            };
-
-        let stats = DownloadCycleStats {
-            target: target.label.clone(),
+        let stats = progress.into_cycle_stats(
+            target,
             entries_listed,
-            entries_attempted,
-            entries_replayed: total_replayed,
-            entries_skipped_self,
-            bytes_downloaded,
-            entries_skipped_oversize,
             entries_deferred,
-            entries_health_deferred,
             truncated_by_entry_cap,
             truncated_by_byte_cap,
-        };
-        tracing::info!(
-            target: "fold_db::sync::memory",
-            target_label = %stats.target,
-            entries_listed = stats.entries_listed,
-            entries_attempted = stats.entries_attempted,
-            entries_replayed = stats.entries_replayed,
-            entries_skipped_self = stats.entries_skipped_self,
-            bytes_downloaded = stats.bytes_downloaded,
-            entries_skipped_oversize = stats.entries_skipped_oversize,
-            entries_deferred = stats.entries_deferred,
-            entries_health_deferred = stats.entries_health_deferred,
-            truncated_by_entry_cap = stats.truncated_by_entry_cap,
-            truncated_by_byte_cap = stats.truncated_by_byte_cap,
-            "download: cycle complete"
         );
+        let total_replayed = stats.entries_replayed;
+        stats.log_cycle_complete();
         *self.last_download_stats.lock().await = Some(stats);
 
         Ok(total_replayed)
