@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "cloud_cmds/backup_gc.rs"]
 mod backup_gc;
+#[path = "cloud_cmds/billing.rs"]
+mod billing;
 #[path = "cloud_cmds/cloud_purge_dispatch.rs"]
 mod cloud_purge_dispatch;
 #[path = "cloud_cmds/intent.rs"]
@@ -42,110 +44,21 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
             env,
             api_url,
             force,
-        } => {
-            let url = resolve_exemem_url(api_url, env.as_deref())?;
-            runtime.block_on(lastdb_node::cloud::setup_paid(&home, &url, force))
-        }
+        } => billing::setup_paid(&home, &runtime, env.as_deref(), api_url, force),
         CloudCommand::Upgrade { env, api_url } => {
-            let (url, api_key) = load_cloud_creds(&home, api_url, env.as_deref())?;
-            let return_urls = checkout_return_urls(&url);
-            let checkout = runtime.block_on(lastdb_node::cloud::create_upgrade_checkout(
-                &url,
-                &api_key,
-                Some(return_urls.success.as_str()),
-                Some(return_urls.cancel.as_str()),
-            ))?;
-            match open_url(&checkout) {
-                Ok(()) => {
-                    println!("Opened Stripe Checkout in your browser.");
-                    println!("If it did not appear, open this URL:");
-                    println!("{checkout}");
-                }
-                Err(e) => {
-                    println!("Could not open Stripe Checkout automatically ({e}).");
-                    println!("Open this URL:");
-                    println!("{checkout}");
-                }
-            }
-            println!();
-            println!("Checkout will return to:");
-            println!("  {}", return_urls.success);
-            println!("After payment succeeds, wait ~1 minute, then run:");
-            println!("  lastdb cloud status");
-            println!("You need plan=paid and access_allowed=true.");
-            Ok(())
+            billing::upgrade(&home, &runtime, env.as_deref(), api_url)
         }
         CloudCommand::FixBilling { env, api_url } => {
-            let (url, api_key) = load_cloud_creds(&home, api_url, env.as_deref())?;
-            eprintln!("Opening Stripe Billing Portal to fix payment...");
-            eprintln!("In the portal: update your card and/or pay any open invoice.");
-            let portal = runtime.block_on(lastdb_node::cloud::create_portal_session(
-                &url, &api_key, None,
-            ))?;
-            println!("{portal}");
-            println!();
-            println!("After you fix billing in the browser, wait ~1 minute, then run:");
-            println!("  lastdb cloud status");
-            println!("You need plan=paid and access_allowed=true before sync works again.");
-            println!();
-            println!("If the portal fails (never subscribed), run instead:");
-            println!("  lastdb cloud upgrade");
-            Ok(())
+            billing::fix_billing(&home, &runtime, env.as_deref(), api_url)
         }
         CloudCommand::Account {
             env,
             api_url,
             json,
             no_open,
-        } => {
-            let (url, api_key) = load_cloud_creds(&home, api_url, env.as_deref())?;
-            let account = runtime.block_on(lastdb_node::cloud::account_link(&url, &api_key))?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&account).unwrap_or_else(|_| account.to_string())
-                );
-                return Ok(());
-            }
-            let account_url = account
-                .get("url")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "account response missing url".to_string())?;
-            if no_open {
-                println!("Open this URL:");
-                println!("{account_url}");
-            } else {
-                match open_url(account_url) {
-                    Ok(()) => {
-                        println!("Opened Exemem account page in your browser.");
-                        println!("If it did not appear, open this URL:");
-                        println!("{account_url}");
-                    }
-                    Err(e) => {
-                        println!("Could not open Exemem account page automatically ({e}).");
-                        println!("Open this URL:");
-                        println!("{account_url}");
-                    }
-                }
-            }
-            if let Some(status) = account.pointer("/account/status") {
-                println!();
-                lastdb_node::cloud::print_subscription_status(status);
-            }
-            Ok(())
-        }
+        } => billing::account(&home, &runtime, env.as_deref(), api_url, json, no_open),
         CloudCommand::Status { env, api_url } => {
-            let (url, api_key) = load_cloud_creds(&home, api_url, env.as_deref())?;
-            let status =
-                runtime.block_on(lastdb_node::cloud::subscription_status(&url, &api_key))?;
-            lastdb_node::cloud::print_subscription_status(&status);
-            println!();
-            println!("--- raw ---");
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&status).unwrap_or_else(|_| status.to_string())
-            );
-            Ok(())
+            billing::status(&home, &runtime, env.as_deref(), api_url)
         }
         CloudCommand::HealStaging { json } => {
             // Drop the tokio runtime — heal talks to the running daemon over UDS.

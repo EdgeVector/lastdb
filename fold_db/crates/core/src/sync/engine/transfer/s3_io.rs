@@ -4,6 +4,7 @@ mod cursor;
 mod download;
 mod fetch;
 mod proof;
+mod proof_head;
 mod retry;
 mod upload;
 

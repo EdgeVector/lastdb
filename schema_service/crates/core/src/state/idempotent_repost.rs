@@ -41,7 +41,6 @@ impl SchemaServiceState {
         mutation_mappers: &HashMap<String, String>,
         descriptive_name_override: Option<&str>,
     ) -> Option<Schema> {
-        // lint:fn-size-ok moved verbatim from the original impl; splitting is a separate change
         let mut probe = schema.clone();
         if let Some(desc_name) = descriptive_name_override {
             probe.descriptive_name = Some(desc_name.to_string());
@@ -50,203 +49,28 @@ impl SchemaServiceState {
         let incoming_owner = probe.owner_app_id.clone().unwrap_or_default();
         let incoming_dn = probe.descriptive_name.clone().unwrap_or_default();
 
-        // Defensive subset of `add_schema_inner`'s up-front validation.
-        // Any failure here means the full pipeline would error — fall
-        // through so the caller (cert gate + `add_schema`) produces the
-        // proper error response rather than silently no-op-ing.
-        if probe
-            .descriptive_name
-            .as_ref()
-            .is_none_or(|dn| dn.trim().is_empty())
-        {
-            tracing::debug!(
-                target: "schema_service::schema",
-                owner_app_id = %incoming_owner,
-                reason = "descriptive_name_missing",
-                "classify_idempotent_repost: miss",
-            );
-            return None;
-        }
-        if probe
-            .owner_app_id
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .is_none()
-            && probe
-                .descriptive_name
-                .as_deref()
-                .is_some_and(|dn| dn.starts_with("app:"))
-        {
-            tracing::debug!(
-                target: "schema_service::schema",
-                descriptive_name = %incoming_dn,
-                reason = "app_prefix_without_owner",
-                "classify_idempotent_repost: miss",
-            );
-            return None;
-        }
-        if let Some(ref fields) = probe.fields {
-            if fields
-                .iter()
-                .any(|f| f.trim().is_empty() || f.contains(',') || f.contains(':'))
-            {
-                tracing::debug!(
-                    target: "schema_service::schema",
-                    owner_app_id = %incoming_owner,
-                    descriptive_name = %incoming_dn,
-                    reason = "field_name_invalid",
-                    "classify_idempotent_repost: miss",
-                );
-                return None;
-            }
-        }
-
-        // Apply the same canonicalization the writer would so the
-        // computed identity hash matches the registry's slot. `canonicalize_fields`
-        // is read-only against `self` (mutates only the local rename
-        // map / mutation_mappers clone).
-        if let Some(fields) = probe.fields.clone() {
-            let mut mappers = mutation_mappers.clone();
-            let rename_map = self.canonicalize_fields(&fields, &probe, &mut mappers);
-            if !rename_map.is_empty() {
-                Self::apply_field_renames(&mut probe, &rename_map, &mut mappers);
-                probe.identity_hash = None;
-            }
-        }
+        validate_repost_probe(&probe, &incoming_owner, &incoming_dn)?;
+        self.canonicalize_repost_probe(&mut probe, mutation_mappers);
         probe.dedup_fields();
         probe.compute_identity_hash();
         let identity_hash = probe.get_identity_hash()?.clone();
 
         let schemas = read_lock(&self.schemas, "schemas").ok()?;
-        let (active, matched_by_name) = if let Some(existing) = schemas.get(&identity_hash) {
-            let (active, _active_name) = self
-                .resolve_active_schema(existing, &identity_hash, &schemas)
-                .unwrap_or_else(|| (existing.clone(), identity_hash.clone()));
-            (active, false)
-        } else {
-            // No identity slot. The writer would still answer
-            // `AlreadyExists` when the exact `(owner_app_id, descriptive_name)`
-            // row already holds every incoming field (`expand_schema`'s
-            // subset branch), so classify that shape as a repost too.
-            // Otherwise a fresh node re-declaring a catalog schema whose row
-            // grew a field pays the mutation-gate quota for a no-op add
-            // (2026-09-13: `brain init` spent the whole 10/hour node quota
-            // this way and `kanban init` then 409'd).
-            let by_name = self
-                .lookup_descriptive_name_in_namespace(
-                    probe.owner_app_id.as_deref(),
-                    probe.descriptive_name.as_deref().unwrap_or_default(),
-                )
-                .ok()
-                .flatten()
-                .and_then(|hash| {
-                    schemas.get(&hash).map(|existing| {
-                        self.resolve_active_schema(existing, &hash, &schemas)
-                            .map_or_else(|| existing.clone(), |(active, _)| active)
-                    })
-                });
-            let Some(active) = by_name else {
-                // Normal create path — the schema isn't published yet. Logged
-                // at debug for forensic CW Logs Insights queries when a
-                // re-POST that *should* have hit didn't (caller can pivot
-                // on the computed identity_hash).
-                tracing::debug!(
-                    target: "schema_service::schema",
-                    owner_app_id = %incoming_owner,
-                    descriptive_name = %incoming_dn,
-                    identity_hash = %identity_hash,
-                    reason = "no_existing_slot",
-                    "classify_idempotent_repost: miss",
-                );
-                return None;
-            };
-            if crate::state_expansion::is_cross_key_layout(&probe, &active) {
-                // The writer never subset-reuses across key layouts; it
-                // registers a sibling instead, which is a state transition.
-                tracing::info!(
-                    target: "schema_service::schema",
-                    owner_app_id = %incoming_owner,
-                    descriptive_name = %incoming_dn,
-                    identity_hash = %identity_hash,
-                    existing_identity_hash = %active.name,
-                    reason = "cross_key_layout",
-                    "classify_idempotent_repost: miss",
-                );
-                return None;
-            }
-            (active, true)
-        };
+        let (active, matched_by_name) = self.find_repost_active_schema(
+            &schemas,
+            &probe,
+            &identity_hash,
+            &incoming_owner,
+            &incoming_dn,
+        )?;
 
-        // identity_hash includes `owner_app_id`, so a mismatch here would
-        // indicate a hash-input bug. Bail out conservatively rather than
-        // echoing a cross-namespace schema to an un-certed caller.
-        fn norm(s: Option<&str>) -> Option<&str> {
-            s.filter(|x| !x.is_empty())
-        }
-        if norm(active.owner_app_id.as_deref()) != norm(probe.owner_app_id.as_deref()) {
-            tracing::info!(
-                target: "schema_service::schema",
-                owner_app_id = %incoming_owner,
-                existing_owner_app_id = %active.owner_app_id.as_deref().unwrap_or(""),
-                identity_hash = %identity_hash,
-                reason = "owner_app_id_mismatch",
-                "classify_idempotent_repost: miss",
-            );
-            return None;
-        }
-
-        if active.descriptive_name.as_deref() != probe.descriptive_name.as_deref() {
-            tracing::info!(
-                target: "schema_service::schema",
-                owner_app_id = %incoming_owner,
-                descriptive_name = %incoming_dn,
-                existing_descriptive_name = %active.descriptive_name.as_deref().unwrap_or(""),
-                identity_hash = %identity_hash,
-                reason = "descriptive_name_mismatch",
-                "classify_idempotent_repost: miss",
-            );
-            return None;
-        }
-
-        // Same `schema_type` is part of the writer's AlreadyExists branch
-        // (the hash itself does not bind `schema_type`). A cross-type
-        // collision would resolve to 409, not 200, and must keep its cert
-        // gate.
-        if crate::state_expansion::is_cross_schema_type_expansion(&probe, &active) {
-            tracing::info!(
-                target: "schema_service::schema",
-                owner_app_id = %incoming_owner,
-                descriptive_name = %incoming_dn,
-                identity_hash = %identity_hash,
-                reason = "cross_schema_type",
-                "classify_idempotent_repost: miss",
-            );
-            return None;
-        }
-
-        // Incoming fields ⊆ existing fields, otherwise the writer would
-        // Expand (state-mutating) and the cert gate must apply.
-        let existing_fields: HashSet<String> = active
-            .fields
-            .as_ref()
-            .map(|f| f.iter().cloned().collect())
-            .unwrap_or_default();
-        let incoming_fields: HashSet<String> = probe
-            .fields
-            .as_ref()
-            .map(|f| f.iter().cloned().collect())
-            .unwrap_or_default();
-        if !incoming_fields.is_subset(&existing_fields) {
-            tracing::info!(
-                target: "schema_service::schema",
-                owner_app_id = %incoming_owner,
-                descriptive_name = %incoming_dn,
-                identity_hash = %identity_hash,
-                reason = "incoming_fields_not_subset",
-                "classify_idempotent_repost: miss",
-            );
-            return None;
-        }
+        verify_repost_matches_active(
+            &probe,
+            &active,
+            &identity_hash,
+            &incoming_owner,
+            &incoming_dn,
+        )?;
 
         tracing::info!(
             target: "schema_service::schema",
@@ -259,4 +83,232 @@ impl SchemaServiceState {
         );
         Some(active)
     }
+
+    /// Apply the same field canonicalization the writer would so the
+    /// computed identity hash matches the registry's slot.
+    /// `canonicalize_fields` is read-only against `self` (mutates only the
+    /// local rename map / mutation_mappers clone).
+    fn canonicalize_repost_probe(
+        &self,
+        probe: &mut Schema,
+        mutation_mappers: &HashMap<String, String>,
+    ) {
+        if let Some(fields) = probe.fields.clone() {
+            let mut mappers = mutation_mappers.clone();
+            let rename_map = self.canonicalize_fields(&fields, probe, &mut mappers);
+            if !rename_map.is_empty() {
+                Self::apply_field_renames(probe, &rename_map, &mut mappers);
+                probe.identity_hash = None;
+            }
+        }
+    }
+
+    /// Locate the registered schema the probe would resolve to: the identity
+    /// slot first, then the exact `(owner_app_id, descriptive_name)` row
+    /// (`expand_schema`'s subset branch). Returns the active schema and
+    /// whether it was matched by name. `None` on any miss.
+    fn find_repost_active_schema(
+        &self,
+        schemas: &HashMap<String, Schema>,
+        probe: &Schema,
+        identity_hash: &str,
+        incoming_owner: &str,
+        incoming_dn: &str,
+    ) -> Option<(Schema, bool)> {
+        if let Some(existing) = schemas.get(identity_hash) {
+            let (active, _active_name) = self
+                .resolve_active_schema(existing, identity_hash, schemas)
+                .unwrap_or_else(|| (existing.clone(), identity_hash.to_string()));
+            return Some((active, false));
+        }
+        // No identity slot. The writer would still answer
+        // `AlreadyExists` when the exact `(owner_app_id, descriptive_name)`
+        // row already holds every incoming field (`expand_schema`'s
+        // subset branch), so classify that shape as a repost too.
+        // Otherwise a fresh node re-declaring a catalog schema whose row
+        // grew a field pays the mutation-gate quota for a no-op add
+        // (2026-09-13: `brain init` spent the whole 10/hour node quota
+        // this way and `kanban init` then 409'd).
+        let by_name = self
+            .lookup_descriptive_name_in_namespace(
+                probe.owner_app_id.as_deref(),
+                probe.descriptive_name.as_deref().unwrap_or_default(),
+            )
+            .ok()
+            .flatten()
+            .and_then(|hash| {
+                schemas.get(&hash).map(|existing| {
+                    self.resolve_active_schema(existing, &hash, schemas)
+                        .map_or_else(|| existing.clone(), |(active, _)| active)
+                })
+            });
+        let Some(active) = by_name else {
+            // Normal create path — the schema isn't published yet. Logged
+            // at debug for forensic CW Logs Insights queries when a
+            // re-POST that *should* have hit didn't (caller can pivot
+            // on the computed identity_hash).
+            tracing::debug!(
+                target: "schema_service::schema",
+                owner_app_id = %incoming_owner,
+                descriptive_name = %incoming_dn,
+                identity_hash = %identity_hash,
+                reason = "no_existing_slot",
+                "classify_idempotent_repost: miss",
+            );
+            return None;
+        };
+        if crate::state_expansion::is_cross_key_layout(probe, &active) {
+            // The writer never subset-reuses across key layouts; it
+            // registers a sibling instead, which is a state transition.
+            tracing::info!(
+                target: "schema_service::schema",
+                owner_app_id = %incoming_owner,
+                descriptive_name = %incoming_dn,
+                identity_hash = %identity_hash,
+                existing_identity_hash = %active.name,
+                reason = "cross_key_layout",
+                "classify_idempotent_repost: miss",
+            );
+            return None;
+        }
+        Some((active, true))
+    }
+}
+
+/// Defensive subset of `add_schema_inner`'s up-front validation.
+/// Any failure here means the full pipeline would error — return `None` so
+/// the caller (cert gate + `add_schema`) produces the proper error response
+/// rather than silently no-op-ing.
+fn validate_repost_probe(probe: &Schema, incoming_owner: &str, incoming_dn: &str) -> Option<()> {
+    if probe
+        .descriptive_name
+        .as_ref()
+        .is_none_or(|dn| dn.trim().is_empty())
+    {
+        tracing::debug!(
+            target: "schema_service::schema",
+            owner_app_id = %incoming_owner,
+            reason = "descriptive_name_missing",
+            "classify_idempotent_repost: miss",
+        );
+        return None;
+    }
+    if probe
+        .owner_app_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .is_none()
+        && probe
+            .descriptive_name
+            .as_deref()
+            .is_some_and(|dn| dn.starts_with("app:"))
+    {
+        tracing::debug!(
+            target: "schema_service::schema",
+            descriptive_name = %incoming_dn,
+            reason = "app_prefix_without_owner",
+            "classify_idempotent_repost: miss",
+        );
+        return None;
+    }
+    if let Some(ref fields) = probe.fields {
+        if fields
+            .iter()
+            .any(|f| f.trim().is_empty() || f.contains(',') || f.contains(':'))
+        {
+            tracing::debug!(
+                target: "schema_service::schema",
+                owner_app_id = %incoming_owner,
+                descriptive_name = %incoming_dn,
+                reason = "field_name_invalid",
+                "classify_idempotent_repost: miss",
+            );
+            return None;
+        }
+    }
+    Some(())
+}
+
+/// Confirm the matched `active` schema is a pure no-op for the probe: same
+/// owner namespace, same descriptive name, same `schema_type`, and the
+/// incoming fields are a subset of the existing ones. Any mismatch means
+/// the writer would create, expand, or conflict, so the cert gate applies.
+fn verify_repost_matches_active(
+    probe: &Schema,
+    active: &Schema,
+    identity_hash: &str,
+    incoming_owner: &str,
+    incoming_dn: &str,
+) -> Option<()> {
+    // identity_hash includes `owner_app_id`, so a mismatch here would
+    // indicate a hash-input bug. Bail out conservatively rather than
+    // echoing a cross-namespace schema to an un-certed caller.
+    fn norm(s: Option<&str>) -> Option<&str> {
+        s.filter(|x| !x.is_empty())
+    }
+    if norm(active.owner_app_id.as_deref()) != norm(probe.owner_app_id.as_deref()) {
+        tracing::info!(
+            target: "schema_service::schema",
+            owner_app_id = %incoming_owner,
+            existing_owner_app_id = %active.owner_app_id.as_deref().unwrap_or(""),
+            identity_hash = %identity_hash,
+            reason = "owner_app_id_mismatch",
+            "classify_idempotent_repost: miss",
+        );
+        return None;
+    }
+
+    if active.descriptive_name.as_deref() != probe.descriptive_name.as_deref() {
+        tracing::info!(
+            target: "schema_service::schema",
+            owner_app_id = %incoming_owner,
+            descriptive_name = %incoming_dn,
+            existing_descriptive_name = %active.descriptive_name.as_deref().unwrap_or(""),
+            identity_hash = %identity_hash,
+            reason = "descriptive_name_mismatch",
+            "classify_idempotent_repost: miss",
+        );
+        return None;
+    }
+
+    // Same `schema_type` is part of the writer's AlreadyExists branch
+    // (the hash itself does not bind `schema_type`). A cross-type
+    // collision would resolve to 409, not 200, and must keep its cert
+    // gate.
+    if crate::state_expansion::is_cross_schema_type_expansion(probe, active) {
+        tracing::info!(
+            target: "schema_service::schema",
+            owner_app_id = %incoming_owner,
+            descriptive_name = %incoming_dn,
+            identity_hash = %identity_hash,
+            reason = "cross_schema_type",
+            "classify_idempotent_repost: miss",
+        );
+        return None;
+    }
+
+    // Incoming fields ⊆ existing fields, otherwise the writer would
+    // Expand (state-mutating) and the cert gate must apply.
+    let existing_fields: HashSet<String> = active
+        .fields
+        .as_ref()
+        .map(|f| f.iter().cloned().collect())
+        .unwrap_or_default();
+    let incoming_fields: HashSet<String> = probe
+        .fields
+        .as_ref()
+        .map(|f| f.iter().cloned().collect())
+        .unwrap_or_default();
+    if !incoming_fields.is_subset(&existing_fields) {
+        tracing::info!(
+            target: "schema_service::schema",
+            owner_app_id = %incoming_owner,
+            descriptive_name = %incoming_dn,
+            identity_hash = %identity_hash,
+            reason = "incoming_fields_not_subset",
+            "classify_idempotent_repost: miss",
+        );
+        return None;
+    }
+    Some(())
 }

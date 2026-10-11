@@ -266,6 +266,50 @@ where
     Ok((home, read_invite()?))
 }
 
+fn service_home_command(action: ServiceHomeCommand) -> Result<(), String> {
+    let message = match action {
+        ServiceHomeCommand::Set { home } => lastdb_node::service_home::set_configured_home(&home),
+        ServiceHomeCommand::Show => lastdb_node::service_home::show_configured_home(),
+        ServiceHomeCommand::Clear => lastdb_node::service_home::clear_configured_home(),
+    }?;
+    println!("{message}");
+    Ok(())
+}
+
+fn schema_inspect_dispatch(
+    data_dir: Option<PathBuf>,
+    action: SchemaInspectCommand,
+) -> Result<(), String> {
+    match action {
+        SchemaInspectCommand::Storage { schema, json } => {
+            schema_storage_command(data_dir, &schema, json)
+        }
+        SchemaInspectCommand::StorageReport { json } => {
+            schema_storage_report_command(data_dir, json)
+        }
+        SchemaInspectCommand::Show { name, json } => schema_show_command(data_dir, &name, json),
+        SchemaInspectCommand::Drop {
+            schema,
+            owner_app,
+            must_exist,
+            json,
+        } => schema_drop_command(data_dir, schema, owner_app, must_exist, json),
+    }
+}
+
+fn liveness_dispatch(data_dir: Option<PathBuf>, action: LivenessCommand) -> Result<(), String> {
+    match action {
+        LivenessCommand::Explain { class, id, json } => {
+            liveness_explain_command(data_dir, &class, &id, json)
+        }
+        LivenessCommand::Bootstrap {
+            isolated_copy,
+            storage_prefix,
+            json,
+        } => liveness_bootstrap_command(data_dir, isolated_copy, storage_prefix.as_deref(), json),
+    }
+}
+
 fn run(cli: Cli) -> Result<(), String> {
     match cli.command.unwrap_or(Command::Status {
         json: false,
@@ -285,17 +329,7 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::LogFilter { directive, json } => {
             log_filter_command(cli.data_dir, directive.as_deref(), json)
         }
-        Command::ServiceHome { action } => {
-            let message = match action {
-                ServiceHomeCommand::Set { home } => {
-                    lastdb_node::service_home::set_configured_home(&home)
-                }
-                ServiceHomeCommand::Show => lastdb_node::service_home::show_configured_home(),
-                ServiceHomeCommand::Clear => lastdb_node::service_home::clear_configured_home(),
-            }?;
-            println!("{message}");
-            Ok(())
-        }
+        Command::ServiceHome { action } => service_home_command(action),
         Command::IsolateVolume {
             volume_name,
             skip_volume,
@@ -432,38 +466,8 @@ fn run(cli: Cli) -> Result<(), String> {
             key_range,
             json,
         } => compact_record_command(cli.data_dir, &schema, &key_hash, &key_range, json),
-        Command::Schema { action } => match action {
-            SchemaInspectCommand::Storage { schema, json } => {
-                schema_storage_command(cli.data_dir, &schema, json)
-            }
-            SchemaInspectCommand::StorageReport { json } => {
-                schema_storage_report_command(cli.data_dir, json)
-            }
-            SchemaInspectCommand::Show { name, json } => {
-                schema_show_command(cli.data_dir, &name, json)
-            }
-            SchemaInspectCommand::Drop {
-                schema,
-                owner_app,
-                must_exist,
-                json,
-            } => schema_drop_command(cli.data_dir, schema, owner_app, must_exist, json),
-        },
-        Command::Liveness { action } => match action {
-            LivenessCommand::Explain { class, id, json } => {
-                liveness_explain_command(cli.data_dir, &class, &id, json)
-            }
-            LivenessCommand::Bootstrap {
-                isolated_copy,
-                storage_prefix,
-                json,
-            } => liveness_bootstrap_command(
-                cli.data_dir,
-                isolated_copy,
-                storage_prefix.as_deref(),
-                json,
-            ),
-        },
+        Command::Schema { action } => schema_inspect_dispatch(cli.data_dir, action),
+        Command::Liveness { action } => liveness_dispatch(cli.data_dir, action),
         Command::Db { action } => db_command(cli.data_dir, action),
         Command::SchemaRetention { action } => schema_retention_command(cli.data_dir, action),
         Command::SchemaNameClaim { action } => schema_name_claim_command(cli.data_dir, action),
