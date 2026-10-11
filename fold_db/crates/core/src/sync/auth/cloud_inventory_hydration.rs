@@ -113,6 +113,7 @@ async fn download_inventory(grant: &Value, reference: &CloudInventoryRef) -> Syn
     {
         return Err(failure("invalid cloud inventory download grant"));
     }
+    // trace-egress: skip-s3 — the immutable inventory grant is a signed provider URL.
     let client = reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())

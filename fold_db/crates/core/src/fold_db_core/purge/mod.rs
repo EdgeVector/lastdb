@@ -90,9 +90,11 @@ use crate::schema::{SchemaCore, SchemaError};
 mod bulk;
 mod chain_walk;
 mod converge;
+mod converge_candidates;
 mod converge_plan;
 mod converge_steps;
 mod delete_barrier_flush;
+mod delete_candidates;
 mod guarded;
 mod guarded_prepare;
 mod guarded_steps;
@@ -105,6 +107,7 @@ pub(super) use bulk::{
     plan_guarded_complement_retained, purge_records_bulk, validate_purge_targets_present,
 };
 pub(super) use converge::converge_delete_tips;
+pub(crate) use delete_candidates::{delete_candidates_for_key, plan_normal_delete_barriers};
 use guarded::execute_guarded_purge;
 
 pub use storage_slot::*;
@@ -114,10 +117,9 @@ pub(in crate::fold_db_core) use storage_slot_resident::resident_api_keys_for_sto
 pub(super) use helpers::{
     atom_ref_cutover_ready, collect_event_atom_uuids, collect_live_atom_uuids,
     collect_resident_live_atom_uuids, collect_retained_chain_atoms_for_storage_slots,
-    collect_target_chain, collect_target_tip_chain, current_atom_for_key, describe_key,
-    field_key_matches_value, refresh_runtime_field_molecules,
-    refresh_runtime_field_molecules_for_purge_keys, remove_key_from_field, storage_form_key,
-    storage_form_keys, validate_purge_key_shape,
+    collect_target_chain, current_atom_for_key, describe_key, field_key_matches_value,
+    refresh_runtime_field_molecules, refresh_runtime_field_molecules_for_purge_keys,
+    remove_key_from_field, storage_form_keys, validate_purge_key_shape,
 };
 
 type OwnedMoleculeKeyRemoval = (
@@ -126,67 +128,6 @@ type OwnedMoleculeKeyRemoval = (
     Vec<(String, String)>,
     Option<String>,
 );
-
-/// Resolve every affected molecule key from the schema and the signed source
-/// mutation. This includes a key whose local tip is already absent.
-pub(crate) fn plan_normal_delete_barriers(
-    db_ops: &Arc<DbOperations>,
-    schema: &crate::schema::types::Schema,
-    mutations: &[crate::schema::types::Mutation],
-) -> Result<Vec<crate::atom::delete_barrier::DeleteBarrier>, SchemaError> {
-    use crate::atom::delete_barrier::{DeleteBarrier, DeleteKind};
-    let mut by_key: HashMap<String, DeleteBarrier> = HashMap::new();
-    for mutation in mutations {
-        let written_at = mutation.imported_written_at.ok_or_else(|| {
-            SchemaError::InvalidData("normal Delete lacks the original device write time".into())
-        })?;
-        let device_id = if mutation.author_clock_writer_id.is_empty() {
-            mutation.pub_key.clone()
-        } else {
-            mutation.author_clock_writer_id.clone()
-        };
-        for field in schema.runtime_fields.values() {
-            let Some(molecule_uuid) = field.common().molecule_uuid() else {
-                continue;
-            };
-            let storage_key = helpers::storage_form_key(db_ops, field, &mutation.key_value)?;
-            let Some((hash, range)) = field.disk_slot_for_key(&storage_key) else {
-                continue;
-            };
-            let mk_key = build_storage_key(
-                field.common().storage_prefix(),
-                &crate::atom::molecule_key_codec::hash_range_record_key(
-                    molecule_uuid,
-                    &hash,
-                    &range,
-                ),
-            );
-            let barrier = DeleteBarrier {
-                mk_key: mk_key.clone(),
-                written_at,
-                logical_counter: mutation.logical_counter,
-                device_id: device_id.clone(),
-                mutation_uuid: mutation.uuid.clone(),
-                kind: DeleteKind::Normal,
-                displaced_atom_uuid: None,
-                cloud_sequence: None,
-            };
-            match by_key.entry(mk_key) {
-                std::collections::hash_map::Entry::Vacant(slot) => {
-                    slot.insert(barrier);
-                }
-                std::collections::hash_map::Entry::Occupied(mut slot) => {
-                    if barrier.is_newer_than(slot.get()) {
-                        slot.insert(barrier);
-                    }
-                }
-            }
-        }
-    }
-    let mut barriers: Vec<_> = by_key.into_values().collect();
-    barriers.sort_unstable_by(|a, b| a.mk_key.cmp(&b.mk_key));
-    Ok(barriers)
-}
 
 /// What to do when a key in the batch has no molecule / history / tip-version
 /// trace at all.

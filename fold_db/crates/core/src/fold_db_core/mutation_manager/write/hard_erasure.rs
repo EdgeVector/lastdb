@@ -164,91 +164,21 @@ impl MutationManager {
                 ))
             })?;
 
-            let mut delete_winning_slots = None;
-            let mut delete_tip_guards = None;
-            if verb == super::super::super::purge::HardEraseVerb::Delete {
-                let barriers = super::super::super::purge::plan_normal_delete_barriers(
-                    &self.db_ops,
-                    &schema,
-                    &schema_erasures,
-                )?;
-                let tip_keys: Vec<String> = barriers
-                    .iter()
-                    .map(|barrier| barrier.mk_key.clone())
-                    .collect();
-                let tip_guards = self.db_ops.atoms().lock_tip_commits(&tip_keys).await;
-                let publication_guards = self.db_ops.atoms().lock_tip_publications(&tip_keys).await;
-                let mut slots_by_key: HashMap<String, Vec<(String, String, String)>> =
-                    HashMap::new();
-                for mutation in &schema_erasures {
-                    for field in schema.runtime_fields.values() {
-                        let Some(molecule_uuid) = field.common().molecule_uuid() else {
-                            continue;
-                        };
-                        let Some((resident_hash, resident_range)) =
-                            field.disk_slot_for_key(&mutation.key_value)
-                        else {
-                            continue;
-                        };
-                        let storage_key = super::super::super::purge::storage_form_key(
-                            &self.db_ops,
-                            field,
-                            &mutation.key_value,
-                        )?;
-                        let Some((disk_hash, disk_range)) = field.disk_slot_for_key(&storage_key)
-                        else {
-                            continue;
-                        };
-                        let mk_key = crate::schema::types::field::build_storage_key(
-                            field.common().storage_prefix(),
-                            &crate::atom::molecule_key_codec::hash_range_record_key(
-                                molecule_uuid,
-                                &disk_hash,
-                                &disk_range,
-                            ),
-                        );
-                        slots_by_key.entry(mk_key).or_default().push((
-                            molecule_uuid.clone(),
-                            resident_hash,
-                            resident_range,
-                        ));
-                    }
-                }
-                let mut winning = HashSet::new();
-                let disk_tips = self.db_ops.atoms().delete_target_tips(&tip_keys).await?;
-                for (barrier, disk_tip) in barriers.iter().zip(disk_tips) {
-                    let slots = slots_by_key.get(&barrier.mk_key).ok_or_else(|| {
-                        SchemaError::InvalidData(
-                            "Delete barrier has no matching memory molecule key".into(),
-                        )
-                    })?;
-                    let newer_in_memory = slots.iter().any(|(molecule_uuid, hash, range)| {
-                        self.db_ops
-                            .resident()
-                            .resolve_tip(molecule_uuid, hash, range)
-                            .is_some_and(|tip| !barrier.blocks_resident_tip(&tip.value))
-                    });
-                    if !newer_in_memory
-                        && disk_tip
-                            .as_ref()
-                            .is_none_or(|tip| barrier.blocks_tip(&tip.entry))
-                    {
-                        winning.extend(slots.iter().cloned());
-                    }
-                }
-                self.db_ops
-                    .atoms()
-                    .register_pending_delete_barriers(barriers);
-                delete_winning_slots = Some(winning);
-                delete_tip_guards = Some((publication_guards, tip_guards));
-            }
+            let delete_publication = if verb == super::super::super::purge::HardEraseVerb::Delete {
+                Some(
+                    self.prepare_delete_publication(&schema, &schema_erasures, storage_prefix)
+                        .await?,
+                )
+            } else {
+                None
+            };
 
             let tombstone_id = self.db_ops.resident().next_tombstone_id();
             let purge_apply = self.purge_apply_gate_transaction(
                 &schema,
                 &schema_erasures,
                 tombstone_id,
-                delete_winning_slots.as_ref(),
+                delete_publication.as_ref().map(|plan| &plan.winning),
             );
             #[cfg(feature = "cloud-sync")]
             crate::sync::capture::mark_logical_commit_published();
@@ -292,7 +222,7 @@ impl MutationManager {
                 Arc<tokio::sync::Notify>,
                 Arc<tokio::sync::Notify>,
             )> = None;
-            drop(delete_tip_guards);
+            drop(delete_publication);
             drop(guards);
             if let Some((reached, release)) = pause_after_purge_publish {
                 reached.notify_one();

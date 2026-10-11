@@ -25,8 +25,10 @@ mod attribution;
 mod batch_inner;
 mod cloud_entry;
 mod create_update_batch;
+mod delete_winners;
 mod erasure;
 mod hard_erasure;
+mod molecule_keys;
 use attribution::{attribution_scopes, attribution_source_events_enabled};
 use erasure::estimate_retained_atom_set_bytes;
 #[cfg(feature = "cloud-sync")]

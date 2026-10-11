@@ -52,6 +52,7 @@ pub async fn download_replacement_objects(
             .iter()
             .fold(0u64, |sum, object| sum.saturating_add(object.bytes)),
     )?;
+    // trace-egress: skip-s3 — replacement objects use exact signed provider grants.
     let client = reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())

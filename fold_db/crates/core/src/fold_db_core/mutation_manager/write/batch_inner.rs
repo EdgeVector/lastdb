@@ -14,34 +14,16 @@ impl MutationManager {
         if mutations.is_empty() {
             return Ok(ResidentCommitReceipt::empty());
         }
+        // Personal Delete expansion reads source fields before ordinary preconditions.
+        if storage_prefix.is_none() {
+            self.prepare_batch_molecule_keys(&mutations, storage_prefix)
+                .await?;
+        }
         let mutations = self
             .expand_protein_member_deletes(mutations, storage_prefix)
             .await?;
-        if storage_prefix.is_some() {
-            let mut schema_names: Vec<&str> = mutations
-                .iter()
-                .map(|mutation| mutation.schema_name.as_str())
-                .collect();
-            schema_names.sort_unstable();
-            schema_names.dedup();
-            for schema_name in schema_names {
-                let schema = self
-                    .schema_manager
-                    .get_schema_metadata(schema_name)?
-                    .ok_or_else(|| {
-                        SchemaError::InvalidData(format!("Schema '{schema_name}' not found"))
-                    })?;
-                self.db_ops
-                    .molecule_keys()
-                    .ensure_schema(&schema)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "prepare molecule key bundles for schema '{schema_name}': {error}"
-                        ))
-                    })?;
-            }
-        }
+        self.prepare_batch_molecule_keys(&mutations, storage_prefix)
+            .await?;
         self.reject_blocked_mutation_targets(&mutations)?;
         self.validate_hashrange_key_field_payloads(&mutations)?;
         for mutation in &mutations {

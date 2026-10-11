@@ -63,8 +63,7 @@ cargo build -p lastdb_node
 cargo build -p schema_service_core
 cargo build -p fold_db
 
-scripts/ci/run-db-perf-guard.sh            # Criterion setup/measure/compare; same durable target + wait/refuse + host lock
-scripts/ci/with-fold-host-cargo-lock.sh -- cargo …  # agents/routines: serialize heavy fold cargo behind the probe
+scripts/ci/with-fold-host-cargo-lock.sh -- cargo …  # agents/routines: serialize heavy Cargo work under the host lock
 
 # Full workspace — use before opening/pushing a PR, or when shared crates move
 cargo clippy --workspace --lib --bins -- -D warnings
@@ -79,7 +78,12 @@ Homebrew mold no longer supports Mach-O. Rely on sccache (`~/.cargo/config.toml`
 for compile cache; use package-scoped builds for link feedback speed.
 `mold` remains useful on **Linux** CI hosts only.
 
-CI lints:
+Manual CI audit commands:
+
+The manual `.github/workflows/ci.yml` audit runs these commands. The normal
+required PR gate uses `.github/workflows/ci-required.yml`; it does not run the
+spawn or tracing-egress audits. Preserve and report inherited audit failures
+without a gate override or unrelated source changes.
 
 ```bash
 bash scripts/lints/lint-redaction.sh        --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity
@@ -99,7 +103,7 @@ PR / merge: this repo is canonical on GitHub since 2026-09-29 (brain
 `last-stack-forge-api` for fold.
 
 > NEVER `--all-features` in a sandbox/cloud run (network model downloads).
-> See the build/test record below.
+> See the build and CI record below.
 
 ## Code size limits (CI-enforced on the lines you change)
 
@@ -130,7 +134,7 @@ is not checked until you touch it.
 
 ## Ask the brain for anything project-specific
 
-CLAUDE.md holds commands only. For architecture, security model, build/test
+CLAUDE.md holds commands only. For architecture, security model, build and CI
 caveats, current gates/approvals, and gotchas, ask the brain
 (`brain ask "<q>"` / `brain get <slug>`):
 

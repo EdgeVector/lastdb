@@ -60,17 +60,6 @@ pub(crate) async fn collect_target_chain(
     collect_target_chain_with_mode(db_ops, field, key, ChainTraceMode::AtomErasure).await
 }
 
-/// Live Delete needs the slot's source keys and exact reverse-edge keys.
-/// It does not plan atom candidates because the later reclaim janitor owns
-/// body deletion. The converge batch removes each source before its edges.
-pub(crate) async fn collect_target_tip_chain(
-    db_ops: &Arc<DbOperations>,
-    field: &FieldVariant,
-    key: &KeyValue,
-) -> Result<TargetChainTrace, SchemaError> {
-    collect_target_chain_with_mode(db_ops, field, key, ChainTraceMode::TipVersionsOnly).await
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ChainTraceMode {
     AtomErasure,
@@ -86,6 +75,33 @@ async fn collect_target_chain_with_mode(
     let Some(slot) = locate_target_slot(field, key) else {
         return Ok(TargetChainTrace::default());
     };
+    collect_slot_chain_with_mode(db_ops, slot, mode).await
+}
+
+pub(super) async fn collect_delete_candidate_chain(
+    db_ops: &Arc<DbOperations>,
+    candidate: &super::delete_candidates::DeleteCandidate,
+    entry: &AtomEntry,
+) -> Result<TargetChainTrace, SchemaError> {
+    collect_slot_chain_with_mode(
+        db_ops,
+        TargetSlot {
+            molecule_uuid: candidate.molecule_uuid.clone(),
+            target_hash: candidate.hash.clone(),
+            target_range: candidate.range.clone(),
+            prefix: candidate.storage_prefix.clone(),
+            entry: entry.clone(),
+        },
+        ChainTraceMode::TipVersionsOnly,
+    )
+    .await
+}
+
+async fn collect_slot_chain_with_mode(
+    db_ops: &Arc<DbOperations>,
+    slot: TargetSlot,
+    mode: ChainTraceMode,
+) -> Result<TargetChainTrace, SchemaError> {
     let TargetSlot {
         molecule_uuid,
         target_hash,
