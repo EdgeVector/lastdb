@@ -164,6 +164,7 @@ async fn stopped_engine(
             label: format!("org:{}", target.slug),
             prefix: target.org_hash.clone(),
             crypto: Arc::new(LocalCryptoProvider::from_key(org_key(target)?)),
+            read_binding: None,
         });
     }
     for rule in shares.iter().filter(|rule| rule.active) {
@@ -176,6 +177,7 @@ async fn stopped_engine(
             label: format!("share:{}", rule.rule_id),
             prefix: rule.share_prefix.clone(),
             crypto: Arc::new(LocalCryptoProvider::from_key(key)),
+            read_binding: None,
         });
     }
     engine.configure_targets(partitioner, targets).await;

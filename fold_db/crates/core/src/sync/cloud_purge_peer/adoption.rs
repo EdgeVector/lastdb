@@ -34,6 +34,23 @@ pub struct AdoptionPlan {
 }
 
 impl AdoptionPlan {
+    /// Bind a standalone Cloud Off reader to an exact validated control.
+    /// This creates no local adoption receipt and grants no cloud mutation.
+    pub fn for_readonly_control(control: &CloudPurgeControl, source_id: &str) -> SyncResult<Self> {
+        Self::from_control(control, source_id)
+    }
+
+    pub(crate) fn read_data_generation(&self) -> SyncResult<u64> {
+        self.continuation
+            .as_ref()
+            .map_or(Ok(self.generation), |continuation| {
+                continuation
+                    .get("data_generation")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| held("the readonly continuation has no physical generation"))
+            })
+    }
+
     pub(super) fn from_control(control: &CloudPurgeControl, source_id: &str) -> SyncResult<Self> {
         control.validate_identity().map_err(held)?;
         if let Some(continuation) = control.unchanged_continuation() {

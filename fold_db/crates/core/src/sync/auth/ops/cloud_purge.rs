@@ -141,6 +141,20 @@ impl AuthClient {
         decode_control(response)
     }
 
+    pub async fn cloud_purge_cancel_intent(
+        &self,
+        account: &CloudAccount,
+        operation_id: &str,
+        generation: Option<u64>,
+        capability: &str,
+    ) -> SyncResult<CloudPurgeCancellation> {
+        let mut request = json!({"account":account,"cloud_operation_id":operation_id,"cloud_capability":capability});
+        if let Some(generation) = generation {
+            request["cloud_generation"] = json!(generation);
+        }
+        self.purge_call(request, "cloud_purge_cancel").await
+    }
+
     pub async fn cloud_purge_upload_batch(
         &self,
         account: &CloudAccount,

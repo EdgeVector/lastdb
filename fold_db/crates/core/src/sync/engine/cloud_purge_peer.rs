@@ -32,15 +32,14 @@ impl SyncEngine {
     pub(crate) async fn preflight_cloud_peer_targets(
         &self,
         targets: &[SyncTarget],
-    ) -> SyncResult<()> {
-        let outcomes = futures::future::join_all(targets.iter().map(|target| {
-            self.auth
-                .cloud_peer_preflight((!target.prefix.is_empty()).then_some(target.prefix.as_str()))
+    ) -> SyncResult<Vec<SyncTarget>> {
+        let outcomes = futures::future::join_all(targets.iter().map(|target| async {
+            if target.read_binding.is_some() {
+                crate::sync::cloud_share::validate_grant(target)?;
+            }
+            self.auth.cloud_target_preflight(target).await
         }))
         .await;
-        for outcome in outcomes {
-            outcome?;
-        }
-        Ok(())
+        self.refresh_foreign_share_targets(targets, outcomes).await
     }
 }

@@ -55,7 +55,9 @@ impl Snapshot {
     }
 
     pub(crate) fn cloud_purge_share_bytes(&self) -> SyncResult<usize> {
-        let mut count = 0usize;
+        let mut count = self.writer_frontier.keys().fold(512usize, |bytes, writer| {
+            bytes.saturating_add(writer.len()).saturating_add(48)
+        });
         // Entry strings already include base64 expansion. Leave metadata room
         // without allocating a second serialization before the admission check.
         for namespace in &self.namespaces {

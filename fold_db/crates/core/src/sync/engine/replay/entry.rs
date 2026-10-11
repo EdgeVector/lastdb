@@ -367,14 +367,16 @@ impl SyncEngine {
                         ReplayCause::MissingMutationApplier,
                     ));
                 };
-                applier(mutations.clone())
-                    .await
-                    .map_err(|error| SyncError::ReplayApplyFailed {
-                        target: "mutation_intent".to_string(),
-                        seq: entry.seq,
-                        reason: error.reason,
-                        diagnosis: error.diagnosis,
-                    })?;
+                applier(super::foreign_intent::receiver_mutations(
+                    mutations, target,
+                )?)
+                .await
+                .map_err(|error| SyncError::ReplayApplyFailed {
+                    target: "mutation_intent".to_string(),
+                    seq: entry.seq,
+                    reason: error.reason,
+                    diagnosis: error.diagnosis,
+                })?;
             }
         }
         Ok(())

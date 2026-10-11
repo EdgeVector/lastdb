@@ -13,11 +13,11 @@ pub(crate) fn spawn_home_conflict_fold(
     shutdown: Arc<AtomicBool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        if let Err(error) = host
-            .db
-            .db_ops()
-            .build_home_conflict_stamp_on_copy(None)
-            .await
+        if let Some(Err(error)) = lastdb_node::maintenance_write_gate::run(
+            &host,
+            host.db.db_ops().build_home_conflict_stamp_on_copy(None),
+        )
+        .await
         {
             tracing::warn!(
                 target: "lastdbd::home_conflict_fold",
@@ -41,7 +41,12 @@ pub(crate) fn spawn_home_conflict_fold(
             if !lastdb_node::footprint::conflict_fold_pressure_clear() {
                 continue;
             }
-            if let Err(error) = host.db.db_ops().fold_home_conflict_events(None).await {
+            if let Some(Err(error)) = lastdb_node::maintenance_write_gate::run(
+                &host,
+                host.db.db_ops().fold_home_conflict_events(None),
+            )
+            .await
+            {
                 tracing::warn!(
                     target: "lastdbd::home_conflict_fold",
                     error = %error,

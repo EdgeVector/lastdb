@@ -1,6 +1,6 @@
 //! Restore and scrub report types for snapshots.
 
-use super::*;
+use serde::{Deserialize, Serialize};
 
 /// Local materialization cost for one snapshot restore.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

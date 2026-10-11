@@ -57,7 +57,7 @@ use actions::selected_intent;
 pub(crate) use state::{
     cache_engine, cached_engine, has_write_fence, local_writes_paused, write_fence,
 };
-pub use state::{drain, release_for_shutdown};
+pub use state::{drain, release_for_shutdown, requires_local_shutdown};
 use state::{ensure_fence, is_running, release_fence, spawn};
 pub(crate) use storage::{atomic, read};
 

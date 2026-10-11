@@ -359,6 +359,7 @@ impl SyncEngine {
             incorporated_frontier,
             progress,
             &target.crypto,
+            None,
         )
         .await
     }
@@ -493,7 +494,7 @@ impl SyncEngine {
     /// and `catalog_membership_denied` on the shared schema.
     pub async fn run_mutation_log_peer_apply_cycle(&self) -> SyncResult<MutationLogReplayReport> {
         let mut incorporated = self.pin_log.incorporated_frontier().await;
-        let targets = self.targets.lock().await.clone();
+        let targets = self.peer_cloud_targets_snapshot().await;
         let mut combined = MutationLogReplayReport::default();
         let mut first_err: Option<SyncError> = None;
         let mut auth_err: Option<SyncError> = None;

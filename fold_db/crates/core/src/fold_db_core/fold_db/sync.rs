@@ -13,7 +13,9 @@ use std::collections::HashMap;
 use super::FoldDB;
 mod cloud_purge_source;
 use cloud_purge_source::prepare_photograph_cut_components;
+mod inbound_targets;
 mod replay_applier;
+mod runtime_activation;
 
 impl FoldDB {
     /// Returns a reference to the sync coordinator.
@@ -705,6 +707,7 @@ impl FoldDB {
                 },
                 prefix: org.org_hash.clone(),
                 crypto: Arc::new(crate::crypto::LocalCryptoProvider::from_key(key)),
+                read_binding: None,
             });
         }
         // Outbound share rules as upload targets (existing cross-user shares).
@@ -719,79 +722,14 @@ impl FoldDB {
                 label: format!("share:{}", rule.rule_id),
                 prefix: rule.share_prefix.clone(),
                 crypto: Arc::new(crate::crypto::LocalCryptoProvider::from_key(key)),
+                read_binding: None,
             });
         }
 
+        extra.extend(inbound_targets::targets(self).await?);
         engine
             .configure_targets_with_restore_scopes(partitioner, extra, restore_scopes)
             .await;
-        Ok(())
-    }
-
-    /// Start the sync engine on an existing FoldDB instance at runtime.
-    /// Called when cloud credentials are written and sync needs to activate
-    /// without a full process restart.
-    pub async fn start_sync_engine_runtime(
-        &self,
-        api_url: &str,
-        api_key: &str,
-        data_dir: &str,
-        e2e_keys: &crate::crypto::E2eKeys,
-        auth_refresh: Option<crate::sync::AuthRefreshCallback>,
-    ) -> crate::error::FoldDbResult<()> {
-        if self.sync_coordinator.is_enabled() {
-            return Ok(()); // already running
-        }
-        if self.mutation_log_capture.is_none() {
-            return Err(crate::error::FoldDbError::Config(
-                "runtime cloud sync requires a serving capture router".to_string(),
-            ));
-        }
-
-        let mut setup = crate::sync::SyncSetup::from_exemem(api_url, api_key, data_dir);
-        setup.auth_refresh = auth_refresh.clone();
-
-        let sync_config = setup.config.unwrap_or_default();
-        let interval_ms = sync_config.sync_interval_ms;
-
-        let sync_crypto: Arc<dyn crate::crypto::CryptoProvider> = Arc::new(
-            crate::crypto::LocalCryptoProvider::from_key(e2e_keys.encryption_key()),
-        );
-
-        // Reuse the already-open namespaced store from DbOperations (Last Store).
-        let base_store: Arc<dyn crate::storage::traits::NamespacedStore> =
-            self.db_ops.namespaced_store();
-
-        // trace-egress: propagate (shared with skip-s3 — see docs/observability/egress-classification-notes.md)
-        // Connect-timeout the shared client so a black-holed endpoint can't
-        // wedge the TCP handshake; per-request bounds live in S3Client/AuthClient.
-        let http = Arc::new(crate::sync::build_shared_http_client().map_err(|_| {
-            crate::error::FoldDbError::Config("cloud HTTPS transport unavailable".into())
-        })?);
-        let s3 = crate::sync::s3::S3Client::new(http.clone());
-        let auth_client = crate::sync::auth::AuthClient::new(http, setup.auth_url, setup.auth);
-
-        let (backup_publish_target, cloud_sync_disabled_at) = self.sync_coordinator.packing_slots();
-        let mut engine = crate::sync::SyncEngine::new_with_shared_packing(
-            setup.device_id,
-            sync_crypto,
-            s3,
-            auth_client,
-            base_store,
-            sync_config,
-            Arc::clone(&self.signer),
-            None,
-            Some(backup_publish_target),
-            Some(cloud_sync_disabled_at),
-        );
-        if let Some(cb) = auth_refresh {
-            engine.set_auth_refresh(cb);
-        }
-        let engine = Arc::new(engine);
-
-        self.set_sync_engine(engine).await;
-        self.start_sync(interval_ms);
-
         Ok(())
     }
 }

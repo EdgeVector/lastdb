@@ -59,7 +59,7 @@ pub fn maybe_spawn_ttl_sweep(host: &std::sync::Arc<Host>) {
     }
     let host = std::sync::Arc::clone(host);
     tokio::spawn(async move {
-        sweep_ttl(&host).await;
+        crate::maintenance_write_gate::run(&host, sweep_ttl(&host)).await;
         host.self_metrics.end_ttl_sweep();
     });
 }

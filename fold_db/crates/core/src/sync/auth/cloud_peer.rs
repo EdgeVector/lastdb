@@ -5,6 +5,10 @@ use crate::sync::error::{SyncError, SyncResult};
 use std::sync::Arc;
 
 impl AuthClient {
+    pub(crate) fn is_cloud_adoption_reader(&self) -> bool {
+        self.cloud_adoption_read.is_some()
+    }
+
     pub fn with_auth_refresh_callback(mut self, callback: super::AuthRefreshCallback) -> Self {
         self.auth_refresh = Some(callback);
         self
@@ -69,6 +73,9 @@ impl AuthClient {
                     "inactive cloud adoption clients cannot mutate cloud data".into(),
                 ));
             }
+            if is_read {
+                super::cloud_share::bind_read(body, plan.generation, plan.read_data_generation()?)?;
+            }
             put_generation(
                 body,
                 &plan.account,
@@ -100,6 +107,9 @@ impl AuthClient {
                     "invalid legacy cloud control response".into(),
                 ));
             }
+            if is_read && body.get("share_prefix").is_some() {
+                super::cloud_share::bind_read(body, 0, 0)?;
+            }
             put_generation(body, account, 0, None)?;
             return Ok(());
         }
@@ -116,6 +126,13 @@ impl AuthClient {
             return Ok(());
         };
         let token = peer.ensure_adopted(self, control).await?;
+        if is_read && body.get("share_prefix").is_some() {
+            super::cloud_share::bind_read(
+                body,
+                control.generation,
+                control.data_generation.unwrap_or(control.generation),
+            )?;
+        }
         put_generation(
             body,
             account,
@@ -206,13 +223,41 @@ impl AuthClient {
     pub async fn cloud_peer_preflight(&self, share_prefix: Option<&str>) -> SyncResult<()> {
         let mut body = serde_json::json!({"action":"list_objects"});
         if let Some(prefix) = share_prefix {
-            body["share_prefix"] = serde_json::json!(prefix);
+            body["share_prefix"] = prefix.into();
         } else {
             self.apply_default_db_hash(&mut body);
         }
+        self.cloud_scope_preflight(body).await.map(|_| ())
+    }
+
+    pub(crate) async fn cloud_target_preflight(
+        &self,
+        target: &crate::sync::SyncTarget,
+    ) -> SyncResult<Option<crate::sync::cloud_share::ShareReadNotice>> {
+        let mut body = serde_json::json!({"action":"list_objects"});
+        super::helpers::attach_target_scope(&mut body, target);
+        if target.prefix.is_empty() {
+            self.apply_default_db_hash(&mut body);
+        }
+        if let Some(body) = body.as_object_mut() {
+            body.remove("cloud_generation");
+            body.remove("cloud_read_data_generation");
+        }
+        self.cloud_scope_preflight(body).await
+    }
+
+    async fn cloud_scope_preflight(
+        &self,
+        mut body: serde_json::Value,
+    ) -> SyncResult<Option<crate::sync::cloud_share::ShareReadNotice>> {
         let response = self.read_cloud_control_for_request(&body).await?;
         if response.notification_only {
-            return guard_share_notification(&mut body, &response, true);
+            guard_share_notification(&mut body, &response, true)?;
+            return super::cloud_share::notice(
+                &response,
+                body["share_prefix"].as_str().unwrap_or(""),
+            )
+            .map(Some);
         }
         if let Some(peer) = &self.cloud_purge_peer {
             peer.observe(&response)?;
@@ -227,7 +272,9 @@ impl AuthClient {
                 })?;
             peer.bind_local_account(account)?;
         }
-        self.guard_cloud_request("/api/sync/list", &mut body).await
+        self.guard_cloud_request("/api/sync/list", &mut body)
+            .await?;
+        Ok(None)
     }
 }
 
@@ -290,6 +337,8 @@ fn guard_share_notification(
     }
     let (account, generation, operation) =
         super::recipient_delivery::resolved_notification(response)?;
+    let notice = super::cloud_share::notice(response, prefix.unwrap_or(""))?;
+    super::cloud_share::bind_read(body, generation, notice.data_generation)?;
     put_generation(body, &account, generation, operation.as_deref())
 }
 

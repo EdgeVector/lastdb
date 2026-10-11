@@ -13,6 +13,12 @@ use crate::sync::engine::RecoveryDescriptorV1;
 use crate::sync::{SyncError, SyncResult};
 use std::path::{Path, PathBuf};
 
+pub struct CloudPurgeRootRestore {
+    pub data: PathBuf,
+    pub manifest: BackupManifest,
+    pub restored_epoch: u64,
+}
+
 pub async fn restore_cloud_purge_root(
     auth: &AuthClient,
     control: &CloudPurgeControl,
@@ -21,6 +27,19 @@ pub async fn restore_cloud_purge_root(
     crypto: &dyn CryptoProvider,
     account_key: &[u8; 32],
 ) -> SyncResult<PathBuf> {
+    restore_cloud_purge_root_with_report(auth, control, root, directory, crypto, account_key)
+        .await
+        .map(|restored| restored.data)
+}
+
+pub async fn restore_cloud_purge_root_with_report(
+    auth: &AuthClient,
+    control: &CloudPurgeControl,
+    root: &CloudReplacementRoot,
+    directory: &Path,
+    crypto: &dyn CryptoProvider,
+    account_key: &[u8; 32],
+) -> SyncResult<CloudPurgeRootRestore> {
     if root.format != "laststore_v1" {
         return Err(SyncError::Storage(
             "replacement requires a LastStore root".into(),
@@ -83,7 +102,7 @@ pub async fn restore_cloud_purge_root(
     store
         .verify_integrity()
         .map_err(|error| SyncError::Storage(error.to_string()))?;
-    store
+    let restored_epoch = store
         .commit_restored_backup_manifest(&manifest)
         .map_err(|error| SyncError::Storage(error.to_string()))?;
     store
@@ -92,7 +111,11 @@ pub async fn restore_cloud_purge_root(
         .map_err(|error| SyncError::Storage(error.to_string()))?;
     drop(store);
     files::atomic_json(&directory.join("restore-receipt.json"), &intent)?;
-    Ok(data)
+    Ok(CloudPurgeRootRestore {
+        data,
+        manifest,
+        restored_epoch,
+    })
 }
 
 async fn decode_source_metadata(

@@ -75,14 +75,8 @@ async fn adopt(
     }
     let control = fold_db::sync::cloud_purge_peer::effective_adoption_control(&control, &plan)?;
     require_control(&plan, &control)?;
-    let source_directory = crate::cloud_purge_job::directory(&host.home, &plan.operation_id)
-        .map_err(held)?
-        .join("source");
-    if control.selected_writer.source_id == peer.source_id()
-        && source_directory.join("source.json").exists()
-        && crate::cloud_purge_runtime::has_write_fence(host, &plan.operation_id).map_err(held)?
-    {
-        return selected(host, engine, &peer, &plan, &control, &source_directory).await;
+    if let Some(receipt) = try_selected_personal(host, engine, &peer, &plan, &control).await? {
+        return Ok(receipt);
     }
     let path = pending_path(&host.home)?;
     if path.exists() {
@@ -147,6 +141,49 @@ async fn adopt(
     ))
 }
 
+async fn try_selected_personal(
+    host: &Host,
+    engine: &SyncEngine,
+    peer: &CloudPurgePeer,
+    plan: &AdoptionPlan,
+    control: &CloudPurgeControl,
+) -> SyncResult<Option<AdoptionReceipt>> {
+    let directory = crate::cloud_purge_job::directory(&host.home, &plan.operation_id)
+        .map_err(held)?
+        .join("source");
+    if control.selected_writer.source_id != peer.source_id()
+        || !directory.join("source.json").exists()
+        || !crate::cloud_purge_runtime::has_write_fence(host, &plan.operation_id).map_err(held)?
+    {
+        return Ok(None);
+    }
+    if plan.account.kind == CloudAccountKind::Org {
+        // Org export changes instance prefixes and can convert legacy keys.
+        // Install that exact export through the stopped candidate switch.
+        verify_selected_source(peer, plan, &directory)?;
+        return Ok(None);
+    }
+    selected(host, engine, peer, plan, control, &directory)
+        .await
+        .map(Some)
+}
+
+pub(crate) fn selected_restart_pending(
+    home: &Path,
+    operation_id: &str,
+    account: &fold_db::sync::cloud_purge::protocol::CloudAccount,
+) -> SyncResult<bool> {
+    let path = pending_path(home)?;
+    if !path.exists() {
+        return Ok(false);
+    }
+    let pending: Pending = crate::cloud_purge_runtime::read(&path).map_err(held)?;
+    Ok(pending.format_version == 1
+        && pending.plan.operation_id == operation_id
+        && pending.plan.account == *account
+        && matches!(pending.phase.as_str(), "staged" | "prepared" | "switched"))
+}
+
 async fn selected(
     host: &Host,
     engine: &SyncEngine,
@@ -160,17 +197,7 @@ async fn selected(
             "the selected source has no retained local write fence",
         ));
     }
-    let source = fold_db::sync::cloud_purge::RetainedSource::reopen(source_directory)?;
-    let replacement: CloudReplacementManifest =
-        serde_json::from_value(plan.replacement_manifest.clone())?;
-    if source.account != plan.account
-        || source.prepared.source_id != peer.source_id()
-        || replacement.source_manifest_sha256 != source.prepared.manifest_sha256
-    {
-        return Err(held(
-            "the ready cloud root differs from the selected retained source",
-        ));
-    }
+    let source = verify_selected_source(peer, plan, source_directory)?;
     let retained = peer.retain_directory(plan, source_directory)?;
     let prefix = if plan.account.kind == CloudAccountKind::Personal {
         ""
@@ -197,6 +224,28 @@ async fn selected(
         installed_manifest_sha256: plan.replacement_manifest_sha256.clone(),
         switch_receipt_sha256: fold_db::hex::sha256_hex(&serde_json::to_vec(&journal)?),
     })
+}
+
+fn verify_selected_source(
+    peer: &CloudPurgePeer,
+    plan: &AdoptionPlan,
+    source_directory: &Path,
+) -> SyncResult<fold_db::sync::cloud_purge::RetainedSource> {
+    let source = fold_db::sync::cloud_purge::RetainedSource::reopen(source_directory)?;
+    let replacement: CloudReplacementManifest =
+        serde_json::from_value(plan.replacement_manifest.clone())?;
+    let expected_roots = fold_db::hex::sha256_hex(&serde_json::to_vec(&source.prepared.roots)?);
+    let replacement_roots = fold_db::hex::sha256_hex(&serde_json::to_vec(&replacement.roots)?);
+    if source.account != plan.account
+        || source.prepared.source_id != peer.source_id()
+        || replacement.source_manifest_sha256 != source.prepared.manifest_sha256
+        || replacement_roots != expected_roots
+    {
+        return Err(held(
+            "the ready cloud root differs from the selected retained source",
+        ));
+    }
+    Ok(source)
 }
 
 pub async fn before_boot(home: &Path) -> Result<(), String> {

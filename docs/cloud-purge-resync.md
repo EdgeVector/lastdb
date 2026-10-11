@@ -40,7 +40,44 @@ A failure after deletion keeps the cloud hold. It also keeps the source. It cann
 lastdb cloud purge-resync cancel --job <job-id>
 ```
 
-The service permits cancellation only before deletion. It retains the new control generation and proves that the cloud content stays unchanged. Each device retains its local data before it acknowledges continuation. A device that missed an earlier Ready snapshot first adopts that snapshot.
+The service permits cancellation only before deletion. Cancel does not start a cloud hold.
+
+If the service did not accept the hold, it records cancellation for the exact operation. A delayed start request then fails. The local device releases its write pause only after that durable receipt.
+
+If the service accepted the hold, it retains the new control generation and proves that cloud content stays unchanged. Each device retains its local data before it acknowledges continuation. A device that missed an earlier Ready snapshot first adopts that snapshot.
+
+## Restore without the source disk
+
+Use a recovered identity home with the account identity and cloud configuration. That home must contain no LastStore data. Use a fresh destination.
+
+```sh
+lastdb --data-dir <recovered-identity-home> restore --remote-latest \
+  --env dev --into <fresh-home> --json
+```
+
+For a completed purge, the command selects the exact Ready snapshot from the permanent cloud control. It verifies the snapshot, encryption, layout, and current cloud data generation. It removes the selected device's inherited queues before it restores the later writes.
+
+Use these flags if the account has more than one eligible root, or if the restore must use an exact snapshot:
+
+```sh
+lastdb --data-dir <recovered-identity-home> restore --remote-latest \
+  --env dev --db-hash <root-id> --manifest-sha256 <manifest-sha256> \
+  --into <fresh-home> --json
+```
+
+The destination stays Cloud Off. It writes a local completion receipt only after the data flush and the final cloud control check. A held cloud generation refuses this restore.
+
+If the first hold is cancelled, no earlier Ready snapshot exists. The same command uses the verified legacy descriptor and later writes. Each read binds the exact cancelled control and unchanged cloud data generation. A changed control refuses completion. Cloud On still requires the durable continuation receipt and cloud ack.
+
+## Cloud On after adoption
+
+```sh
+lastdb --data-dir <account-home> cloud on
+```
+
+Cloud On requires the exact local adoption receipt and the cloud ack for the current generation. A device that needs a local replacement completes its clean restart first. The node installs its adoption check before normal cloud workers start.
+
+A legacy account without a permanent control uses the existing primary-resume plan. Cloud On does not bypass that plan after a paused boot.
 
 ## Other devices
 
@@ -48,7 +85,7 @@ Other devices hold cloud sync when they observe the control file. They retain th
 
 ## Service readiness
 
-The service refuses the purge until it proves the old upload cutoff, exact account content, and external references. All service functions and rollback versions must enforce the generation protocol. The service retains the normal deployment and safe upgrade gates.
+The service refuses the purge until the operator records the provider cutoff and exact account scope evidence. The service also preserves external references. All service functions and rollback versions must enforce the generation protocol. The service retains the normal deployment and safe upgrade gates.
 
 A build result does not prove a cloud purge. Use the real command and deployed service on an independent owned account. Keep the primary account intact during product proof.
 

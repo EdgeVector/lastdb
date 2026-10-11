@@ -1,5 +1,8 @@
 //! Versioned cloud control wire contract. Private writer capabilities stay out of receipts.
 
+mod cancellation;
+pub use cancellation::{CloudPurgeCancellation, CloudPurgeCancellationReceipt};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -160,6 +163,8 @@ pub struct CloudGenerationNotification {
     pub operation_id: Option<String>,
     pub phase: String,
     pub open_for_writes: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_generation: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

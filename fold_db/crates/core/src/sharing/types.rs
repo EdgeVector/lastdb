@@ -43,6 +43,10 @@ pub struct ShareSubscription {
     pub share_e2e_secret: Vec<u8>,
     pub accepted_at: u64,
     pub active: bool,
+    /// Preserve the sender's signed cloud read grant. Possession of the
+    /// encryption secret does not authorize a cloud read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_grant: Option<ShareAccessGrant>,
 }
 
 /// A sender-signed authorization for a recipient to read a share log from

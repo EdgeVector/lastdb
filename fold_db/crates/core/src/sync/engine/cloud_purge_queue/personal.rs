@@ -58,6 +58,7 @@ pub(super) async fn routes(
                 label: "stopped queue routing".into(),
                 prefix: prefix.clone(),
                 crypto: engine.crypto.clone(),
+                read_binding: None,
             });
         }
     }

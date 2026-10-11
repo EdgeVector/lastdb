@@ -268,8 +268,8 @@ fn main() -> Result<(), String> {
     }
 
     // The final flush follows every accepted request and node writer.
-    if let Err(error) = runtime.block_on(host.db.shutdown()) {
-        shutdown_errors.push(format!("FoldDB shutdown flush failed: {error}"));
+    if let Err(error) = shutdown::flush_database(&runtime, &host) {
+        shutdown_errors.push(error);
     }
     if let Some(heartbeat) = session_heartbeat {
         if let Err(error) = heartbeat.stop() {

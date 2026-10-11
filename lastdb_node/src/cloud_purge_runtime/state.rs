@@ -167,6 +167,27 @@ pub fn release_for_shutdown(home: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// These durable journals require a local flush without a final cloud replay.
+pub fn requires_local_shutdown(home: &Path) -> Result<bool, String> {
+    let active = home.join("cloud-purge-resync/active.json");
+    if active.exists() {
+        let intent: Intent = read(&active)?;
+        if intent.local_cut_started && !matches!(intent.phase.as_str(), "ready" | "cancelled") {
+            return Ok(true);
+        }
+    }
+    let pending =
+        crate::cloud_purge_adoption::pending_path(home).map_err(|error| error.to_string())?;
+    if !pending.exists() {
+        return Ok(false);
+    }
+    let pending: crate::cloud_purge_adoption::Pending = read(&pending)?;
+    if pending.format_version != 1 {
+        return Err("unsupported cloud adoption shutdown journal".into());
+    }
+    Ok(pending.phase != "committed")
+}
+
 /// A clean shutdown receipt must follow the selected-device worker's last write.
 pub async fn drain(home: &Path) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);

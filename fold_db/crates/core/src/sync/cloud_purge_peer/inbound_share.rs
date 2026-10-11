@@ -6,6 +6,7 @@ use sha2::Digest;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod metadata;
+mod receivers;
 mod source;
 use metadata::preserve_metadata;
 use source::{physical_keys, InboundData};
@@ -35,19 +36,7 @@ pub async fn preserve_inbound_shares(
     let subscriptions = crate::sharing::store::list_share_subscriptions_in_ops(previous)
         .await
         .map_err(error)?;
-    let mut scopes = BTreeSet::new();
-    for subscription in &subscriptions {
-        let parts: Vec<_> = subscription.share_prefix.split(':').collect();
-        if parts.len() != 3
-            || parts[0] != "share"
-            || parts[1].len() != 32
-            || !parts[1].bytes().all(|byte| byte.is_ascii_hexdigit())
-            || parts[2].is_empty()
-        {
-            return Err(error("the prior inbound share scope is invalid"));
-        }
-        scopes.insert(format!("from:{}:", parts[1]));
-    }
+    let (scopes, bindings) = receivers::source(previous, &subscriptions).await?;
     let InboundData {
         rows,
         molecules,
@@ -74,6 +63,9 @@ pub async fn preserve_inbound_shares(
         }
     }
     let mut digest = sha2::Sha256::new();
+    let qualified_cursors =
+        receivers::preserve_frontiers(previous, candidate, &bindings, &mut digest).await?;
+    receivers::preserve(candidate, bindings, &mut digest).await?;
     copy_blobs(previous, candidate, &blobs, &mut digest).await?;
     // Remove another device's receiver namespace before this peer's exact copy.
     let candidate_raw = candidate
@@ -107,6 +99,7 @@ pub async fn preserve_inbound_shares(
         subscriptions
             .into_iter()
             .map(|subscription| subscription.share_prefix)
+            .chain(qualified_cursors)
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect(),

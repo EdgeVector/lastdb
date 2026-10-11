@@ -24,6 +24,8 @@ mod init;
 mod lifecycle;
 #[cfg(feature = "sharing")]
 mod local_file_blobs;
+#[cfg(feature = "cloud-sync")]
+mod maintenance_admission;
 mod provenance;
 mod schema_api;
 #[cfg(feature = "cloud-sync")]
@@ -43,6 +45,8 @@ pub use local_file_blobs::{
     local_file_blob_max_bytes, LocalFileBlobPut, LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT,
     LOCAL_FILE_BLOB_MAX_BYTES_ENV,
 };
+#[cfg(feature = "cloud-sync")]
+pub use maintenance_admission::LocalMutationAdmission;
 
 /// The main database coordinator that manages schemas, permissions, and data storage.
 pub struct FoldDB {

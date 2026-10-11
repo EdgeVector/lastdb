@@ -64,7 +64,7 @@ impl SyncEngine {
             frontier.max_through()
         } else {
             let cursors = self.download_cursors.lock().await;
-            cursors.get(&target.prefix).copied().unwrap_or(0)
+            cursors.get(&target.cursor_key()).copied().unwrap_or(0)
         };
         let candidate_last_seq = requested_last_seq.min(cursor);
         let cut_objects = self.auth.list_log_objects(target).await?;
@@ -109,9 +109,12 @@ impl SyncEngine {
         last_seq: u64,
         photograph_frontier: Frontier,
     ) -> SyncResult<PublishedPhotograph> {
-        let snapshot = self
+        let mut snapshot = self
             .create_photograph_at_cut(&target.prefix, last_seq)
             .await?;
+        if target.prefix.starts_with("share:") {
+            snapshot.writer_frontier = photograph_frontier.as_writer_hwm(Some(&self.device_id));
+        }
 
         // Seal to temp file; dual-upload without sealed.clone() of full buffer.
         let sealed_dir = std::env::temp_dir().join("lastdb-snapshot-seal");

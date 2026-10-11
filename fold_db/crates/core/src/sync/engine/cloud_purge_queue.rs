@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod cursors;
+mod fresh_seed;
 mod personal;
 mod preservation;
 

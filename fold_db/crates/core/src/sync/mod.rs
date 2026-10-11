@@ -65,6 +65,7 @@ pub mod auth;
 pub(crate) mod capture;
 pub mod cloud_purge;
 pub mod cloud_purge_peer;
+pub mod cloud_share;
 pub mod engine;
 pub mod error;
 pub mod log;

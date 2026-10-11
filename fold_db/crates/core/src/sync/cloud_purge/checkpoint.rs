@@ -30,6 +30,10 @@ pub struct CloudPurgeJob {
     pub expected_scope_version: u64,
     pub phase: CloudPurgeJobPhase,
     pub capability_locator: Option<String>,
+    #[serde(default)]
+    pub cancel_requested: bool,
+    #[serde(default)]
+    pub cancellation_receipt: Option<super::protocol::CloudPurgeCancellationReceipt>,
     pub control: Option<CloudPurgeControl>,
     pub replacement: Option<CloudReplacementManifest>,
     pub uploaded_objects: BTreeSet<String>,
@@ -70,6 +74,8 @@ impl CloudPurgeJob {
             expected_scope_version: scope_version,
             phase: CloudPurgeJobPhase::SourceReady,
             capability_locator: None,
+            cancel_requested: false,
+            cancellation_receipt: None,
             control: None,
             replacement: None,
             uploaded_objects: BTreeSet::new(),

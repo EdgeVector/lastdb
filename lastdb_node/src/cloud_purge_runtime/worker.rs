@@ -11,7 +11,19 @@ pub(super) fn worker(host: &Host, id: &str, stop: &AtomicBool, cancel: &AtomicBo
         .and_then(|runtime| runtime.block_on(run(host, id, stop, cancel)));
     if let Err(error) = result {
         if let Ok(mut intent) = selected_intent(host, Some(id)) {
-            intent.phase = "failed".into();
+            let restart_pending = stop.load(Ordering::Acquire)
+                && crate::cloud_purge_adoption::selected_restart_pending(
+                    &host.home,
+                    id,
+                    &intent.account,
+                )
+                .unwrap_or(false);
+            intent.phase = if restart_pending {
+                "adoption_restart"
+            } else {
+                "failed"
+            }
+            .into();
             intent.error = Some(error);
             let _ = save_intent(host, &intent);
         }
@@ -133,6 +145,17 @@ pub(super) async fn finish_cancel(host: &Host, intent: &mut Intent) -> Result<()
             .map_err(|error| error.to_string())?;
         if job.control.is_some() {
             adopt_selected(host, &job).await?;
+        } else if job.phase != fold_db::sync::cloud_purge::CloudPurgeJobPhase::Cancelled
+            || !job.cancellation_receipt.as_ref().is_some_and(|receipt| {
+                receipt.account == job.account
+                    && receipt.operation_id == job.operation_id
+                    && receipt.deny_begin
+                    && receipt.cancelled_before_accept
+            })
+        {
+            return Err(
+                "the exact unaccepted operation cancellation acknowledgment is absent".into(),
+            );
         }
     }
     intent.phase = "cancelled".into();

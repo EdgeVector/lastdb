@@ -202,8 +202,8 @@ pub(crate) enum CloudCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Turn Cloud Sync **on** after a pause in the same daemon process.
-    /// A daemon that booted while Off refuses until peer reconciliation exists.
+    /// Turn Cloud Sync **on** after the exact local adoption and cloud ack.
+    /// An Off boot with no permanent control uses the primary-resume plan.
     #[command(alias = "resume")]
     On {
         #[arg(long)]

@@ -147,8 +147,6 @@ pub async fn connect(
     // account data yet — clear the marker so the next boot bootstraps.
     let _ = std::fs::remove_file(home.join(BOOTSTRAP_DONE_FILE));
 
-    let user_hash = host::user_hash_from_pubkey(&keypair.public_key_base64())?;
-    debug_assert_eq!(user_hash, registered.user_hash);
     eprintln!("Connected. account user_hash={}", registered.user_hash);
     eprintln!("Start (or restart) the daemon to pull the account's data and begin syncing.");
     Ok(())

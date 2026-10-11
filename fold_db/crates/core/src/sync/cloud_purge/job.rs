@@ -9,6 +9,7 @@ use rand::RngCore;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
+mod cancellation;
 mod root_registration;
 
 #[async_trait]
@@ -28,6 +29,11 @@ impl CloudPurgeDriver {
     }
 
     pub async fn begin(&self, job: &mut CloudPurgeJob, source: &RetainedSource) -> SyncResult<()> {
+        if job.cancel_requested || job.phase == CloudPurgeJobPhase::Cancelled {
+            return Err(SyncError::Storage(
+                "this operation retains a durable cancellation intent".into(),
+            ));
+        }
         if source.local_only {
             return Err(SyncError::Storage(
                 "private local recovery sources cannot enter cloud purge".into(),
@@ -94,6 +100,10 @@ impl CloudPurgeDriver {
     /// One bounded service or object batch. Disconnect never changes the saved cut.
     pub async fn step(&self, job: &mut CloudPurgeJob, source: &RetainedSource) -> SyncResult<bool> {
         require_job_source(job, source)?;
+        if job.cancel_requested {
+            self.cancel(job).await?;
+            return Ok(true);
+        }
         if job.control.is_none() {
             self.begin(job, source).await?;
         }
@@ -162,38 +172,6 @@ impl CloudPurgeDriver {
                 Ok(false)
             }
         }
-    }
-
-    pub async fn cancel(&self, job: &mut CloudPurgeJob) -> SyncResult<()> {
-        if job.control.is_none() {
-            if job.capability_locator.is_some() {
-                self.begin(job, &job.source()?).await?;
-            } else {
-                job.phase = CloudPurgeJobPhase::Cancelled;
-                return job.save();
-            }
-        }
-        self.status(job).await?;
-        let control = job
-            .control
-            .as_ref()
-            .ok_or_else(|| SyncError::Storage("control absent".into()))?;
-        let capability = self.capability(job).await?;
-        let cancelled = self
-            .auth
-            .cloud_purge_cancel(
-                &job.account,
-                &job.operation_id,
-                control.generation,
-                &capability,
-            )
-            .await?;
-        if cancelled.phase != CloudPurgePhase::Cancelled {
-            return Err(SyncError::Storage(
-                "cloud refused pre-delete cancellation".into(),
-            ));
-        }
-        job.update_control(cancelled)
     }
 
     async fn capability(&self, job: &CloudPurgeJob) -> SyncResult<Zeroizing<String>> {

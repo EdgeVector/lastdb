@@ -100,7 +100,9 @@ pub async fn setup_paid(home: &Path, api_url: &str, force: bool) -> Result<(), S
     eprintln!("Opening Stripe Checkout for paid cloud sync ($10/mo, 50 GB, test mode) ...");
 
     let (checkout_url, checkout_hash) = create_paid_checkout(api_url, &keypair, None, None).await?;
-    debug_assert_eq!(user_hash, checkout_hash);
+    if user_hash != checkout_hash {
+        return Err("Checkout returned another signed account".into());
+    }
     eprintln!();
     eprintln!("Pay here (Stripe sandbox):");
     eprintln!("  {checkout_url}");

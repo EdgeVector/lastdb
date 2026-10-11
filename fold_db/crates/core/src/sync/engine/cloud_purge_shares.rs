@@ -43,6 +43,7 @@ impl SyncEngine {
                 &prefix,
             )
             .await?;
+            snapshot.writer_frontier = frontier.clone();
             super::cloud_purge_share_files::add_share_file_closure(ops, &mut snapshot).await?;
             snapshot.cloud_purge_share_bytes()?;
             let bytes = serde_json::to_vec(&snapshot)

@@ -187,6 +187,9 @@ pub(crate) const SYNC_INTERNAL_NAMESPACES: &[&str] = &[
     // that plane needs compaction: see `COMPACT_ALLOWLIST`.
     "sync_capture_reexport",
     "sync_cursors",
+    "sync_foreign_share_bindings",
+    "sync_foreign_share_history",
+    "sync_foreign_share_frontiers",
     "sync_pin_log",
     "sync_thumb_cache",
     "sync_replay_quarantine",

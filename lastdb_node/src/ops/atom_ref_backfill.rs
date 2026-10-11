@@ -92,6 +92,7 @@ pub fn maybe_spawn_atom_ref_backfill(host: &std::sync::Arc<Host>) {
     }
     let host = std::sync::Arc::clone(host);
     tokio::spawn(async move {
+        crate::maintenance_write_gate::run(&host, async {
         if run_v1 {
             if let Err(error) = run_atom_ref_backfill_pages(&host, MAX_PAGES_PER_PASS).await {
                 tracing::warn!(
@@ -120,6 +121,7 @@ pub fn maybe_spawn_atom_ref_backfill(host: &std::sync::Arc<Host>) {
             }
         }
         crate::self_metrics::refresh_atom_ref_edge_health(&host).await;
+        }).await;
         host.atom_ref_backfill.end();
     });
 }

@@ -124,6 +124,7 @@ impl SyncEngine {
             label: "personal".to_string(),
             prefix: String::new(),
             crypto: Arc::clone(&crypto),
+            read_binding: None,
         }]));
         let backup_publish_target =
             backup_publish_target.unwrap_or_else(|| Arc::new(Mutex::new(None)));
@@ -183,6 +184,7 @@ impl SyncEngine {
             targets,
             target_restore_scopes: Arc::new(Mutex::new(HashMap::new())),
             target_config_lock: Arc::new(Mutex::new(())),
+            cloud_share_refresh_lock: Mutex::new(()),
             target_config_generation: AtomicU64::new(1),
             scoped_upload_turn: AtomicU64::new(0),
             download_cursors: Arc::new(Mutex::new(std::collections::HashMap::new())),

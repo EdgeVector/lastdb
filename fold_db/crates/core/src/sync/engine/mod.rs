@@ -37,6 +37,7 @@ mod configure;
 pub use cloud_purge_selected::CloudPurgeWriteFence;
 mod cloud_purge_peer;
 mod cloud_purge_queue;
+mod cloud_share_refresh;
 mod cycle;
 mod file_blob;
 pub mod gc_jobs;
@@ -248,6 +249,8 @@ pub struct SyncEngine {
     target_restore_scopes: Arc<Mutex<HashMap<String, Vec<String>>>>,
     /// Serializes snapshots and updates of the partitioner + target list pair.
     target_config_lock: Arc<Mutex<()>>,
+    /// Only one owner-scoped receiver seed can publish at a time.
+    cloud_share_refresh_lock: Mutex<()>,
     /// Monotonic generation for the target/partitioner pair. Entry allocation
     /// binds its durable HWM seed to this value, and append rejects a stale
     /// generation before it can reuse a newly configured target's frontier.

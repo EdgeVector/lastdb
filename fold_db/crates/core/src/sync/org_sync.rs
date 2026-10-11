@@ -30,6 +30,21 @@ pub struct SyncTarget {
     pub prefix: String,
     /// Crypto provider for sealing/unsealing entries on this prefix.
     pub crypto: Arc<dyn CryptoProvider>,
+    /// Frozen reader authority and receiver namespace for a foreign share.
+    pub read_binding: Option<crate::sync::cloud_share::ShareTargetReadBinding>,
+}
+
+impl SyncTarget {
+    /// A late read of retained data cannot advance the replacement cursor.
+    pub(crate) fn cursor_key(&self) -> String {
+        self.read_binding
+            .as_ref()
+            .filter(|binding| binding.data_generation > 0)
+            .map_or_else(
+                || self.prefix.clone(),
+                |binding| format!("{}:receiver:{}", self.prefix, binding.storage_prefix),
+            )
+    }
 }
 
 /// Where a log entry should be synced to.

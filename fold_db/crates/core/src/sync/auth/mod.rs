@@ -171,6 +171,7 @@ pub struct AuthClient {
 
 mod cloud_inventory_hydration;
 mod cloud_peer;
+mod cloud_share;
 mod completion_transport;
 mod continuation;
 mod recipient_delivery;
