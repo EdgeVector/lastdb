@@ -50,7 +50,7 @@ path = "src/bin/lastdb_laststore_empty_home_smoke.rs"
 bench = false
 test = false
 name = "lastdb_restore_probe"
-path = "src/bin/lastdb_restore_probe.rs"
+path = "src/bin/lastdb_restore_probe/main.rs"
 
 [[bin]]
 bench = false
