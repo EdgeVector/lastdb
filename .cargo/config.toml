@@ -11,25 +11,15 @@
 [build]
 incremental = false
 
-# Give cargo-run processes — `cargo test` harnesses above all — a stack that
-# fits UNOPTIMIZED handler frames.
+# Give cargo-run processes a stack that fits UNOPTIMIZED handler frames.
 #
 # A debug build inlines nothing, so the node's route futures are far larger on
 # the stack than in release. Threads that take the platform default (2 MiB)
-# abort outright:
-#
-#     thread 'non_mutation_ops_record_no_phases' has overflowed its stack
-#     fatal runtime error: stack overflow, aborting
-#
-# That reproduces on `main` with a test this commit does not touch, and it is
-# the same shape as the debug-built `lastdbd` dying on its first `/api/status`
-# (brain `papercut-lastdbd-uds-worker-stack-overflow-on-debug-status`). The
-# node's own UDS workers now set an explicit `stack_size`, but a libtest
-# thread is spawned by the harness, so it needs this instead.
-#
-# It stayed invisible because the required lane runs `cargo test -p lastdb_node
-# --lib` but no `lastdb_node` INTEGRATION targets, so nothing in CI has ever
-# executed `tests/mutation_phase_instrumentation.rs` to report the abort.
+# abort outright. The debug-built `lastdbd` died on its first `/api/status`
+# this way (brain
+# `papercut-lastdbd-uds-worker-stack-overflow-on-debug-status`). The node's own
+# UDS workers now set an explicit `stack_size`; this covers every other thread
+# a debug `cargo run` spawns.
 #
 # Not `force = true`: an explicitly-exported RUST_MIN_STACK still wins.
 [env]

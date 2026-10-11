@@ -60,7 +60,7 @@ members = [
 
 ]
 
-# Default scope for bare `cargo build` / `cargo test` (no -p / --workspace):
+# Default scope for bare `cargo build` / `cargo check` (no -p / --workspace):
 # the default product crates.
 default-members = [
     "fold_db/crates/core",
