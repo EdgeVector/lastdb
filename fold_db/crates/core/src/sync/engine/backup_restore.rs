@@ -321,29 +321,15 @@ async fn install_manifest_chunks<T: S0RestoreTarget + ?Sized>(
             if let Some(origin) = install_origins.get(&identity::address(chunk)) {
                 install.chunk_uuid.clone_from(origin);
             }
-            let pack_cache_ref = &pack_cache;
-            downloads.push_back(async move {
-                if let Some(bytes) = cache.and_then(|cache| {
-                    progress::measure_cache_read(progress, || {
-                        cache.read(chunk, &install.chunk_uuid)
-                    })
-                }) {
-                    return (chunk, install, true, Ok(bytes));
-                }
-                (
-                    chunk,
-                    install,
-                    false,
-                    download_backup_chunk_with_progress(
-                        auth,
-                        s3,
-                        chunk,
-                        progress,
-                        Some(pack_cache_ref),
-                    )
-                    .await,
-                )
-            });
+            downloads.push_back(fetch_chunk_for_install(
+                auth,
+                s3,
+                chunk,
+                install,
+                &pack_cache,
+                progress,
+                cache,
+            ));
             next += 1;
         }
         progress::update(progress, |p| {
@@ -380,4 +366,30 @@ async fn install_manifest_chunks<T: S0RestoreTarget + ?Sized>(
         });
     }
     Ok(totals)
+}
+
+/// Read one chunk from the local verified cache, else download it. The flag is
+/// true when the bytes came from the cache.
+async fn fetch_chunk_for_install<'a>(
+    auth: &AuthClient,
+    s3: &S3Client,
+    chunk: &'a BackupChunkRef,
+    install: BackupChunkRef,
+    pack_cache: &packs::VerifiedPackCache,
+    progress: Option<&RestoreProgress>,
+    cache: Option<&RestoreChunkCache>,
+) -> (
+    &'a BackupChunkRef,
+    BackupChunkRef,
+    bool,
+    SyncResult<Vec<u8>>,
+) {
+    if let Some(bytes) = cache.and_then(|cache| {
+        progress::measure_cache_read(progress, || cache.read(chunk, &install.chunk_uuid))
+    }) {
+        return (chunk, install, true, Ok(bytes));
+    }
+    let result =
+        download_backup_chunk_with_progress(auth, s3, chunk, progress, Some(pack_cache)).await;
+    (chunk, install, false, result)
 }
