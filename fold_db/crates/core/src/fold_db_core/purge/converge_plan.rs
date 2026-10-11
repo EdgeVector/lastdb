@@ -1,8 +1,9 @@
 //! Target planning for a delete converge; see `converge.rs`.
 
-use super::guarded_steps::{
-    build_owned_molecule_removals, remove_slots_from_schema, removed_tip_keys_of,
+use super::converge_candidates::{
+    build_candidate_removals, load_candidate_tips, protect_retained_history, trace_candidate_tips,
 };
+use super::guarded_steps::removed_tip_keys_of;
 use super::*;
 
 /// Load the schema metadata for a delete converge and validate every key.
@@ -43,12 +44,13 @@ pub(super) fn load_converge_schema(
 pub(super) async fn flush_converge_barriers(
     db_ops: &Arc<DbOperations>,
     planned_barriers: &[crate::atom::delete_barrier::DeleteBarrier],
+    storage_prefix: Option<&str>,
 ) -> Result<HashSet<String>, SchemaError> {
     let mut removable_tip_keys = HashSet::new();
     let mut barrier_items = Vec::new();
     let targets = db_ops
         .atoms()
-        .delete_converge_targets(planned_barriers)
+        .delete_converge_targets(planned_barriers, storage_prefix)
         .await?;
     for (mut barrier, tip) in targets {
         if let Some(tip) = &tip {
@@ -75,97 +77,6 @@ pub(super) struct ConvergeTrace {
     pub(super) tip_version_keys: Vec<String>,
     pub(super) atom_ref_edge_keys: Vec<String>,
     pub(super) atom_ref_v2_edge_keys: Vec<String>,
-}
-
-/// This is not a compliance purge. collect_purge_trace reads a retired
-/// history: prefix for every field. A cold empty prefix still touches every
-/// storage group. Live Delete needs only the named tips and their own
-/// archived tv: chains, not work proportional to the whole home.
-pub(super) async fn trace_converge_tips(
-    db_ops: &Arc<DbOperations>,
-    schema: &crate::schema::types::Schema,
-    keys: &[KeyValue],
-    removable_tip_keys: &HashSet<String>,
-) -> Result<ConvergeTrace, SchemaError> {
-    let mut out = ConvergeTrace {
-        traced: HashSet::new(),
-        tip_version_keys: Vec::new(),
-        atom_ref_edge_keys: Vec::new(),
-        atom_ref_v2_edge_keys: Vec::new(),
-    };
-    for field in schema.runtime_fields.values() {
-        if field.common().molecule_uuid().is_none() {
-            continue;
-        }
-        for (idx, key) in storage_form_keys(db_ops, field, keys)?.iter().enumerate() {
-            let Some((hash, range)) = field.disk_slot_for_key(key) else {
-                continue;
-            };
-            let mk_key = build_storage_key(
-                field.common().storage_prefix(),
-                &crate::atom::molecule_key_codec::hash_range_record_key(
-                    field
-                        .common()
-                        .molecule_uuid()
-                        .expect("checked molecule uuid"),
-                    &hash,
-                    &range,
-                ),
-            );
-            if !removable_tip_keys.contains(&mk_key) {
-                continue;
-            }
-            if current_atom_for_key(field, key).is_some() {
-                out.traced.insert(idx);
-            }
-            let trace = collect_target_tip_chain(db_ops, field, key).await?;
-            out.tip_version_keys.extend(trace.tip_version_keys);
-            out.atom_ref_edge_keys.extend(trace.atom_ref_edge_keys);
-            out.atom_ref_v2_edge_keys
-                .extend(trace.atom_ref_v2_edge_keys);
-        }
-    }
-    Ok(out)
-}
-
-/// Plan the exact storage slots whose tips a barrier lets converge remove.
-pub(super) fn plan_converge_storage_slots(
-    db_ops: &Arc<DbOperations>,
-    schema: &crate::schema::types::Schema,
-    keys: &[KeyValue],
-    removable_tip_keys: &HashSet<String>,
-) -> Result<Vec<PlannedStorageSlot>, SchemaError> {
-    let mut storage_slots = Vec::new();
-    for (field_name, field) in &schema.runtime_fields {
-        let Some(molecule_uuid) = field.common().molecule_uuid().cloned() else {
-            continue;
-        };
-        for (api_key, storage_key) in keys.iter().zip(storage_form_keys(db_ops, field, keys)?) {
-            let Some((disk_hash, disk_range)) = field.disk_slot_for_key(&storage_key) else {
-                continue;
-            };
-            let mk_key = build_storage_key(
-                field.common().storage_prefix(),
-                &crate::atom::molecule_key_codec::hash_range_record_key(
-                    &molecule_uuid,
-                    &disk_hash,
-                    &disk_range,
-                ),
-            );
-            if !removable_tip_keys.contains(&mk_key) {
-                continue;
-            }
-            storage_slots.push(PlannedStorageSlot {
-                field_name: field_name.clone(),
-                molecule_uuid: molecule_uuid.clone(),
-                storage_key,
-                resident_key: Some(api_key.clone()),
-                disk_hash,
-                disk_range,
-            });
-        }
-    }
-    Ok(storage_slots)
 }
 
 /// Per-step timings of the destructive stage, for the final log line.
@@ -201,8 +112,7 @@ pub(super) struct ConvergePlan {
 /// left to remove; the caller then clears the barriers and returns empty.
 pub(super) async fn prepare_converge_plan(
     db_ops: &Arc<DbOperations>,
-    schema_name: &str,
-    mut schema: crate::schema::types::Schema,
+    schema: crate::schema::types::Schema,
     all_keys: &[KeyValue],
     removable_tip_keys: &HashSet<String>,
 ) -> Result<Option<ConvergePlan>, SchemaError> {
@@ -216,19 +126,22 @@ pub(super) async fn prepare_converge_plan(
         .collect();
     let keys: &[KeyValue] = &deduped;
 
-    // Keyed, per-touched-key molecule load — never the O(field size) full
-    // scan. See `refresh_runtime_field_molecules_for_purge_keys`.
+    // Read only the finite exact readable candidates under their existing tip locks.
     let step_started = std::time::Instant::now();
-    refresh_runtime_field_molecules_for_purge_keys(db_ops, &mut schema, keys).await?;
+    let (candidate_tips, retained_tips) =
+        load_candidate_tips(db_ops, &schema, keys, removable_tip_keys).await?;
     let refresh_elapsed = step_started.elapsed();
 
     let step_started = std::time::Instant::now();
+    let mut removable_trace = trace_candidate_tips(db_ops, &candidate_tips).await?;
+    let retained_trace = trace_candidate_tips(db_ops, &retained_tips).await?;
+    protect_retained_history(&mut removable_trace, retained_trace);
     let ConvergeTrace {
         traced,
         tip_version_keys,
         atom_ref_edge_keys,
         atom_ref_v2_edge_keys,
-    } = trace_converge_tips(db_ops, &schema, keys, removable_tip_keys).await?;
+    } = removable_trace;
     let trace_elapsed = step_started.elapsed();
 
     let keys_present: Vec<KeyValue> = keys
@@ -241,8 +154,7 @@ pub(super) async fn prepare_converge_plan(
         return Ok(None);
     }
     let keys: &[KeyValue] = &keys_present;
-
-    let storage_slots = plan_converge_storage_slots(db_ops, &schema, keys, removable_tip_keys)?;
+    let target_slots = candidate_tips.len();
 
     // Same shape the inline path fingerprints: one key by name, a batch by
     // size. Computed on `keys_present`, so the row describes what is actually
@@ -253,17 +165,7 @@ pub(super) async fn prepare_converge_plan(
         format!("<bulk:{} keys>", keys.len())
     };
 
-    let removed_by_field = remove_slots_from_schema(
-        &mut schema,
-        schema_name,
-        &storage_slots,
-        "Delete converge plan",
-    )?;
-    if removed_by_field.is_empty() {
-        return Ok(None);
-    }
-
-    let owned_for_batch = build_owned_molecule_removals(&schema, &removed_by_field);
+    let owned_for_batch = build_candidate_removals(db_ops, candidate_tips).await?;
     let removed_tip_keys = removed_tip_keys_of(&owned_for_batch);
     let tip_debits = db_ops
         .atoms()
@@ -272,7 +174,7 @@ pub(super) async fn prepare_converge_plan(
     let measure_elapsed = step_started.elapsed();
     Ok(Some(ConvergePlan {
         schema,
-        target_slots: storage_slots.len(),
+        target_slots,
         keys: keys_present,
         ledger_descriptor,
         owned_for_batch,
@@ -315,11 +217,12 @@ pub(super) async fn lock_and_plan_converge(
         .map(|barrier| barrier.mk_key.clone())
         .collect();
     let tip_guards = db_ops.atoms().lock_tip_commits(&tip_keys).await;
-    let removable_tip_keys = flush_converge_barriers(db_ops, &planned_barriers).await?;
+    let removable_tip_keys =
+        flush_converge_barriers(db_ops, &planned_barriers, storage_prefix).await?;
     let plan = if removable_tip_keys.is_empty() {
         None
     } else {
-        prepare_converge_plan(db_ops, schema_name, schema, &keys, &removable_tip_keys).await?
+        prepare_converge_plan(db_ops, schema, &keys, &removable_tip_keys).await?
     };
     Ok((planned_barriers, tip_guards, plan))
 }

@@ -15,40 +15,17 @@ impl AtomStore {
             .iter()
             .map(|(base, _)| build_storage_key(storage_prefix, base))
             .collect();
-        let barrier_keys: Vec<String> = final_keys
-            .iter()
-            .map(|key| crate::atom::delete_barrier::delete_barrier_key(key.as_bytes()))
-            .collect();
-        let durable = self
-            .main_store
-            .get_items::<crate::atom::delete_barrier::DeleteBarrier>(&barrier_keys)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("batch read Delete barriers: {error}"))
-            })?;
-        let mut visible = Vec::with_capacity(rows.len());
-        for (((base, record), final_key), durable) in rows.into_iter().zip(final_keys).zip(durable)
-        {
-            if durable
-                .as_ref()
-                .is_some_and(|barrier| !barrier.matches_key(final_key.as_bytes()))
-            {
-                return Err(SchemaError::InvalidData(
-                    "durable Delete barrier key identity differs from the molecule key".into(),
-                ));
-            }
-            let pending = self.pending_delete_barrier(&final_key);
-            let winner = match (pending, durable) {
-                (Some(pending), Some(durable)) if pending.is_newer_than(&durable) => Some(pending),
-                (Some(_), Some(durable)) => Some(durable),
-                (Some(pending), None) => Some(pending),
-                (None, durable) => durable,
-            };
-            if winner.is_none_or(|barrier| !barrier.blocks_tip(&record.entry)) {
-                visible.push((base, record));
-            }
-        }
-        Ok(visible)
+        let barriers = self.winning_delete_barriers(&final_keys).await?;
+        Ok(rows
+            .into_iter()
+            .zip(final_keys)
+            .filter(|((_, record), key)| {
+                barriers
+                    .get(key)
+                    .is_none_or(|barrier| !barrier.blocks_tip(&record.entry))
+            })
+            .map(|(row, _)| row)
+            .collect())
     }
 
     /// Fetch a single per-key record by its already-encoded base key (e.g.

@@ -191,18 +191,16 @@ impl QueryExecutor {
                         schema.name
                     )));
                 }
-                if storage_prefix.is_some() {
-                    self.db_ops
-                        .molecule_keys()
-                        .load_schema(&schema)
-                        .await
-                        .map_err(|error| {
-                            SchemaError::InvalidData(format!(
-                                "load molecule key bundles for schema '{}': {error}",
-                                schema.name
-                            ))
-                        })?;
-                }
+                self.db_ops
+                    .molecule_keys()
+                    .load_schema(&schema)
+                    .await
+                    .map_err(|error| {
+                        SchemaError::InvalidData(format!(
+                            "load molecule key bundles for schema '{}': {error}",
+                            schema.name
+                        ))
+                    })?;
                 Self::reject_unknown_projection(&schema, &query.fields)?;
                 if let Some(prefix) = storage_prefix.as_deref() {
                     for field in schema.runtime_fields.values_mut() {
@@ -307,18 +305,16 @@ impl QueryExecutor {
                         )));
                     }
 
-                    if storage_prefix.is_some() {
-                        self.db_ops
-                            .molecule_keys()
-                            .load_schema(&schema)
-                            .await
-                            .map_err(|error| {
-                                SchemaError::InvalidData(format!(
-                                    "load molecule key bundles for schema '{}': {error}",
-                                    schema.name
-                                ))
-                            })?;
-                    }
+                    self.db_ops
+                        .molecule_keys()
+                        .load_schema(&schema)
+                        .await
+                        .map_err(|error| {
+                            SchemaError::InvalidData(format!(
+                                "load molecule key bundles for schema '{}': {error}",
+                                schema.name
+                            ))
+                        })?;
 
                     Self::reject_unknown_projection(&schema, &query.fields)?;
 

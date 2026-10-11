@@ -17,6 +17,30 @@ impl AtomStore {
             .map_err(|error| SchemaError::InvalidData(format!("read Delete target tips: {error}")))
     }
 
+    /// Read the same exact base/generation winner as a point reader, without
+    /// filtering its Delete barrier. The caller supplies the exact scope.
+    pub(crate) async fn delete_target_tips_with_generations(
+        &self,
+        molecule_keys: &[String],
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
+        let prefix = crate::schema::types::field::build_storage_key(storage_prefix, "");
+        let base_keys = molecule_keys
+            .iter()
+            .map(|key| {
+                key.strip_prefix(&prefix)
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        SchemaError::InvalidData(
+                            "Delete target is outside the exact storage scope".into(),
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.load_exact_per_key_records(storage_prefix, &base_keys)
+            .await
+    }
+
     /// Read exact Delete winners in one batch while the caller holds the tip locks.
     /// A negative result is a read by key; it is not a collection scan.
     pub(crate) async fn winning_delete_barriers(
@@ -77,6 +101,7 @@ impl AtomStore {
     pub(crate) async fn delete_converge_targets(
         &self,
         planned: &[DeleteBarrier],
+        storage_prefix: Option<&str>,
     ) -> Result<Vec<(DeleteBarrier, Option<PerKeyRecord>)>, SchemaError> {
         let keys: Vec<String> = planned
             .iter()
@@ -96,7 +121,9 @@ impl AtomStore {
             .iter()
             .map(|barrier| barrier.mk_key.clone())
             .collect();
-        let tips = self.delete_target_tips(&eligible_keys).await?;
+        let tips = self
+            .delete_target_tips_with_generations(&eligible_keys, storage_prefix)
+            .await?;
         Ok(eligible.into_iter().zip(tips).collect())
     }
 }
