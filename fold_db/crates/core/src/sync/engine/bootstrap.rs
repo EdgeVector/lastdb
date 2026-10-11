@@ -32,17 +32,7 @@ impl SyncEngine {
     /// need cache refresh should use `bootstrap_all` (or
     /// `bootstrap_targets_from`), which handle reloader dispatch.
     pub async fn bootstrap_target(&self, idx: usize) -> SyncResult<BootstrapOutcome> {
-        let target = {
-            let targets = self.targets.lock().await;
-            if idx >= targets.len() {
-                return Err(SyncError::Storage(format!(
-                    "bootstrap_target: index {} out of range (have {} targets)",
-                    idx,
-                    targets.len()
-                )));
-            }
-            targets[idx].clone()
-        };
+        let target = self.bootstrap_target_at(idx).await?;
 
         if target.read_binding.is_some() {
             return self.bootstrap_foreign_share(&target).await;
@@ -55,19 +45,7 @@ impl SyncEngine {
             target.prefix
         );
 
-        let photograph_latest = match self.auth.photograph_latest_get_for_target(&target).await {
-            Ok(response) => response.latest,
-            Err(e) if photograph_latest_action_is_unsupported(&e) => {
-                tracing::warn!(
-                    target: "fold_db::sync::photograph",
-                    target_label = %target.label,
-                    error = %e,
-                    "photograph latest read failed; using legacy latest.enc fallback"
-                );
-                None
-            }
-            Err(e) => return Err(e),
-        };
+        let photograph_latest = self.photograph_latest_or_legacy(&target).await?;
         let photograph_frontier = photograph_latest
             .as_ref()
             .map(|latest| latest.frontier.clone());
@@ -105,21 +83,11 @@ impl SyncEngine {
             None => self.auth.list_log_objects(&target).await?,
         };
 
-        let mut log_seqs: Vec<u64> = log_objects
-            .iter()
-            .filter_map(|obj| {
-                let (writer, seq) = parse_mutation_log_object_key(&obj.key)?;
-                // A named photograph uses the writer-scoped mutation-log
-                // reader below. Keep this loop for legacy flat objects only.
-                if photograph_frontier.is_some() && writer.is_some() {
-                    None
-                } else {
-                    Some(seq)
-                }
-            })
-            .filter(|seq| *seq > snapshot_last_seq)
-            .collect();
-        log_seqs.sort();
+        let log_seqs = legacy_log_seqs_after(
+            &log_objects,
+            snapshot_last_seq,
+            photograph_frontier.is_some(),
+        );
 
         // GUARD: a missing snapshot on a target whose log prefix already holds
         // history would replay only the tail and restore a silently hollow
@@ -137,23 +105,7 @@ impl SyncEngine {
             self.config.accept_fresh_bootstrap,
         )?;
 
-        if !snapshot_present {
-            if log_seqs.is_empty() {
-                tracing::info!(
-                    "no snapshot and no log history for '{}' — bootstrapping a fresh empty store",
-                    target.label
-                );
-            } else {
-                // Reachable only with accept_fresh set (the guard errors
-                // otherwise): the operator explicitly chose a fresh start.
-                tracing::warn!(
-                    "no snapshot found for '{}' but accept_fresh is set — starting fresh despite {} existing log entr{} in the cloud prefix",
-                    target.label,
-                    log_seqs.len(),
-                    if log_seqs.len() == 1 { "y" } else { "ies" }
-                );
-            }
-        }
+        log_fresh_bootstrap(&target.label, snapshot_present, log_seqs.len());
 
         let mut state = BootstrapReplayState {
             schemas_replayed: false,
@@ -184,6 +136,58 @@ impl SyncEngine {
             .unwrap_or(snapshot_last_seq)
             .max(state.photograph_tail_last_seq);
 
+        self.record_bootstrap_head(idx, &target, last_seq).await;
+        log_bootstrap_complete(
+            &target.label,
+            last_seq,
+            state.entries_replayed,
+            self.org_scoped_replay_skips(),
+        );
+
+        Ok(BootstrapOutcome {
+            last_seq,
+            entries_replayed: state.entries_replayed,
+            schemas_replayed: state.schemas_replayed,
+            embeddings_replayed: state.embeddings_replayed,
+        })
+    }
+
+    async fn bootstrap_target_at(&self, idx: usize) -> SyncResult<SyncTarget> {
+        let targets = self.targets.lock().await;
+        if idx >= targets.len() {
+            return Err(SyncError::Storage(format!(
+                "bootstrap_target: index {} out of range (have {} targets)",
+                idx,
+                targets.len()
+            )));
+        }
+        Ok(targets[idx].clone())
+    }
+
+    /// Read the named-photograph pointer; fall back to legacy `latest.enc`
+    /// (`None`) when the server does not support the action.
+    async fn photograph_latest_or_legacy(
+        &self,
+        target: &SyncTarget,
+    ) -> SyncResult<Option<crate::sync::auth::ops::PhotographLatestPointer>> {
+        match self.auth.photograph_latest_get_for_target(target).await {
+            Ok(response) => Ok(response.latest),
+            Err(e) if photograph_latest_action_is_unsupported(&e) => {
+                tracing::warn!(
+                    target: "fold_db::sync::photograph",
+                    target_label = %target.label,
+                    error = %e,
+                    "photograph latest read failed; using legacy latest.enc fallback"
+                );
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Advance the local sequence counter (personal target only) and seed the
+    /// target's download cursor to the bootstrap head.
+    async fn record_bootstrap_head(&self, idx: usize, target: &SyncTarget, last_seq: u64) {
         // Advance the local sequence counter only from the personal target.
         // Org targets write to their own R2 prefix and must not rewind the
         // personal counter used for upload sequencing.
@@ -205,34 +209,6 @@ impl SyncEngine {
         }
         self.save_download_cursor(&target.cursor_key(), last_seq)
             .await;
-
-        let org_skips = self.org_scoped_replay_skips();
-        if org_skips > 0 {
-            tracing::warn!(
-                target: "fold_db::sync::bootstrap",
-                target = %target.label,
-                org_scoped_keys_skipped = org_skips,
-                "bootstrap of '{}' complete at seq {} ({} entries replayed); \
-                 SKIPPED {org_skips} org-scoped storage key(s) (consented drop after org-crypto strip)",
-                target.label,
-                last_seq,
-                state.entries_replayed
-            );
-        } else {
-            tracing::info!(
-                "bootstrap of '{}' complete at seq {} ({} entries replayed)",
-                target.label,
-                last_seq,
-                state.entries_replayed
-            );
-        }
-
-        Ok(BootstrapOutcome {
-            last_seq,
-            entries_replayed: state.entries_replayed,
-            schemas_replayed: state.schemas_replayed,
-            embeddings_replayed: state.embeddings_replayed,
-        })
     }
 
     /// Bootstrap all configured sync targets (personal + orgs).
@@ -364,4 +340,62 @@ pub(super) fn photograph_latest_action_is_unsupported(error: &SyncError) -> bool
     let message = error.to_string();
     message.contains("Unknown presign action: photograph_latest_get")
         || message.contains("unexpected action photograph_latest_get")
+}
+
+/// Sequence numbers of legacy flat log objects newer than the snapshot.
+fn legacy_log_seqs_after(
+    log_objects: &[crate::sync::auth::S3ObjectInfo],
+    snapshot_last_seq: u64,
+    has_photograph: bool,
+) -> Vec<u64> {
+    let mut seqs: Vec<u64> = log_objects
+        .iter()
+        .filter_map(|obj| {
+            let (writer, seq) = parse_mutation_log_object_key(&obj.key)?;
+            // A named photograph uses the writer-scoped mutation-log
+            // reader. Keep this loop for legacy flat objects only.
+            if has_photograph && writer.is_some() {
+                None
+            } else {
+                Some(seq)
+            }
+        })
+        .filter(|seq| *seq > snapshot_last_seq)
+        .collect();
+    seqs.sort();
+    seqs
+}
+
+fn log_fresh_bootstrap(label: &str, snapshot_present: bool, log_len: usize) {
+    if snapshot_present {
+        return;
+    }
+    if log_len == 0 {
+        tracing::info!(
+            "no snapshot and no log history for '{label}' — bootstrapping a fresh empty store"
+        );
+    } else {
+        // Reachable only with accept_fresh set (the guard errors
+        // otherwise): the operator explicitly chose a fresh start.
+        tracing::warn!(
+            "no snapshot found for '{label}' but accept_fresh is set — starting fresh despite {log_len} existing log entr{} in the cloud prefix",
+            if log_len == 1 { "y" } else { "ies" }
+        );
+    }
+}
+
+fn log_bootstrap_complete(label: &str, last_seq: u64, entries_replayed: usize, org_skips: u64) {
+    if org_skips > 0 {
+        tracing::warn!(
+            target: "fold_db::sync::bootstrap",
+            target = %label,
+            org_scoped_keys_skipped = org_skips,
+            "bootstrap of '{label}' complete at seq {last_seq} ({entries_replayed} entries replayed); \
+             SKIPPED {org_skips} org-scoped storage key(s) (consented drop after org-crypto strip)"
+        );
+    } else {
+        tracing::info!(
+            "bootstrap of '{label}' complete at seq {last_seq} ({entries_replayed} entries replayed)"
+        );
+    }
 }

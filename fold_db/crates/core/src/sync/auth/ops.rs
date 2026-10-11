@@ -18,6 +18,7 @@ pub use list::LogListStats;
 mod lock;
 pub mod org_authority;
 mod photograph_latest;
+pub use photograph_latest::PhotographLatestPointer;
 mod recipient_enrollment;
 pub use recipient_enrollment::CloudRecipientEnrollment;
 pub mod presign;
