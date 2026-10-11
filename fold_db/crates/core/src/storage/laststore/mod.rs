@@ -38,6 +38,8 @@ mod direct_write_invalidation;
 pub mod dual_read_metrics;
 pub mod high_water;
 mod key_routing;
+mod value_lengths;
+pub(crate) use value_lengths::raw_value_lengths;
 mod kv_store_impl;
 mod logical_main;
 pub(crate) mod logical_path;

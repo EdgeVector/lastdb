@@ -1,6 +1,7 @@
-//! Fresh namespaces keep all old receiver records reachable on disk.
+//! Fresh receiver namespaces admit source and existing destination body peaks.
 
 use super::*;
+use crate::sync::cloud_purge::memory::{self, Admission};
 use crate::sync::snapshot::Snapshot;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
@@ -11,14 +12,18 @@ pub(super) async fn write(
 ) -> SyncResult<()> {
     for item in staged {
         let meta = std::fs::symlink_metadata(&item.path)?;
-        if !meta.is_file()
-            || meta.file_type().is_symlink()
-            || meta.len() > (64 * 1024 * 1024 + 4096)
-        {
+        if !meta.is_file() || meta.file_type().is_symlink() {
             return Err(held("the retained share seed file is unsafe"));
         }
+        let peak = memory::checked_sum(&[
+            memory::checked_scale(memory::logical_row_bound(meta.len()), 24)?,
+            memory::row_peak(0)?,
+        ])?;
+        let admission = Admission::acquire(peak).await?;
         let bytes = std::fs::read(&item.path)?;
-        if crate::hex::sha256_hex(&bytes) != item.ciphertext_sha256 {
+        if bytes.len() as u64 != meta.len()
+            || crate::hex::sha256_hex(&bytes) != item.ciphertext_sha256
+        {
             return Err(held("the retained share seed bytes changed"));
         }
         let snapshot = Snapshot::unseal(&bytes, &item.target.crypto).await?;
@@ -26,33 +31,18 @@ pub(super) async fn write(
         if crate::hex::sha256_hex(serde_json::to_vec(&snapshot)?) != item.snapshot_sha256 {
             return Err(held("the retained share snapshot identity changed"));
         }
+        drop(bytes);
         for namespace in snapshot.namespaces {
-            let store = engine.store.open_namespace(&namespace.name).await?;
-            for entries in namespace.entries.chunks(4) {
-                let rows = entries
-                    .iter()
-                    .map(|entry| {
-                        let key = STANDARD
-                            .decode(&entry.key)
-                            .map_err(|_| held("the share key is invalid"))?;
-                        let key = if namespace.name == "cas_blobs" {
-                            key
-                        } else {
-                            crate::sync::cloud_share::rewrite_key(
-                                &key,
-                                &item.target.prefix,
-                                receiver,
-                            )?
-                        };
-                        Ok((
-                            key,
-                            STANDARD
-                                .decode(&entry.value)
-                                .map_err(|_| held("the share value is invalid"))?,
-                        ))
-                    })
-                    .collect::<SyncResult<Vec<_>>>()?;
-                put_exact(store.as_ref(), rows).await?;
+            for entry in namespace.entries {
+                let key = STANDARD
+                    .decode(&entry.key)
+                    .map_err(|_| held("the share key is invalid"))?;
+                let key = if namespace.name == "cas_blobs" {
+                    key
+                } else {
+                    crate::sync::cloud_share::rewrite_key(&key, &item.target.prefix, receiver)?
+                };
+                put_exact(engine, &namespace.name, key, &entry.value, &admission).await?;
             }
         }
     }
@@ -61,22 +51,43 @@ pub(super) async fn write(
 }
 
 async fn put_exact(
-    store: &dyn crate::storage::KvStore,
-    rows: Vec<(Vec<u8>, Vec<u8>)>,
+    engine: &SyncEngine,
+    namespace: &str,
+    key: Vec<u8>,
+    encoded: &str,
+    admission: &Admission,
 ) -> SyncResult<()> {
-    let current = store
-        .get_many(rows.iter().map(|(key, _)| key.clone()).collect())
-        .await?;
-    if current.len() != rows.len() {
-        return Err(held("the receiver comparison batch is incomplete"));
+    let id = std::str::from_utf8(&key)
+        .map_err(|_| held("the receiver key is invalid"))?
+        .to_string();
+    let sizes = memory::raw_lengths(
+        admission,
+        memory::checked_scale(encoded.len() as u64, 8)?,
+        engine.store.as_ref(),
+        namespace,
+        std::slice::from_ref(&id),
+    )?;
+    let peak = memory::checked_sum(&[
+        memory::row_peak(encoded.len() as u64)?,
+        sizes[0].map(memory::read_peak).transpose()?.unwrap_or(0),
+    ])?;
+    admission.check(peak)?;
+    let value = STANDARD
+        .decode(encoded)
+        .map_err(|_| held("the share value is invalid"))?;
+    let store = engine.store.open_namespace(namespace).await?;
+    let current = store.get(&key).await?;
+    if current.is_some() != sizes[0].is_some() {
+        return Err(held("the receiver destination changed after admission"));
     }
-    for ((_, value), current) in rows.iter().zip(current) {
-        if current.as_ref().is_some_and(|current| current != value) {
+    if let Some(current) = current {
+        if current != value {
             return Err(held(
                 "the sender share union contains conflicting records or files",
             ));
         }
+    } else {
+        store.restore_batch_put(vec![(key, value)]).await?;
     }
-    store.restore_batch_put(rows).await?;
     Ok(())
 }

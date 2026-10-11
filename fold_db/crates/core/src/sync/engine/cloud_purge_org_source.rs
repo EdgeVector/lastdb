@@ -35,6 +35,8 @@ impl SyncEngine {
         let isolated = if export_receipt.exists() {
             reopen_export(&export_receipt, &key)?
         } else {
+            self.complete_cloud_purge_org_file_closure(ops, &target, fence)
+                .await?;
             let export_dir = job_dir.join(format!("org-source-{}", uuid::Uuid::new_v4()));
             let exported = crate::sync::capture::with_capture_suppressed(
                 org_export::export_scoped_store_from_ops(ops, &target, &export_dir, node_key, &key),

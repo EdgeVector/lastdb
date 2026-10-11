@@ -45,10 +45,6 @@ pub(crate) async fn prepare_held(
         fold_db::sync::cloud_purge::RetainedSource::reopen(&source_dir)
             .map_err(|error| error.to_string())?
     } else {
-        engine
-            .complete_cloud_purge_file_closure(host.db.db_ops(), fence)
-            .await
-            .map_err(|error| error.to_string())?;
         if account.kind == CloudAccountKind::Org {
             engine
                 .prepare_cloud_purge_org_source_held(
@@ -59,6 +55,10 @@ pub(crate) async fn prepare_held(
                 )
                 .await
         } else {
+            engine
+                .complete_cloud_purge_file_closure(host.db.db_ops(), fence)
+                .await
+                .map_err(|error| error.to_string())?;
             engine
                 .prepare_cloud_purge_source_held(
                     &source_dir,

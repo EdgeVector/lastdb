@@ -3,25 +3,30 @@
 use crate::sync::{SyncError, SyncResult};
 use std::collections::BTreeMap;
 
-pub(crate) fn physical_rows(
+pub(crate) fn physical_keys(
     store: &laststore::LastStore,
     collection: &str,
+    admission: &super::memory::Admission,
 ) -> SyncResult<BTreeMap<String, Vec<u8>>> {
     let mut output = BTreeMap::new();
     let mut cursor = None;
+    let mut bytes = 0;
     loop {
-        // Every source key accepted by the exporter starts with an ASCII structural kind.
         let page = store
-            .walk_all_groups(
-                collection,
-                "".."\u{10ffff}",
-                cursor.as_ref(),
-                128,
-                64,
-                laststore::AllGroupsPurpose::Admin,
-            )
+            .walk_all_group_keys(collection, cursor.as_ref(), 128, |peak| {
+                let total = super::memory::checked_sum(&[bytes, peak])
+                    .map_err(|error| laststore::Error::Config(error.to_string()))?;
+                admission
+                    .check(total)
+                    .map_err(|error| laststore::Error::Config(error.to_string()))
+            })
             .map_err(error)?;
         for (key, value) in page.rows {
+            bytes = super::memory::checked_sum(&[
+                bytes,
+                super::memory::checked_scale(key.len() as u64 + 128, 8)?,
+            ])?;
+            admission.check(bytes)?;
             output.insert(key, value);
         }
         match page.next_cursor {
@@ -32,9 +37,48 @@ pub(crate) fn physical_rows(
     Ok(output)
 }
 
-pub(crate) fn main_rows(store: &laststore::LastStore) -> SyncResult<BTreeMap<String, Vec<u8>>> {
+pub(crate) fn physical_rows(
+    store: &laststore::LastStore,
+    collection: &str,
+    admission: &super::memory::Admission,
+) -> SyncResult<BTreeMap<String, Vec<u8>>> {
+    let keys: Vec<_> = physical_keys(store, collection, admission)?
+        .into_keys()
+        .collect();
+    let sizes = store
+        .point_value_lengths(collection, &keys, |peak| {
+            admission
+                .check(peak)
+                .map_err(|error| laststore::Error::Config(error.to_string()))
+        })
+        .map_err(error)?;
+    let bytes = sizes.iter().flatten().try_fold(0, |sum, size| {
+        super::memory::checked_sum(&[sum, size.bytes])
+    })?;
+    admission.check(super::memory::checked_scale(bytes, 8)?)?;
     let mut output = BTreeMap::new();
-    // Canonical collections win over migration residue. Exact logical reads below confirm each chosen row.
+    for (key, size) in keys.into_iter().zip(sizes) {
+        let size = size.ok_or_else(|| error("source metadata row disappeared"))?;
+        admission.check(super::memory::checked_sum(&[
+            super::memory::checked_scale(bytes, 8)?,
+            size.open_peak,
+        ])?)?;
+        let value = store
+            .load_existing_point(collection, &key)
+            .map_err(error)?
+            .and_then(|point| point.body)
+            .ok_or_else(|| error("source metadata body disappeared"))?;
+        output.insert(key, value);
+    }
+    Ok(output)
+}
+
+pub(crate) fn main_rows(
+    store: &laststore::LastStore,
+    admission: &super::memory::Admission,
+) -> SyncResult<BTreeMap<String, Vec<u8>>> {
+    let mut output = BTreeMap::new();
+    // The exporter needs physical identities, not unrelated atom bodies.
     for collection in [
         "main",
         "legacy_blob_refs",
@@ -50,7 +94,15 @@ pub(crate) fn main_rows(store: &laststore::LastStore) -> SyncResult<BTreeMap<Str
         "atom_locators",
         "atoms",
     ] {
-        output.extend(physical_rows(store, collection)?);
+        let keys = physical_keys(store, collection, admission)?;
+        let bytes = output
+            .keys()
+            .chain(keys.keys())
+            .try_fold(0u64, |sum, key| {
+                super::memory::checked_sum(&[sum, key.len() as u64, 128])
+            })?;
+        admission.check(super::memory::checked_scale(bytes, 8)?)?;
+        output.extend(keys);
     }
     Ok(output)
 }

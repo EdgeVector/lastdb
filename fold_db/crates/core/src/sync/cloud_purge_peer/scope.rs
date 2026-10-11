@@ -3,7 +3,6 @@
 use crate::access::{parse_db_locator, DbLocator};
 use crate::db_operations::{DbCatalogEntry, DbOperations};
 use crate::sharing::org_sync_target::OrgSyncTarget;
-use crate::storage::traits::KvStore;
 use crate::sync::{SyncError, SyncResult};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -101,18 +100,13 @@ pub async fn import_org_into_inactive_store(
         .iter()
         .filter_map(|entry| entry.instance_id.clone())
         .collect();
-    let source_main = source_store.open_namespace("main").await.map_err(storage)?;
-    let destination_main = destination_store
-        .open_namespace("main")
-        .await
-        .map_err(storage)?;
     let mut digest = sha2::Sha256::new();
     let mut copied_rows = 0;
     for instance in &instances {
         let prefix = format!("{instance}:");
         copied_rows += copy_prefix(
-            source_main.as_ref(),
-            destination_main.as_ref(),
+            source_store.as_ref(),
+            destination_store.as_ref(),
             prefix.as_bytes(),
             &mut digest,
         )
@@ -164,47 +158,32 @@ fn locator_belongs_to_target(locator: &str, target: &OrgSyncTarget) -> SyncResul
 }
 
 async fn copy_prefix(
-    source: &dyn KvStore,
-    destination: &dyn KvStore,
+    source: &dyn crate::storage::NamespacedStore,
+    destination: &dyn crate::storage::NamespacedStore,
     prefix: &[u8],
     digest: &mut sha2::Sha256,
 ) -> SyncResult<u64> {
-    use sha2::Digest;
-    let mut cursor = prefix.to_vec();
-    let mut end = prefix.to_vec();
-    while end.last() == Some(&255) {
-        end.pop();
-    }
-    *end.last_mut()
-        .ok_or_else(|| fail("org prefix has no upper bound"))? += 1;
-    let mut count = 0u64;
-    loop {
-        let page = source
-            .scan_range_paged(&cursor, &end, 128)
-            .await
-            .map_err(storage)?;
-        if page.is_empty() {
-            break;
-        }
-        for (key, value) in &page {
-            if !key.starts_with(prefix) {
-                return Err(fail("org source crosses an instance boundary"));
-            }
+    let admission = crate::sync::cloud_purge::memory::Admission::acquire(0).await?;
+    let raw = source
+        .raw_last_store()
+        .ok_or_else(|| fail("org main source requires LastStore"))?;
+    let keys: Vec<_> = crate::sync::cloud_purge::org_rows::main_rows(&raw, &admission)?
+        .into_keys()
+        .filter(|key| key.as_bytes().starts_with(prefix))
+        .collect();
+    crate::sync::cloud_purge::row_copy::copy(
+        source,
+        destination,
+        &keys,
+        &admission,
+        |key, value| {
             digest.update((key.len() as u64).to_be_bytes());
             digest.update(key);
             digest.update((value.len() as u64).to_be_bytes());
             digest.update(value);
-        }
-        cursor = page
-            .last()
-            .ok_or_else(|| fail("org source page has no last key"))?
-            .0
-            .clone();
-        cursor.push(0);
-        count += page.len() as u64;
-        destination.restore_batch_put(page).await.map_err(storage)?;
-    }
-    Ok(count)
+        },
+    )
+    .await
 }
 
 fn canonical(value: &impl Serialize) -> SyncResult<Vec<u8>> {

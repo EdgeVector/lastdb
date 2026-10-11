@@ -10,20 +10,36 @@ impl SyncEngine {
     pub(super) async fn cloud_purge_owned_share_cuts(
         &self,
         ops: &DbOperations,
+        directory: &std::path::Path,
     ) -> SyncResult<Vec<RetainedShareSnapshot>> {
         let source = ops
             .namespaced_store()
             .raw_last_store()
             .ok_or_else(|| error("share source requires LastStore"))?;
+        let admission = crate::sync::cloud_purge::memory::Admission::acquire(0).await?;
         let keys: Vec<_> =
-            crate::sync::cloud_purge::org_rows::physical_rows(&source, "share_rules")?
+            crate::sync::cloud_purge::org_rows::physical_keys(&source, "share_rules", &admission)?
                 .keys()
                 .map(|key| key.as_bytes().to_vec())
                 .collect();
         let rules_store = ops.open_namespace("share_rules").await?;
-        let values = rules_store.get_many(keys).await?;
+        let ids = keys
+            .iter()
+            .map(|key| String::from_utf8(key.clone()).map_err(|_| error("invalid share rule key")))
+            .collect::<SyncResult<Vec<_>>>()?;
+        let sizes = crate::sync::cloud_purge::memory::raw_lengths(
+            &admission,
+            0,
+            ops.namespaced_store().as_ref(),
+            "share_rules",
+            &ids,
+        )?;
         let mut rules = BTreeMap::new();
-        for value in values {
+        for (id, size) in ids.iter().zip(sizes) {
+            admission.check(crate::sync::cloud_purge::memory::read_peak(
+                size.ok_or_else(|| error("share rule disappeared"))?,
+            )?)?;
+            let value = rules_store.get(id.as_bytes()).await?;
             let rule: crate::sharing::types::ShareRule = serde_json::from_slice(
                 &value.ok_or_else(|| error("owned share rule disappeared"))?,
             )
@@ -32,8 +48,10 @@ impl SyncEngine {
                 return Err(error("duplicate owned share prefix"));
             }
         }
+        drop(admission);
         let mut cuts = Vec::new();
         for (prefix, rule) in rules {
+            let admission = crate::sync::cloud_purge::memory::Admission::acquire(0).await?;
             let frontier = self.cloud_purge_share_frontier(ops, &prefix).await?;
             let last_seq = frontier.values().copied().max().unwrap_or(0);
             let mut snapshot = Snapshot::create_cloud_purge_share(
@@ -41,26 +59,34 @@ impl SyncEngine {
                 &self.device_id,
                 last_seq,
                 &prefix,
+                &admission,
             )
             .await?;
             snapshot.writer_frontier = frontier.clone();
-            super::cloud_purge_share_files::add_share_file_closure(ops, &mut snapshot).await?;
-            snapshot.cloud_purge_share_bytes()?;
+            super::cloud_purge_share_files::add_share_file_closure(ops, &mut snapshot, &admission)
+                .await?;
+            admission.check(crate::sync::cloud_purge::memory::snapshot_peak(
+                snapshot.cloud_purge_share_bytes()?,
+                crate::sync::cloud_purge::memory::row_peak(0)?,
+            )?)?;
             let bytes = serde_json::to_vec(&snapshot)
                 .map_err(|_| error("share source snapshot encoding failed"))?;
             let digest = crate::hex::sha256_hex(&bytes);
+            drop(bytes);
             let key: [u8; 32] = rule
                 .share_e2e_secret
                 .try_into()
                 .map_err(|_| error("owned share encryption key has invalid length"))?;
             let crypto: Arc<dyn crate::crypto::CryptoProvider> =
                 Arc::new(crate::crypto::LocalCryptoProvider::from_key(key));
-            cuts.push(RetainedShareSnapshot {
-                logical_root: prefix,
-                manifest_sha256: digest,
-                ciphertext: snapshot.seal(&crypto).await?,
-                writer_frontier: frontier,
-            });
+            let ciphertext = snapshot.seal(&crypto).await?;
+            cuts.push(RetainedShareSnapshot::retain(
+                directory,
+                prefix,
+                digest,
+                &ciphertext,
+                frontier,
+            )?);
         }
         Ok(cuts)
     }

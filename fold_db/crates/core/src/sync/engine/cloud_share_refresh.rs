@@ -18,6 +18,19 @@ impl SyncEngine {
         targets: &[SyncTarget],
         outcomes: Vec<SyncResult<Option<ShareReadNotice>>>,
     ) -> SyncResult<Vec<SyncTarget>> {
+        let router = self.photograph_mutation_router.lock().await.clone();
+        crate::sync::capture::with_mutation_admission(
+            router,
+            Box::pin(self.refresh_foreign_share_targets_admitted(targets, outcomes)),
+        )
+        .await
+    }
+
+    async fn refresh_foreign_share_targets_admitted(
+        &self,
+        targets: &[SyncTarget],
+        outcomes: Vec<SyncResult<Option<ShareReadNotice>>>,
+    ) -> SyncResult<Vec<SyncTarget>> {
         let _refresh = self.cloud_share_refresh_lock.lock().await;
         let mut allowed = Vec::new();
         let mut owners: BTreeMap<String, Vec<(SyncTarget, Option<ShareReadNotice>)>> =

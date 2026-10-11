@@ -1,7 +1,7 @@
 # Exemem app registry — the simple design
 
 Status: implemented.
-Proof: `lastdb_node/scripts/app-registry-release-v2-live-e2e.sh`.
+Validation uses normal product commands and real signed release records.
 
 A developer declares and resolves schemas during development. A release
 binds the locked schema identities, the source commit, the signed artifact
@@ -190,39 +190,11 @@ decides on real evidence. This matters because the check repeats every 60 s:
 a rollback on an absent reading would make the recurring check the thing that
 breaks the host.
 
-## 7. The ten proofs
+## 7. Operator checks
 
-`lastdb_node/scripts/app-registry-release-v2-live-e2e.sh` runs all ten
-against the real schema service binary and the real `lastdb` CLI. Exit code
-0 means every proof passed.
+Use real signed release records for the release check. Verify the desired, installed, active, and observed release identities. An absent identity reports `UNKNOWN` and does not permit a rollback. A real difference reports `DRIFT`.
 
-| # | Claim | Observation |
-|---|---|---|
-| 1 | No schema registration during release or install | The catalog write count (`schema_writes` on `GET /v1/health`) is equal before the release and after the install. |
-| 2 | No CURRENT in development | A session under `dev:<app_id>:<workspace_id>:<dev_session_id>` reads `DEV` or `UNMANAGED`. |
-| 3 | No CURRENT from an old release process | An old release process is held alive after a new activation. Its observed release id differs, so the status is not `CURRENT`. |
-| 4 | A digest fault or a signature fault stops activation | The artifact bytes are corrupted, then the signature is corrupted. Both runs fail before the `current` pointer moves. |
-| 5 | Generation conflicts fail | Two channel writes use the same generation. The second fails with `generation_conflict`. |
-| 6 | Anonymous reads work | The three `GET` routes return 200 with no credential. |
-| 7 | Writes need a DevCert | Each write route without a DevCert is rejected with 401. The same call with a DevCert succeeds. |
-| 8 | Desired = installed = active = observed after success | The four release ids are printed and are equal, and the probe is green. |
-| 9 | Forced drift restores the prior verified release | `current` is pointed at a wrong directory. The host restores the prior verified release id and proves the four-way match again. |
-| 10 | The recurring check cycle runs on the operator cadence | `current` is pointed at a wrong directory, then ONE `release-check --watch` invocation runs two cycles. Cycle 1 restores the prior verified release; cycle 2 of the same run reads `CURRENT`. |
-
-The proof run stands in for two things. Everything else is the product.
-
-1. **`POST /v1/dev-cert`.** Production signs DevCerts with a KMS-held ES256
-   root, and a local run has no KMS. The script generates its own P-256 root
-   and configures it into the schema service through
-   `APP_IDENTITY_ROOT_PUBKEYS`. The schema service still verifies every cert
-   and every envelope for real.
-2. **The artifact transport.** Production reads `artifact_url` over HTTPS
-   from R2. The script publishes a `file://` URL, and `fetch_artifact` reads
-   those bytes from disk, so the run needs no object store.
-
-Neither stand-in weakens a proof. The digest check and the signature check
-in proof 4 run on the artifact bytes after the fetch returns. They are the
-same comparison on either transport.
+Keep the build, format, lint, secret, and release gates. The fixture scripts are retired under the no-tests rule. Do not use local issuers, false release records, or deliberate faults as release evidence.
 
 ## 8. Operator settings
 
@@ -273,4 +245,3 @@ exactly one cycle, which is what it always did.
 | Execution identity, Host Track, the four-way proof, drift and rollback | `lastdb_node/src/app_release_host.rs` |
 | Developer-side release writes | `lastdb_node/src/app_publish.rs` |
 | CLI (`lastdb app release-*`, `dev-status`) | `lastdb_node/src/bin/lastdb.rs` |
-| The ten proofs | `lastdb_node/scripts/app-registry-release-v2-live-e2e.sh` |

@@ -2,6 +2,23 @@
 
 use super::*;
 
+/// Keep target registration and its initial raw snapshot restore in one write.
+pub(super) async fn execute_org_sync_register_admitted_route(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    crate::maintenance_write_gate::run(host, execute_org_sync_register_route(req, ctx, host))
+        .await
+        .unwrap_or_else(|| {
+            error_response(
+                409,
+                "local writes are paused for the selected cloud source",
+                ctx,
+            )
+        })
+}
+
 /// `POST /api/org/sync/register` — arm cloud sync for an org database.
 ///
 /// Body: `{ "org_hash": "<64 hex>", "e2e_key_b64": "<base64 32 bytes>", "slug"?: "..." }`.

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::schema::Schema;
+use crate::sync::cloud_purge::memory::{self, Admission};
 
 pub(super) async fn selected_memberships(
     destination: &DbOperations,
@@ -51,6 +52,14 @@ pub(super) async fn preflight_schemas(
     catalog: &OrgCatalogImport,
     domain_key: &[u8; 32],
 ) -> SyncResult<BTreeMap<String, Schema>> {
+    let admission = Admission::acquire(0).await?;
+    memory::reserve_pair(
+        &admission,
+        source.namespaced_store().as_ref(),
+        destination.namespaced_store().as_ref(),
+        "schemas",
+        &catalog.schema_names,
+    )?;
     let source_store = source.namespaced_store();
     let source_keys = source_store
         .open_namespace("molecule_keys")
@@ -77,6 +86,27 @@ pub(super) async fn preflight_schemas(
                 ));
             }
         }
+        let bundle_keys: Vec<_> =
+            crate::db_operations::molecule_key_store::schema_molecule_uuids(&schema)
+                .into_iter()
+                .flat_map(|id| {
+                    [
+                        crate::db_operations::molecule_key_store::metadata_key(&id),
+                        crate::db_operations::molecule_key_store::wrap_key_for(
+                            &id,
+                            &catalog.access_domain,
+                        ),
+                        crate::db_operations::molecule_key_store::wrap_key_for(&id, "node"),
+                    ]
+                })
+                .collect();
+        memory::reserve_pair(
+            &admission,
+            source.namespaced_store().as_ref(),
+            destination.namespaced_store().as_ref(),
+            "molecule_keys",
+            &bundle_keys,
+        )?;
         destination
             .molecule_keys()
             .import_domain_for_schema(
@@ -99,6 +129,7 @@ pub(super) async fn commit_membership(
     schemas: &BTreeMap<String, Schema>,
     selected_old: &[DbCatalogEntry],
 ) -> SyncResult<()> {
+    let _admission = admit_membership(source, destination, catalog).await?;
     for (name, schema) in schemas {
         destination
             .schemas()
@@ -178,4 +209,22 @@ pub(super) async fn commit_membership(
             .map_err(storage)?;
     }
     Ok(())
+}
+
+async fn admit_membership(
+    source: &DbOperations,
+    destination: &DbOperations,
+    catalog: &OrgCatalogImport,
+) -> SyncResult<Admission> {
+    let admission = Admission::acquire(0).await?;
+    for namespace in ["schemas", "schema_states"] {
+        memory::reserve_pair(
+            &admission,
+            source.namespaced_store().as_ref(),
+            destination.namespaced_store().as_ref(),
+            namespace,
+            &catalog.schema_names,
+        )?;
+    }
+    Ok(admission)
 }

@@ -34,6 +34,7 @@ mod segfmt;
 mod sorted;
 mod sorted_file;
 mod sorted_merge;
+mod sorted_metadata;
 mod store;
 
 pub use error::{Error, Result};
@@ -53,9 +54,9 @@ pub use store::{
     AllGroupsPurpose, CaptureEvent, CaptureOp, CollectionResidue, DroppedGroupReport,
     DurabilityToken, FrameCompressionStats, GroupResidue, HashGroupPlacement, HashGroupWarmStats,
     LastStore, LayoutDescriptor, LayoutMigrationReport, LoadedPoint, LoadedTip, MaintenanceReport,
-    PhysicalRangeCursor, PhysicalRangePage, RetiredCompactGate, RetiredGroupId, SealedChunkMeta,
-    ShardKey, Snapshot, TxnOp, VersionRetentionReport, WarmEvictionReport, WriteAck,
-    COMPACT_REWRITE_PEAK_BUDGET_BYTES, RETIRED_GROUPS_RECEIPT_FILE,
+    PhysicalRangeCursor, PhysicalRangePage, PointValueSize, RetiredCompactGate, RetiredGroupId,
+    SealedChunkMeta, ShardKey, Snapshot, TxnOp, VersionRetentionReport, WarmEvictionReport,
+    WriteAck, COMPACT_REWRITE_PEAK_BUDGET_BYTES, RETIRED_GROUPS_RECEIPT_FILE,
     SUPERSEDED_VERSION_RETENTION_NANOS,
 };
 

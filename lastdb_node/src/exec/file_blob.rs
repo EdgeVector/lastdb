@@ -125,16 +125,18 @@ pub(super) async fn execute_db_fork_file_blob_route(
             },
         };
 
-        let result = match host
-            .db
-            .fork_personal_file_blob(sync_engine.as_ref(), request)
-            .await
+        let result = match crate::maintenance_write_gate::run(
+            host,
+            host.db
+                .fork_personal_file_blob(sync_engine.as_ref(), request),
+        )
+        .await
         {
-            Ok(result) => result,
-            Err(fold_db::error::FoldDbError::SecurityError(msg)) => {
+            Some(Ok(result)) => result,
+            Some(Err(fold_db::error::FoldDbError::SecurityError(msg))) => {
                 return error_response(422, &format!("file blob verification failed: {msg}"), ctx)
             }
-            Err(fold_db::error::FoldDbError::QuotaExceeded(msg)) => {
+            Some(Err(fold_db::error::FoldDbError::QuotaExceeded(msg))) => {
                 return error_response(
                     429,
                     &format!(
@@ -143,7 +145,14 @@ pub(super) async fn execute_db_fork_file_blob_route(
                     ctx,
                 )
             }
-            Err(e) => return mapped_error_response("file blob fork failed", e, ctx),
+            Some(Err(e)) => return mapped_error_response("file blob fork failed", e, ctx),
+            None => {
+                return error_response(
+                    409,
+                    "local writes are paused for the selected cloud source",
+                    ctx,
+                )
+            }
         };
         let access = match file_blob_access_from_atom_value(&result.pointer) {
             Ok(Some(access)) => access,
@@ -354,15 +363,13 @@ pub(super) async fn execute_db_put_file_blob_route(
             thumbnail,
         };
 
-        let result = match host
-            .db
-            .put_personal_file_blob(sync_engine.as_ref(), request, &plaintext)
-            .await
+        let result = match crate::maintenance_write_gate::run(host, host.db
+            .put_personal_file_blob(sync_engine.as_ref(), request, &plaintext)).await
         {
-            Ok(result) => result,
+            Some(Ok(result)) => result,
             // Permanent cloud cap: HTTP 429 (not 500) so handlers skip ERROR
             // telemetry storms and clients treat it as non-retryable.
-            Err(fold_db::error::FoldDbError::QuotaExceeded(msg)) => {
+            Some(Err(fold_db::error::FoldDbError::QuotaExceeded(msg))) => {
                 return error_response(
                     429,
                     &format!(
@@ -371,7 +378,8 @@ pub(super) async fn execute_db_put_file_blob_route(
                     ctx,
                 )
             }
-            Err(e) => return mapped_error_response("file blob upload failed", e, ctx),
+            Some(Err(e)) => return mapped_error_response("file blob upload failed", e, ctx),
+            None => return error_response(409, "local writes are paused for the selected cloud source", ctx),
         };
         let access = match file_blob_access_from_atom_value(&result.pointer) {
             Ok(Some(access)) => access,

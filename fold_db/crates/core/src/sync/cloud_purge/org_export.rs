@@ -17,6 +17,38 @@ pub struct ScopedExport {
     pub catalog: OrgCatalogSource,
 }
 
+/// Select exactly the atom bodies that the Org export includes. The caller
+/// holds the source mutation fence and rewrite lock before materialization.
+pub(crate) async fn source_atom_keys(
+    ops: &DbOperations,
+    target: &OrgSyncTarget,
+) -> SyncResult<Vec<String>> {
+    if !target.active || target.slug.is_empty() {
+        return Err(error("org file closure requires an active named target"));
+    }
+    let admission = super::memory::Admission::acquire(0).await?;
+    let source = ops
+        .namespaced_store()
+        .raw_last_store()
+        .ok_or_else(|| error("org file closure requires LastStore"))?;
+    let entries = source_membership(ops, target, &source, &admission).await?;
+    let names = entries
+        .iter()
+        .map(|entry| entry.schema_name.clone())
+        .collect();
+    let schemas = load_schemas(ops, &names, &admission).await?;
+    let instances = instance_molecules(&entries, &schemas);
+    let main = ops.open_namespace("main").await.map_err(error)?;
+    super::org_rekey::source_atom_keys(
+        ops,
+        main.as_ref(),
+        &org_rows::main_rows(&source, &admission)?,
+        &instances,
+        &admission,
+    )
+    .await
+}
+
 /// The caller stops writes and holds the source rewrite lock. Both stopped
 /// peers and selected-device preparation use this same account boundary.
 pub async fn export_scoped_store_from_ops(
@@ -29,16 +61,17 @@ pub async fn export_scoped_store_from_ops(
     if !target.active || target.slug.is_empty() {
         return Err(error("org export requires an active named target"));
     }
+    let admission = super::memory::Admission::acquire(0).await?;
     let source = ops
         .namespaced_store()
         .raw_last_store()
         .ok_or_else(|| error("org export requires LastStore"))?;
-    let entries = source_membership(ops, target, &source).await?;
+    let entries = source_membership(ops, target, &source, &admission).await?;
     let schema_names: BTreeSet<_> = entries
         .iter()
         .map(|entry| entry.schema_name.clone())
         .collect();
-    let schemas = load_schemas(ops, &schema_names).await?;
+    let schemas = load_schemas(ops, &schema_names, &admission).await?;
     let (instances, instance_ids, catalog) = build_scope(entries, target, &schemas, schema_names)?;
     super::files::owner_directory(destination)?;
     if std::fs::read_dir(destination)?.next().is_some() {
@@ -55,14 +88,29 @@ pub async fn export_scoped_store_from_ops(
         .map_err(error)?,
     );
     let org_key = crate::sharing::org_sync_target::e2e_key_bytes(target).map_err(error)?;
-    let molecules = instances.values().flatten().cloned().collect();
+    let molecules: BTreeSet<_> = instances.values().flatten().cloned().collect();
+    let key_names: Vec<_> = molecules
+        .iter()
+        .flat_map(|id| {
+            [
+                crate::db_operations::molecule_key_store::metadata_key(id),
+                crate::db_operations::molecule_key_store::wrap_key_for(id, "node"),
+            ]
+        })
+        .collect();
+    admission.check(super::memory::keys_peak(
+        &admission,
+        ops.namespaced_store().as_ref(),
+        "molecule_keys",
+        &key_names,
+    )?)?;
     let keys = ops
         .molecule_keys()
         .export_domain_keys(&molecules, &catalog.access_domain, &org_key)
         .await
         .map_err(error)?;
     let main = ops.open_namespace("main").await.map_err(error)?;
-    let physical = org_rows::main_rows(&source)?;
+    let physical = org_rows::main_rows(&source, &admission)?;
     let rows = super::org_rekey::export_main_rows(
         ops,
         main.as_ref(),
@@ -72,10 +120,12 @@ pub async fn export_scoped_store_from_ops(
             replacements: &instance_ids,
             bundles: &keys.bundles,
             target_key,
+            destination: &store,
+            admission: &admission,
         },
     )
     .await?;
-    write_export_payload(&store, ops, &catalog, &schemas, rows, keys.rows).await?;
+    write_export_payload(&store, ops, &catalog, &schemas, rows, keys.rows, &admission).await?;
     store.restore_durability_barrier().await.map_err(error)?;
     store.verify_integrity().map_err(error)?;
     Ok(ScopedExport { store, catalog })
@@ -85,9 +135,10 @@ async fn source_membership(
     ops: &DbOperations,
     target: &OrgSyncTarget,
     source: &laststore::LastStore,
+    admission: &super::memory::Admission,
 ) -> SyncResult<Vec<DbCatalogEntry>> {
     let mut seeds = BTreeSet::new();
-    for bytes in org_rows::physical_rows(source, "db_catalog")?.values() {
+    for bytes in org_rows::physical_rows(source, "db_catalog", admission)?.values() {
         let Ok(entry) = serde_json::from_slice::<DbCatalogEntry>(bytes) else {
             continue;
         };
@@ -119,7 +170,14 @@ async fn source_membership(
 async fn load_schemas(
     ops: &DbOperations,
     names: &BTreeSet<String>,
+    admission: &super::memory::Admission,
 ) -> SyncResult<BTreeMap<String, crate::schema::Schema>> {
+    admission.check(super::memory::keys_peak(
+        admission,
+        ops.namespaced_store().as_ref(),
+        "schemas",
+        &names.iter().cloned().collect::<Vec<_>>(),
+    )?)?;
     let store = ops.open_namespace("schemas").await.map_err(error)?;
     let values = store
         .get_many(names.iter().map(|name| name.as_bytes().to_vec()).collect())
@@ -152,19 +210,7 @@ fn build_scope(
     schemas: &BTreeMap<String, crate::schema::Schema>,
     schema_names: BTreeSet<String>,
 ) -> SyncResult<ExportScope> {
-    let mut instances: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for entry in &entries {
-        let instance = entry
-            .instance_id
-            .as_deref()
-            .unwrap_or(UNPREFIXED_INSTANCE_ID);
-        let molecules = instances.entry(instance.into()).or_default();
-        for (name, field) in &schemas[&entry.schema_name].runtime_fields {
-            molecules.insert(field.common().molecule_uuid().cloned().unwrap_or_else(|| {
-                crate::atom::deterministic_molecule_uuid(&entry.schema_name, name)
-            }));
-        }
-    }
+    let instances = instance_molecules(&entries, schemas);
     let instance_ids: BTreeMap<_, _> = instances
         .keys()
         .map(|old| {
@@ -200,6 +246,26 @@ fn build_scope(
     Ok((instances, instance_ids, catalog))
 }
 
+fn instance_molecules(
+    entries: &[DbCatalogEntry],
+    schemas: &BTreeMap<String, crate::schema::Schema>,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let mut instances: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for entry in entries {
+        let instance = entry
+            .instance_id
+            .as_deref()
+            .unwrap_or(UNPREFIXED_INSTANCE_ID);
+        let molecules = instances.entry(instance.into()).or_default();
+        for (name, field) in &schemas[&entry.schema_name].runtime_fields {
+            molecules.insert(field.common().molecule_uuid().cloned().unwrap_or_else(|| {
+                crate::atom::deterministic_molecule_uuid(&entry.schema_name, name)
+            }));
+        }
+    }
+    instances
+}
+
 async fn write_export_payload(
     store: &LastStoreNamespacedStore,
     ops: &DbOperations,
@@ -207,21 +273,8 @@ async fn write_export_payload(
     schemas: &BTreeMap<String, crate::schema::Schema>,
     rows: Vec<(Vec<u8>, Vec<u8>)>,
     key_rows: Vec<(Vec<u8>, Vec<u8>)>,
+    admission: &super::memory::Admission,
 ) -> SyncResult<()> {
-    let (cas, rows): (Vec<_>, Vec<_>) = rows
-        .into_iter()
-        .partition(|(key, _)| key.starts_with(b"__purge_cas__"));
-    let cas = cas
-        .into_iter()
-        .map(|(key, value)| (key[b"__purge_cas__".len()..].to_vec(), value))
-        .collect();
-    store
-        .open_namespace("cas_blobs")
-        .await
-        .map_err(error)?
-        .batch_put(cas)
-        .await
-        .map_err(error)?;
     store
         .open_namespace("main")
         .await
@@ -254,6 +307,12 @@ async fn write_export_payload(
         .await
         .map_err(error)?;
     let state = ops.open_namespace("schema_states").await.map_err(error)?;
+    admission.check(super::memory::keys_peak(
+        admission,
+        ops.namespaced_store().as_ref(),
+        "schema_states",
+        &catalog.schema_names,
+    )?)?;
     let state_keys = catalog
         .schema_names
         .iter()

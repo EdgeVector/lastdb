@@ -1,14 +1,45 @@
 //! Every owned share has its own encrypted cut in the exact source inventory.
 
-use super::{protocol::CloudReplacementRoot, RetainedSource};
+use super::{
+    files,
+    protocol::{CloudPurgeObject, CloudReplacementRoot},
+    RetainedSource, RetainedSourceFile,
+};
 use crate::sync::{SyncError, SyncResult};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct RetainedShareSnapshot {
     pub logical_root: String,
     pub manifest_sha256: String,
-    pub ciphertext: Vec<u8>,
+    pub ciphertext_path: std::path::PathBuf,
+    pub ciphertext_sha256: String,
+    pub ciphertext_bytes: u64,
     pub writer_frontier: BTreeMap<String, u64>,
+}
+
+impl RetainedShareSnapshot {
+    pub(crate) fn retain(
+        directory: &std::path::Path,
+        logical_root: String,
+        manifest_sha256: String,
+        ciphertext: &[u8],
+        writer_frontier: BTreeMap<String, u64>,
+    ) -> SyncResult<Self> {
+        let directory = directory.join("share-cuts");
+        files::owner_directory(&directory)?;
+        files::require_capacity(&directory, ciphertext.len() as u64)?;
+        let ciphertext_sha256 = crate::hex::sha256_hex(ciphertext);
+        let ciphertext_path = directory.join(format!("{ciphertext_sha256}.enc"));
+        files::atomic_bytes(&ciphertext_path, ciphertext)?;
+        Ok(Self {
+            logical_root,
+            manifest_sha256,
+            ciphertext_path,
+            ciphertext_sha256,
+            ciphertext_bytes: ciphertext.len() as u64,
+            writer_frontier,
+        })
+    }
 }
 
 impl RetainedSource {
@@ -50,17 +81,17 @@ impl RetainedSource {
                 return Err(error("invalid owned share source identity"));
             }
             let manifest_key = format!("snapshots/{}.enc", share.manifest_sha256);
-            self.add_bytes(
+            self.add_share_file(
                 &share.logical_root,
                 manifest_key.clone(),
                 "share_snapshot",
-                &share.ciphertext,
+                &share,
             )?;
-            self.add_bytes(
+            self.add_share_file(
                 &share.logical_root,
                 "snapshots/latest.enc".into(),
                 "share_latest",
-                &share.ciphertext,
+                &share,
             )?;
             self.prepared.roots.push(CloudReplacementRoot {
                 format: "logical_snapshot_v1".into(),
@@ -80,6 +111,31 @@ impl RetainedSource {
                     .collect(),
             });
         }
+        Ok(())
+    }
+
+    fn add_share_file(
+        &mut self,
+        root: &str,
+        relative_key: String,
+        role: &str,
+        share: &RetainedShareSnapshot,
+    ) -> SyncResult<()> {
+        files::verify_file(
+            &share.ciphertext_path,
+            share.ciphertext_bytes,
+            &share.ciphertext_sha256,
+        )?;
+        let object = CloudPurgeObject {
+            logical_root: root.into(),
+            relative_key,
+            sha256: share.ciphertext_sha256.clone(),
+            bytes: share.ciphertext_bytes,
+            role: role.into(),
+        };
+        let path = files::retained_path(&self.directory, &object.sha256)?;
+        files::copy_prefix(&share.ciphertext_path, &path, object.bytes, &object.sha256)?;
+        self.files.push(RetainedSourceFile { object });
         Ok(())
     }
 

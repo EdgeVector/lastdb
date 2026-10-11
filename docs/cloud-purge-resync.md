@@ -21,6 +21,10 @@ Use `--request-id <uuid>` to repeat a request after a lost response. Keep the sa
 
 The selected device retains an exact independent source before the cloud hold. It fetches missing file bytes before the hold. It pauses local mutations until the replacement reaches Ready and the local device acknowledges adoption.
 
+An org source includes only that org's schemas, molecules, atoms, history, and referenced files. It keeps personal data and other org data unchanged.
+
+The operation verifies existing local file bytes and keeps their encryption. It uses the configured memory guard before each file read. It does not add a fixed file size cap. Source admission finishes before the cloud hold. A refusal keeps the local source.
+
 The service preserves external file references through independent consumer copies before deletion. Then it deletes all owned cloud content. Only after deletion completes does the selected device upload the replacement snapshot.
 
 ## Read or resume a job

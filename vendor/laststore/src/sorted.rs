@@ -16,13 +16,13 @@ use uuid::Uuid;
 
 const MAGIC: &[u8; 8] = b"LSSORT1\0";
 const INDEX_MAGIC: &[u8; 8] = b"LSBIDX1\0";
-const END_MAGIC: &[u8; 8] = b"LSSEND1\0";
-const HEADER_LEN: usize = 52;
-const TRAILER_LEN: usize = 32;
+pub(crate) const END_MAGIC: &[u8; 8] = b"LSSEND1\0";
+pub(crate) const HEADER_LEN: usize = 52;
+pub(crate) const TRAILER_LEN: usize = 32;
 pub(crate) const BLOCK_BYTES: usize = 4096;
-const MAX_FOOTER_BYTES: u64 = 64 * 1024 * 1024;
+pub(crate) const MAX_FOOTER_BYTES: u64 = 64 * 1024 * 1024;
 
-fn corrupt(message: &str) -> Error {
+pub(crate) fn corrupt(message: &str) -> Error {
     Error::Corrupt(format!("sorted segment: {message}"))
 }
 
@@ -54,7 +54,7 @@ impl Header {
         bytes
     }
 
-    fn parse(bytes: &[u8]) -> Result<Self> {
+    pub(crate) fn parse(bytes: &[u8]) -> Result<Self> {
         if bytes.len() != HEADER_LEN || &bytes[..8] != MAGIC || bytes[8] > 1 || bytes[9] > 1 {
             return Err(corrupt("invalid header"));
         }
