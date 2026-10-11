@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Promote Forge-built LastDB Mini artifacts to the public Homebrew release
+# Promote source-bound LastDB Mini artifacts to the public Homebrew release
 # boundary.
 #
 # - Bottle CDN: GitHub Releases on EdgeVector/homebrew-lastdb (anonymous HTTPS
@@ -18,20 +18,21 @@ usage() {
   cat <<'EOF'
 Usage:
   forge-promote-homebrew-stable.sh --version-tag vX.Y.Z --artifact-dir DIR --tap-dir DIR --dry-run [options]
-  forge-promote-homebrew-stable.sh --version-tag vX.Y.Z --artifact-dir DIR --publish [options]
+  forge-promote-homebrew-stable.sh --version-tag vX.Y.Z --artifact-dir DIR --tap-dir DEV --publish [options]
 
 Options:
   --version-tag TAG       Stable tag to promote. Must be vX.Y.Z-style and not a prerelease.
   --artifact-dir DIR      Directory containing lastdb-*.tar.gz and matching manifests.
-  --tap-dir DIR           Existing homebrew-lastdb checkout. Required for dry-run;
-                          optional for publish (must use a GitHub origin).
+  --tap-dir DIR           Existing homebrew-lastdb checkout. Publish requires a clean
+                          registered DEV worktree at accepted GitHub main.
+  --require-dev-worktree  Require the registered DEV publication contract.
   --source-git-oid OID    Expected source OID recorded in manifests.
   --release-repo REPO     Public bottle release repository (default: EdgeVector/homebrew-lastdb).
   --formula-venue github  Compatibility with the installed release caller; GitHub is the only venue.
   --proof-report FILE     Write machine-readable promotion proof JSON.
   --dry-run               Validate release + formula bump path without network writes.
   --publish               Create public bottle release + formula PR on the tap
-                          (GitHub by default). Requires GH_TOKEN for the bottle CDN.
+                          under the normal GitHub release and required PR gates.
   --help | -h             Show this help.
 EOF
 }
@@ -59,15 +60,8 @@ is_git_checkout() {
   git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1
 }
 
-require_github_tap_origin() {
-  local dir="$1"
-  local url
-  url="$(git -C "$dir" config --get remote.origin.url 2>/dev/null || true)"
-  case "$url" in
-    "https://github.com/${release_repo}"|"https://github.com/${release_repo}.git"|"git@github.com:${release_repo}"|"git@github.com:${release_repo}.git") ;;
-    *) fail "tap origin must be GitHub ${release_repo} for publish" ;;
-  esac
-}
+# shellcheck source=homebrew-tap-dev.sh
+. "$ROOT/scripts/release/homebrew-tap-dev.sh"
 
 version_tag=""
 artifact_dir=""
@@ -82,6 +76,7 @@ while [ "$#" -gt 0 ]; do
     --version-tag) [ "$#" -ge 2 ] || fail "missing value for --version-tag"; version_tag="$2"; shift 2 ;;
     --artifact-dir) [ "$#" -ge 2 ] || fail "missing value for --artifact-dir"; artifact_dir="$2"; shift 2 ;;
     --tap-dir) [ "$#" -ge 2 ] || fail "missing value for --tap-dir"; tap_dir="$2"; shift 2 ;;
+    --require-dev-worktree) shift ;;
     --source-git-oid) [ "$#" -ge 2 ] || fail "missing value for --source-git-oid"; source_git_oid="$2"; shift 2 ;;
     --release-repo) [ "$#" -ge 2 ] || fail "missing value for --release-repo"; release_repo="$2"; shift 2 ;;
     --formula-venue)
@@ -89,8 +84,7 @@ while [ "$#" -gt 0 ]; do
       [ "$2" = "github" ] || fail "formula venue must be github"
       shift 2 ;;
     --proof-report) [ "$#" -ge 2 ] || fail "missing value for --proof-report"; proof_report="$2"; shift 2 ;;
-    --dry-run) mode="dry-run"; shift ;;
-    --publish) mode="publish"; shift ;;
+    --dry-run|--publish) [ -z "$mode" ] || fail "choose exactly one mode"; mode="${1#--}"; shift ;;
     --help|-h) usage; exit 0 ;;
     *) fail "unknown argument: $1" ;;
   esac
@@ -116,9 +110,15 @@ if ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1
 fi
 if [ "$mode" = "publish" ]; then
   require_tool gh
-  [ -n "${GH_TOKEN:-}" ] || fail "GH_TOKEN is required for --publish (public bottle CDN)"
-else
-  [ -n "$tap_dir" ] || fail "--tap-dir is required for --dry-run"
+fi
+[ -n "$tap_dir" ] || fail "--tap-dir is required"
+if [ "$mode" = "publish" ]; then
+  [[ "$source_git_oid" =~ ^[0-9a-f]{40}$ ]] || fail "publish requires an exact source OID"
+fi
+if [ "$mode" = "publish" ]; then
+  require_dev_tap "$tap_dir" "$release_repo"
+  [ -n "$proof_report" ] || fail "publish requires a durable --proof-report path"
+  [ ! -e "$proof_report" ] && [ ! -L "$proof_report" ] || fail "an exact prior promotion receipt exists; reconcile it before retry"
 fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/forge-promote-homebrew.XXXXXX")"
@@ -127,8 +127,8 @@ release_dir="$tmp/release"
 tap_work="$tmp/tap"
 mkdir -p "$release_dir"
 
-find "$artifact_dir" -type f -name 'lastdb-*.tar.gz' -exec cp {} "$release_dir/" \;
-find "$artifact_dir" -type f -name 'lastdb-*.manifest.json' -exec cp {} "$release_dir/" \;
+find "$artifact_dir" -maxdepth 1 -type f -name 'lastdb-*.tar.gz' -exec cp {} "$release_dir/" \;
+find "$artifact_dir" -maxdepth 1 -type f -name 'lastdb-*.manifest.json' -exec cp {} "$release_dir/" \;
 
 if ! ls "$release_dir"/lastdb-*.tar.gz >/dev/null 2>&1; then
   fail "no lastdb-*.tar.gz artifacts found under $artifact_dir"
@@ -211,41 +211,28 @@ PY
 sha_aarch64_darwin="$(awk '$2 == "lastdb-aarch64-apple-darwin.tar.gz" { print $1 }' "$release_dir/SHA256SUMS.txt")"
 [ -n "$sha_aarch64_darwin" ] || fail "could not resolve aarch64 darwin sha from SHA256SUMS.txt"
 version="${version_tag#v}"
+tap_base="$(git -C "$tap_dir" rev-parse HEAD)"
 
-clone_formula_sot() {
-  git clone "https://github.com/${release_repo}.git" "$tap_work"
-}
-
-if [ -n "$tap_dir" ]; then
-  [ -d "$tap_dir/Formula" ] || fail "tap Formula directory not found: $tap_dir/Formula"
-  is_git_checkout "$tap_dir" || fail "tap checkout must be a git clone or worktree: $tap_dir"
+[ -d "$tap_dir/Formula" ] || fail "tap Formula directory is missing"
+is_git_checkout "$tap_dir" || fail "tap checkout is not a Git worktree"
+if [ "$mode" = "publish" ]; then
+  # Publish only from the caller's real DEV history. Never replace it with a clone.
+  tap_work="$(cd "$tap_dir" && pwd -P)"
+else
+  # Read-only preview retains the caller checkout and uses owned scratch data.
   mkdir -p "$tap_work"
   if [ -d "$tap_dir/.git" ]; then
-    # Full clone: copy tree + history so dry-run and publish keep real remotes/oids.
     cp -R "$tap_dir"/. "$tap_work"/
-  elif [ "$mode" = "dry-run" ]; then
-    # Linked worktree (`.git` file): snapshot content into a local git repo for
-    # the bump/diff guard only. Never push from this re-init path.
+  else
     if command -v rsync >/dev/null 2>&1; then
       rsync -a --exclude '.git' "$tap_dir"/ "$tap_work"/
     else
-      # Portable fallback when rsync is unavailable.
       tar -C "$tap_dir" --exclude '.git' -cf - . | tar -C "$tap_work" -xf -
     fi
     git -C "$tap_work" init -q
-    git -C "$tap_work" config user.name "forge-promote"
-    git -C "$tap_work" config user.email "forge-promote@localhost"
-    git -C "$tap_work" add -A
-    git -C "$tap_work" commit -qm "tap snapshot for promote dry-run"
-  else
-    # Publish + linked worktree: do not re-init (would invent history). Clone
-    # formula SoT instead so the bump branch is based on real main.
-    echo "forge-promote-homebrew-stable: --tap-dir is a linked worktree; cloning formula SoT for publish" >&2
-    rm -rf "$tap_work"
-    clone_formula_sot
+    git -C "$tap_work" -c user.name="LastDB preview" -c user.email="preview@localhost" add -A
+    git -C "$tap_work" -c user.name="LastDB preview" -c user.email="preview@localhost" commit -qm "tap preview"
   fi
-else
-  clone_formula_sot
 fi
 
 for formula in lastdb folddb; do
@@ -253,15 +240,16 @@ for formula in lastdb folddb; do
 done
 
 is_git_checkout "$tap_work" || fail "tap checkout must be a git worktree so the formula diff guard can run"
-if [ "$mode" = "publish" ]; then
-  require_github_tap_origin "$tap_work"
-fi
 
 status_file="$tmp/tap-status.txt"
 git -C "$tap_work" status --short >"$status_file"
 if [ -s "$status_file" ]; then
-  cat "$status_file" >&2
   fail "tap checkout is not clean"
+fi
+
+if [ "$mode" = "publish" ]; then
+  branch="auto-bump/v${version}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  git -C "$tap_work" checkout --quiet -b "$branch" 2>"$tmp/branch.err" || fail "formula branch create refused"
 fi
 
 export VERSION="$version"
@@ -281,7 +269,18 @@ fi
 
 release_url=""
 tap_pr_url=""
+receipt_tool="$ROOT/scripts/release/homebrew-promotion-receipt.py"
+receipt_stage() {
+  [ -n "$proof_report" ] || return 0
+  python3 "$receipt_tool" --path "$proof_report" --stage "$@" || fail "durable promotion receipt refused"
+}
+if [ -n "$proof_report" ]; then
+  receipt_stage prepared --init --mode "$mode" --tag "$version_tag" --source-oid "$source_git_oid" \
+    --tap-base "$tap_base" --tap-root "$tap_dir" --artifacts "$artifact_report" \
+    --bump-diff "$tmp/bump.diff" --sums "$release_dir/SHA256SUMS.txt"
+fi
 if [ "$mode" = "publish" ]; then
+  require_formula_change "$tap_work"
   cd "$release_dir"
   if gh release view "$version_tag" --repo "$release_repo" >/dev/null 2>&1; then
     fail "$release_repo release $version_tag already exists; refusing to clobber"
@@ -292,29 +291,36 @@ if [ "$mode" = "publish" ]; then
 
 \`brew install edgevector/lastdb/lastdb\`, or download \`lastdb-aarch64-apple-darwin.tar.gz\` (Apple Silicon; \`lastdb\` CLI + \`lastdbd\` daemon).
 
-Public release for \`$version_tag\`. Source provenance is the matching \`EdgeVector/fold\` git tag.
+Public release for \`$version_tag\`. The artifact manifest names the exact \`EdgeVector/lastdb\` source OID \`$source_git_oid\`.
 EOF
-  gh release create "$version_tag" --repo "$release_repo" \
+  receipt_stage release_requested --branch "$branch"
+  if ! release_result="$(gh release create "$version_tag" --repo "$release_repo" \
     --title "$version_tag" \
     --notes-file "$notes_file" \
     lastdb-aarch64-apple-darwin.tar.gz \
     lastdb-aarch64-apple-darwin.manifest.json \
-    SHA256SUMS.txt
+    SHA256SUMS.txt 2>"$tmp/release-create.err")"; then
+    fail "release create outcome is unresolved; reconcile the recorded exact tag"
+  fi
   release_url="https://github.com/${release_repo}/releases/tag/${version_tag}"
+  [ "$release_result" = "$release_url" ] || fail "release create returned an unexpected public identity"
+  receipt_stage release_created --release-url "$release_url"
 
   cd "$tap_work"
-  git config user.name "Fold release"
-  git config user.email "fold-release@localhost"
-  branch="auto-bump/v${version}"
-  git checkout -B "$branch"
   if ! git diff --quiet Formula/lastdb.rb Formula/folddb.rb; then
-    git add Formula/lastdb.rb Formula/folddb.rb
-    git commit -m "bump: lastdb/folddb -> v${version} (auto)"
+    require_formula_change "$tap_work"
+    git add -A
+    receipt_stage commit_requested
+    git -c user.name="LastDB release" -c user.email="release@localhost" commit -qm "bump: lastdb/folddb -> v${version} (auto)" 2>"$tmp/commit.err" || fail "formula commit refused"
+    formula_head="$(git rev-parse HEAD)"
+    receipt_stage commit_created --head "$formula_head"
     pr_body="$tmp/tap-pr-body.md"
     cat >"$pr_body" <<EOF
-Auto-generated by EdgeVector/fold local/Forge release promotion for tag \`$version_tag\`.
+Proposed by EdgeVector/lastdb stable release promotion for tag \`$version_tag\`.
 
-Bumps both the canonical \`lastdb\` formula and the back-compat \`folddb\` alias using the Forge-built artifact manifest and SHA256SUMS proof.
+Bumps both the canonical \`lastdb\` formula and the back-compat \`folddb\` alias using the exact source-bound artifact manifest and SHA256SUMS check.
+
+Validation: exact paired Mini binary versions, artifact SHA256, selected source OID, clean accepted-main DEV base, and formula-only version/url/sha256 diff. Normal required tap CI controls merge.
 
 Formula SoT: GitHub \`${release_repo}\`.
 Bottle CDN: GitHub Releases on \`${release_repo}\`.
@@ -326,74 +332,30 @@ brew info edgevector/lastdb/lastdb
 \`\`\`
 EOF
 
-    git push -u origin "$branch"
-    tap_pr_url="$(gh pr create \
+    [ -z "$(git status --porcelain)" ] || fail "tap commit did not preserve all changes"
+    last-stack-pr-venue "$release_repo" "$tap_work" >/dev/null 2>&1 || fail "tap venue check refused"
+    receipt_stage push_requested
+    git push --quiet -u origin "$branch" 2>"$tmp/push.err" || fail "formula push outcome is unresolved; reconcile the recorded exact branch"
+    receipt_stage branch_pushed
+    receipt_stage pr_requested
+    if ! tap_pr_url="$(gh pr create \
       --repo "$release_repo" \
       --title "bump: lastdb/folddb -> v${version}" \
-      --body-file "$pr_body")"
-    gh pr merge --auto --squash "$tap_pr_url" --repo "$release_repo"
-    gh pr view "$tap_pr_url" --repo "$release_repo" --json autoMergeRequest \
-      --jq 'if .autoMergeRequest then empty else error("auto-merge enable was silently refused") end'
+      --base main --head "$branch" --body-file "$pr_body" 2>"$tmp/pr-create.err")"; then
+      fail "formula PR create outcome is unresolved; reconcile the recorded exact branch"
+    fi
+    receipt_stage pr_created --pr-url "$tap_pr_url"
+    receipt_stage auto_arm_requested
+    gh pr merge --auto --squash "$tap_pr_url" --match-head-commit "$formula_head" --repo "$release_repo" >"$tmp/auto-arm.out" 2>"$tmp/auto-arm.err" || fail "formula PR auto-merge refused; the exact PR receipt remains"
+    receipt_stage auto_arm_returned
+    gh pr view "$tap_pr_url" --repo "$release_repo" --json url,headRefOid,autoMergeRequest \
+      >"$tmp/auto-read.out" 2>"$tmp/auto-read.err" || fail "formula PR auto-merge readback refused; the exact PR receipt remains"
+    receipt_stage auto_arm_verified --auto-arm-result "$tmp/auto-read.out"
   fi
 fi
 
-if [ -n "$proof_report" ]; then
-  mkdir -p "$(dirname "$proof_report")"
-  python3 - "$proof_report" "$mode" "$version_tag" "$release_repo" "$release_dir" \
-    "$artifact_report" "$tmp/bump.diff" "$release_url" "$tap_pr_url" \
-    <<'PY'
-import json
-import os
-import sys
-
-(
-    proof_path,
-    mode,
-    version_tag,
-    release_repo,
-    release_dir,
-    artifact_report,
-    bump_diff,
-    release_url,
-    tap_pr_url,
-) = sys.argv[1:]
-
-with open(artifact_report, encoding="utf-8") as fh:
-    artifacts = json.load(fh)
-with open(bump_diff, encoding="utf-8") as fh:
-    diff_lines = fh.read().splitlines()
-with open(os.path.join(release_dir, "SHA256SUMS.txt"), encoding="utf-8") as fh:
-    sha256sums = fh.read().splitlines()
-
-payload = {
-    "schema": "lastdb.mini.forge_homebrew_promotion.v1",
-    "publish": mode == "publish",
-    "mode": mode,
-    "version_tag": version_tag,
-    "release_repo": release_repo,
-    "formula_venue": "github",
-    "release_assets": {
-        "files": sorted(os.listdir(release_dir)),
-        "sha256sums": sha256sums,
-    },
-    "validated_artifacts": artifacts,
-    "homebrew_bump": {
-        "formulas": ["Formula/lastdb.rb", "Formula/folddb.rb"],
-        "changed_line_classes": ["version", "url", "sha256"],
-        "diff_line_count": len(diff_lines),
-    },
-    "live_outputs": {
-        "release_url": release_url,
-        "tap_pr_url": tap_pr_url,
-        # Keep the v1 proof contract while the retired venue stays unavailable.
-        "forge_pr_number": "",
-    },
-}
-
-with open(proof_path, "w", encoding="utf-8") as fh:
-    json.dump(payload, fh, indent=2, sort_keys=True)
-    fh.write("\n")
-PY
+if [ "$mode" = dry-run ]; then
+  receipt_stage dry_run_complete
 fi
 
 echo "FORGE_HOMEBREW_PROMOTION=ok mode=$mode version_tag=$version_tag release_repo=$release_repo formula_venue=github proof=${proof_report:-none}"

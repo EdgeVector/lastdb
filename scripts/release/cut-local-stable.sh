@@ -24,7 +24,7 @@ Required:
 Options:
   --git-oid OID         Pin fold SHA (default: HEAD of this checkout).
   --out-dir DIR         Artifact output dir (default: /tmp/lastdb-release-<tag>).
-  --tap-dir DIR         homebrew-lastdb checkout for dry-run promote (required with --dry-run).
+  --tap-dir DIR         homebrew-lastdb checkout; publish requires an independent clean registered DEV worktree.
   --proof-report FILE   Promotion proof JSON path.
   --skip-build          Reuse existing target/release/lastdb{,d} (still version-checked).
   --skip-tag            Do not create/push the fold tag (assume it already exists).
@@ -39,11 +39,11 @@ Exactly one of --dry-run or --publish is required.
 Examples:
   # Validate package + formula bump without publishing:
   bash scripts/release/cut-local-stable.sh \
-    --version-tag v0.23.4 --dry-run --tap-dir ~/code/edgevector/homebrew-lastdb
+    --version-tag v0.23.4 --dry-run --tap-dir /path/to/tap-checkout
 
   # Full public cut from a clean fold worktree already at the release SHA:
-  GH_TOKEN="$(gh auth token)" bash scripts/release/cut-local-stable.sh \
-    --version-tag v0.23.4 --publish --push-tag
+  bash scripts/release/cut-local-stable.sh \
+    --version-tag v0.23.4 --publish --push-tag --tap-dir /path/to/registered-tap-DEV
 EOF
 }
 
@@ -99,15 +99,18 @@ version="${version_tag#v}"
 out_dir="${out_dir:-/tmp/lastdb-release-${version_tag}}"
 proof_report="${proof_report:-/tmp/forge-homebrew-promotion-${version_tag}.json}"
 
-if [ "$mode" = "dry-run" ]; then
-  [ -n "$tap_dir" ] || fail "--tap-dir is required for --dry-run"
-fi
+[ -n "$tap_dir" ] || fail "--tap-dir is required"
 
 require_tool git
 require_tool cargo
 require_tool bash
 [ -x "$PACKAGE_SCRIPT" ] || fail "missing package script: $PACKAGE_SCRIPT"
 [ -x "$PROMOTE_SCRIPT" ] || fail "missing promote script: $PROMOTE_SCRIPT"
+# shellcheck source=homebrew-tap-dev.sh
+. "$ROOT/scripts/release/homebrew-tap-dev.sh"
+if [ "$mode" = "publish" ]; then
+  require_dev_tap "$tap_dir"
+fi
 
 cd "$ROOT"
 
@@ -174,14 +177,14 @@ bash "$PACKAGE_SCRIPT" \
 promote_args=(
   --version-tag "$version_tag"
   --artifact-dir "$out_dir"
+  --tap-dir "$tap_dir"
   --source-git-oid "$git_oid"
   --proof-report "$proof_report"
 )
 if [ "$mode" = "dry-run" ]; then
-  promote_args+=(--dry-run --tap-dir "$tap_dir")
+  promote_args+=(--dry-run)
 else
   promote_args+=(--publish)
-  [ -n "${GH_TOKEN:-}" ] || fail "GH_TOKEN is required for --publish"
 fi
 
 echo "cut-local-stable: promote ${mode}"
