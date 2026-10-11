@@ -3,15 +3,6 @@
 use super::*;
 
 impl ResidentGraph {
-    pub fn install_schema(&self, schema: Schema) {
-        let name = schema.name.clone();
-        self.schemas
-            .write()
-            .expect("schemas lock")
-            .insert(name.clone(), schema);
-        self.charge_and_enforce(DirtyKey::Schema(name), APPROX_SCHEMA_BYTES);
-    }
-
     pub fn has_schema(&self, name: &str) -> bool {
         self.schemas
             .read()

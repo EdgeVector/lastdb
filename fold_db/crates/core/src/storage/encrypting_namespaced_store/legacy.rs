@@ -30,46 +30,6 @@ impl EncryptingNamespacedStore {
             .await
     }
 
-    /// Startup migration sweep: re-encrypt legacy plaintext values under the
-    /// given key prefixes of an encrypted namespace.
-    ///
-    /// A namespace that becomes encrypted after data already exists (the
-    /// namespaces that flipped to default-encrypt when the
-    /// [`PLAINTEXT_NAMESPACES`] allowlist was inverted) leaves pre-existing
-    /// rows in plaintext; `migration_mode` keeps them readable, but lazy
-    /// rewrite-on-write would let rows for never-rewritten records linger in
-    /// plaintext indefinitely. This sweep scans the namespace through the
-    /// *inner* (non-decrypting) store so pre-encryption values are visible
-    /// verbatim, and rewrites every value that lacks the `ENC:` marker back
-    /// through the encrypting layer. Already-encrypted values are left
-    /// untouched, so the sweep is idempotent and effectively free once
-    /// migration has completed.
-    ///
-    /// Returns the number of values re-encrypted. No-op (`Ok(0)`) when the
-    /// namespace is not in the encrypted set.
-    pub async fn encrypt_legacy_plaintext(
-        &self,
-        namespace: &str,
-        prefixes: &[&str],
-    ) -> StorageResult<usize> {
-        if !self.should_encrypt(namespace) {
-            return Ok(0);
-        }
-        let inner = self.inner.open_namespace(namespace).await?;
-        let enc = EncryptingKvStore::new(namespace, Arc::clone(&inner), self.crypto.clone());
-        let mut migrated = 0usize;
-        for prefix in prefixes {
-            for (key, value) in inner.scan_prefix(prefix.as_bytes()).await? {
-                if EncryptingKvStore::is_encrypted_value(&value) {
-                    continue;
-                }
-                enc.put(&key, value).await?;
-                migrated += 1;
-            }
-        }
-        Ok(migrated)
-    }
-
     /// Startup migration sweep: **decrypt** residual `ENC:` values to plaintext
     /// for a namespace that is plaintext-by-policy (or becoming so).
     ///

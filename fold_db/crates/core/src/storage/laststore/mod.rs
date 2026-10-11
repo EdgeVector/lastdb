@@ -59,9 +59,8 @@ use crate::mini_cutover::{
 };
 use async_trait::async_trait;
 pub use backup_descriptor::{
-    canonical_bytes, CanonicalRecord, CarryReceipt, DescriptorEntry, DescriptorObjectClass,
-    DescriptorPage, DescriptorPageHeader, DescriptorRootView, EncryptedManifestCommitment,
-    RetiredInstance, RetirementReceiptV2, SelectedAtomsRecord,
+    canonical_bytes, CanonicalRecord, DescriptorEntry, DescriptorObjectClass, DescriptorPage,
+    EncryptedManifestCommitment,
 };
 pub use backup_manifest::{
     apply_cas_proven_unbackable_retirement, apply_named_hole_exclusions,
@@ -72,8 +71,8 @@ pub use backup_manifest::{
     validate_manifest_chain_before_packing, AtomPhotographCopyReport, BackupChunkRef,
     BackupChunkScan, BackupChunkUploadCandidate, BackupDeletionReceipt, BackupManifest,
     BackupManifestChainStep, BackupManifestRole, BackupNamedHole, BackupPackLocation,
-    BackupStorageFootprint, CloudChunkPresence, DescriptorChainStep,
-    StampCommittedSuccessorHistoryReport, UnresolvableChunk, DESCRIPTOR_VERSION, MANIFEST_VERSION,
+    BackupStorageFootprint, CloudChunkPresence, StampCommittedSuccessorHistoryReport,
+    UnresolvableChunk, DESCRIPTOR_VERSION, MANIFEST_VERSION,
     NAMED_HOLE_REASON_ABSENT_LOCAL_AND_CLOUD, PACKED_MANIFEST_VERSION,
     UNBACKABLE_RETIREMENT_REASON_ABSENT_LOCAL_AND_CLOUD,
 };

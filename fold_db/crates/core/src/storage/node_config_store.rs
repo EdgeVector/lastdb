@@ -10,8 +10,6 @@ mod crypto;
 mod identity;
 mod kv;
 
-pub use identity::NodeIdentity;
-
 /// Thin wrapper for storing node configuration on a NamespacedStore collection.
 ///
 /// Sensitive fields (currently: the node's Ed25519 private key) are

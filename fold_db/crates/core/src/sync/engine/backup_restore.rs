@@ -397,65 +397,6 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
     })
 }
 
-/// Read the published S0 cut with typed failure boundaries, without a target
-/// store, chunk install, or change to the legacy resume error contract.
-pub async fn laststore_published_backup_cut_detailed(
-    auth: &AuthClient,
-    s3: &S3Client,
-) -> Result<LastStoreCloudRestoreReport, S0RestoreFailure> {
-    use S0RestoreBoundary as Boundary;
-
-    let latest = at_s0_boundary(Boundary::LatestPointer, auth.backup_latest_get().await)?;
-    at_s0_boundary(
-        Boundary::LatestPointerValidation,
-        latest.latest.require_supported_format(),
-    )?;
-    let manifests = download_manifest_chain(auth, s3, &latest.latest.manifest_sha256).await?;
-    let manifest = at_s0_boundary(
-        Boundary::LatestPointerValidation,
-        manifests.first().ok_or_else(|| {
-            SyncError::Storage("backup restore found no valid manifests".to_string())
-        }),
-    )?;
-    if latest.latest.format_version() != manifest.version
-        || latest.latest.store_uuid != manifest.store_uuid
-        || latest.latest.epoch != manifest.epoch
-        || latest.latest.counter != manifest.counter
-        || latest.latest.manifest_sha256
-            != at_s0_boundary(
-                Boundary::LatestPointerValidation,
-                manifest_sha256_hex_sync(manifest),
-            )?
-    {
-        return at_s0_boundary(
-            Boundary::LatestPointerValidation,
-            Err(SyncError::Storage(
-                "backup latest pointer does not match manifest body".to_string(),
-            )),
-        );
-    }
-    at_s0_boundary(
-        Boundary::SourceScopeValidation,
-        validate_manifest_source_scope(auth, manifest),
-    )?;
-    Ok(LastStoreCloudRestoreReport {
-        manifest_sha256: latest.latest.manifest_sha256,
-        latest_key: latest.key,
-        counter: manifest.counter,
-        cut_csn: manifest.cut_csn,
-        manifests_walked: manifests.len(),
-        chunks_installed: 0,
-        bytes_installed: 0,
-        chunks_reused: 0,
-        bytes_reused: 0,
-        restored_epoch: manifest.epoch,
-        source_scope_verified: auth.db_hash_scope().is_some(),
-        remote_read_only: false,
-        mutation_log_replay: None,
-        mutation_log_snapshot_frontier: None,
-    })
-}
-
 /// Bind a restore manifest to the exact database root selected by the caller.
 ///
 /// An unscoped client keeps the legacy library contract. The product restore

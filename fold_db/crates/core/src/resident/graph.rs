@@ -13,7 +13,6 @@ use super::metrics::ResidentMetrics;
 use super::types::{
     DirtyKey, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot, ResidentKind,
     ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip, ResolveOutcome,
-    APPROX_SCHEMA_BYTES,
 };
 use crate::schema::types::Schema;
 

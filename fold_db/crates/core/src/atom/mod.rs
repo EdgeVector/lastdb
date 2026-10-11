@@ -33,7 +33,7 @@ pub use molecule_uuid::{
 pub use mutation_event::{
     FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,
 };
-pub use provenance::{ImportedFieldProvenance, MoleculeRef, Provenance};
+pub use provenance::{MoleculeRef, Provenance};
 pub use size_limit::{
     atom_content_byte_len, enforce_atom_content_limit, is_over_default_limit,
     max_atom_content_bytes, observe_atom_content_over_default, parse_max_atom_content_bytes,

@@ -12,12 +12,11 @@
 //!
 //! ## Per-target shape
 //!
-//! | helper                  | FMT target               | RELOAD | RING | WEB | Sentry |
-//! |-------------------------|--------------------------|--------|------|-----|--------|
-//! | [`init_node`]           | `OBS_FILE_PATH` ▸ `<node-home>/observability.jsonl` (honor-both: `LASTDB_HOME` ▸ `FOLDDB_HOME` ▸ existing `~/.lastdb` ▸ existing `~/.folddb` ▸ new `~/.lastdb`) | yes | yes | no  | env-gated |
-//! | [`init_node_with_web`]  | same as [`init_node`]    | yes    | yes  | yes | env-gated |
-//! | [`init_lambda`]         | stdout                   | yes    | no   | no  | env-gated |
-//! | [`init_cli`]            | stderr                   | no     | no   | no  | no     |
+//! | helper                  | FMT target               | RELOAD | RING | Sentry |
+//! |-------------------------|--------------------------|--------|------|--------|
+//! | [`init_node`]           | `OBS_FILE_PATH` ▸ `<node-home>/observability.jsonl` (honor-both: `LASTDB_HOME` ▸ `FOLDDB_HOME` ▸ existing `~/.lastdb` ▸ existing `~/.folddb` ▸ new `~/.lastdb`) | yes | yes | env-gated |
+//! | [`init_lambda`]         | stdout                   | yes    | no   | env-gated |
+//! | [`init_cli`]            | stderr                   | no     | no   | no     |
 //!
 //! ## CLI is intentionally bare
 //!
@@ -51,9 +50,8 @@
 //!   point are lost.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 #[cfg(feature = "otel")]
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::{fs, io};
 
 use once_cell::sync::OnceCell;
@@ -84,7 +82,6 @@ use crate::layers::error::{build_error_layer, SentryGuard};
 use crate::layers::fmt::{build_fmt_writer, FmtGuard, FmtTarget, RedactingFormat};
 use crate::layers::reload::{build_reload_layer, ReloadHandle};
 use crate::layers::ring::{build_ring_layer, RingHandle, OBS_RING_CAPACITY};
-use crate::layers::web::WebHandle;
 use crate::ObsError;
 
 /// Override for the node log file path. Read once per `init_node` call.
@@ -257,84 +254,6 @@ pub fn init_node(service_name: &'static str, _version: &str) -> Result<ObsGuard,
         reload: Some(reload),
         cloud_shutdown: Some(CloudShutdown { sentry_guard }),
     })
-}
-
-/// RAII guard returned by [`init_node_with_web`].
-///
-/// Same lifetime contract as [`ObsGuard`] — must be held for the lifetime of
-/// the binary. Differs in two ways:
-/// - Every handle is non-optional. Node binaries always wire FMT + RING +
-///   RELOAD + WEB, so `Option<…>` accessors only push the unwrap onto every
-///   caller.
-/// - Adds a [`WebHandle`] for the dashboard's `/api/logs/stream` SSE
-///   endpoint. `ReloadHandle` is wrapped in [`Arc`] because it is not
-///   `Clone` upstream and `/api/logs/level` needs to share it across Actix
-///   workers via `web::Data`.
-#[must_use = "NodeObsGuardWithWeb must be held for the lifetime of the binary or log lines may be dropped"]
-pub struct NodeObsGuardWithWeb {
-    fmt_guard: Option<FmtGuard>,
-    ring: RingHandle,
-    reload: Arc<ReloadHandle>,
-    web: WebHandle,
-    cloud_shutdown: Option<CloudShutdown>,
-}
-
-impl NodeObsGuardWithWeb {
-    /// Handle for in-process `/api/logs` queries.
-    pub fn ring(&self) -> &RingHandle {
-        &self.ring
-    }
-
-    /// Shared handle for runtime `EnvFilter` swaps via `/api/logs/level`.
-    pub fn reload(&self) -> Arc<ReloadHandle> {
-        Arc::clone(&self.reload)
-    }
-
-    /// Handle that the dashboard's `/api/logs/stream` SSE endpoint subscribes
-    /// to for live event fan-out.
-    pub fn web(&self) -> &WebHandle {
-        &self.web
-    }
-
-    /// Cheap clones of every handle, ready to wrap in Actix `web::Data`.
-    pub fn handles(&self) -> ObsHandles {
-        ObsHandles {
-            ring: self.ring.clone(),
-            web: self.web.clone(),
-            reload: Arc::clone(&self.reload),
-        }
-    }
-}
-
-impl std::fmt::Debug for NodeObsGuardWithWeb {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NodeObsGuardWithWeb")
-            .field("fmt_guard", &self.fmt_guard.is_some())
-            .field("ring_capacity", &self.ring.capacity())
-            .field(
-                "cloud_shutdown",
-                &self.cloud_shutdown.as_ref().map(CloudShutdown::is_engaged),
-            )
-            .finish()
-    }
-}
-
-impl Drop for NodeObsGuardWithWeb {
-    fn drop(&mut self) {
-        let _ = self.cloud_shutdown.take();
-    }
-}
-
-/// Bundle of handles consumed by the HTTP server's `/api/logs*` endpoints.
-///
-/// Cheap to clone: [`RingHandle`] and [`WebHandle`] are `Arc`-backed,
-/// [`ReloadHandle`] is shared through [`Arc`] because it is not `Clone`
-/// upstream.
-#[derive(Clone)]
-pub struct ObsHandles {
-    pub ring: RingHandle,
-    pub web: WebHandle,
-    pub reload: Arc<ReloadHandle>,
 }
 
 /// Initialize observability for an AWS Lambda handler.

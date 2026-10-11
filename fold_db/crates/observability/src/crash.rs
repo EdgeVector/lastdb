@@ -340,11 +340,6 @@ fn write_marker_now(marker: &Path) {
 // CLI support helpers (`folddb crash-reports …`)
 // ---------------------------------------------------------------------------
 
-/// Resolve the crash-reports directory under a given `$FOLDDB_HOME`.
-pub fn crash_reports_dir(folddb_home: impl AsRef<Path>) -> PathBuf {
-    folddb_home.as_ref().join(CRASH_REPORTS_DIR)
-}
-
 // ---------------------------------------------------------------------------
 // RFC3339 UTC formatting (dependency-free)
 // ---------------------------------------------------------------------------

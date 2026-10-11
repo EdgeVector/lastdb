@@ -391,15 +391,6 @@ pub fn apply_page(
     checkpoint
 }
 
-/// Same as [`build_report`], with lag from a durable checkpoint.
-pub fn build_report_with_lag(
-    snapshot: &KeepSmallSnapshot,
-    resolve_owner: &dyn Fn(&str) -> OwnerResolution,
-    checkpoint: &ReconciliationCheckpoint,
-) -> AppStorageReport {
-    build_report_full(snapshot, resolve_owner, checkpoint, MetersOrigin::Measured)
-}
-
 /// Same as [`build_report_with_lag`], and told whether the meters were
 /// hydrated. This is the form the live route uses; the two above default to
 /// [`MetersOrigin::Measured`] for callers that build a snapshot themselves.

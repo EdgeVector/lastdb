@@ -77,7 +77,6 @@ mod state_expansion;
 mod state_fields;
 mod state_matching;
 mod state_native_resolve;
-pub use multi_key_reindex::{RegeneratedTip, SourceRecord};
 pub use state_expansion::{
     apply_shared_field_mappers, is_cross_key_layout, key_layout_fingerprint, shared_field_names,
     KeyLayoutFingerprint,
@@ -126,10 +125,9 @@ pub use schema_core_resolver::{
 };
 pub use schema_embedding_artifact::{
     artifact_sha256_hex as schema_embedding_artifact_sha256_hex,
-    latest_compatible_manifest_pointer_key, ArtifactEnv, ArtifactObject,
-    EmbeddingArtifactVerifyError, EmbeddingVectorRecord, ImportedEmbeddings, PublishObject,
-    PublishPlan, PutPrecondition, SchemaEmbeddingArtifact, SchemaEmbeddingArtifactCounts,
-    SchemaEmbeddingArtifactManifest, SCHEMA_EMBEDDING_ARTIFACT_FORMAT_VERSION,
+    latest_compatible_manifest_pointer_key, ArtifactEnv, EmbeddingVectorRecord, PublishObject,
+    PublishPlan, PutPrecondition, SchemaEmbeddingArtifactCounts, SchemaEmbeddingArtifactManifest,
+    SCHEMA_EMBEDDING_ARTIFACT_FORMAT_VERSION,
 };
 pub use schema_mutation_gate::{
     catalog_size_difficulty_bits, log_schema_mutation_gate_result,
