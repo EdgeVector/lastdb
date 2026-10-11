@@ -54,6 +54,7 @@ mod sampler;
 mod sampler_state;
 mod schema;
 mod snapshot_build;
+mod snapshot_memory;
 mod status_lines;
 mod status_snapshot;
 mod sync_health;

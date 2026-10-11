@@ -1,5 +1,15 @@
 use super::*;
 
+mod routes_core;
+mod routes_maintenance;
+mod routes_sync_org;
+mod telemetry_phases;
+
+use routes_core::*;
+use routes_maintenance::*;
+use routes_sync_org::*;
+use telemetry_phases::phase_timings;
+
 /// Execute a recognized control-socket data route against the minimal host,
 /// with the caller's user id bound as the task-local user context (parity with
 /// the full node's `run_route_with_user`, so background indexing spawned by a
@@ -9,7 +19,6 @@ use super::*;
 /// the self-reported `X-LastDB-Client` header (or `X-App-Id` fallback), then
 /// the schema owner, then the UDS peer process — so an unlabeled caller is
 /// still nameable in `lastdb ops`.
-// lint:fn-size-ok moved verbatim from exec.rs; splitting this function is separate work.
 pub async fn execute_data_route(
     route: DataRoute,
     req: &UdsRequest,
@@ -96,58 +105,7 @@ pub async fn execute_data_route(
             rows,
             body_bytes,
             cold_shard_loads,
-            phases: crate::request_telemetry::PhaseTimings {
-                queue_wait_us,
-                admission_wait_us: phase_totals.admission_wait_us,
-                parse_us: phase_totals.parse_us,
-                schema_resolve_us: phase_totals.schema_resolve_us,
-                validate_us: phase_totals.validate_us,
-                lock_wait_us: phase_totals.lock_wait_us,
-                purge_barrier_us: phase_totals.purge_barrier_us,
-                purge_plan_us: phase_totals.purge_plan_us,
-                purge_commit_us: phase_totals.purge_commit_us,
-                purge_materialize_us: phase_totals.purge_materialize_us,
-                purge_trace_us: phase_totals.purge_trace_us,
-                purge_retention_guard_us: phase_totals.purge_retention_guard_us,
-                purge_delete_us: phase_totals.purge_delete_us,
-                purge_finalize_us: phase_totals.purge_finalize_us,
-                molecule_gate_us: phase_totals.molecule_gate_us,
-                cas_precondition_us: phase_totals.cas_precondition_us,
-                count_us: phase_totals.count_us,
-                hydrate_us: phase_totals.hydrate_us,
-                hydrate_atoms_us: phase_totals.hydrate_atoms_us,
-                hydrate_format_us: phase_totals.hydrate_format_us,
-                hydrate_sort_us: phase_totals.hydrate_sort_us,
-                hydrate_filter_us: phase_totals.hydrate_filter_us,
-                annotate_us: phase_totals.annotate_us,
-                apply_us: phase_totals.apply_us,
-                apply_memory_us: phase_totals.apply_memory_us,
-                schema_load_us: phase_totals.schema_load_us,
-                dedupe_scan_us: phase_totals.dedupe_scan_us,
-                idempotency_check_us: phase_totals.idempotency_check_us,
-                grouping_us: phase_totals.grouping_us,
-                restore_molecules_us: phase_totals.restore_molecules_us,
-                protein_sibling_fold_us: phase_totals.protein_sibling_fold_us,
-                spawn_indexing_us: phase_totals.spawn_indexing_us,
-                sync_uuids_us: phase_totals.sync_uuids_us,
-                schema_reload_us: phase_totals.schema_reload_us,
-                persist_us: phase_totals.persist_us,
-                persist_molecules_us: phase_totals.persist_molecules_us,
-                persist_schema_us: phase_totals.persist_schema_us,
-                persist_idempotency_us: phase_totals.persist_idempotency_us,
-                flush_us: phase_totals.flush_us,
-                sync_capture_us: phase_totals.sync_capture_us,
-                index_wait_us: phase_totals.index_wait_us,
-                change_record_us: phase_totals.change_record_us,
-                change_record_lock_wait_us: phase_totals.change_record_lock_wait_us,
-                change_record_write_us: phase_totals.change_record_write_us,
-                response_envelope_us: phase_totals.response_envelope_us,
-                status_sync_us: phase_totals.status_sync_us,
-                status_backup_us: phase_totals.status_backup_us,
-                status_durability_us: phase_totals.status_durability_us,
-                status_data_dir_us: phase_totals.status_data_dir_us,
-                status_request_ops_us: phase_totals.status_request_ops_us,
-            },
+            phases: phase_timings(queue_wait_us, &phase_totals),
             molecules_persisted: work_counts.molecules_persisted,
             partition_read_rejections: work_counts.partition_read_rejections,
             all_group_walks: work_counts.all_group_walks,
@@ -186,7 +144,6 @@ pub(super) fn route_label(route: DataRoute) -> String {
     format!("{route:?}")
 }
 
-// lint:fn-size-ok moved verbatim from exec.rs; splitting this function is separate work.
 pub(super) async fn dispatch_data_route(
     route: DataRoute,
     req: &UdsRequest,
@@ -196,296 +153,30 @@ pub(super) async fn dispatch_data_route(
     if let Some(response) = cloud_purge_routes::reject_local_write(route, host, ctx) {
         return response;
     }
-    match route {
-        DataRoute::Query => heap_route!(execute_query_route, req, ctx, host).await,
-        DataRoute::QueryBatch => heap_route!(execute_query_batch_route, req, ctx, host).await,
-        DataRoute::ConflictMetadata => {
-            heap_route!(execute_conflict_metadata_route, req, ctx, host).await
-        }
-        DataRoute::Mutation => heap_route!(execute_mutation_route, req, ctx, host).await,
-        DataRoute::AggregateRepair => {
-            heap_route!(execute_aggregate_repair_route, req, ctx, host).await
-        }
-        DataRoute::AggregateFinalize => {
-            heap_route!(execute_aggregate_finalize_route, req, ctx, host).await
-        }
-        DataRoute::MutationBatch => {
-            heap_route!(execute_mutations_batch_route, req, ctx, host).await
-        }
-        DataRoute::ListSchemas => heap_route!(execute_list_schemas_route, req, ctx, host).await,
-        DataRoute::ListRecordKeys => {
-            heap_route!(execute_list_record_keys_route, req, ctx, host).await
-        }
-        DataRoute::GetSchema => execute_get_schema_route(req, ctx, host),
-        DataRoute::DeclareSchema => heap_route!(execute_declare_schema_route, req, ctx, host).await,
-        DataRoute::SeedSystemSchema => {
-            heap_route!(execute_seed_system_schema_route, req, ctx, host).await
-        }
-        DataRoute::RetireSchemaNameClaim => {
-            heap_route!(execute_retire_schema_name_claim_route, req, ctx, host).await
-        }
-        DataRoute::DropSchema => heap_route!(execute_drop_schema_route, req, ctx, host).await,
-        DataRoute::Status => heap_route!(execute_status_route, req, ctx, host).await,
-        DataRoute::AdminShed => heap_route_ctx_host!(execute_admin_shed_route, ctx, host).await,
-        DataRoute::LogFilterGet => execute_log_filter_get_route(ctx),
-        DataRoute::LogFilterSet => execute_log_filter_set_route(req, ctx),
-        DataRoute::DbInventory => heap_route_ctx_host!(execute_db_inventory_route, ctx, host).await,
-        DataRoute::DbSchemas => heap_route_ctx_host!(execute_db_schemas_route, ctx, host).await,
-        DataRoute::SchemaStorage => execute_schema_storage_route(req, ctx, host),
-        DataRoute::SchemaStorageReport => execute_schema_storage_report_route(ctx, host),
-        DataRoute::LivenessExplain => {
-            heap_route!(execute_liveness_explain_route, req, ctx, host).await
-        }
-        DataRoute::LivenessBootstrap => {
-            heap_route!(execute_liveness_bootstrap_route, req, ctx, host).await
-        }
-        DataRoute::DbClearHistory => {
-            heap_route!(execute_db_clear_history_route, req, ctx, host).await
-        }
-        DataRoute::DbCompact => heap_route!(execute_db_compact_route, req, ctx, host).await,
-        DataRoute::DbStampPurgedAtomRetirements => {
-            heap_route!(
-                execute_db_stamp_purged_atom_retirements_route,
-                req,
-                ctx,
-                host
-            )
-            .await
-        }
-        DataRoute::CompactRecord => heap_route!(execute_compact_record_route, req, ctx, host).await,
-        DataRoute::DbPurgeSchemaIdx => {
-            heap_route_ctx_host!(execute_db_purge_schemaidx_route, ctx, host).await
-        }
-        DataRoute::AppStorage => heap_route_ctx_host!(execute_app_storage_route, ctx, host).await,
-        DataRoute::AppStorageReconcile => {
-            heap_route!(execute_app_storage_reconcile_route, req, ctx, host).await
-        }
-        DataRoute::HomeStorage => heap_route_ctx_host!(execute_home_storage_route, ctx, host).await,
-        DataRoute::HomeStorageReconcile => {
-            heap_route!(execute_home_storage_reconcile_route, req, ctx, host).await
-        }
-        DataRoute::DbGcAtoms => heap_route!(execute_db_gc_atoms_route, req, ctx, host).await,
-        DataRoute::DbReapDroppedSchema => {
-            heap_route!(execute_db_reap_dropped_schema_route, req, ctx, host).await
-        }
-        DataRoute::DbGcFileBlobs => {
-            heap_route!(execute_db_gc_file_blobs_route, req, ctx, host).await
-        }
-        DataRoute::DbGcProteins => heap_route!(execute_db_gc_proteins_route, req, ctx, host).await,
-        DataRoute::DbPurgeRefBlobs => {
-            heap_route!(execute_db_purge_ref_blobs_route, req, ctx, host).await
-        }
-        DataRoute::DbReclaimKeepSmallLegacy => {
-            heap_route!(execute_db_reclaim_keep_small_legacy_route, req, ctx, host).await
-        }
-        DataRoute::DbReclaimKeepSmallSnapshot => {
-            heap_route!(execute_db_reclaim_keep_small_snapshot_route, req, ctx, host).await
-        }
-        DataRoute::DbRepairDanglingTips => {
-            heap_route!(execute_db_repair_dangling_tips_route, req, ctx, host).await
-        }
-        DataRoute::DbUnresolvedAtoms => match host.db.db_ops().unresolved_atom_identity_report() {
-            Ok(report) => json_ok(&envelope(
-                &serde_json::json!({ "unresolved_atoms": report }),
-                ctx.user_id.as_str(),
-            )),
-            Err(error) => error_response(500, &error, ctx),
-        },
-        DataRoute::DbDrainTipHistory => {
-            heap_route!(execute_db_drain_tip_history_route, req, ctx, host).await
-        }
-        DataRoute::DbRetainSupersededVersions => {
-            heap_route!(execute_db_retain_superseded_versions_route, req, ctx, host).await
-        }
-        DataRoute::DbProbeLocatorOnly => {
-            heap_route!(execute_db_probe_locator_only_route, req, ctx, host).await
-        }
-        DataRoute::DbDeleteLedger => {
-            heap_route!(execute_db_delete_ledger_route, req, ctx, host).await
-        }
-        DataRoute::DbMigratePhotoBlobs => {
-            heap_route!(execute_db_migrate_photo_blobs_route, req, ctx, host).await
-        }
-        DataRoute::DbMigrateThinTips => {
-            heap_route!(execute_db_migrate_thin_tips_route, req, ctx, host).await
-        }
-        DataRoute::DbRekeyAtomPartitionPrefix => {
-            heap_route!(execute_db_rekey_atom_partition_prefix_route, req, ctx, host).await
-        }
-        DataRoute::DbResealAtRest => {
-            heap_route!(execute_db_reseal_at_rest_route, req, ctx, host).await
-        }
-        DataRoute::DbReapUnsealed => {
-            heap_route!(execute_db_reap_unsealed_route, req, ctx, host).await
-        }
-        DataRoute::DbTombstoneFlagAudit => {
-            heap_route!(execute_db_tombstone_flag_audit_route, req, ctx, host).await
-        }
-        DataRoute::DbDrainLegacyTombstones => {
-            heap_route!(execute_db_drain_legacy_tombstones_route, req, ctx, host).await
-        }
-        DataRoute::DbLegacyKeyForkAudit => {
-            heap_route!(execute_db_legacy_key_fork_audit_route, req, ctx, host).await
-        }
-        DataRoute::DbOrderLogAudit => {
-            heap_route!(execute_db_order_log_audit_route, req, ctx, host).await
-        }
-        DataRoute::DbPinLogAudit => {
-            heap_route!(execute_db_pin_log_audit_route, req, ctx, host).await
-        }
-        DataRoute::DbOrderLogBloatAudit => {
-            heap_route!(execute_db_order_log_bloat_audit_route, req, ctx, host).await
-        }
-        DataRoute::DbCompactOrderLog => {
-            heap_route!(execute_db_compact_order_log_route, req, ctx, host).await
-        }
-        DataRoute::DbRepairOrderLogShortfall => {
-            heap_route!(execute_db_repair_order_log_shortfall_route, req, ctx, host).await
-        }
-        DataRoute::DbMoleculeKeys => {
-            heap_route!(execute_db_molecule_keys_route, req, ctx, host).await
-        }
-        DataRoute::DbSchemaRetention => {
-            heap_route!(execute_db_schema_retention_route, req, ctx, host).await
-        }
-        DataRoute::DbRepairSchemaMoleculeMap => {
-            heap_route!(execute_db_repair_schema_molecule_map_route, req, ctx, host).await
-        }
-        DataRoute::DbRepairHashRangeKeyFields => {
-            heap_route!(execute_db_repair_hashrange_key_fields_route, req, ctx, host).await
-        }
-        DataRoute::DbDrainPlaneResidue => {
-            heap_route!(execute_db_drain_plane_residue_route, req, ctx, host).await
-        }
-        DataRoute::DbFetchFileBlob => {
-            heap_route!(execute_db_fetch_file_blob_route, req, ctx, host).await
-        }
-        DataRoute::DbForkFileBlob => {
-            heap_route!(execute_db_fork_file_blob_route, req, ctx, host).await
-        }
-        DataRoute::DbPutFileBlob => {
-            heap_route!(execute_db_put_file_blob_route, req, ctx, host).await
-        }
-        DataRoute::DbPutBlobLocal => {
-            heap_route!(execute_db_put_blob_local_route, req, ctx, host).await
-        }
-        DataRoute::AutoIdentity => execute_auto_identity_route(host),
-        DataRoute::BootIdentity => execute_boot_identity_route(host),
-        DataRoute::BootLedger => execute_boot_ledger_route(host),
-        DataRoute::NativeIndexSearch => execute_native_index_search_route(req, ctx, host),
-        DataRoute::SearchAppQuery => execute_search_app_query_route(req, ctx, host),
-        DataRoute::AppSearch => heap_route!(execute_app_search_route, req, ctx, host).await,
-        DataRoute::NativeIndexAppVectorPut => {
-            heap_route!(execute_native_index_app_vector_put_route, req, ctx, host).await
-        }
-        DataRoute::NativeIndexKnn => {
-            heap_route!(execute_native_index_knn_route, req, ctx, host).await
-        }
-        DataRoute::MoleculeHistory => {
-            heap_route!(execute_molecule_history_route, req, ctx, host).await
-        }
-        DataRoute::AtomContent => heap_route!(execute_atom_content_route, req, ctx, host).await,
-        DataRoute::ProteinGet => heap_route!(execute_protein_get_route, req, ctx, host).await,
-        DataRoute::ProteinOfMolecule => {
-            heap_route!(execute_protein_of_molecule_route, req, ctx, host).await
-        }
-        // No upload-storage backend in the minimal daemon; blob routes are
-        // structurally absent — content-free 404, exactly like an
-        // unrecognized path (I4).
-        DataRoute::AppBlobPut
-        | DataRoute::AppBlobGet
-        | DataRoute::AppOrgBlobPut
-        | DataRoute::AppOrgBlobGet
-        | DataRoute::AppBlobFootprint => content_free(404, "Not Found"),
-        DataRoute::OrgAuthorityPublish => {
-            heap_route!(execute_org_authority_publish_route, req, ctx, host).await
-        }
-        DataRoute::OrgAuthorityStatus => {
-            heap_route!(execute_org_authority_status_route, req, ctx, host).await
-        }
-        DataRoute::OrgSyncRegister => execute_org_sync_register_route(req, ctx, host).await,
-        DataRoute::DbCatalogGet => heap_route!(execute_db_catalog_get_route, req, ctx, host).await,
-        DataRoute::DbCatalogPut => heap_route!(execute_db_catalog_put_route, req, ctx, host).await,
-        DataRoute::DbCatalogDelete => {
-            heap_route!(execute_db_catalog_delete_route, req, ctx, host).await
-        }
-        DataRoute::DbCatalogShare => {
-            heap_route!(execute_db_catalog_share_route, req, ctx, host).await
-        }
-        DataRoute::DbCatalogReclaim => {
-            heap_route!(execute_db_catalog_reclaim_route, req, ctx, host).await
-        }
-        DataRoute::OrgSyncTargets => {
-            heap_route_ctx_host!(execute_org_sync_targets_route, ctx, host).await
-        }
-        DataRoute::OrgSyncDeactivate => {
-            heap_route!(execute_org_sync_deactivate_route, req, ctx, host).await
-        }
-        DataRoute::OrgSyncGrantMember => {
-            heap_route!(execute_org_sync_grant_member_route, req, ctx, host).await
-        }
-        DataRoute::OrgSyncRevokeMember => {
-            heap_route!(execute_org_sync_revoke_member_route, req, ctx, host).await
-        }
-        DataRoute::SyncHealStaging => {
-            heap_route_ctx_host!(execute_sync_heal_staging_route, ctx, host).await
-        }
-        DataRoute::SyncLastStoreSnapshot => execute_sync_laststore_snapshot_route(ctx, host).await,
-        DataRoute::SyncBackupGc => execute_sync_backup_gc_route(req, ctx, host),
-        DataRoute::SyncPrefixInventory => {
-            heap_route_ctx_host!(execute_sync_prefix_inventory_route, ctx, host).await
-        }
-        DataRoute::SyncCloudOff => {
-            heap_route_ctx_host!(execute_sync_cloud_off_route, ctx, host).await
-        }
-        DataRoute::SyncCloudOn => {
-            heap_route_ctx_host!(execute_sync_cloud_on_route, ctx, host).await
-        }
-        DataRoute::SyncCloudPurgeResync => cloud_purge_routes::execute(req, ctx, host).await,
-        DataRoute::SyncCloudResumePrimary => {
-            execute_sync_cloud_resume_primary_route(req, ctx, host)
-        }
-        DataRoute::SyncQuarantineReplayBlocker => {
-            heap_route!(execute_sync_quarantine_replay_blocker_route, req, ctx, host).await
-        }
-        DataRoute::SyncBackupConcurrency => {
-            heap_route!(execute_sync_backup_concurrency_route, req, ctx, host).await
-        }
-        DataRoute::DeliverStage => {
-            heap_route!(crate::deliver::execute_stage_delivery, req, ctx, host).await
-        }
-        DataRoute::RecipientAddress => {
-            heap_route_ctx_host!(crate::deliver::execute_recipient_address, ctx, host).await
-        }
-        DataRoute::DeliverSnapshot => {
-            heap_route!(crate::deliver::execute_publish_snapshot, req, ctx, host).await
-        }
-        DataRoute::DeliverList => {
-            heap_route_ctx_host!(crate::deliver::execute_list_deliveries, ctx, host).await
-        }
-        DataRoute::DeliverApprove => {
-            heap_delivery!(
-                "approve",
-                crate::deliver::execute_approve_delivery,
-                req,
-                ctx,
-                host
-            )
-            .await
-        }
-        DataRoute::DeliverReject => {
-            heap_delivery!(
-                "reject",
-                crate::deliver::execute_reject_delivery,
-                req,
-                ctx,
-                host
-            )
-            .await
-        }
-        DataRoute::LocalWatch => execute_local_watch_route(req, ctx, host),
-        DataRoute::AppChanges => heap_route!(execute_app_changes_route, req, ctx, host).await,
+    if let Some(response) = dispatch_core(route, req, ctx, host).await {
+        return response;
     }
+    if let Some(response) = dispatch_search_app(route, req, ctx, host).await {
+        return response;
+    }
+    if let Some(response) = dispatch_maintenance_gc(route, req, ctx, host).await {
+        return response;
+    }
+    if let Some(response) = dispatch_maintenance_repair(route, req, ctx, host).await {
+        return response;
+    }
+    if let Some(response) = dispatch_blob_identity(route, req, ctx, host).await {
+        return response;
+    }
+    if let Some(response) = dispatch_org_catalog(route, req, ctx, host).await {
+        return response;
+    }
+    if let Some(response) = dispatch_sync_deliver(route, req, ctx, host).await {
+        return response;
+    }
+    // Every `DataRoute` is owned by one group above; an unowned route is
+    // answered like an unrecognized path (content-free 404).
+    content_free(404, "Not Found")
 }
 
 pub(super) fn schema_owner_for_hint(host: &Host, schema: Option<&str>) -> Option<String> {
