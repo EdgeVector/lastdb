@@ -219,14 +219,6 @@ pub(super) fn configured_atom_ref_edge_health(host: &Host) -> AtomRefEdgeHealth 
     // Compact reverse-edge writes, reads and compact-only writes are always on.
     let mut health = AtomRefEdgeHealth::dual_write(v1_bytes, v2_bytes);
     health.phase = "v2_only_writes".to_string();
-    if crate::atom_ref_backfill::atom_ref_v1_drain_enabled() {
-        health.phase = if crate::atom_ref_backfill::atom_ref_backfill_enabled() {
-            "drain_misconfigured"
-        } else {
-            "v1_draining"
-        }
-        .to_string();
-    }
     health.molecule_bytes = gauge_from_wire(
         namespaced_store.collection_disk_bytes("molecule_ref_edges"),
         Unit::Bytes,
@@ -274,18 +266,6 @@ pub(crate) async fn refresh_atom_ref_edge_health(host: &Host) {
         Err(_) => "read_invalid",
     }
     .to_string();
-    if crate::atom_ref_backfill::atom_ref_v1_drain_enabled() {
-        health.phase = if crate::atom_ref_backfill::atom_ref_backfill_enabled() {
-            "drain_misconfigured"
-        } else {
-            match atom_ref_store.atom_ref_v1_drain_status().await {
-                Ok(status) if status.completed => "v1_drained",
-                Ok(_) => "v1_draining",
-                Err(_) => "drain_invalid",
-            }
-        }
-        .to_string();
-    }
     health.molecule_bytes = gauge_from_wire(
         namespaced_store.collection_disk_bytes("molecule_ref_edges"),
         Unit::Bytes,

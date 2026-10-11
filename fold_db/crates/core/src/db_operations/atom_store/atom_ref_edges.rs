@@ -12,7 +12,6 @@ use crate::clock::unix_nanos;
 use crate::db_operations::DbCatalogStore;
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::{Schema, SchemaError};
-use crate::storage::traits::PhysicalScanCursor;
 use crate::storage::KvMutation;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
@@ -46,9 +45,6 @@ const CATALOG_ATOM_REF_TRANSITIONS_KEY: &str = "aref:catalog-transitions:v1";
 const MOLECULE_CATALOG_REFCOUNT_PREFIX: &str = "mref:v1:c:database-catalog:";
 const ATOM_REF_V2_SOURCE_DOMAIN: &[u8] = b"lastdb:atom-ref-edge-source:v2\0";
 const ATOM_REF_V2_COMPLETE_MARKER: &[u8] = b"true";
-const ATOM_REF_V1_DRAIN_CHECKPOINT_KEY: &str = "aref:v2:m:v1-drain";
-const ATOM_REF_V1_DRAIN_COMPLETE_KEY: &str = "aref:v2:m:v1-drain-complete";
-const ATOM_REF_V1_DRAIN_HANDLES_PER_PAGE: usize = 8;
 const ATOM_REF_V1_DRAIN_END: &str = "\u{10ffff}";
 
 /// The durable row type that keeps an atom alive.
@@ -409,23 +405,6 @@ fn compact_json_put_mutation<T: Serialize>(
     Ok(KvMutation::put(key.into_bytes(), value))
 }
 
-fn push_manifest_item(
-    items: &mut Vec<(String, Value)>,
-    molecule_uuid: &str,
-    mutation_watermark_nanos: u64,
-    replay_complete: bool,
-    storage_prefix: Option<&str>,
-) -> Result<(), SchemaError> {
-    push_manifest_item_with_version(
-        items,
-        molecule_uuid,
-        mutation_watermark_nanos,
-        replay_complete,
-        ATOM_REF_MANIFEST_VERSION_TIPS,
-        storage_prefix,
-    )
-}
-
 fn push_manifest_item_with_version(
     items: &mut Vec<(String, Value)>,
     molecule_uuid: &str,
@@ -467,18 +446,4 @@ struct CompactEdgePlan {
 fn is_v1_atom_ref_edge_key(key: &str, storage_prefix: Option<&str>) -> bool {
     strip_storage_prefix(storage_prefix, key)
         .is_some_and(|base_key| base_key.starts_with(molecule_key_codec::ATOM_REF_EDGE_PREFIX))
-}
-
-fn is_any_v1_atom_ref_key(key: &[u8]) -> bool {
-    std::str::from_utf8(key).is_ok_and(|key| {
-        if key.starts_with("aref:v1:") {
-            return true;
-        }
-        let Some((storage_prefix, base_key)) = key.split_once(':') else {
-            return false;
-        };
-        storage_prefix.len() == 64
-            && storage_prefix.bytes().all(|byte| byte.is_ascii_hexdigit())
-            && base_key.starts_with("aref:v1:")
-    })
 }

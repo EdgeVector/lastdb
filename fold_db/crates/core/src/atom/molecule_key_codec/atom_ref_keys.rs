@@ -7,13 +7,6 @@ use super::*;
 /// contains the edge type, molecule, disk key, and version identity.
 pub const ATOM_REF_EDGE_PREFIX: &str = "aref:v1:e:";
 
-/// Durable cursor and phase for the two-pass reverse-reference rebuild.
-pub const ATOM_REF_REINDEX_CHECKPOINT_KEY: &str = "aref:v1:m:reindex";
-
-/// Global marker. Per-molecule manifests remain the authoritative cutover
-/// gate; this marker lets audit tools reject an incomplete whole-home result.
-pub const ATOM_REF_COMPLETE_KEY: &str = "aref:v1:m:complete";
-
 /// Durable cursor and phase for the compact v2 two-pass rebuild.
 pub const ATOM_REF_V2_REINDEX_CHECKPOINT_KEY: &str = "aref:v2:m:reindex";
 

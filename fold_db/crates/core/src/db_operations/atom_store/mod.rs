@@ -44,9 +44,8 @@ mod types;
 pub use atom_ref_edges::{
     AtomLiveRefCount, AtomRefBackfillPhase, AtomRefBackfillReport, AtomRefBackfillStatus,
     AtomRefEdge, AtomRefEdgeLookup, AtomRefEdgeType, AtomRefHistoryUpgrade,
-    AtomRefMoleculeManifest, AtomRefV1DrainReport, AtomRefV1DrainStatus,
-    AtomRefV2MoleculeAuditReport, PendingAtomRef, ATOM_REF_MANIFEST_VERSION_HISTORY,
-    ATOM_REF_MANIFEST_VERSION_TIPS, ATOM_REF_V2_ACTIVE_MARKER,
+    AtomRefMoleculeManifest, AtomRefV2MoleculeAuditReport, PendingAtomRef,
+    ATOM_REF_MANIFEST_VERSION_HISTORY, ATOM_REF_MANIFEST_VERSION_TIPS, ATOM_REF_V2_ACTIVE_MARKER,
 };
 pub use atom_ref_gc::{
     AtomGcAuditDecision, AtomGcAuditResult, AtomGcCandidate, AtomGcCandidatePage,
