@@ -39,9 +39,9 @@ mod read {
             &self,
             molecules: &[String],
         ) -> Vec<MoleculeConflictState> {
-            let mut results: Vec<_> = futures::stream::iter(molecules.iter().enumerate())
+            let mut results: Vec<_> = futures::stream::iter(molecules.iter().cloned().enumerate())
                 .map(|(index, molecule)| async move {
-                    (index, self.read_molecule_conflict_metadata(molecule).await)
+                    (index, self.read_molecule_conflict_metadata(&molecule).await)
                 })
                 .buffer_unordered(READ_CONCURRENCY)
                 .collect()
