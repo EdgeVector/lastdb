@@ -318,11 +318,3 @@ fn chrono_like_now() -> String {
     let secs = crate::clock::unix_secs();
     format!("{secs}")
 }
-
-// Back-compat aliases used by some call sites that still import the old names.
-// These are the same as the `_in_ops` variants.
-pub use list_active_org_sync_targets_in_ops as list_active_org_sync_targets;
-pub use list_org_sync_targets_in_ops as list_org_sync_targets;
-pub use upsert_org_sync_target_for_storage_prefix_and_schema_in_ops as upsert_org_sync_target_for_storage_prefix_and_schema;
-pub use upsert_org_sync_target_for_storage_prefix_in_ops as upsert_org_sync_target_for_storage_prefix;
-pub use upsert_org_sync_target_in_ops as upsert_org_sync_target;

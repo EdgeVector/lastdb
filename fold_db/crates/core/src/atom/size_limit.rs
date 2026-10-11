@@ -41,10 +41,6 @@ pub const MIN_MAX_ATOM_CONTENT_BYTES: usize = 1024;
 /// \[`MIN_MAX_ATOM_CONTENT_BYTES`, `ABSOLUTE_MAX_ATOM_CONTENT_BYTES`\].
 pub const MAX_ATOM_CONTENT_BYTES_ENV: &str = "LASTDB_MAX_ATOM_CONTENT_BYTES";
 
-/// Back-compat alias for the **default** limit (not the effective runtime
-/// value). New code should call [`max_atom_content_bytes`].
-pub const MAX_ATOM_CONTENT_BYTES: usize = DEFAULT_MAX_ATOM_CONTENT_BYTES;
-
 static EFFECTIVE_LIMIT: OnceLock<usize> = OnceLock::new();
 
 /// Effective atom content size limit for this process (bytes).
