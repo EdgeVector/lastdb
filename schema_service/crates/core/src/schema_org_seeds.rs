@@ -60,8 +60,6 @@ use schema_types::FieldValueType;
 use schema_types::FoldDbError;
 use schema_types::FoldDbResult;
 #[cfg(feature = "schema-org-seed-data")]
-use schema_types::Schema;
-#[cfg(feature = "schema-org-seed-data")]
 use serde::Deserialize;
 
 use crate::state::SchemaServiceState;
@@ -158,29 +156,6 @@ fn classify_schema_org_field(
         ))
     })?;
     Ok((classification, interest))
-}
-
-/// Committed validated canonical-fields aggregate. Emitted by
-/// `generate_validated_schema_org_seeds` — one entry per property, with
-/// the classification already applied.
-#[cfg(feature = "schema-org-seed-data")]
-const VALIDATED_CANONICAL_FIELDS_JSON: &str =
-    include_str!("../data/schema_org/validated_canonical_fields.json");
-
-/// Committed per-schema files under `data/schema_org/schemas/*.json`.
-/// `include_dir!` embeds the whole directory at build time so cold start
-/// needs no filesystem I/O.
-#[cfg(feature = "schema-org-seed-data")]
-static VALIDATED_SCHEMAS_DIR: include_dir::Dir<'_> =
-    include_dir::include_dir!("$CARGO_MANIFEST_DIR/data/schema_org/schemas");
-
-/// Envelope shape of the committed canonical-fields aggregate. The
-/// `version` and generator-metadata keys on disk are informational and
-/// ignored by serde.
-#[cfg(feature = "schema-org-seed-data")]
-#[derive(Deserialize)]
-struct ValidatedCanonicalFieldsDoc {
-    entries: HashMap<String, CanonicalField>,
 }
 
 /// Cold-start hook. **Does not insert Schema.org types or properties.**
