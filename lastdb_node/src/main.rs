@@ -252,7 +252,6 @@ fn main() -> Result<(), String> {
 
     // The accept loop returned — a graceful SIGTERM/SIGINT shutdown.
     shutdown::record_shutdown_intent(session_ledger.is_some(), &home, pid, &mut shutdown_errors);
-    #[cfg(feature = "cloud-sync")]
     host.db.request_background_stop();
 
     match full_accept.join() {

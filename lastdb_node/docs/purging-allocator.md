@@ -11,7 +11,7 @@ Build the comparison binary with the system allocator:
 
 ```bash
 cargo build -p lastdb_node --bin lastdbd --no-default-features \
-  --features cloud-sync,sentry-telemetry
+  --features sentry-telemetry
 ```
 
 The status and self-metric surfaces report the allocator name, committed bytes,
