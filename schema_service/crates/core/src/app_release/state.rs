@@ -397,14 +397,3 @@ impl SchemaServiceState {
         Ok(())
     }
 }
-
-pub(super) fn record_release_op(env: &str, op: &str, status: &str) {
-    tracing::info!(
-        target: "schema_service::app_release",
-        metric = "app_release_op_total",
-        env = %env,
-        op = %op,
-        status = %status,
-        "app release registry outcome"
-    );
-}
