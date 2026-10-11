@@ -78,6 +78,20 @@ impl LastStoreNamespacedStore {
         backup_manifest::cut_backup_manifest_with_cloud_presence(self, previous_manifest, cloud)
     }
 
+    /// Normal publication permits only exact verified atom append replacements.
+    /// Caller must hold its serving fence and publication packing lock.
+    pub(crate) fn cut_normal_backup_manifest_with_cloud_presence(
+        &self,
+        previous_manifest: Option<&BackupManifest>,
+        cloud: Option<&CloudChunkPresence>,
+    ) -> StorageResult<BackupManifest> {
+        backup_manifest::cut_normal_backup_manifest_with_cloud_presence(
+            self,
+            previous_manifest,
+            cloud,
+        )
+    }
+
     /// Refuse a backup cut if the cold-load cap left any unsealed group out.
     pub fn cut_backup_manifest_with_cloud_presence_strict(
         &self,

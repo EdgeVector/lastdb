@@ -96,13 +96,14 @@ pub(in super::super) fn atom_photograph_copy_report(
     Ok(report)
 }
 
-/// Replacement authority remains the existing pending-retirement sidecar.
-/// A changed prior ref without that authority stops the cut. Even with the
-/// authority, the selected successor must contain the exact prior prefix.
+/// Normal cuts may prove a strict append without local retirement authority.
+/// Other cuts require the existing pending-retirement sidecar. Both paths
+/// preserve the exact predecessor prefix; neither grants retirement authority.
 pub(in super::super) fn verify_selected_atom_replacements(
     previous: Option<&BackupManifest>,
     selected: &[(BackupChunkRef, PathBuf)],
     pending: &PendingPurgedAtomRetirements,
+    allow_verified_atom_append: bool,
 ) -> StorageResult<()> {
     let Some(previous) = previous else {
         return Ok(());
@@ -126,6 +127,13 @@ pub(in super::super) fn verify_selected_atom_replacements(
             continue;
         };
         if current.sha256 == prior.sha256 && current.bytes == prior.bytes {
+            continue;
+        }
+        if allow_verified_atom_append
+            && prior.bytes > 0
+            && current.bytes > prior.bytes
+            && atom_lineage::file_has_verified_prefix(path, prior, current)?
+        {
             continue;
         }
         if !pending.pending_shas.contains(&prior.sha256) {
