@@ -9,6 +9,9 @@ impl SyncEngine {
         // select, drain, CAS, or retire the shared publish target.
         let _publish_turn = self.backup_publish_turn.lock().await;
         let current_previous = self.effective_previous_manifest(previous_manifest)?;
+        let current_previous = self
+            .recover_missing_normal_backup_predecessor(current_previous)
+            .await?;
         // One automatic retry after store_uuid_mismatch (epoch rebind) or
         // stale_counter against a *different* cloud tip (counter observe).
         self.laststore_cloud_snapshot_once(current_previous.as_ref(), true, true, None)

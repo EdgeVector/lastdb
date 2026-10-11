@@ -38,6 +38,16 @@ impl LastStoreNamespacedStore {
         Ok(Some(cloud_db_hash_for_store_uuid(&state.store_uuid)))
     }
 
+    /// Read the durable backup source identity without initializing a marker.
+    pub(crate) fn backup_source_identity(&self) -> StorageResult<(String, u64)> {
+        self.high_water
+            .as_ref()
+            .ok_or_else(|| {
+                StorageError::BackendError("backup source identity is unavailable".into())
+            })?
+            .backup_source_identity()
+    }
+
     pub fn verify_integrity(&self) -> StorageResult<()> {
         self.store
             .verify_integrity()
