@@ -90,147 +90,180 @@ pub(crate) fn candidate_catalog_hash(
 ///
 /// A candidate must both cover every proposed field and carry the proposal's
 /// key layout; see [`reject_candidate_key_layout_mismatch`].
-// lint:fn-size-ok moved verbatim from schema_declare.rs; splitting this function is separate work
 pub(crate) fn resolve_declare_bind(
     proposed: &DeclarativeSchemaDefinition,
     result: &SchemaResolveResult,
 ) -> Result<DirectDeclareResolution, String> {
     if result.outcome == SchemaResolveOutcome::Reuse {
-        if let Some(matched) = result.r#match.as_ref() {
-            if !matched.is_superset {
-                return Err("catalog candidate does not cover every proposed field".into());
-            }
-            let candidate = &matched.schema.schema;
-            reject_candidate_key_layout_mismatch(
-                proposed,
-                &candidate_catalog_hash(matched),
-                &candidate.schema_type,
-                candidate.key.as_ref(),
-                &matched.field_rename_map,
-            )?;
-        }
-        if let Some(hash) = result.matched_shared_schema_hash.as_deref() {
-            if !hash.trim().is_empty() {
-                return Ok(DirectDeclareResolution::Reuse {
-                    catalog_hash: hash.to_string(),
-                    field_mappers: result
-                        .r#match
-                        .as_ref()
-                        .map(|m| m.field_rename_map.clone())
-                        .unwrap_or_default(),
-                    confidence: result.confidence,
-                });
-            }
+        if let Some(resolution) = resolve_reuse_outcome(proposed, result)? {
+            return Ok(resolution);
         }
     }
-
     if result.outcome == SchemaResolveOutcome::CandidateEquivalent {
-        let mut hashes: Vec<String> = result
-            .candidate_shared_schema_hashes
-            .iter()
-            .map(|h| h.trim().to_string())
-            .filter(|h| !h.is_empty())
-            .collect();
-
-        if hashes.is_empty() {
-            for cand in &result.candidates {
-                let h = cand
-                    .schema
-                    .schema
-                    .identity_hash
-                    .clone()
-                    .unwrap_or_else(|| cand.schema.schema.name.clone());
-                let h = h.trim().to_string();
-                if !h.is_empty() {
-                    hashes.push(h);
-                }
-            }
-        }
-
-        let mut seen = HashSet::new();
-        hashes.retain(|h| seen.insert(h.clone()));
-
-        if !hashes.is_empty() {
-            if hashes.len() == 1 {
-                if result
-                    .candidates
-                    .iter()
-                    .any(|candidate| !candidate.is_superset)
-                {
-                    return Err(
-                        "single catalog candidate does not cover every proposed field".into(),
-                    );
-                }
-                for candidate in &result.candidates {
-                    if candidate_catalog_hash(candidate) != hashes[0] {
-                        continue;
-                    }
-                    let schema = &candidate.schema.schema;
-                    reject_candidate_key_layout_mismatch(
-                        proposed,
-                        &hashes[0],
-                        &schema.schema_type,
-                        schema.key.as_ref(),
-                        &candidate.field_rename_map,
-                    )?;
-                }
-            }
-            let mut by_hash: HashMap<String, usize> = HashMap::new();
-            for (i, cand) in result.candidates.iter().enumerate() {
-                let h = cand
-                    .schema
-                    .schema
-                    .identity_hash
-                    .clone()
-                    .unwrap_or_else(|| cand.schema.schema.name.clone());
-                let h = h.trim().to_string();
-                if !h.is_empty() {
-                    by_hash.entry(h).or_insert(i);
-                }
-            }
-
-            let components: Vec<DirectDeclareComponent> = hashes
-                .iter()
-                .map(|h| {
-                    if let Some(&i) = by_hash.get(h) {
-                        let m = &result.candidates[i];
-                        DirectDeclareComponent {
-                            catalog_hash: h.clone(),
-                            field_mappers: m.field_rename_map.clone(),
-                            matched_descriptive_name: Some(m.matched_descriptive_name.clone()),
-                            unmapped_fields: m.unmapped_fields.clone(),
-                            is_exact_match: Some(m.is_exact_match),
-                            is_superset: Some(m.is_superset),
-                        }
-                    } else {
-                        DirectDeclareComponent {
-                            catalog_hash: h.clone(),
-                            field_mappers: HashMap::new(),
-                            matched_descriptive_name: None,
-                            unmapped_fields: Vec::new(),
-                            is_exact_match: None,
-                            is_superset: None,
-                        }
-                    }
-                })
-                .collect();
-
-            if components.len() == 1 {
-                let c = &components[0];
-                return Ok(DirectDeclareResolution::Reuse {
-                    catalog_hash: c.catalog_hash.clone(),
-                    field_mappers: c.field_mappers.clone(),
-                    confidence: result.confidence,
-                });
-            }
-            return Ok(DirectDeclareResolution::Compose {
-                components,
-                confidence: result.confidence,
-            });
+        if let Some(resolution) = resolve_candidate_equivalent(proposed, result)? {
+            return Ok(resolution);
         }
     }
-
     Err("proposal is novel to the schema catalog".into())
+}
+
+/// Trimmed catalog hash of a candidate; empty when the service stamped none.
+fn trimmed_candidate_hash(candidate: &schema_service_client::types::SchemaReuseMatch) -> String {
+    candidate_catalog_hash(candidate).trim().to_string()
+}
+
+/// `reuse` outcome: validate the match and bind the shared schema hash.
+fn resolve_reuse_outcome(
+    proposed: &DeclarativeSchemaDefinition,
+    result: &SchemaResolveResult,
+) -> Result<Option<DirectDeclareResolution>, String> {
+    if let Some(matched) = result.r#match.as_ref() {
+        if !matched.is_superset {
+            return Err("catalog candidate does not cover every proposed field".into());
+        }
+        let candidate = &matched.schema.schema;
+        reject_candidate_key_layout_mismatch(
+            proposed,
+            &candidate_catalog_hash(matched),
+            &candidate.schema_type,
+            candidate.key.as_ref(),
+            &matched.field_rename_map,
+        )?;
+    }
+    let Some(hash) = result.matched_shared_schema_hash.as_deref() else {
+        return Ok(None);
+    };
+    if hash.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(DirectDeclareResolution::Reuse {
+        catalog_hash: hash.to_string(),
+        field_mappers: result
+            .r#match
+            .as_ref()
+            .map(|m| m.field_rename_map.clone())
+            .unwrap_or_default(),
+        confidence: result.confidence,
+    }))
+}
+
+/// Component hashes of a `candidate_equivalent` result, deduplicated in
+/// order. Falls back to the candidates' own hashes when the service sent none.
+fn candidate_equivalent_hashes(result: &SchemaResolveResult) -> Vec<String> {
+    let mut hashes: Vec<String> = result
+        .candidate_shared_schema_hashes
+        .iter()
+        .map(|h| h.trim().to_string())
+        .filter(|h| !h.is_empty())
+        .collect();
+    if hashes.is_empty() {
+        hashes.extend(
+            result
+                .candidates
+                .iter()
+                .map(trimmed_candidate_hash)
+                .filter(|h| !h.is_empty()),
+        );
+    }
+    let mut seen = HashSet::new();
+    hashes.retain(|h| seen.insert(h.clone()));
+    hashes
+}
+
+/// A lone component must cover every proposed field and keep the proposal's
+/// key layout.
+fn check_single_candidate(
+    proposed: &DeclarativeSchemaDefinition,
+    result: &SchemaResolveResult,
+    hash: &str,
+) -> Result<(), String> {
+    if result
+        .candidates
+        .iter()
+        .any(|candidate| !candidate.is_superset)
+    {
+        return Err("single catalog candidate does not cover every proposed field".into());
+    }
+    for candidate in &result.candidates {
+        if candidate_catalog_hash(candidate) != hash {
+            continue;
+        }
+        let schema = &candidate.schema.schema;
+        reject_candidate_key_layout_mismatch(
+            proposed,
+            hash,
+            &schema.schema_type,
+            schema.key.as_ref(),
+            &candidate.field_rename_map,
+        )?;
+    }
+    Ok(())
+}
+
+/// One bind component per hash, carrying candidate details when known.
+fn candidate_components(
+    result: &SchemaResolveResult,
+    hashes: &[String],
+) -> Vec<DirectDeclareComponent> {
+    let mut by_hash: HashMap<String, usize> = HashMap::new();
+    for (i, cand) in result.candidates.iter().enumerate() {
+        let h = trimmed_candidate_hash(cand);
+        if !h.is_empty() {
+            by_hash.entry(h).or_insert(i);
+        }
+    }
+    hashes
+        .iter()
+        .map(|h| {
+            if let Some(&i) = by_hash.get(h) {
+                let m = &result.candidates[i];
+                DirectDeclareComponent {
+                    catalog_hash: h.clone(),
+                    field_mappers: m.field_rename_map.clone(),
+                    matched_descriptive_name: Some(m.matched_descriptive_name.clone()),
+                    unmapped_fields: m.unmapped_fields.clone(),
+                    is_exact_match: Some(m.is_exact_match),
+                    is_superset: Some(m.is_superset),
+                }
+            } else {
+                DirectDeclareComponent {
+                    catalog_hash: h.clone(),
+                    field_mappers: HashMap::new(),
+                    matched_descriptive_name: None,
+                    unmapped_fields: Vec::new(),
+                    is_exact_match: None,
+                    is_superset: None,
+                }
+            }
+        })
+        .collect()
+}
+
+/// `candidate_equivalent` outcome: bind one hash as reuse, several as compose.
+fn resolve_candidate_equivalent(
+    proposed: &DeclarativeSchemaDefinition,
+    result: &SchemaResolveResult,
+) -> Result<Option<DirectDeclareResolution>, String> {
+    let hashes = candidate_equivalent_hashes(result);
+    if hashes.is_empty() {
+        return Ok(None);
+    }
+    if hashes.len() == 1 {
+        check_single_candidate(proposed, result, &hashes[0])?;
+    }
+    let components = candidate_components(result, &hashes);
+    if components.len() == 1 {
+        let c = &components[0];
+        return Ok(Some(DirectDeclareResolution::Reuse {
+            catalog_hash: c.catalog_hash.clone(),
+            field_mappers: c.field_mappers.clone(),
+            confidence: result.confidence,
+        }));
+    }
+    Ok(Some(DirectDeclareResolution::Compose {
+        components,
+        confidence: result.confidence,
+    }))
 }
 
 pub(crate) async fn load_catalog_hashes_on_host(

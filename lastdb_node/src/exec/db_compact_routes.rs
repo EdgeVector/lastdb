@@ -324,7 +324,6 @@ pub(super) fn skipped_backup_cut_compact_response(
     ))
 }
 
-// lint:fn-size-ok moved verbatim from exec.rs; splitting this function is separate work.
 pub(super) async fn execute_db_compact_walk(
     host: &Host,
     ctx: &AccessContext,
@@ -343,14 +342,8 @@ pub(super) async fn execute_db_compact_walk(
     let file_state_before = crate::cloud::cloud_sync_file_state(&host.home);
     let mut cloud_paused = false;
     if isolate && file_state_before == "on" {
-        if let Err(e) = host.db.set_cloud_sync_disabled_live(true).await {
-            tracing::warn!(
-                error = %e,
-                "compact: live engine pause failed; continuing with durable file pause"
-            );
-        }
-        if let Err(e) = crate::cloud::pause_cloud_sync_file(&host.home) {
-            return error_response(500, &format!("compact: cloud pause failed: {e}"), ctx);
+        if let Err(e) = pause_cloud_for_compact(host).await {
+            return error_response(500, &e, ctx);
         }
         cloud_paused = true;
     }
@@ -359,52 +352,18 @@ pub(super) async fn execute_db_compact_walk(
     // Keep pause/resume outside the lock; protect the entire physical walk so
     // no new cut can start between collections. Recheck after the pause to
     // cover a target acquired since the route's early refusal check.
-    let compact = || async {
-        let mut reports: Vec<serde_json::Value> = Vec::new();
-        let mut first_error: Option<String> = None;
-        for collection in &collections {
-            match host.db.compact_collection(collection, dry_run).await {
-                Ok(report) => match serde_json::to_value(&report) {
-                    Ok(v) => reports.push(v),
-                    Err(e) => {
-                        first_error = Some(format!("serialize compact report: {e}"));
-                        break;
-                    }
-                },
-                Err(e) => {
-                    first_error = Some(format!("compact {collection} failed: {e}"));
-                    break;
-                }
-            }
-        }
-        (reports, first_error)
-    };
+    let compact = || compact_collections(host, &collections, dry_run);
     let result = if dry_run {
         Some(compact().await)
     } else {
         host.db.run_unless_backup_publish_target_held(compact).await
     };
 
-    let mut cloud_restored = false;
-    let mut cloud_restore_error: Option<String> = None;
-    if cloud_paused {
-        match crate::cloud::resume_cloud_sync_file(&host.home) {
-            Ok(_) => {
-                cloud_restored = true;
-                if let Err(e) = host.db.reenable_cloud_sync_live().await {
-                    cloud_restore_error = Some(format!(
-                        "file restored but live engine not re-enabled ({e}); \
-                         restart lastdbd or run `lastdb cloud on`"
-                    ));
-                }
-            }
-            Err(e) => {
-                cloud_restore_error = Some(format!(
-                    "cloud left paused ({e}). Run `lastdb cloud on` to restore."
-                ));
-            }
-        }
-    }
+    let (cloud_restored, cloud_restore_error) = if cloud_paused {
+        restore_cloud_after_compact(host).await
+    } else {
+        (false, None)
+    };
 
     let cloud = serde_json::json!({
         "isolation_needed": isolation_needed,
@@ -449,5 +408,62 @@ pub(super) async fn execute_db_compact_walk(
         &serde_json::json!({ "compact": compact_json }),
         ctx.user_id.as_str(),
     ))
+}
+
+/// Pause Cloud Sync for a compact walk. The live engine pause is best effort;
+/// the durable file pause must succeed.
+async fn pause_cloud_for_compact(host: &Host) -> Result<(), String> {
+    if let Err(e) = host.db.set_cloud_sync_disabled_live(true).await {
+        tracing::warn!(
+            error = %e,
+            "compact: live engine pause failed; continuing with durable file pause"
+        );
+    }
+    crate::cloud::pause_cloud_sync_file(&host.home)
+        .map(|_| ())
+        .map_err(|e| format!("compact: cloud pause failed: {e}"))
+}
+
+/// Compact each collection in order. Stops at the first failure and returns
+/// the reports gathered so far with that error.
+async fn compact_collections(
+    host: &Host,
+    collections: &[String],
+    dry_run: bool,
+) -> (Vec<serde_json::Value>, Option<String>) {
+    let mut reports: Vec<serde_json::Value> = Vec::new();
+    for collection in collections {
+        match host.db.compact_collection(collection, dry_run).await {
+            Ok(report) => match serde_json::to_value(&report) {
+                Ok(v) => reports.push(v),
+                Err(e) => return (reports, Some(format!("serialize compact report: {e}"))),
+            },
+            Err(e) => return (reports, Some(format!("compact {collection} failed: {e}"))),
+        }
+    }
+    (reports, None)
+}
+
+/// Resume Cloud Sync after a compact walk. Returns whether the file state was
+/// restored and, when anything stayed degraded, the operator-facing reason.
+async fn restore_cloud_after_compact(host: &Host) -> (bool, Option<String>) {
+    match crate::cloud::resume_cloud_sync_file(&host.home) {
+        Ok(_) => match host.db.reenable_cloud_sync_live().await {
+            Ok(_) => (true, None),
+            Err(e) => (
+                true,
+                Some(format!(
+                    "file restored but live engine not re-enabled ({e}); \
+                     restart lastdbd or run `lastdb cloud on`"
+                )),
+            ),
+        },
+        Err(e) => (
+            false,
+            Some(format!(
+                "cloud left paused ({e}). Run `lastdb cloud on` to restore."
+            )),
+        ),
+    }
 }
 // lint:file-size-ok moved verbatim from exec.rs; cohesive unit, split further in a later pass

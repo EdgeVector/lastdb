@@ -104,7 +104,6 @@ pub(crate) async fn load_app_single_catalog_binding(
 /// molecule has none, move the catalog metadata onto that map before the app
 /// mapper resolves. This changes metadata only. A catalog that already has
 /// rows is a conflict and must not be repointed automatically.
-// lint:fn-size-ok moved verbatim from schema_declare.rs; splitting this function is separate work
 pub(crate) async fn adopt_existing_app_molecules_for_empty_catalog(
     host: &Host,
     binding: &Schema,
@@ -148,31 +147,11 @@ pub(crate) async fn adopt_existing_app_molecules_for_empty_catalog(
         return Ok(());
     }
 
-    let key_molecule = |schema: &Schema, map: &HashMap<String, String>| {
-        schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
-            .and_then(|field| map.get(field))
-            .cloned()
-    };
-    let has_live_key = |molecule: Option<String>| async move {
-        let Some(molecule) = molecule else {
-            return Ok(false);
-        };
-        host.db
-            .db_ops()
-            .atoms()
-            .list_live_record_keys(&molecule, 1, None, None)
-            .await
-            .map(|(keys, _, _)| !keys.is_empty())
-            .map_err(|e| format!("failed to probe key molecule {molecule}: {e}"))
-    };
-    let app_has_rows = has_live_key(key_molecule(&existing_app, &app_map)).await?;
+    let app_has_rows = has_live_key(host, key_molecule(&existing_app, &app_map)).await?;
     if !app_has_rows {
         return Ok(());
     }
-    let catalog_has_rows = has_live_key(key_molecule(&catalog, &catalog_map)).await?;
+    let catalog_has_rows = has_live_key(host, key_molecule(&catalog, &catalog_map)).await?;
     if catalog_has_rows {
         return Err(format!(
             "refusing catalog bind for {}: both the app schema and catalog schema have rows on different physical maps",
@@ -180,6 +159,59 @@ pub(crate) async fn adopt_existing_app_molecules_for_empty_catalog(
         ));
     }
 
+    let replacement = adopted_molecule_map(binding, catalog_hash, &app_map, &catalog_map)?;
+
+    let expected = fold_db::schema::SchemaCore::field_molecule_map_fingerprint(&catalog_map);
+    manager
+        .repair_field_molecule_uuids(catalog_hash, &expected, replacement)
+        .await
+        .map_err(|e| {
+            format!(
+                "failed to preserve existing app molecules for {} -> {catalog_hash}: {e}",
+                binding.name
+            )
+        })?;
+    tracing::warn!(
+        target: "lastdb_node::apps_declare_schema",
+        schema = %binding.name,
+        catalog = %catalog_hash,
+        "adopted the existing app field map because the catalog key molecule was empty"
+    );
+    Ok(())
+}
+
+/// Physical molecule of the schema's key field, when the map names one.
+fn key_molecule(schema: &Schema, map: &HashMap<String, String>) -> Option<String> {
+    schema
+        .key
+        .as_ref()
+        .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
+        .and_then(|field| map.get(field))
+        .cloned()
+}
+
+/// Whether the key molecule holds at least one live record.
+async fn has_live_key(host: &Host, molecule: Option<String>) -> Result<bool, String> {
+    let Some(molecule) = molecule else {
+        return Ok(false);
+    };
+    host.db
+        .db_ops()
+        .atoms()
+        .list_live_record_keys(&molecule, 1, None, None)
+        .await
+        .map(|(keys, _, _)| !keys.is_empty())
+        .map_err(|e| format!("failed to probe key molecule {molecule}: {e}"))
+}
+
+/// Catalog field map with the app's molecules substituted for every catalog
+/// field the app binding maps, refusing when app fields disagree.
+fn adopted_molecule_map(
+    binding: &Schema,
+    catalog_hash: &str,
+    app_map: &HashMap<String, String>,
+    catalog_map: &HashMap<String, String>,
+) -> Result<HashMap<String, String>, String> {
     let mut replacement = catalog_map.clone();
     let binding_mappers = binding
         .field_mappers
@@ -211,22 +243,5 @@ pub(crate) async fn adopt_existing_app_molecules_for_empty_catalog(
             }
         }
     }
-
-    let expected = fold_db::schema::SchemaCore::field_molecule_map_fingerprint(&catalog_map);
-    manager
-        .repair_field_molecule_uuids(catalog_hash, &expected, replacement)
-        .await
-        .map_err(|e| {
-            format!(
-                "failed to preserve existing app molecules for {} -> {catalog_hash}: {e}",
-                binding.name
-            )
-        })?;
-    tracing::warn!(
-        target: "lastdb_node::apps_declare_schema",
-        schema = %binding.name,
-        catalog = %catalog_hash,
-        "adopted the existing app field map because the catalog key molecule was empty"
-    );
-    Ok(())
+    Ok(replacement)
 }
