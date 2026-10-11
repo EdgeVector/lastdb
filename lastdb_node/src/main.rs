@@ -75,6 +75,73 @@ fn register_shutdown_signals(shutdown: &Arc<AtomicBool>) -> Result<(), String> {
     Ok(())
 }
 
+/// Everything the graceful-shutdown sequence needs after the owner accept loop
+/// returns.
+struct ShutdownInputs<'a> {
+    home: &'a std::path::Path,
+    pid: u32,
+    runtime: &'a tokio::runtime::Runtime,
+    host: &'a Arc<Host>,
+    session_ledger: Option<&'a lastdb_node::session_ledger::Ledger>,
+    session_heartbeat: Option<lastdb_node::session_ledger::SessionHeartbeat>,
+    worker_pool: &'a UdsWorkerPool,
+    full_accept: std::thread::JoinHandle<Result<(), String>>,
+    sampler_task: tokio::task::JoinHandle<()>,
+    home_fold_task: tokio::task::JoinHandle<()>,
+}
+
+/// The accept loop returned (a graceful SIGTERM/SIGINT shutdown): stop the
+/// accept threads, drain handlers and background tasks, flush, and write the
+/// shutdown proof. Errors are collected so every step still runs.
+fn drain_and_prove_shutdown(
+    inputs: ShutdownInputs<'_>,
+    accept_result: std::io::Result<()>,
+) -> Result<(), String> {
+    let ShutdownInputs {
+        home,
+        pid,
+        runtime,
+        host,
+        session_ledger,
+        session_heartbeat,
+        worker_pool,
+        full_accept,
+        sampler_task,
+        home_fold_task,
+    } = inputs;
+    let mut shutdown_errors = Vec::new();
+    if let Err(error) = accept_result {
+        shutdown_errors.push(format!("owner accept loop failed: {error}"));
+    }
+
+    shutdown::record_shutdown_intent(session_ledger.is_some(), home, pid, &mut shutdown_errors);
+    host.db.request_background_stop();
+
+    match full_accept.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => shutdown_errors.push(error),
+        Err(_) => shutdown_errors.push("full-surface accept thread panicked".to_string()),
+    }
+    if let Err(error) = worker_pool.close_and_drain(shutdown::shutdown_handler_drain_timeout()) {
+        shutdown_errors.push(format!("request handlers did not drain: {error}"));
+    }
+    if let Err(error) = shutdown::drain_background(runtime, host, sampler_task, home_fold_task) {
+        shutdown_errors.push(error);
+    }
+
+    // The final flush follows every accepted request and node writer.
+    if let Err(error) = shutdown::flush_database(runtime, host) {
+        shutdown_errors.push(error);
+    }
+    if let Some(heartbeat) = session_heartbeat {
+        if let Err(error) = heartbeat.stop() {
+            shutdown_errors.push(format!("session heartbeat did not stop: {error}"));
+        }
+    }
+    let start_ts = session_ledger.map_or(0, |ledger| ledger.own_record().start_ts);
+    shutdown::complete_shutdown_proof(home, pid, start_ts, &shutdown_errors)
+}
+
 fn main() -> Result<(), String> {
     let allocator_tuning = lastdb_node::allocator::configure();
     lastdb_node::log_rotation::spawn_stdio_log_rotators();
@@ -245,40 +312,21 @@ fn main() -> Result<(), String> {
 
     let accept_result = server.serve(Surface::Owner, &socket, owner_uid, &shutdown_flag);
     shutdown_flag.store(true, Ordering::Release);
-    let mut shutdown_errors = Vec::new();
-    if let Err(error) = accept_result {
-        shutdown_errors.push(format!("owner accept loop failed: {error}"));
-    }
-
-    // The accept loop returned — a graceful SIGTERM/SIGINT shutdown.
-    shutdown::record_shutdown_intent(session_ledger.is_some(), &home, pid, &mut shutdown_errors);
-    host.db.request_background_stop();
-
-    match full_accept.join() {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => shutdown_errors.push(error),
-        Err(_) => shutdown_errors.push("full-surface accept thread panicked".to_string()),
-    }
-    if let Err(error) = worker_pool.close_and_drain(shutdown::shutdown_handler_drain_timeout()) {
-        shutdown_errors.push(format!("request handlers did not drain: {error}"));
-    }
-    if let Err(error) = shutdown::drain_background(&runtime, &host, sampler_task, home_fold_task) {
-        shutdown_errors.push(error);
-    }
-
-    // The final flush follows every accepted request and node writer.
-    if let Err(error) = shutdown::flush_database(&runtime, &host) {
-        shutdown_errors.push(error);
-    }
-    if let Some(heartbeat) = session_heartbeat {
-        if let Err(error) = heartbeat.stop() {
-            shutdown_errors.push(format!("session heartbeat did not stop: {error}"));
-        }
-    }
-    let start_ts = session_ledger
-        .as_ref()
-        .map_or(0, |ledger| ledger.own_record().start_ts);
-    let shutdown_result = shutdown::complete_shutdown_proof(&home, pid, start_ts, &shutdown_errors);
+    let shutdown_result = drain_and_prove_shutdown(
+        ShutdownInputs {
+            home: &home,
+            pid,
+            runtime: &runtime,
+            host: &host,
+            session_ledger: session_ledger.as_ref(),
+            session_heartbeat,
+            worker_pool: &worker_pool,
+            full_accept,
+            sampler_task,
+            home_fold_task,
+        },
+        accept_result,
+    );
     shutdown_runtime::finish(runtime, shutdown_result)?;
 
     println!("lastdbd: shutdown signal received, exiting");

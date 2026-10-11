@@ -484,88 +484,8 @@ impl SchemaServiceState {
         }
         schema.fields = Some(merged_fields);
 
-        // Dual-stamp: keep N FieldMappers (old Mini copies field UUIDs) AND
-        // one RecordMapper (new Mini copies R once the predecessor has one).
-        // Never set field_mappers = None here — that hides historical rows
-        // for a Mini that ignores record_mapper.
-        use schema_types::{FieldMapper, RecordMapper};
-        let mut mappers: HashMap<String, FieldMapper> =
-            schema.field_mappers().cloned().unwrap_or_default();
-        for field in &existing_fields {
-            mappers
-                .entry(field.clone())
-                .or_insert_with(|| FieldMapper::new(old_name.to_string(), field.clone()));
-        }
-        schema.field_mappers = Some(mappers);
-        schema.record_mapper = Some(RecordMapper::new(old_name.to_string()));
-        // Copy R only when the predecessor already holds a record molecule.
-        // Today's catalogs have field_molecule_uuids, not molecule_uuid.
-        if schema.molecule_uuid.is_none() {
-            schema.molecule_uuid = existing.molecule_uuid.clone();
-        }
-        schema.field_molecule_uuids = None;
-
-        // Merge field_classifications (keep existing, add new)
-        for (field, classifications) in &existing.field_classifications {
-            schema
-                .field_classifications
-                .entry(field.clone())
-                .or_insert_with(|| classifications.clone());
-        }
-
-        // Merge field_data_classifications (keep existing, add new)
-        for (field, classification) in &existing.field_data_classifications {
-            schema
-                .field_data_classifications
-                .entry(field.clone())
-                .or_insert_with(|| classification.clone());
-        }
-
-        // Merge field_interest_categories (keep existing, add new)
-        for (field, category) in &existing.field_interest_categories {
-            schema
-                .field_interest_categories
-                .entry(field.clone())
-                .or_insert_with(|| category.clone());
-        }
-
-        // Merge ref_fields (keep existing references)
-        for (field, target) in &existing.ref_fields {
-            schema
-                .ref_fields
-                .entry(field.clone())
-                .or_insert_with(|| target.clone());
-        }
-
-        // Merge field_descriptions and field_types from existing into the
-        // expanded schema for any field the incoming schema didn't supply
-        // itself.
-        //
-        // Without this merge the existing-only fields (which get added to
-        // `schema.fields` above) carry no entry in these maps after expansion
-        // and the same class of silent breakage that #439 / #457 fixed for
-        // `apply_field_renames` shows up here too:
-        //
-        //  - `field_descriptions` missing breaks the
-        //    `add_schema`-time invariant that every entry in `fields` has a
-        //    description, and downstream `build_field_description` falls
-        //    back to a low-signal stub that lowers semantic-match quality.
-        //  - `field_types` missing makes `Schema::get_field_type` fall back
-        //    to `Any` whenever the canonical registry doesn't already
-        //    carry the field (e.g. legacy entries with `field_type == Any`),
-        //    losing the type the existing schema's caller had declared.
-        for (field, description) in &existing.field_descriptions {
-            schema
-                .field_descriptions
-                .entry(field.clone())
-                .or_insert_with(|| description.clone());
-        }
-        for (field, ty) in &existing.field_types {
-            schema
-                .field_types
-                .entry(field.clone())
-                .or_insert_with(|| ty.clone());
-        }
+        Self::stamp_predecessor_mappers(schema, existing, &existing_fields, old_name);
+        merge_existing_metadata(schema, existing);
 
         // Recompute identity hash with merged fields.
         // The expanded schema is a NEW schema — its name is the identity hash
@@ -578,10 +498,72 @@ impl SchemaServiceState {
                 FoldDbError::Config("Failed to compute merged identity_hash".to_string())
             })?
             .clone();
-        schema.name = new_hash.clone();
-        let expanded_name = schema.name.clone();
+        schema.name = new_hash;
 
-        // Persist expanded schema
+        self.persist_expansion(schema, old_name, desc_name).await?;
+
+        // Register new fields as canonical for future schema proposals.
+        // Fails if classification cannot be determined (no ANTHROPIC_API_KEY for new fields).
+        self.register_canonical_fields(schema).await?;
+
+        // Propagate canonical field types, classifications, and interest categories to the expanded schema
+        self.apply_canonical_types(schema);
+        self.apply_canonical_classifications(schema);
+        self.apply_canonical_interest_categories(schema);
+
+        tracing::info!(
+            target: "schema_service::schema",
+            "Schema expanded: old='{}' (blocked) -> new='{}' (descriptive_name='{}')",
+            old_name,
+            schema.name,
+            desc_name
+        );
+
+        Ok(SchemaAddOutcome::Expanded(
+            old_name.to_string(),
+            schema.clone(),
+            mutation_mappers.clone(),
+        ))
+    }
+
+    /// Dual-stamp: keep N FieldMappers (old Mini copies field UUIDs) AND
+    /// one RecordMapper (new Mini copies R once the predecessor has one).
+    /// Never sets field_mappers = None here — that hides historical rows
+    /// for a Mini that ignores record_mapper.
+    fn stamp_predecessor_mappers(
+        schema: &mut Schema,
+        existing: &Schema,
+        existing_fields: &[String],
+        old_name: &str,
+    ) {
+        use schema_types::{FieldMapper, RecordMapper};
+        let mut mappers: HashMap<String, FieldMapper> =
+            schema.field_mappers().cloned().unwrap_or_default();
+        for field in existing_fields {
+            mappers
+                .entry(field.clone())
+                .or_insert_with(|| FieldMapper::new(old_name.to_string(), field.clone()));
+        }
+        schema.field_mappers = Some(mappers);
+        schema.record_mapper = Some(RecordMapper::new(old_name.to_string()));
+        // Copy R only when the predecessor already holds a record molecule.
+        // Today's catalogs have field_molecule_uuids, not molecule_uuid.
+        if schema.molecule_uuid.is_none() {
+            schema.molecule_uuid = existing.molecule_uuid.clone();
+        }
+        schema.field_molecule_uuids = None;
+    }
+
+    /// Persist the expanded schema, mark the predecessor as superseded in
+    /// memory and on disk, and point the owner-namespaced descriptive_name
+    /// index at the expanded schema.
+    async fn persist_expansion(
+        &self,
+        schema: &Schema,
+        old_name: &str,
+        desc_name: &str,
+    ) -> FoldDbResult<()> {
+        let expanded_name = schema.name.clone();
         self.persist_schema(schema).await?;
 
         // Mark the old schema as superseded in memory and grab a clone for persistence
@@ -606,33 +588,65 @@ impl SchemaServiceState {
         // key is namespaced by `owner_app_id` (app_identity v3.1, Lane B2b)
         // so the expansion target replaces only the matching same-owner
         // entry, leaving any same-named seed/legacy entry intact.
-        {
-            let key = super::state::descriptive_name_key(schema.owner_app_id.as_deref(), desc_name);
-            let mut index = write_lock(&self.descriptive_name_index, "descriptive_name_index")?;
-            index.insert(key, expanded_name);
-        }
+        let key = super::state::descriptive_name_key(schema.owner_app_id.as_deref(), desc_name);
+        let mut index = write_lock(&self.descriptive_name_index, "descriptive_name_index")?;
+        index.insert(key, expanded_name);
+        Ok(())
+    }
+}
 
-        // Register new fields as canonical for future schema proposals.
-        // Fails if classification cannot be determined (no ANTHROPIC_API_KEY for new fields).
-        self.register_canonical_fields(schema).await?;
-
-        // Propagate canonical field types, classifications, and interest categories to the expanded schema
-        self.apply_canonical_types(schema);
-        self.apply_canonical_classifications(schema);
-        self.apply_canonical_interest_categories(schema);
-
-        tracing::info!(
-            target: "schema_service::schema",
-            "Schema expanded: old='{}' (blocked) -> new='{}' (descriptive_name='{}')",
-            old_name,
-            schema.name,
-            desc_name
-        );
-
-        Ok(SchemaAddOutcome::Expanded(
-            old_name.to_string(),
-            schema.clone(),
-            mutation_mappers.clone(),
-        ))
+/// Merge classifications, ref_fields, descriptions and types from the
+/// predecessor into the expanded schema (keep incoming entries, add
+/// existing-only ones).
+///
+/// Without the description/type merge the existing-only fields (which get
+/// added to `schema.fields`) carry no entry in these maps after expansion
+/// and the same class of silent breakage that #439 / #457 fixed for
+/// `apply_field_renames` shows up here too:
+///
+///  - `field_descriptions` missing breaks the
+///    `add_schema`-time invariant that every entry in `fields` has a
+///    description, and downstream `build_field_description` falls
+///    back to a low-signal stub that lowers semantic-match quality.
+///  - `field_types` missing makes `Schema::get_field_type` fall back
+///    to `Any` whenever the canonical registry doesn't already
+///    carry the field (e.g. legacy entries with `field_type == Any`),
+///    losing the type the existing schema's caller had declared.
+fn merge_existing_metadata(schema: &mut Schema, existing: &Schema) {
+    for (field, classifications) in &existing.field_classifications {
+        schema
+            .field_classifications
+            .entry(field.clone())
+            .or_insert_with(|| classifications.clone());
+    }
+    for (field, classification) in &existing.field_data_classifications {
+        schema
+            .field_data_classifications
+            .entry(field.clone())
+            .or_insert_with(|| classification.clone());
+    }
+    for (field, category) in &existing.field_interest_categories {
+        schema
+            .field_interest_categories
+            .entry(field.clone())
+            .or_insert_with(|| category.clone());
+    }
+    for (field, target) in &existing.ref_fields {
+        schema
+            .ref_fields
+            .entry(field.clone())
+            .or_insert_with(|| target.clone());
+    }
+    for (field, description) in &existing.field_descriptions {
+        schema
+            .field_descriptions
+            .entry(field.clone())
+            .or_insert_with(|| description.clone());
+    }
+    for (field, ty) in &existing.field_types {
+        schema
+            .field_types
+            .entry(field.clone())
+            .or_insert_with(|| ty.clone());
     }
 }

@@ -156,7 +156,6 @@ impl SyncEngine {
     /// PUTs fan out with bounded concurrency (upload-policy concurrency, or
     /// `LASTDB_BACKUP_UPLOAD_CONCURRENCY`) so a single serial stream is no
     /// longer the hard product ceiling (~137 KB/s on a multi-Mbps link).
-    // lint:fn-size-ok moved verbatim from backup_uploader.rs; splitting this function is separate work.
     pub(super) async fn drain_backup_candidates(
         &self,
         candidates: Vec<BackupChunkUploadCandidate>,
@@ -181,38 +180,13 @@ impl SyncEngine {
         // steady-state budget.
         let remaining_chunks = {
             let known = self.backup_known_present.lock().await;
-            let mut present = 0usize;
-            let mut bytes_remaining = 0u64;
-            for candidate in &candidates {
-                if known.contains(&candidate.chunk.sha256) {
-                    present += 1;
-                    stats.already_present += 1;
-                } else {
-                    bytes_remaining = bytes_remaining.saturating_add(candidate.chunk.bytes);
-                }
-            }
+            let (present, bytes_remaining) = count_backup_presence(&known, &candidates);
+            stats.already_present += present;
             stats.chunks_present = present;
             stats.bytes_remaining = bytes_remaining;
             total_candidates.saturating_sub(present)
         };
-        // A home with no known restore base, a stale committed cut, *or* a
-        // remaining shortfall large enough that we re-list the bucket every
-        // cycle, gets the catch-up budget. Staleness alone is not enough: a
-        // CoW of a just-published primary pointed at empty DEV still has a
-        // fresh local last-publish and would otherwise PUT 4/cycle (measured
-        // 2026-08-20: 7.3 GiB in 2h21m at ~4.6 Mbps; the link would have done
-        // it in ~10 min).
-        let last_publish_age_secs = self
-            .backup_progress
-            .lock()
-            .ok()
-            .and_then(|tracker| tracker.snapshot().last_publish_age_secs);
-        let catching_up = backup_is_catching_up_for_drain(
-            last_publish_age_secs,
-            backup_catchup_staleness_secs_from_env(),
-            remaining_chunks,
-            Self::PRESENCE_RESEED_SHORTFALL,
-        );
+        let catching_up = self.backup_is_catching_up(remaining_chunks);
         let upload_target = backup_upload_target_per_cycle(catching_up);
 
         if !allow_puts {
@@ -228,32 +202,9 @@ impl SyncEngine {
             return Ok(stats);
         }
 
-        // Collect work items first (skip known-present without re-presign).
-        let mut work: Vec<BackupChunkUploadCandidate> = Vec::new();
-        {
-            let known = self.backup_known_present.lock().await;
-            let mut missing = self.backup_unresolvable.lock().await;
-            let missing = missing.for_generation(target_generation);
-            // already_present was counted above for remaining honesty; rebuild
-            // the work list from the same known set without double-counting.
-            stats.already_present = 0;
-            stats.source_missing = 0;
-            for candidate in &candidates {
-                if known.contains(&candidate.chunk.sha256) {
-                    stats.already_present += 1;
-                } else if missing.contains(&candidate.chunk.sha256) {
-                    // Head-of-line: candidates are walked in a stable order and
-                    // a chunk with no source never enters `known`, so without
-                    // this skip the same dead prefix is re-selected every cycle
-                    // and the drain never reaches the chunks behind it.
-                    // Measured on the 2026-08-06 primary: the same 256 shas for
-                    // hours while 4,694 remaining chunks went untried.
-                    stats.source_missing += 1;
-                } else if work.len() < upload_target {
-                    work.push(candidate.clone());
-                }
-            }
-        }
+        let work = self
+            .select_backup_work(&candidates, upload_target, target_generation, &mut stats)
+            .await;
         // Selected = work attempted this cycle (bounded by upload_target), not
         // the full candidate census. This is what the log-spam gate inspects.
         stats.selected = work.len();
@@ -268,10 +219,99 @@ impl SyncEngine {
         // budget turns into an unbounded cycle on a slow link, starving the
         // publish attempt and freezing progress samples.
         let deadline = catching_up.then(|| Instant::now() + backup_catchup_cycle_budget());
-        // One candidate's failure must not abort the walk: 2026-07-30 a 10%
-        // server-side presign poison turned into an ~80% cycle-abort rate
-        // because every error here was `?`-propagated. Isolate per candidate;
-        // surface the first error only when the cycle achieved nothing at all.
+        let cycle = self
+            .run_backup_upload_fanout(work, concurrency, deadline, &mut stats)
+            .await;
+        let cache_changed = cycle.uploaded > 0 || cycle.already_present > 0;
+        self.apply_backup_cycle_result(cycle, target_generation, &mut stats)
+            .await?;
+
+        // Recompute present/remaining after successful puts updated known set.
+        {
+            let known = self.backup_known_present.lock().await;
+            let (present, bytes_remaining) = count_backup_presence(&known, &candidates);
+            stats.chunks_present = present;
+            stats.bytes_remaining = bytes_remaining;
+        }
+        if cache_changed {
+            self.persist_backup_presence_cache().await;
+        }
+
+        Ok(stats)
+    }
+
+    /// Decide whether this drain gets the catch-up put budget.
+    ///
+    /// A home with no known restore base, a stale committed cut, *or* a
+    /// remaining shortfall large enough that we re-list the bucket every
+    /// cycle, gets the catch-up budget. Staleness alone is not enough: a
+    /// CoW of a just-published primary pointed at empty DEV still has a
+    /// fresh local last-publish and would otherwise PUT 4/cycle (measured
+    /// 2026-08-20: 7.3 GiB in 2h21m at ~4.6 Mbps; the link would have done
+    /// it in ~10 min).
+    fn backup_is_catching_up(&self, remaining_chunks: usize) -> bool {
+        let last_publish_age_secs = self
+            .backup_progress
+            .lock()
+            .ok()
+            .and_then(|tracker| tracker.snapshot().last_publish_age_secs);
+        backup_is_catching_up_for_drain(
+            last_publish_age_secs,
+            backup_catchup_staleness_secs_from_env(),
+            remaining_chunks,
+            Self::PRESENCE_RESEED_SHORTFALL,
+        )
+    }
+
+    /// Collect work items (skip known-present without re-presign), updating
+    /// the `already_present` / `source_missing` counters in `stats`.
+    async fn select_backup_work(
+        &self,
+        candidates: &[BackupChunkUploadCandidate],
+        upload_target: usize,
+        target_generation: Option<u64>,
+        stats: &mut LastStoreBackupUploadStats,
+    ) -> Vec<BackupChunkUploadCandidate> {
+        let mut work: Vec<BackupChunkUploadCandidate> = Vec::new();
+        let known = self.backup_known_present.lock().await;
+        let mut missing = self.backup_unresolvable.lock().await;
+        let missing = missing.for_generation(target_generation);
+        // already_present was counted above for remaining honesty; rebuild
+        // the work list from the same known set without double-counting.
+        stats.already_present = 0;
+        stats.source_missing = 0;
+        for candidate in candidates {
+            if known.contains(&candidate.chunk.sha256) {
+                stats.already_present += 1;
+            } else if missing.contains(&candidate.chunk.sha256) {
+                // Head-of-line: candidates are walked in a stable order and
+                // a chunk with no source never enters `known`, so without
+                // this skip the same dead prefix is re-selected every cycle
+                // and the drain never reaches the chunks behind it.
+                // Measured on the 2026-08-06 primary: the same 256 shas for
+                // hours while 4,694 remaining chunks went untried.
+                stats.source_missing += 1;
+            } else if work.len() < upload_target {
+                work.push(candidate.clone());
+            }
+        }
+        work
+    }
+
+    /// Fan the PUTs out and record the transfer wall time in `stats`.
+    ///
+    /// One candidate's failure must not abort the walk: 2026-07-30 a 10%
+    /// server-side presign poison turned into an ~80% cycle-abort rate
+    /// because every error here was `?`-propagated. Isolate per candidate;
+    /// the caller surfaces the first error only when the cycle achieved
+    /// nothing at all.
+    async fn run_backup_upload_fanout(
+        &self,
+        work: Vec<BackupChunkUploadCandidate>,
+        concurrency: usize,
+        deadline: Option<Instant>,
+        stats: &mut LastStoreBackupUploadStats,
+    ) -> ParallelUploadCycleResult {
         let engine = self;
         // Wall time of the PUT fan-out alone. Measured around the whole parallel
         // cycle rather than summed per candidate, so bounded concurrency is
@@ -291,6 +331,18 @@ impl SyncEngine {
         })
         .await;
         stats.transfer_secs = transfer_started.elapsed().as_secs_f64();
+        cycle
+    }
+
+    /// Fold a finished upload cycle into `stats`, record unresolvable
+    /// chunks, and return the first error only when the cycle achieved
+    /// nothing at all.
+    async fn apply_backup_cycle_result(
+        &self,
+        cycle: ParallelUploadCycleResult,
+        target_generation: Option<u64>,
+        stats: &mut LastStoreBackupUploadStats,
+    ) -> SyncResult<()> {
         if cycle.deadline_skipped > 0 {
             tracing::info!(
                 target: "fold_db::sync::backup",
@@ -300,7 +352,6 @@ impl SyncEngine {
                 "catch-up cycle hit its wall-clock budget; held cut resumes next cycle"
             );
         }
-        let cache_changed = cycle.uploaded > 0 || cycle.already_present > 0;
         stats.uploaded = cycle.uploaded;
         stats.already_present = stats.already_present.saturating_add(cycle.already_present);
         stats.failed = cycle.failed;
@@ -343,27 +394,7 @@ impl SyncEngine {
                 return Err(e);
             }
         }
-
-        // Recompute present/remaining after successful puts updated known set.
-        {
-            let known = self.backup_known_present.lock().await;
-            let mut present = 0usize;
-            let mut bytes_remaining = 0u64;
-            for candidate in &candidates {
-                if known.contains(&candidate.chunk.sha256) {
-                    present += 1;
-                } else {
-                    bytes_remaining = bytes_remaining.saturating_add(candidate.chunk.bytes);
-                }
-            }
-            stats.chunks_present = present;
-            stats.bytes_remaining = bytes_remaining;
-        }
-        if cache_changed {
-            self.persist_backup_presence_cache().await;
-        }
-
-        Ok(stats)
+        Ok(())
     }
 
     /// Replace or clear the process-local backup PUT concurrency override.
@@ -463,3 +494,20 @@ impl SyncEngine {
     }
 }
 // lint:file-size-ok moved verbatim from backup_uploader.rs; cohesive unit, split further in a later pass
+
+/// Count candidates already present in `known` and the bytes still missing.
+fn count_backup_presence(
+    known: &std::collections::HashSet<String>,
+    candidates: &[BackupChunkUploadCandidate],
+) -> (usize, u64) {
+    let mut present = 0usize;
+    let mut bytes_remaining = 0u64;
+    for candidate in candidates {
+        if known.contains(&candidate.chunk.sha256) {
+            present += 1;
+        } else {
+            bytes_remaining = bytes_remaining.saturating_add(candidate.chunk.bytes);
+        }
+    }
+    (present, bytes_remaining)
+}
