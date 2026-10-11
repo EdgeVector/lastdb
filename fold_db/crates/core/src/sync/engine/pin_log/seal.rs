@@ -134,6 +134,7 @@ pub(super) async fn seal_transaction_group(
     record: &PinLogRecord,
     crypto: &Arc<dyn CryptoProvider>,
 ) -> Result<Vec<MutationLogSegment>, String> {
+    // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
     let LogOp::MutationIntent { mutations } = &record.entry.op else {
         return Err("transaction group requires a MutationIntent".to_string());
     };

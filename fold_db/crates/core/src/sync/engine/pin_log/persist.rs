@@ -14,6 +14,7 @@ impl PinLog {
         records: &[PinLogRecord],
         receipts: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> Result<(), String> {
+        // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         if records.is_empty() && receipts.is_empty() {
             return Ok(());
         }
@@ -172,6 +173,7 @@ impl PinLog {
         pending_byte_budget: usize,
         row_budget: usize,
     ) -> Result<PendingPinLogPage, String> {
+        // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         let target_id = target_id_for_prefix(&target.prefix);
         let prefix = pin_log_target_prefix(&target_id).into_bytes();
         let end = prefix_upper_bound(&prefix).ok_or_else(|| {
