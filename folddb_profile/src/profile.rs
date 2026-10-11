@@ -203,7 +203,3 @@ pub fn api_key_tail(api_key: &str) -> String {
     }
     api_key[len - 6..].to_string()
 }
-
-/// Re-export — handy for callers that want to format the URL without
-/// touching `endpoints` directly.
-pub use crate::endpoints::Environment as ProfileEnvironment;

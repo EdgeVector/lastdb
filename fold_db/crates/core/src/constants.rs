@@ -11,10 +11,3 @@ pub const SINGLE_PUBLIC_KEY_ID: &str = "SYSTEM_WIDE_PUBLIC_KEY";
 /// `use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;` (or
 /// `crate::constants::…` inside this crate).
 pub const MUTATION_BACKGROUND_TASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// Default hard upper bound on atom field content size (serialized JSON bytes,
-/// before encryption). **Effective** limit is
-/// [`crate::atom::max_atom_content_bytes`] (env `LASTDB_MAX_ATOM_CONTENT_BYTES`).
-/// Preference: `preference-lastdb-atom-size-hard-limit-64kib`.
-/// Docs: `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
-pub const MAX_ATOM_CONTENT_BYTES: usize = 64 * 1024;

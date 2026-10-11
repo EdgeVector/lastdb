@@ -38,7 +38,7 @@ pub use size_limit::{
     atom_content_byte_len, enforce_atom_content_limit, is_over_default_limit,
     max_atom_content_bytes, observe_atom_content_over_default, parse_max_atom_content_bytes,
     ABSOLUTE_MAX_ATOM_CONTENT_BYTES, DEFAULT_MAX_ATOM_CONTENT_BYTES, HEADROOM_ALARM_FRACTION,
-    MAX_ATOM_CONTENT_BYTES, MAX_ATOM_CONTENT_BYTES_ENV, MIN_MAX_ATOM_CONTENT_BYTES,
+    MAX_ATOM_CONTENT_BYTES_ENV, MIN_MAX_ATOM_CONTENT_BYTES,
 };
 pub use tombstone::{is_tombstone_value, TOMBSTONE_KEY};
 
