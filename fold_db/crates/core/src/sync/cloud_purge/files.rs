@@ -34,8 +34,8 @@ fn new_owner_file(path: &Path) -> SyncResult<File> {
 }
 
 pub(super) fn atomic_json<T: serde::Serialize>(path: &Path, value: &T) -> SyncResult<()> {
-    let bytes = serde_json::to_vec(value)
-        .map_err(|error| SyncError::Storage(format!("encode purge checkpoint: {error}")))?;
+    let bytes =
+        super::inventory::bounded_json(value, super::inventory::INVENTORY_METADATA_MAX_BYTES)?;
     atomic_bytes(path, &bytes)
 }
 
@@ -106,7 +106,10 @@ pub(super) fn require_capacity(directory: &Path, bytes: u64) -> SyncResult<()> {
         return Err(SyncError::Io(std::io::Error::last_os_error()));
     }
     let stats = unsafe { stats.assume_init() };
-    let available = (stats.f_bavail as u64).saturating_mul(stats.f_frsize);
+    #[cfg(target_os = "macos")]
+    let available = u64::from(stats.f_bavail).saturating_mul(stats.f_frsize);
+    #[cfg(not(target_os = "macos"))]
+    let available = stats.f_bavail.saturating_mul(stats.f_frsize);
     let required = bytes
         .saturating_add(bytes / 5)
         .saturating_add(64 * 1024 * 1024);

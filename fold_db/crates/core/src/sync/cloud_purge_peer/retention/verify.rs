@@ -12,7 +12,7 @@ impl CloudPurgePeer {
         retained: &RetainedHome,
     ) -> SyncResult<()> {
         self.verify_retained_home(plan, retained)?;
-        let encoded = fs::read(retained.directory.join("retention.json"))?;
+        let encoded = read_manifest(&retained.directory)?;
         let manifest: RetentionManifest = serde_json::from_slice(&encoded)?;
         if retained.files != manifest.files.len() as u64
             || retained.bytes != manifest.files.iter().map(|file| file.bytes).sum::<u64>()

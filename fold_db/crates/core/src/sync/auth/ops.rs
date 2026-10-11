@@ -7,7 +7,9 @@ pub use backup_latest::{
     BackupLatestCasResponse, BackupLatestGetResponse, BackupLatestPointer,
     BackupRecoveryDescriptorPut, BACKUP_LATEST_FORMAT_VERSION_V1,
 };
+mod cloud_inventory;
 mod cloud_purge;
+mod cloud_source_roots;
 mod confirm;
 mod delete_completion;
 mod list;

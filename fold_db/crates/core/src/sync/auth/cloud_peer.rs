@@ -81,6 +81,9 @@ impl AuthClient {
             return self.guard_recipient_delivery_request(body).await;
         }
         let response = self.read_cloud_control_for_request(body).await?;
+        if response.notification_only {
+            return guard_share_notification(body, &response, is_read);
+        }
         if let Some(peer) = &self.cloud_purge_peer {
             peer.observe(&response)?;
         }
@@ -208,6 +211,9 @@ impl AuthClient {
             self.apply_default_db_hash(&mut body);
         }
         let response = self.read_cloud_control_for_request(&body).await?;
+        if response.notification_only {
+            return guard_share_notification(&mut body, &response, true);
+        }
         if let Some(peer) = &self.cloud_purge_peer {
             peer.observe(&response)?;
             let account = response
@@ -267,6 +273,26 @@ fn put_generation(
     Ok(())
 }
 
+fn guard_share_notification(
+    body: &mut serde_json::Value,
+    response: &crate::sync::cloud_purge::protocol::CloudControlGet,
+    is_read: bool,
+) -> SyncResult<()> {
+    let prefix = body.get("share_prefix").and_then(serde_json::Value::as_str);
+    if !is_read
+        || response.notification_scope.as_deref() != Some("share_read")
+        || prefix.is_none()
+        || prefix != response.scope_root.as_deref()
+    {
+        return Err(SyncError::CloudPurgeHeld(
+            "a cloud notification cannot authorize this account request".into(),
+        ));
+    }
+    let (account, generation, operation) =
+        super::recipient_delivery::resolved_notification(response)?;
+    put_generation(body, &account, generation, operation.as_deref())
+}
+
 fn is_control_action(action: &str) -> bool {
     matches!(
         action,
@@ -275,6 +301,9 @@ fn is_control_action(action: &str) -> bool {
             | "cloud_control_continue"
             | "cloud_control_download"
             | "cloud_purge_prepare"
+            | "cloud_source_root_register"
+            | "cloud_purge_inventory_stage"
+            | "cloud_purge_inventory_seal"
             | "cloud_purge_begin"
             | "cloud_purge_step"
             | "cloud_purge_upload_batch"

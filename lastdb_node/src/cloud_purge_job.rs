@@ -37,6 +37,9 @@ pub(crate) async fn prepare_held(
     if preparation.account != account {
         return Err("the cloud resolved a different purge account".into());
     }
+    preparation
+        .validate_inventory_capabilities()
+        .map_err(|error| error.to_string())?;
     let source_dir = directory.join("source");
     let source = if source_dir.join("source.json").exists() {
         fold_db::sync::cloud_purge::RetainedSource::reopen(&source_dir)

@@ -65,7 +65,10 @@ pub(super) async fn plan(copy_home: &Path, primary_home: &Path, json: bool) -> R
             .collect(),
     );
     let (url, api_key) = super::load_cloud_creds_from_path(&config, None, None)?;
-    let http = Arc::new(fold_db::sync::build_shared_http_client());
+    let http = Arc::new(
+        fold_db::sync::build_shared_http_client()
+            .map_err(|_| "cloud HTTPS transport unavailable")?,
+    );
     let auth = fold_db::sync::auth::AuthClient::new(
         http,
         url,

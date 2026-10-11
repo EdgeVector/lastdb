@@ -10,8 +10,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod continuation;
+mod control_files;
+mod index;
 mod persistence;
 mod token;
+use control_files::{ControlCache, ControlRef};
 use persistence::validate_successor;
 pub(super) use persistence::{account_key, private_directory, write_atomic};
 use token::AdoptionToken;
@@ -36,7 +39,7 @@ struct PeerState {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct PeerAccount {
-    control: CloudPurgeControl,
+    control: ControlRef,
     #[serde(default)]
     adoption: Option<AdoptionReceipt>,
 }
@@ -47,6 +50,7 @@ pub struct CloudPurgePeer {
     pub(super) directory: PathBuf,
     pub(super) source_id: String,
     inner: Mutex<PeerState>,
+    control_cache: Mutex<ControlCache>,
     tokens: Mutex<BTreeMap<String, AdoptionToken>>,
     local_accounts: Mutex<BTreeSet<String>>,
     pub(super) adoption_turn: tokio::sync::Mutex<()>,
@@ -74,28 +78,12 @@ impl CloudPurgePeer {
         }
         let directory = directory.as_ref().join("cloud-purge-peer-v1");
         private_directory(&directory)?;
-        let path = directory.join("state.json");
-        let state = match fs::read(&path) {
-            Ok(bytes) => {
-                let state: PeerState = serde_json::from_slice(&bytes)?;
-                if state.format_version != 1 {
-                    return Err(held("unsupported cloud peer state format"));
-                }
-                for entry in state.accounts.values() {
-                    entry.control.validate_identity().map_err(held)?;
-                }
-                state
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => PeerState {
-                format_version: 1,
-                ..Default::default()
-            },
-            Err(error) => return Err(error.into()),
-        };
+        let state = index::open(&directory, &source_id)?;
         Ok(Arc::new(Self {
             directory,
             source_id,
             inner: Mutex::new(state),
+            control_cache: Mutex::new(ControlCache::default()),
             tokens: Mutex::new(BTreeMap::new()),
             local_accounts: Mutex::new(BTreeSet::new()),
             adoption_turn: tokio::sync::Mutex::new(()),
@@ -148,6 +136,11 @@ impl CloudPurgePeer {
     /// A failed control read never clears the receipt. A missing or older
     /// server record after an observed hold is a protocol violation.
     pub fn observe(&self, response: &CloudControlGet) -> SyncResult<()> {
+        if response.notification_only || response.notification.is_some() {
+            return Err(held(
+                "a foreign cloud notification cannot replace account authority",
+            ));
+        }
         let Some(control) = response.control.as_ref() else {
             if response.protocol_required || response.generation != 0 {
                 return Err(held("cloud control is required but absent"));
@@ -174,21 +167,27 @@ impl CloudPurgePeer {
             .lock()
             .map_err(|_| held("cloud peer state lock failed"))?;
         let previous = state.accounts.get(&key);
-        if let Some(previous) = previous {
-            validate_successor(&previous.control, control)?;
+        let previous_control = previous
+            .map(|previous| self.load_control(&previous.control))
+            .transpose()?;
+        if let Some(previous) = previous_control.as_ref() {
+            validate_successor(previous, control)?;
+            if **previous == *control {
+                return Ok(());
+            }
         }
-        let changed = previous.is_some_and(|previous| {
-            previous.control.generation != control.generation
-                || previous.control.operation_id != control.operation_id
-                || previous.control.replacement_manifest != control.replacement_manifest
-                || previous.control.continuation != control.continuation
+        let changed = previous_control.as_ref().is_some_and(|previous| {
+            previous.generation != control.generation
+                || previous.operation_id != control.operation_id
+                || previous.replacement_manifest != control.replacement_manifest
+                || previous.continuation != control.continuation
         });
         let adoption = previous.and_then(|entry| entry.adoption.clone());
         let mut next = state.clone();
         next.accounts.insert(
             key.clone(),
             PeerAccount {
-                control: control.clone(),
+                control: self.store_control(control)?,
                 adoption,
             },
         );
@@ -206,13 +205,20 @@ impl CloudPurgePeer {
 
     pub fn known_control(&self, account: &CloudAccount) -> SyncResult<Option<CloudPurgeControl>> {
         let key = account_key(account)?;
-        Ok(self
+        let reference = self
             .inner
             .lock()
             .map_err(|_| held("cloud peer state lock failed"))?
             .accounts
             .get(&key)
-            .map(|entry| entry.control.clone()))
+            .map(|entry| entry.control.clone());
+        reference
+            .as_ref()
+            .map(|reference| {
+                self.load_control(reference)
+                    .map(|control| (*control).clone())
+            })
+            .transpose()
     }
 
     pub fn statuses(&self) -> SyncResult<Vec<PeerAccountStatus>> {
@@ -279,7 +285,8 @@ impl CloudPurgePeer {
             .accounts
             .get(&key)
             .ok_or_else(|| held("no observed cloud adoption control"))?;
-        super::effective_adoption_control(&current.control, plan)?;
+        let control = self.load_control(&current.control)?;
+        super::effective_adoption_control(&control, plan)?;
         let mut next = state.clone();
         next.accounts
             .get_mut(&key)
@@ -291,9 +298,6 @@ impl CloudPurgePeer {
     }
 
     fn write_state(&self, state: &PeerState) -> SyncResult<()> {
-        write_atomic(
-            &self.directory.join("state.json"),
-            &serde_json::to_vec(state)?,
-        )
+        index::write(&self.directory, state)
     }
 }

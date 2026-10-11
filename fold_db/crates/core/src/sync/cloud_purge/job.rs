@@ -9,6 +9,8 @@ use rand::RngCore;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
+mod root_registration;
+
 #[async_trait]
 pub trait CloudPurgeCapabilityStore: Send + Sync {
     async fn put(&self, operation_id: &str, value: &str) -> Result<String, String>;
@@ -33,6 +35,14 @@ impl CloudPurgeDriver {
         }
         source.verify()?;
         require_job_source(job, source)?;
+        let preparation = self.auth.cloud_purge_prepare(&job.account).await?;
+        if recover_accepted_begin(job, &preparation)? {
+            return Ok(());
+        }
+        let preparation = self
+            .register_source_roots(job, source, &preparation)
+            .await?;
+        super::preflight::admit_job(&preparation, job, source)?;
         if job.capability_locator.is_none() {
             let mut bytes = Zeroizing::new([0u8; 32]);
             rand::thread_rng().fill_bytes(&mut *bytes);
@@ -202,6 +212,28 @@ impl CloudPurgeDriver {
         }
         Ok(value)
     }
+}
+
+fn recover_accepted_begin(
+    job: &mut CloudPurgeJob,
+    preparation: &super::protocol::CloudPurgePreparation,
+) -> SyncResult<bool> {
+    let Some(control) = preparation
+        .control
+        .as_ref()
+        .filter(|control| control["operation_id"].as_str() == Some(job.operation_id.as_str()))
+    else {
+        return Ok(false);
+    };
+    if job.capability_locator.is_none() {
+        return Err(SyncError::Storage(
+            "accepted purge has no saved selected capability".into(),
+        ));
+    }
+    let control = serde_json::from_value(control.clone())
+        .map_err(|_| SyncError::Storage("invalid accepted purge control".into()))?;
+    job.update_control(control)?;
+    Ok(true)
 }
 
 fn require_job_source(job: &CloudPurgeJob, source: &RetainedSource) -> SyncResult<()> {

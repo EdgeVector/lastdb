@@ -18,7 +18,6 @@ mod switch;
 pub(crate) struct Pending {
     pub format_version: u32,
     pub plan: AdoptionPlan,
-    pub control: CloudPurgeControl,
     pub prior_pid: u32,
     pub prior_start_ts: u64,
     pub staged_home: PathBuf,
@@ -116,9 +115,6 @@ async fn adopt(
         .join("inactive")
         .join(plan.generation.to_string())
         .join(&plan.operation_id);
-    engine
-        .restore_cloud_purge_replacement(&control, root, &staged)
-        .await?;
     let boot = host
         .own_boot_identity
         .get()
@@ -126,7 +122,6 @@ async fn adopt(
     let pending = Pending {
         format_version: 1,
         plan,
-        control,
         prior_pid: boot.pid,
         prior_start_ts: boot.start_ts,
         staged_home: staged,
@@ -135,6 +130,16 @@ async fn adopt(
         retained: None,
         switch_proof_sha256: None,
     };
+    // Leave room for the bounded local receipt and candidate proof fields that
+    // appear after shutdown, before any download or stop request is issued.
+    if serde_json::to_vec(&pending)?.len() > 63 * 1024 * 1024 {
+        return Err(held(
+            "the cloud adoption journal exceeds its local metadata budget",
+        ));
+    }
+    engine
+        .restore_cloud_purge_replacement(&control, root, &pending.staged_home)
+        .await?;
     crate::cloud_purge_runtime::atomic(&path, &pending).map_err(held)?;
     stop.store(true, Ordering::Release);
     Err(held(

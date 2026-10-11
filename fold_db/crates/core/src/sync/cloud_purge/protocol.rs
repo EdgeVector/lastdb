@@ -36,13 +36,13 @@ impl CloudPurgePhase {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudSelectedWriter {
     pub principal_hash: String,
     pub source_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudPurgeControl {
     pub format_version: u32,
     pub account: CloudAccount,
@@ -54,6 +54,8 @@ pub struct CloudPurgeControl {
     pub scope_manifest: Value,
     #[serde(default)]
     pub replacement_manifest: Option<Value>,
+    #[serde(default)]
+    pub replacement_manifest_ref: Option<super::inventory::CloudInventoryRef>,
     #[serde(default)]
     pub deletion_receipt: Option<Value>,
     #[serde(default)]
@@ -103,7 +105,7 @@ impl CloudPurgeControl {
             || !continuation.get("cancelled_before_delete")?.as_bool()?
             || previous.checked_add(1)? != self.generation
             || data > previous
-            || required > data
+            || required != data
             || self.data_generation != Some(data)
             || self.last_ready_generation != Some(required)
             || self.continuation_sha256.as_deref()
@@ -141,6 +143,23 @@ pub struct CloudControlGet {
     pub generation: u64,
     #[serde(default)]
     pub control: Option<CloudPurgeControl>,
+    #[serde(default)]
+    pub notification_only: bool,
+    #[serde(default)]
+    pub notification: Option<CloudGenerationNotification>,
+    #[serde(default)]
+    pub notification_scope: Option<String>,
+    #[serde(default)]
+    pub scope_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudGenerationNotification {
+    pub account: CloudAccount,
+    pub generation: u64,
+    pub operation_id: Option<String>,
+    pub phase: String,
+    pub open_for_writes: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -288,9 +307,12 @@ pub struct CloudPurgeBegin {
 pub struct CloudPurgePreparation {
     pub account: CloudAccount,
     pub scope_version: u64,
+    #[serde(default)]
     pub scope_manifest: Value,
     #[serde(default)]
     pub capabilities: Value,
+    #[serde(default)]
+    pub control: Option<Value>,
 }
 
 #[derive(Deserialize)]

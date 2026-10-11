@@ -765,7 +765,9 @@ impl FoldDB {
         // trace-egress: propagate (shared with skip-s3 — see docs/observability/egress-classification-notes.md)
         // Connect-timeout the shared client so a black-holed endpoint can't
         // wedge the TCP handshake; per-request bounds live in S3Client/AuthClient.
-        let http = Arc::new(crate::sync::build_shared_http_client());
+        let http = Arc::new(crate::sync::build_shared_http_client().map_err(|_| {
+            crate::error::FoldDbError::Config("cloud HTTPS transport unavailable".into())
+        })?);
         let s3 = crate::sync::s3::S3Client::new(http.clone());
         let auth_client = crate::sync::auth::AuthClient::new(http, setup.auth_url, setup.auth);
 

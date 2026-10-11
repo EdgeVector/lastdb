@@ -100,20 +100,14 @@ pub use auth::AuthRefreshCallback;
 const SHARED_HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Build the shared `reqwest::Client` used by both `s3::S3Client` and
-/// `auth::AuthClient`. It carries a connect timeout so a black-holed endpoint
-/// cannot wedge the TCP handshake indefinitely. Falls back to `Client::new()`
-/// if the builder fails so the hot construction path never panics.
-pub fn build_shared_http_client() -> reqwest::Client {
+/// `auth::AuthClient`. HTTPS and no redirects protect credentials and signed URLs.
+/// Construction failure reaches the caller; it never weakens transport policy.
+pub fn build_shared_http_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(SHARED_HTTP_CONNECT_TIMEOUT)
         .build()
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "failed to build sync HTTP client with connect timeout ({e}); \
-                 falling back to default client"
-            );
-            reqwest::Client::new()
-        })
 }
 pub use crate::SyncConflict;
 pub use engine::{

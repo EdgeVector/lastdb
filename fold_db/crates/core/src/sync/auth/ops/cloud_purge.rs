@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 impl AuthClient {
-    async fn purge_call<T: DeserializeOwned>(
+    pub(super) async fn purge_call<T: DeserializeOwned>(
         &self,
         mut request: Value,
         action: &str,
@@ -88,8 +88,11 @@ impl AuthClient {
         source: &PreparedCloudSource,
         capability: &str,
     ) -> SyncResult<CloudPurgeBegin> {
+        let source_ref = self
+            .stage_cloud_inventory(account, operation_id, capability, "source", source)
+            .await?;
         self.purge_call(json!({"account":account,"operation_id":operation_id,"cloud_operation_id":operation_id,
-            "expected_scope_version":expected_scope_version,"prepared_source":source,"cloud_capability":capability}), "cloud_purge_begin").await
+            "expected_scope_version":expected_scope_version,"prepared_source_ref":source_ref,"cloud_capability":capability}), "cloud_purge_begin").await
     }
 
     pub async fn cloud_purge_status(
@@ -164,7 +167,16 @@ impl AuthClient {
             manifest.generation,
             capability,
         );
-        request["replacement_manifest"] = json!(manifest);
+        let reference = self
+            .stage_cloud_inventory(
+                &manifest.account,
+                &manifest.operation_id,
+                capability,
+                "replacement",
+                manifest,
+            )
+            .await?;
+        request["replacement_manifest_ref"] = json!(reference);
         request["replacement_manifest_sha256"] =
             json!(manifest.sha256().map_err(SyncError::Storage)?);
         let response: Value = self.purge_call(request, "cloud_purge_commit").await?;

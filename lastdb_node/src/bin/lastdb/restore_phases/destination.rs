@@ -113,7 +113,10 @@ pub(crate) fn build_cloud_clients(
     source_db_hash: &str,
 ) -> Phase<CloudClients> {
     let runtime = build_runtime()?;
-    let http = std::sync::Arc::new(fold_db::sync::build_shared_http_client());
+    let http = std::sync::Arc::new(
+        fold_db::sync::build_shared_http_client()
+            .map_err(|_| runtime_failure("cloud HTTPS transport unavailable"))?,
+    );
     let s3 = fold_db::sync::s3::S3Client::new(std::sync::Arc::clone(&http));
     // Publish writes `{cloud_db_hash(source store_uuid)}/backup/latest`. A
     // restore AuthClient with no db_hash looks under the authenticated

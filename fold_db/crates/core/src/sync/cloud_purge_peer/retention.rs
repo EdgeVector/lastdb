@@ -39,7 +39,7 @@ impl CloudPurgePeer {
         plan: &AdoptionPlan,
         retained: &RetainedHome,
     ) -> SyncResult<()> {
-        let encoded = fs::read(retained.directory.join("retention.json"))?;
+        let encoded = read_manifest(&retained.directory)?;
         if crate::hex::sha256_hex(&encoded) != retained.receipt_sha256 {
             return Err(held("the peer retention receipt changed"));
         }
@@ -80,6 +80,11 @@ impl CloudPurgePeer {
         let value =
             serde_json::json!({"format_version":1,"namespace":namespace,"rows":encoded_rows});
         let encoded = serde_json::to_vec(&value)?;
+        if encoded.len() > 64 * 1024 * 1024 {
+            return Err(held(
+                "the peer queue archive exceeds its local metadata budget",
+            ));
+        }
         let digest = crate::hex::sha256_hex(&encoded);
         let archive = retained.directory.join("detached-queue");
         private_directory(&archive)?;
@@ -122,10 +127,15 @@ impl CloudPurgePeer {
         let bytes = files.iter().map(|file| file.bytes).sum();
         let manifest = RetentionManifest {
             format_version: 1,
-            plan: plan.clone(),
+            plan: retention_plan(plan),
             files,
         };
         let encoded = serde_json::to_vec(&manifest)?;
+        if encoded.len() > 64 * 1024 * 1024 {
+            return Err(held(
+                "the peer retention receipt exceeds its local metadata budget",
+            ));
+        }
         write_atomic(&receipt_path, &encoded)?;
         Ok(RetainedHome {
             directory: destination,
@@ -136,8 +146,17 @@ impl CloudPurgePeer {
     }
 }
 
+fn retention_plan(plan: &AdoptionPlan) -> AdoptionPlan {
+    let mut identity = plan.clone();
+    // The immutable adoption hash binds the replacement; old-data retention
+    // never needs a second copy of its full object inventory or continuation.
+    identity.replacement_manifest = serde_json::Value::Null;
+    identity.continuation = None;
+    identity
+}
+
 pub(super) fn verify_retention_receipt(receipt: &AdoptionReceipt) -> SyncResult<()> {
-    let encoded = fs::read(receipt.retained_directory.join("retention.json"))?;
+    let encoded = read_manifest(&receipt.retained_directory)?;
     if crate::hex::sha256_hex(&encoded) != receipt.retention_sha256 {
         return Err(held("the retained peer home receipt changed"));
     }
@@ -152,7 +171,7 @@ pub(super) fn verify_retention_receipt(receipt: &AdoptionReceipt) -> SyncResult<
 }
 
 fn load_existing(plan: &AdoptionPlan, destination: &Path) -> SyncResult<RetainedHome> {
-    let encoded = fs::read(destination.join("retention.json"))?;
+    let encoded = read_manifest(destination)?;
     let manifest: RetentionManifest = serde_json::from_slice(&encoded)?;
     if manifest.format_version != 1
         || manifest.plan.account != plan.account
@@ -170,6 +189,17 @@ fn load_existing(plan: &AdoptionPlan, destination: &Path) -> SyncResult<Retained
         files: manifest.files.len() as u64,
         bytes: manifest.files.iter().map(|file| file.bytes).sum(),
     })
+}
+
+fn read_manifest(directory: &Path) -> SyncResult<Vec<u8>> {
+    let path = directory.join("retention.json");
+    let metadata = fs::symlink_metadata(&path)?;
+    if !metadata.is_file() || metadata.len() > 64 * 1024 * 1024 {
+        return Err(held(
+            "the peer retention receipt type or metadata size is invalid",
+        ));
+    }
+    Ok(fs::read(path)?)
 }
 
 fn copy_directory(

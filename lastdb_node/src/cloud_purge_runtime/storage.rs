@@ -49,7 +49,8 @@ pub(super) fn clear_cancel_for_resume(host: &Host, intent: &Intent) -> Result<()
 }
 
 pub(crate) fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
-    if fs::metadata(path).map_err(|error| error.to_string())?.len() > 64 * 1024 * 1024 {
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if !metadata.file_type().is_file() || metadata.len() > 64 * 1024 * 1024 {
         return Err("cloud purge receipt is too large".into());
     }
     serde_json::from_slice(&fs::read(path).map_err(|error| error.to_string())?)
@@ -58,6 +59,10 @@ pub(crate) fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Str
 
 pub(crate) fn atomic(path: &Path, value: &impl Serialize) -> Result<(), String> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+    if bytes.len() > 64 * 1024 * 1024 {
+        return Err("cloud purge receipt exceeds its durable size limit".into());
+    }
     let parent = path.parent().ok_or("cloud purge receipt lacks a parent")?;
     fs::DirBuilder::new()
         .recursive(true)
@@ -71,8 +76,7 @@ pub(crate) fn atomic(path: &Path, value: &impl Serialize) -> Result<(), String> 
         .mode(0o600)
         .open(&temporary)
         .map_err(|error| error.to_string())?;
-    file.write_all(&serde_json::to_vec(value).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())?;
+    file.write_all(&bytes).map_err(|error| error.to_string())?;
     file.sync_all().map_err(|error| error.to_string())?;
     fs::rename(&temporary, path).map_err(|error| error.to_string())?;
     File::open(parent)

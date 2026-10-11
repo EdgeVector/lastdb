@@ -14,6 +14,9 @@ fn escape(value: &str) -> SyncResult<String> {
 }
 
 pub(super) fn upload_part(path: &Path, part: &CloudPurgeUploadPart) -> SyncResult<String> {
+    if !reqwest::Url::parse(&part.url).is_ok_and(|url| url.scheme() == "https") {
+        return Err(SyncError::Storage("source upload requires HTTPS".into()));
+    }
     let mut config = tempfile::NamedTempFile::new()?;
     writeln!(config, "url = \"{}\"", escape(&part.url)?)?;
     for (name, value) in &part.headers {
@@ -35,6 +38,10 @@ pub(super) fn upload_part(path: &Path, part: &CloudPurgeUploadPart) -> SyncResul
         .args([
             "-sS",
             "-f",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
             "-o",
             "/dev/null",
             "-w",

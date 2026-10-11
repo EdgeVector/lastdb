@@ -276,16 +276,10 @@ impl AuthClient {
         mut body: serde_json::Value,
     ) -> SyncResult<serde_json::Value> {
         self.guard_cloud_request(path, &mut body).await?;
-        match tokio::time::timeout(self.request_timeout, self.post_once_inner(path, body)).await {
-            Ok(result) => result,
-            Err(_) => Err(SyncError::Network(format!(
-                "auth Lambda request timed out after {:?}",
-                self.request_timeout
-            ))),
-        }
+        self.post_once_inner(path, body).await
     }
 
-    pub(super) async fn post_once_inner(
+    pub(super) async fn post_http_once(
         &self,
         path: &str,
         body: serde_json::Value,

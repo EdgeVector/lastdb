@@ -1,8 +1,11 @@
 //! Deliveries freeze sender and recipient generations before entering a durable queue.
 
 use super::AuthClient;
-use crate::sync::cloud_purge::protocol::{CloudAccount, CloudAccountKind, CloudControlGet};
+mod notification;
+use crate::sync::cloud_purge::protocol::{CloudAccount, CloudAccountKind};
 use crate::sync::error::{SyncError, SyncResult};
+pub(super) use notification::resolved_notification;
+use notification::{resolved_ready, resolved_recipient_notification};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -156,10 +159,7 @@ impl AuthClient {
         let response = self
             .read_cloud_control_for_request(&target.request())
             .await?;
-        let (account, generation, operation_id) = resolved_ready(&response)?;
-        if let Some(peer) = &self.cloud_purge_peer {
-            peer.observe(&response)?;
-        }
+        let (account, generation, operation_id) = resolved_recipient_notification(&response)?;
         Ok(RecipientDeliveryBinding {
             format_version: 1,
             account,
@@ -197,10 +197,7 @@ impl AuthClient {
         let response = self
             .read_cloud_control_for_request(&target.request())
             .await?;
-        let (account, generation, operation_id) = resolved_ready(&response)?;
-        if let Some(peer) = &self.cloud_purge_peer {
-            peer.observe(&response)?;
-        }
+        let (account, generation, operation_id) = resolved_recipient_notification(&response)?;
         let binding = match body.get("cloud_delivery_binding") {
             Some(value) => serde_json::from_value::<RecipientDeliveryBinding>(value.clone())?,
             None => RecipientDeliveryBinding {
@@ -299,41 +296,6 @@ pub(super) fn is_recipient_delivery(action: &str) -> bool {
         action,
         "presign_inbox_upload" | "presign_bulletin_send" | "messaging_connect"
     )
-}
-
-fn resolved_ready(response: &CloudControlGet) -> SyncResult<(CloudAccount, u64, Option<String>)> {
-    let account = response
-        .account
-        .as_ref()
-        .or_else(|| response.control.as_ref().map(|control| &control.account))
-        .ok_or_else(|| held("recipient control did not resolve its account"))?;
-    if account.id.is_empty() {
-        return Err(held("recipient account identity is empty"));
-    }
-    if !response.protocol_required {
-        if response.generation != 0 || response.control.is_some() {
-            return Err(held("recipient legacy control response is invalid"));
-        }
-        return Ok((account.clone(), 0, None));
-    }
-    let control = response
-        .control
-        .as_ref()
-        .ok_or_else(|| held("recipient permanent control is absent"))?;
-    control
-        .validate_identity()
-        .map_err(SyncError::CloudPurgeHeld)?;
-    if control.account != *account
-        || control.generation != response.generation
-        || !control.permits_local_adoption()
-    {
-        return Err(held("the recipient or sender account remains held"));
-    }
-    Ok((
-        account.clone(),
-        control.generation,
-        Some(control.operation_id.clone()),
-    ))
 }
 
 fn validate_nonce(nonce: &str) -> SyncResult<()> {

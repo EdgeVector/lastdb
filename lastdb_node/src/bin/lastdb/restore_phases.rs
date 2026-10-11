@@ -284,7 +284,10 @@ pub(crate) fn discover_remote_descriptor(
         return Ok(None);
     }
     let runtime = build_runtime()?;
-    let http = std::sync::Arc::new(fold_db::sync::build_shared_http_client());
+    let http = std::sync::Arc::new(
+        fold_db::sync::build_shared_http_client()
+            .map_err(|_| runtime_failure("cloud HTTPS transport unavailable"))?,
+    );
     let s3 = fold_db::sync::s3::S3Client::new(std::sync::Arc::clone(&http));
     let unscoped = fold_db::sync::auth::AuthClient::new(
         http,

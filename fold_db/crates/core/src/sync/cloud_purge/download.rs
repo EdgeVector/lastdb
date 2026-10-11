@@ -53,6 +53,8 @@ pub async fn download_replacement_objects(
             .fold(0u64, |sum, object| sum.saturating_add(object.bytes)),
     )?;
     let client = reqwest::Client::builder()
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(30))
         .read_timeout(Duration::from_secs(60))
         .build()

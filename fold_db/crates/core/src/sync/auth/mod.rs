@@ -169,6 +169,7 @@ pub struct AuthClient {
     cloud_adoption_read: Option<super::cloud_purge_peer::AdoptionPlan>,
 }
 
+mod cloud_inventory_hydration;
 mod cloud_peer;
 mod completion_transport;
 mod continuation;

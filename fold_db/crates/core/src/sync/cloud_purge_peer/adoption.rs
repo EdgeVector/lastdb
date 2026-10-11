@@ -69,6 +69,13 @@ impl AdoptionPlan {
     }
 
     pub(super) fn matches_control(&self, control: &CloudPurgeControl) -> SyncResult<()> {
+        let contents = self
+            .continuation
+            .as_ref()
+            .unwrap_or(&self.replacement_manifest);
+        if sha256(contents)? != self.replacement_manifest_sha256 {
+            return Err(held("the local adoption plan contents changed"));
+        }
         let exact = Self::from_control(control, &self.source_id)?;
         if exact.account != self.account
             || exact.operation_id != self.operation_id

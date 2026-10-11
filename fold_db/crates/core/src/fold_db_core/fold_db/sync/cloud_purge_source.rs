@@ -30,7 +30,9 @@ impl FoldDB {
         let mut config = setup.config.unwrap_or_default();
         config.legacy_personal_cloud_sync = false;
         config.capture_mode = crate::sync::engine::CaptureMode::MutationLog;
-        let http = Arc::new(crate::sync::build_shared_http_client());
+        let http = Arc::new(crate::sync::build_shared_http_client().map_err(|_| {
+            crate::error::FoldDbError::Config("cloud HTTPS transport unavailable".into())
+        })?);
         let s3 = crate::sync::s3::S3Client::new(Arc::clone(&http));
         let db_hash = source
             .cloud_db_hash()

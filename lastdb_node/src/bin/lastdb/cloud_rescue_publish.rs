@@ -168,7 +168,10 @@ pub(super) async fn run(
         let db_hash = fold_db::storage::laststore::read_cloud_db_hash(&home.join("data"))
             .ok_or("writer inspection requires the local cloud database identity")?;
         let (url, api_key) = super::load_cloud_creds_from_path(&paused, None, None)?;
-        let http = std::sync::Arc::new(fold_db::sync::build_shared_http_client());
+        let http = std::sync::Arc::new(
+            fold_db::sync::build_shared_http_client()
+                .map_err(|_| "cloud HTTPS transport unavailable")?,
+        );
         let s3 = fold_db::sync::s3::S3Client::new(std::sync::Arc::clone(&http));
         let auth = fold_db::sync::auth::AuthClient::new(
             http,
@@ -187,7 +190,10 @@ pub(super) async fn run(
         return Ok(());
     }
     let (url, api_key) = super::load_cloud_creds_from_path(&paused, None, None)?;
-    let http = std::sync::Arc::new(fold_db::sync::build_shared_http_client());
+    let http = std::sync::Arc::new(
+        fold_db::sync::build_shared_http_client()
+            .map_err(|_| "cloud HTTPS transport unavailable")?,
+    );
     let s3 = fold_db::sync::s3::S3Client::new(std::sync::Arc::clone(&http));
     let auth = fold_db::sync::auth::AuthClient::new(
         http,

@@ -46,6 +46,10 @@ fn curl_large_put_argv(config_path: &Path, file_path: &Path, max_time_secs: u64)
     vec![
         "-sS".to_string(),
         "-f".to_string(),
+        "--proto".to_string(),
+        "=https".to_string(),
+        "--proto-redir".to_string(),
+        "=https".to_string(),
         "-o".to_string(),
         "/dev/null".to_string(),
         "-w".to_string(),
@@ -96,7 +100,9 @@ pub(super) fn upload_snapshot_file_via_curl_blocking(
 }
 
 fn curl_upload_config(url: &str) -> SyncResult<tempfile::NamedTempFile> {
-    if url.chars().any(char::is_control) || reqwest::Url::parse(url).is_err() {
+    if url.chars().any(char::is_control)
+        || !reqwest::Url::parse(url).is_ok_and(|parsed| parsed.scheme() == "https")
+    {
         return Err(SyncError::Network("invalid cloud upload URL".into()));
     }
     let mut config = tempfile::NamedTempFile::new().map_err(|e| {

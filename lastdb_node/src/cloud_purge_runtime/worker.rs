@@ -114,6 +114,7 @@ pub(super) async fn adopt_selected(
         protocol_required: true,
         generation: control.generation,
         control: Some(control.clone()),
+        ..Default::default()
     })
     .map_err(|error| error.to_string())?;
     peer.bind_local_account(&job.account)

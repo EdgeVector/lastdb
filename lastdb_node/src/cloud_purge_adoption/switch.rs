@@ -62,7 +62,10 @@ async fn ready_to_switch(home: &Path, pending: &Pending) -> Result<bool, String>
     let untouched = pending.phase == "staged" && pending.retained.is_none();
     let config = crate::cloud_purge_job::read_cloud_config(home)?;
     let auth = AuthClient::new(
-        Arc::new(reqwest::Client::new()),
+        Arc::new(
+            fold_db::sync::build_shared_http_client()
+                .map_err(|_| "cloud HTTPS transport unavailable")?,
+        ),
         config.api_url,
         SyncAuth::ApiKey(config.api_key),
     )

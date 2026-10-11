@@ -53,6 +53,18 @@ pub struct PresignedCreateOnlyUrl {
 }
 
 impl S3Client {
+    fn cloud_url(url: &str) -> SyncResult<reqwest::Url> {
+        let parsed = reqwest::Url::parse(url)
+            .map_err(|_| SyncError::Network("invalid cloud transfer URL".into()))?;
+        if parsed.scheme() != "https"
+            || parsed.host_str().is_none()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+        {
+            return Err(SyncError::Network("cloud transfers require HTTPS".into()));
+        }
+        Ok(parsed)
+    }
     fn rescue_headers(signed: &PresignedCreateOnlyUrl) -> SyncResult<reqwest::header::HeaderMap> {
         if signed.method != "PUT"
             || (!crate::sync::upload_completion::is_multipart(&signed.url)
@@ -99,7 +111,7 @@ impl S3Client {
                 "rescue upload",
                 timeout,
                 self.http
-                    .put(&signed.url)
+                    .put(Self::cloud_url(&signed.url)?)
                     .headers(headers)
                     .header(reqwest::header::CONTENT_LENGTH, bytes)
                     .version(reqwest::Version::HTTP_11)
@@ -136,7 +148,7 @@ impl S3Client {
                 "rescue upload",
                 timeout,
                 self.http
-                    .put(&signed.url)
+                    .put(Self::cloud_url(&signed.url)?)
                     .headers(headers)
                     .header(reqwest::header::CONTENT_LENGTH, bytes.len())
                     .version(reqwest::Version::HTTP_11)
@@ -326,7 +338,7 @@ impl S3Client {
                 "upload",
                 timeout,
                 self.http
-                    .put(&presigned.url)
+                    .put(Self::cloud_url(&presigned.url)?)
                     .header("Content-Type", "application/octet-stream")
                     .header(reqwest::header::CONTENT_LENGTH, len)
                     .version(reqwest::Version::HTTP_11)
@@ -376,7 +388,7 @@ impl S3Client {
                 "upload",
                 timeout,
                 self.http
-                    .put(&presigned.url)
+                    .put(Self::cloud_url(&presigned.url)?)
                     .header("Content-Type", "application/octet-stream")
                     .header(reqwest::header::CONTENT_LENGTH, bytes)
                     .version(reqwest::Version::HTTP_11)
@@ -438,7 +450,7 @@ impl S3Client {
                 "upload",
                 timeout,
                 self.http
-                    .put(&presigned.url)
+                    .put(Self::cloud_url(&presigned.url)?)
                     .header("Content-Type", "application/octet-stream")
                     .body(data)
                     .send(),
@@ -474,7 +486,7 @@ impl S3Client {
             .with_timeout(
                 "download",
                 self.request_timeout,
-                self.http.get(&presigned.url).send(),
+                self.http.get(Self::cloud_url(&presigned.url)?).send(),
             )
             .await?;
         if response.status() == reqwest::StatusCode::NOT_FOUND {
@@ -512,7 +524,7 @@ impl S3Client {
                 "range download",
                 self.request_timeout,
                 self.http
-                    .get(&presigned.url)
+                    .get(Self::cloud_url(&presigned.url)?)
                     .header(reqwest::header::RANGE, range)
                     .send(),
             )
@@ -557,7 +569,7 @@ impl S3Client {
             .with_timeout(
                 "download",
                 self.request_timeout,
-                self.http.get(&presigned.url).send(),
+                self.http.get(Self::cloud_url(&presigned.url)?).send(),
             )
             .await?;
 
