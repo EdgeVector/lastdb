@@ -346,7 +346,7 @@ fn source_capacity(
         (manifest.len() as u64)
             .saturating_add(layout.len() as u64)
             .saturating_add(catalog.map_or(0, |bytes| bytes.len() as u64)),
-        |sum, share| sum.saturating_add(share.ciphertext.len() as u64),
+        |sum, share| sum.saturating_add(share.ciphertext_bytes),
     );
     candidates.iter().fold(metadata, |sum, candidate| {
         sum.saturating_add(candidate.chunk.bytes)

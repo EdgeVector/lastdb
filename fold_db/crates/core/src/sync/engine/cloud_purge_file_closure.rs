@@ -2,14 +2,13 @@
 
 use super::*;
 use crate::db_operations::DbOperations;
-use crate::sharing::delivery_wire::{self, ContentAddressedBlob};
-use futures::{stream, StreamExt, TryStreamExt};
+use crate::sharing::delivery_wire;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone)]
-struct RequiredBlob {
-    reference: FileBlobRef,
-    thumbnail: Option<String>,
+pub(super) struct RequiredBlob {
+    pub(super) reference: FileBlobRef,
+    pub(super) thumbnail: Option<String>,
 }
 
 impl SyncEngine {
@@ -19,166 +18,107 @@ impl SyncEngine {
         fence: &CloudPurgeWriteFence,
     ) -> SyncResult<()> {
         fence.require_source(&self.device_id)?;
-        crate::sync::capture::with_capture_suppressed(self.complete_purge_files_inner(ops)).await
+        crate::sync::capture::with_capture_suppressed(self.complete_purge_files_inner(ops, None))
+            .await
     }
 
-    async fn complete_purge_files_inner(&self, ops: &DbOperations) -> SyncResult<()> {
-        let source = ops
-            .namespaced_store()
-            .raw_last_store()
-            .ok_or_else(|| SyncError::Storage("file closure requires LastStore".into()))?;
+    pub(super) async fn complete_cloud_purge_org_file_closure(
+        &self,
+        ops: &DbOperations,
+        target: &crate::sharing::org_sync_target::OrgSyncTarget,
+        fence: &CloudPurgeWriteFence,
+    ) -> SyncResult<()> {
+        fence.require_source(&self.device_id)?;
+        crate::sync::capture::with_capture_suppressed(
+            self.complete_purge_files_inner(ops, Some(target)),
+        )
+        .await
+    }
+
+    async fn complete_purge_files_inner(
+        &self,
+        ops: &DbOperations,
+        target: Option<&crate::sharing::org_sync_target::OrgSyncTarget>,
+    ) -> SyncResult<()> {
         ops.flush().await.map_err(error)?;
-        let physical = crate::sync::cloud_purge::org_rows::main_rows(&source)?;
-        let keys: Vec<_> = physical
-            .keys()
+        let keys = if let Some(target) = target {
+            crate::sync::cloud_purge::org_export::source_atom_keys(ops, target).await?
+        } else {
+            personal_atom_keys(ops).await?
+        };
+        let required = super::cloud_purge_file_references::collect(self, ops, &keys).await?;
+        let cas = ops.open_namespace("cas_blobs").await.map_err(error)?;
+        let refs: Vec<_> = required.into_values().collect();
+        let ids: Vec<_> = refs
+            .iter()
+            .map(|item| item.reference.blob_ref.clone())
+            .collect();
+        let metadata = crate::sync::cloud_purge::memory::Admission::acquire(0).await?;
+        let sizes = crate::sync::cloud_purge::memory::raw_lengths(
+            &metadata,
+            0,
+            ops.namespaced_store().as_ref(),
+            "cas_blobs",
+            &ids,
+        )?;
+        drop(metadata);
+        // Metadata is batched. Bodies are admitted individually so four large
+        // local files cannot create four simultaneous decode/seal peaks.
+        for (item, raw_size) in refs.into_iter().zip(sizes) {
+            let peak = match raw_size {
+                Some(size) => crate::sync::cloud_purge::memory::read_peak(size)?,
+                None => {
+                    crate::sync::cloud_purge::memory::row_peak(item.reference.encrypted_size_bytes)?
+                }
+            };
+            let admission = crate::sync::cloud_purge::memory::Admission::acquire(peak).await?;
+            let local = cas.get(item.reference.blob_ref.as_bytes()).await?;
+            if local.is_some() != raw_size.is_some() {
+                return Err(error("source file changed after exact size preflight"));
+            }
+            if let Some((key, bytes)) = self
+                .complete_one_purge_blob(item, local, &admission)
+                .await?
+            {
+                cas.put(&key, bytes).await?;
+            }
+        }
+        ops.namespaced_store().restore_durability_barrier().await?;
+        Ok(())
+    }
+}
+
+async fn personal_atom_keys(ops: &DbOperations) -> SyncResult<Vec<String>> {
+    let source = ops
+        .namespaced_store()
+        .raw_last_store()
+        .ok_or_else(|| SyncError::Storage("file closure requires LastStore".into()))?;
+    let admission = crate::sync::cloud_purge::memory::Admission::acquire(0).await?;
+    Ok(
+        crate::sync::cloud_purge::org_rows::main_rows(&source, &admission)?
+            .into_keys()
             .filter(|key| {
                 crate::atom::atom_key_codec::uuid_of(
                     crate::sync::cloud_purge::org_rows::bare(key).1,
                 )
                 .is_some()
             })
-            .cloned()
-            .collect();
-        let mut required: BTreeMap<String, RequiredBlob> = BTreeMap::new();
-        let mut declared = BTreeSet::new();
-        for batch in keys.chunks(128) {
-            let atoms = ops
-                .atoms()
-                .get_atoms_by_storage_keys(batch)
-                .await
-                .map_err(error)?;
-            collect_required(atoms, &mut required, &mut declared)?;
-        }
-        let missing: Vec<_> = declared
-            .iter()
-            .filter(|id| !required.contains_key(*id))
-            .cloned()
-            .collect();
-        if !missing.is_empty() {
-            let memo = self.store.open_namespace("sync_file_blob_known").await?;
-            let values = memo
-                .get_many(
-                    missing
-                        .iter()
-                        .map(|id| id.strip_prefix("sha256:").unwrap_or(id).as_bytes().to_vec())
-                        .collect(),
-                )
-                .await?;
-            for (id, value) in missing.into_iter().zip(values) {
-                let reference: FileBlobRef = serde_json::from_slice(&value.ok_or_else(|| {
-                    SyncError::Storage("source file reference lacks exact access metadata".into())
-                })?)
-                .map_err(error)?;
-                if reference.blob_ref != id {
-                    return Err(SyncError::Storage(
-                        "source file memo identity differs".into(),
-                    ));
-                }
-                insert_required(&mut required, reference, None)?;
-            }
-        }
-        let cas = ops.open_namespace("cas_blobs").await.map_err(error)?;
-        let refs: Vec<_> = required.into_values().collect();
-        for batch in refs.chunks(4) {
-            let values = cas
-                .get_many(
-                    batch
-                        .iter()
-                        .map(|item| item.reference.blob_ref.as_bytes().to_vec())
-                        .collect(),
-                )
-                .await?;
-            let puts: Vec<_> = stream::iter(
-                batch
-                    .iter()
-                    .cloned()
-                    .zip(values)
-                    .map(|(item, value)| self.complete_one_purge_blob(item, value)),
-            )
-            .buffer_unordered(4)
-            .try_collect()
-            .await?;
-            cas.batch_put(puts).await?;
-        }
-        ops.namespaced_store().restore_durability_barrier().await?;
-        Ok(())
-    }
-
-    async fn complete_one_purge_blob(
-        &self,
-        item: RequiredBlob,
-        local: Option<Vec<u8>>,
-    ) -> SyncResult<(Vec<u8>, Vec<u8>)> {
-        let plaintext = match local {
-            Some(bytes) => {
-                let blob: ContentAddressedBlob = serde_json::from_slice(&bytes).map_err(error)?;
-                if blob.size > 16 * 1024 * 1024 {
-                    return Err(SyncError::Storage("cloud purge source inline file exceeds the 16 MiB product limit; use file slabs before the cloud hold".into()));
-                }
-                if blob.blob_ref != item.reference.blob_ref {
-                    return Err(SyncError::Crypto("local file reference differs".into()));
-                }
-                delivery_wire::decode_blob_bytes_with_dek(&blob, &item.reference.dek)
-                    .map_err(error)?
-            }
-            None => {
-                if let Some(hash) = item.thumbnail {
-                    let ciphertext = self.load_thumb_ciphertext(&hash).await?.ok_or_else(|| {
-                        SyncError::Storage("source thumbnail bytes absent".into())
-                    })?;
-                    if ciphertext.len() as u64 != item.reference.encrypted_size_bytes {
-                        return Err(SyncError::Crypto(
-                            "thumbnail ciphertext length differs".into(),
-                        ));
-                    }
-                    let key = crate::hex::hex_decode_array::<32>(&item.reference.dek).ok_or_else(
-                        || SyncError::Crypto("invalid thumbnail encryption key".into()),
-                    )?;
-                    crate::crypto::LocalCryptoProvider::from_key(key)
-                        .decrypt(&ciphertext)
-                        .await
-                        .map_err(|_| {
-                            SyncError::Crypto("thumbnail encryption authentication failed".into())
-                        })?
-                } else {
-                    self.download_file_blob(&item.reference)
-                        .await?
-                        .ok_or_else(|| {
-                            SyncError::Storage(
-                                "source file bytes absent from the local store and cloud".into(),
-                            )
-                        })?
-                }
-            }
-        };
-        if crate::hex::sha256_hex(&plaintext) != item.reference.file_hash {
-            return Err(SyncError::Crypto(
-                "source file plaintext hash differs".into(),
-            ));
-        }
-        let blob = delivery_wire::content_addressed_blob_sealed_under_dek(
-            &plaintext,
-            None,
-            None,
-            &item.reference.dek,
-        )
-        .map_err(error)?;
-        Ok((
-            blob.blob_ref.as_bytes().to_vec(),
-            serde_json::to_vec(&blob).map_err(error)?,
-        ))
-    }
+            .collect(),
+    )
 }
 
-fn insert_required(
+pub(super) fn insert_required(
     required: &mut BTreeMap<String, RequiredBlob>,
     reference: FileBlobRef,
     thumbnail: Option<String>,
 ) -> SyncResult<()> {
-    if reference.encrypted_size_bytes == 0
-        || reference.encrypted_size_bytes > 16 * 1024 * 1024 * 4 / 3 + 4096
+    if reference.encrypted_size_bytes != 0
+        && reference.encrypted_size_bytes
+            < crate::sharing::file_blob_seal::FILE_BLOB_ENVELOPE_OVERHEAD
     {
-        return Err(SyncError::Storage("cloud purge source file size is absent or exceeds the 16 MiB inline product limit; use file slabs before the cloud hold".into()));
+        return Err(error(
+            "cloud purge source file lacks an exact encrypted size",
+        ));
     }
     if let Some(previous) = required.get(&reference.blob_ref) {
         if previous.reference.dek != reference.dek
@@ -204,7 +144,7 @@ fn error(error: impl std::fmt::Display) -> SyncError {
     SyncError::Storage(error.to_string())
 }
 
-fn collect_required(
+pub(super) fn collect_required(
     atoms: Vec<Option<crate::atom::Atom>>,
     required: &mut BTreeMap<String, RequiredBlob>,
     declared: &mut BTreeSet<String>,

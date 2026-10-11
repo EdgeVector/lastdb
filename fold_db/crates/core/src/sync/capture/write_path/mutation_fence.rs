@@ -14,6 +14,12 @@ tokio::task_local! {
 }
 
 impl MutationLogCaptureRouter {
+    pub(crate) fn current_task_has_mutation_admission(&self) -> bool {
+        MUTATION_ADMISSION
+            .try_with(|admission| Arc::ptr_eq(&admission.activation_gate, &self.activation_gate))
+            .unwrap_or(false)
+    }
+
     pub(crate) async fn acquire_maintenance_admission(&self) -> Option<MutationAdmission> {
         let guard = self.enter_mutation().await?;
         Some(MutationAdmission {
@@ -23,10 +29,7 @@ impl MutationLogCaptureRouter {
     }
 
     pub(crate) async fn enter_mutation(&self) -> Option<tokio::sync::OwnedRwLockReadGuard<()>> {
-        let already_admitted = MUTATION_ADMISSION
-            .try_with(|admission| Arc::ptr_eq(&admission.activation_gate, &self.activation_gate))
-            .unwrap_or(false);
-        if already_admitted {
+        if self.current_task_has_mutation_admission() {
             None
         } else {
             Some(Arc::clone(&self.activation_gate).read_owned().await)

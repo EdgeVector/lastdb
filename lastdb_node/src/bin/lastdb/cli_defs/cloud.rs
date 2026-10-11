@@ -7,7 +7,9 @@ pub(crate) enum CloudCommand {
     /// Recover credentials for an existing DEV account from a protected seed on stdin.
     /// Registers one fresh device; creates no store and keeps Cloud Sync Off.
     RecoverDevCredentialsHome {
-        /// Absent child of an empty owner-only lastdb-dev-recovery.* temporary parent.
+        /// Absent child of an empty owner-only lastdb-dev-recovery.* parent.
+        /// Create the parent under /private/tmp on macOS, or /tmp elsewhere.
+        /// The fixed root does not use TMPDIR or HOME overrides.
         #[arg(long)]
         into: PathBuf,
         /// Require this exact public account hash before any target or network change.

@@ -7,10 +7,12 @@ use crate::sync::SyncResult;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) async fn scoped_protein_rows(
+    ops: &crate::db_operations::DbOperations,
     main: &dyn KvStore,
     physical: &BTreeMap<String, Vec<u8>>,
     instance: &str,
     molecules: &BTreeSet<String>,
+    admission: &super::memory::Admission,
 ) -> SyncResult<BTreeMap<String, serde_json::Value>> {
     let keys: Vec<_> = molecules
         .iter()
@@ -30,6 +32,7 @@ pub(super) async fn scoped_protein_rows(
             }
         })
         .collect();
+    super::org_rekey::reserve_keys(ops, &keys, admission)?;
     let values = main
         .get_many(keys.iter().map(|key| key.as_bytes().to_vec()).collect())
         .await
@@ -42,19 +45,23 @@ pub(super) async fn scoped_protein_rows(
         }
     }
     let ids: BTreeSet<_> = owners.values().cloned().collect();
-    let keys = ids
+    let keys: Vec<String> = ids
         .iter()
         .map(|id| {
             let base = protein_record_key(id);
             let scoped = format!("{instance}:{base}");
             if physical.contains_key(&scoped) {
-                scoped.into_bytes()
+                scoped
             } else {
-                base.into_bytes()
+                base
             }
         })
         .collect();
-    let values = main.get_many(keys).await.map_err(error)?;
+    super::org_rekey::reserve_keys(ops, &keys, admission)?;
+    let values = main
+        .get_many(keys.into_iter().map(String::into_bytes).collect())
+        .await
+        .map_err(error)?;
     let mut output = BTreeMap::new();
     for (id, value) in ids.iter().zip(values) {
         let mut protein: Protein =

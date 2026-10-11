@@ -25,6 +25,8 @@ mod backup_restore;
 pub(crate) mod backup_uploader;
 mod bootstrap;
 mod cloud_purge_file_closure;
+mod cloud_purge_file_materialize;
+mod cloud_purge_file_references;
 mod cloud_purge_local;
 mod cloud_purge_org_source;
 mod cloud_purge_selected;
@@ -61,7 +63,7 @@ mod status_disk_cache;
 mod thumb_pack;
 mod transfer;
 mod types;
-mod upload_policy;
+pub(crate) mod upload_policy;
 mod wiring;
 
 tokio::task_local! {

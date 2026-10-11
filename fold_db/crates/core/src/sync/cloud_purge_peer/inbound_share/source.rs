@@ -11,6 +11,7 @@ pub(super) struct InboundData {
 pub(super) async fn read(
     previous: &DbOperations,
     scopes: &BTreeSet<String>,
+    admission: &crate::sync::cloud_purge::memory::Admission,
 ) -> SyncResult<InboundData> {
     let source_raw = previous
         .namespaced_store()
@@ -19,12 +20,28 @@ pub(super) async fn read(
     let source = previous.open_namespace("main").await.map_err(error)?;
     let mut keys = BTreeSet::new();
     for scope in scopes {
-        keys.extend(physical_keys(&source_raw, scope)?);
+        keys.extend(physical_keys(&source_raw, scope, admission)?);
     }
+    let keys: Vec<_> = keys.into_iter().collect();
+    let sizes = crate::sync::cloud_purge::memory::raw_lengths(
+        admission,
+        0,
+        previous.namespaced_store().as_ref(),
+        "main",
+        &keys,
+    )?;
+    let bound = sizes.iter().flatten().try_fold(0u64, |sum, size| {
+        crate::sync::cloud_purge::memory::checked_sum(&[
+            sum,
+            crate::sync::cloud_purge::memory::outer_bound(*size),
+            512,
+        ])
+    })?;
+    admission.check(crate::sync::cloud_purge::memory::checked_scale(bound, 16)?)?;
     let mut rows = Vec::new();
     let mut molecules = BTreeSet::new();
     let mut atom_keys = Vec::new();
-    for page in keys.into_iter().collect::<Vec<_>>().chunks(128) {
+    for page in keys.chunks(128) {
         let values = source
             .get_many(page.iter().map(|key| key.as_bytes().to_vec()).collect())
             .await
@@ -68,30 +85,14 @@ pub(super) async fn read(
 pub(super) fn physical_keys(
     store: &laststore::LastStore,
     prefix: &str,
+    admission: &crate::sync::cloud_purge::memory::Admission,
 ) -> SyncResult<BTreeSet<String>> {
-    let (start, end) = crate::kind_partition::exact_prefix_bounds(prefix);
-    let mut output = BTreeSet::new();
-    for collection in COLLECTIONS {
-        let mut cursor = None;
-        loop {
-            let page = store
-                .walk_all_groups(
-                    collection,
-                    start.as_str()..end.as_str(),
-                    cursor.as_ref(),
-                    128,
-                    64,
-                    laststore::AllGroupsPurpose::Admin,
-                )
-                .map_err(error)?;
-            output.extend(page.rows.into_iter().map(|(key, _)| key));
-            match page.next_cursor {
-                Some(next) => cursor = Some(next),
-                None => break,
-            }
-        }
-    }
-    Ok(output)
+    Ok(
+        crate::sync::cloud_purge::org_rows::main_rows(store, admission)?
+            .into_keys()
+            .filter(|key| key.starts_with(prefix))
+            .collect(),
+    )
 }
 
 fn molecule(bare: &str) -> Option<&str> {

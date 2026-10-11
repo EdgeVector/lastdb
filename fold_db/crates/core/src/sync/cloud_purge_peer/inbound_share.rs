@@ -5,27 +5,12 @@ use crate::sync::{SyncError, SyncResult};
 use sha2::Digest;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod data;
 mod metadata;
 mod receivers;
 mod source;
 use metadata::preserve_metadata;
-use source::{physical_keys, InboundData};
-
-const COLLECTIONS: &[&str] = &[
-    "main",
-    "legacy_blob_refs",
-    "mutation_history",
-    "field_update_order_log",
-    "field_update_order_count",
-    "field_hashrange_page_index",
-    "field_hashrange_hash_index",
-    "field_hashrange_complete",
-    "indexes",
-    "tips",
-    "proteins",
-    "atom_locators",
-    "atoms",
-];
+use source::InboundData;
 
 /// Both stores are stopped. The caller commits only after the complete data,
 /// metadata, file, cursor, and device-consent closure passes its switch proof.
@@ -37,58 +22,20 @@ pub async fn preserve_inbound_shares(
         .await
         .map_err(error)?;
     let (scopes, bindings) = receivers::source(previous, &subscriptions).await?;
+    let admission = crate::sync::cloud_purge::memory::Admission::acquire(0).await?;
     let InboundData {
         rows,
         molecules,
         atom_keys,
-    } = source::read(previous, &scopes).await?;
-    let destination = candidate.open_namespace("main").await.map_err(error)?;
-    preserve_metadata(previous, candidate, &molecules).await?;
-    let mut blobs = BTreeSet::new();
-    for keys in atom_keys.chunks(128) {
-        let atoms = previous
-            .atoms()
-            .get_atoms_by_storage_keys(keys)
-            .await
-            .map_err(error)?;
-        if atoms.len() != keys.len() {
-            return Err(error("the inbound atom batch is incomplete"));
-        }
-        for atom in atoms {
-            let atom = atom.ok_or_else(|| error("an inbound atom is absent"))?;
-            blobs.extend(crate::atom::file_pointer::blob_refs_of_atom(
-                atom.content(),
-                atom.metadata(),
-            ));
-        }
-    }
+    } = source::read(previous, &scopes, &admission).await?;
+    preserve_metadata(previous, candidate, &molecules, &admission).await?;
+    let blobs = data::blob_refs(previous, &atom_keys, &admission).await?;
     let mut digest = sha2::Sha256::new();
     let qualified_cursors =
         receivers::preserve_frontiers(previous, candidate, &bindings, &mut digest).await?;
     receivers::preserve(candidate, bindings, &mut digest).await?;
-    copy_blobs(previous, candidate, &blobs, &mut digest).await?;
-    // Remove another device's receiver namespace before this peer's exact copy.
-    let candidate_raw = candidate
-        .namespaced_store()
-        .raw_last_store()
-        .ok_or_else(|| error("inbound preservation requires a LastStore candidate"))?;
-    let inherited = physical_keys(&candidate_raw, "from:")?
-        .into_iter()
-        .map(String::into_bytes)
-        .collect::<Vec<_>>();
-    for keys in inherited.chunks(128) {
-        destination
-            .batch_delete(keys.to_vec())
-            .await
-            .map_err(error)?;
-    }
-    for rows in rows.chunks(128) {
-        hash(&mut digest, "main", rows);
-        destination
-            .restore_batch_put(rows.to_vec())
-            .await
-            .map_err(error)?;
-    }
+    copy_blobs(previous, candidate, &blobs, &admission, &mut digest).await?;
+    data::replace_rows(candidate, &rows, &admission, &mut digest).await?;
     candidate
         .namespaced_store()
         .restore_durability_barrier()
@@ -110,36 +57,25 @@ async fn copy_blobs(
     previous: &DbOperations,
     candidate: &DbOperations,
     refs: &BTreeSet<String>,
+    admission: &crate::sync::cloud_purge::memory::Admission,
     digest: &mut sha2::Sha256,
 ) -> SyncResult<()> {
-    let source = previous.open_namespace("cas_blobs").await.map_err(error)?;
-    let destination = candidate.open_namespace("cas_blobs").await.map_err(error)?;
-    for keys in refs
-        .iter()
-        .map(|value| value.as_bytes().to_vec())
-        .collect::<Vec<_>>()
-        .chunks(4)
-    {
-        let (old, current) = futures::join!(
-            source.get_many(keys.to_vec()),
-            destination.get_many(keys.to_vec())
-        );
-        let (old, current) = (old.map_err(error)?, current.map_err(error)?);
-        if old.len() != keys.len() || current.len() != keys.len() {
-            return Err(error("inbound file batch is incomplete"));
-        }
-        let mut rows = Vec::new();
-        for ((key, old), current) in keys.iter().zip(old).zip(current) {
-            // An absent local cache remains fetchable under its unchanged subscription.
-            let Some(old) = old else { continue };
-            if current.as_ref().is_some_and(|current| current != &old) {
-                return Err(error("a prior inbound file conflicts with adopted data"));
-            }
-            rows.push((key.clone(), old));
-        }
-        hash(digest, "cas_blobs", &rows);
-        destination.restore_batch_put(rows).await.map_err(error)?;
-    }
+    let ids: Vec<_> = refs.iter().cloned().collect();
+    crate::sync::cloud_purge::blob_copy::copy_admitted(
+        previous.namespaced_store().as_ref(),
+        candidate.namespaced_store().as_ref(),
+        &ids,
+        admission,
+        |key, bytes| {
+            digest.update(("cas_blobs".len() as u64).to_be_bytes());
+            digest.update(b"cas_blobs");
+            digest.update((key.len() as u64).to_be_bytes());
+            digest.update(key);
+            digest.update((bytes.len() as u64).to_be_bytes());
+            digest.update(bytes);
+        },
+    )
+    .await?;
     Ok(())
 }
 

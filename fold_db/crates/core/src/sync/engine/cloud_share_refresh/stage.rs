@@ -54,6 +54,7 @@ pub(super) async fn download(
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))?;
     let mut staged = Vec::new();
     for (target, _) in shares {
+        let admission = crate::sync::cloud_purge::memory::Admission::acquire(0).await?;
         let mut target = target.clone();
         let binding = target
             .read_binding
@@ -68,10 +69,7 @@ pub(super) async fn download(
             .await?;
         let bytes = engine
             .s3
-            .download_limited(
-                &url,
-                Some(crate::sync::snapshot::cloud_purge::MAX_SHARE_SNAPSHOT_BYTES + 4096),
-            )
+            .download_admitted(&url, &admission, None, 0)
             .await?
             .ok_or_else(|| held("the replacement share snapshot is absent"))?;
         let snapshot = Snapshot::unseal(&bytes, &target.crypto).await?;
