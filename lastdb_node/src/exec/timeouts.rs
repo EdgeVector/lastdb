@@ -274,6 +274,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AggregateFinalize
         | DataRoute::MutationBatch
         | DataRoute::QueryBatch
+        | DataRoute::ConflictMetadata
         | DataRoute::ListSchemas
         | DataRoute::ListRecordKeys
         | DataRoute::GetSchema

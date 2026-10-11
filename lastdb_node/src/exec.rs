@@ -104,6 +104,7 @@ fn mapped_error_response(
     render(Err(mapped), ctx)
 }
 
+mod conflict_metadata;
 mod db_catalog;
 mod db_maintenance;
 mod file_blob;
@@ -111,6 +112,7 @@ mod file_blob_local;
 mod org_sync;
 mod query_batch;
 mod schema_declare;
+use self::conflict_metadata::*;
 use self::db_catalog::*;
 use self::db_maintenance::*;
 use self::file_blob::*;

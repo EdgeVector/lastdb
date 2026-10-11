@@ -16,6 +16,7 @@ mod accessors;
 mod admin_db;
 mod catalog_gc;
 mod catalog_share;
+mod conflict_metadata;
 #[cfg(feature = "cloud-sync")]
 mod file_blobs;
 mod hashrange_key_repair;

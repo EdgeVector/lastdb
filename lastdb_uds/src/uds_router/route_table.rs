@@ -117,6 +117,7 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/aggregate/finalize", Scope::Owner, "POST", DataRoute::AggregateFinalize),
     row("/api/mutations/batch", Scope::Both, "POST", DataRoute::MutationBatch),
     row("/api/queries/batch", Scope::Both, "POST", DataRoute::QueryBatch),
+    row("/api/conflicts/keys", Scope::Owner, "POST", DataRoute::ConflictMetadata),
     row("/api/local-watch", Scope::Both, "GET", DataRoute::LocalWatch),
     row("/api/app/changes", Scope::Both, "POST", DataRoute::AppChanges),
     row("/api/app/search", Scope::Both, "POST", DataRoute::AppSearch),
