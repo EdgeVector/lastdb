@@ -3,6 +3,14 @@
 
 use super::*;
 
+/// The fixed inputs of one `gc-atoms` atom walk.
+struct GcAtomWalk<'a> {
+    dry_run: bool,
+    storage_prefix: Option<&'a str>,
+    source_schema_name: Option<&'a str>,
+    scan_started_at: DateTime<Utc>,
+}
+
 impl AtomStore {
     /// Collect atom UUIDs still referenced by tips (`mk:`), tip-version chain
     /// (`tv:`), history, conflicts, and legacy `ref:` molecule blobs.
@@ -268,7 +276,25 @@ impl AtomStore {
         .await
     }
 
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
+    /// The run start instant is taken before the FIRST read of the run. Everything below — the tip
+    /// chain prune, the reference-set scans, the atom scan — is a snapshot
+    /// of a store that keeps accepting writes throughout: `gc-atoms` takes
+    /// no lock and the node is not quiesced. So the reference set is only
+    /// authoritative for atoms that already existed at this instant; an atom
+    /// written afterwards has a live tip no scan below could have seen.
+    /// Deleting on that basis is how a *live* record loses its body while
+    /// its tip survives — no tombstone, no purge, no trace.
+    ///
+    /// The prologue is bounded, so resume where the last pass stopped rather
+    /// than replanning the plane. `sweep_complete` restarts at the head of
+    /// `mk:`: chains accrue behind the cursor as records are rewritten, so a
+    /// finished sweep is a lap, not a terminal state.
+    ///
+    /// Do not start another global plane while the prologue still has a
+    /// durable page ahead. The automatic caller gives the whole operation
+    /// 120 seconds. Returning here makes each call either reclaim bytes or
+    /// bank prologue progress, and prevents `gc scan mk` from consuming the
+    /// remainder after a bounded prune page.
     pub(super) async fn gc_orphan_atoms_with_roots_for_schema_at_cut(
         &self,
         dry_run: bool,
@@ -283,20 +309,8 @@ impl AtomStore {
                 "schema-scoped gc-atoms does not support --prune-live-history".into(),
             ));
         }
-        // Taken before the FIRST read of the run. Everything below — the tip
-        // chain prune, the reference-set scans, the atom scan — is a snapshot
-        // of a store that keeps accepting writes throughout: `gc-atoms` takes
-        // no lock and the node is not quiesced. So the reference set is only
-        // authoritative for atoms that already existed at this instant; an atom
-        // written afterwards has a live tip no scan below could have seen.
-        // Deleting on that basis is how a *live* record loses its body while
-        // its tip survives — no tombstone, no purge, no trace.
         let scan_started_at = scan_started_at.unwrap_or_else(Utc::now);
 
-        // The prologue is bounded, so resume where the last pass stopped rather
-        // than replanning the plane. `sweep_complete` restarts at the head of
-        // `mk:`: chains accrue behind the cursor as records are rewritten, so a
-        // finished sweep is a lap, not a terminal state.
         let mut checkpoint = if source_schema_name.is_some() {
             GcAtomsPruneCheckpoint::default()
         } else {
@@ -308,7 +322,83 @@ impl AtomStore {
         // same main collection the cursor must cross. With one handle visited
         // per pass, that shape can never converge. Persist the shared row key
         // before the first prune delete, then resume it until the lap finishes.
-        let ledger: Option<DeleteLedgerHandle> = if dry_run {
+        let ledger = self
+            .open_gc_atoms_ledger(
+                dry_run,
+                storage_prefix,
+                source_schema_name,
+                scan_started_at,
+                &mut checkpoint,
+            )
+            .await?;
+
+        let prune = self
+            .run_gc_atoms_prune_pass(
+                dry_run,
+                storage_prefix,
+                prune_live_history,
+                source_schema_name,
+                scan_started_at,
+                &mut checkpoint,
+            )
+            .await?;
+
+        let mut report =
+            Self::gc_atoms_initial_report(dry_run, source_schema_name, scan_started_at, &prune);
+
+        if prune.more_remaining {
+            return Ok(report);
+        }
+
+        let ledger_tip_versions_pruned = checkpoint.ledger_tip_versions_pruned;
+        let ledger_tips_skipped_changed = checkpoint.ledger_tips_skipped_changed;
+        if !dry_run && source_schema_name.is_none() {
+            self.clear_gc_atoms_ledger_resume(storage_prefix, &mut checkpoint)
+                .await?;
+        }
+
+        let referenced = self
+            .collect_gc_atoms_roots(storage_prefix, dry_run, &prune, extra_roots)
+            .await?;
+        if source_schema_name.is_none() {
+            report.atoms_referenced = referenced.len() as u64;
+        }
+
+        let walk = GcAtomWalk {
+            dry_run,
+            storage_prefix,
+            source_schema_name,
+            scan_started_at,
+        };
+        let mut pending: Vec<String> = Vec::new();
+        let storage_keys_deleted = self
+            .walk_gc_atom_plane(&walk, &referenced, &mut report, &mut pending)
+            .await?;
+
+        if let Some(handle) = ledger {
+            self.finish_gc_atoms_ledger(
+                handle,
+                &mut pending,
+                storage_keys_deleted,
+                &report,
+                (ledger_tip_versions_pruned, ledger_tips_skipped_changed),
+            )
+            .await?;
+        }
+
+        Ok(report)
+    }
+
+    /// Open or resume the delete ledger row for one `gc-atoms` run.
+    async fn open_gc_atoms_ledger(
+        &self,
+        dry_run: bool,
+        storage_prefix: Option<&str>,
+        source_schema_name: Option<&str>,
+        scan_started_at: DateTime<Utc>,
+        checkpoint: &mut GcAtomsPruneCheckpoint,
+    ) -> Result<Option<DeleteLedgerHandle>, SchemaError> {
+        let ledger = if dry_run {
             None
         } else if source_schema_name.is_some() {
             let entry = AtomDeleteLedgerEntry::gc_atoms("gc-atoms", &scan_started_at.to_rfc3339());
@@ -321,11 +411,23 @@ impl AtomStore {
             checkpoint.ledger_key = Some(handle.key().to_string());
             checkpoint.ledger_tip_versions_pruned = 0;
             checkpoint.ledger_tips_skipped_changed = 0;
-            self.put_gc_atoms_prune_checkpoint(storage_prefix, &checkpoint)
+            self.put_gc_atoms_prune_checkpoint(storage_prefix, checkpoint)
                 .await?;
             Some(handle)
         };
+        Ok(ledger)
+    }
 
+    /// Run one bounded tip-version prune pass and bank its checkpoint.
+    async fn run_gc_atoms_prune_pass(
+        &self,
+        dry_run: bool,
+        storage_prefix: Option<&str>,
+        prune_live_history: bool,
+        source_schema_name: Option<&str>,
+        scan_started_at: DateTime<Utc>,
+        checkpoint: &mut GcAtomsPruneCheckpoint,
+    ) -> Result<TipVersionPrunePlan, SchemaError> {
         let prune = if source_schema_name.is_some() {
             TipVersionPrunePlan::default()
         } else {
@@ -368,11 +470,21 @@ impl AtomStore {
             checkpoint.after_key = prune.next_after_key.clone();
             checkpoint.physical_cursor = prune.next_physical_cursor.clone();
             checkpoint.sweep_complete = !prune.more_remaining;
-            self.put_gc_atoms_prune_checkpoint(storage_prefix, &checkpoint)
+            self.put_gc_atoms_prune_checkpoint(storage_prefix, checkpoint)
                 .await?;
         }
 
-        let mut report = AtomGcReport {
+        Ok(prune)
+    }
+
+    /// Build the report that starts from the prune pass counters.
+    fn gc_atoms_initial_report(
+        dry_run: bool,
+        source_schema_name: Option<&str>,
+        scan_started_at: DateTime<Utc>,
+        prune: &TipVersionPrunePlan,
+    ) -> AtomGcReport {
+        AtomGcReport {
             dry_run,
             schema: source_schema_name.map(str::to_string),
             atoms_scanned: 0,
@@ -393,30 +505,34 @@ impl AtomStore {
             prune_next_after_key: prune.next_after_key.clone(),
             prune_physical_handles_visited: prune.physical_handles_visited,
             prune_physical_cold_shard_loads: prune.physical_cold_shard_loads,
-        };
-
-        // Do not start another global plane while the prologue still has a
-        // durable page ahead. The automatic caller gives the whole operation
-        // 120 seconds. Returning here makes each call either reclaim bytes or
-        // bank prologue progress, and prevents `gc scan mk` from consuming the
-        // remainder after a bounded prune page.
-        if prune.more_remaining {
-            return Ok(report);
         }
+    }
 
-        let ledger_tip_versions_pruned = checkpoint.ledger_tip_versions_pruned;
-        let ledger_tips_skipped_changed = checkpoint.ledger_tips_skipped_changed;
-        if !dry_run && source_schema_name.is_none() {
-            // The in-memory handle still confirms this lap. Clear its durable
-            // resume pointer before the atom walk, so a crash after any delete
-            // leaves this row unconfirmed and the next lap opens a new row.
-            checkpoint.ledger_key = None;
-            checkpoint.ledger_tip_versions_pruned = 0;
-            checkpoint.ledger_tips_skipped_changed = 0;
-            self.put_gc_atoms_prune_checkpoint(storage_prefix, &checkpoint)
-                .await?;
-        }
+    /// Clear the durable ledger resume pointer before the atom walk.
+    async fn clear_gc_atoms_ledger_resume(
+        &self,
+        storage_prefix: Option<&str>,
+        checkpoint: &mut GcAtomsPruneCheckpoint,
+    ) -> Result<(), SchemaError> {
+        // The in-memory handle still confirms this lap. Clear its durable
+        // resume pointer before the atom walk, so a crash after any delete
+        // leaves this row unconfirmed and the next lap opens a new row.
+        checkpoint.ledger_key = None;
+        checkpoint.ledger_tip_versions_pruned = 0;
+        checkpoint.ledger_tips_skipped_changed = 0;
+        self.put_gc_atoms_prune_checkpoint(storage_prefix, checkpoint)
+            .await?;
+        Ok(())
+    }
 
+    /// Collect the referenced atom UUIDs, including the roots the caller supplies.
+    async fn collect_gc_atoms_roots(
+        &self,
+        storage_prefix: Option<&str>,
+        dry_run: bool,
+        prune: &TipVersionPrunePlan,
+        extra_roots: &HashSet<String>,
+    ) -> Result<HashSet<String>, SchemaError> {
         // dry_run: skip planned-delete tv keys when counting refs so freeable
         // atoms show up without applying the prune first.
         // execute: prune already applied; skip set is empty of live keys.
@@ -433,23 +549,61 @@ impl AtomStore {
         // durable pin log). Folded in before the count so `atoms_referenced`
         // stays the number of bodies this pass treated as live.
         referenced.extend(extra_roots.iter().cloned());
-        if source_schema_name.is_none() {
-            report.atoms_referenced = referenced.len() as u64;
-        }
-        let (atom_prefix, atom_end) = Self::kind_plane_scan_bounds(storage_prefix, "atom:");
+        Ok(referenced)
+    }
 
-        // Deletes drain INSIDE the walk. The previous shape queued every key of
-        // every orphan across the whole plane and deleted them after the scan
-        // finished, so a pass that ran out of client deadline mid-walk banked
-        // nothing at all — which is why the delete ledger on this owner's
-        // primary held 5,778 rows and not one of them was from `gc-atoms`. A
-        // drained batch is durable the moment it lands, so an interrupted pass
-        // keeps the bytes it already returned and the next pass re-derives the
-        // rest.
+    /// Drain the last queued deletes and commit the `gc-atoms` ledger row.
+    async fn finish_gc_atoms_ledger(
+        &self,
+        handle: DeleteLedgerHandle,
+        pending: &mut Vec<String>,
+        mut storage_keys_deleted: u64,
+        report: &AtomGcReport,
+        (ledger_tip_versions_pruned, ledger_tips_skipped_changed): (u64, u64),
+    ) -> Result<(), SchemaError> {
+        if !pending.is_empty() {
+            storage_keys_deleted += self.drain_gc_deletes(pending).await?;
+        }
+        if storage_keys_deleted > 0 {
+            let _ = self.flush().await;
+        }
+        let final_report = report.clone();
+        self.commit_delete_ledger_row(handle, move |entry| {
+            entry.atoms_deleted = final_report.atoms_deleted;
+            entry.storage_keys_deleted = storage_keys_deleted;
+            entry.atoms_scanned = final_report.atoms_scanned;
+            entry.atoms_skipped_recent = final_report.atoms_skipped_recent;
+            entry.atoms_skipped_undatable = final_report.atoms_skipped_undatable;
+            // One row spans every bounded prologue pass in this lap.
+            entry.tip_versions_pruned = ledger_tip_versions_pruned;
+            entry.tips_skipped_changed = ledger_tips_skipped_changed;
+        })
+        .await;
+        Ok(())
+    }
+
+    /// Walk the atom plane page by page and delete the orphans. Returns the
+    /// number of storage keys deleted inside the walk.
+    ///
+    /// Deletes drain INSIDE the walk. The previous shape queued every key of
+    /// every orphan across the whole plane and deleted them after the scan
+    /// finished, so a pass that ran out of client deadline mid-walk banked
+    /// nothing at all — which is why the delete ledger on this owner's
+    /// primary held 5,778 rows and not one of them was from `gc-atoms`. A
+    /// drained batch is durable the moment it lands, so an interrupted pass
+    /// keeps the bytes it already returned and the next pass re-derives the
+    /// rest.
+    async fn walk_gc_atom_plane(
+        &self,
+        ctx: &GcAtomWalk<'_>,
+        referenced: &HashSet<String>,
+        report: &mut AtomGcReport,
+        pending: &mut Vec<String>,
+    ) -> Result<u64, SchemaError> {
+        let (atom_prefix, atom_end) = Self::kind_plane_scan_bounds(ctx.storage_prefix, "atom:");
         let mut storage_keys_deleted: u64 = 0;
-        let mut pending: Vec<String> = Vec::new();
         let mut cursor: Option<PhysicalScanCursor> = None;
-        let mut progress = GcAtomsProgress::start("atom-walk", dry_run);
+        let mut progress = GcAtomsProgress::start("atom-walk", ctx.dry_run);
         loop {
             let page = self
                 .raw()
@@ -478,105 +632,18 @@ impl AtomStore {
                 .collect::<Vec<_>>();
             let _target_gates = self.lock_automatic_gc_atoms(&page_uuids).await;
             for (k, v) in page.rows {
-                if source_schema_name.is_some_and(|schema| {
+                if ctx.source_schema_name.is_some_and(|schema| {
                     atom_row_source_schema_name(&v).as_deref() != Some(schema)
                 }) {
                     continue;
                 }
                 report.atoms_scanned += 1;
                 progress.walked(1);
-                let key = String::from_utf8_lossy(&k);
-                // Parse the uuid out of EITHER key shape. Under
-                // `AtomKeyEncoding::PartitionPrefix` a body key is
-                // `{storage_prefix}:atom:{partition}\0{uuid}`, and the previous
-                // `rsplit_once("atom:")` returned the whole `{partition}\0{uuid}`
-                // tail as the "uuid". That never matches a referenced uuid, so
-                // every *live* prefixed body looked like an orphan and this loop
-                // would have deleted the entire atom collection on the first
-                // gc-atoms call after the encoding flipped. Kind-as-partition
-                // flats are `atom\0{uuid}`; `rest_of` covers both.
-                let Some(uuid) = Self::atom_uuid_from_body_key(&key) else {
-                    continue;
-                };
-                if referenced.contains(uuid) {
-                    if source_schema_name.is_some() {
-                        report.atoms_referenced += 1;
-                    }
-                    continue;
-                }
-                if !self.atom_ref_v2_reads_ready(storage_prefix).await? {
-                    report.atoms_retained_incomplete_edges =
-                        report.atoms_retained_incomplete_edges.saturating_add(1);
-                    continue;
-                }
-                if self.has_active_atom_refs(uuid, storage_prefix).await?
-                    || self.has_any_pending_atom_refs(uuid, storage_prefix).await?
-                {
-                    report.atoms_retained_active_edges =
-                        report.atoms_retained_active_edges.saturating_add(1);
-                    continue;
-                }
-                // Race guard. `referenced` was gathered before this scan, so it
-                // cannot name a tip written since. Age the row against the instant
-                // the run started and leave anything newer alone; a genuinely
-                // orphaned atom is still orphaned on the next run, but a body
-                // deleted out from under a live tip is unrecoverable.
-                //
-                // `created_at` is a plain top-level field — content sealing only
-                // touches `content` — so this reads without opening the seal, and
-                // without a second store round-trip: the value bytes are in hand.
-                match atom_row_created_at(&v) {
-                    Some(created_at) if created_at < scan_started_at => {}
-                    Some(_) => {
-                        report.atoms_skipped_recent += 1;
-                        continue;
-                    }
-                    None => {
-                        report.atoms_skipped_undatable += 1;
-                        continue;
-                    }
-                }
-                // Decode before any removal so the same ordered delete can
-                // retire this atom's blob edges after its source body. An
-                // unreadable body may name any blob; retain it and its edges.
-                let atom = match self.decode_atom_bytes(&v).await {
-                    Ok(atom) => atom,
-                    Err(error) => {
-                        tracing::warn!(
-                            atom_uuid = uuid,
-                            %error,
-                            "gc-atoms retained an unreadable orphan candidate"
-                        );
-                        continue;
-                    }
-                };
-                let blob_edges: Vec<_> =
-                    crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
-                        .into_iter()
-                        .map(|blob_ref| {
-                            crate::db_operations::atom_store::BlobRefEdge::atom(uuid, &blob_ref)
-                                .storage_key(storage_prefix)
-                        })
-                        .collect();
-                report.atoms_deleted += 1;
-                report.bytes_freed_approx += k.len() as u64 + v.len() as u64;
-                // A locator must not outlive the body it points at, or the
-                // uuid-only read path keeps resolving to a key that is now empty.
-                // Queued unconditionally: deleting an absent key is a no-op, so
-                // this is also correct for a flat body that never had one.
-                if !dry_run {
-                    // Source removal precedes derived edge removal. LastStore
-                    // preserves batch order and uses one durability barrier.
-                    pending.push(key.to_string());
-                    pending.extend(blob_edges);
-                    pending.push(build_storage_key(
-                        storage_prefix,
-                        &crate::atom::atom_locator_codec::locator_key(uuid),
-                    ));
-                }
+                self.process_gc_atom_row(ctx, &k, &v, referenced, report, pending)
+                    .await?;
             }
-            if !dry_run && !pending.is_empty() {
-                storage_keys_deleted += self.drain_gc_deletes(&mut pending).await?;
+            if !ctx.dry_run && !pending.is_empty() {
+                storage_keys_deleted += self.drain_gc_deletes(pending).await?;
             }
             cursor = page.next_cursor;
             if cursor.is_none() {
@@ -584,29 +651,128 @@ impl AtomStore {
             }
         }
         progress.finish();
+        Ok(storage_keys_deleted)
+    }
 
-        if let Some(handle) = ledger {
-            if !pending.is_empty() {
-                storage_keys_deleted += self.drain_gc_deletes(&mut pending).await?;
+    /// Decode an orphan candidate and list its blob edge keys. Returns `None`
+    /// when the body is unreadable.
+    async fn readable_gc_atom_blob_edges(
+        &self,
+        uuid: &str,
+        v: &[u8],
+        storage_prefix: Option<&str>,
+    ) -> Option<Vec<String>> {
+        // Decode before any removal so the same ordered delete can
+        // retire this atom's blob edges after its source body. An
+        // unreadable body may name any blob; retain it and its edges.
+        let atom = match self.decode_atom_bytes(v).await {
+            Ok(atom) => atom,
+            Err(error) => {
+                tracing::warn!(
+                    atom_uuid = uuid,
+                    %error,
+                    "gc-atoms retained an unreadable orphan candidate"
+                );
+                return None;
             }
-            if storage_keys_deleted > 0 {
-                let _ = self.flush().await;
+        };
+        let blob_edges: Vec<String> =
+            crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
+                .into_iter()
+                .map(|blob_ref| {
+                    crate::db_operations::atom_store::BlobRefEdge::atom(uuid, &blob_ref)
+                        .storage_key(storage_prefix)
+                })
+                .collect();
+        Some(blob_edges)
+    }
+
+    /// Decide one atom row of the walk and queue its deletes when it is an orphan.
+    async fn process_gc_atom_row(
+        &self,
+        ctx: &GcAtomWalk<'_>,
+        k: &[u8],
+        v: &[u8],
+        referenced: &HashSet<String>,
+        report: &mut AtomGcReport,
+        pending: &mut Vec<String>,
+    ) -> Result<(), SchemaError> {
+        let key = String::from_utf8_lossy(k);
+        // Parse the uuid out of EITHER key shape. Under
+        // `AtomKeyEncoding::PartitionPrefix` a body key is
+        // `{ctx.storage_prefix}:atom:{partition}\0{uuid}`, and the previous
+        // `rsplit_once("atom:")` returned the whole `{partition}\0{uuid}`
+        // tail as the "uuid". That never matches a referenced uuid, so
+        // every *live* prefixed body looked like an orphan and this loop
+        // would have deleted the entire atom collection on the first
+        // gc-atoms call after the encoding flipped. Kind-as-partition
+        // flats are `atom\0{uuid}`; `rest_of` covers both.
+        let Some(uuid) = Self::atom_uuid_from_body_key(&key) else {
+            return Ok(());
+        };
+        if referenced.contains(uuid) {
+            if ctx.source_schema_name.is_some() {
+                report.atoms_referenced += 1;
             }
-            let final_report = report.clone();
-            self.commit_delete_ledger_row(handle, move |entry| {
-                entry.atoms_deleted = final_report.atoms_deleted;
-                entry.storage_keys_deleted = storage_keys_deleted;
-                entry.atoms_scanned = final_report.atoms_scanned;
-                entry.atoms_skipped_recent = final_report.atoms_skipped_recent;
-                entry.atoms_skipped_undatable = final_report.atoms_skipped_undatable;
-                // One row spans every bounded prologue pass in this lap.
-                entry.tip_versions_pruned = ledger_tip_versions_pruned;
-                entry.tips_skipped_changed = ledger_tips_skipped_changed;
-            })
-            .await;
+            return Ok(());
         }
-
-        Ok(report)
+        if !self.atom_ref_v2_reads_ready(ctx.storage_prefix).await? {
+            report.atoms_retained_incomplete_edges =
+                report.atoms_retained_incomplete_edges.saturating_add(1);
+            return Ok(());
+        }
+        if self.has_active_atom_refs(uuid, ctx.storage_prefix).await?
+            || self
+                .has_any_pending_atom_refs(uuid, ctx.storage_prefix)
+                .await?
+        {
+            report.atoms_retained_active_edges =
+                report.atoms_retained_active_edges.saturating_add(1);
+            return Ok(());
+        }
+        // Race guard. `referenced` was gathered before this scan, so it
+        // cannot name a tip written since. Age the row against the instant
+        // the run started and leave anything newer alone; a genuinely
+        // orphaned atom is still orphaned on the next run, but a body
+        // deleted out from under a live tip is unrecoverable.
+        //
+        // `created_at` is a plain top-level field — content sealing only
+        // touches `content` — so this reads without opening the seal, and
+        // without a second store round-trip: the value bytes are in hand.
+        match atom_row_created_at(v) {
+            Some(created_at) if created_at < ctx.scan_started_at => {}
+            Some(_) => {
+                report.atoms_skipped_recent += 1;
+                return Ok(());
+            }
+            None => {
+                report.atoms_skipped_undatable += 1;
+                return Ok(());
+            }
+        }
+        let Some(blob_edges) = self
+            .readable_gc_atom_blob_edges(uuid, v, ctx.storage_prefix)
+            .await
+        else {
+            return Ok(());
+        };
+        report.atoms_deleted += 1;
+        report.bytes_freed_approx += k.len() as u64 + v.len() as u64;
+        // A locator must not outlive the body it points at, or the
+        // uuid-only read path keeps resolving to a key that is now empty.
+        // Queued unconditionally: deleting an absent key is a no-op, so
+        // this is also correct for a flat body that never had one.
+        if !ctx.dry_run {
+            // Source removal precedes derived edge removal. LastStore
+            // preserves batch order and uses one durability barrier.
+            pending.push(key.to_string());
+            pending.extend(blob_edges);
+            pending.push(build_storage_key(
+                ctx.storage_prefix,
+                &crate::atom::atom_locator_codec::locator_key(uuid),
+            ));
+        }
+        Ok(())
     }
 
     /// Keys per `batch_delete_keys` call, and the point at which the walk

@@ -1,7 +1,6 @@
 use super::*;
 
 impl SyncEngine {
-    // lint:fn-size-ok moved verbatim from backup_uploader.rs; splitting this function is separate work.
     pub(super) async fn cas_backup_publish_target_inner(
         &self,
         allow_rebind_retry: bool,
@@ -16,6 +15,81 @@ impl SyncEngine {
                 "lastdb cloud snapshot requires a LastStore backup source".to_string(),
             )
         })?;
+        self.cas_ensure_cut_verified(allow_retirement, previous_manifest)
+            .await?;
+
+        // Re-read the held target after a possible mid-CAS retirement heal so
+        // the bytes we publish match the (possibly narrowed) cut.
+        let (manifest, chunks_in_target) = {
+            let target = self.backup_publish_target.lock().await;
+            let target = target
+                .as_ref()
+                .ok_or_else(missing_backup_publish_target_for_cas)?;
+            (target.manifest.clone(), target.total())
+        };
+
+        let (manifest_sha256, manifest_key) = self
+            .cas_upload_final_manifest(&manifest, previous_manifest, expected_primary_resume_cut)
+            .await?;
+        self.cas_publish_recovery_descriptor(store, &manifest, &manifest_sha256)
+            .await?;
+
+        // Cloud CAS is the durable source of truth. Local
+        // `commit_backup_manifest` runs *after* CAS and can fail (ENOSPC,
+        // permissions). When that happens the held target stays in memory, the
+        // next cycle re-issues the same counter, and the server rejects it as
+        // `stale_counter` forever — a livelock. Heal by treating cloud identity
+        // match as "already landed" and finishing local bookkeeping only.
+        if let Some(expected) = expected_primary_resume_cut {
+            self.require_primary_resume_previous_latest(expected)
+                .await?;
+        }
+        let cas = self
+            .cas_backup_latest_for_resume(
+                expected_primary_resume_cut
+                    .is_some_and(|expected| expected.previous_latest.is_none()),
+                &manifest,
+                &manifest_sha256,
+            )
+            .await;
+        let latest_key = match self
+            .cas_resolve_latest_outcome(
+                cas,
+                store,
+                allow_rebind_retry,
+                allow_retirement,
+                previous_manifest,
+                &manifest,
+                &manifest_sha256,
+            )
+            .await?
+        {
+            Ok(key) => key,
+            Err(recut) => return Ok(recut),
+        };
+
+        let gc_eligible_log_segments = self
+            .cas_finalize_landed(store, &manifest, &manifest_sha256)
+            .await?;
+
+        let report = Self::cas_build_report(
+            &manifest,
+            manifest_sha256,
+            manifest_key,
+            latest_key,
+            chunks_in_target,
+            gc_eligible_log_segments,
+        );
+        Ok((manifest, report))
+    }
+
+    /// Verify the held cut's chunks are present; on a shortfall with
+    /// unbackable chunks retire, hole, or report pending.
+    async fn cas_ensure_cut_verified(
+        &self,
+        allow_retirement: bool,
+        previous_manifest: Option<&BackupManifest>,
+    ) -> SyncResult<()> {
         let (manifest, unbackable_manifest_chunks) = {
             let target = self.backup_publish_target.lock().await;
             let target = target
@@ -31,195 +105,13 @@ impl SyncEngine {
             // on them — the same distinction `source_missing` already draws for
             // a candidate whose live sealed file vanished.
             if unbackable_manifest_chunks > 0 && allow_retirement {
-                // 2026-08-06 primary: sticky gen 502 looped forever with
-                // missing == unbackable (776) and zero retirement receipts.
-                // Listing at cut time kept the ghosts (or reconcile was
-                // incomplete); HEAD after reseed is the same truth CAS uses —
-                // retire those digests on the held cut and retry verify so we
-                // do not livelock saying "must re-cut" while holding the same
-                // generation.
-                //
-                // 2026-08-19: do **not** abandon after a partial retirement.
-                // Abandon discards in-memory receipts and the next cut
-                // re-imports the same ghosts from the last published manifest
-                // (papercut-lastdb-unbackable-retirement-is-discarded-when-
-                // the-held-cut-is-abandoned). Re-verify can also surface
-                // previously cache-positive ghosts as newly missing — retire
-                // those on further passes against the same held generation.
-                let missing_before = missing.len();
-                let mut outstanding = missing;
-                let mut passes: Vec<UnbackableRetirement> = Vec::new();
-                let mut verified_ok = false;
-                for pass in 1..=MAX_UNBACKABLE_RETIREMENT_PASSES {
-                    // Retirement is HEAD-proven-absent evidence only — never
-                    // hand it a digest whose presence check merely errored.
-                    let Some(retirement) = self
-                        .try_retire_cas_proven_unbackable_on_held_target(
-                            previous_manifest,
-                            &outstanding.confirmed_missing,
-                        )
-                        .await
-                    else {
-                        break;
-                    };
-                    passes.push(retirement);
-                    let healed_manifest = {
-                        let guard = self.backup_publish_target.lock().await;
-                        guard
-                            .as_ref()
-                            .map_or_else(|| manifest.clone(), |t| t.manifest.clone())
-                    };
-                    match self
-                        .try_verify_manifest_chunks_present(&healed_manifest)
-                        .await
-                    {
-                        Ok(()) => {
-                            verified_ok = true;
-                            tracing::info!(
-                                target: "fold_db::sync::backup",
-                                pass,
-                                retired_this_pass = retirement.retired,
-                                retired_total = passes.iter().map(|p| p.retired).sum::<usize>(),
-                                "CAS verify clean after unbackable retirement on held cut"
-                            );
-                            break;
-                        }
-                        Err(still_missing) => {
-                            tracing::info!(
-                                target: "fold_db::sync::backup",
-                                pass,
-                                missing_before = outstanding.len(),
-                                missing_after = still_missing.len(),
-                                retired_this_pass = retirement.retired,
-                                unbackable_after = retirement.unbackable_after,
-                                "CAS shortfall remains after unbackable retirement pass; \
-                                 retaining held cut for another pass or next cycle"
-                            );
-                            outstanding = still_missing;
-                        }
-                    }
-                }
-
-                if !verified_ok {
-                    // Slice 4: leftover names that exist nowhere (any role,
-                    // not only carried-forward atoms) become named holes so
-                    // the stamp can publish. Inherited cloud-present names
-                    // are not holes — they never appear in `outstanding`. Only
-                    // HEAD-confirmed absences may be holed; an unconfirmed
-                    // (errored) probe must not punch a hole for a digest that
-                    // might still be sitting in cloud.
-                    if let Some(holed) = self
-                        .try_record_named_holes_on_held_target(
-                            previous_manifest,
-                            &outstanding.confirmed_missing,
-                        )
-                        .await
-                    {
-                        let healed_manifest = {
-                            let guard = self.backup_publish_target.lock().await;
-                            guard
-                                .as_ref()
-                                .map_or_else(|| manifest.clone(), |t| t.manifest.clone())
-                        };
-                        match self
-                            .try_verify_manifest_chunks_present(&healed_manifest)
-                            .await
-                        {
-                            Ok(()) => {
-                                verified_ok = true;
-                                tracing::info!(
-                                    target: "fold_db::sync::backup",
-                                    named_holes = holed,
-                                    "CAS verify clean after recording named holes on held cut"
-                                );
-                            }
-                            Err(still_missing) => {
-                                outstanding = still_missing;
-                                tracing::info!(
-                                    target: "fold_db::sync::backup",
-                                    named_holes = holed,
-                                    missing_after = outstanding.len(),
-                                    "named holes recorded; remaining shortfall is still-uploading candidates"
-                                );
-                            }
-                        }
-                    }
-                }
-                if !verified_ok {
-                    let candidate_shas = {
-                        let guard = self.backup_publish_target.lock().await;
-                        guard.as_ref().map(|t| candidate_sha_set(&t.candidates))
-                    };
-                    let source_missing = {
-                        let generation = self
-                            .backup_publish_target
-                            .lock()
-                            .await
-                            .as_ref()
-                            .map(|t| t.generation);
-                        let mut missing = self.backup_unresolvable.lock().await;
-                        missing
-                            .for_generation(generation)
-                            .iter()
-                            .cloned()
-                            .collect::<BTreeSet<_>>()
-                    };
-                    let remaining_are_uploadable = !outstanding.is_empty()
-                        && candidate_shas.as_ref().is_some_and(|cands| {
-                            outstanding
-                                .iter()
-                                .all(|sha| cands.contains(sha) && !source_missing.contains(sha))
-                        });
-                    if outstanding.is_empty() {
-                        // Holes closed the shortfall; fall through and stamp.
-                    } else if remaining_are_uploadable {
-                        return Err(SyncError::BackupSnapshotVerifyPending {
-                            missing_chunks: outstanding.len(),
-                        });
-                    } else {
-                        let generation = self
-                            .backup_publish_target
-                            .lock()
-                            .await
-                            .as_ref()
-                            .map(|t| t.generation);
-                        let missing_after = outstanding.len();
-                        if passes.is_empty() {
-                            tracing::warn!(
-                                target: "fold_db::sync::backup",
-                                missing = missing_before,
-                                unbackable_manifest_chunks,
-                                generation = ?generation,
-                                "CAS shortfall with unbackable manifest chunks and no \
-                                 CAS-proven ghosts to retire; retaining held cut \
-                                 (automatic abandon suppressed)"
-                            );
-                            return Err(SyncError::Storage(retain_no_ghosts_message(
-                                missing_before,
-                                unbackable_manifest_chunks,
-                            )));
-                        }
-                        let folded = fold_unbackable_retirements(&passes);
-                        tracing::warn!(
-                            target: "fold_db::sync::backup",
-                            missing_before,
-                            missing_after,
-                            retired = folded.retired,
-                            unbackable_before = unbackable_manifest_chunks,
-                            unbackable_after = folded.unbackable_after,
-                            passes = passes.len(),
-                            generation = ?generation,
-                            "CAS shortfall remains after unbackable retirement; \
-                             retaining held cut (automatic abandon suppressed)"
-                        );
-                        return Err(SyncError::Storage(retain_after_retirement_message(
-                            missing_before,
-                            folded,
-                            unbackable_manifest_chunks,
-                            missing_after,
-                        )));
-                    }
-                }
+                self.cas_resolve_unbackable_shortfall(
+                    &manifest,
+                    missing,
+                    unbackable_manifest_chunks,
+                    previous_manifest,
+                )
+                .await?;
                 // Fall through with refreshed held manifest.
             } else {
                 return Err(SyncError::BackupSnapshotVerifyPending {
@@ -228,27 +120,305 @@ impl SyncEngine {
             }
         }
 
-        // Re-read the held target after a possible mid-CAS retirement heal so
-        // the bytes we publish match the (possibly narrowed) cut.
-        let (manifest, chunks_in_target) = {
-            let target = self.backup_publish_target.lock().await;
-            let target = target
-                .as_ref()
-                .ok_or_else(missing_backup_publish_target_for_cas)?;
-            (target.manifest.clone(), target.total())
-        };
+        Ok(())
+    }
 
+    fn cas_build_report(
+        manifest: &BackupManifest,
+        manifest_sha256: String,
+        manifest_key: String,
+        latest_key: String,
+        chunks_in_target: usize,
+        gc_eligible_log_segments: usize,
+    ) -> LastStoreCloudSnapshotReport {
+        let chunks_referenced = manifest.mutable_chunks.len() + manifest.atom_chunks.len();
+        LastStoreCloudSnapshotReport {
+            manifest_sha256,
+            manifest_key,
+            latest_key,
+            counter: manifest.counter,
+            cut_csn: manifest.cut_csn,
+            chunks_referenced,
+            // The drain that filled this cut ran across many cycles, so a
+            // single cycle's put count is not the number that landed it. The
+            // honest figure at CAS time is the size of the cut itself.
+            chunks_uploaded: 0,
+            chunks_already_present: chunks_in_target,
+            bytes_uploaded: 0,
+            frontier_through: manifest.cut_csn,
+            cas_counter: manifest.counter,
+            gc_eligible_log_segments,
+        }
+    }
+
+    /// Clone of the held target's manifest, or `fallback` when no target is held.
+    async fn cas_held_manifest_or(&self, fallback: &BackupManifest) -> BackupManifest {
+        let guard = self.backup_publish_target.lock().await;
+        guard
+            .as_ref()
+            .map_or_else(|| fallback.clone(), |t| t.manifest.clone())
+    }
+
+    /// Verify shortfall with unbackable manifest chunks: retire, hole, or
+    /// classify the remainder. `Ok(())` means the cut now verifies.
+    async fn cas_resolve_unbackable_shortfall(
+        &self,
+        manifest: &BackupManifest,
+        missing: ManifestPresenceProbe,
+        unbackable_manifest_chunks: usize,
+        previous_manifest: Option<&BackupManifest>,
+    ) -> SyncResult<()> {
+        // 2026-08-06 primary: sticky gen 502 looped forever with
+        // missing == unbackable (776) and zero retirement receipts.
+        // Listing at cut time kept the ghosts (or reconcile was
+        // incomplete); HEAD after reseed is the same truth CAS uses —
+        // retire those digests on the held cut and retry verify so we
+        // do not livelock saying "must re-cut" while holding the same
+        // generation.
+        //
+        // 2026-08-19: do **not** abandon after a partial retirement.
+        // Abandon discards in-memory receipts and the next cut
+        // re-imports the same ghosts from the last published manifest
+        // (papercut-lastdb-unbackable-retirement-is-discarded-when-
+        // the-held-cut-is-abandoned). Re-verify can also surface
+        // previously cache-positive ghosts as newly missing — retire
+        // those on further passes against the same held generation.
+        let missing_before = missing.len();
+        let (verified_ok, outstanding, passes) = self
+            .cas_run_retirement_passes(manifest, previous_manifest, missing)
+            .await;
+        if verified_ok {
+            return Ok(());
+        }
+        // Slice 4: leftover names that exist nowhere (any role,
+        // not only carried-forward atoms) become named holes so
+        // the stamp can publish. Inherited cloud-present names
+        // are not holes — they never appear in `outstanding`. Only
+        // HEAD-confirmed absences may be holed; an unconfirmed
+        // (errored) probe must not punch a hole for a digest that
+        // might still be sitting in cloud.
+        let (verified_ok, outstanding) = self
+            .cas_record_named_holes_pass(manifest, previous_manifest, outstanding)
+            .await;
+        if verified_ok {
+            return Ok(());
+        }
+        self.cas_classify_remaining_shortfall(
+            outstanding,
+            &passes,
+            missing_before,
+            unbackable_manifest_chunks,
+        )
+        .await
+    }
+
+    /// Retire CAS-proven unbackable digests on the held cut, re-verifying
+    /// after each pass. Returns (verified, outstanding, passes).
+    async fn cas_run_retirement_passes(
+        &self,
+        manifest: &BackupManifest,
+        previous_manifest: Option<&BackupManifest>,
+        missing: ManifestPresenceProbe,
+    ) -> (bool, ManifestPresenceProbe, Vec<UnbackableRetirement>) {
+        let mut outstanding = missing;
+        let mut passes: Vec<UnbackableRetirement> = Vec::new();
+        let mut verified_ok = false;
+        for pass in 1..=MAX_UNBACKABLE_RETIREMENT_PASSES {
+            // Retirement is HEAD-proven-absent evidence only — never
+            // hand it a digest whose presence check merely errored.
+            let Some(retirement) = self
+                .try_retire_cas_proven_unbackable_on_held_target(
+                    previous_manifest,
+                    &outstanding.confirmed_missing,
+                )
+                .await
+            else {
+                break;
+            };
+            passes.push(retirement);
+            let healed_manifest = self.cas_held_manifest_or(manifest).await;
+            match self
+                .try_verify_manifest_chunks_present(&healed_manifest)
+                .await
+            {
+                Ok(()) => {
+                    verified_ok = true;
+                    tracing::info!(
+                        target: "fold_db::sync::backup",
+                        pass,
+                        retired_this_pass = retirement.retired,
+                        retired_total = passes.iter().map(|p| p.retired).sum::<usize>(),
+                        "CAS verify clean after unbackable retirement on held cut"
+                    );
+                    break;
+                }
+                Err(still_missing) => {
+                    tracing::info!(
+                        target: "fold_db::sync::backup",
+                        pass,
+                        missing_before = outstanding.len(),
+                        missing_after = still_missing.len(),
+                        retired_this_pass = retirement.retired,
+                        unbackable_after = retirement.unbackable_after,
+                        "CAS shortfall remains after unbackable retirement pass; \
+                         retaining held cut for another pass or next cycle"
+                    );
+                    outstanding = still_missing;
+                }
+            }
+        }
+        (verified_ok, outstanding, passes)
+    }
+
+    /// Record named holes for HEAD-confirmed absences, then re-verify.
+    /// Returns (verified, outstanding).
+    async fn cas_record_named_holes_pass(
+        &self,
+        manifest: &BackupManifest,
+        previous_manifest: Option<&BackupManifest>,
+        mut outstanding: ManifestPresenceProbe,
+    ) -> (bool, ManifestPresenceProbe) {
+        let mut verified_ok = false;
+        if let Some(holed) = self
+            .try_record_named_holes_on_held_target(
+                previous_manifest,
+                &outstanding.confirmed_missing,
+            )
+            .await
+        {
+            let healed_manifest = self.cas_held_manifest_or(manifest).await;
+            match self
+                .try_verify_manifest_chunks_present(&healed_manifest)
+                .await
+            {
+                Ok(()) => {
+                    verified_ok = true;
+                    tracing::info!(
+                        target: "fold_db::sync::backup",
+                        named_holes = holed,
+                        "CAS verify clean after recording named holes on held cut"
+                    );
+                }
+                Err(still_missing) => {
+                    outstanding = still_missing;
+                    tracing::info!(
+                        target: "fold_db::sync::backup",
+                        named_holes = holed,
+                        missing_after = outstanding.len(),
+                        "named holes recorded; remaining shortfall is still-uploading candidates"
+                    );
+                }
+            }
+        }
+        (verified_ok, outstanding)
+    }
+
+    /// Shortfall remains after retirement and holes: pending (uploadable),
+    /// closed (empty), or a retained-cut storage error.
+    async fn cas_classify_remaining_shortfall(
+        &self,
+        outstanding: ManifestPresenceProbe,
+        passes: &[UnbackableRetirement],
+        missing_before: usize,
+        unbackable_manifest_chunks: usize,
+    ) -> SyncResult<()> {
+        let candidate_shas = {
+            let guard = self.backup_publish_target.lock().await;
+            guard.as_ref().map(|t| candidate_sha_set(&t.candidates))
+        };
+        let source_missing = {
+            let generation = self
+                .backup_publish_target
+                .lock()
+                .await
+                .as_ref()
+                .map(|t| t.generation);
+            let mut missing = self.backup_unresolvable.lock().await;
+            missing
+                .for_generation(generation)
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        };
+        let remaining_are_uploadable = !outstanding.is_empty()
+            && candidate_shas.as_ref().is_some_and(|cands| {
+                outstanding
+                    .iter()
+                    .all(|sha| cands.contains(sha) && !source_missing.contains(sha))
+            });
+        if outstanding.is_empty() {
+            // Holes closed the shortfall; fall through and stamp.
+            return Ok(());
+        }
+        if remaining_are_uploadable {
+            return Err(SyncError::BackupSnapshotVerifyPending {
+                missing_chunks: outstanding.len(),
+            });
+        }
+        let generation = self
+            .backup_publish_target
+            .lock()
+            .await
+            .as_ref()
+            .map(|t| t.generation);
+        let missing_after = outstanding.len();
+        if passes.is_empty() {
+            tracing::warn!(
+                target: "fold_db::sync::backup",
+                missing = missing_before,
+                unbackable_manifest_chunks,
+                generation = ?generation,
+                "CAS shortfall with unbackable manifest chunks and no \
+                 CAS-proven ghosts to retire; retaining held cut \
+                 (automatic abandon suppressed)"
+            );
+            return Err(SyncError::Storage(retain_no_ghosts_message(
+                missing_before,
+                unbackable_manifest_chunks,
+            )));
+        }
+        let folded = fold_unbackable_retirements(passes);
+        tracing::warn!(
+            target: "fold_db::sync::backup",
+            missing_before,
+            missing_after,
+            retired = folded.retired,
+            unbackable_before = unbackable_manifest_chunks,
+            unbackable_after = folded.unbackable_after,
+            passes = passes.len(),
+            generation = ?generation,
+            "CAS shortfall remains after unbackable retirement; \
+             retaining held cut (automatic abandon suppressed)"
+        );
+        Err(SyncError::Storage(retain_after_retirement_message(
+            missing_before,
+            folded,
+            unbackable_manifest_chunks,
+            missing_after,
+        )))
+    }
+
+    /// Validate, hash, upload and confirm the final manifest bytes. Returns
+    /// (manifest_sha256, manifest_key).
+    async fn cas_upload_final_manifest(
+        &self,
+        manifest: &BackupManifest,
+        previous_manifest: Option<&BackupManifest>,
+        expected_primary_resume_cut: Option<
+            &super::super::primary_resume::PrimaryResumeCutIdentity,
+        >,
+    ) -> SyncResult<(String, String)> {
         // Retirement and hole exclusion can change a cut after its initial
         // validation. Validate the exact final bytes' predecessor before any
         // manifest upload or latest CAS. Never publish an unrestorable step.
-        validate_manifest_chain(previous_manifest, &manifest)
+        validate_manifest_chain(previous_manifest, manifest)
             .map_err(|e| SyncError::Storage(format!("final backup manifest chain invalid: {e}")))?;
-        let manifest_bytes = serde_json::to_vec(&manifest)
+        let manifest_bytes = serde_json::to_vec(manifest)
             .map_err(|e| SyncError::Storage(format!("encode backup manifest failed: {e}")))?;
-        let manifest_sha256 = manifest_sha256_hex(&manifest)
+        let manifest_sha256 = manifest_sha256_hex(manifest)
             .map_err(|e| SyncError::Storage(format!("hash backup manifest failed: {e}")))?;
         if let Some(expected) = expected_primary_resume_cut {
-            require_primary_resume_manifest_identity(&manifest, expected)?;
+            require_primary_resume_manifest_identity(manifest, expected)?;
         }
         let manifest_presign = self
             .auth
@@ -272,11 +442,19 @@ impl SyncEngine {
                 "backup manifest {manifest_sha256} is missing from cloud backup storage"
             )));
         }
+        Ok((manifest_sha256, manifest_presign.key.unwrap_or_default()))
+    }
 
-        // A lost source home also loses its random store UUID and physical
-        // layout. Publish both under the account root before the latest CAS.
-        // An orphan descriptor from a failed CAS cannot pass the restore's
-        // exact latest-pointer check.
+    /// A lost source home also loses its random store UUID and physical
+    /// layout. Publish both under the account root before the latest CAS.
+    /// An orphan descriptor from a failed CAS cannot pass the restore's
+    /// exact latest-pointer check.
+    async fn cas_publish_recovery_descriptor(
+        &self,
+        store: &crate::storage::LastStoreNamespacedStore,
+        manifest: &BackupManifest,
+        manifest_sha256: &str,
+    ) -> SyncResult<()> {
         let recovery_key = self.enc_key.as_ref().ok_or_else(|| {
             SyncError::Storage("backup recovery descriptor needs the account E2E key".into())
         })?;
@@ -301,7 +479,7 @@ impl SyncEngine {
             &manifest.store_uuid,
             &db_hash,
             layout,
-            &manifest_sha256,
+            manifest_sha256,
             manifest.counter,
             manifest.epoch,
         )
@@ -315,112 +493,129 @@ impl SyncEngine {
                 store_uuid: &manifest.store_uuid,
                 epoch: manifest.epoch,
                 counter: manifest.counter,
-                manifest_sha256: &manifest_sha256,
+                manifest_sha256,
                 descriptor_name: &descriptor_name,
                 descriptor_sha256: &descriptor_sha256,
                 ciphertext: &ciphertext,
             })
             .await?;
+        Ok(())
+    }
 
-        // Cloud CAS is the durable source of truth. Local
-        // `commit_backup_manifest` runs *after* CAS and can fail (ENOSPC,
-        // permissions). When that happens the held target stays in memory, the
-        // next cycle re-issues the same counter, and the server rejects it as
-        // `stale_counter` forever — a livelock. Heal by treating cloud identity
-        // match as "already landed" and finishing local bookkeeping only.
-        if let Some(expected) = expected_primary_resume_cut {
-            self.require_primary_resume_previous_latest(expected)
-                .await?;
-        }
-        let cas = self
-            .cas_backup_latest_for_resume(
-                expected_primary_resume_cut
-                    .is_some_and(|expected| expected.previous_latest.is_none()),
-                &manifest,
-                &manifest_sha256,
-            )
-            .await;
-        let latest_key = match cas {
-            Ok(latest) => latest.key,
+    /// Map the latest-CAS result to the landed latest key, or to a recut
+    /// result (`Ok(Err(..))`) after an epoch rebind or counter bump.
+    #[allow(clippy::too_many_arguments)]
+    async fn cas_resolve_latest_outcome(
+        &self,
+        cas: SyncResult<crate::sync::auth::ops::BackupLatestCasResponse>,
+        store: &crate::storage::LastStoreNamespacedStore,
+        allow_rebind_retry: bool,
+        allow_retirement: bool,
+        previous_manifest: Option<&BackupManifest>,
+        manifest: &BackupManifest,
+        manifest_sha256: &str,
+    ) -> SyncResult<Result<String, (BackupManifest, LastStoreCloudSnapshotReport)>> {
+        match cas {
+            Ok(latest) => Ok(Ok(latest.key)),
             Err(err) if allow_rebind_retry && is_store_uuid_mismatch_error(&err) => {
-                // Cloud `latest` is owned by a different store_uuid under the
-                // same/lower epoch. Bump local publisher epoch above cloud's
-                // and re-cut once so CAS can rebind (server requires
-                // candidate.epoch > current.epoch for store_uuid change).
-                let cloud_epoch = match self.auth.backup_latest_get().await {
-                    Ok(get) => get.latest.epoch,
-                    Err(get_err) => {
-                        tracing::warn!(
-                            target: "fold_db::sync::snapshot_log",
-                            error = %redact_sync_error_text(&get_err.to_string()),
-                            "backup_latest_get after store_uuid_mismatch failed; using local epoch+1"
-                        );
-                        manifest.epoch
-                    }
-                };
-                let min_epoch = cloud_epoch
-                    .saturating_add(1)
-                    .max(manifest.epoch.saturating_add(1));
-                let new_epoch = store.ensure_backup_epoch_at_least(min_epoch).map_err(|e| {
-                    SyncError::Storage(format!(
-                        "backup epoch rebind after store_uuid_mismatch failed: {e}"
-                    ))
-                })?;
-                tracing::warn!(
-                    target: "fold_db::sync::snapshot_log",
-                    local_store_uuid = %manifest.store_uuid,
-                    local_epoch = manifest.epoch,
-                    cloud_epoch,
-                    rebind_epoch = new_epoch,
-                    "store_uuid_mismatch on CAS; rebinding publisher epoch and retrying once"
-                );
+                self.cas_rebind_epoch_for_store_uuid_mismatch(store, manifest)
+                    .await?;
                 // The rebind changes the epoch this cut must carry, so the held
                 // target is stale — drop it and let the retry cut a fresh one.
                 self.retire_backup_publish_target().await;
-                return Box::pin(self.laststore_cloud_snapshot_once(
+                let recut = Box::pin(self.laststore_cloud_snapshot_once(
                     previous_manifest,
                     false,
                     allow_retirement,
                     None,
                 ))
-                .await;
+                .await?;
+                Ok(Err(recut))
             }
             Err(err) if is_stale_counter_error(&err) => {
                 match self
-                    .heal_already_cas_landed_held_cut(&manifest, &manifest_sha256)
+                    .heal_already_cas_landed_held_cut(manifest, manifest_sha256)
                     .await
                 {
-                    Ok(Some(key)) => key,
+                    Ok(Some(key)) => Ok(Ok(key)),
                     Ok(None)
                         if allow_rebind_retry
                             && self
                                 .bump_local_counter_after_foreign_stale_cas(
-                                    &manifest,
-                                    &manifest_sha256,
+                                    manifest,
+                                    manifest_sha256,
                                 )
                                 .await =>
                     {
                         self.retire_backup_publish_target().await;
-                        return Box::pin(self.laststore_cloud_snapshot_once(
+                        let recut = Box::pin(self.laststore_cloud_snapshot_once(
                             previous_manifest,
                             false,
                             allow_retirement,
                             None,
                         ))
-                        .await;
+                        .await?;
+                        Ok(Err(recut))
                     }
-                    Ok(None) => return Err(err),
+                    Ok(None) => Err(err),
                     // Cloud `latest` names a format this publisher does not
                     // read. Surface that by name instead of the stale_counter
                     // it hid behind; no recut can land against it.
-                    Err(unsupported) => return Err(unsupported),
+                    Err(unsupported) => Err(unsupported),
                 }
             }
-            Err(err) => return Err(err),
-        };
+            Err(err) => Err(err),
+        }
+    }
 
+    /// Cloud `latest` is owned by a different store_uuid under the same/lower
+    /// epoch. Bump local publisher epoch above cloud's so CAS can rebind
+    /// (server requires candidate.epoch > current.epoch for store_uuid change).
+    async fn cas_rebind_epoch_for_store_uuid_mismatch(
+        &self,
+        store: &crate::storage::LastStoreNamespacedStore,
+        manifest: &BackupManifest,
+    ) -> SyncResult<()> {
+        let cloud_epoch = match self.auth.backup_latest_get().await {
+            Ok(get) => get.latest.epoch,
+            Err(get_err) => {
+                tracing::warn!(
+                    target: "fold_db::sync::snapshot_log",
+                    error = %redact_sync_error_text(&get_err.to_string()),
+                    "backup_latest_get after store_uuid_mismatch failed; using local epoch+1"
+                );
+                manifest.epoch
+            }
+        };
+        let min_epoch = cloud_epoch
+            .saturating_add(1)
+            .max(manifest.epoch.saturating_add(1));
+        let new_epoch = store.ensure_backup_epoch_at_least(min_epoch).map_err(|e| {
+            SyncError::Storage(format!(
+                "backup epoch rebind after store_uuid_mismatch failed: {e}"
+            ))
+        })?;
+        tracing::warn!(
+            target: "fold_db::sync::snapshot_log",
+            local_store_uuid = %manifest.store_uuid,
+            local_epoch = manifest.epoch,
+            cloud_epoch,
+            rebind_epoch = new_epoch,
+            "store_uuid_mismatch on CAS; rebinding publisher epoch and retrying once"
+        );
+        Ok(())
+    }
+
+    /// After a landed CAS: commit locally, update tip identity, release the
+    /// held target, queue orphan GC. Returns the GC-eligible log segment count.
+    async fn cas_finalize_landed(
+        &self,
+        store: &crate::storage::LastStoreNamespacedStore,
+        manifest: &BackupManifest,
+        manifest_sha256: &str,
+    ) -> SyncResult<usize> {
         store
-            .commit_backup_manifest(&manifest)
+            .commit_backup_manifest(manifest)
             .map_err(|e| SyncError::Storage(format!("commit backup manifest failed: {e}")))?;
         let backup_only = self.backup_only_mode.load(Ordering::SeqCst);
         if backup_only {
@@ -435,7 +630,7 @@ impl SyncEngine {
                 store_uuid: manifest.store_uuid.clone(),
                 epoch: manifest.epoch,
                 counter: manifest.counter,
-                manifest_sha256: manifest_sha256.clone(),
+                manifest_sha256: manifest_sha256.to_string(),
             });
             self.backup_gc_identity_revoked
                 .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -453,7 +648,6 @@ impl SyncEngine {
                 .await;
         }
 
-        let chunks_referenced = manifest.mutable_chunks.len() + manifest.atom_chunks.len();
         // Object model: F = cut_csn; mutation-log collection chunks with end_csn ≤ F
         // are GC-eligible only after this successful CAS (never before).
         let log_through_ids: Vec<u64> = manifest
@@ -465,7 +659,7 @@ impl SyncEngine {
         let gc_eligible_log_segments =
             Self::count_gc_eligible_log_segments_after_cas(manifest.cut_csn, log_through_ids);
         let cas_payload = LatestCasPayload::from_backup_cut(
-            &manifest_sha256,
+            manifest_sha256,
             manifest.cut_csn,
             manifest.counter,
             &manifest.store_uuid,
@@ -475,24 +669,7 @@ impl SyncEngine {
             LatestCasPayload::cas_allows_replace(None, &cas_payload) || cas_payload.counter >= 1,
             "CAS payload must be valid for first publish"
         );
-        let report = LastStoreCloudSnapshotReport {
-            manifest_sha256,
-            manifest_key: manifest_presign.key.unwrap_or_default(),
-            latest_key,
-            counter: manifest.counter,
-            cut_csn: manifest.cut_csn,
-            chunks_referenced,
-            // The drain that filled this cut ran across many cycles, so a
-            // single cycle's put count is not the number that landed it. The
-            // honest figure at CAS time is the size of the cut itself.
-            chunks_uploaded: 0,
-            chunks_already_present: chunks_in_target,
-            bytes_uploaded: 0,
-            frontier_through: manifest.cut_csn,
-            cas_counter: manifest.counter,
-            gc_eligible_log_segments,
-        };
-        Ok((manifest, report))
+        Ok(gc_eligible_log_segments)
     }
 
     /// After `stale_counter` on CAS: if cloud `latest` already *is* this held

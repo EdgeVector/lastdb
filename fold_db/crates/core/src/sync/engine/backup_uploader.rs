@@ -74,6 +74,7 @@ mod file_packs;
 mod footprint;
 mod gc_dispatch;
 mod gc_execute;
+mod gc_execute_batches;
 mod gc_keep_set;
 mod gc_run;
 mod gc_types;

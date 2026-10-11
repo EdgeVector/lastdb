@@ -124,6 +124,7 @@ mod report_rekey;
 pub use report_rekey::*;
 mod dangling_tips;
 mod gc_atoms_delete;
+mod gc_atoms_delete_steps;
 mod gc_atoms_probe;
 mod gc_atoms_probe_support;
 mod gc_orphans;
