@@ -11,12 +11,10 @@
 //! copies the body. Store larger files as slabs.
 
 use super::*;
-#[cfg(feature = "sharing")]
 use std::borrow::Cow;
 
 /// Optional pointer metadata. Without it, identical bytes in one schema give
 /// the same atom, so a second record that holds the pointer adds no atom.
-#[cfg(feature = "sharing")]
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct LocalBlobMetadata {
@@ -29,7 +27,6 @@ struct LocalBlobMetadata {
 /// JSON form of the request. `deny_unknown_fields` makes a caller that sends
 /// the cloud route's `schema` / `field` / `key` fail with 400, instead of
 /// believing that a record was written.
-#[cfg(feature = "sharing")]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct JsonBody<'a> {
@@ -43,10 +40,8 @@ struct JsonBody<'a> {
 }
 
 /// A request the route refuses: the status and the message.
-#[cfg(feature = "sharing")]
 type Refusal = (u16, String);
 
-#[cfg(feature = "sharing")]
 fn too_large(bytes: usize, max: usize) -> Refusal {
     (
         413,
@@ -66,7 +61,6 @@ fn too_large(bytes: usize, max: usize) -> Refusal {
 /// - Otherwise a JSON body `{ "bytes_b64": ..., "name"?, "media_type"? }`.
 ///
 /// `max` is the blob limit. Each form checks it before it copies or decodes.
-#[cfg(feature = "sharing")]
 fn parse_put_blob_local(
     req: &UdsRequest,
     max: usize,
@@ -126,17 +120,6 @@ pub(super) async fn execute_db_put_blob_local_route(
     if !ctx.is_owner {
         return error_response(403, "local blob put is owner-only", ctx);
     }
-    #[cfg(not(feature = "sharing"))]
-    {
-        let _ = (req, host);
-        error_response(
-            501,
-            "local blob put needs the `sharing` feature, which is not compiled into this daemon",
-            ctx,
-        )
-    }
-
-    #[cfg(feature = "sharing")]
     {
         let max = fold_db::fold_db_core::fold_db::local_file_blob_max_bytes();
         let (plaintext, metadata) = match parse_put_blob_local(req, max) {
@@ -185,7 +168,6 @@ pub(super) async fn execute_db_put_blob_local_route(
 
 /// Read the bytes a `$lastdb_file` pointer names: the local `cas_blobs` row
 /// first. Only a node that has a sync engine then asks the cloud on a miss.
-#[cfg(feature = "sharing")]
 pub(super) async fn resolve_pointer_bytes(
     host: &Host,
     pointer: &Value,
@@ -194,7 +176,6 @@ pub(super) async fn resolve_pointer_bytes(
     if local.is_some() {
         return Ok(local);
     }
-    #[cfg(feature = "cloud-sync")]
     if let Some(engine) = host.db.sync_engine() {
         return crate::maintenance_write_gate::run(
             host,
@@ -215,13 +196,9 @@ pub(super) async fn resolve_pointer_bytes(
 }
 
 /// The 404 text for a pointer whose blob is not on this node.
-#[cfg(feature = "sharing")]
 pub(super) fn fetch_miss_message(host: &Host) -> &'static str {
-    #[cfg(feature = "cloud-sync")]
     if host.db.sync_engine().is_some() {
         return "file blob was not found locally or in remote CAS";
     }
-    #[cfg(not(feature = "cloud-sync"))]
-    let _ = host;
     "file blob was not found locally, and this node has no cloud sync engine to ask"
 }

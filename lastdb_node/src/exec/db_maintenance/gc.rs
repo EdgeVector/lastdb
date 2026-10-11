@@ -185,7 +185,6 @@ pub(in crate::exec) async fn execute_db_gc_file_blobs_route(
         }
     };
     let dry_run = body.dry_run.unwrap_or(true);
-    #[cfg(feature = "sharing")]
     {
         match host.db.gc_orphan_file_blobs(dry_run).await {
             Ok(report) => json_ok(&envelope(
@@ -194,15 +193,6 @@ pub(in crate::exec) async fn execute_db_gc_file_blobs_route(
             )),
             Err(e) => error_response(500, &format!("gc-file-blobs failed: {e}"), ctx),
         }
-    }
-    #[cfg(not(feature = "sharing"))]
-    {
-        let _ = dry_run;
-        error_response(
-            501,
-            "gc-file-blobs requires a daemon built with the `sharing` feature",
-            ctx,
-        )
     }
 }
 

@@ -20,7 +20,6 @@ pub(super) struct ThumbnailBody {
     kind: String,
 }
 
-#[cfg(feature = "cloud-sync")]
 impl ThumbnailBody {
     /// Decode into the engine's upload type. Only base64 is validated here;
     /// dimension/kind/media-type rules and the 64 KiB tier cap stay with
@@ -85,17 +84,6 @@ pub(super) async fn execute_db_fork_file_blob_route(
         return error_response(400, "field must not be empty", ctx);
     }
 
-    #[cfg(not(feature = "cloud-sync"))]
-    {
-        let _ = (body, host);
-        return error_response(
-            501,
-            "cloud-sync support is not compiled into this daemon",
-            ctx,
-        );
-    }
-
-    #[cfg(feature = "cloud-sync")]
     {
         use fold_db::fold_db_core::fold_db::{PersonalFileBlobFork, PersonalFileBlobWrite};
         use fold_db::sharing::delivery_wire::file_blob_access_from_atom_value;
@@ -322,17 +310,6 @@ pub(super) async fn execute_db_put_file_blob_route(
         return error_response(400, "field must not be empty", ctx);
     }
 
-    #[cfg(not(feature = "cloud-sync"))]
-    {
-        let _ = (metadata, plaintext, host);
-        return error_response(
-            501,
-            "cloud-sync support is not compiled into this daemon",
-            ctx,
-        );
-    }
-
-    #[cfg(feature = "cloud-sync")]
     {
         use fold_db::fold_db_core::fold_db::PersonalFileBlobWrite;
         use fold_db::sharing::delivery_wire::file_blob_access_from_atom_value;
@@ -441,19 +418,8 @@ pub(super) async fn execute_db_fetch_file_blob_route(
         }
     };
 
-    #[cfg(not(feature = "sharing"))]
-    {
-        let _ = (body, host);
-        return error_response(
-            501,
-            "file-blob support (the `sharing` feature) is not compiled into this daemon",
-            ctx,
-        );
-    }
-
     // The local `cas_blobs` read needs no sync engine: only the cloud fallback
     // on a local miss does, and `resolve_pointer_bytes` takes it when present.
-    #[cfg(feature = "sharing")]
     {
         use fold_db::sharing::delivery_wire::{
             blob_ref_from_atom_value, file_blob_access_from_atom_value,

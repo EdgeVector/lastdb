@@ -77,17 +77,6 @@ pub(in crate::exec) async fn execute_db_pin_log_audit_route(
         }
     };
 
-    #[cfg(not(feature = "cloud-sync"))]
-    {
-        let _ = (body, host);
-        return error_response(
-            501,
-            "cloud-sync support is not compiled into this daemon",
-            ctx,
-        );
-    }
-
-    #[cfg(feature = "cloud-sync")]
     {
         match host
             .db

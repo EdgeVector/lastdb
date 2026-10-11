@@ -34,7 +34,6 @@
 //! the daemon bound a client at boot — so "no DSN ⇒ no client ⇒ no-op" is
 //! enforced by construction. A dev / ephemeral node with no DSN ships nothing.
 
-#[cfg(feature = "sentry-telemetry")]
 use crate::session_ledger::StartSummary;
 #[cfg(feature = "sentry-telemetry")]
 use std::collections::BTreeMap;

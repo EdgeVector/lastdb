@@ -47,8 +47,8 @@ These fixtures measure scheduling overhead. They do not predict production cloud
 Run the focused checks:
 
 ```sh
-cargo test -p fold_db --features cloud-sync --lib sync::engine::backup_restore -- --nocapture
-cargo test -p fold_db --features cloud-sync --lib sync::engine::restore_progress
+cargo test -p fold_db --lib sync::engine::backup_restore -- --nocapture
+cargo test -p fold_db --lib sync::engine::restore_progress
 cargo test -p lastdb_node --bin lastdb restore_read_only_tests -- --test-threads=1
 ```
 
