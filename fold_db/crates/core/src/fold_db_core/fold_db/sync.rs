@@ -1,13 +1,9 @@
 use std::sync::Arc;
 
 use crate::fold_db_core::sync_coordinator::SyncCoordinator;
-#[cfg(feature = "cloud-sync")]
 use crate::schema::types::field::HashRangeFilter;
-#[cfg(feature = "cloud-sync")]
 use crate::schema::types::operations::MutationType;
-#[cfg(feature = "cloud-sync")]
 use crate::schema::types::{Mutation, Query};
-#[cfg(feature = "cloud-sync")]
 use std::collections::HashMap;
 
 use super::FoldDB;
@@ -196,14 +192,12 @@ impl FoldDB {
                 prepare_photograph_cut_components(
                     &pending_tasks,
                     &cut_db_ops,
-                    #[cfg(feature = "cloud-sync")]
                     cut_capture_router.clone(),
                 )
                 .await
             })
         });
         engine.set_photograph_cut_barrier(cut_barrier).await;
-        #[cfg(feature = "cloud-sync")]
         if let Some(router) = self.mutation_log_capture.clone() {
             engine.set_photograph_mutation_router(router).await;
         }
@@ -522,7 +516,6 @@ impl FoldDB {
     /// current row bodies, so a friend can restore the schema without a later
     /// owner write. Exact key reads keep this path within the LastDB access
     /// model; the membership walk only returns keys.
-    #[cfg(feature = "cloud-sync")]
     pub(crate) async fn republish_personal_schema_to_org_targets(
         &self,
         schema_name: &str,

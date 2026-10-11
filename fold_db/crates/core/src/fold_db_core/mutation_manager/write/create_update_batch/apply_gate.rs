@@ -78,7 +78,6 @@ impl MutationManager {
             // Resident tips are visible from this point. Capture must stage
             // even if persist-lane wait, flush, or mixed erase later returns
             // Err — otherwise RAM shows a commit the mutation log never saw.
-            #[cfg(feature = "cloud-sync")]
             crate::sync::capture::mark_logical_commit_published();
             let mut persist_completions = Vec::new();
             for (delta, outcome) in prepared_deltas.iter_mut().zip(outcomes) {

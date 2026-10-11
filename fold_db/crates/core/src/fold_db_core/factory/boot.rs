@@ -451,15 +451,9 @@ async fn assert_or_establish_at_rest_key_proof(
     }
 }
 
-#[cfg(feature = "cloud-sync")]
 fn is_cloud_storage_prefixed_key(key: &[u8]) -> bool {
     std::str::from_utf8(key)
         .ok()
         .and_then(crate::sync::storage_prefix_for_key)
         .is_some()
-}
-
-#[cfg(not(feature = "cloud-sync"))]
-fn is_cloud_storage_prefixed_key(_key: &[u8]) -> bool {
-    false
 }

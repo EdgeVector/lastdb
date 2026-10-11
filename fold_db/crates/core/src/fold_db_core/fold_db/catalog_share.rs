@@ -105,7 +105,6 @@ impl FoldDB {
             .grant_schema_domain(&schema, target_access_domain, target_domain_wrap_key)
             .await?;
 
-        #[cfg(feature = "cloud-sync")]
         let republished_rows = if source_parsed == DbLocator::Personal {
             self.attach_shared_instance_to_org_targets(
                 &target_canonical,
@@ -118,8 +117,6 @@ impl FoldDB {
         } else {
             0
         };
-        #[cfg(not(feature = "cloud-sync"))]
-        let republished_rows = 0;
         let atom_ref_plan = self
             .db_ops()
             .atoms()

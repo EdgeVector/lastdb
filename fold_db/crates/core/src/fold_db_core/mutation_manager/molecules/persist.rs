@@ -108,8 +108,6 @@ impl MutationManager {
         share_prefixes: &[String],
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
     ) -> Result<(), SchemaError> {
-        #[cfg(not(feature = "sharing"))]
-        let _ = share_prefixes;
         let mut molecules_to_store: Vec<(String, &MoleculeData, HashSet<ChangedKey>)> = Vec::new();
         let field_names: Vec<String> = modified_fields.keys().cloned().collect();
 
@@ -150,7 +148,6 @@ impl MutationManager {
             .await?;
         }
 
-        #[cfg(feature = "sharing")]
         {
             // Push to share prefixes for personal data only. Org multi-DB
             // writes already live under a db_hash prefix; sharing fan-out is
@@ -275,7 +272,6 @@ impl MutationManager {
     /// migrated — so a key-removed-since-last-store stale record must be reaped,
     /// and the unchanged keys must be (re)written so a newly-added share rule
     /// receives the molecule's complete current state on the next touch.
-    #[cfg(feature = "sharing")]
     pub(in crate::fold_db_core::mutation_manager) async fn store_molecules_split(
         &self,
         molecules: &[(String, &MoleculeData, HashSet<ChangedKey>)],

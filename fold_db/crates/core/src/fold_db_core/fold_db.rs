@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use super::mutation_manager::MutationManager;
 use super::query::QueryExecutor;
-#[cfg(feature = "cloud-sync")]
 use super::sync_coordinator::SyncCoordinator;
 use crate::db_operations::DbOperations;
 use crate::schema::SchemaCore;
@@ -17,35 +16,28 @@ mod admin_db;
 mod catalog_gc;
 mod catalog_share;
 mod conflict_metadata;
-#[cfg(feature = "cloud-sync")]
 mod file_blobs;
 mod hashrange_key_repair;
 mod init;
 mod lifecycle;
-#[cfg(feature = "sharing")]
 mod local_file_blobs;
-#[cfg(feature = "cloud-sync")]
 mod maintenance_admission;
 mod provenance;
 mod schema_api;
-#[cfg(feature = "cloud-sync")]
 mod sync;
 
 pub use catalog_gc::{CatalogDeleteReclaimResult, CatalogReclaimResult};
 pub use catalog_share::DbSchemaShareResult;
-#[cfg(feature = "cloud-sync")]
 pub use file_blobs::{
     PersonalFileBlobFork, PersonalFileBlobForkResult, PersonalFileBlobWrite,
     PersonalFileBlobWriteResult,
 };
 pub use hashrange_key_repair::HashRangeKeyFieldRepairReport;
 pub use init::FoldDbInit;
-#[cfg(feature = "sharing")]
 pub use local_file_blobs::{
     local_file_blob_max_bytes, LocalFileBlobPut, LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT,
     LOCAL_FILE_BLOB_MAX_BYTES_ENV,
 };
-#[cfg(feature = "cloud-sync")]
 pub use maintenance_admission::LocalMutationAdmission;
 
 /// The main database coordinator that manages schemas, permissions, and data storage.
@@ -75,11 +67,9 @@ pub struct FoldDB {
         super::atom_reclaim_janitor::BackgroundAtomReclaimJanitorTask,
     /// Coordinates the optional cloud sync engine lifecycle.
     /// In local mode this holds no engine and all sync operations are no-ops.
-    #[cfg(feature = "cloud-sync")]
     sync_coordinator: SyncCoordinator,
     /// Post-commit mutation-log capture engine slot. Present on factory-built
     /// stores even while Cloud Sync is off so live enable can start capture.
-    #[cfg(feature = "cloud-sync")]
     mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
     /// Optional configuration store for runtime node config.
     /// Uses RwLock for interior mutability so FoldDB doesn't need &mut self.
@@ -88,7 +78,6 @@ pub struct FoldDB {
     /// `MutationManager` (for atom signatures). Held on `FoldDB` so
     /// `start_sync_engine_runtime` can pass it to `SyncEngine::new` when sync
     /// activates after boot.
-    #[cfg(feature = "cloud-sync")]
     pub(crate) signer: Arc<crate::security::Ed25519KeyPair>,
 }
 
@@ -105,7 +94,6 @@ impl Drop for FoldDB {
         self.background_atom_reclaim_janitor.stop();
         // Abort the background sync task to prevent tokio panic:
         // "Cannot drop a runtime in a context where blocking is not allowed"
-        #[cfg(feature = "cloud-sync")]
         self.sync_coordinator.abort_task();
     }
 }

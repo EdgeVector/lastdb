@@ -124,18 +124,7 @@ pub struct CloudMutationReceipt {
     pub error: Option<String>,
 }
 
-impl CloudMutationReceipt {
-    #[cfg(not(feature = "cloud-sync"))]
-    pub(crate) fn unavailable(mutation_uuid: String, error: impl Into<String>) -> Self {
-        Self {
-            mutation_uuid,
-            capture_state: CloudCaptureState::Failed,
-            publication_state: CloudPublicationState::Failed,
-            targets: Vec::new(),
-            error: Some(error.into()),
-        }
-    }
-}
+impl CloudMutationReceipt {}
 
 /// Internal capture behavior selected by the owner mutation route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -14,7 +14,6 @@ pub enum MoleculeConflictState {
 /// Most distinct field molecules one metadata request may read.
 pub const SELECTED_CONFLICT_MAX_MOLECULES: usize = 64;
 
-#[cfg(feature = "cloud-sync")]
 mod read {
     use super::MoleculeConflictState;
     use crate::db_operations::DbOperations;

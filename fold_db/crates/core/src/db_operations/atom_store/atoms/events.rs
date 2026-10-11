@@ -4,7 +4,6 @@ impl AtomStore {
     /// Keep imported Puts that lost to a Delete without changing a tip.
     /// The caller supplies stable keys so replay of one source mutation is
     /// idempotent. Each history row and its atom edge share one durable batch.
-    #[cfg_attr(not(feature = "cloud-sync"), allow(dead_code))]
     pub(crate) async fn batch_store_suppressed_put_events(
         &self,
         events: Vec<(String, MutationEvent)>,

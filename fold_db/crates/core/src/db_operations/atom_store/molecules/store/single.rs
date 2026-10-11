@@ -8,7 +8,6 @@ impl AtomStore {
     ///
     /// `domain` says whether the molecule's slots still need encoding; see
     /// [`MoleculeKeyDomain`].
-    #[cfg(feature = "sharing")]
     pub(in super::super) fn per_key_storage_records(
         &self,
         molecule_uuid: &str,

@@ -269,7 +269,6 @@ impl MutationManager {
         Ok((source_key, normalized))
     }
 
-    #[cfg(feature = "cloud-sync")]
     pub(in crate::fold_db_core::mutation_manager) fn preflight_replayed_aggregate_set(
         &self,
         mutations: &[Mutation],

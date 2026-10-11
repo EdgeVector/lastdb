@@ -64,7 +64,6 @@ impl fmt::Display for FoldDbError {
 
 /// Map a cloud [`crate::sync::SyncError`] into [`FoldDbError`], preserving the
 /// permanent quota class so socket handlers can return HTTP 429 instead of 500.
-#[cfg(feature = "cloud-sync")]
 pub fn fold_db_error_from_sync(context: &str, err: crate::sync::SyncError) -> FoldDbError {
     match err {
         crate::sync::SyncError::QuotaExceeded(msg) => FoldDbError::QuotaExceeded(msg),

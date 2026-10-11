@@ -5,7 +5,6 @@ use super::FoldDB;
 impl FoldDB {
     /// Cancel local sync cadences as soon as the daemon stops accepting calls.
     /// Shutdown joins them before it records a clean flush.
-    #[cfg(feature = "cloud-sync")]
     pub fn request_background_stop(&self) {
         self.sync_coordinator.request_background_stop();
     }
@@ -22,10 +21,8 @@ impl FoldDB {
     /// the cursors are durable, so the next boot continues the upload. A
     /// stop must not wait on the network without a limit.
     /// `LASTDB_SHUTDOWN_SYNC_TIMEOUT_SECS` overrides it.
-    #[cfg(feature = "cloud-sync")]
     const SHUTDOWN_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
-    #[cfg(feature = "cloud-sync")]
     fn shutdown_sync_timeout() -> std::time::Duration {
         env_flag::var_parsed::<u64>("LASTDB_SHUTDOWN_SYNC_TIMEOUT_SECS")
             .map_or(Self::SHUTDOWN_SYNC_TIMEOUT, std::time::Duration::from_secs)
@@ -55,14 +52,11 @@ impl FoldDB {
         task_drain_timeout: std::time::Duration,
         final_cloud_sync: bool,
     ) -> Result<(), StorageError> {
-        #[cfg(not(feature = "cloud-sync"))]
-        let _ = final_cloud_sync;
         let mut pre_flush_errors = Vec::new();
         tracing::info!(
             target: "fold_node::database",
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
-        #[cfg(feature = "cloud-sync")]
         self.request_background_stop();
         // Stop periodic flusher before the final barrier so we do not race
         // two flushes (and so Drop does not try to abort a still-running tick).
@@ -81,7 +75,6 @@ impl FoldDB {
         // behind that work to become durable.
         self.drain_persist_lanes_before_sync(task_drain_timeout)
             .await;
-        #[cfg(feature = "cloud-sync")]
         pre_flush_errors.extend(
             self.stop_sync_for_shutdown(task_drain_timeout, final_cloud_sync)
                 .await,
@@ -159,7 +152,6 @@ impl FoldDB {
         flush_result
     }
 
-    #[cfg(feature = "cloud-sync")]
     async fn stop_sync_for_shutdown(
         &self,
         task_drain_timeout: std::time::Duration,

@@ -74,29 +74,20 @@ impl MutationManager {
             &mut schema_mutations,
         )
         .await?;
-        let share_prefixes: Vec<String> = {
-            #[cfg(feature = "sharing")]
-            {
-                if storage_prefix.is_none() {
-                    crate::sharing::store::list_share_rules_in_ops(&self.db_ops)
-                        .await
-                        .map_err(|error| {
-                            SchemaError::InvalidData(format!(
-                                "load share rules for schema '{schema_name}': {error}"
-                            ))
-                        })?
-                        .into_iter()
-                        .filter(|rule| rule.active && rule.scope_matches(&schema_name))
-                        .map(|rule| rule.share_prefix)
-                        .collect()
-                } else {
-                    Vec::new()
-                }
-            }
-            #[cfg(not(feature = "sharing"))]
-            {
-                Vec::new()
-            }
+        let share_prefixes: Vec<String> = if storage_prefix.is_none() {
+            crate::sharing::store::list_share_rules_in_ops(&self.db_ops)
+                .await
+                .map_err(|error| {
+                    SchemaError::InvalidData(format!(
+                        "load share rules for schema '{schema_name}': {error}"
+                    ))
+                })?
+                .into_iter()
+                .filter(|rule| rule.active && rule.scope_matches(&schema_name))
+                .map(|rule| rule.share_prefix)
+                .collect()
+        } else {
+            Vec::new()
         };
         let tracks_retention_age = storage_prefix.is_none()
             && matches!(

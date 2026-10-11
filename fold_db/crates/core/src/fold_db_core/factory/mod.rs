@@ -27,10 +27,7 @@ use local::{create_local_fold_db, LocalFoldDbOptions, LocalSyncSetup};
 /// `keyring_store_dek`). Mini production always logs / uses content key.
 pub use local::at_rest_provider_label;
 
-#[cfg(feature = "cloud-sync")]
 type AuthRefreshCallback = crate::sync::AuthRefreshCallback;
-#[cfg(not(feature = "cloud-sync"))]
-type AuthRefreshCallback = ();
 
 /// Creates a fully initialized FoldDB instance based on the database configuration.
 ///
@@ -135,7 +132,6 @@ fn resolve_storage_engine(config: &DatabaseConfig) -> FoldDbResult<StorageEngine
         .map(|env_engine| env_engine.unwrap_or(config.engine))
 }
 
-#[cfg(feature = "cloud-sync")]
 fn build_sync_setup(
     config: &DatabaseConfig,
     auth_refresh: Option<AuthRefreshCallback>,
@@ -152,17 +148,4 @@ fn build_sync_setup(
     } else {
         Ok(None)
     }
-}
-
-#[cfg(not(feature = "cloud-sync"))]
-fn build_sync_setup(
-    config: &DatabaseConfig,
-    _auth_refresh: Option<AuthRefreshCallback>,
-) -> FoldDbResult<Option<LocalSyncSetup>> {
-    if config.cloud_sync.is_some() {
-        return Err(FoldDbError::Config(
-            "fold_db was built without the cloud-sync feature".to_string(),
-        ));
-    }
-    Ok(None)
 }

@@ -15,16 +15,10 @@ impl MutationManager {
         repair: AggregateRepair,
         access_context: &crate::access::AccessContext,
     ) -> Result<AggregateRepairReceipt, SchemaError> {
-        #[cfg(feature = "cloud-sync")]
-        {
-            return crate::sync::capture::with_capture_suppressed(
-                self.repair_aggregate_summary_inner(repair, access_context),
-            )
-            .await;
-        }
-        #[cfg(not(feature = "cloud-sync"))]
-        self.repair_aggregate_summary_inner(repair, access_context)
-            .await
+        crate::sync::capture::with_capture_suppressed(
+            self.repair_aggregate_summary_inner(repair, access_context),
+        )
+        .await
     }
 
     pub(super) async fn repair_aggregate_summary_inner(
@@ -393,21 +387,12 @@ impl MutationManager {
         if let Some((reservation, state)) = clock {
             reservation.submit_and_wait(state).await?;
         }
-        #[cfg(feature = "cloud-sync")]
         let result =
             crate::sync::capture::with_capture_suppressed(self.write_mutations_batch_inner(
                 vec![summary],
                 storage_prefix.as_deref(),
                 WriteOrigin::Request,
             ))
-            .await;
-        #[cfg(not(feature = "cloud-sync"))]
-        let result = self
-            .write_mutations_batch_inner(
-                vec![summary],
-                storage_prefix.as_deref(),
-                WriteOrigin::Request,
-            )
             .await;
         let mut receipt = Self::require_durable_receipt(result?, "repair summary")?;
         receipt.revision = Some(revision);

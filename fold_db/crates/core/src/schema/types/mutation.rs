@@ -50,7 +50,6 @@ pub struct Mutation {
     /// Original UUID from a MutationIntent envelope, including an empty
     /// legacy UUID. Suppressed history uses it without changing replay LWW.
     /// API input cannot forge this internal import marker.
-    #[cfg(feature = "cloud-sync")]
     #[serde(skip)]
     pub(crate) replayed_source_mutation_uuid: Option<String>,
     /// Durable per-device logical author counter. Legacy mutations use zero.
@@ -136,7 +135,6 @@ impl Mutation {
             metadata: None,
             provenance: None,
             imported_written_at: None,
-            #[cfg(feature = "cloud-sync")]
             replayed_source_mutation_uuid: None,
             logical_counter: 0,
             author_clock_writer_id: String::new(),

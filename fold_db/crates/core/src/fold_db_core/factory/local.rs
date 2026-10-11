@@ -18,11 +18,7 @@ use std::sync::Arc;
 
 use super::boot::{assert_critical_namespaces_decryptable, map_boot_decrypt_error};
 
-#[cfg(feature = "cloud-sync")]
 pub(super) type LocalSyncSetup = crate::sync::SyncSetup;
-
-#[cfg(not(feature = "cloud-sync"))]
-pub(super) struct LocalSyncSetup;
 
 /// Ops-facing label for which key seals personal at-rest data on the store seam.
 ///
@@ -135,7 +131,6 @@ async fn create_local_fold_db_inner(
     // An empty cloud-connected home must restore S and its writer tail before
     // steady sync can apply new log entries. Capture this before LastStore open
     // creates layout metadata that makes the directory non-empty.
-    #[cfg(feature = "cloud-sync")]
     let bootstrap_from_cloud =
         sync_setup.is_some() && !defer_cloud_workers && laststore_is_empty_home(path);
 
@@ -245,9 +240,7 @@ async fn create_local_fold_db_inner(
         db_path: path_str.to_string(),
         signer,
         search_outbox_inbox,
-        #[cfg(feature = "cloud-sync")]
         mutation_log_capture: Some(Arc::clone(&store_stack.mutation_log_capture)),
-        #[cfg(feature = "cloud-sync")]
         packing_slots: store_stack
             .sync_engine
             .as_ref()
@@ -258,7 +251,6 @@ async fn create_local_fold_db_inner(
 
     fold_db.set_config_store(config_store);
 
-    #[cfg(feature = "cloud-sync")]
     if let Some(engine) = store_stack.sync_engine {
         if defer_cloud_workers {
             engine.set_backup_only_mode().await;

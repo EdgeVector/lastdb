@@ -64,11 +64,6 @@ impl MutationManager {
             .attribution()
             .begin_pending_scopes(&attribution_scopes)
             .await?;
-        #[cfg(not(feature = "cloud-sync"))]
-        let cloud_mutation_uuid = mutations
-            .iter()
-            .find_map(|mutation| (!mutation.uuid.is_empty()).then(|| mutation.uuid.clone()))
-            .unwrap_or_default();
         // Which mutations arrive WITHOUT a clock is the only signal that says
         // which ones this node is authoring, and stamping erases it. Capture it
         // first so the receipt reports the counter this batch allocated rather
@@ -102,7 +97,6 @@ impl MutationManager {
             }
         }
         let result = {
-            #[cfg(feature = "cloud-sync")]
             {
                 // `sync_capture` contains only envelope encode and bounded queue
                 // admission. Marker and log storage run after acknowledgment.
@@ -142,23 +136,6 @@ impl MutationManager {
                     ),
                 )
                 .await
-            }
-            #[cfg(not(feature = "cloud-sync"))]
-            {
-                let cloud = (!matches!(cloud_policy, CloudCapturePolicy::Async)).then(|| {
-                    CloudMutationReceipt::unavailable(
-                        cloud_mutation_uuid,
-                        "cloud sync capture is unavailable in this build",
-                    )
-                });
-                self.write_with_aggregate_invalidations(
-                    mutations,
-                    storage_prefix,
-                    WriteOrigin::Request,
-                    author_clock_barrier,
-                )
-                .await
-                .map(|receipt| (receipt, cloud))
             }
         };
         let (mut receipt, cloud) = result?;

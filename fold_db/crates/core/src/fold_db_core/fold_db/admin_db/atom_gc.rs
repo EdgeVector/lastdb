@@ -201,7 +201,6 @@ impl FoldDB {
     /// `cas_blob:` rows) no live atom references. The reclaim path for the
     /// sealed bytes a purge leaves behind — see
     /// [`crate::db_operations::file_blob_gc`].
-    #[cfg(feature = "sharing")]
     pub async fn gc_orphan_file_blobs(
         &self,
         dry_run: bool,

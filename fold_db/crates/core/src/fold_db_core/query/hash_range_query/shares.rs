@@ -4,7 +4,6 @@ use crate::schema::types::key_value::KeyValue;
 use crate::schema::SchemaError;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-#[cfg(feature = "sharing")]
 mod receivers;
 
 impl HashRangeQueryProcessor {
@@ -14,7 +13,6 @@ impl HashRangeQueryProcessor {
     ///
     /// Subscriptions with an unparseable `share_prefix` are logged and
     /// skipped (never silently). Inactive subscriptions are excluded.
-    #[cfg(feature = "sharing")]
     pub(super) async fn collect_received_from_namespaces(&self) -> Vec<String> {
         if let Ok(namespaces) = receivers::namespaces(&self.db_ops).await {
             namespaces
@@ -22,12 +20,6 @@ impl HashRangeQueryProcessor {
             tracing::error!("the committed inbound receiver namespaces are unavailable");
             Vec::new()
         }
-    }
-
-    #[cfg(not(feature = "sharing"))]
-    #[allow(clippy::unused_async)] // API matches the sharing-enabled async path
-    pub(super) async fn collect_received_from_namespaces(&self) -> Vec<String> {
-        Vec::new()
     }
 
     /// Resolve a field's values from a specific storage namespace by

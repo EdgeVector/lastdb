@@ -12,15 +12,11 @@ use std::sync::Arc;
 pub(super) struct StoreStack {
     pub(super) store: Arc<dyn NamespacedStore>,
     pub(super) enc_store_ref: Option<Arc<EncryptingNamespacedStore>>,
-    #[cfg(feature = "cloud-sync")]
     pub(super) mutation_log_capture: Arc<crate::sync::capture::MutationLogCaptureRouter>,
-    #[cfg(feature = "cloud-sync")]
     pub(super) sync_engine: Option<Arc<crate::sync::SyncEngine>>,
-    #[cfg(feature = "cloud-sync")]
     pub(super) sync_interval_ms: u64,
 }
 
-#[cfg_attr(not(feature = "cloud-sync"), allow(clippy::unused_async))]
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn build_store_stack(
     base_store: Arc<dyn NamespacedStore>,
@@ -33,31 +29,20 @@ pub(super) async fn build_store_stack(
     storage_engine: StorageEngine,
     defer_cloud_workers: bool,
 ) -> FoldDbResult<StoreStack> {
-    #[cfg(feature = "cloud-sync")]
-    {
-        if let Some(setup) = sync_setup {
-            return build_syncing_store_stack(
-                base_store,
-                laststore_backup_source,
-                setup,
-                e2e_keys,
-                signer,
-                at_rest_keyring,
-                wrap_at_rest_seam,
-                storage_engine,
-                defer_cloud_workers,
-            )
-            .await;
-        }
+    if let Some(setup) = sync_setup {
+        return build_syncing_store_stack(
+            base_store,
+            laststore_backup_source,
+            setup,
+            e2e_keys,
+            signer,
+            at_rest_keyring,
+            wrap_at_rest_seam,
+            storage_engine,
+            defer_cloud_workers,
+        )
+        .await;
     }
-
-    #[cfg(not(feature = "cloud-sync"))]
-    let _ = (
-        sync_setup,
-        signer,
-        laststore_backup_source,
-        defer_cloud_workers,
-    );
 
     Ok(build_local_store_stack(
         base_store,
@@ -99,26 +84,19 @@ fn build_local_store_stack(
     wrap_at_rest_seam: bool,
     _storage_engine: StorageEngine,
 ) -> StoreStack {
-    #[cfg(feature = "cloud-sync")]
     let mutation_log_capture = Arc::new(crate::sync::capture::MutationLogCaptureRouter::default());
     if !wrap_at_rest_seam {
-        #[cfg(feature = "cloud-sync")]
         let serving_store: Arc<dyn NamespacedStore> = Arc::new(
             crate::sync::capture::MutationLogCaptureNamespacedStore::new(
                 Arc::clone(&base_store),
                 Arc::clone(&mutation_log_capture),
             ),
         );
-        #[cfg(not(feature = "cloud-sync"))]
-        let serving_store = base_store;
         return StoreStack {
             store: serving_store,
             enc_store_ref: None,
-            #[cfg(feature = "cloud-sync")]
             mutation_log_capture,
-            #[cfg(feature = "cloud-sync")]
             sync_engine: None,
-            #[cfg(feature = "cloud-sync")]
             sync_interval_ms: 0,
         };
     }
@@ -128,29 +106,21 @@ fn build_local_store_stack(
         build_encrypting_store(base_store, e2e_keys, at_rest_keyring, plaintext_namespaces);
 
     let engine_store = enc_store.clone() as Arc<dyn NamespacedStore>;
-    #[cfg(feature = "cloud-sync")]
     let serving_store: Arc<dyn NamespacedStore> = Arc::new(
         crate::sync::capture::MutationLogCaptureNamespacedStore::new(
             engine_store,
             Arc::clone(&mutation_log_capture),
         ),
     );
-    #[cfg(not(feature = "cloud-sync"))]
-    let serving_store = engine_store;
-
     StoreStack {
         store: serving_store,
         enc_store_ref: Some(enc_store),
-        #[cfg(feature = "cloud-sync")]
         mutation_log_capture,
-        #[cfg(feature = "cloud-sync")]
         sync_engine: None,
-        #[cfg(feature = "cloud-sync")]
         sync_interval_ms: 0,
     }
 }
 
-#[cfg(feature = "cloud-sync")]
 #[allow(clippy::too_many_arguments)]
 async fn build_syncing_store_stack(
     base_store: Arc<dyn NamespacedStore>,
@@ -270,7 +240,6 @@ async fn build_syncing_store_stack(
     })
 }
 
-#[cfg(feature = "cloud-sync")]
 fn build_sync_engine(
     setup: LocalSyncSetup,
     sync_config: crate::sync::SyncConfig,
@@ -337,7 +306,6 @@ fn build_sync_engine(
 
 /// Product coalesce knob. `None` and an unparseable string keep `default_ms`.
 /// `"0"` disables that knob.
-#[cfg(feature = "cloud-sync")]
 pub(crate) fn parse_coalesce_ms(raw: Option<&str>, default_ms: u64) -> u64 {
     match raw {
         Some(raw) => raw.trim().parse::<u64>().unwrap_or(default_ms),

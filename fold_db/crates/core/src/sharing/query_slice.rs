@@ -383,7 +383,6 @@ pub async fn resolve_file_bytes(
 /// Resolve raw file bytes for a `$lastdb_file` pointer, fetching exactly that
 /// remote CAS object when the local CAS cache misses and the pointer carries
 /// file-blob access metadata.
-#[cfg(feature = "cloud-sync")]
 pub async fn resolve_file_bytes_on_demand(
     db: &FoldDB,
     sync_engine: &crate::sync::SyncEngine,
