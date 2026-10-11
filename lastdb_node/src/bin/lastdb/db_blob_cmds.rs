@@ -108,7 +108,6 @@ pub(crate) fn write_blob_bytes(out: Option<PathBuf>, bytes: &[u8]) -> Result<(),
 }
 
 #[allow(clippy::too_many_arguments)]
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_put_file_blob(
     socket: &Path,
     schema: &str,
@@ -126,22 +125,7 @@ pub(crate) fn db_put_file_blob(
 ) -> Result<(), String> {
     let bytes = std::fs::read(bytes_path)
         .map_err(|e| format!("read file bytes {}: {e}", bytes_path.display()))?;
-    let additional_fields = match additional_fields_json {
-        Some(path) => {
-            let raw = std::fs::read_to_string(&path)
-                .map_err(|e| format!("read additional fields {}: {e}", path.display()))?;
-            let value: serde_json::Value = serde_json::from_str(&raw)
-                .map_err(|e| format!("parse additional fields {}: {e}", path.display()))?;
-            if !value.is_object() {
-                return Err(format!(
-                    "additional fields {} must be a JSON object",
-                    path.display()
-                ));
-            }
-            value
-        }
-        None => serde_json::json!({}),
-    };
+    let additional_fields = read_additional_fields(additional_fields_json)?;
     let metadata = serde_json::json!({
         "schema": schema,
         "field": field,
@@ -156,28 +140,7 @@ pub(crate) fn db_put_file_blob(
         "additional_fields": additional_fields,
     });
     let value = if raw {
-        let metadata_bytes = serde_json::to_vec(&metadata)
-            .map_err(|e| format!("serialize file-blob metadata: {e}"))?;
-        let body_len = bytes.len();
-        let metadata_header = String::from_utf8(metadata_bytes)
-            .map_err(|e| format!("file-blob metadata is not UTF-8: {e}"))?;
-        let header = format!(
-            "POST /api/db/file-blob HTTP/1.1\r\n\
-             Host: localhost\r\n\
-             {}Content-Type: application/octet-stream\r\n\
-             X-LastDB-File-Blob-Metadata: {}\r\n\
-             Content-Length: {}\r\n\
-             Connection: close\r\n\
-             \r\n\
-             ",
-            client_headers(),
-            metadata_header,
-            body_len
-        );
-        let mut request = header.into_bytes();
-        request.extend_from_slice(&bytes);
-        let response = request_with_timeout(socket, &request, admin_scan_client_timeout())?;
-        parse_json_response(&response, "/api/db/file-blob")?
+        post_raw_file_blob(socket, &metadata, &bytes)?
     } else {
         let body = serde_json::json!({
             "schema": schema,
@@ -202,18 +165,7 @@ pub(crate) fn db_put_file_blob(
         .ok_or_else(|| "response missing file_blob".to_string())?;
 
     if let Some(path) = pointer_out {
-        let pointer = report
-            .get("pointer")
-            .ok_or_else(|| "file_blob response missing pointer".to_string())?;
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("create pointer dir {}: {e}", parent.display()))?;
-            }
-        }
-        let pretty = serde_json::to_string_pretty(pointer)
-            .map_err(|e| format!("serialize pointer JSON: {e}"))?;
-        std::fs::write(&path, pretty).map_err(|e| format!("write {}: {e}", path.display()))?;
+        write_pointer_out(&path, &report)?;
     }
 
     println!(
@@ -221,6 +173,67 @@ pub(crate) fn db_put_file_blob(
         serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
     );
     Ok(())
+}
+
+fn read_additional_fields(path: Option<PathBuf>) -> Result<serde_json::Value, String> {
+    let Some(path) = path else {
+        return Ok(serde_json::json!({}));
+    };
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read additional fields {}: {e}", path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("parse additional fields {}: {e}", path.display()))?;
+    if !value.is_object() {
+        return Err(format!(
+            "additional fields {} must be a JSON object",
+            path.display()
+        ));
+    }
+    Ok(value)
+}
+
+/// Send the bytes as the request body, with the metadata in a header.
+fn post_raw_file_blob(
+    socket: &Path,
+    metadata: &serde_json::Value,
+    bytes: &[u8],
+) -> Result<serde_json::Value, String> {
+    let metadata_bytes =
+        serde_json::to_vec(metadata).map_err(|e| format!("serialize file-blob metadata: {e}"))?;
+    let metadata_header = String::from_utf8(metadata_bytes)
+        .map_err(|e| format!("file-blob metadata is not UTF-8: {e}"))?;
+    let header = format!(
+        "POST /api/db/file-blob HTTP/1.1\r\n\
+         Host: localhost\r\n\
+         {}Content-Type: application/octet-stream\r\n\
+         X-LastDB-File-Blob-Metadata: {}\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n\
+         ",
+        client_headers(),
+        metadata_header,
+        bytes.len()
+    );
+    let mut request = header.into_bytes();
+    request.extend_from_slice(bytes);
+    let response = request_with_timeout(socket, &request, admin_scan_client_timeout())?;
+    parse_json_response(&response, "/api/db/file-blob")
+}
+
+fn write_pointer_out(path: &Path, report: &serde_json::Value) -> Result<(), String> {
+    let pointer = report
+        .get("pointer")
+        .ok_or_else(|| "file_blob response missing pointer".to_string())?;
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("create pointer dir {}: {e}", parent.display()))?;
+        }
+    }
+    let pretty = serde_json::to_string_pretty(pointer)
+        .map_err(|e| format!("serialize pointer JSON: {e}"))?;
+    std::fs::write(path, pretty).map_err(|e| format!("write {}: {e}", path.display()))
 }
 
 pub(crate) struct ForkFileBlobArgs {

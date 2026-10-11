@@ -1,6 +1,5 @@
 use super::*;
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_reap_dropped_schema(
     socket: &Path,
     schema: &str,
@@ -33,111 +32,76 @@ pub(crate) fn db_reap_dropped_schema(
         );
         return Ok(());
     }
+    print_reap_dropped_schema_human(&report, schema, execute);
+    Ok(())
+}
+
+/// Counter rows of the reap report: (label, JSON key).
+const REAP_COUNTER_ROWS: [(&str, &str); 8] = [
+    ("molecules", "molecules"),
+    ("receipt_allowed", "molecules_allowed_by_drop_receipt"),
+    ("tips", "tips"),
+    ("tips_deleted", "tips_deleted"),
+    ("index_keys", "index_keys"),
+    ("retained_refs", "molecules_retained_active_edges"),
+    ("retained_protein", "molecules_retained_protein"),
+    ("physical_handles", "physical_handles_visited"),
+];
+
+/// Boolean rows of the reap report: (label, JSON key).
+const REAP_FLAG_ROWS: [(&str, &str); 3] = [
+    ("tip_inspection", "tip_inspection_available"),
+    ("index_cleanup", "index_cleanup_available"),
+    ("truncated", "truncated"),
+];
+
+pub(crate) fn report_u64(report: &serde_json::Value, key: &str) -> u64 {
+    report
+        .get(key)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+}
+
+pub(crate) fn report_bool(report: &serde_json::Value, key: &str) -> bool {
+    report
+        .get(key)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn print_reap_dropped_schema_human(report: &serde_json::Value, schema: &str, execute: bool) {
     let mode = if execute { "EXECUTED" } else { "DRY RUN" };
     println!("reap-dropped-schema {mode}");
     println!(
-        "  schema:               {}",
+        "  {:<21} {}",
+        "schema:",
         report
             .get("schema")
             .and_then(serde_json::Value::as_str)
             .unwrap_or(schema)
     );
     println!(
-        "  refused_scan:         {}",
-        report
-            .get("refused_scan")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
+        "  {:<21} {}",
+        "refused_scan:",
+        report_bool(report, "refused_scan")
     );
+    for (label, key) in REAP_COUNTER_ROWS {
+        println!("  {:<21} {}", format!("{label}:"), report_u64(report, key));
+    }
+    // The cold-shard counter sits between the counters and the flags.
     println!(
-        "  molecules:            {}",
-        report
-            .get("molecules")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
+        "  {:<21} {}",
+        "cold_shard_loads:",
+        report_u64(report, "cold_shard_loads")
     );
-    println!(
-        "  receipt_allowed:      {}",
-        report
-            .get("molecules_allowed_by_drop_receipt")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-    );
-    println!(
-        "  tips:                 {}",
-        report
-            .get("tips")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-    );
-    println!(
-        "  tips_deleted:         {}",
-        report
-            .get("tips_deleted")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-    );
-    println!(
-        "  index_keys:           {}",
-        report
-            .get("index_keys")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-    );
-    println!(
-        "  retained_refs:        {}",
-        report
-            .get("molecules_retained_active_edges")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-    );
-    println!(
-        "  retained_protein:     {}",
-        report
-            .get("molecules_retained_protein")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-    );
-    println!(
-        "  physical_handles:     {}",
-        report
-            .get("physical_handles_visited")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-    );
-    println!(
-        "  cold_shard_loads:     {}",
-        report
-            .get("cold_shard_loads")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-    );
-    println!(
-        "  tip_inspection:       {}",
-        report
-            .get("tip_inspection_available")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-    );
-    println!(
-        "  index_cleanup:        {}",
-        report
-            .get("index_cleanup_available")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-    );
-    println!(
-        "  truncated:            {}",
-        report
-            .get("truncated")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-    );
-    if report
-        .get("refused_scan")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
+    for (label, key) in REAP_FLAG_ROWS {
+        println!("  {:<21} {}", format!("{label}:"), report_bool(report, key));
+    }
+    print_reap_dropped_schema_next(report, execute);
+}
+
+fn print_reap_dropped_schema_next(report: &serde_json::Value, execute: bool) {
+    if report_bool(report, "refused_scan") {
         println!(
             "  NEXT: janitor refused an atom: scan; range schemaidx or receipt molecules instead"
         );
@@ -149,7 +113,6 @@ pub(crate) fn db_reap_dropped_schema(
     } else if !execute {
         println!("  Execute remains closed until the exact-once meter debit journal lands.");
     }
-    Ok(())
 }
 
 pub(crate) fn db_probe_dropped_tip(

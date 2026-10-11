@@ -73,7 +73,6 @@ pub(crate) fn db_gc_proteins(socket: &Path, execute: bool, json_only: bool) -> R
     Ok(())
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_reclaim_keep_small_legacy(
     socket: &Path,
     execute: bool,
@@ -118,77 +117,57 @@ pub(crate) fn db_reclaim_keep_small_legacy(
         );
         return Ok(());
     }
+    print_keep_small_legacy_human(&report, execute);
+    print_current_keep_small_group(&current);
+    println!("Reclaim live keep_small residue with `lastdb db reclaim-keep-small-snapshot`.");
+    Ok(())
+}
+
+fn report_str(report: &serde_json::Value, key: &str) -> String {
+    report
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("?")
+        .to_string()
+}
+
+fn print_keep_small_legacy_human(report: &serde_json::Value, execute: bool) {
     let mode = if execute { "EXECUTED" } else { "DRY RUN" };
-    let str_of = |key: &str| {
-        report
-            .get(key)
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("?")
-            .to_string()
-    };
-    let u64_of = |key: &str| {
-        report
-            .get(key)
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-    };
     println!("Legacy keep-small group reclaim (metadata) — {mode}");
-    println!("  collection:    {}", str_of("collection"));
-    println!("  key:           {}", str_of("expected_only_id"));
-    println!("  group dir:     {}", str_of("dir"));
-    println!("  segments:      {}", u64_of("segments"));
+    println!("  collection:    {}", report_str(report, "collection"));
     println!(
-        "  on_disk_bytes: {} ({})",
-        u64_of("on_disk_bytes"),
-        format_bytes(u64_of("on_disk_bytes"))
+        "  key:           {}",
+        report_str(report, "expected_only_id")
     );
+    println!("  group dir:     {}", report_str(report, "dir"));
+    println!("  segments:      {}", report_u64(report, "segments"));
+    let on_disk = report_u64(report, "on_disk_bytes");
+    println!("  on_disk_bytes: {on_disk} ({})", format_bytes(on_disk));
     if let Some(ids) = report.get("ids").and_then(|v| v.as_array()) {
         let ids: Vec<&str> = ids.iter().filter_map(|v| v.as_str()).collect();
         println!("  ids recorded:  {ids:?}");
     }
-    let dropped = report
-        .get("dropped")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
-    println!("  dropped:       {dropped}");
-    let already_absent = report
-        .get("already_absent")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+    println!("  dropped:       {}", report_bool(report, "dropped"));
+    let already_absent = report_bool(report, "already_absent");
     println!("  already_absent: {already_absent}");
     if already_absent {
         println!("The retired group is already gone; there is nothing to reclaim here.");
     } else if !execute {
         println!("Re-run with --execute to remove the group directory and return the bytes.");
     }
+}
+
+fn print_current_keep_small_group(current: &serde_json::Value) {
     println!();
     println!("Current keep_small group (measured by a dry run, nothing removed):");
     if let Some(err) = current.get("error").and_then(serde_json::Value::as_str) {
         println!("  could not measure: {err}");
-    } else {
-        let cur_str = |key: &str| {
-            current
-                .get(key)
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("?")
-                .to_string()
-        };
-        let cur_u64 = |key: &str| {
-            current
-                .get(key)
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0)
-        };
-        println!("  group dir:     {}", cur_str("dir"));
-        println!("  segments:      {}", cur_u64("segments"));
-        println!(
-            "  on_disk_bytes: {} ({})",
-            cur_u64("on_disk_bytes"),
-            format_bytes(cur_u64("on_disk_bytes"))
-        );
+        return;
     }
-    println!("Reclaim live keep_small residue with `lastdb db reclaim-keep-small-snapshot`.");
-    Ok(())
+    println!("  group dir:     {}", report_str(current, "dir"));
+    println!("  segments:      {}", report_u64(current, "segments"));
+    let on_disk = report_u64(current, "on_disk_bytes");
+    println!("  on_disk_bytes: {on_disk} ({})", format_bytes(on_disk));
 }
 
 pub(crate) fn db_reclaim_keep_small_snapshot(

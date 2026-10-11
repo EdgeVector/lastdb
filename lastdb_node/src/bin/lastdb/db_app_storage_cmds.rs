@@ -120,7 +120,6 @@ pub(crate) fn app_storage(
     Ok(())
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn print_app_storage_human(report: &serde_json::Value) {
     let u64_at = |key: &str| {
         report
@@ -175,7 +174,12 @@ pub(crate) fn print_app_storage_human(report: &serde_json::Value) {
         );
     }
     println!();
+    print_app_storage_owners(report);
+    println!();
+    print_app_storage_completeness(report, complete);
+}
 
+fn print_app_storage_owners(report: &serde_json::Value) {
     let rows = report
         .get("owners")
         .and_then(serde_json::Value::as_array)
@@ -212,7 +216,9 @@ pub(crate) fn print_app_storage_human(report: &serde_json::Value) {
             );
         }
     }
-    println!();
+}
+
+fn print_app_storage_completeness(report: &serde_json::Value, complete: bool) {
     let meters_origin = report
         .get("meters_origin")
         .and_then(serde_json::Value::as_str)
@@ -240,7 +246,7 @@ pub(crate) fn print_app_storage_human(report: &serde_json::Value) {
     } else {
         println!(
             "complete: FALSE — {} is not attributed to any app. Treat the ranking as a floor, not an exact split.",
-            format_bytes(u64_at("unattributed_bytes"))
+            format_bytes(report_u64(report, "unattributed_bytes"))
         );
     }
 }
