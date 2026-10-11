@@ -21,21 +21,6 @@ fn user_home() -> Result<PathBuf, String> {
         .ok_or_else(|| "HOME unset".to_string())
 }
 
-/// The primary and legacy primary homes of the current user, canonical when the
-/// directory exists. A home that does not exist is skipped.
-pub fn existing_primary_homes() -> Result<Vec<PathBuf>, String> {
-    Ok(existing_primary_homes_under(&user_home()?))
-}
-
-fn existing_primary_homes_under(user_home: &Path) -> Vec<PathBuf> {
-    PRIMARY_HOME_DIR_NAMES
-        .iter()
-        .map(|name| user_home.join(name))
-        .filter(|path| path.exists())
-        .map(|path| std::fs::canonicalize(&path).unwrap_or(path))
-        .collect()
-}
-
 /// Refuse `path` when it is, or lies under, a primary or legacy primary home.
 ///
 /// A path that does not exist yet is resolved through its nearest existing

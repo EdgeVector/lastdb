@@ -64,35 +64,6 @@ pub struct LastStoreCloudRestoreReport {
     pub mutation_log_snapshot_frontier: Option<Frontier>,
 }
 
-pub async fn restore_laststore_cloud_backup(
-    auth: &AuthClient,
-    s3: &S3Client,
-    store: &LastStoreNamespacedStore,
-) -> SyncResult<LastStoreCloudRestoreReport> {
-    restore_laststore_cloud_backup_detailed(auth, s3, store)
-        .await
-        .map_err(|failure| failure.source)
-}
-
-/// Restore S0 with a typed operation boundary while preserving the source
-/// error. The legacy entry point returns that source unchanged.
-pub async fn restore_laststore_cloud_backup_detailed(
-    auth: &AuthClient,
-    s3: &S3Client,
-    store: &LastStoreNamespacedStore,
-) -> Result<LastStoreCloudRestoreReport, S0RestoreFailure> {
-    restore_laststore_cloud_backup_with_progress(auth, s3, store, None).await
-}
-
-pub async fn restore_laststore_cloud_backup_with_progress(
-    auth: &AuthClient,
-    s3: &S3Client,
-    store: &LastStoreNamespacedStore,
-    progress: Option<&RestoreProgress>,
-) -> Result<LastStoreCloudRestoreReport, S0RestoreFailure> {
-    restore_laststore_cloud_backup_with_cache(auth, s3, store, progress, None).await
-}
-
 /// Restore from the current authenticated manifest, with optional verified local bytes.
 pub async fn restore_laststore_cloud_backup_with_cache(
     auth: &AuthClient,
