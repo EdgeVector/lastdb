@@ -14,7 +14,6 @@ impl PinLog {
         target_prefix: &str,
         plane: &mut MutationLogLocalCloud,
         max_segments: usize,
-        publish: MutationLogPublish,
     ) -> Result<MutationLogUploadReport, String> {
         // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         if !matches!(self.config.capture_mode, CaptureMode::MutationLog) {
@@ -23,8 +22,7 @@ impl PinLog {
         if !engine.cloud_plane_allows_upload().await {
             return Ok(MutationLogUploadReport::default());
         }
-        if matches!(publish, MutationLogPublish::Cloud)
-            && self.continuous_sealed_home_backup_demoted()
+        if self.continuous_sealed_home_backup_demoted()
             && !engine
                 .mutation_log_snapshot_base_committed()
                 .map_err(|err| err.to_string())?
@@ -37,24 +35,13 @@ impl PinLog {
         }
         let target = self.sync_target_by_prefix(target_prefix).await?;
         let target_id = target_id_for_prefix(&target.prefix);
-        let (published_before_max, runtime_per_writer_before) = {
+        let published_before_max = {
             let state = self.state.lock().await;
-            match state.get(&target_id) {
-                Some(r) => (r.published_frontier, r.published_f_by_writer.clone()),
-                None => (0, HashMap::new()),
-            }
+            state.get(&target_id).map_or(0, |r| r.published_frontier)
         };
+        // Only the flushed durable map may classify a row as confirmed and
+        // authorize its deletion; volatile process state cannot.
         let durable_per_writer_before = self.read_published_f(&target_id).await;
-        let mut visible_per_writer_before = runtime_per_writer_before;
-        // Local-plane geometry can use volatile process state. The production
-        // cloud path cannot: only the flushed durable map may classify a row as
-        // confirmed and authorize its deletion.
-        for (writer_id, through) in &durable_per_writer_before {
-            let entry = visible_per_writer_before
-                .entry(writer_id.clone())
-                .or_insert(0);
-            *entry = (*entry).max(*through);
-        }
         // Phase B: filter by each record's writer HWM, not a single scalar.
         // Phase A single-writer homes still work (one key in the map / 0).
         //
@@ -68,30 +55,10 @@ impl PinLog {
         let scan_started = std::time::Instant::now();
         let page = {
             let is_pending = |r: &PinLogRecord| {
-                let writer_hwm = if matches!(publish, MutationLogPublish::Cloud) {
-                    durable_per_writer_before
-                        .get(&r.writer_id)
-                        .copied()
-                        .unwrap_or(0)
-                } else {
-                    visible_per_writer_before
-                        .get(&r.writer_id)
-                        .copied()
-                        .unwrap_or(0)
-                        .max(plane.published_f(&r.writer_id))
-                };
-                // Backward-compat: if map empty but scalar advanced (old process
-                // state), fall back to scalar only when writer_id is the sole
-                // known stream on this engine.
-                let fallback = if !matches!(publish, MutationLogPublish::Cloud)
-                    && visible_per_writer_before.is_empty()
-                    && published_before_max > 0
-                {
-                    published_before_max
-                } else {
-                    0
-                };
-                let hwm = writer_hwm.max(fallback);
+                let hwm = durable_per_writer_before
+                    .get(&r.writer_id)
+                    .copied()
+                    .unwrap_or(0);
                 r.frontier_after > hwm
             };
             let record_cap = if max_segments == 0 {
@@ -124,19 +91,14 @@ impl PinLog {
         // fails. Those rows are no longer pending, so retry their exact deletes
         // while the bounded scan has them in hand. Without this retry they stay
         // at the front of the log forever and every cycle pays to skip them.
-        // LocalPlaneForTests frontiers are not cloud confirmation and must never
-        // authorize deletion.
         let retry_confirmed = page.not_pending_frontiers.clone();
         // Quarantine drops are deliberately NOT added here. `records_truncated`
         // is documented as "records deleted this cycle because cloud confirmed
         // them", and a quarantined record is the one thing cloud never saw.
         // Its count is `records_quarantined`.
-        let retried_truncations = if matches!(publish, MutationLogPublish::Cloud) {
-            self.truncate_confirmed_pin_log_records(&target_id, &retry_confirmed)
-                .await
-        } else {
-            0
-        };
+        let retried_truncations = self
+            .truncate_confirmed_pin_log_records(&target_id, &retry_confirmed)
+            .await;
         // `(frontier, seal error)`. The error carries the missing atom id and
         // field name, and is the only surviving description of the hole once
         // the durable row is gone — so it is tombstoned with the frontier, not
@@ -210,7 +172,7 @@ impl PinLog {
                 runtime.last_quarantine_reason = last_quarantine_reason.clone();
             }
         }
-        if matches!(publish, MutationLogPublish::Cloud) && !quarantined.is_empty() {
+        if !quarantined.is_empty() {
             self.drop_unsealable_pin_log_records(engine, &target_id, target_prefix, &quarantined)
                 .await;
         }
@@ -249,8 +211,7 @@ impl PinLog {
                 || records_selected < page_record_count,
             scan_row_budget_exhausted: page.row_budget_exhausted,
         };
-        self.mark_upload_scan_pending(target_prefix, publish, &report)
-            .await;
+        self.mark_upload_scan_pending(target_prefix, &report).await;
 
         // Seal first, then publish to cloud, and only then advance F.
         //
@@ -296,16 +257,8 @@ impl PinLog {
                 objects_in_cycle,
                 mutation_log_put_concurrency_env(),
             );
-            let bytes_uploaded = match publish {
-                MutationLogPublish::Cloud => {
-                    upload_publish_units_batched(engine, &target, &sealed_units).await?
-                }
-                MutationLogPublish::LocalPlaneForTests => sealed_units
-                    .iter()
-                    .flatten()
-                    .map(|s| s.payload.len() as u64)
-                    .sum(),
-            };
+            let bytes_uploaded =
+                upload_publish_units_batched(engine, &target, &sealed_units).await?;
 
             for (unit, records) in sealed_units.iter().zip(&record_batches) {
                 let last = records.last().ok_or_else(|| {
@@ -329,13 +282,11 @@ impl PinLog {
             // max-merge and flush the per-writer HWM. If this fails, return an
             // error without advancing any volatile frontier or deleting a row;
             // the next cycle safely uploads the same cloud object again.
-            if matches!(publish, MutationLogPublish::Cloud) {
-                let confirmed = advanced
-                    .iter()
-                    .map(|(writer_id, (through, _))| (writer_id.clone(), *through))
-                    .collect::<BTreeMap<_, _>>();
-                self.persist_published_f(&target_id, &confirmed).await?;
-            }
+            let confirmed = advanced
+                .iter()
+                .map(|(writer_id, (through, _))| (writer_id.clone(), *through))
+                .collect::<BTreeMap<_, _>>();
+            self.persist_published_f(&target_id, &confirmed).await?;
 
             // Local mirror is geometry/bookkeeping only. Update it only after
             // the durable Cloud HWM exists, so a failed HWM flush cannot make a
@@ -357,14 +308,11 @@ impl PinLog {
             }
 
             // Only the flushed HWM above authorizes deletion. Drop exact rows,
-            // never a range. LocalPlaneForTests keeps every record because it
-            // provides no off-box confirmation.
-            if matches!(publish, MutationLogPublish::Cloud) {
-                report.records_truncated = report.records_truncated.saturating_add(
-                    self.truncate_confirmed_pin_log_records(&target_id, &confirmed_frontiers)
-                        .await,
-                );
-            }
+            // never a range.
+            report.records_truncated = report.records_truncated.saturating_add(
+                self.truncate_confirmed_pin_log_records(&target_id, &confirmed_frontiers)
+                    .await,
+            );
         }
 
         if report.segments_uploaded > 0 {
@@ -372,18 +320,7 @@ impl PinLog {
                 let mut state = self.state.lock().await;
                 if let Some(runtime) = state.get_mut(&target_id) {
                     for (wid, (through, published_at_ms)) in &advanced {
-                        // Only the production cloud path may advance RPO. The
-                        // local plane is a geometry test double, not durability.
-                        if matches!(publish, MutationLogPublish::Cloud) {
-                            runtime.advance_published_f(wid, *through, *published_at_ms);
-                        } else {
-                            let entry = runtime
-                                .published_f_by_writer
-                                .entry(wid.clone())
-                                .or_insert(0);
-                            *entry = (*entry).max(*through);
-                            runtime.published_frontier = runtime.published_frontier.max(*through);
-                        }
+                        runtime.advance_published_f(wid, *through, *published_at_ms);
                     }
                     runtime.segments_uploaded = runtime
                         .segments_uploaded
@@ -429,8 +366,7 @@ impl PinLog {
                     .saturating_sub(runtime.published_frontier);
             }
         }
-        self.clear_upload_scan_pending(target_prefix, publish, &report)
-            .await;
+        self.clear_upload_scan_pending(target_prefix, &report).await;
         Ok(report)
     }
 }

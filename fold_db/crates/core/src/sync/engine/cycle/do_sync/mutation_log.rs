@@ -199,7 +199,6 @@ impl SyncEngine {
                 // sized for fat outbox BatchPuts (default 8) and
                 // throttled this plane to ~331 B/s on a 4.6 MB/s link.
                 max_segments,
-                super::super::super::pin_log::MutationLogPublish::Cloud,
                 catchup_budget,
             )
             .await

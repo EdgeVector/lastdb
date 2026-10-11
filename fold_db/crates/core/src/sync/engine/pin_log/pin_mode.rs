@@ -71,12 +71,9 @@ impl PinLog {
     pub(super) async fn mark_upload_scan_pending(
         &self,
         target_prefix: &str,
-        publish: MutationLogPublish,
         report: &MutationLogUploadReport,
     ) {
-        if matches!(publish, MutationLogPublish::Cloud)
-            && (report.records_considered > 0 || report.records_considered_is_lower_bound)
-        {
+        if report.records_considered > 0 || report.records_considered_is_lower_bound {
             self.known_pending_prefixes
                 .lock()
                 .await
@@ -88,13 +85,9 @@ impl PinLog {
     pub(super) async fn clear_upload_scan_pending(
         &self,
         target_prefix: &str,
-        publish: MutationLogPublish,
         report: &MutationLogUploadReport,
     ) {
-        if matches!(publish, MutationLogPublish::Cloud)
-            && !report.records_considered_is_lower_bound
-            && report.upload_backlog_after == 0
-        {
+        if !report.records_considered_is_lower_bound && report.upload_backlog_after == 0 {
             self.known_pending_prefixes
                 .lock()
                 .await
