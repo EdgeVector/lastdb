@@ -87,14 +87,10 @@ impl FoldDB {
         media_type: Option<&str>,
     ) -> Result<LocalFileBlobPut, FoldDbError> {
         let put = self.put_local_file_blob_admitted(plaintext, name, media_type);
-        #[cfg(feature = "cloud-sync")]
-        return self
-            .acquire_local_mutation_admission()
+        self.acquire_local_mutation_admission()
             .await
             .run(Box::pin(put))
-            .await;
-        #[cfg(not(feature = "cloud-sync"))]
-        put.await
+            .await
     }
 
     async fn put_local_file_blob_admitted(

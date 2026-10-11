@@ -21,8 +21,6 @@ use crate::schema::types::{
 use crate::schema::SchemaError;
 
 use super::cas::CurrentRowFields;
-#[cfg(not(feature = "cloud-sync"))]
-use super::receipt::CloudMutationReceipt;
 use super::receipt::{CloudCapturePolicy, ResidentCommitReceipt, ResidentDurability};
 use super::write::WriteOrigin;
 use super::MutationManager;

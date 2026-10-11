@@ -126,7 +126,6 @@ impl AuthorClockPersistReservation {
             state,
             _pending_task: pending_task,
             completion,
-            #[cfg(feature = "cloud-sync")]
             mutation_admission: crate::sync::capture::current_mutation_admission(),
         });
     }
@@ -136,7 +135,6 @@ struct AuthorClockPersistJob {
     state: MutationAuthorClockState,
     _pending_task: PendingTask,
     completion: Option<tokio::sync::watch::Sender<bool>>,
-    #[cfg(feature = "cloud-sync")]
     mutation_admission: Option<crate::sync::capture::MutationAdmission>,
 }
 
@@ -167,11 +165,9 @@ async fn run_author_clock_persist_queue(
         }
         let mut delay = AUTHOR_CLOCK_RETRY_INITIAL_DELAY;
         let mut attempt = 1_u64;
-        #[cfg(feature = "cloud-sync")]
         let mutation_admission = jobs.iter().find_map(|job| job.mutation_admission.clone());
         loop {
             let persist = db_ops.metadata().put_typed_durable(&state_key, &high_water);
-            #[cfg(feature = "cloud-sync")]
             let persist = crate::sync::capture::with_existing_mutation_admission(
                 mutation_admission.clone(),
                 persist,
@@ -287,7 +283,6 @@ impl MutationManager {
     }
 
     /// Observe replay clocks without changing the received signed values.
-    #[cfg(feature = "cloud-sync")]
     pub(super) fn observe_replayed_author_clocks(
         &self,
         mutations: &[Mutation],

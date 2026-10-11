@@ -80,9 +80,7 @@ impl FoldDB {
 pub(super) async fn prepare_photograph_cut_components(
     pending_tasks: &crate::fold_db_core::pending_task_tracker::PendingTaskTracker,
     db_ops: &crate::db_operations::DbOperations,
-    #[cfg(feature = "cloud-sync")] capture_router: Option<
-        Arc<crate::sync::capture::MutationLogCaptureRouter>,
-    >,
+    capture_router: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
 ) -> Result<(), String> {
     if !pending_tasks
         .wait_for_completion(std::time::Duration::from_secs(30))
@@ -95,7 +93,6 @@ pub(super) async fn prepare_photograph_cut_components(
     }
     // Each accepted mutation owns a pending task until its schema lane makes
     // the complete envelope durable. The wait above is the photograph cut.
-    #[cfg(feature = "cloud-sync")]
     if let Some(router) = capture_router {
         if !router
             .wait_for_completion(std::time::Duration::from_secs(30))

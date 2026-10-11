@@ -9,7 +9,6 @@ use super::*;
 
 impl MutationManager {
     /// Replay a captured mutation intent without writing it back to the log.
-    #[cfg(feature = "cloud-sync")]
     pub(crate) async fn apply_replayed_mutations(
         &self,
         mutations: Vec<Mutation>,
@@ -104,7 +103,6 @@ impl MutationManager {
         .await
     }
 
-    #[cfg(feature = "cloud-sync")]
     pub(super) async fn replayed_put_blocked_by_delete(
         &self,
         mutation: &Mutation,
@@ -151,7 +149,6 @@ impl MutationManager {
 
     /// Preserve a rejected source Put before the replay cursor advances.
     /// The source field values remain available even when no local tip uses them.
-    #[cfg(feature = "cloud-sync")]
     pub(super) async fn record_replayed_put_lost_to_delete(
         &self,
         mutation: &Mutation,

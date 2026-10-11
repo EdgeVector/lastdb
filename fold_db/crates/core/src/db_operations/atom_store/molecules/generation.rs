@@ -4,12 +4,9 @@ use crate::atom::{incoming_wins_lww, molecule_key_codec};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde::de::DeserializeOwned;
-#[cfg(feature = "sharing")]
 use serde_json::Value;
-#[cfg(feature = "sharing")]
 use std::collections::BTreeSet;
 use std::collections::{BTreeMap, HashMap};
-#[cfg(feature = "sharing")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::super::{
@@ -25,7 +22,6 @@ mod slots;
 
 /// A read-only cut captured before a complete generation snapshot is built.
 /// Ordinary writes continue after this value is created.
-#[cfg(feature = "sharing")]
 pub(crate) struct PreparedMoleculeGeneration {
     generation: String,
     observed: HashMap<(String, String), PerKeyRecord>,
@@ -34,7 +30,6 @@ pub(crate) struct PreparedMoleculeGeneration {
 }
 
 /// One complete immutable body and the rows that select it.
-#[cfg(feature = "sharing")]
 pub(crate) struct PreparedMoleculeGenerationActivation {
     pub(crate) molecule_uuid: String,
     pub(crate) prepared: PreparedMoleculeGeneration,
@@ -42,7 +37,6 @@ pub(crate) struct PreparedMoleculeGenerationActivation {
     pub(crate) activation_items: Vec<(String, Value)>,
 }
 
-#[cfg(feature = "sharing")]
 struct ReadyMoleculeGenerationActivation {
     molecule_uuid: String,
     prepared: PreparedMoleculeGeneration,

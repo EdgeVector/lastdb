@@ -12,7 +12,6 @@ pub mod delete_ledger;
 /// Local file-blob reachability GC. Gated on `sharing` because the
 /// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
 /// shipped daemon (`cloud-sync` default) always carries it.
-#[cfg(feature = "sharing")]
 pub mod file_blob_gc;
 pub mod keep_small;
 pub mod lineage_index;
@@ -91,7 +90,6 @@ pub use conflict_operations::HomeConflictAnnotation;
 // Replay appends one event in the same batch that records a conflict. The
 // engine is gated behind `cloud-sync`. A default-feature build must not
 // re-export these or clippy fails on the unused names.
-#[cfg(feature = "cloud-sync")]
 pub(crate) use conflict_operations::{
     home_conflict_event_key, next_home_conflict_event_seq, HomeConflictEvent,
 };

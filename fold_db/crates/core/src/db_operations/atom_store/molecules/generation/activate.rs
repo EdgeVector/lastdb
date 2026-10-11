@@ -1,12 +1,10 @@
 use super::*;
 
 /// Generation body rows to write, and the per-molecule state for activation.
-#[cfg(feature = "sharing")]
 type StagedGenerations = (Vec<(String, Value)>, Vec<ReadyMoleculeGenerationActivation>);
 
 impl AtomStore {
     /// Capture the complete logical row set at the generation cut.
-    #[cfg(feature = "sharing")]
     pub(crate) async fn prepare_molecule_generation(
         &self,
         molecule_uuid: &str,
@@ -56,7 +54,6 @@ impl AtomStore {
 
     /// Build immutable bases, then select every field generation in one batch.
     /// Ordinary writers continue to use `mk:` rows while each base is built.
-    #[cfg(feature = "sharing")]
     pub(crate) async fn activate_prepared_molecule_generations(
         &self,
         activations: Vec<PreparedMoleculeGenerationActivation>,
@@ -122,7 +119,6 @@ impl AtomStore {
 
     /// Build the immutable generation body rows for every activation, and the
     /// per-molecule state the selector batch needs afterwards.
-    #[cfg(feature = "sharing")]
     fn stage_generation_bodies(
         activations: Vec<PreparedMoleculeGenerationActivation>,
         storage_prefix: Option<&str>,
@@ -204,7 +200,6 @@ impl AtomStore {
     }
 
     /// Write and flush the generation bodies before any selector is switched.
-    #[cfg(feature = "sharing")]
     async fn write_generation_bodies(
         &self,
         generation_items: Vec<(String, Value)>,
@@ -226,7 +221,6 @@ impl AtomStore {
     }
 
     /// Sorted, deduplicated tip keys the selector batch must lock.
-    #[cfg(feature = "sharing")]
     fn activation_tip_keys(
         ready: &[ReadyMoleculeGenerationActivation],
         storage_prefix: Option<&str>,
@@ -253,7 +247,6 @@ impl AtomStore {
 
     /// Tombstone the direct rows that the new generation shadows, unless a
     /// concurrent write already replaced them.
-    #[cfg(feature = "sharing")]
     async fn tombstone_stale_direct_rows(
         &self,
         item: &ReadyMoleculeGenerationActivation,
@@ -311,7 +304,6 @@ impl AtomStore {
     }
 
     /// The selector row that switches one molecule to its new generation.
-    #[cfg(feature = "sharing")]
     fn generation_pointer_item(
         item: &ReadyMoleculeGenerationActivation,
         storage_prefix: Option<&str>,
@@ -339,7 +331,6 @@ impl AtomStore {
     }
 
     /// Delete the generation that the new one displaced two activations ago.
-    #[cfg(feature = "sharing")]
     async fn reclaim_expired_generations(
         &self,
         ready: Vec<ReadyMoleculeGenerationActivation>,

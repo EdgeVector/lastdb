@@ -144,7 +144,6 @@ async fn run_reclaim_pass(
         local_blobs_deleted: 0,
     };
 
-    #[cfg(feature = "sharing")]
     {
         let blobs = crate::db_operations::file_blob_gc::gc_orphan_file_blobs(db_ops, false).await?;
         report.local_blobs_deleted = blobs.file_blobs_deleted;

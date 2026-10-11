@@ -5,21 +5,6 @@ version = "0.3.0"
 edition.workspace = true
 publish = false
 
-[features]
-default = []
-# Cross-user sharing and consent-gated delivery are product/host surfaces, not
-# part of the default local kernel compile path.
-sharing = []
-# Compile the cloud-sync engine and its S3/auth store decorators. Local Mini
-# constitution builds keep this off; product hosts opt in explicitly.
-#
-# This must also carry the DEPENDENCIES the sync engine needs, or the gate is
-# cosmetic: `mod sync` disappears but its ~130-crate HTTP/TLS subtree still
-# compiles. `reqwest` has no use outside `sync/`, and fold_db's only `otel`
-# use is the one `inject_w3c` call on sync egress (`sync/auth/http.rs`), so
-# both belong here rather than in the unconditional dependency list.
-cloud-sync = ["sharing", "dep:reqwest", "observability/otel"]
-
 [dependencies]
 # Cryptography
 env_flag = { workspace = true }
@@ -58,18 +43,12 @@ async-trait = { workspace = true }
 thiserror = { workspace = true }
 
 
-# HTTP client. Cloud-sync only: every use lives under `sync/` (the old comment
-# here claimed `schema_client in fold_db_core` — that client is
-# `schema_service/crates/client`, a different crate). Optional so a kernel build
-# without `cloud-sync` does not compile hyper/rustls/aws-lc-sys.
-reqwest = { version = "0.12", optional = true, features = ["json", "multipart", "blocking", "stream"] }
+# HTTP client for the cloud-sync engine (every use lives under `sync/`).
+reqwest = { version = "0.12", features = ["json", "multipart", "blocking", "stream"] }
 
-# Shared telemetry crate. `default-features = false` drops its `otel` default:
-# the kernel needs only the always-available `attrs` pieces (the `redact!` /
-# `redact_id!` PII macros). `propagation::inject_w3c` is `#[cfg(feature =
-# "otel")]` and has exactly one caller — `sync/auth/http.rs` — so `otel` is
-# re-enabled by the `cloud-sync` feature instead of unconditionally.
-observability = { path = "../observability", default-features = false }
+# Shared telemetry crate with its default `otel` feature: sync egress calls
+# `propagation::inject_w3c` (`sync/auth/http.rs`).
+observability = { path = "../observability" }
 # Pure wire schema types (shared with schema_service; no storage).
 schema_types = { workspace = true }
 

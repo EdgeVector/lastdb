@@ -10,8 +10,6 @@ impl MutationManager {
         access_context: &crate::access::AccessContext,
         cloud_policy: CloudCapturePolicy,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        #[cfg(not(feature = "cloud-sync"))]
-        let cloud_mutation_uuid = source.uuid.clone();
         let aggregate = source.aggregate_set.clone().ok_or_else(|| {
             SchemaError::InvalidData("aggregate commit requires aggregate_set".into())
         })?;
@@ -27,12 +25,10 @@ impl MutationManager {
             reservation.submit_and_wait(state).await?;
         }
 
-        #[cfg(feature = "cloud-sync")]
         let mut envelopes = crate::sync::mutation_intent::encode_mutations(
             std::slice::from_ref(&source),
             storage_prefix.as_deref(),
         );
-        #[cfg(feature = "cloud-sync")]
         crate::sync::mutation_intent::retain_persisted_field_atom_uuids(
             &mut envelopes,
             std::slice::from_ref(&source),
@@ -45,41 +41,19 @@ impl MutationManager {
             },
         );
 
-        let result = {
-            #[cfg(feature = "cloud-sync")]
-            {
-                crate::sync::capture::capture_logical_commit_with_policy(
-                    self.capture_router(),
-                    envelopes,
-                    cloud_policy,
-                    self.apply_aggregate_source(
-                        source,
-                        storage_prefix.as_deref(),
-                        WriteOrigin::Request,
-                    ),
-                )
-                .await
-            }
-            #[cfg(not(feature = "cloud-sync"))]
-            {
-                let cloud = (!matches!(cloud_policy, CloudCapturePolicy::Async)).then(|| {
-                    CloudMutationReceipt::unavailable(
-                        cloud_mutation_uuid,
-                        "cloud sync capture is unavailable in this build",
-                    )
-                });
-                self.apply_aggregate_source(source, storage_prefix.as_deref(), WriteOrigin::Request)
-                    .await
-                    .map(|receipt| (receipt, cloud))
-            }
-        };
+        let result = crate::sync::capture::capture_logical_commit_with_policy(
+            self.capture_router(),
+            envelopes,
+            cloud_policy,
+            self.apply_aggregate_source(source, storage_prefix.as_deref(), WriteOrigin::Request),
+        )
+        .await;
         let (mut receipt, cloud) = result?;
         receipt.revision = Some(source_revision);
         receipt.cloud = cloud;
         Ok(receipt)
     }
 
-    #[cfg(feature = "cloud-sync")]
     pub(in crate::fold_db_core::mutation_manager) async fn apply_replayed_aggregate_set(
         &self,
         mut mutations: Vec<Mutation>,

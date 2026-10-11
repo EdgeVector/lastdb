@@ -10,7 +10,6 @@ mod cache;
 mod declare;
 mod load;
 mod locks;
-#[cfg(feature = "cloud-sync")]
 mod replay_reload;
 mod state;
 

@@ -174,7 +174,6 @@ impl FoldDB {
     /// Resolve an existing shared `$lastdb_file` pointer, upload its plaintext
     /// through this node's personal file-blob path, and persist the returned
     /// pointer back to the requested local record.
-    #[cfg(feature = "cloud-sync")]
     pub async fn fork_personal_file_blob(
         &self,
         sync_engine: &crate::sync::SyncEngine,

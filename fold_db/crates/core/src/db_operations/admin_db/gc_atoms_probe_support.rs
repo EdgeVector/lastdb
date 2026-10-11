@@ -105,7 +105,6 @@ impl AtomStore {
     ///
     /// The probe clears old markers before it starts. The generation check
     /// still makes this safe if a stale row survives a failed clear pass.
-    #[cfg_attr(not(feature = "cloud-sync"), allow(dead_code))]
     pub(crate) async fn automatic_gc_atoms_referenced_candidates(
         &self,
         storage_prefix: Option<&str>,

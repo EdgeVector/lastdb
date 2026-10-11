@@ -7,8 +7,6 @@ use crate::schema::types::Mutation;
 use crate::schema::{SchemaError, SchemaState};
 use tracing::info;
 
-#[cfg(not(feature = "cloud-sync"))]
-use super::receipt::CloudMutationReceipt;
 use super::receipt::{
     CloudCapturePolicy, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
     ResidentDurability,
@@ -31,7 +29,6 @@ mod hard_erasure;
 mod molecule_keys;
 use attribution::{attribution_scopes, attribution_source_events_enabled};
 use erasure::estimate_retained_atom_set_bytes;
-#[cfg(feature = "cloud-sync")]
 mod replay;
 mod schema_delta;
 mod schema_delta_persist;

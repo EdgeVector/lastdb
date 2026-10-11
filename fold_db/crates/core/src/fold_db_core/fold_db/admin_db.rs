@@ -12,25 +12,17 @@ use crate::db_operations::{
     LIVE_ATTRIBUTION_EPOCH_ID,
 };
 use crate::error::FoldDbError;
-#[cfg(feature = "sharing")]
 use crate::hex::hex_lower;
 use crate::schema::types::Schema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-#[cfg(feature = "sharing")]
 use crate::access::AccessContext;
-#[cfg(feature = "sharing")]
 use crate::schema::types::field::HashRangeFilter;
-#[cfg(feature = "sharing")]
 use crate::schema::types::key_value::KeyValue;
-#[cfg(feature = "sharing")]
 use crate::schema::types::operations::{Mutation, MutationType, Query};
-#[cfg(feature = "sharing")]
 use base64::Engine;
-#[cfg(feature = "sharing")]
 use serde_json::Value;
-#[cfg(feature = "sharing")]
 use sha2::{Digest, Sha256};
 
 use super::FoldDB;
@@ -190,7 +182,6 @@ impl FoldDB {
             .map_err(|e| FoldDbError::Database(format!("compact collection: {e}")))
     }
 
-    #[cfg(feature = "cloud-sync")]
     /// Read-only, bounded pin-log plane audit (`lastdb db pin-log-audit`).
     ///
     /// Opens `sync_pin_log`, loads durable published-F maps, and classifies

@@ -180,7 +180,6 @@ impl MutationManager {
                 tombstone_id,
                 delete_publication.as_ref().map(|plan| &plan.winning),
             );
-            #[cfg(feature = "cloud-sync")]
             crate::sync::capture::mark_logical_commit_published();
             let schema_tombstones = purge_apply.schema_tombstones;
             let slots = purge_apply.slots;

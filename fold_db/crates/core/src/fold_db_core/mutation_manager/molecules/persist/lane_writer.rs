@@ -198,7 +198,6 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
         };
         // The quarantine row is node-local forensic state, never a mutation
         // for other devices.
-        #[cfg(feature = "cloud-sync")]
         let stored = {
             let _kv_suppress = self
                 .mm
@@ -206,8 +205,6 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
                 .map(|router| router.enter_kv_suppress());
             crate::sync::capture::with_capture_suppressed(store).await
         };
-        #[cfg(not(feature = "cloud-sync"))]
-        let stored = store.await;
         if let Err(store_error) = stored {
             tracing::error!(
                 error = %store_error,

@@ -28,7 +28,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use aggregate::AggregateRepairReceipt;
-#[cfg(feature = "cloud-sync")]
 pub(crate) use author_clock::AuthorClockPersistBarrier;
 pub use receipt::{
     CloudCapturePolicy, CloudCaptureState, CloudMutationReceipt, CloudPublicationState,
@@ -255,14 +254,12 @@ pub struct MutationManager {
     /// replace the DB-wide switch when that policy surface lands.
     tip_history_enabled: std::sync::atomic::AtomicBool,
     /// Sync engine used by administrative capture status and direct callers.
-    #[cfg(feature = "cloud-sync")]
     capture_engine: std::sync::RwLock<Option<std::sync::Arc<crate::sync::SyncEngine>>>,
     /// Bounded post-ack capture queue shared with the serving store wrapper.
     ///
     /// Arc so the persist-lane surface sees `set_capture_router` after
     /// construction. Deferred persist runs after the commit's task-local
     /// suppress ends; router depth is the suppress those puts can see.
-    #[cfg(feature = "cloud-sync")]
     capture_router: std::sync::Arc<
         std::sync::RwLock<Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>>>,
     >,
@@ -288,7 +285,6 @@ impl MutationManager {
         let write_dedupe = dedupe::parse_write_dedupe(std::env::var(dedupe::WRITE_DEDUPE_ENV).ok());
         let purge_barrier = Arc::new(std::sync::Mutex::new(HashMap::new()));
         let purge_stats = Arc::new(PurgeLedger::default());
-        #[cfg(feature = "cloud-sync")]
         let capture_router = Arc::new(std::sync::RwLock::new(None));
         let writer = Arc::new(molecules::DeferredLaneWriter {
             mm: Self::persist_surface(
@@ -302,7 +298,6 @@ impl MutationManager {
                 write_dedupe,
                 Arc::clone(&purge_barrier),
                 Arc::clone(&purge_stats),
-                #[cfg(feature = "cloud-sync")]
                 Arc::clone(&capture_router),
             ),
         });
@@ -341,9 +336,7 @@ impl MutationManager {
             molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
             write_dedupe,
             tip_history_enabled: std::sync::atomic::AtomicBool::new(false),
-            #[cfg(feature = "cloud-sync")]
             capture_engine: std::sync::RwLock::new(None),
-            #[cfg(feature = "cloud-sync")]
             capture_router,
             persist_lanes,
         }
@@ -367,7 +360,7 @@ impl MutationManager {
         write_dedupe: bool,
         purge_barrier: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
         purge_stats: Arc<PurgeLedger>,
-        #[cfg(feature = "cloud-sync")] capture_router: std::sync::Arc<
+        capture_router: std::sync::Arc<
             std::sync::RwLock<
                 Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>>,
             >,
@@ -391,9 +384,7 @@ impl MutationManager {
             molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
             write_dedupe,
             tip_history_enabled: std::sync::atomic::AtomicBool::new(false),
-            #[cfg(feature = "cloud-sync")]
             capture_engine: std::sync::RwLock::new(None),
-            #[cfg(feature = "cloud-sync")]
             capture_router,
             persist_lanes: Arc::new(crate::resident::PersistLaneSet::disabled()),
         }
@@ -418,7 +409,6 @@ impl MutationManager {
     }
 
     /// Wire the serving mutation-log engine (called from FoldDB::set_sync_engine).
-    #[cfg(feature = "cloud-sync")]
     pub(crate) fn set_capture_engine(&self, engine: std::sync::Arc<crate::sync::SyncEngine>) {
         self.set_capture_engine_metadata(std::sync::Arc::clone(&engine));
         let mut router = self
@@ -436,7 +426,6 @@ impl MutationManager {
     }
 
     /// Make new capture roots visible to atom GC before the router admits work.
-    #[cfg(feature = "cloud-sync")]
     pub(crate) fn set_capture_engine_metadata(
         &self,
         engine: std::sync::Arc<crate::sync::SyncEngine>,
@@ -447,7 +436,6 @@ impl MutationManager {
             .expect("capture engine lock poisoned") = Some(engine);
     }
 
-    #[cfg(feature = "cloud-sync")]
     pub(crate) fn set_capture_router(
         &self,
         router: std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>,
@@ -461,7 +449,6 @@ impl MutationManager {
             .expect("capture router lock poisoned") = Some(router);
     }
 
-    #[cfg(feature = "cloud-sync")]
     pub(crate) fn capture_router(
         &self,
     ) -> Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>> {
@@ -471,7 +458,6 @@ impl MutationManager {
             .clone()
     }
 
-    #[cfg(feature = "cloud-sync")]
     pub(crate) async fn wait_for_capture_tasks(&self, timeout: std::time::Duration) -> bool {
         match self.capture_router() {
             Some(router) => router.wait_for_completion(timeout).await,
@@ -479,7 +465,6 @@ impl MutationManager {
         }
     }
 
-    #[cfg(feature = "cloud-sync")]
     pub(crate) fn capture_engine(&self) -> Option<std::sync::Arc<crate::sync::SyncEngine>> {
         self.capture_engine
             .read()
@@ -496,32 +481,24 @@ impl MutationManager {
     /// background janitor) so both feed atom GC the same extra reference
     /// roots — a pin-log-blind reclaim pass is how an acked write silently
     /// never reaches the cloud.
-    #[cfg_attr(not(feature = "cloud-sync"), allow(clippy::unused_async))]
     pub(crate) async fn pending_pin_log_atom_roots(
         &self,
     ) -> Result<std::collections::HashSet<String>, crate::schema::SchemaError> {
-        #[cfg(feature = "cloud-sync")]
-        {
-            let Some(engine) = self.capture_engine() else {
-                return Ok(std::collections::HashSet::new());
-            };
-            // Fail the pass rather than sweep with a reference set known to be
-            // short: an unreadable pin log is missing referrers, not zero of
-            // them, and atom GC deletes on this answer.
-            engine
-                .pin_log
-                .pending_pin_log_atom_uuids()
-                .await
-                .map_err(|e| {
-                    crate::schema::SchemaError::InvalidData(format!(
-                        "collect pin-log atom references: {e}"
-                    ))
-                })
-        }
-        #[cfg(not(feature = "cloud-sync"))]
-        {
-            Ok(std::collections::HashSet::new())
-        }
+        let Some(engine) = self.capture_engine() else {
+            return Ok(std::collections::HashSet::new());
+        };
+        // Fail the pass rather than sweep with a reference set known to be
+        // short: an unreadable pin log is missing referrers, not zero of
+        // them, and atom GC deletes on this answer.
+        engine
+            .pin_log
+            .pending_pin_log_atom_uuids()
+            .await
+            .map_err(|e| {
+                crate::schema::SchemaError::InvalidData(format!(
+                    "collect pin-log atom references: {e}"
+                ))
+            })
     }
 
     /// Wait for mutation work that existed at the start of an atom-GC cut.

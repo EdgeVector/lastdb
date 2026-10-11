@@ -67,10 +67,8 @@ pub mod mini_cutover;
 pub mod request_phases;
 pub mod schema;
 pub mod security;
-#[cfg(feature = "sharing")]
 pub mod sharing;
 pub mod storage;
-#[cfg(feature = "cloud-sync")]
 pub mod sync;
 pub mod sync_conflict;
 pub mod user_context;

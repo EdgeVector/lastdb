@@ -34,7 +34,6 @@ impl MutationManager {
                             error
                         })?;
 
-                    #[cfg(feature = "sharing")]
                     if job.storage_prefix.is_none() {
                         for share_prefix in &job.share_prefixes {
                             self.db_ops
@@ -199,15 +198,12 @@ impl MutationManager {
             self.clear_deferred_job_dirty_after_success(job, slot_revisions);
             Ok(())
         };
-        #[cfg(feature = "cloud-sync")]
         let result = {
             let _kv_suppress = self
                 .capture_router()
                 .map(|router| router.enter_kv_suppress());
             crate::sync::capture::with_capture_suppressed(persist_body).await
         };
-        #[cfg(not(feature = "cloud-sync"))]
-        let result = persist_body.await;
 
         let metrics = self.db_ops.resident().metrics();
         metrics.record_deferred_persist_duration(deferred_start.elapsed());
@@ -313,7 +309,6 @@ impl MutationManager {
 
             Ok(result)
         };
-        #[cfg(feature = "cloud-sync")]
         let attempt = async {
             // The lane task no longer has the request's logical-commit scope,
             // and LastStore can move its writes onto spawn_blocking. Hold both
@@ -467,7 +462,6 @@ impl MutationManager {
             Ok::<(), SchemaError>(())
         };
 
-        #[cfg(feature = "cloud-sync")]
         let attempt = async {
             let _kv_suppress = self
                 .capture_router()

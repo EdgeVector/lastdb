@@ -10,7 +10,6 @@ use crate::storage::{LastStoreNamespacedStore, StorageError};
 use super::FoldDB;
 use crate::fold_db_core::mutation_manager::MutationManager;
 use crate::fold_db_core::query::QueryExecutor;
-#[cfg(feature = "cloud-sync")]
 use crate::fold_db_core::sync_coordinator::SyncCoordinator;
 
 impl FoldDB {
@@ -82,7 +81,6 @@ impl FoldDB {
             "Using DbOperations with storage abstraction layer (Last Store backend)"
         );
 
-        #[cfg(feature = "cloud-sync")]
         let (store, mutation_log_capture) = {
             let mutation_log_capture =
                 Arc::new(crate::sync::capture::MutationLogCaptureRouter::default());
@@ -115,9 +113,7 @@ impl FoldDB {
             db_path: db_path.to_string(),
             signer,
             search_outbox_inbox: None,
-            #[cfg(feature = "cloud-sync")]
             mutation_log_capture,
-            #[cfg(feature = "cloud-sync")]
             packing_slots: None,
         })
         .await
@@ -129,7 +125,6 @@ impl FoldDB {
     ///
     /// Molecule-key encodings match Mini (`from_env_or_default` + identity E2E
     /// index/ope keys). Capture is off: restore applies, it does not re-log.
-    #[cfg(feature = "cloud-sync")]
     pub async fn for_restore(
         store: Arc<dyn crate::storage::traits::NamespacedStore>,
         db_path: &str,
@@ -207,9 +202,7 @@ impl FoldDB {
             db_path: _db_path,
             signer,
             search_outbox_inbox,
-            #[cfg(feature = "cloud-sync")]
             mutation_log_capture,
-            #[cfg(feature = "cloud-sync")]
             packing_slots,
         } = init;
         // Initialize pending task tracker
@@ -254,7 +247,6 @@ impl FoldDB {
             search_outbox_inbox,
             author_clock_state,
         ));
-        #[cfg(feature = "cloud-sync")]
         if let Some(router) = mutation_log_capture.as_ref() {
             mutation_manager.set_capture_router(Arc::clone(router));
         }
@@ -367,7 +359,6 @@ impl FoldDB {
             }
         };
 
-        #[cfg(feature = "cloud-sync")]
         let sync_coordinator = {
             let coordinator = match packing_slots {
                 Some((backup, pause)) => SyncCoordinator::new_with_packing(backup, pause),
@@ -395,12 +386,9 @@ impl FoldDB {
             background_protein_reaper,
             background_tip_history_drain,
             background_atom_reclaim_janitor,
-            #[cfg(feature = "cloud-sync")]
             sync_coordinator,
-            #[cfg(feature = "cloud-sync")]
             mutation_log_capture,
             config_store: std::sync::RwLock::new(None),
-            #[cfg(feature = "cloud-sync")]
             signer,
         })
     }
@@ -420,12 +408,10 @@ pub struct FoldDbInit {
     pub db_path: String,
     pub signer: Arc<crate::security::Ed25519KeyPair>,
     pub search_outbox_inbox: Option<PathBuf>,
-    #[cfg(feature = "cloud-sync")]
     pub(crate) mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
     /// Packing lock from a `SyncEngine` created before FoldDB (factory
     /// cloud-on-at-boot). `None` means the coordinator creates the process
     /// slot and a later `start_sync_engine_runtime` must take it.
-    #[cfg(feature = "cloud-sync")]
     pub(crate) packing_slots: Option<(
         crate::sync::capture::plane_compactor::BackupPublishTargetSlot,
         Arc<tokio::sync::Mutex<Option<u64>>>,
@@ -445,9 +431,7 @@ impl FoldDbInit {
             db_path,
             signer,
             search_outbox_inbox: None,
-            #[cfg(feature = "cloud-sync")]
             mutation_log_capture: None,
-            #[cfg(feature = "cloud-sync")]
             packing_slots: None,
         }
     }

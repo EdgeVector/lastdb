@@ -1,7 +1,6 @@
 use super::*;
 
 impl AtomStore {
-    #[cfg(feature = "sharing")]
     pub(in super::super) async fn prepare_molecule_generation_activation(
         &self,
         molecule_uuid: &str,
@@ -173,7 +172,6 @@ impl AtomStore {
     }
 
     /// Build every immutable molecule body, then select all bodies in one batch.
-    #[cfg(feature = "sharing")]
     pub(crate) async fn store_molecule_generations_batch(
         &self,
         molecules: Vec<(

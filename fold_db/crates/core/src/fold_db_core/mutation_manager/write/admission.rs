@@ -16,9 +16,6 @@ impl MutationManager {
             storage_prefix,
             cloud_policy,
         ));
-        #[cfg(feature = "cloud-sync")]
-        return crate::sync::capture::with_mutation_admission(self.capture_router(), future).await;
-        #[cfg(not(feature = "cloud-sync"))]
-        future.await
+        crate::sync::capture::with_mutation_admission(self.capture_router(), future).await
     }
 }

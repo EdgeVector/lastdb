@@ -18,22 +18,17 @@ impl FoldDB {
         if molecules.is_empty() || molecules.len() > SELECTED_CONFLICT_MAX_MOLECULES {
             return unknown;
         }
-        #[cfg(feature = "cloud-sync")]
-        {
-            let Some(router) = self.mutation_manager.capture_router() else {
-                return unknown;
-            };
-            // Admission and the entire metadata read share one finite deadline.
-            // Cancellation drops the fence and never changes writer state.
-            let read = async {
-                let _fence = router.fence_mutations().await;
-                self.db_ops.read_selected_conflict_metadata(molecules).await
-            };
-            tokio::time::timeout(std::time::Duration::from_secs(10), read)
-                .await
-                .unwrap_or(unknown)
-        }
-        #[cfg(not(feature = "cloud-sync"))]
-        unknown
+        let Some(router) = self.mutation_manager.capture_router() else {
+            return unknown;
+        };
+        // Admission and the entire metadata read share one finite deadline.
+        // Cancellation drops the fence and never changes writer state.
+        let read = async {
+            let _fence = router.fence_mutations().await;
+            self.db_ops.read_selected_conflict_metadata(molecules).await
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(10), read)
+            .await
+            .unwrap_or(unknown)
     }
 }

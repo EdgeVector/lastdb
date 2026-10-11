@@ -8,7 +8,6 @@ impl FoldDB {
     ///
     /// CAS key = `sha256:{file_sha256}` (must match decoded bytes). After this,
     /// run [`Self::gc_orphan_atoms`] to delete the large orphaned field atoms.
-    #[cfg(feature = "sharing")]
     pub async fn migrate_photo_file_bytes_to_blobs(
         &self,
         dry_run: bool,
@@ -152,7 +151,6 @@ impl FoldDB {
                         .and_then(|fv| fv.writer_pubkey.clone())
                         .unwrap_or_default();
 
-                    #[cfg(feature = "cloud-sync")]
                     if let Some(engine) = self.sync_engine() {
                         let request = crate::fold_db_core::fold_db::PersonalFileBlobWrite {
                             schema_name: "photos/Photo".into(),
@@ -235,30 +233,11 @@ impl FoldDB {
 
             Ok(report)
         };
-        #[cfg(feature = "cloud-sync")]
         let admission = self.acquire_local_mutation_admission().await;
-        #[cfg(feature = "cloud-sync")]
-        return admission.run(Box::pin(work)).await;
-        #[cfg(not(feature = "cloud-sync"))]
-        work.await
-    }
-
-    #[cfg(not(feature = "sharing"))]
-    #[expect(
-        clippy::unused_async,
-        reason = "the sharing cfg variant performs async writes and the caller awaits the shared API"
-    )]
-    pub async fn migrate_photo_file_bytes_to_blobs(
-        &self,
-        _dry_run: bool,
-    ) -> Result<PhotoBlobMigrateReport, FoldDbError> {
-        Err(FoldDbError::Database(
-            "photo blob migration requires the sharing feature (cas_blobs)".into(),
-        ))
+        admission.run(Box::pin(work)).await
     }
 }
 
-#[cfg(feature = "sharing")]
 pub(super) fn decode_photo_b64(b64: &str) -> Result<Vec<u8>, String> {
     let engine = base64::engine::general_purpose::STANDARD;
     engine

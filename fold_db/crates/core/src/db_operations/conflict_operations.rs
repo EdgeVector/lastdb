@@ -118,7 +118,6 @@ pub(crate) struct HomeConflictEvent {
 }
 
 impl HomeConflictEvent {
-    #[cfg_attr(not(feature = "cloud-sync"), allow(dead_code))]
     pub(crate) fn named(molecule: &str) -> Self {
         Self {
             molecule: molecule.to_string(),
@@ -420,14 +419,12 @@ impl DbOperations {
 /// the same nanosecond from sharing a key. Compare the whole string. Do not
 /// compare it to a unix-seconds watermark: a seconds string sorts above every
 /// zero-padded nanos seq.
-#[cfg_attr(not(feature = "cloud-sync"), allow(dead_code))]
 pub(crate) fn next_home_conflict_event_seq() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{:020}:{}-{}", unix_nanos_wide(), std::process::id(), n)
 }
 
-#[cfg_attr(not(feature = "cloud-sync"), allow(dead_code))]
 pub(crate) fn home_conflict_event_key(seq: &str) -> String {
     format!("{HOME_CONFLICT_EVENT_PREFIX}{seq}")
 }

@@ -33,7 +33,6 @@ pub struct BackupDeletionReceipt {
 
 impl BackupDeletionReceipt {
     /// Exact owner-authorized purge coverage for one predecessor chunk.
-    #[cfg(feature = "cloud-sync")]
     pub(crate) fn covers_purged_atom(&self, from: u64, to: u64, sha: &str) -> bool {
         self.record_type == PURGED_ATOM_RETIREMENT_RECEIPT_TYPE
             && self.reason.as_deref() == Some(PURGED_ATOM_RETIREMENT_REASON)
