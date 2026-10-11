@@ -94,6 +94,8 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/db/catalog/share", Scope::Owner, "POST", DataRoute::DbCatalogShare),
     row("/api/db/catalog/reclaim", Scope::Owner, "POST", DataRoute::DbCatalogReclaim),
     row("/api/org/sync/register", Scope::Owner, "POST", DataRoute::OrgSyncRegister),
+    row("/api/org/authority/publish", Scope::Owner, "POST", DataRoute::OrgAuthorityPublish),
+    row("/api/org/authority/status", Scope::Owner, "POST", DataRoute::OrgAuthorityStatus),
     row("/api/org/sync/targets", Scope::Owner, "GET", DataRoute::OrgSyncTargets),
     row("/api/org/sync/deactivate", Scope::Owner, "POST", DataRoute::OrgSyncDeactivate),
     row("/api/org/sync/grant-member", Scope::Owner, "POST", DataRoute::OrgSyncGrantMember),

@@ -219,6 +219,10 @@ pub enum DataRoute {
     /// `POST /api/org/sync/register` — register an org cloud-sync target
     /// (org_hash + E2E key). OWNER socket only.
     OrgSyncRegister,
+    /// `POST /api/org/authority/publish` — signed epoch authority relay. OWNER only.
+    OrgAuthorityPublish,
+    /// `POST /api/org/authority/status` — minimal authenticated cloud tip. OWNER only.
+    OrgAuthorityStatus,
     /// `GET /api/org/sync/targets` — list registered org cloud-sync targets.
     /// OWNER socket only.
     OrgSyncTargets,

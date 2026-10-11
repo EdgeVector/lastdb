@@ -16,6 +16,7 @@ mod list;
 mod upload_completion;
 pub use list::LogListStats;
 mod lock;
+pub mod org_authority;
 mod photograph_latest;
 mod recipient_enrollment;
 pub use recipient_enrollment::CloudRecipientEnrollment;
