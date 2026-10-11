@@ -56,39 +56,17 @@ impl MutationManager {
         force_durable: bool,
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
     ) -> Result<super::super::molecules::PreparedSchemaDelta, SchemaError> {
-        // lint:fn-size-ok verbatim move from write.rs; splitting this function is separate work
         // Register before atom creation. An atom reclaim cut samples this
         // tracker before it scans durable references, so every atom older than
         // that cut belongs to a task the cut waits for.
         let pending_persist_task = Some(self.pending_tasks.begin());
         let load_start = std::time::Instant::now();
         let mut schema = self
-            .schema_manager
-            .get_schema_metadata(&schema_name)?
-            .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
-        apply_storage_prefix_to_schema(&mut schema, storage_prefix);
-        schema.ensure_record_molecule_runtime_field();
-        crate::record_molecule::fold_mutations_to_record_envelope(
-            &self.db_ops,
-            &schema,
-            &mut schema_mutations,
-        )
-        .await?;
-        let share_prefixes: Vec<String> = if storage_prefix.is_none() {
-            crate::sharing::store::list_share_rules_in_ops(&self.db_ops)
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "load share rules for schema '{schema_name}': {error}"
-                    ))
-                })?
-                .into_iter()
-                .filter(|rule| rule.active && rule.scope_matches(&schema_name))
-                .map(|rule| rule.share_prefix)
-                .collect()
-        } else {
-            Vec::new()
-        };
+            .load_schema_for_delta(&schema_name, &mut schema_mutations, storage_prefix)
+            .await?;
+        let share_prefixes = self
+            .active_share_prefixes(&schema_name, storage_prefix)
+            .await?;
         let tracks_retention_age = storage_prefix.is_none()
             && matches!(
                 &schema.schema_type,
@@ -127,53 +105,27 @@ impl MutationManager {
             restore_start.elapsed(),
         );
 
-        let atom_results = if self.write_dedupe_enabled() {
-            let dedupe_start = std::time::Instant::now();
-            let sent = atom_results.len();
-            let kept = Self::drop_unchanged_field_writes(
-                &schema,
-                &schema_mutations,
-                &mutation_key_values,
-                atom_results,
-            );
-            Self::add_timing(timing_breakdown, "  - dedupe_scan", dedupe_start.elapsed());
-            if kept.len() != sent {
-                tracing::debug!(
-                    target: "write_dedupe",
-                    schema = %schema_name,
-                    sent,
-                    written = kept.len(),
-                    skipped = sent - kept.len(),
-                    "dropped unchanged field writes"
-                );
-            }
-            kept
-        } else {
-            atom_results
-        };
+        let atom_results = self.dedupe_atom_results(
+            &schema_name,
+            &schema,
+            &schema_mutations,
+            &mutation_key_values,
+            atom_results,
+            timing_breakdown,
+        );
 
         // Prepare sibling tip data before resident apply. There must be no
         // await between apply and the infallible lane fill, or cancellation
         // can drop the only durable owner after the value becomes visible.
         let fold_start = std::time::Instant::now();
-        let inject_fold = {
-            {
-                false
-            }
-        };
-        let sibling_updates = if inject_fold {
-            return Err(SchemaError::InvalidData(
-                "injected protein sibling fold failure before resident publish".into(),
-            ));
-        } else {
-            self.build_protein_sibling_updates(
+        let sibling_updates = self
+            .build_protein_sibling_updates(
                 &schema,
                 &schema_mutations,
                 &mutation_key_values,
                 &atom_results,
             )
-            .await?
-        };
+            .await?;
         // Capture before the resident rebase. The gate check rejects a
         // sibling change that overlaps either preparation step.
         let sibling_prepared = self.prepared_sibling_slot_revisions(&sibling_updates);
@@ -184,82 +136,22 @@ impl MutationManager {
             fold_start.elapsed(),
         );
 
-        let requires_durable_wait =
-            force_durable || crate::fold_db_core::mutation_sync_flush_enabled();
-        let acks_resident =
-            self.acks_on_resident() && storage_prefix.is_none() && !requires_durable_wait;
-        let atom_defer_bytes = deferred_atoms.as_ref().map_or(
-            crate::memory_budget::PER_DEFERRED_TASK_BYTES,
-            |located| {
-                crate::memory_budget::estimate_deferred_batch_bytes(
-                    located.iter().map(|(atom, _)| atom),
-                )
-            },
-        );
-        let idempotency_bytes = idempotency_entries
-            .iter()
-            .fold(0_u64, |total, (key, value)| {
-                total.saturating_add((key.len() + value.len()) as u64)
-            });
         let search_batch = Self::build_index_change_batch(
             &schema_name,
             &schema,
             &schema_mutations,
             &mutation_key_values,
         );
-        let search_bytes = search_batch
-            .as_ref()
-            .and_then(|batch| serde_json::to_vec(batch).ok())
-            .map_or(0, |body| body.len() as u64);
-        let share_prefix_bytes = share_prefixes.iter().fold(0_u64, |total, prefix| {
-            total.saturating_add(prefix.len() as u64)
-        });
-        let defer_bytes = atom_defer_bytes
-            .saturating_add(idempotency_bytes)
-            .saturating_add(search_bytes)
-            .saturating_add(share_prefix_bytes);
-        let defer_refusal = self.defer_refusal_kind();
-        let write_through = acks_resident
-            && (defer_refusal == crate::memory_budget::DeferRefusal::Disabled
-                || crate::memory_budget::should_write_through(defer_bytes));
-        if write_through {
-            self.persist_lanes.metrics().record_write_through();
-        }
-        let defer_reservation = if acks_resident && !write_through {
-            let reservation = self.try_reserve_defer(defer_bytes);
-            if reservation.is_none() {
-                return Err(SchemaError::PersistQueueFull {
-                    schema: schema_name.clone(),
-                    kind: "bytes".into(),
-                });
-            }
-            reservation
-        } else {
-            None
-        };
-        // Every schema mutation reserves its FIFO position before resident
-        // apply. Fast resident mode returns after enqueue. Other modes wait
-        // for this envelope after every schema group enters its lane.
-        let wait_for_persist_lane = !acks_resident || defer_reservation.is_none();
-        let persist_key = crate::resident::PersistLaneKey::new(
-            storage_prefix.unwrap_or("").to_string(),
-            schema_name.clone(),
-        );
-        let lane_reservation = Some(
-            match self.persist_lanes.reserve(persist_key, defer_bytes.max(1)) {
-                Ok(reservation) => reservation,
-                Err(kind) => {
-                    return Err(SchemaError::PersistQueueFull {
-                        schema: schema_name.clone(),
-                        kind: match kind {
-                            crate::resident::PersistLaneFull::Entries => "entries".into(),
-                            crate::resident::PersistLaneFull::Bytes => "bytes".into(),
-                            crate::resident::PersistLaneFull::Unhealthy => "unhealthy".into(),
-                        },
-                    });
-                }
-            },
-        );
+        let (defer_reservation, lane_reservation, wait_for_persist_lane) = self
+            .reserve_persist_capacity(
+                &schema_name,
+                storage_prefix,
+                force_durable,
+                deferred_atoms.as_deref(),
+                &idempotency_entries,
+                search_batch.as_ref(),
+                &share_prefixes,
+            )?;
 
         let prepared = self.prepared_slot_revisions(&schema, &changed_keys);
         Ok(super::super::molecules::PreparedSchemaDelta {

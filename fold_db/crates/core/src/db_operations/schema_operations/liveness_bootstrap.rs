@@ -7,13 +7,14 @@ use crate::db_operations::atom_store::MoleculeRefEdge;
 use crate::db_operations::atom_store::{BlobRefCompleteness, MoleculeRefCompleteness};
 use crate::db_operations::{
     KeepSmallSnapshot, LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload, MeterTrustState,
-    SchemaMeter,
+    MoleculeStorageCounter, MoleculeTipCounterSource, SchemaMeter,
 };
 use crate::protein::{Protein, PROTEIN_RECORD_PREFIX};
 use crate::schema::types::field::build_storage_key;
+use crate::schema::Schema;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Exact isolated-copy bootstrap proof for molecule and blob liveness planes.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -36,7 +37,6 @@ impl DbOperations {
     /// Rebuild `mref:v1` and `bref:v1` from canonical rows on an isolated copy.
     /// Completeness markers land last. A read or decode failure leaves the
     /// corresponding reclaim gate closed.
-    // lint:fn-size-ok verbatim move from schema_operations.rs; splitting this function is separate work
     pub async fn bootstrap_liveness_edges_on_isolated_copy(
         &self,
         storage_prefix: Option<&str>,
@@ -57,20 +57,113 @@ impl DbOperations {
                 return Err(error);
             }
         };
-        let mut molecule_edges = Vec::new();
-        let mut molecule_schema = HashMap::new();
-        let mut schema_fields = 0u64;
-        for (schema_name, schema) in &schemas {
-            let edges = schema_molecule_ref_edges(schema_name, schema);
-            schema_fields = schema_fields.saturating_add(edges.len() as u64);
-            for edge in &edges {
-                molecule_schema
-                    .entry(edge.molecule_uuid.clone())
-                    .or_insert_with(|| schema.name.clone());
-            }
-            molecule_edges.extend(edges);
-        }
+        let (mut molecule_edges, molecule_schema, schema_fields) =
+            collect_schema_molecule_edges(&schemas);
+        let protein_members = self
+            .append_protein_member_edges(storage_prefix, &mut molecule_edges)
+            .await?;
 
+        let molecule_refs = self
+            .atoms()
+            .bootstrap_molecule_ref_edges_on_isolated_copy(
+                &molecule_edges,
+                schema_fields,
+                protein_members,
+                storage_prefix,
+            )
+            .await
+            .inspect_err(|_| {
+                self.atoms()
+                    .keep_small()
+                    .mark_incomplete("repair_audit_mismatch");
+            })?;
+        let blob_refs = self
+            .atoms()
+            .bootstrap_blob_ref_edges_from_atoms_on_isolated_copy(storage_prefix)
+            .await
+            .inspect_err(|_| {
+                self.atoms()
+                    .keep_small()
+                    .mark_incomplete("repair_decode_error");
+            })?;
+        let (counters, tip_sources, key_bytes, mut schema_counter_report) = self
+            .measure_molecule_counters(&molecule_schema, storage_prefix)
+            .await?;
+
+        // The atom walk is the independent global/schema oracle. The molecule
+        // walk above remains the source for tip and structural counters.
+        let breakdown = self
+            .atoms()
+            .storage_breakdown(&[], storage_prefix)
+            .await
+            .inspect_err(|_| {
+                self.atoms()
+                    .keep_small()
+                    .mark_incomplete("repair_decode_error");
+            })?;
+        let mut schema_rows = HashMap::new();
+        for row in &breakdown.per_schema {
+            schema_rows.insert(row.schema_name.clone(), (row.bytes, row.atom_count));
+        }
+        let tip_totals = aggregate_tip_totals(&counters, &molecule_schema);
+        let (schema_meters, schema_trust) =
+            build_schema_meters(&schemas, &schema_rows, &tip_totals.schema_tips);
+        let trust = MeterTrustPayload {
+            version: crate::db_operations::KEEP_SMALL_TRUST_VERSION,
+            global: MeterDomainTrust {
+                state: MeterTrustState::Reconciled,
+                cause: None,
+            },
+            schemas: schema_trust,
+            molecules: MeterDomainTrust {
+                state: MeterTrustState::Reconciled,
+                cause: None,
+            },
+        };
+        let candidate = KeepSmallSnapshot {
+            totals: LiveBudgetTotals {
+                atom_bytes: breakdown.total_logical_bytes,
+                tip_bytes: tip_totals.tip_bytes,
+                bookkeeping_bytes: tip_totals.bookkeeping_bytes,
+                atom_count: schema_rows.values().map(|(_, count)| *count).sum(),
+                tip_count: tip_totals.tip_count,
+            },
+            schemas: schema_meters,
+            molecules: counters,
+            molecule_counters_complete: true,
+            molecule_counter_sources_complete: true,
+            molecule_tip_sources: tip_sources,
+            molecule_key_bytes: key_bytes,
+            molecule_schema: molecule_schema.clone(),
+            pending_protein_folds: self.atoms().keep_small().pending_protein_folds(),
+            clean_stop: None,
+            trust,
+            hard_erase_totals: crate::db_operations::KeepSmallHardEraseTotals::default(),
+            hard_erase_journal_checkpoint_seq: 0,
+            sharded: false,
+        };
+        // Trust becomes visible only after the complete candidate reaches the
+        // durable meter plane. The commit holds the persist lock across put,
+        // flush, and install, so no dirty flush can land the old projection
+        // over the candidate. An error keeps the live projection incomplete
+        // and leaves deletion gates closed.
+        self.atoms()
+            .commit_repaired_keep_small_snapshot(candidate, hard_erase_epoch)
+            .await?;
+        schema_counter_report.complete = true;
+        Ok(LivenessBootstrapReport {
+            molecule_refs,
+            blob_refs,
+            schema_counters: schema_counter_report,
+        })
+    }
+
+    /// Append one protein-member edge per stored protein member; returns the member count.
+    async fn append_protein_member_edges(
+        &self,
+        storage_prefix: Option<&str>,
+        molecule_edges: &mut Vec<MoleculeRefEdge>,
+    ) -> Result<u64, SchemaError> {
         let protein_prefix = build_storage_key(storage_prefix, PROTEIN_RECORD_PREFIX);
         let proteins = self
             .atoms()
@@ -97,30 +190,23 @@ impl DbOperations {
                 protein_members = protein_members.saturating_add(1);
             }
         }
+        Ok(protein_members)
+    }
 
-        let molecule_refs = self
-            .atoms()
-            .bootstrap_molecule_ref_edges_on_isolated_copy(
-                &molecule_edges,
-                schema_fields,
-                protein_members,
-                storage_prefix,
-            )
-            .await
-            .inspect_err(|_| {
-                self.atoms()
-                    .keep_small()
-                    .mark_incomplete("repair_audit_mismatch");
-            })?;
-        let blob_refs = self
-            .atoms()
-            .bootstrap_blob_ref_edges_from_atoms_on_isolated_copy(storage_prefix)
-            .await
-            .inspect_err(|_| {
-                self.atoms()
-                    .keep_small()
-                    .mark_incomplete("repair_decode_error");
-            })?;
+    /// Measure every schema-bound molecule in sorted order.
+    async fn measure_molecule_counters(
+        &self,
+        molecule_schema: &HashMap<String, String>,
+        storage_prefix: Option<&str>,
+    ) -> Result<
+        (
+            HashMap<String, MoleculeStorageCounter>,
+            HashMap<String, MoleculeTipCounterSource>,
+            HashMap<String, u64>,
+            SchemaCounterBootstrapReport,
+        ),
+        SchemaError,
+    > {
         let mut counters = HashMap::new();
         let mut tip_sources = HashMap::new();
         let mut key_bytes = HashMap::new();
@@ -161,131 +247,119 @@ impl DbOperations {
             tip_sources.extend(sources);
             key_bytes.extend(sizes);
         }
-
-        // The atom walk is the independent global/schema oracle. The molecule
-        // walk above remains the source for tip and structural counters.
-        let mut schema_names: Vec<String> = schemas.keys().cloned().collect();
-        schema_names.sort();
-        let breakdown = self
-            .atoms()
-            .storage_breakdown(&[], storage_prefix)
-            .await
-            .inspect_err(|_| {
-                self.atoms()
-                    .keep_small()
-                    .mark_incomplete("repair_decode_error");
-            })?;
-        let mut schema_rows = HashMap::new();
-        for row in &breakdown.per_schema {
-            schema_rows.insert(row.schema_name.clone(), (row.bytes, row.atom_count));
-        }
-        let mut schema_tips: HashMap<String, (u64, u64)> = HashMap::new();
-        let mut tip_bytes = 0u64;
-        let mut bookkeeping_bytes = 0u64;
-        let mut tip_count = 0u64;
-        for counter in counters.values() {
-            tip_bytes = tip_bytes.saturating_add(counter.tip_index_bytes);
-            bookkeeping_bytes = bookkeeping_bytes.saturating_add(counter.structure_bytes());
-            tip_count = tip_count.saturating_add(counter.active_slot_count);
-            if let Some(schema) = molecule_schema.get(&counter.molecule_uuid) {
-                let entry = schema_tips.entry(schema.clone()).or_default();
-                entry.0 = entry.0.saturating_add(counter.tip_index_bytes);
-                entry.1 = entry.1.saturating_add(counter.structure_bytes());
-            }
-        }
-        let mut schema_meters = HashMap::new();
-        let mut schema_trust = std::collections::BTreeMap::new();
-        for schema in &schema_names {
-            let (atom_bytes, atom_count) = schema_rows.get(schema).copied().unwrap_or_default();
-            let (schema_tip_bytes, schema_bookkeeping_bytes) =
-                schema_tips.get(schema).copied().unwrap_or_default();
-            schema_meters.insert(
-                schema.clone(),
-                SchemaMeter {
-                    schema_name: schema.clone(),
-                    display_name: None,
-                    live_bytes: atom_bytes,
-                    atom_count,
-                    // A repair establishes a new measured origin. Historical
-                    // churn is not reconstructed from the candidate itself.
-                    appended_bytes: atom_bytes,
-                    appended_day: crate::db_operations::keep_small::utc_day(chrono::Utc::now()),
-                    tip_bytes: schema_tip_bytes,
-                    bookkeeping_bytes: schema_bookkeeping_bytes,
-                },
-            );
-            schema_trust.insert(schema.clone(), MeterDomainTrust::trusted());
-        }
-        for schema in schema_rows
-            .keys()
-            .filter(|schema| !schemas.contains_key(*schema))
-        {
-            let (atom_bytes, atom_count) = schema_rows.get(schema).copied().unwrap_or_default();
-            schema_meters.insert(
-                schema.clone(),
-                SchemaMeter {
-                    schema_name: schema.clone(),
-                    display_name: None,
-                    live_bytes: atom_bytes,
-                    atom_count,
-                    appended_bytes: atom_bytes,
-                    appended_day: crate::db_operations::keep_small::utc_day(chrono::Utc::now()),
-                    tip_bytes: 0,
-                    bookkeeping_bytes: 0,
-                },
-            );
-            schema_trust.insert(
-                schema.clone(),
-                MeterDomainTrust::incomplete("schema_binding_unresolved"),
-            );
-        }
-        let trust = MeterTrustPayload {
-            version: crate::db_operations::KEEP_SMALL_TRUST_VERSION,
-            global: MeterDomainTrust {
-                state: MeterTrustState::Reconciled,
-                cause: None,
-            },
-            schemas: schema_trust,
-            molecules: MeterDomainTrust {
-                state: MeterTrustState::Reconciled,
-                cause: None,
-            },
-        };
-        let candidate = KeepSmallSnapshot {
-            totals: LiveBudgetTotals {
-                atom_bytes: breakdown.total_logical_bytes,
-                tip_bytes,
-                bookkeeping_bytes,
-                atom_count: schema_rows.values().map(|(_, count)| *count).sum(),
-                tip_count,
-            },
-            schemas: schema_meters,
-            molecules: counters,
-            molecule_counters_complete: true,
-            molecule_counter_sources_complete: true,
-            molecule_tip_sources: tip_sources,
-            molecule_key_bytes: key_bytes,
-            molecule_schema: molecule_schema.clone(),
-            pending_protein_folds: self.atoms().keep_small().pending_protein_folds(),
-            clean_stop: None,
-            trust,
-            hard_erase_totals: crate::db_operations::KeepSmallHardEraseTotals::default(),
-            hard_erase_journal_checkpoint_seq: 0,
-            sharded: false,
-        };
-        // Trust becomes visible only after the complete candidate reaches the
-        // durable meter plane. The commit holds the persist lock across put,
-        // flush, and install, so no dirty flush can land the old projection
-        // over the candidate. An error keeps the live projection incomplete
-        // and leaves deletion gates closed.
-        self.atoms()
-            .commit_repaired_keep_small_snapshot(candidate, hard_erase_epoch)
-            .await?;
-        schema_counter_report.complete = true;
-        Ok(LivenessBootstrapReport {
-            molecule_refs,
-            blob_refs,
-            schema_counters: schema_counter_report,
-        })
+        Ok((counters, tip_sources, key_bytes, schema_counter_report))
     }
+}
+
+/// Molecule ref edges for every catalog schema, the molecule-to-schema map, and the field edge count.
+fn collect_schema_molecule_edges(
+    schemas: &HashMap<String, Schema>,
+) -> (Vec<MoleculeRefEdge>, HashMap<String, String>, u64) {
+    let mut molecule_edges = Vec::new();
+    let mut molecule_schema = HashMap::new();
+    let mut schema_fields = 0u64;
+    for (schema_name, schema) in schemas {
+        let edges = schema_molecule_ref_edges(schema_name, schema);
+        schema_fields = schema_fields.saturating_add(edges.len() as u64);
+        for edge in &edges {
+            molecule_schema
+                .entry(edge.molecule_uuid.clone())
+                .or_insert_with(|| schema.name.clone());
+        }
+        molecule_edges.extend(edges);
+    }
+    (molecule_edges, molecule_schema, schema_fields)
+}
+
+struct TipTotals {
+    tip_bytes: u64,
+    bookkeeping_bytes: u64,
+    tip_count: u64,
+    /// Per schema: `(tip_bytes, bookkeeping_bytes)`.
+    schema_tips: HashMap<String, (u64, u64)>,
+}
+
+fn aggregate_tip_totals(
+    counters: &HashMap<String, MoleculeStorageCounter>,
+    molecule_schema: &HashMap<String, String>,
+) -> TipTotals {
+    let mut totals = TipTotals {
+        tip_bytes: 0,
+        bookkeeping_bytes: 0,
+        tip_count: 0,
+        schema_tips: HashMap::new(),
+    };
+    for counter in counters.values() {
+        totals.tip_bytes = totals.tip_bytes.saturating_add(counter.tip_index_bytes);
+        totals.bookkeeping_bytes = totals
+            .bookkeeping_bytes
+            .saturating_add(counter.structure_bytes());
+        totals.tip_count = totals.tip_count.saturating_add(counter.active_slot_count);
+        if let Some(schema) = molecule_schema.get(&counter.molecule_uuid) {
+            let entry = totals.schema_tips.entry(schema.clone()).or_default();
+            entry.0 = entry.0.saturating_add(counter.tip_index_bytes);
+            entry.1 = entry.1.saturating_add(counter.structure_bytes());
+        }
+    }
+    totals
+}
+
+/// Per-schema meters and trust: catalog schemas are trusted, atom-only schemas are incomplete.
+fn build_schema_meters(
+    schemas: &HashMap<String, Schema>,
+    schema_rows: &HashMap<String, (u64, u64)>,
+    schema_tips: &HashMap<String, (u64, u64)>,
+) -> (
+    HashMap<String, SchemaMeter>,
+    BTreeMap<String, MeterDomainTrust>,
+) {
+    let mut schema_names: Vec<String> = schemas.keys().cloned().collect();
+    schema_names.sort();
+    let mut schema_meters = HashMap::new();
+    let mut schema_trust = BTreeMap::new();
+    for schema in &schema_names {
+        let (atom_bytes, atom_count) = schema_rows.get(schema).copied().unwrap_or_default();
+        let (schema_tip_bytes, schema_bookkeeping_bytes) =
+            schema_tips.get(schema).copied().unwrap_or_default();
+        schema_meters.insert(
+            schema.clone(),
+            SchemaMeter {
+                schema_name: schema.clone(),
+                display_name: None,
+                live_bytes: atom_bytes,
+                atom_count,
+                // A repair establishes a new measured origin. Historical
+                // churn is not reconstructed from the candidate itself.
+                appended_bytes: atom_bytes,
+                appended_day: crate::db_operations::keep_small::utc_day(chrono::Utc::now()),
+                tip_bytes: schema_tip_bytes,
+                bookkeeping_bytes: schema_bookkeeping_bytes,
+            },
+        );
+        schema_trust.insert(schema.clone(), MeterDomainTrust::trusted());
+    }
+    for schema in schema_rows
+        .keys()
+        .filter(|schema| !schemas.contains_key(*schema))
+    {
+        let (atom_bytes, atom_count) = schema_rows.get(schema).copied().unwrap_or_default();
+        schema_meters.insert(
+            schema.clone(),
+            SchemaMeter {
+                schema_name: schema.clone(),
+                display_name: None,
+                live_bytes: atom_bytes,
+                atom_count,
+                appended_bytes: atom_bytes,
+                appended_day: crate::db_operations::keep_small::utc_day(chrono::Utc::now()),
+                tip_bytes: 0,
+                bookkeeping_bytes: 0,
+            },
+        );
+        schema_trust.insert(
+            schema.clone(),
+            MeterDomainTrust::incomplete("schema_binding_unresolved"),
+        );
+    }
+    (schema_meters, schema_trust)
 }

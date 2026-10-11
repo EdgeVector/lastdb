@@ -31,6 +31,7 @@ use attribution::{attribution_scopes, attribution_source_events_enabled};
 use erasure::estimate_retained_atom_set_bytes;
 mod replay;
 mod schema_delta;
+mod schema_delta_helpers;
 mod schema_delta_persist;
 mod timing;
 

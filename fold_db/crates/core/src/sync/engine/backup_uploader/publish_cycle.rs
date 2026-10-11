@@ -56,7 +56,6 @@ impl SyncEngine {
     /// early (upload gate closed, cut rate-limited) produced no drain and must
     /// not manufacture a sample.
     #[allow(clippy::too_many_arguments)] // report + drain_elapsed out-params; keep call site readable
-                                         // lint:fn-size-ok moved verbatim from backup_uploader.rs; splitting this function is separate work.
     pub(super) async fn run_snapshot_log_publish_cycle_inner(
         &self,
         previous_manifest: Option<&BackupManifest>,
@@ -145,52 +144,17 @@ impl SyncEngine {
         // FAILING forever with a fixed residual (2026-08-14 primary: 6d+ on
         // remaining=215 all_source_missing auto_recut=disabled).
         if report.chunks.source_missing > 0 {
-            let heal = self
-                .resolve_source_missing_via_cloud_presence(report.target_generation)
-                .await;
-            if heal.remaining < report.chunks.source_missing {
-                // Healed digests are now in known_present; refresh present count
-                // so known_missing_chunks / CAS gates see the post-heal truth.
-                report.chunks.chunks_present = self
-                    .count_held_candidates_in_known_present()
-                    .await
-                    .unwrap_or(report.chunks.chunks_present);
-            }
-            report.chunks.source_missing = heal.remaining;
-            if heal.probe_error && report.chunks.source_missing > 0 {
-                // At least one presence check could not be confirmed this
-                // cycle (transport/auth error) — fail closed, do not abandon
-                // or re-cut on an unconfirmed residual. The next cycle
-                // re-probes with a fresh presign call.
+            // A presence check that could not be confirmed (transport/auth
+            // error) fails closed: no abandon or re-cut on an unconfirmed
+            // residual. The next cycle re-probes with a fresh presign call.
+            if self.heal_source_missing_via_cloud_presence(report).await {
                 report.publish_phase = "chunks_only".into();
                 return Ok(());
             }
         }
         while report.chunks.source_missing > 0 {
             if !allow_new_cut {
-                let generation = report.target_generation;
-                let n = report.chunks.source_missing;
-                tracing::error!(
-                    target: "fold_db::sync::backup",
-                    source_missing = n,
-                    generation = ?generation,
-                    "held backup cut is provably unpublishable under demoted continuous \
-                     sealed-home (residual source_missing after cloud-presence heal); \
-                     abandoning held cut so the publisher idles on mutation-log durability \
-                     instead of spinning FAILING forever"
-                );
-                self.retire_backup_publish_target().await;
-                self.record_sealed_base_abandoned_marker();
-                report.publish_phase = "failing".into();
-                report.chunks.first_error = Some(format!(
-                    "backup cut abandoned: {n} chunk(s) have no local sealed file and are not \
-                     in cloud; continuous sealed-home is demoted so automatic re-cut is \
-                     disabled — held cut released; mutation-log plane is active durability; \
-                     operator re-cut / bootstrap required for a new sealed-home base"
-                ));
-                // Keep source_missing=n on this cycle's sample so progress/status
-                // records the terminal reason. The hold is already released; the
-                // next demoted cycle has no target and goes idle.
+                self.abandon_unpublishable_cut_when_demoted(report).await;
                 return Ok(());
             }
             let generation = report.target_generation;
@@ -198,16 +162,7 @@ impl SyncEngine {
                 .handle_unpublishable_backup_cut(report.chunks.source_missing, generation)
                 .await;
             if !abandoned {
-                report.publish_phase = "failing".into();
-                if report.chunks.first_error.is_none() {
-                    let consecutive = self.backup_consecutive_reseal_kills.load(Ordering::Relaxed);
-                    report.chunks.first_error = Some(format!(
-                        "backup cut cannot publish: {} chunk(s) have no local sealed file; \
-                         {consecutive} consecutive reseal-killed cuts hit the re-cut bound \
-                         (max={MAX_CONSECUTIVE_RESEAL_KILLED_CUTS}) — reseal rate is the defect",
-                        report.chunks.source_missing
-                    ));
-                }
+                self.report_recut_bound_hit(report);
                 return Ok(());
             }
             self.ensure_backup_publish_target(previous_manifest).await?;
@@ -215,21 +170,11 @@ impl SyncEngine {
                 self.drain_backup_publish_target(allow_drain_puts).await?;
             report.chunks = chunk_stats;
             report.target_generation = generation;
-            if report.chunks.source_missing > 0 {
-                let heal = self
-                    .resolve_source_missing_via_cloud_presence(report.target_generation)
-                    .await;
-                if heal.remaining < report.chunks.source_missing {
-                    report.chunks.chunks_present = self
-                        .count_held_candidates_in_known_present()
-                        .await
-                        .unwrap_or(report.chunks.chunks_present);
-                }
-                report.chunks.source_missing = heal.remaining;
-                if heal.probe_error && report.chunks.source_missing > 0 {
-                    report.publish_phase = "chunks_only".into();
-                    return Ok(());
-                }
+            if report.chunks.source_missing > 0
+                && self.heal_source_missing_via_cloud_presence(report).await
+            {
+                report.publish_phase = "chunks_only".into();
+                return Ok(());
             }
         }
 
@@ -253,6 +198,82 @@ impl SyncEngine {
         report.publish_phase = format!("{:?}", PublishPhase::Publishing).to_ascii_lowercase();
         // Pass the same previous-manifest used at cut time so a store_uuid
         // rebind retry re-cuts under the same chain head (not a silent None).
+        self.cas_and_record_publish(previous_manifest, last_publish, report)
+            .await
+    }
+
+    /// Promote digests already in cloud; returns true when a presence check was
+    /// unconfirmed and the cycle must stop (fail closed).
+    async fn heal_source_missing_via_cloud_presence(
+        &self,
+        report: &mut SnapshotLogPublishCycleReport,
+    ) -> bool {
+        let heal = self
+            .resolve_source_missing_via_cloud_presence(report.target_generation)
+            .await;
+        if heal.remaining < report.chunks.source_missing {
+            // Healed digests are now in known_present; refresh present count
+            // so known_missing_chunks / CAS gates see the post-heal truth.
+            report.chunks.chunks_present = self
+                .count_held_candidates_in_known_present()
+                .await
+                .unwrap_or(report.chunks.chunks_present);
+        }
+        report.chunks.source_missing = heal.remaining;
+        heal.probe_error && report.chunks.source_missing > 0
+    }
+
+    /// Release a provably unpublishable held cut under demoted continuous sealed-home.
+    async fn abandon_unpublishable_cut_when_demoted(
+        &self,
+        report: &mut SnapshotLogPublishCycleReport,
+    ) {
+        let generation = report.target_generation;
+        let n = report.chunks.source_missing;
+        tracing::error!(
+            target: "fold_db::sync::backup",
+            source_missing = n,
+            generation = ?generation,
+            "held backup cut is provably unpublishable under demoted continuous \
+             sealed-home (residual source_missing after cloud-presence heal); \
+             abandoning held cut so the publisher idles on mutation-log durability \
+             instead of spinning FAILING forever"
+        );
+        self.retire_backup_publish_target().await;
+        self.record_sealed_base_abandoned_marker();
+        report.publish_phase = "failing".into();
+        report.chunks.first_error = Some(format!(
+            "backup cut abandoned: {n} chunk(s) have no local sealed file and are not \
+             in cloud; continuous sealed-home is demoted so automatic re-cut is \
+             disabled — held cut released; mutation-log plane is active durability; \
+             operator re-cut / bootstrap required for a new sealed-home base"
+        ));
+        // Keep source_missing=n on this cycle's sample so progress/status
+        // records the terminal reason. The hold is already released; the
+        // next demoted cycle has no target and goes idle.
+    }
+
+    /// Record the failing phase when the consecutive-reseal re-cut bound is hit.
+    fn report_recut_bound_hit(&self, report: &mut SnapshotLogPublishCycleReport) {
+        report.publish_phase = "failing".into();
+        if report.chunks.first_error.is_none() {
+            let consecutive = self.backup_consecutive_reseal_kills.load(Ordering::Relaxed);
+            report.chunks.first_error = Some(format!(
+                "backup cut cannot publish: {} chunk(s) have no local sealed file; \
+                 {consecutive} consecutive reseal-killed cuts hit the re-cut bound \
+                 (max={MAX_CONSECUTIVE_RESEAL_KILLED_CUTS}) — reseal rate is the defect",
+                report.chunks.source_missing
+            ));
+        }
+    }
+
+    /// CAS the drained target and record the published snapshot into `report`.
+    async fn cas_and_record_publish(
+        &self,
+        previous_manifest: Option<&BackupManifest>,
+        last_publish: &mut Instant,
+        report: &mut SnapshotLogPublishCycleReport,
+    ) -> SyncResult<()> {
         match self.cas_backup_publish_target(previous_manifest).await {
             Ok((manifest, snap)) => {
                 *last_publish = Instant::now();

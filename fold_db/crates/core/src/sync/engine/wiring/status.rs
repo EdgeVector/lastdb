@@ -3,6 +3,17 @@
 
 use super::*;
 
+/// Liveness values computed together for one status snapshot.
+struct StatusLiveness {
+    consecutive_sync_failures: u64,
+    backup_blocker: Option<SyncBackupBlocker>,
+    degraded_reasons: Vec<String>,
+    capture_reexport_pending_known_nonempty: Option<bool>,
+    capture_reexport_pending_count: u64,
+    capture_reexport_failure_count: u64,
+    last_capture_reexport_error: Option<String>,
+}
+
 impl SyncEngine {
     /// Get the device identifier.
     pub fn device_id(&self) -> &str {
@@ -67,7 +78,6 @@ impl SyncEngine {
     /// cache snapshot (never a recursive `read_dir` of `tips` / `atoms` /
     /// locators). Refilling the bounded upload queue is the job of the sync
     /// cycle (`schedule_outbox_entries` in `do_sync`), not of a status poll.
-    // lint:fn-size-ok verbatim move from wiring.rs; splitting this function is separate work
     pub async fn status(&self) -> SyncStatus {
         let upload_queue_count = self.pending.lock().await.len();
         let durable_outbox_count = match self.outbox_count().await {
@@ -92,6 +102,88 @@ impl SyncEngine {
         let pin_logs = self.pin_log.pin_log_statuses().await;
         let plane_vector_f = self.mutation_log_frontier.vector_frontier();
         let mutation_log = self.mutation_log_plane_status_from_pin_logs(&pin_logs, &plane_vector_f);
+        let capture = self.capture_plane_status(&pin_logs).await;
+
+        let liveness = self
+            .status_liveness(
+                outbox_over_target,
+                oversize_outbox_drop_count,
+                mutation_log.as_ref(),
+                &capture,
+            )
+            .await;
+        let StatusLiveness {
+            consecutive_sync_failures,
+            backup_blocker,
+            degraded_reasons,
+            capture_reexport_pending_known_nonempty,
+            capture_reexport_pending_count,
+            capture_reexport_failure_count,
+            last_capture_reexport_error,
+        } = liveness;
+
+        let now_secs = crate::clock::unix_secs();
+        let cloud_sync_disabled_at = *self.cloud_sync_disabled_at.lock().await;
+        let recording_local_changes = self
+            .config
+            .recording_local_changes(cloud_sync_disabled_at, now_secs);
+        let sync_off_grace_expired = self
+            .config
+            .sync_off_grace_expired(cloud_sync_disabled_at, now_secs);
+        let reenable_strategy = self
+            .config
+            .reenable_strategy(cloud_sync_disabled_at, now_secs)
+            .map(str::to_string);
+
+        SyncStatus {
+            state: *self.state.lock().await,
+            local_writable: true,
+            sync_degraded: !degraded_reasons.is_empty(),
+            pending_count: durable_outbox_count,
+            durable_outbox_count,
+            upload_queue_count,
+            // Surface the *active* adaptive queue cap, not the static config
+            // default (which is only a fixed-mode / floor hint).
+            upload_queue_max: upload_policy.max_pending,
+            durable_outbox_max: self.config.max_outbox_entries,
+            last_sync_at: *self.last_sync_at.lock().await,
+            last_error: self.last_error.lock().await.clone(),
+            last_error_at: *self.last_error_at.lock().await,
+            consecutive_sync_failures,
+            failing_since: *self.failing_since.lock().await,
+            degraded_reasons,
+            replay_blocker: self.replay_blocker.lock().await.clone(),
+            backup_blocker,
+            undecryptable_unsynced_count: snapshot_completion.undecryptable_unsynced_count,
+            last_snapshot_complete: snapshot_completion.last_snapshot_complete,
+            last_snapshot_undecryptable_namespaces: snapshot_completion.undecryptable_namespaces,
+            last_download,
+            last_upload,
+            upload_policy: Some(upload_policy),
+            backup_upload_concurrency,
+            last_outbox_overflow_reason,
+            oversize_outbox_drop_count,
+            last_oversize_outbox_drop,
+            recording_local_changes,
+            sync_off_grace_expired,
+            reenable_strategy,
+            cloud_sync_disabled_at,
+            sync_off_grace_secs: self.config.sync_off_grace_secs,
+            pin_logs,
+            mutation_log,
+            capture_reexport_pending_count,
+            capture_reexport_pending_known_nonempty,
+            capture_reexport_failure_count,
+            last_capture_reexport_error,
+            capture,
+        }
+    }
+
+    /// Capture-plane counters and disk usage for the status snapshot.
+    async fn capture_plane_status(
+        &self,
+        pin_logs: &[super::super::pin_log::PinLogTargetStatus],
+    ) -> super::super::types::CapturePlaneStatus {
         // One implementation, shared with the local cadence: the fills and
         // their bars live on the compactor, and this passes the engine's cache
         // so a cloud-synced node does not keep a second memo of the same
@@ -100,7 +192,7 @@ impl SyncEngine {
             .compaction
             .status_snapshot_with_cache(&self.status_disk_usage_cache, STATUS_DISK_USAGE_TTL)
             .await;
-        let capture = super::super::types::CapturePlaneStatus {
+        super::super::types::CapturePlaneStatus {
             pin_log_live_keys: pin_logs.iter().map(|pin| pin.entry_count).sum(),
             pin_log_disk_bytes: self
                 .status_disk_usage_cache
@@ -158,8 +250,17 @@ impl SyncEngine {
                 .capture_reexport_poison_dropped_count
                 .load(std::sync::atomic::Ordering::Relaxed),
             automatic_compactions,
-        };
+        }
+    }
 
+    /// Liveness fields and the ordered degraded-reason list for the status snapshot.
+    async fn status_liveness(
+        &self,
+        outbox_over_target: bool,
+        oversize_outbox_drop_count: u64,
+        mutation_log: Option<&super::super::types::MutationLogPlaneStatus>,
+        capture: &super::super::types::CapturePlaneStatus,
+    ) -> StatusLiveness {
         // Liveness. Every pre-existing degradation trigger is a function of
         // outbox *depth*, so a cloud path that fails before anything is staged
         // leaves the outbox empty and reports healthy — which is how backup
@@ -243,61 +344,14 @@ impl SyncEngine {
         if capture.reexport_poison_dropped > 0 {
             degraded_reasons.push("capture_reexport_poison_dropped".to_string());
         }
-
-        let now_secs = crate::clock::unix_secs();
-        let cloud_sync_disabled_at = *self.cloud_sync_disabled_at.lock().await;
-        let recording_local_changes = self
-            .config
-            .recording_local_changes(cloud_sync_disabled_at, now_secs);
-        let sync_off_grace_expired = self
-            .config
-            .sync_off_grace_expired(cloud_sync_disabled_at, now_secs);
-        let reenable_strategy = self
-            .config
-            .reenable_strategy(cloud_sync_disabled_at, now_secs)
-            .map(str::to_string);
-
-        SyncStatus {
-            state: *self.state.lock().await,
-            local_writable: true,
-            sync_degraded: !degraded_reasons.is_empty(),
-            pending_count: durable_outbox_count,
-            durable_outbox_count,
-            upload_queue_count,
-            // Surface the *active* adaptive queue cap, not the static config
-            // default (which is only a fixed-mode / floor hint).
-            upload_queue_max: upload_policy.max_pending,
-            durable_outbox_max: self.config.max_outbox_entries,
-            last_sync_at: *self.last_sync_at.lock().await,
-            last_error: self.last_error.lock().await.clone(),
-            last_error_at: *self.last_error_at.lock().await,
+        StatusLiveness {
             consecutive_sync_failures,
-            failing_since: *self.failing_since.lock().await,
-            degraded_reasons,
-            replay_blocker: self.replay_blocker.lock().await.clone(),
             backup_blocker,
-            undecryptable_unsynced_count: snapshot_completion.undecryptable_unsynced_count,
-            last_snapshot_complete: snapshot_completion.last_snapshot_complete,
-            last_snapshot_undecryptable_namespaces: snapshot_completion.undecryptable_namespaces,
-            last_download,
-            last_upload,
-            upload_policy: Some(upload_policy),
-            backup_upload_concurrency,
-            last_outbox_overflow_reason,
-            oversize_outbox_drop_count,
-            last_oversize_outbox_drop,
-            recording_local_changes,
-            sync_off_grace_expired,
-            reenable_strategy,
-            cloud_sync_disabled_at,
-            sync_off_grace_secs: self.config.sync_off_grace_secs,
-            pin_logs,
-            mutation_log,
-            capture_reexport_pending_count,
+            degraded_reasons,
             capture_reexport_pending_known_nonempty,
+            capture_reexport_pending_count,
             capture_reexport_failure_count,
             last_capture_reexport_error,
-            capture,
         }
     }
 
