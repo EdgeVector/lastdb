@@ -116,7 +116,7 @@ impl GcJobManager {
         }
         if shas
             .iter()
-            .any(|(sha, _)| !super::backup_keys::is_sha256_hex(sha))
+            .any(|(sha, _)| !super::super::backup_keys::is_sha256_hex(sha))
         {
             return Err(io_error(
                 "GC_INTENT_NOT_A_V1_CHUNK_DIGEST: legacy_backup_chunk receipts take a 64-hex sha; no DELETE was dispatched",
@@ -145,7 +145,7 @@ impl GcJobManager {
                 job_id: id.into(),
                 sequence: job.objects_reconciled + offset as u64 + 1,
                 object_class: "legacy_backup_chunk".into(),
-                key: format!("{}{sha}", super::backup_keys::BACKUP_CHUNKS_PREFIX),
+                key: format!("{}{sha}", super::super::backup_keys::BACKUP_CHUNKS_PREFIX),
                 listed_bytes: *bytes,
                 outcome: GcObjectOutcome::Intent,
                 instance_id: None,

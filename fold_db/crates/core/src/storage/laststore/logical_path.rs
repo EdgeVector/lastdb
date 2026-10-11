@@ -337,7 +337,7 @@ mod write;
 
 pub(super) use batch::*;
 pub(super) use coords::*;
-pub(super) use hash_rows::*;
+use hash_rows::*;
 pub(crate) use resident_io::*;
-pub(super) use warm::*;
+use warm::*;
 pub(super) use write::*;
