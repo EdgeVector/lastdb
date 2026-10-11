@@ -245,7 +245,7 @@ jobs:
             for package in "${packages[@]}"; do
               cmd+=(-p "$package")
             done
-            cmd+=(--all-targets -- -D warnings)
+            cmd+=(--lib --bins -- -D warnings)
             "${cmd[@]}"
           else
             cargo clippy ${{ matrix.args }} --lib --bins -- -D warnings

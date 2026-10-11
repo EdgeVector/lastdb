@@ -213,12 +213,12 @@ pub(crate) fn is_catalog_namespace(name: &str) -> bool {
 
 /// Leftover writes that must travel as applyable `LogOp::Put` bodies.
 ///
-/// `db_catalog` rows are small JSON membership records. A member Mini that
-/// holds only the org E2E key restores them from the org log. Other leftover
-/// catalog planes (`schemas`) stay `PhysicalDigest` because those bodies are
-/// large and snapshot-backed; replay of a digest skips apply.
-pub(crate) fn leftover_capture_is_applyable(namespace: &str) -> bool {
+/// Membership and schema authority can change after S0. Their encrypted tail
+/// must contain the bodies needed by later mutations. Retention and janitor
+/// metadata keep their existing digest-only policy.
+pub(crate) fn leftover_capture_is_applyable(namespace: &str, key: &[u8]) -> bool {
     namespace == "db_catalog"
+        || crate::db_operations::schema_store::SchemaStore::is_replay_authority_key(namespace, key)
 }
 
 pub(crate) fn capture_should_skip_namespace(name: &str) -> bool {
