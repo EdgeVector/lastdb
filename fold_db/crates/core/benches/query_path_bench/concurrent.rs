@@ -1,9 +1,13 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use criterion::{black_box, BenchmarkId, Criterion};
+use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::operations::MutationType;
 use fold_db::schema::types::{KeyValue, Mutation};
 use serde_json::json;
+use tokio::runtime::Runtime;
 
 use super::guard::{configure_guard_group, requested_benchmark_filter_matches, SCHEMA};
 use super::queries::{full_query, point_query};
@@ -134,6 +138,43 @@ pub(crate) fn writer_batch(start: usize, count: usize) -> Vec<Mutation> {
     muts
 }
 
+/// Spawn ONE persistent background writer that streams keyed update batches at
+/// the same corpus the readers query. It only does work while `writing` is set
+/// (during a measured iteration), yielding otherwise — so it contends with
+/// readers exactly during the timed window.
+fn spawn_background_writer(
+    rt: &Runtime,
+    db: &Arc<FoldDB>,
+    writing: &Arc<AtomicBool>,
+    shutdown: &Arc<AtomicBool>,
+    corpus: usize,
+) -> tokio::task::JoinHandle<()> {
+    let db = Arc::clone(db);
+    let writing = Arc::clone(writing);
+    let shutdown = Arc::clone(shutdown);
+    rt.spawn(async move {
+        let mut start = 0_usize;
+        while !shutdown.load(Ordering::Relaxed) {
+            if writing.load(Ordering::Relaxed) {
+                // A modest batch of keyed updates landing on the same trees
+                // the readers hit. Errors (e.g. on shutdown) end the writer.
+                let batch = writer_batch(start % corpus, 64);
+                if db
+                    .mutation_manager()
+                    .write_mutations_batch_async(batch, None)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                start = start.wrapping_add(64);
+            } else {
+                tokio::task::yield_now().await;
+            }
+        }
+    })
+}
+
 /// **Mixed read/write convoy bench** — the headline production shape that the
 /// read-only `concurrent_list_reads` and the timing-free
 /// `storage_stress_test::concurrent_reads_during_writes` correctness test each
@@ -161,9 +202,6 @@ pub(crate) fn writer_batch(start: usize, count: usize) -> Vec<Mutation> {
 /// latency blowing past 2x of the read-only path even though the read path
 /// itself is unchanged.
 pub(crate) fn bench_concurrent_mixed_read_write(c: &mut Criterion) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-
     if !requested_benchmark_filter_matches("concurrent_mixed_read_write") {
         return;
     }
@@ -192,32 +230,7 @@ pub(crate) fn bench_concurrent_mixed_read_write(c: &mut Criterion) {
     // the same corpus the readers query. It only does work while `writing` is set
     // (during a measured iteration), yielding otherwise — so it contends with
     // readers exactly during the timed window.
-    let writer = {
-        let db = Arc::clone(&db);
-        let writing = Arc::clone(&writing);
-        let shutdown = Arc::clone(&shutdown);
-        rt.spawn(async move {
-            let mut start = 0_usize;
-            while !shutdown.load(Ordering::Relaxed) {
-                if writing.load(Ordering::Relaxed) {
-                    // A modest batch of keyed updates landing on the same trees
-                    // the readers hit. Errors (e.g. on shutdown) end the writer.
-                    let batch = writer_batch(start % CORPUS, 64);
-                    if db
-                        .mutation_manager()
-                        .write_mutations_batch_async(batch, None)
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                    start = start.wrapping_add(64);
-                } else {
-                    tokio::task::yield_now().await;
-                }
-            }
-        })
-    };
+    let writer = spawn_background_writer(&rt, &db, &writing, &shutdown, CORPUS);
 
     let mut group = c.benchmark_group("concurrent_mixed_read_write");
     configure_guard_group(&mut group, 10);
