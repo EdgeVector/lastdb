@@ -61,10 +61,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Process-global dual-read counters. See module docs.
 static DUAL_READ: DualReadMetrics = DualReadMetrics::new();
 
-// The counters are process-global, so regular unit tests elsewhere in the
-// crate can record a real dual-read while this module is asserting a reset
-// window.  Keep those writers out of an exclusive metrics test window.
-
 struct DualReadMetrics {
     /// Point gets that consulted the dual-read chain (logical main only).
     gets: AtomicU64,
@@ -191,7 +187,7 @@ fn attribution_vec(counters: &[AtomicU64; ATTRIBUTED_COLLECTIONS.len()]) -> Vec<
         .collect()
 }
 
-/// Serializable dual-read counters for `/api/status` and unit tests.
+/// Serializable dual-read counters for `/api/status`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DualReadMetricsSnapshot {
     pub gets: u64,

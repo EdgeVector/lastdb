@@ -395,9 +395,6 @@ impl MutationManager {
                             crate::request_phases::RequestPhase::PurgeBarrier,
                             acquire_start.elapsed(),
                         );
-                        crate::fold_db_core::purge::record_barrier_write_acquisition(
-                            &job.schema_name,
-                        );
                         self.record_schema_barrier_acquisition(&job.schema_name);
                         let held_from = std::time::Instant::now();
                         let mut acct = crate::fold_db_core::purge::PurgeCommitAccounting::default();

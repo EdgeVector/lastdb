@@ -59,8 +59,7 @@ pub struct MutationFlushPolicy {
 }
 
 impl MutationFlushPolicy {
-    /// Parse from environment (and defaults). Pure enough for unit tests via
-    /// the free `parse_*` helpers.
+    /// Parse from environment (and defaults) via the free `parse_*` helpers.
     pub fn from_env() -> Self {
         Self {
             sync_on_finalize: parse_mutation_sync_flush(

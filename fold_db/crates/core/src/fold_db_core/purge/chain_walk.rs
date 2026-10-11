@@ -291,9 +291,8 @@ fn retained_chain_walk_concurrency() -> usize {
 /// The complement walk with the fan-out passed in directly.
 ///
 /// Production uses this as the fallback while reverse-ref reindex is unfinished.
-/// Tests also drive `concurrency = 1` vs the default through the same code
-/// without mutating process env — which is global, racy under the test harness,
-/// and `unsafe` in edition 2024.
+/// The fan-out is a parameter rather than read from process env, which is
+/// global and `unsafe` to mutate in edition 2024.
 pub(crate) async fn collect_retained_chain_atoms_with_concurrency(
     db_ops: &Arc<DbOperations>,
     schema: &Schema,

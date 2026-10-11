@@ -63,15 +63,15 @@ const BLIND_HASH_KEY_TOKEN_LEN: usize = 22;
 ///
 /// **Product default (env unset): [`Self::BlindV1`]** so fresh Mini installs
 /// write blinded keys from first boot (keys from identity / 24-word seed).
-/// Explicit `plain` remains for tests and rare unencoded homes.
+/// Explicit `plain` remains for rare unencoded homes.
 /// There is **no** dual-read / mid-flight `migrating_*` mode — one encoding,
 /// one path.
 ///
-/// [`Default`] for this enum stays [`Self::Plain`] so library unit tests that
-/// use `MoleculeKeyCodec::default()` / `plain()` stay unencoded without env.
+/// [`Default`] for this enum stays [`Self::Plain`] so
+/// `MoleculeKeyCodec::default()` / `plain()` stay unencoded without env.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HashKeyEncoding {
-    /// Storage hash segment == API HashKey (tests / explicit opt-out).
+    /// Storage hash segment == API HashKey (explicit opt-out).
     #[default]
     Plain,
     /// HMAC-blinded storage segment (`hk|v1` domain). Product default via env.

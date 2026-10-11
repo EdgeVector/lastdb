@@ -146,7 +146,7 @@ impl ResidentGraph {
             let mut map = self.atoms.write().expect("atoms lock");
             if let Some(existing) = map.get(&atom.uuid) {
                 // Same uuid is content-addressed identity; still refresh content if
-                // tests/stores ever rewrite (should not happen for real atoms).
+                // a store ever rewrites it (should not happen for real atoms).
                 if existing.content == atom.content {
                     self.metrics.record_hit(ResidentKind::Atom);
                     let outcome = ResolveOutcome::hit(existing.clone());

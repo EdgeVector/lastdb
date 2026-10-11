@@ -75,15 +75,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-/// Legacy-history prefix walks that actually reached storage.
-///
-/// Always compiled, not `#[cfg(test)]`: the integration probe
-/// (`tests/purge_bulk_scaling_probe.rs`) reads it too, and a counter that only
-/// exists under `cfg(test)` is invisible from `tests/`. One relaxed increment
-/// on a path that already does a collection-wide walk costs nothing worth
-/// measuring.
-static SCANS: AtomicU64 = AtomicU64::new(0);
-
 /// Identifies the store an emptiness observation was made against.
 ///
 /// Minted per [`crate::db_operations::atom_store::AtomStore`] construction, so
@@ -101,19 +92,6 @@ impl StoreId {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self(NEXT.fetch_add(1, Ordering::Relaxed))
     }
-}
-
-/// Count of walks that reached storage since process start.
-///
-/// This is the number the fix is about: it should rise once per molecule and
-/// then stop, rather than once per field per purge.
-pub fn scans() -> u64 {
-    SCANS.load(Ordering::Relaxed)
-}
-
-/// Called by the scan itself, immediately before it reaches storage.
-pub fn record_scan() {
-    SCANS.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Storage-key prefixes (already `build_storage_key`-qualified, so share

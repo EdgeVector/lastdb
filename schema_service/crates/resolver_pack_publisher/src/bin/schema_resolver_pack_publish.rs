@@ -116,7 +116,7 @@ struct PublishArgs {
     /// - `keychain://service/account`
     /// - `envelope-file:/path/to/envelope.json`
     /// - `file:/path/to/seed.b64`
-    /// - `env:VAR_NAME` (tests/dev only; avoid for routine releases)
+    /// - `env:VAR_NAME` (dev only; avoid for routine releases)
     #[arg(long)]
     signing_key_locator: String,
 

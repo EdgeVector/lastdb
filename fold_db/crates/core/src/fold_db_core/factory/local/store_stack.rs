@@ -202,7 +202,7 @@ async fn build_syncing_store_stack(
     };
     // Hold uploads so one write does not seal its own file. `0` on either
     // env var disables that knob. Unset or unparseable keeps the product
-    // default. SyncConfig::default stays 0 so unit tests upload immediately.
+    // default. SyncConfig::default stays 0 (no coalescing).
     sync_config.mutation_log_coalesce_quiet_ms = parse_coalesce_ms(
         std::env::var("LASTDB_MUTATION_LOG_COALESCE_QUIET_MS")
             .ok()
