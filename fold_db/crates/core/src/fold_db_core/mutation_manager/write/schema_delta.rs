@@ -177,7 +177,6 @@ impl MutationManager {
         })
     }
 
-
     /// Fill one schema envelope while the caller owns every affected gate.
     ///
     /// Resident tips are already published when this runs. The function must
