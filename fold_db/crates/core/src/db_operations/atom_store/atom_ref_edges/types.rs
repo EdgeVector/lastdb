@@ -2,18 +2,6 @@
 
 use super::*;
 
-/// Paired v1 and v2 lookup latency from an isolated real-data copy.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AtomRefV2LookupBenchmark {
-    pub active_samples: u64,
-    pub missing_samples: u64,
-    pub v1_p50_ns: u64,
-    pub v1_p95_ns: u64,
-    pub v2_p50_ns: u64,
-    pub v2_p95_ns: u64,
-    pub v2_to_v1_p95_basis_points: u64,
-}
-
 /// Candidate-atom lookup. Absence is authoritative only when `complete` is
 /// true and every referenced molecule manifest is also complete.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -146,21 +134,6 @@ pub struct AtomRefV1DrainReport {
     pub status: AtomRefV1DrainStatus,
 }
 
-/// Exact isolated-copy comparison for the compact reverse-edge plane.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AtomRefV2AuditReport {
-    pub expected_active_edges: u64,
-    pub indexed_active_edges: u64,
-    pub missing_edges: u64,
-    pub unexpected_edges: u64,
-    pub invalid_live_keys: u64,
-    pub false_zero_reference_atoms: u64,
-    pub complete: bool,
-    pub molecules_audited: u64,
-    pub slots_audited: u64,
-    pub history_rows_audited: u64,
-}
-
 /// Safety audit for one molecule before its compact manifest can advance.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AtomRefV2MoleculeAuditReport {
@@ -171,14 +144,4 @@ pub struct AtomRefV2MoleculeAuditReport {
     pub false_zero_reference_atoms: u64,
     pub slots_audited: u64,
     pub history_rows_audited: u64,
-}
-
-/// Durable-cursor evidence after a crash interrupt and a later resume.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AtomRefCrashResumeProof {
-    pub interrupted_phase: AtomRefBackfillPhase,
-    pub interrupted_slots_walked: u64,
-    pub interrupted_edges_written: u64,
-    pub cursor_survived: bool,
-    pub resumed_to_complete: bool,
 }
