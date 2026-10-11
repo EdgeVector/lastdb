@@ -3,7 +3,6 @@ use super::*;
 
 /// Print request-ops offender tables from live status and optional durable rollups.
 pub(crate) fn ops(data_dir: Option<PathBuf>, args: &OpsArgs) -> Result<(), String> {
-    // lint:fn-size-ok moved verbatim from status_ops_cmds.rs; splitting it is a separate change
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     let health = lastdb_node::health_alert::probe_health(&socket);
     if health.is_err() {
@@ -18,14 +17,33 @@ pub(crate) fn ops(data_dir: Option<PathBuf>, args: &OpsArgs) -> Result<(), Strin
         &socket,
         status_client_timeout(args.timeout, admin_scan_client_timeout()),
     )?;
+    let schema_labels = load_schema_labels(&socket, args);
+    print_ops_tables(&snapshot, &schema_labels, &socket, args);
+    if let Some(raw_since) = args.since.as_deref() {
+        print_since_rollup(&socket, raw_since, &snapshot, &schema_labels)?;
+    }
+    println!();
+    println!(
+        "Tip: clients should send header `X-LastDB-Client: <name>` (e.g. kanban, brain). \
+         Unlabeled traffic is attributed to its peer process as `peer:<comm>`, with the \
+         exact pid on Slowest recent."
+    );
+    Ok(())
+}
+
+/// Resolve runtime schema `name` values after the forensic snapshot. Failure is non-fatal.
+fn load_schema_labels(
+    socket: &Path,
+    args: &OpsArgs,
+) -> lastdb_node::request_telemetry::SchemaLabels {
     // Resolve runtime schema `name` values after the forensic snapshot. This
     // keeps the catalog request from perturbing the ring that we are about to
     // render. Failure is non-fatal: short runtime IDs remain unambiguous.
-    let schema_labels = if args.by_app && args.since.is_none() {
+    if args.by_app && args.since.is_none() {
         lastdb_node::request_telemetry::SchemaLabels::new()
     } else {
         match probe_schema_labels(
-            &socket,
+            socket,
             status_client_timeout(args.timeout, Duration::from_secs(10)),
         ) {
             Ok(labels) => labels,
@@ -34,7 +52,16 @@ pub(crate) fn ops(data_dir: Option<PathBuf>, args: &OpsArgs) -> Result<(), Strin
                 lastdb_node::request_telemetry::SchemaLabels::new()
             }
         }
-    };
+    }
+}
+
+/// Print the build identity, snapshot age, request-ops tables, and purge ledger.
+fn print_ops_tables(
+    snapshot: &lastdb_node::self_metrics::StatusSnapshot,
+    schema_labels: &lastdb_node::request_telemetry::SchemaLabels,
+    socket: &Path,
+    args: &OpsArgs,
+) {
     // Before any number is printed: name the build these numbers came from.
     // Every perf checkpoint in this workspace cites a version, and until this
     // line existed that version came from the CLI — which is the installed
@@ -52,7 +79,7 @@ pub(crate) fn ops(data_dir: Option<PathBuf>, args: &OpsArgs) -> Result<(), Strin
     // Name the snapshot age and the socket before the numbers: a minute-old
     // snapshot read as current made a live workload look like zero traffic.
     let now_secs = fold_db::clock::unix_secs();
-    let age_line = sampler_snapshot_age_line(snapshot.sampler.last_sample_at, now_secs, &socket);
+    let age_line = sampler_snapshot_age_line(snapshot.sampler.last_sample_at, now_secs, socket);
     if args.by_app {
         // `--by-app` stdout is a key-value contract for parsers; keep it there.
         eprintln!("{age_line}");
@@ -60,13 +87,13 @@ pub(crate) fn ops(data_dir: Option<PathBuf>, args: &OpsArgs) -> Result<(), Strin
         println!("{age_line}");
     }
     if args.by_app {
-        for line in lastdb_node::self_metrics::request_ops_app_verb_lines(&snapshot) {
+        for line in lastdb_node::self_metrics::request_ops_app_verb_lines(snapshot) {
             println!("{line}");
         }
     } else {
         for line in lastdb_node::request_telemetry::snapshot_lines_with_schema_labels(
             &snapshot.request_ops,
-            &schema_labels,
+            schema_labels,
         ) {
             println!("{line}");
         }
@@ -75,101 +102,102 @@ pub(crate) fn ops(data_dir: Option<PathBuf>, args: &OpsArgs) -> Result<(), Strin
     // count and critical-section cost without requiring source inspection.
     println!();
     let purge_lines = if args.by_app {
-        lastdb_node::self_metrics::purge_stats_lines(&snapshot)
+        lastdb_node::self_metrics::purge_stats_lines(snapshot)
     } else {
-        lastdb_node::self_metrics::purge_stats_table_lines(&snapshot, &schema_labels)
+        lastdb_node::self_metrics::purge_stats_table_lines(snapshot, schema_labels)
     };
     for line in purge_lines {
         println!("{line}");
     }
-    if let Some(raw_since) = args.since.as_deref() {
-        let duration_ms = parse_since_duration_ms(raw_since)?;
-        let until_ms = fold_db::clock::unix_millis();
-        let since_ms = until_ms.saturating_sub(duration_ms);
-        println!();
-        match query_request_ops_rollup(&socket, since_ms, until_ms) {
-            // The plane has never been registered, so it has certainly never
-            // been written. That is the "sink was never switched on" state, and
-            // the ladder below already words it correctly — reuse it instead of
-            // inventing a second phrasing that could drift out of agreement.
-            Ok(RollupRead::SchemaAbsent) => {
-                println!(
-                    "Request ops rollup: rows=0 since={since_ms} until={until_ms} \
+}
+
+/// Print the durable `--since` rollup section, or the reason it is empty.
+fn print_since_rollup(
+    socket: &Path,
+    raw_since: &str,
+    snapshot: &lastdb_node::self_metrics::StatusSnapshot,
+    schema_labels: &lastdb_node::request_telemetry::SchemaLabels,
+) -> Result<(), String> {
+    let duration_ms = parse_since_duration_ms(raw_since)?;
+    let until_ms = fold_db::clock::unix_millis();
+    let since_ms = until_ms.saturating_sub(duration_ms);
+    println!();
+    match query_request_ops_rollup(socket, since_ms, until_ms) {
+        // The plane has never been registered, so it has certainly never
+        // been written. That is the "sink was never switched on" state, and
+        // the ladder below already words it correctly — reuse it instead of
+        // inventing a second phrasing that could drift out of agreement.
+        Ok(RollupRead::SchemaAbsent) => {
+            println!(
+                "Request ops rollup: rows=0 since={since_ms} until={until_ms} \
                      (schema {} is not registered on this daemon)",
-                    lastdb_node::self_metrics::REQUEST_OPS_ROLLUP_SCHEMA
+                lastdb_node::self_metrics::REQUEST_OPS_ROLLUP_SCHEMA
+            );
+            for line in rollup_empty_reason(&snapshot.sampler) {
+                println!("{line}");
+            }
+        }
+        Ok(RollupRead::Rows {
+            snapshot: rollup,
+            omitted,
+            truncated,
+        }) => {
+            for line in lastdb_node::request_telemetry::rollup_lines_with_schema_labels(
+                &rollup,
+                schema_labels,
+            ) {
+                println!("{line}");
+            }
+            // Say what the numbers above cannot account for. A narrowed
+            // projection still produces a well-formed table, so without
+            // this line a partial aggregate is indistinguishable from a
+            // complete one — the same unearned-confidence failure the
+            // empty-window ladder below exists to prevent.
+            if !omitted.is_empty() {
+                let width = rollup_projection().len();
+                println!(
+                    "  ^ PARTIAL: the registered schema declares {} of the {} columns this \
+                         build reads.",
+                    width.saturating_sub(omitted.len()),
+                    width
                 );
+                println!(
+                    "    Not projected, so reported as zero: {}",
+                    omitted.join(", ")
+                );
+                println!(
+                    "    The rollup schema is upgraded only by the durable writer, so a store \
+                         whose sink has been off lags the binary. Run with \
+                         LASTDB_SELF_METRICS_TO_DB=1 to let the daemon add them."
+                );
+            }
+            if truncated {
+                println!(
+                    "  ^ TRUNCATED: the server capped the page and reported more rows in \
+                         range. The totals above are a lower bound, not the window."
+                );
+            }
+            // An empty window and a broken writer look identical from the
+            // read side. The primary spent 12 days reporting "no durable
+            // rollups in that window yet" while the sampler's retention
+            // read was failing on a dangling atom every tick, so say which
+            // one this is rather than leaving the reader to assume idle.
+            //
+            // There are three ways to get zero rows, not two. The third —
+            // the durable sink is simply switched off — is the DEFAULT
+            // (`LASTDB_SELF_METRICS_TO_DB` unset), and it was reported as
+            // "this window really had no rollups" on a primary that had
+            // just served ~45k requests in the window. Silence about a
+            // disabled sink reads as evidence of an idle node, which is
+            // the opposite of the truth.
+            if rollup.is_empty() {
                 for line in rollup_empty_reason(&snapshot.sampler) {
                     println!("{line}");
                 }
             }
-            Ok(RollupRead::Rows {
-                snapshot: rollup,
-                omitted,
-                truncated,
-            }) => {
-                for line in lastdb_node::request_telemetry::rollup_lines_with_schema_labels(
-                    &rollup,
-                    &schema_labels,
-                ) {
-                    println!("{line}");
-                }
-                // Say what the numbers above cannot account for. A narrowed
-                // projection still produces a well-formed table, so without
-                // this line a partial aggregate is indistinguishable from a
-                // complete one — the same unearned-confidence failure the
-                // empty-window ladder below exists to prevent.
-                if !omitted.is_empty() {
-                    let width = rollup_projection().len();
-                    println!(
-                        "  ^ PARTIAL: the registered schema declares {} of the {} columns this \
-                         build reads.",
-                        width.saturating_sub(omitted.len()),
-                        width
-                    );
-                    println!(
-                        "    Not projected, so reported as zero: {}",
-                        omitted.join(", ")
-                    );
-                    println!(
-                        "    The rollup schema is upgraded only by the durable writer, so a store \
-                         whose sink has been off lags the binary. Run with \
-                         LASTDB_SELF_METRICS_TO_DB=1 to let the daemon add them."
-                    );
-                }
-                if truncated {
-                    println!(
-                        "  ^ TRUNCATED: the server capped the page and reported more rows in \
-                         range. The totals above are a lower bound, not the window."
-                    );
-                }
-                // An empty window and a broken writer look identical from the
-                // read side. The primary spent 12 days reporting "no durable
-                // rollups in that window yet" while the sampler's retention
-                // read was failing on a dangling atom every tick, so say which
-                // one this is rather than leaving the reader to assume idle.
-                //
-                // There are three ways to get zero rows, not two. The third —
-                // the durable sink is simply switched off — is the DEFAULT
-                // (`LASTDB_SELF_METRICS_TO_DB` unset), and it was reported as
-                // "this window really had no rollups" on a primary that had
-                // just served ~45k requests in the window. Silence about a
-                // disabled sink reads as evidence of an idle node, which is
-                // the opposite of the truth.
-                if rollup.is_empty() {
-                    for line in rollup_empty_reason(&snapshot.sampler) {
-                        println!("{line}");
-                    }
-                }
-            }
-            Err(e) => println!("Request ops rollup: unavailable ({e})"),
         }
+        Err(e) => println!("Request ops rollup: unavailable ({e})"),
     }
-    println!();
-    println!(
-        "Tip: clients should send header `X-LastDB-Client: <name>` (e.g. kanban, brain). \
-         Unlabeled traffic is attributed to its peer process as `peer:<comm>`, with the \
-         exact pid on Slowest recent."
-    );
     Ok(())
 }
 
