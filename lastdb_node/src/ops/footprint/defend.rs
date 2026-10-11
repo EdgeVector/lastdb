@@ -5,8 +5,10 @@
 //! stepwise eviction pass, then record the result. Each phase is a function
 //! here so the order stays visible and each phase owns one lock scope.
 
-use fold_db::memory_budget::EffectiveWarmInput;
-use fold_db::storage::NamespacedStore;
+#[path = "defend/pass.rs"]
+mod pass;
+
+use pass::*;
 
 use super::*;
 
@@ -52,53 +54,6 @@ impl PressureLines {
 struct HoldState {
     footprint_sticky: bool,
     shed_hold: bool,
-}
-
-/// Warm-budget inputs that stay fixed for one tick.
-struct EvictContext<'a> {
-    store: &'a dyn NamespacedStore,
-    lines: PressureLines,
-    warm_bytes: u64,
-    charged_bytes: u64,
-    floor: u64,
-    clear_ceiling: u64,
-}
-
-impl EvictContext<'_> {
-    fn should_stop(&self, footprint: u64, resident: u64) -> bool {
-        footprint_evict_should_stop(
-            footprint,
-            self.charged_bytes,
-            resident,
-            self.floor,
-            self.lines.evict_target_bytes,
-            self.lines.suppress_floor(footprint),
-        )
-    }
-}
-
-/// Per-tick readings the eviction pass starts from.
-struct TickStart {
-    now: u64,
-    in_flight: usize,
-    measured_footprint_bytes: u64,
-    footprint_net_bytes: u64,
-    initial_released: u64,
-    footprint_sticky: bool,
-}
-
-/// Result of the stepwise eviction pass.
-struct EvictPass {
-    footprint: u64,
-    footprint_net_bytes: u64,
-    footprint_sticky: bool,
-    evict_stalled: bool,
-    steps: u32,
-    total_groups_evicted: u64,
-    warm_bytes_before_pass: Option<u64>,
-    warm_bytes_after_pass: u64,
-    malloc_bytes_released: u64,
-    final_resident: u64,
 }
 
 fn warm_resident_bytes(host: &Host, default: u64) -> u64 {
@@ -164,15 +119,11 @@ pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
         footprint_net_bytes,
         now,
     );
-    tracing::debug!(
-        target: "lastdbd::footprint",
-        phys_footprint_bytes = measured_footprint_bytes,
+    trace_tick(
+        measured_footprint_bytes,
         footprint_net_bytes,
-        malloc_bytes_in_use = malloc.map_or(0, |stats| stats.bytes_in_use),
-        malloc_bytes_held_free = malloc.map_or(0, |stats| stats.bytes_held_free),
-        footprint_sticky = hold.footprint_sticky,
-        host_pressure = if pressure_high { "high" } else { "clear" },
-        "footprint governor tick"
+        hold.footprint_sticky,
+        pressure_high,
     );
 
     // Shed cooldown skips eviction on a clear host. Pressure still drains:
@@ -223,6 +174,25 @@ pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
     let pass = run_evict_pass(host, &ctx, &start, warm_resident_bytes(host, resident));
     finish_tick(&ctx, &pass, hold.shed_hold);
     log_pass(&ctx, &pass, start.measured_footprint_bytes);
+}
+
+fn trace_tick(
+    measured_footprint_bytes: u64,
+    footprint_net_bytes: u64,
+    footprint_sticky: bool,
+    pressure_high: bool,
+) {
+    let malloc = crate::allocator::occupancy();
+    tracing::debug!(
+        target: "lastdbd::footprint",
+        phys_footprint_bytes = measured_footprint_bytes,
+        footprint_net_bytes,
+        malloc_bytes_in_use = malloc.map_or(0, |stats| stats.bytes_in_use),
+        malloc_bytes_held_free = malloc.map_or(0, |stats| stats.bytes_held_free),
+        footprint_sticky,
+        host_pressure = if pressure_high { "high" } else { "clear" },
+        "footprint governor tick"
+    );
 }
 
 /// Feed the host sample into the latch and score a pending purge.
@@ -346,251 +316,4 @@ fn refresh_holds(
         note_host_pressure(&mut state);
     }
     hold
-}
-
-/// Trim bodies while draining, or grow the effective budget on a clear host,
-/// and record the ceiling the eviction loop must not publish above.
-fn adjust_budget_before_pass(
-    ctx: &mut EvictContext<'_>,
-    draining: bool,
-    current_effective_bytes: u64,
-    resident: u64,
-    purge_ok: bool,
-    measured_footprint_bytes: u64,
-) {
-    // The clear-host eviction loop must not publish a budget above this.
-    // A miss used to store the pre-step resident and put the 7 GiB pin back.
-    ctx.clear_ceiling = current_effective_bytes;
-    if draining {
-        // Trim bodies while the effective budget is still the old ceiling.
-        // The trim's trailing evict uses that ceiling; lowering it first would
-        // drop groups inside the trim and the next step would look stalled.
-        if let Err(error) = ctx.store.trim_warm_cache_for_pressure() {
-            tracing::warn!(
-                target: "lastdbd::footprint",
-                error = %error,
-                "pressure body trim failed"
-            );
-        }
-    } else if ctx.warm_bytes > 0 {
-        let next = fold_db::memory_budget::next_effective_warm_bytes(EffectiveWarmInput {
-            configured_warm_bytes: ctx.warm_bytes,
-            current_effective_bytes,
-            post_step_resident: resident,
-            pressure_high: ctx.lines.pressure_high,
-            footprint_above_pressure_target: measured_footprint_bytes > ctx.lines.pressure_target,
-            purge_ok,
-            footprint_at_or_above_operating_hard: measured_footprint_bytes
-                >= ctx.lines.pressure_hard,
-        });
-        if next != current_effective_bytes {
-            ctx.store.set_effective_warm_bytes(next);
-        }
-        ctx.clear_ceiling = next;
-    }
-}
-
-/// Publish the warm budget for `fits` after one step, when the budget is on.
-fn publish_step_budget(ctx: &EvictContext<'_>, bytes_after: u64, evict_to: u64) {
-    if ctx.warm_bytes > 0 {
-        ctx.store
-            .set_effective_warm_bytes(published_warm_budget_after_step(
-                ctx.lines.pressure_high,
-                bytes_after,
-                evict_to,
-                ctx.clear_ceiling,
-                ctx.floor,
-            ));
-    }
-}
-
-/// Evict in steps until the stop rule holds, a step stalls, or the step cap.
-fn run_evict_pass(
-    host: &Host,
-    ctx: &EvictContext<'_>,
-    start: &TickStart,
-    mut current_resident: u64,
-) -> EvictPass {
-    let mut pass = EvictPass {
-        footprint: start.measured_footprint_bytes,
-        footprint_net_bytes: start.footprint_net_bytes,
-        footprint_sticky: start.footprint_sticky,
-        evict_stalled: false,
-        steps: 0,
-        total_groups_evicted: 0,
-        warm_bytes_before_pass: None,
-        warm_bytes_after_pass: 0,
-        malloc_bytes_released: start.initial_released,
-        final_resident: current_resident,
-    };
-
-    while pass.steps < fold_db::memory_budget::FOOTPRINT_EVICT_MAX_STEPS {
-        if ctx.should_stop(pass.footprint, current_resident) {
-            break;
-        }
-        let step = footprint_evict_step_bytes(pass.footprint, ctx.lines.evict_target_bytes);
-        // Pressure does not raise the target back to the 1 GiB floor or the
-        // configured env. A clear host stays at the floor and under the
-        // ceiling `next_effective_warm_bytes` just stored.
-        let evict_to = footprint_evict_to_bytes(
-            ctx.lines.pressure_high,
-            current_resident,
-            step,
-            ctx.floor,
-            ctx.clear_ceiling,
-        );
-        publish_step_budget(ctx, evict_to, evict_to);
-        let report = match ctx.store.evict_warm_set_to_bytes(evict_to) {
-            Ok(Some(report)) => report,
-            Ok(None) => {
-                pass.evict_stalled = true;
-                break;
-            }
-            Err(error) => {
-                tracing::warn!(
-                    target: "lastdbd::footprint",
-                    error = %error,
-                    "footprint-driven LRU eviction step failed"
-                );
-                pass.evict_stalled = true;
-                break;
-            }
-        };
-        if pass.warm_bytes_before_pass.is_none() {
-            pass.warm_bytes_before_pass = Some(report.bytes_before);
-        }
-        pass.warm_bytes_after_pass = report.bytes_after;
-        pass.total_groups_evicted = pass
-            .total_groups_evicted
-            .saturating_add(report.groups_evicted);
-        pass.steps += 1;
-        let warm_bytes_freed = report.bytes_before.saturating_sub(report.bytes_after);
-        // A miss leaves bytes_after at the pre-step resident. Storing that
-        // would hand `fits` the full pin again. Keep the lower of the step
-        // target, the clear-host ceiling, and what the step actually left.
-        publish_step_budget(ctx, report.bytes_after, evict_to);
-        if report.groups_evicted == 0 && warm_bytes_freed == 0 {
-            pass.evict_stalled = true;
-            break;
-        }
-        let released = crate::allocator::purge();
-        pass.malloc_bytes_released = pass.malloc_bytes_released.saturating_add(released);
-        let footprint_before = pass.footprint;
-        pass.footprint =
-            fold_db::memory_budget::current_phys_footprint_bytes().unwrap_or(pass.footprint);
-        pass.footprint_net_bytes = fold_db::memory_budget::footprint_net_bytes(
-            pass.footprint,
-            crate::allocator::occupancy(),
-        );
-        score_step(
-            &mut pass,
-            start,
-            warm_bytes_freed,
-            released,
-            footprint_before,
-        );
-        tracing::warn!(
-            target: "lastdbd::footprint",
-            step = pass.steps,
-            groups_evicted = report.groups_evicted,
-            warm_bytes_before = report.bytes_before,
-            warm_bytes_after = report.bytes_after,
-            warm_bytes_freed,
-            phys_footprint_before = footprint_before,
-            phys_footprint_after = pass.footprint,
-            footprint_net_bytes = pass.footprint_net_bytes,
-            "footprint eviction step"
-        );
-        if report.groups_evicted == 0 {
-            pass.evict_stalled = true;
-            break;
-        }
-        current_resident = warm_resident_bytes(host, report.bytes_after);
-    }
-    pass.final_resident = warm_resident_bytes(host, current_resident);
-    pass
-}
-
-/// Record one step in the governor snapshot and feed the trim-response tracker.
-fn score_step(
-    pass: &mut EvictPass,
-    start: &TickStart,
-    warm_bytes_freed: u64,
-    released: u64,
-    footprint_before: u64,
-) {
-    let Ok(mut state) = footprint_governor().lock() else {
-        return;
-    };
-    state.snapshot.warm_bytes_freed = state
-        .snapshot
-        .warm_bytes_freed
-        .saturating_add(warm_bytes_freed);
-    state.malloc_bytes_released_last_purge = released;
-    state.snapshot.footprint_net_bytes = pass.footprint_net_bytes;
-    state.snapshot.malloc_bytes_released_last_purge = released;
-    // Zero warm bytes freed is not a trim result. Requests still in flight
-    // have not had a chance to return pages, so that step is not a miss either.
-    if warm_bytes_freed > 0 && start.in_flight == 0 {
-        let sticky =
-            state
-                .trim_response
-                .observe(warm_bytes_freed, footprint_before, pass.footprint);
-        state.snapshot.footprint_delta_per_evicted_byte = state.trim_response.last_response_ratio();
-        if sticky {
-            state.sticky_until_epoch_secs = start.now.saturating_add(sticky_cooldown_secs());
-            state.snapshot.footprint_sticky = true;
-            pass.footprint_sticky = true;
-        }
-    }
-}
-
-/// Release the drain hold when the pass met the stop rule, then classify the
-/// final governor state.
-fn finish_tick(ctx: &EvictContext<'_>, pass: &EvictPass, shed_hold: bool) {
-    let stopped = ctx.should_stop(pass.footprint, pass.final_resident);
-    ctx.store
-        .set_warm_drain_hold(ctx.lines.pressure_high && !stopped);
-
-    if let Ok(mut state) = footprint_governor().lock() {
-        let purge_failed = state.purge_failed;
-        let sticky = pass.footprint_sticky || state.snapshot.footprint_sticky;
-        let governor_state = classify_governor_state(&GovernorClass {
-            pressure_high: ctx.lines.pressure_high,
-            purge_failed,
-            footprint_bytes: pass.footprint,
-            hard_bytes: ctx.lines.state_hard_bytes,
-            target_bytes: ctx.lines.pressure_target,
-            footprint_sticky: sticky,
-            evict_stalled: pass.evict_stalled,
-            shed_hold,
-        });
-        state.snapshot.footprint_sticky = sticky;
-        state.snapshot.footprint_net_bytes = pass.footprint_net_bytes;
-        set_governor_state(&mut state.snapshot, governor_state, unix_secs());
-        note_host_pressure(&mut state);
-    }
-}
-
-fn log_pass(ctx: &EvictContext<'_>, pass: &EvictPass, measured_footprint_bytes: u64) {
-    if pass.steps == 0 {
-        return;
-    }
-    let effective_warm_bytes = ctx
-        .store
-        .warm_set_admission_stats()
-        .map_or(0, |stats| stats.effective_warm_bytes);
-    tracing::warn!(
-        target: "lastdbd::footprint",
-        measured_footprint_mb = measured_footprint_bytes / (1024 * 1024),
-        final_footprint_mb = pass.footprint / (1024 * 1024),
-        steps = pass.steps,
-        groups_evicted = pass.total_groups_evicted,
-        warm_bytes_before = pass.warm_bytes_before_pass.unwrap_or(0),
-        warm_bytes_after = pass.warm_bytes_after_pass,
-        effective_warm_bytes,
-        malloc_bytes_released = pass.malloc_bytes_released,
-        evict_stalled = pass.evict_stalled,
-        "measured footprint defence evicted LRU warm groups stepwise"
-    );
 }

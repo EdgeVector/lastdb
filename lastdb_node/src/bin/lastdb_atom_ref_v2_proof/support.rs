@@ -108,37 +108,7 @@ pub(super) async fn drain_and_compact(
     v2_allocated_before: u64,
     life: &mut Lifetime,
 ) -> Result<ReclaimProof, RunError> {
-    let readiness_prefixes = proofs
-        .iter()
-        .map(|proof| proof.storage_prefix.clone())
-        .collect::<Vec<_>>();
-    let mut total_pages = 0usize;
-    loop {
-        if life.timed_out() {
-            return Err(RunError::Timeout);
-        }
-        let status =
-            await_with_progress(life, host.db.db_ops().atoms().atom_ref_v1_drain_status()).await?;
-        if status.completed {
-            break;
-        }
-        if total_pages >= max_pages {
-            return Err(RunError::Fail(format!(
-                "legacy drain exceeded {max_pages} pages"
-            )));
-        }
-        await_with_progress(
-            life,
-            host.db
-                .db_ops()
-                .atoms()
-                .drain_atom_ref_v1_page(page, &readiness_prefixes),
-        )
-        .await?;
-        total_pages = total_pages.saturating_add(1);
-        life.pages = life.pages.saturating_add(1);
-        life.progress(false);
-    }
+    let total_pages = drain_v1_pages(host, proofs, page, max_pages, life).await?;
     let drain_status =
         await_with_progress(life, host.db.db_ops().atoms().atom_ref_v1_drain_status()).await?;
     let v1_keys_remain =
@@ -182,27 +152,13 @@ pub(super) async fn drain_and_compact(
         .checked_div(atoms_allocated_after)
         .unwrap_or(u64::MAX);
 
-    if v1_compaction.live_keys != 0 || v1_allocated_after > MAX_DRAINED_V1_BYTES {
-        return Err(RunError::Fail(format!(
-            "legacy reverse-edge plane retained {} live keys and {v1_allocated_after} allocated bytes",
-            v1_compaction.live_keys
-        )));
-    }
-    if v2_allocated_after > MAX_DRAINED_V2_BYTES {
-        return Err(RunError::Fail(format!(
-            "compact reverse-edge plane retained {v2_allocated_after} bytes, above {MAX_DRAINED_V2_BYTES}"
-        )));
-    }
-    if v2_bytes_per_edge > MAX_V2_BYTES_PER_EDGE {
-        return Err(RunError::Fail(format!(
-            "compact reverse-edge plane uses {v2_bytes_per_edge} bytes per edge, above {MAX_V2_BYTES_PER_EDGE}"
-        )));
-    }
-    if v2_to_atoms_basis_points > MAX_V2_TO_ATOMS_BASIS_POINTS {
-        return Err(RunError::Fail(format!(
-            "compact index-to-atoms ratio is {v2_to_atoms_basis_points} basis points, above {MAX_V2_TO_ATOMS_BASIS_POINTS}"
-        )));
-    }
+    check_drained_planes(
+        v1_compaction.live_keys,
+        v1_allocated_after,
+        v2_allocated_after,
+        v2_bytes_per_edge,
+        v2_to_atoms_basis_points,
+    )?;
     let reclaim_floor_skipped = !reclaim_floor_applies(total_pages, v1_allocated_before);
     if allocated_bytes_reclaimed < MIN_RECLAIM_BYTES && !reclaim_floor_skipped {
         return Err(RunError::Fail(format!(
@@ -227,6 +183,78 @@ pub(super) async fn drain_and_compact(
         v2_compaction,
         reclaim_floor_skipped,
     })
+}
+
+/// Page the legacy v1 reverse-edge drain to completion. Returns the page count.
+async fn drain_v1_pages(
+    host: &lastdb_node::Host,
+    proofs: &[PrefixProof],
+    page: usize,
+    max_pages: usize,
+    life: &mut Lifetime,
+) -> Result<usize, RunError> {
+    let readiness_prefixes = proofs
+        .iter()
+        .map(|proof| proof.storage_prefix.clone())
+        .collect::<Vec<_>>();
+    let mut total_pages = 0usize;
+    loop {
+        if life.timed_out() {
+            return Err(RunError::Timeout);
+        }
+        let status =
+            await_with_progress(life, host.db.db_ops().atoms().atom_ref_v1_drain_status()).await?;
+        if status.completed {
+            return Ok(total_pages);
+        }
+        if total_pages >= max_pages {
+            return Err(RunError::Fail(format!(
+                "legacy drain exceeded {max_pages} pages"
+            )));
+        }
+        await_with_progress(
+            life,
+            host.db
+                .db_ops()
+                .atoms()
+                .drain_atom_ref_v1_page(page, &readiness_prefixes),
+        )
+        .await?;
+        total_pages = total_pages.saturating_add(1);
+        life.pages = life.pages.saturating_add(1);
+        life.progress(false);
+    }
+}
+
+/// The compacted planes must stay under the drained-size and ratio caps.
+fn check_drained_planes(
+    v1_live_keys: u64,
+    v1_allocated_after: u64,
+    v2_allocated_after: u64,
+    v2_bytes_per_edge: u64,
+    v2_to_atoms_basis_points: u64,
+) -> Result<(), RunError> {
+    if v1_live_keys != 0 || v1_allocated_after > MAX_DRAINED_V1_BYTES {
+        return Err(RunError::Fail(format!(
+            "legacy reverse-edge plane retained {v1_live_keys} live keys and {v1_allocated_after} allocated bytes"
+        )));
+    }
+    if v2_allocated_after > MAX_DRAINED_V2_BYTES {
+        return Err(RunError::Fail(format!(
+            "compact reverse-edge plane retained {v2_allocated_after} bytes, above {MAX_DRAINED_V2_BYTES}"
+        )));
+    }
+    if v2_bytes_per_edge > MAX_V2_BYTES_PER_EDGE {
+        return Err(RunError::Fail(format!(
+            "compact reverse-edge plane uses {v2_bytes_per_edge} bytes per edge, above {MAX_V2_BYTES_PER_EDGE}"
+        )));
+    }
+    if v2_to_atoms_basis_points > MAX_V2_TO_ATOMS_BASIS_POINTS {
+        return Err(RunError::Fail(format!(
+            "compact index-to-atoms ratio is {v2_to_atoms_basis_points} basis points, above {MAX_V2_TO_ATOMS_BASIS_POINTS}"
+        )));
+    }
+    Ok(())
 }
 
 /// The 10 GiB reclaim floor applies when this run still had v1 to drain, or
