@@ -185,7 +185,6 @@ pub(crate) fn pin_log_audit_output(
     Ok(out.trim_end().to_string())
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_order_log_bloat_audit(
     socket: &Path,
     max_keys: Option<usize>,
@@ -263,96 +262,105 @@ pub(crate) fn db_order_log_bloat_audit(
                 .map_err(|e| format!("serialize: {e}"))?
         );
     } else {
-        println!(
-            "Order-log bloat audit — excess = order_count - live_unique_keys (append-only residue)"
-        );
-        for key in [
-            "order_counts_read",
-            "order_counts_unreadable",
-            "keys_scanned",
-            "molecules_decided",
-            "molecules_ok",
-            "molecules_without_order_count",
-            "molecules_bloated",
-            "molecules_zero_live",
-            "stale_entries",
-            "order_log_bytes",
-            "order_count_bytes",
-            "zero_live_bytes",
-        ] {
-            println!("  {key}: {}", totals.get(key).copied().unwrap_or(0));
-        }
-        if !schema_rows.is_empty() {
-            println!();
-            println!("Per schema (findings only, worst first):");
-            for row in schema_rows.iter().take(50) {
-                println!(
-                    "  {}: molecules={} zero_live={} order_log_entries={} order_log_bytes={} stale_entries={} zero_live_bytes={}",
-                    row.get("schema_name")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("?"),
-                    order_log_bloat_field(row, "molecules"),
-                    order_log_bloat_field(row, "zero_live_molecules"),
-                    order_log_bloat_field(row, "order_log_entries"),
-                    order_log_bloat_field(row, "order_log_bytes"),
-                    order_log_bloat_field(row, "stale_entries"),
-                    order_log_bloat_field(row, "zero_live_bytes"),
-                );
-            }
-        }
-        if !bloated.is_empty() {
-            println!();
-            println!("Bloated molecules (live keys > 0, worst stale margin first):");
-            for row in bloated.iter().take(50) {
-                let schema = row
-                    .get("schema")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("<unattributed>");
-                println!(
-                    "  {} [{schema}]: moc={} live_unique={} stale={} order_log_entries={} order_log_bytes={}",
-                    row.get("molecule")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("?"),
-                    order_log_bloat_field(row, "order_count"),
-                    order_log_bloat_field(row, "live_unique_keys"),
-                    order_log_bloat_field(row, "stale_entries"),
-                    order_log_bloat_field(row, "order_log_entries"),
-                    order_log_bloat_field(row, "order_log_bytes"),
-                );
-            }
-        }
-        if !zero_live.is_empty() {
-            println!();
-            println!("Zero-live molecules (order log with no live mk: tips):");
-            for row in zero_live.iter().take(50) {
-                let schema = row
-                    .get("schema")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("<unattributed>");
-                println!(
-                    "  {} [{schema}]: moc={} order_log_entries={} order_log_bytes={} order_count_bytes={}",
-                    row.get("molecule")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("?"),
-                    order_log_bloat_field(row, "order_count"),
-                    order_log_bloat_field(row, "order_log_entries"),
-                    order_log_bloat_field(row, "order_log_bytes"),
-                    order_log_bloat_field(row, "order_count_bytes"),
-                );
-            }
-        }
+        print_order_log_bloat_report(&totals, &bloated, &zero_live, &schema_rows);
+    }
+    Ok(())
+}
+
+fn print_order_log_bloat_report(
+    totals: &std::collections::BTreeMap<String, u64>,
+    bloated: &[serde_json::Value],
+    zero_live: &[serde_json::Value],
+    schema_rows: &[serde_json::Value],
+) {
+    println!(
+        "Order-log bloat audit — excess = order_count - live_unique_keys (append-only residue)"
+    );
+    for key in [
+        "order_counts_read",
+        "order_counts_unreadable",
+        "keys_scanned",
+        "molecules_decided",
+        "molecules_ok",
+        "molecules_without_order_count",
+        "molecules_bloated",
+        "molecules_zero_live",
+        "stale_entries",
+        "order_log_bytes",
+        "order_count_bytes",
+        "zero_live_bytes",
+    ] {
+        println!("  {key}: {}", totals.get(key).copied().unwrap_or(0));
+    }
+    if !schema_rows.is_empty() {
         println!();
-        let bloated_n = totals.get("molecules_bloated").copied().unwrap_or(0);
-        let zero_n = totals.get("molecules_zero_live").copied().unwrap_or(0);
-        let stale = totals.get("stale_entries").copied().unwrap_or(0);
-        if bloated_n == 0 && zero_n == 0 {
-            println!("No order-log excess found on this store.");
-        } else {
+        println!("Per schema (findings only, worst first):");
+        for row in schema_rows.iter().take(50) {
             println!(
-                "{bloated_n} bloated + {zero_n} zero-live molecule(s); {stale} stale order-log entr(y/ies). \
-                 Read-only measurement — no keys were changed."
+                "  {}: molecules={} zero_live={} order_log_entries={} order_log_bytes={} stale_entries={} zero_live_bytes={}",
+                row.get("schema_name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?"),
+                order_log_bloat_field(row, "molecules"),
+                order_log_bloat_field(row, "zero_live_molecules"),
+                order_log_bloat_field(row, "order_log_entries"),
+                order_log_bloat_field(row, "order_log_bytes"),
+                order_log_bloat_field(row, "stale_entries"),
+                order_log_bloat_field(row, "zero_live_bytes"),
             );
         }
     }
-    Ok(())
+    if !bloated.is_empty() {
+        println!();
+        println!("Bloated molecules (live keys > 0, worst stale margin first):");
+        for row in bloated.iter().take(50) {
+            let schema = row
+                .get("schema")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unattributed>");
+            println!(
+                "  {} [{schema}]: moc={} live_unique={} stale={} order_log_entries={} order_log_bytes={}",
+                row.get("molecule")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?"),
+                order_log_bloat_field(row, "order_count"),
+                order_log_bloat_field(row, "live_unique_keys"),
+                order_log_bloat_field(row, "stale_entries"),
+                order_log_bloat_field(row, "order_log_entries"),
+                order_log_bloat_field(row, "order_log_bytes"),
+            );
+        }
+    }
+    if !zero_live.is_empty() {
+        println!();
+        println!("Zero-live molecules (order log with no live mk: tips):");
+        for row in zero_live.iter().take(50) {
+            let schema = row
+                .get("schema")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unattributed>");
+            println!(
+                "  {} [{schema}]: moc={} order_log_entries={} order_log_bytes={} order_count_bytes={}",
+                row.get("molecule")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?"),
+                order_log_bloat_field(row, "order_count"),
+                order_log_bloat_field(row, "order_log_entries"),
+                order_log_bloat_field(row, "order_log_bytes"),
+                order_log_bloat_field(row, "order_count_bytes"),
+            );
+        }
+    }
+    println!();
+    let bloated_n = totals.get("molecules_bloated").copied().unwrap_or(0);
+    let zero_n = totals.get("molecules_zero_live").copied().unwrap_or(0);
+    let stale = totals.get("stale_entries").copied().unwrap_or(0);
+    if bloated_n == 0 && zero_n == 0 {
+        println!("No order-log excess found on this store.");
+    } else {
+        println!(
+            "{bloated_n} bloated + {zero_n} zero-live molecule(s); {stale} stale order-log entr(y/ies). \
+             Read-only measurement — no keys were changed."
+        );
+    }
 }

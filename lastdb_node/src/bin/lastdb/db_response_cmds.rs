@@ -51,15 +51,15 @@ pub(crate) fn parse_binary_response(response: &[u8], label: &str) -> Result<Vec<
     Ok(response[header_end + 4..].to_vec())
 }
 
-pub(crate) fn migrate_hash_group_command(
+/// Check the flags, resolve both homes, and refuse a live, same, primary or
+/// non-fresh target. Returns `(source_home, target_home)`.
+fn resolve_migration_homes(
     data_dir: Option<PathBuf>,
     from: &Path,
     into: &Path,
     hash_group_key: HashGroupKeyArg,
     partition_fanout: u32,
-    json_only: bool,
-) -> Result<(), String> {
-    // lint:fn-size-ok moved verbatim from the original file; splitting is a separate change
+) -> Result<(PathBuf, PathBuf), String> {
     if !partition_fanout.is_power_of_two() {
         return Err(format!(
             "--partition-fanout must be a power of two, got {partition_fanout}"
@@ -85,13 +85,17 @@ pub(crate) fn migrate_hash_group_command(
             source_home.display()
         ));
     }
-    let source_data = source_home.join("data");
-    if !source_data.is_dir() {
+    if !source_home.join("data").is_dir() {
         return Err(format!(
             "source LastStore data directory does not exist: {}",
-            source_data.display()
+            source_home.join("data").display()
         ));
     }
+    Ok((source_home, target_home))
+}
+
+/// Read the 32-byte identity seed of the source home.
+fn read_migration_identity(source_home: &Path) -> Result<Vec<u8>, String> {
     let identity_path = source_home.join(lastdb_node::host::IDENTITY_KEY_FILE);
     let identity = std::fs::read(&identity_path)
         .map_err(|e| format!("read {}: {e}", identity_path.display()))?;
@@ -102,25 +106,29 @@ pub(crate) fn migrate_hash_group_command(
             identity.len()
         ));
     }
-    let mut seed = [0u8; 32];
-    seed.copy_from_slice(&identity);
-    let e2e = fold_db::crypto::E2eKeys::from_ed25519_seed(&seed)
-        .map_err(|e| format!("E2E derive: {e}"))?;
-    let data_key = e2e.encryption_key();
+    Ok(identity)
+}
 
+/// Open the source store and decide whether this is a relayout (hash-group
+/// source) or the original segment-log conversion.
+///
+/// `segment_log` must strip the legacy full-value ENC envelope on the way
+/// through. `hash_group` is a *relayout*: only physical placement changes, so
+/// values are copied byte-for-byte; on a plain hash-group home the value ENC
+/// seam lives above LastStore, and re-opening it here would corrupt the copy.
+fn open_migration_source(
+    source_data: &Path,
+    data_key: [u8; 32],
+    hash_group_key: HashGroupKeyArg,
+    partition_fanout: u32,
+) -> Result<(laststore::LastStore, bool), String> {
     let mut source_options = laststore::LastStoreOptions::default();
-    if laststore_home_has_chunk_layout(&source_data) {
+    if laststore_home_has_chunk_layout(source_data) {
         source_options.data_key = Some(data_key);
     }
-    let source = laststore::LastStore::open_existing_or_with(&source_data, source_options)
+    let source = laststore::LastStore::open_existing_or_with(source_data, source_options)
         .map_err(|e| format!("open source LastStore: {e}"))?;
-    let source_layout = source.options().layout_mode;
-    // Two supported sources. `segment_log` is the original conversion, which
-    // must strip the legacy full-value ENC envelope on the way through.
-    // `hash_group` is a *relayout*: only physical placement changes, so values
-    // are copied byte-for-byte — on a plain hash-group home the value ENC seam
-    // lives above LastStore, and re-opening it here would corrupt the copy.
-    let relayout = match source_layout {
+    let relayout = match source.options().layout_mode {
         laststore::LayoutMode::SegmentLog => false,
         laststore::LayoutMode::HashGroup => true,
     };
@@ -143,14 +151,21 @@ pub(crate) fn migrate_hash_group_command(
             partition_fanout
         ));
     }
+    Ok((source, relayout))
+}
 
-    std::fs::create_dir_all(&target_home)
-        .map_err(|e| format!("create {}: {e}", target_home.display()))?;
-    let target_data = target_home.join("data");
-    // Plain packaging: no frame AEAD. Strip legacy full-value ENC envelopes only.
-    // Do NOT field-seal atom content here: seal_at_rest uses a random nonce, so
-    // migration parity (transform(source) == target.get) would fail. Content is
-    // dual-read plain after migrate and sealed on next AtomStore write.
+/// Build the destination options: plain packaging, no frame AEAD.
+///
+/// Legacy full-value ENC envelopes are stripped only. Atom content is NOT
+/// field-sealed here: seal_at_rest uses a random nonce, so migration parity
+/// (transform(source) == target.get) would fail. Content is dual-read plain
+/// after migrate and sealed on the next AtomStore write.
+fn migration_target_options(
+    source: &laststore::LastStore,
+    relayout: bool,
+    hash_group_key: HashGroupKeyArg,
+    partition_fanout: u32,
+) -> Result<laststore::LastStoreOptions, String> {
     let mut target_options = laststore::LastStoreOptions::hash_group()
         .with_hash_group_key(hash_group_key.into())
         .with_hash_group_partition_fanout(partition_fanout);
@@ -167,6 +182,37 @@ pub(crate) fn migrate_hash_group_command(
             target_options.hash_group_bits
         ));
     }
+    Ok(target_options)
+}
+
+pub(crate) fn migrate_hash_group_command(
+    data_dir: Option<PathBuf>,
+    from: &Path,
+    into: &Path,
+    hash_group_key: HashGroupKeyArg,
+    partition_fanout: u32,
+    json_only: bool,
+) -> Result<(), String> {
+    let (source_home, target_home) =
+        resolve_migration_homes(data_dir, from, into, hash_group_key, partition_fanout)?;
+    let identity = read_migration_identity(&source_home)?;
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(&identity);
+    let e2e = fold_db::crypto::E2eKeys::from_ed25519_seed(&seed)
+        .map_err(|e| format!("E2E derive: {e}"))?;
+    let data_key = e2e.encryption_key();
+
+    let (source, relayout) = open_migration_source(
+        &source_home.join("data"),
+        data_key,
+        hash_group_key,
+        partition_fanout,
+    )?;
+    std::fs::create_dir_all(&target_home)
+        .map_err(|e| format!("create {}: {e}", target_home.display()))?;
+    let target_data = target_home.join("data");
+    let target_options =
+        migration_target_options(&source, relayout, hash_group_key, partition_fanout)?;
     let report = source
         .migrate_to_hash_group_with(
             &target_data,
@@ -217,24 +263,24 @@ pub(crate) fn migrate_hash_group_command(
             serde_json::to_string_pretty(&payload)
                 .map_err(|e| format!("encode migration report: {e}"))?
         );
-    } else {
-        if relayout {
-            println!("PASS: relaid out hash-group LastStore placement");
-        } else {
-            println!("PASS: migrated LastStore into hash-group layout");
-        }
-        println!("  source:      {}", source_home.display());
-        println!("  destination: {}", target_home.display());
-        println!("  documents:   {}", report.total_documents);
-        println!("  collections: {}", report.collections.len());
-        println!(
-            "  placement:   hash_group_key={} partition_fanout={} groups={}",
-            hash_group_key.as_str(),
-            partition_fanout,
-            1u32 << migrated.options().hash_group_bits
-        );
-        println!("  layout epoch: {}", migrated.options().layout_epoch);
-        println!("  source unchanged; destination not promoted; cloud sync not copied");
+        return Ok(());
     }
+    if relayout {
+        println!("PASS: relaid out hash-group LastStore placement");
+    } else {
+        println!("PASS: migrated LastStore into hash-group layout");
+    }
+    println!("  source:      {}", source_home.display());
+    println!("  destination: {}", target_home.display());
+    println!("  documents:   {}", report.total_documents);
+    println!("  collections: {}", report.collections.len());
+    println!(
+        "  placement:   hash_group_key={} partition_fanout={} groups={}",
+        hash_group_key.as_str(),
+        partition_fanout,
+        1u32 << migrated.options().hash_group_bits
+    );
+    println!("  layout epoch: {}", migrated.options().layout_epoch);
+    println!("  source unchanged; destination not promoted; cloud sync not copied");
     Ok(())
 }

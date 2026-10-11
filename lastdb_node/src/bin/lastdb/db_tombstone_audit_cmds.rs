@@ -21,7 +21,6 @@ pub(crate) fn db_tombstone_flag_audit(
     )
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_tombstone_flag_audit_with<F, Out, Err>(
     opts: &TombstoneFlagAuditCliOpts,
     mut post: F,
@@ -95,10 +94,21 @@ where
         .map_err(|e| format!("write stdout: {e}"))?;
         return Ok(());
     }
+    write_tombstone_audit_summary(&mut stdout, opts, &report, more, after_key.as_deref())
+}
+
+fn audit_field(v: &serde_json::Value, key: &str) -> u64 {
+    v.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0)
+}
+
+fn write_tombstone_audit_summary<Out: Write>(
+    stdout: &mut Out,
+    opts: &TombstoneFlagAuditCliOpts,
+    report: &serde_json::Value,
+    more: bool,
+    after_key: Option<&str>,
+) -> Result<(), String> {
     let audit = report.get("audit").cloned().unwrap_or_default();
-    let field = |v: &serde_json::Value, key: &str| {
-        v.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0)
-    };
     let mode = if opts.execute { "EXECUTED" } else { "DRY RUN" };
     let scope = opts.schema.as_deref().unwrap_or("<whole store>");
     writeln!(stdout, "Tombstone flag audit — {mode} — scope: {scope}")
@@ -112,16 +122,20 @@ where
         "keys_unreadable",
         "atoms_fetched",
     ] {
-        writeln!(stdout, "  {key}: {}", field(&audit, key))
+        writeln!(stdout, "  {key}: {}", audit_field(&audit, key))
             .map_err(|e| format!("write stdout: {e}"))?;
     }
     if opts.execute {
-        writeln!(stdout, "  keys_stamped: {}", field(&report, "keys_stamped"))
-            .map_err(|e| format!("write stdout: {e}"))?;
+        writeln!(
+            stdout,
+            "  keys_stamped: {}",
+            audit_field(report, "keys_stamped")
+        )
+        .map_err(|e| format!("write stdout: {e}"))?;
     }
     writeln!(stdout, "  more_remaining: {more}").map_err(|e| format!("write stdout: {e}"))?;
     if more {
-        if let Some(cursor) = &after_key {
+        if let Some(cursor) = after_key {
             writeln!(stdout, "  next_after_key: {cursor}")
                 .map_err(|e| format!("write stdout: {e}"))?;
             writeln!(
@@ -133,13 +147,25 @@ where
         }
     }
 
-    let legacy = field(&audit, "content_tombstoned_meta_false");
+    write_unflagged_molecules(stdout, &audit)?;
+    write_tombstone_audit_verdict(
+        stdout,
+        opts,
+        audit_field(&audit, "content_tombstoned_meta_false"),
+        more,
+    )
+}
+
+fn write_unflagged_molecules<Out: Write>(
+    stdout: &mut Out,
+    audit: &serde_json::Value,
+) -> Result<(), String> {
     let worst: Vec<&serde_json::Value> = audit
         .get("per_molecule")
         .and_then(serde_json::Value::as_array)
         .map(|rows| {
             rows.iter()
-                .filter(|r| field(r, "content_tombstoned_meta_false") > 0)
+                .filter(|r| audit_field(r, "content_tombstoned_meta_false") > 0)
                 .take(20)
                 .collect()
         })
@@ -160,13 +186,22 @@ where
             writeln!(
                 stdout,
                 "  {label}: {} of {} keys",
-                field(row, "content_tombstoned_meta_false"),
-                field(row, "keys")
+                audit_field(row, "content_tombstoned_meta_false"),
+                audit_field(row, "keys")
             )
             .map_err(|e| format!("write stdout: {e}"))?;
         }
     }
 
+    Ok(())
+}
+
+fn write_tombstone_audit_verdict<Out: Write>(
+    stdout: &mut Out,
+    opts: &TombstoneFlagAuditCliOpts,
+    legacy: u64,
+    more: bool,
+) -> Result<(), String> {
     writeln!(stdout).map_err(|e| format!("write stdout: {e}"))?;
     if more {
         writeln!(
@@ -196,7 +231,6 @@ where
     Ok(())
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_drain_legacy_tombstones(
     socket: &Path,
     schema: Option<&str>,

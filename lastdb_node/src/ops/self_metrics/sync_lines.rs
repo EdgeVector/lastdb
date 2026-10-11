@@ -97,36 +97,28 @@ pub(super) fn last_success_status_text(sync: &SyncHealth) -> String {
     }
 }
 
+fn count_text(value: Option<u64>) -> String {
+    value.map_or_else(|| "unknown".to_string(), |n| n.to_string())
+}
+
+/// A zero limit means unlimited.
+fn limit_text(value: Option<u64>) -> String {
+    match value {
+        None | Some(0) => "unlimited".to_string(),
+        Some(n) => n.to_string(),
+    }
+}
+
 pub(super) fn sync_status_line(now_secs: u64, sync: &SyncHealth) -> String {
-    // lint:fn-size-ok moved verbatim from self_metrics.rs; splitting this function is separate work.
     if !sync.enabled {
         return "Sync: disabled".to_string();
     }
     let staging_count = wire_u64(&sync.durable_outbox_count)
         .or_else(|| wire_u64(&sync.pending_count))
         .map_or_else(|| "unknown".to_string(), |n| n.to_string());
-    let staging_max = wire_u64(&sync.durable_outbox_max).map_or_else(
-        || "unlimited".to_string(),
-        |n| {
-            if n == 0 {
-                "unlimited".to_string()
-            } else {
-                n.to_string()
-            }
-        },
-    );
-    let upload_queue_count =
-        wire_u64(&sync.upload_queue_count).map_or_else(|| "unknown".to_string(), |n| n.to_string());
-    let upload_queue_max = wire_u64(&sync.upload_queue_max).map_or_else(
-        || "unlimited".to_string(),
-        |n| {
-            if n == 0 {
-                "unlimited".to_string()
-            } else {
-                n.to_string()
-            }
-        },
-    );
+    let staging_max = limit_text(wire_u64(&sync.durable_outbox_max));
+    let upload_queue_count = count_text(wire_u64(&sync.upload_queue_count));
+    let upload_queue_max = limit_text(wire_u64(&sync.upload_queue_max));
     let mut line = format!(
         "Sync: state={} staging={}/{} upload_queue={}/{} local_writable={} degraded={} last_success={}",
         sync.state.as_deref().unwrap_or("unknown"),
@@ -143,99 +135,100 @@ pub(super) fn sync_status_line(now_secs: u64, sync: &SyncHealth) -> String {
     if let Some(recording) = sync.recording_local_changes {
         line.push_str(&format!(" recording={recording}"));
     }
-    // Continuous mutation-log plane: log lag + F are the primary health story
-    // (not sealed-chunk remaining %). Surface when the plane is active.
-    if sync.mutation_log_active == Some(true) {
-        let lag = wire_u64(&sync.mutation_log_lag)
-            .map_or_else(|| "unknown".to_string(), |n| n.to_string());
-        let f = wire_u64(&sync.mutation_log_frontier_f)
-            .map_or_else(|| "unknown".to_string(), |n| n.to_string());
-        let published_through = wire_u64(&sync.mutation_log_published_through)
-            .map_or_else(|| "unknown".to_string(), |n| n.to_string());
-        // `rpo_secs` keeps its name and gains the correct meaning: the same
-        // crash loss window the Recoverability headline prints. The routine
-        // `cloud-sync-health-fix` parses this token and reports it as RPO, so
-        // renaming it would have moved the wrong number to a new name and left
-        // the reader on the old one.
-        let rpo_secs = crash_loss_window_secs(now_secs, sync)
-            .map_or_else(|| "unknown".to_string(), |n| n.to_string());
-        // The publish-event age is a real signal — it says the uploader is
-        // alive — and it is what the `mutation_log_lag` degrade trigger reads.
-        // It keeps a home here, under a name that says which clock it is.
-        let publish_age_secs = wire_u64(&sync.mutation_log_recovery_point_age_secs)
-            .map_or_else(|| "unknown".to_string(), |n| n.to_string());
+    append_mutation_log_fields(&mut line, now_secs, sync);
+    append_reenable_fields(&mut line, sync);
+    append_last_download(&mut line, sync);
+    append_failure_fields(&mut line, sync);
+    line
+}
+
+/// Continuous mutation-log plane: log lag + F are the primary health story
+/// (not sealed-chunk remaining %). Surface when the plane is active.
+fn append_mutation_log_fields(line: &mut String, now_secs: u64, sync: &SyncHealth) {
+    if sync.mutation_log_active != Some(true) {
+        return;
+    }
+    let lag = count_text(wire_u64(&sync.mutation_log_lag));
+    let f = count_text(wire_u64(&sync.mutation_log_frontier_f));
+    let published_through = count_text(wire_u64(&sync.mutation_log_published_through));
+    // `rpo_secs` keeps its name and gains the correct meaning: the same
+    // crash loss window the Recoverability headline prints. The routine
+    // `cloud-sync-health-fix` parses this token and reports it as RPO, so
+    // renaming it would have moved the wrong number to a new name and left
+    // the reader on the old one.
+    let rpo_secs = count_text(crash_loss_window_secs(now_secs, sync));
+    // The publish-event age is a real signal — it says the uploader is
+    // alive — and it is what the `mutation_log_lag` degrade trigger reads.
+    // It keeps a home here, under a name that says which clock it is.
+    let publish_age_secs = count_text(wire_u64(&sync.mutation_log_recovery_point_age_secs));
+    line.push_str(&format!(
+        " log_lag={lag} F={f} published_through={published_through} rpo_secs={rpo_secs} publish_age_secs={publish_age_secs}"
+    ));
+    if let Some(registered) = sync.mutation_log_capture_registered {
+        line.push_str(&format!(" capture_registered={registered}"));
+    }
+    if let Some(writer) = sync
+        .mutation_log_writer_id
+        .as_deref()
+        .filter(|w| !w.is_empty())
+    {
+        line.push_str(&format!(" writer_id={writer}"));
+    }
+    // Peer apply is the download side of this plane. Rendered whenever the
+    // plane is active, including at zero: "0 applied" on a node whose peers
+    // are publishing is the signal, and hiding it behind `> 0` would make
+    // the broken case indistinguishable from a single-writer node.
+    if let Some(applied) = sync.mutation_log_peer_segments_applied {
+        let records = sync.mutation_log_peer_records_applied.unwrap_or(0);
         line.push_str(&format!(
-            " log_lag={lag} F={f} published_through={published_through} rpo_secs={rpo_secs} publish_age_secs={publish_age_secs}"
+            " peer_applied={{segments={applied} records={records}}}"
         ));
-        if let Some(registered) = sync.mutation_log_capture_registered {
-            line.push_str(&format!(" capture_registered={registered}"));
-        }
-        if let Some(writer) = sync
-            .mutation_log_writer_id
+    }
+    if let Some(q) = sync.mutation_log_records_quarantined.filter(|n| *n > 0) {
+        line.push_str(&format!(" quarantined={q}"));
+        if let Some(reason) = sync
+            .mutation_log_last_quarantine_reason
             .as_deref()
-            .filter(|w| !w.is_empty())
+            .filter(|r| !r.is_empty())
         {
-            line.push_str(&format!(" writer_id={writer}"));
-        }
-        // Peer apply is the download side of this plane. Rendered whenever the
-        // plane is active, including at zero: "0 applied" on a node whose peers
-        // are publishing is the signal, and hiding it behind `> 0` would make
-        // the broken case indistinguishable from a single-writer node.
-        if let Some(applied) = sync.mutation_log_peer_segments_applied {
-            let records = sync.mutation_log_peer_records_applied.unwrap_or(0);
-            line.push_str(&format!(
-                " peer_applied={{segments={applied} records={records}}}"
-            ));
-        }
-        if let Some(q) = sync.mutation_log_records_quarantined.filter(|n| *n > 0) {
-            line.push_str(&format!(" quarantined={q}"));
-            if let Some(reason) = sync
-                .mutation_log_last_quarantine_reason
-                .as_deref()
-                .filter(|r| !r.is_empty())
-            {
-                line.push_str(&format!(" quarantine_reason={reason}"));
-            }
+            line.push_str(&format!(" quarantine_reason={reason}"));
         }
     }
-    if let Some(expired) = sync.sync_off_grace_expired.filter(|b| *b) {
-        let _ = expired;
+}
+
+fn append_reenable_fields(line: &mut String, sync: &SyncHealth) {
+    if sync.sync_off_grace_expired == Some(true) {
         line.push_str(" sync_off_grace=expired");
-        if let Some(strategy) = sync.reenable_strategy.as_deref() {
-            line.push_str(&format!(" reenable={strategy}"));
-        }
-    } else if let Some(strategy) = sync.reenable_strategy.as_deref() {
+    }
+    if let Some(strategy) = sync.reenable_strategy.as_deref() {
         line.push_str(&format!(" reenable={strategy}"));
     }
-    if let Some(dl) = &sync.last_download {
-        let bytes = dl
-            .get("bytes_downloaded")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let replayed = dl
-            .get("entries_replayed")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let deferred = dl
-            .get("entries_health_deferred")
-            .or_else(|| dl.get("entries_deferred"))
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let raw_deferred = dl
-            .get("entries_deferred")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(deferred);
-        line.push_str(&format!(
-            " download_last={{replayed={replayed} bytes={} deferred={deferred}}}",
-            format_bytes(bytes)
-        ));
-        if raw_deferred > deferred {
-            line.push_str(&format!(" self_echo_deferred={raw_deferred}"));
-        }
+}
+
+fn append_last_download(line: &mut String, sync: &SyncHealth) {
+    let Some(dl) = &sync.last_download else {
+        return;
+    };
+    let field = |key: &str| dl.get(key).and_then(serde_json::Value::as_u64);
+    let bytes = field("bytes_downloaded").unwrap_or(0);
+    let replayed = field("entries_replayed").unwrap_or(0);
+    let deferred = field("entries_health_deferred")
+        .or_else(|| field("entries_deferred"))
+        .unwrap_or(0);
+    let raw_deferred = field("entries_deferred").unwrap_or(deferred);
+    line.push_str(&format!(
+        " download_last={{replayed={replayed} bytes={} deferred={deferred}}}",
+        format_bytes(bytes)
+    ));
+    if raw_deferred > deferred {
+        line.push_str(&format!(" self_echo_deferred={raw_deferred}"));
     }
-    // Liveness before the error text: a failure streak is the signal that
-    // survives an empty outbox, and it is what distinguishes a live breakage
-    // from the stale `last_error` string that once masked a 36 h backup stall.
+}
+
+/// Liveness before the error text: a failure streak is the signal that
+/// survives an empty outbox, and it is what distinguishes a live breakage
+/// from the stale `last_error` string that once masked a 36 h backup stall.
+fn append_failure_fields(line: &mut String, sync: &SyncHealth) {
     if let Some(reasons) = sync.degraded_reasons.as_ref().filter(|r| !r.is_empty()) {
         line.push_str(&format!(" degraded_reasons={}", reasons.join(",")));
     }
@@ -259,7 +252,6 @@ pub(super) fn sync_status_line(now_secs: u64, sync: &SyncHealth) -> String {
             ));
         }
     }
-    line
 }
 
 pub(super) fn capture_status_line(sync: &SyncHealth) -> Option<String> {

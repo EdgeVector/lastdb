@@ -1,3 +1,4 @@
+use super::process_probes::PhysFootprint;
 use super::snapshot_memory::{observe_runtime_memory, persist_lane_rows};
 use super::*;
 
@@ -20,57 +21,9 @@ pub(super) async fn build_snapshot(
         request_ops_started.elapsed(),
     );
     publish_sync_foreground_pressure(host, cpu_percent, &qos, &request_ops);
-    let sync_started = Instant::now();
-    let sync = if refresh_sync {
-        let health = sync_health(host).await;
-        // A timed-out / unsampled probe must not replace a last-known snapshot
-        // with empty gauges. Those empty gauges render as last_success=never
-        // and "log plane not recording" — false durability-outage sentences.
-        if health.snapshot_unavailable_reason.is_none() {
-            host.self_metrics.cache_sync_health(health.clone());
-        }
-        health
-    } else {
-        cached_sync_health(host)
-    };
-    request_phases::add_phase(RequestPhase::StatusSync, sync_started.elapsed());
-    let backup_started = Instant::now();
-    let backup = host
-        .db
-        .sync_engine()
-        .map(|engine| BackupProgressHealth::from(engine.backup_progress_snapshot()));
-    // Cheap cache read only — list_objects lives on GC / background refresh.
-    let backup_storage = host
-        .db
-        .sync_engine()
-        .and_then(|engine| engine.backup_storage_footprint_snapshot())
-        .map(BackupStorageHealth::from);
-    // Kick a single background list when the cache is empty and sync is up so
-    // the next status poll can print the storage line without blocking this one.
-    if backup_storage.is_none() {
-        schedule_backup_storage_refresh(host);
-    }
-    request_phases::add_phase(RequestPhase::StatusBackup, backup_started.elapsed());
-    // Read off the durable marker, not the engine: this must answer even when
-    // `sync_engine()` is None, which is the case the alarm exists for.
-    let durability_started = Instant::now();
-    let mut durability_health = fold_db::backup_durability::evaluate_store(
-        &host.data_dir,
-        sampled_at,
-        fold_db::backup_durability::max_backup_age_secs_from_env(),
-    );
-    // The age check above is deliberately engine-free (it must answer when
-    // backup is switched off). Fold in the one terminal fact only the running
-    // uploader knows, so a home that provably cannot publish says so at cut
-    // time instead of waiting out the 24-hour threshold.
-    if let Some(backup) = backup.as_ref() {
-        fold_db::backup_durability::apply_cut_unbackable(
-            &mut durability_health,
-            wire_u64(&backup.chunks_unbackable_manifest).unwrap_or(0),
-        );
-    }
-    let durability = DurabilityHealth::from(durability_health);
-    request_phases::add_phase(RequestPhase::StatusDurability, durability_started.elapsed());
+    let sync = timed_sync_health(host, refresh_sync).await;
+    let (backup, backup_storage) = backup_health(host);
+    let durability = durability_health(host, sampled_at, backup.as_ref());
     let data_dir_started = Instant::now();
     // Node home (primary operator gauge for disk pressure) and data dir
     // (secondary). Both are cache reads: neither ever walks on this path, so
@@ -91,37 +44,13 @@ pub(super) async fn build_snapshot(
     let (data_dir, data_dir_path_disclosed) = data_dir_path_for_status(&host.data_dir, true);
     let footprint = current_phys_footprint();
     let namespaced_store = host.db.db_ops().namespaced_store();
-    let atom_ref_edges = host
-        .self_metrics
-        .atom_ref_edge_health()
-        .unwrap_or_else(|| configured_atom_ref_edge_health(host));
     let resident = ResidentHealth::from_graph(host.db.db_ops().resident());
-    let runtime_memory =
-        footprint.map(|footprint| observe_runtime_memory(host, &namespaced_store, footprint));
-    // Read after the pressure correction so this status response reports the
-    // corrected metadata. The accessor only takes the warm-set mutex.
-    let read_cost = host.db.db_ops().read_cost().map(ReadCostHealth::from);
-    let (_, _, deferred_persist_bytes, deferred_persist_cap_bytes) =
-        host.db.mutation_manager().defer_window_in_flight();
-    let persist_lanes = host.db.mutation_manager().persist_lane_pressure();
-    request_ops.persist_lanes = persist_lane_rows(host, &persist_lanes);
-    let admission = namespaced_store.warm_set_admission_stats();
-    let allocator = crate::allocator::metrics();
-    let (slowest_request_ms, peak_request_bytes) = peak_request_bytes_from_ops(&request_ops);
-    let memory_budget = MemoryBudgetHealth::measured(
-        read_cost.as_ref(),
+    let (memory_budget, read_cost) = memory_budget_health(
+        host,
+        &namespaced_store,
+        footprint,
         &resident,
-        deferred_persist_bytes,
-        deferred_persist_cap_bytes,
-        &persist_lanes,
-        footprint.map(|f| f.current_bytes),
-        runtime_memory,
-        MemoryBudgetAttribution {
-            admission,
-            allocator,
-            peak_request_bytes,
-            slowest_request_ms,
-        },
+        &mut request_ops,
     );
     StatusSnapshot {
         logs: daemon_log_streams(),
@@ -161,40 +90,158 @@ pub(super) async fn build_snapshot(
         resident,
         dual_read: fold_db::storage::dual_read_metrics_snapshot().into(),
         build: BuildHealth::current(),
-        integrity: {
-            let damage = host.db.db_ops().unresolved_atom_distinct();
-            IntegrityHealth::measured(
-                host.db.db_ops().unresolved_atom_skip_count(),
-                damage.edges,
-                Some(damage.rows),
-                damage.capped,
-            )
-        },
-        atom_ref_edges,
-        file_blob: match host.db.sync_engine() {
-            // Read straight off the engine rather than through `sync_status()`:
-            // the durability counters are independent of every other sync
-            // field, and recomputing a whole status snapshot to reach four
-            // atomics would put real work on the status path.
-            //
-            // No engine means no cloud plane, so there is nothing to have lost
-            // — but "not served" is still the honest answer, not a measured
-            // zero, and `FileBlobHealth::default()` is exactly that.
-            Some(engine) => engine.file_blob_durability().await.into(),
-            None => FileBlobHealth::default(),
-        },
+        integrity: integrity_health(host),
+        atom_ref_edges: host
+            .self_metrics
+            .atom_ref_edge_health()
+            .unwrap_or_else(|| configured_atom_ref_edge_health(host)),
+        file_blob: file_blob_health(host).await,
         locator_only: fold_db::db_operations::last_locator_only_probe().map(Into::into),
         purge_stats: host.db.mutation_manager().purge_stats_snapshot(),
         local_retention: host
             .self_metrics
             .local_retention_health(crate::ttl_sweep::ttl_sweep_enabled()),
-        molecule_gate: {
-            let hold = host.db.db_ops().molecule_gate_hold();
-            MoleculeGateHealth::measured(hold.total_us, hold.count, hold.max_us)
-        },
+        molecule_gate: molecule_gate_health(host),
         at_rest_compression: Some(AtRestCompressionHealth::current()),
         codec_policy: Some(CodecPolicyHealth::current(&host.home)),
     }
+}
+
+async fn timed_sync_health(host: &Host, refresh_sync: bool) -> SyncHealth {
+    let sync_started = Instant::now();
+    let sync = if refresh_sync {
+        let health = sync_health(host).await;
+        // A timed-out / unsampled probe must not replace a last-known snapshot
+        // with empty gauges. Those empty gauges render as last_success=never
+        // and "log plane not recording" — false durability-outage sentences.
+        if health.snapshot_unavailable_reason.is_none() {
+            host.self_metrics.cache_sync_health(health.clone());
+        }
+        health
+    } else {
+        cached_sync_health(host)
+    };
+    request_phases::add_phase(RequestPhase::StatusSync, sync_started.elapsed());
+    sync
+}
+
+/// Backup progress and the cached storage footprint, with the phase timing.
+fn backup_health(host: &Host) -> (Option<BackupProgressHealth>, Option<BackupStorageHealth>) {
+    let backup_started = Instant::now();
+    let backup = host
+        .db
+        .sync_engine()
+        .map(|engine| BackupProgressHealth::from(engine.backup_progress_snapshot()));
+    // Cheap cache read only — list_objects lives on GC / background refresh.
+    let backup_storage = host
+        .db
+        .sync_engine()
+        .and_then(|engine| engine.backup_storage_footprint_snapshot())
+        .map(BackupStorageHealth::from);
+    // Kick a single background list when the cache is empty and sync is up so
+    // the next status poll can print the storage line without blocking this one.
+    if backup_storage.is_none() {
+        schedule_backup_storage_refresh(host);
+    }
+    request_phases::add_phase(RequestPhase::StatusBackup, backup_started.elapsed());
+    (backup, backup_storage)
+}
+
+fn durability_health(
+    host: &Host,
+    sampled_at: u64,
+    backup: Option<&BackupProgressHealth>,
+) -> DurabilityHealth {
+    // Read off the durable marker, not the engine: this must answer even when
+    // `sync_engine()` is None, which is the case the alarm exists for.
+    let durability_started = Instant::now();
+    let mut durability_health = fold_db::backup_durability::evaluate_store(
+        &host.data_dir,
+        sampled_at,
+        fold_db::backup_durability::max_backup_age_secs_from_env(),
+    );
+    // The age check above is deliberately engine-free (it must answer when
+    // backup is switched off). Fold in the one terminal fact only the running
+    // uploader knows, so a home that provably cannot publish says so at cut
+    // time instead of waiting out the 24-hour threshold.
+    if let Some(backup) = backup {
+        fold_db::backup_durability::apply_cut_unbackable(
+            &mut durability_health,
+            wire_u64(&backup.chunks_unbackable_manifest).unwrap_or(0),
+        );
+    }
+    let durability = DurabilityHealth::from(durability_health);
+    request_phases::add_phase(RequestPhase::StatusDurability, durability_started.elapsed());
+    durability
+}
+
+fn integrity_health(host: &Host) -> IntegrityHealth {
+    let damage = host.db.db_ops().unresolved_atom_distinct();
+    IntegrityHealth::measured(
+        host.db.db_ops().unresolved_atom_skip_count(),
+        damage.edges,
+        Some(damage.rows),
+        damage.capped,
+    )
+}
+
+async fn file_blob_health(host: &Host) -> FileBlobHealth {
+    match host.db.sync_engine() {
+        // Read straight off the engine rather than through `sync_status()`:
+        // the durability counters are independent of every other sync
+        // field, and recomputing a whole status snapshot to reach four
+        // atomics would put real work on the status path.
+        //
+        // No engine means no cloud plane, so there is nothing to have lost
+        // — but "not served" is still the honest answer, not a measured
+        // zero, and `FileBlobHealth::default()` is exactly that.
+        Some(engine) => engine.file_blob_durability().await.into(),
+        None => FileBlobHealth::default(),
+    }
+}
+
+fn molecule_gate_health(host: &Host) -> MoleculeGateHealth {
+    let hold = host.db.db_ops().molecule_gate_hold();
+    MoleculeGateHealth::measured(hold.total_us, hold.count, hold.max_us)
+}
+
+/// Memory budget plus the read-cost row it reads. Also stamps the persist-lane
+/// rows onto `request_ops`.
+fn memory_budget_health(
+    host: &Host,
+    namespaced_store: &std::sync::Arc<dyn fold_db::storage::NamespacedStore>,
+    footprint: Option<PhysFootprint>,
+    resident: &ResidentHealth,
+    request_ops: &mut crate::request_telemetry::RequestTelemetrySnapshot,
+) -> (MemoryBudgetHealth, Option<ReadCostHealth>) {
+    let runtime_memory =
+        footprint.map(|footprint| observe_runtime_memory(host, namespaced_store, footprint));
+    // Read after the pressure correction so this status response reports the
+    // corrected metadata. The accessor only takes the warm-set mutex.
+    let read_cost = host.db.db_ops().read_cost().map(ReadCostHealth::from);
+    let (_, _, deferred_persist_bytes, deferred_persist_cap_bytes) =
+        host.db.mutation_manager().defer_window_in_flight();
+    let persist_lanes = host.db.mutation_manager().persist_lane_pressure();
+    request_ops.persist_lanes = persist_lane_rows(host, &persist_lanes);
+    let admission = namespaced_store.warm_set_admission_stats();
+    let allocator = crate::allocator::metrics();
+    let (slowest_request_ms, peak_request_bytes) = peak_request_bytes_from_ops(request_ops);
+    let memory_budget = MemoryBudgetHealth::measured(
+        read_cost.as_ref(),
+        resident,
+        deferred_persist_bytes,
+        deferred_persist_cap_bytes,
+        &persist_lanes,
+        footprint.map(|f| f.current_bytes),
+        runtime_memory,
+        MemoryBudgetAttribution {
+            admission,
+            allocator,
+            peak_request_bytes,
+            slowest_request_ms,
+        },
+    );
+    (memory_budget, read_cost)
 }
 
 pub(super) fn persist_lane_row_is_visible(

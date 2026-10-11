@@ -1,8 +1,75 @@
 use super::*;
 
+/// Add two JSON counters; a missing or non-integer side counts as zero.
+fn sum_counters(a: &serde_json::Value, b: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!(a
+        .as_u64()
+        .unwrap_or(0)
+        .saturating_add(b.as_u64().unwrap_or(0)))
+}
+
+/// Sum the named counters of `pass` into `target` (both JSON objects).
+fn sum_named_counters(
+    target: &mut serde_json::Map<String, serde_json::Value>,
+    pass: &serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) {
+    for key in keys {
+        let merged = sum_counters(
+            target.get(*key).unwrap_or(&serde_json::Value::Null),
+            pass.get(*key).unwrap_or(&serde_json::Value::Null),
+        );
+        target.insert((*key).to_string(), merged);
+    }
+}
+
+/// A molecule can straddle a pass boundary, so per-molecule rows add up too.
+fn merge_per_molecule_rows(
+    audit: &serde_json::Map<String, serde_json::Value>,
+    pass_audit: &serde_json::Map<String, serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    let rows_of = |m: &serde_json::Map<String, serde_json::Value>| {
+        m.get("per_molecule")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let mut rows = rows_of(audit);
+    for row in rows_of(pass_audit) {
+        let molecule = row.get("molecule").and_then(serde_json::Value::as_str);
+        let existing = rows
+            .iter_mut()
+            .find(|r| r.get("molecule").and_then(serde_json::Value::as_str) == molecule);
+        match existing {
+            None => rows.push(row),
+            Some(target) => {
+                for key in [
+                    "keys",
+                    "meta_tombstoned",
+                    "content_tombstoned_meta_false",
+                    "atoms_missing",
+                ] {
+                    let merged = sum_counters(
+                        target.get(key).unwrap_or(&serde_json::Value::Null),
+                        row.get(key).unwrap_or(&serde_json::Value::Null),
+                    );
+                    target[key] = merged;
+                }
+            }
+        }
+    }
+    rows.sort_by_key(|r| {
+        std::cmp::Reverse(
+            r.get("content_tombstoned_meta_false")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        )
+    });
+    rows
+}
+
 /// Fold one bounded pass into the running total, so a walk over several calls
 /// prints (and emits as JSON) the same shape a single call would.
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn merge_tombstone_audit_passes(
     acc: serde_json::Value,
     pass: serde_json::Value,
@@ -13,18 +80,7 @@ pub(crate) fn merge_tombstone_audit_passes(
     let serde_json::Value::Object(pass) = pass else {
         return serde_json::Value::Object(acc);
     };
-    let sum = |a: &serde_json::Value, b: &serde_json::Value| -> serde_json::Value {
-        serde_json::json!(a
-            .as_u64()
-            .unwrap_or(0)
-            .saturating_add(b.as_u64().unwrap_or(0)))
-    };
-
-    let stamped = sum(
-        acc.get("keys_stamped").unwrap_or(&serde_json::Value::Null),
-        pass.get("keys_stamped").unwrap_or(&serde_json::Value::Null),
-    );
-    acc.insert("keys_stamped".to_string(), stamped);
+    sum_named_counters(&mut acc, &pass, &["keys_stamped"]);
     // The cursor and the "is there more" answer are the latest pass's, not a sum.
     for key in ["more_remaining", "next_after_key"] {
         match pass.get(key) {
@@ -43,63 +99,20 @@ pub(crate) fn merge_tombstone_audit_passes(
         return serde_json::Value::Object(acc);
     };
     let mut audit = acc_audit;
-    for key in [
-        "keys_scanned",
-        "keys_unreadable",
-        "meta_tombstoned",
-        "live",
-        "content_tombstoned_meta_false",
-        "atoms_missing",
-        "atoms_fetched",
-    ] {
-        let merged = sum(
-            audit.get(key).unwrap_or(&serde_json::Value::Null),
-            pass_audit.get(key).unwrap_or(&serde_json::Value::Null),
-        );
-        audit.insert(key.to_string(), merged);
-    }
-
-    // A molecule can straddle a pass boundary, so per-molecule rows add up too.
-    let mut rows: Vec<serde_json::Value> = audit
-        .get("per_molecule")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    for row in pass_audit
-        .get("per_molecule")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-    {
-        let molecule = row.get("molecule").and_then(serde_json::Value::as_str);
-        let existing = rows
-            .iter_mut()
-            .find(|r| r.get("molecule").and_then(serde_json::Value::as_str) == molecule);
-        match existing {
-            None => rows.push(row),
-            Some(target) => {
-                for key in [
-                    "keys",
-                    "meta_tombstoned",
-                    "content_tombstoned_meta_false",
-                    "atoms_missing",
-                ] {
-                    let merged = sum(
-                        target.get(key).unwrap_or(&serde_json::Value::Null),
-                        row.get(key).unwrap_or(&serde_json::Value::Null),
-                    );
-                    target[key] = merged;
-                }
-            }
-        }
-    }
-    rows.sort_by_key(|r| {
-        std::cmp::Reverse(
-            r.get("content_tombstoned_meta_false")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0),
-        )
-    });
+    sum_named_counters(
+        &mut audit,
+        pass_audit,
+        &[
+            "keys_scanned",
+            "keys_unreadable",
+            "meta_tombstoned",
+            "live",
+            "content_tombstoned_meta_false",
+            "atoms_missing",
+            "atoms_fetched",
+        ],
+    );
+    let rows = merge_per_molecule_rows(&audit, pass_audit);
     audit.insert("per_molecule".to_string(), serde_json::Value::Array(rows));
     acc.insert("audit".to_string(), serde_json::Value::Object(audit));
     serde_json::Value::Object(acc)
@@ -117,23 +130,22 @@ pub(crate) struct DrainPlaneResidueCliOpts {
     pub(crate) json_only: bool,
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
-pub(crate) fn db_drain_plane_residue(
+const DRAIN_COUNTERS: [&str; 5] = [
+    "keys_scanned",
+    "copied_to_target",
+    "target_already_won",
+    "deleted_from_source",
+    "skipped",
+];
+
+/// Run passes against the node, summing counters, until done or one pass if
+/// `until_complete` is off. Returns the last pass plus the totals and pass count.
+fn run_drain_passes(
     socket: &Path,
     opts: &DrainPlaneResidueCliOpts,
-) -> Result<(), String> {
-    // Accept both CLI spellings; the wire format is snake_case serde.
-    let family = opts.family.trim().to_lowercase().replace('-', "_");
-    let target = opts.target.clone().unwrap_or_else(|| {
-        match family.as_str() {
-            "protein" => "proteins",
-            "index" => "indexes",
-            // tip / conflict / order_log all live on tips canonically.
-            _ => "tips",
-        }
-        .to_string()
-    });
-
+    family: &str,
+    target: &str,
+) -> Result<(serde_json::Value, serde_json::Value, u32), String> {
     let mut after = opts.after.clone();
     let mut passes = 0u32;
     let mut totals = serde_json::json!({
@@ -143,7 +155,7 @@ pub(crate) fn db_drain_plane_residue(
         "deleted_from_source": 0u64,
         "skipped": 0u64,
     });
-    let mut report = loop {
+    let report = loop {
         let mut body = serde_json::json!({
             "family": family,
             "source_collection": opts.source,
@@ -163,13 +175,7 @@ pub(crate) fn db_drain_plane_residue(
             .cloned()
             .ok_or_else(|| "response missing plane_residue_drain".to_string())?;
         passes += 1;
-        for counter in [
-            "keys_scanned",
-            "copied_to_target",
-            "target_already_won",
-            "deleted_from_source",
-            "skipped",
-        ] {
+        for counter in DRAIN_COUNTERS {
             let add = pass
                 .get(counter)
                 .and_then(serde_json::Value::as_u64)
@@ -197,16 +203,17 @@ pub(crate) fn db_drain_plane_residue(
             println!("  … pass {passes}: {scanned} rows decided so far");
         }
     };
+    Ok((report, totals, passes))
+}
 
-    report["passes"] = serde_json::json!(passes);
-    report["totals"] = totals.clone();
-    if opts.json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
-        );
-        return Ok(());
-    }
+fn print_drain_report(
+    opts: &DrainPlaneResidueCliOpts,
+    family: &str,
+    target: &str,
+    report: &serde_json::Value,
+    totals: &serde_json::Value,
+    passes: u32,
+) {
     let n = |key: &str| {
         totals
             .get(key)
@@ -244,5 +251,33 @@ pub(crate) fn db_drain_plane_residue(
         println!();
         println!("This is a DRY RUN — nothing was copied or deleted. Re-run with --execute.");
     }
+}
+
+pub(crate) fn db_drain_plane_residue(
+    socket: &Path,
+    opts: &DrainPlaneResidueCliOpts,
+) -> Result<(), String> {
+    // Accept both CLI spellings; the wire format is snake_case serde.
+    let family = opts.family.trim().to_lowercase().replace('-', "_");
+    let target = opts.target.clone().unwrap_or_else(|| {
+        match family.as_str() {
+            "protein" => "proteins",
+            "index" => "indexes",
+            // tip / conflict / order_log all live on tips canonically.
+            _ => "tips",
+        }
+        .to_string()
+    });
+    let (mut report, totals, passes) = run_drain_passes(socket, opts, &family, &target)?;
+    report["passes"] = serde_json::json!(passes);
+    report["totals"] = totals.clone();
+    if opts.json_only {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
+        );
+        return Ok(());
+    }
+    print_drain_report(opts, &family, &target, &report, &totals, passes);
     Ok(())
 }
