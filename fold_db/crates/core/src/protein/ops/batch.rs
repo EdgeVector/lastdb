@@ -7,13 +7,19 @@ use super::{
 
 impl AtomStore {
     /// Resolve distinct member backrefs with one storage batch.
-    pub(crate) async fn protein_of_molecules(
+    pub(crate) async fn protein_of_molecules_in_scope(
         &self,
         molecule_uuids: &[String],
+        storage_prefix: Option<&str>,
     ) -> Result<Vec<Option<String>>, SchemaError> {
         let keys: Vec<String> = molecule_uuids
             .iter()
-            .map(|uuid| member_backref_key(uuid))
+            .map(|uuid| {
+                crate::schema::types::field::build_storage_key(
+                    storage_prefix,
+                    &member_backref_key(uuid),
+                )
+            })
             .collect();
         self.raw()
             .get_items(&keys)
@@ -22,13 +28,19 @@ impl AtomStore {
     }
 
     /// Load distinct protein records with one storage batch.
-    pub(crate) async fn protein_get_many(
+    pub(crate) async fn protein_get_many_in_scope(
         &self,
         protein_uuids: &[String],
+        storage_prefix: Option<&str>,
     ) -> Result<Vec<Option<Protein>>, SchemaError> {
         let keys: Vec<String> = protein_uuids
             .iter()
-            .map(|uuid| protein_record_key(uuid))
+            .map(|uuid| {
+                crate::schema::types::field::build_storage_key(
+                    storage_prefix,
+                    &protein_record_key(uuid),
+                )
+            })
             .collect();
         self.raw()
             .get_items(&keys)
@@ -47,6 +59,7 @@ impl AtomStore {
         atom_uuid: &str,
         keypair: &Ed25519KeyPair,
         author_clock: Option<(u64, u64, String, String)>,
+        storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, MoleculeData, HashSet<ChangedKey>)>, SchemaError> {
         let honor_tip_lww = author_clock.is_some();
         let tip = match author_clock {
@@ -85,7 +98,10 @@ impl AtomStore {
                     &range,
                     &tip,
                     keypair,
-                    honor_tip_lww,
+                    super::ProteinTipScope {
+                        honor_tip_lww,
+                        storage_prefix,
+                    },
                 )
                 .await?,
             );

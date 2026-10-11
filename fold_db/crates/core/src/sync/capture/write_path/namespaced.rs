@@ -46,6 +46,10 @@ impl NamespacedStore for MutationLogCaptureNamespacedStore {
         self.inner.raw_last_store()
     }
 
+    fn laststore_backup_source(&self) -> Option<Arc<crate::storage::LastStoreNamespacedStore>> {
+        self.inner.laststore_backup_source()
+    }
+
     fn logical_resident_set(
         &self,
     ) -> Option<Arc<std::sync::Mutex<crate::resident::LogicalResidentSet>>> {

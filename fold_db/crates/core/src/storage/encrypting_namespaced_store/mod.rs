@@ -324,6 +324,10 @@ impl NamespacedStore for EncryptingNamespacedStore {
         self.inner.raw_last_store()
     }
 
+    fn laststore_backup_source(&self) -> Option<Arc<super::laststore::LastStoreNamespacedStore>> {
+        self.inner.laststore_backup_source()
+    }
+
     fn logical_resident_set(&self) -> Option<Arc<Mutex<LogicalResidentSet>>> {
         self.inner.logical_resident_set()
     }

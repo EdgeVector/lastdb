@@ -1,7 +1,7 @@
 # AGENTS.md — EdgeVector/lastdb monorepo
 
 **Read `CLAUDE.md` in this directory first.** It is the single instruction file
-for this repo — build/test commands, the local agent loop, and the standing
+for this repo — build commands, the local agent loop, and the standing
 rules — and every agent (Claude, Codex, or otherwise) should follow it.
 
 The one thing worth repeating here, because getting it wrong invalidates a

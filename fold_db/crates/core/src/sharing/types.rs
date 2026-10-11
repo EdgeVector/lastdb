@@ -43,6 +43,10 @@ pub struct ShareSubscription {
     pub share_e2e_secret: Vec<u8>,
     pub accepted_at: u64,
     pub active: bool,
+    /// Preserve the sender's signed cloud read grant. Possession of the
+    /// encryption secret does not authorize a cloud read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_grant: Option<ShareAccessGrant>,
 }
 
 /// A sender-signed authorization for a recipient to read a share log from
@@ -194,4 +198,11 @@ pub struct PendingDelivery {
     /// connect. Required on Mini when `messaging_public_key` is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub messaging_pseudonym: Option<String>,
+    /// Non-secret recipient generation and stable nonce, fixed at staging.
+    /// Missing means a legacy generation-zero delivery; approval cannot rebind it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_delivery_binding: Option<Value>,
+    /// Exact sealed payload retained before send, so a nonce never changes bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_delivery_ciphertext: Option<String>,
 }

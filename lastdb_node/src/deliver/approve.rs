@@ -6,7 +6,8 @@ pub async fn execute_approve_delivery(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let delivery = match get_pending_delivery_in_ops(host.db.db_ops(), delivery_id).await {
+    let _decision = super::ciphertext::decision_guard().await;
+    let mut delivery = match get_pending_delivery_in_ops(host.db.db_ops(), delivery_id).await {
         Ok(Some(d)) => d,
         Ok(None) => return error_json(404, &format!("Delivery not found: {delivery_id}"), ctx),
         Err(e) => return error_json(500, &format!("get delivery: {e}"), ctx),
@@ -23,53 +24,13 @@ pub async fn execute_approve_delivery(
         Err(resp) => return resp,
     };
 
-    let staged = match get_staged_delivery_artifact_in_ops(host.db.db_ops(), delivery_id).await {
-        Ok(Some(a)) => a,
-        Ok(None) => {
-            return error_json(
-                500,
-                "pending snapshot delivery missing staged wire artifact; re-stage",
-                ctx,
-            )
-        }
-        Err(e) => return error_json(500, &format!("get staged artifact: {e}"), ctx),
+    let encrypted_blob = match super::ciphertext::prepare(host, &mut delivery, &target_pk).await {
+        Ok(blob) => blob,
+        Err(error) => return error_json(500, &error, ctx),
     };
 
-    let slice_payload = DeliverySlicePayload {
-        message_type: "delivery_slice".to_string(),
-        content_key: B64.encode(&staged.content_key),
-        envelope: staged.envelope,
-        artifact: delivery.artifact.clone(),
-    };
-
-    let sealed = match seal_and_encrypt_message(&target_pk, &slice_payload, host.keypair.as_ref()) {
-        Ok(b) => b,
-        Err(e) => return error_json(500, &format!("seal delivery failed: {e}"), ctx),
-    };
-    let encrypted_blob = B64.encode(&sealed);
-    if encrypted_blob.len() > MAX_BLOB_B64_CHARS {
-        return error_json(
-            400,
-            &format!(
-                "sealed delivery is {} base64 chars (max {MAX_BLOB_B64_CHARS}); shrink the query slice",
-                encrypted_blob.len()
-            ),
-            ctx,
-        );
-    }
-
-    let cloud = match require_cloud_sync(host, ctx) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
-
-    if let Err(e) = post_messaging_connect(
-        &cloud.api_url,
-        &cloud.api_key,
-        &messaging_pseudonym,
-        &encrypted_blob,
-    )
-    .await
+    if let Err(e) =
+        super::cloud_generation::send(host, &delivery, &messaging_pseudonym, &encrypted_blob).await
     {
         return error_json(502, &format!("messaging send failed: {e}"), ctx);
     }
@@ -94,6 +55,7 @@ pub async fn execute_reject_delivery(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    let _decision = super::ciphertext::decision_guard().await;
     match get_pending_delivery_in_ops(host.db.db_ops(), delivery_id).await {
         Ok(None) => return error_json(404, &format!("Delivery not found: {delivery_id}"), ctx),
         Ok(Some(_)) => {}
@@ -140,55 +102,4 @@ fn delivery_target(
     let mut target_pk = [0u8; 32];
     target_pk.copy_from_slice(&pk_bytes);
     Ok((target_pk, messaging_pseudonym.clone()))
-}
-
-fn require_cloud_sync(host: &Host, ctx: &AccessContext) -> Result<CloudSyncConfig, UdsResponse> {
-    match load_cloud_sync(&host.home) {
-        Some(c) if !c.api_url.is_empty() && !c.api_key.is_empty() => Ok(c),
-        Some(_) => Err(error_json(
-            400,
-            "cloud_sync.json present but api_key empty — re-run lastdb connect / re-register",
-            ctx,
-        )),
-        None => Err(error_json(
-            400,
-            "cloud_sync.json required to send via Exemem messaging",
-            ctx,
-        )),
-    }
-}
-
-async fn post_messaging_connect(
-    api_url: &str,
-    api_key: &str,
-    target_pseudonym: &str,
-    encrypted_blob: &str,
-) -> Result<(), String> {
-    let base = api_url.trim_end_matches('/');
-    // Exemem HTTP API mounts messaging under `/api/...` (see exemem-stack
-    // MessagingConnect route). Do not call bare `/messaging/connect` — that
-    // 404s on API Gateway.
-    let url = if base.ends_with("/api") {
-        format!("{base}/messaging/connect")
-    } else {
-        format!("{base}/api/messaging/connect")
-    };
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("X-API-Key", api_key)
-        .json(&serde_json::json!({
-            "target_pseudonym": target_pseudonym,
-            "encrypted_blob": encrypted_blob,
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("http error: {e}"))?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("status {status}: {body}"));
-    }
-    Ok(())
 }

@@ -10,15 +10,20 @@ pub fn spawn_sampler(
         // Once per boot, before the first tick. Field drift is introduced only
         // by a new binary, and a new binary is a new process, so boot is the
         // exact moment the registered schema can have fallen behind the code.
-        heal_registered_telemetry_schemas(&host).await;
+        crate::maintenance_write_gate::run(&host, heal_registered_telemetry_schemas(&host)).await;
         while !shutdown.load(std::sync::atomic::Ordering::Acquire) {
             let cap = retention_max_samples_from_env();
-            match record_sample(&host, &mut cpu, cap).await {
-                Ok((sampled_at, count)) => host.self_metrics.record_success(sampled_at, count, cap),
-                Err(e) => {
+            match crate::maintenance_write_gate::run(&host, record_sample(&host, &mut cpu, cap))
+                .await
+            {
+                Some(Ok((sampled_at, count))) => {
+                    host.self_metrics.record_success(sampled_at, count, cap);
+                }
+                Some(Err(e)) => {
                     tracing::warn!(target: "lastdbd::self_metrics", error = %e, "self-metrics sample failed");
                     host.self_metrics.record_error(e, cap);
                 }
+                None => {}
             }
             // Retention must not be a step inside the writer — that is the bug
             // the drain exists to fix — but it must not be a step inside the
@@ -171,7 +176,8 @@ pub(super) fn maybe_spawn_drain(host: &std::sync::Arc<Host>, retention_cap: usiz
     }
     let host = std::sync::Arc::clone(host);
     tokio::spawn(async move {
-        drain_orphaned_telemetry(&host, retention_cap).await;
+        crate::maintenance_write_gate::run(&host, drain_orphaned_telemetry(&host, retention_cap))
+            .await;
         host.self_metrics.end_drain();
     });
 }

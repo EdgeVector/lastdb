@@ -135,7 +135,7 @@ impl MutationManager {
             let mut protein_uuids: Vec<String> = self
                 .db_ops
                 .atoms()
-                .protein_of_molecules(&source_molecules)
+                .protein_of_molecules_in_scope(&source_molecules, storage_prefix)
                 .await?
                 .into_iter()
                 .flatten()
@@ -148,7 +148,7 @@ impl MutationManager {
             let proteins: Vec<_> = self
                 .db_ops
                 .atoms()
-                .protein_get_many(&protein_uuids)
+                .protein_get_many_in_scope(&protein_uuids, storage_prefix)
                 .await?
                 .into_iter()
                 .flatten()

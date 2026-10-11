@@ -89,6 +89,24 @@ impl SyncEngine {
             throttle_reason: None,
             throttle_source: super::super::upload_policy::UploadThrottleSource::None,
         };
+        let auth = match laststore_backup_source
+            .as_ref()
+            .and_then(|source| source.durable_sidecar_dir())
+        {
+            Some(directory) => {
+                match crate::sync::cloud_purge_peer::CloudPurgePeer::directory_for_home(&directory)
+                    .and_then(|stable| {
+                        crate::sync::cloud_purge_peer::CloudPurgePeer::open(
+                            stable,
+                            device_id.clone(),
+                        )
+                    }) {
+                    Ok(peer) => auth.with_cloud_purge_peer(peer),
+                    Err(error) => auth.with_cloud_purge_peer_error(error.to_string()),
+                }
+            }
+            None => auth,
+        };
         let backup_progress_enabled = laststore_backup_source.is_some();
         // The progress tracker is process-local, but a committed LastStore
         // manifest is not. Mutation-log mode deliberately stops cutting new
@@ -106,6 +124,7 @@ impl SyncEngine {
             label: "personal".to_string(),
             prefix: String::new(),
             crypto: Arc::clone(&crypto),
+            read_binding: None,
         }]));
         let backup_publish_target =
             backup_publish_target.unwrap_or_else(|| Arc::new(Mutex::new(None)));
@@ -165,6 +184,7 @@ impl SyncEngine {
             targets,
             target_restore_scopes: Arc::new(Mutex::new(HashMap::new())),
             target_config_lock: Arc::new(Mutex::new(())),
+            cloud_share_refresh_lock: Mutex::new(()),
             target_config_generation: AtomicU64::new(1),
             scoped_upload_turn: AtomicU64::new(0),
             download_cursors: Arc::new(Mutex::new(std::collections::HashMap::new())),

@@ -136,6 +136,10 @@ impl SyncEngine {
     /// it calls this callback to obtain fresh credentials, updates the
     /// `AuthClient`, and retries the sync cycle once.
     pub fn set_auth_refresh(&mut self, cb: AuthRefreshCallback) {
+        self.auth = self
+            .auth
+            .clone()
+            .with_auth_refresh_callback(Arc::clone(&cb));
         self.auth_refresh = Some(cb);
     }
 

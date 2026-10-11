@@ -29,7 +29,9 @@ use std::sync::Arc;
 
 mod append;
 mod audit;
+mod cloud_generation;
 mod compaction;
+mod fresh_seed;
 mod frontier;
 mod keys;
 mod local_cloud;
@@ -38,6 +40,7 @@ mod offline_s0_marker;
 mod persist;
 mod pin_mode;
 mod replay;
+mod replay_scope;
 mod restore;
 mod seal;
 mod state;

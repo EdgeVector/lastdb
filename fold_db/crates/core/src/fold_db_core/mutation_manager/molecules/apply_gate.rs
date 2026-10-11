@@ -14,6 +14,7 @@ use crate::schema::SchemaError;
 
 use super::super::helpers::ModifiedFieldKeys;
 use super::super::MutationManager;
+use super::scoped_gate::schema_is_scoped;
 use super::LanePersistJob;
 
 /// Prepared resident revision for one slot, recorded after restore and
@@ -136,6 +137,9 @@ impl MutationManager {
         schema: &Schema,
         changed_keys: &HashMap<String, HashSet<ChangedKey>>,
     ) -> Vec<PreparedSlotRevision> {
+        if schema_is_scoped(schema) {
+            return Vec::new();
+        }
         let graph = self.resident_graph();
         let mut out = Vec::new();
         for (field_name, keys) in changed_keys {
@@ -242,6 +246,9 @@ impl MutationManager {
             let Some(field) = schema.runtime_fields.get_mut(field_name) else {
                 continue;
             };
+            if field.common().storage_prefix().is_some() {
+                continue;
+            }
             let Some(uuid) = field.common().molecule_uuid().cloned() else {
                 continue;
             };
@@ -274,10 +281,14 @@ impl MutationManager {
         )],
         changed_keys: &HashMap<String, HashSet<ChangedKey>>,
     ) -> ApplyGateOutcome {
-        // Overlay, catalog-head strip, overlay forget, and tip publish apply
-        // for personal and org-prefix writes. `purge_apply_gate_transaction`
-        // already stamps org overlays; a personal-only consult left org
-        // Create after Delete as a catalog-head no-op.
+        if schema_is_scoped(schema) {
+            return self.scoped_apply_gate(
+                schema,
+                schema_mutations,
+                mutation_key_values,
+                atom_results,
+            );
+        }
         if let Some(located_atoms) = located_atoms {
             let resident = self.resident_graph();
             for (atom, partition) in located_atoms {
@@ -374,10 +385,6 @@ impl MutationManager {
 
     /// Install a purge's serving tombstones while the sorted slot gates are held.
     /// This function is memory-only. Durable deletion runs later on the lane.
-    ///
-    /// Overlays and slot tickets apply for personal and org-prefix erasures.
-    /// Org T0 can still hold a cold-read tip; skipping the overlay left that
-    /// tip serving after persist forgot nothing and never called `purge_tip`.
     pub(in crate::fold_db_core::mutation_manager) fn purge_apply_gate_transaction(
         &self,
         schema: &Schema,
@@ -385,6 +392,9 @@ impl MutationManager {
         tombstone_id: u64,
         delete_winning_slots: Option<&HashSet<(String, String, String)>>,
     ) -> PurgeApplyOutcome {
+        if schema_is_scoped(schema) {
+            return PurgeApplyOutcome::scoped();
+        }
         let mut schema_tombstones = Vec::new();
         let mut slots = Vec::new();
         let mut slot_predecessors = HashMap::new();

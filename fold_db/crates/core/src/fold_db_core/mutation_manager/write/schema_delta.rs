@@ -186,7 +186,7 @@ impl MutationManager {
         // Capture before the resident rebase. The gate check rejects a
         // sibling change that overlaps either preparation step.
         let sibling_prepared = self.prepared_sibling_slot_revisions(&sibling_updates);
-        let sibling_updates = self.rebase_sibling_updates_on_resident(sibling_updates);
+        let sibling_updates = self.rebase_sibling_updates_on_resident(&schema, sibling_updates);
         Self::add_timing(
             timing_breakdown,
             "  - protein_sibling_fold",

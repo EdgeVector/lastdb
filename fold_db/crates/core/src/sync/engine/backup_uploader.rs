@@ -60,8 +60,8 @@ const MAX_BACKUP_CATCHUP_STALENESS_SECS: u64 = 7 * 24 * 60 * 60;
 /// Durable sidecar: known-present backup chunk digests survive restarts so a
 /// post-reboot drain does not re-probe O(chunks)×RTT.
 const BACKUP_PRESENCE_CACHE_FILE: &str = "laststore_backup_known_present.json";
-/// Parallel orphan DELETE batch. Presign stays outside the publication turn;
-/// the turn is held only across the batch's HTTP DELETEs (~one RTT).
+/// Parallel orphan DELETE batch. The publication turn covers authenticated
+/// service dispatch and any legacy provider DELETE, including the intent receipt.
 const BACKUP_GC_DELETE_BATCH: usize = 16;
 
 mod candidates;
@@ -71,10 +71,11 @@ mod cloud_snapshot;
 mod copy_proof;
 mod cut_policy;
 mod file_packs;
+mod footprint;
+mod gc_dispatch;
 mod gc_execute;
 mod gc_keep_set;
 mod gc_run;
-mod gc_test_hooks;
 mod gc_types;
 mod manifest_presence;
 mod policy_helpers;

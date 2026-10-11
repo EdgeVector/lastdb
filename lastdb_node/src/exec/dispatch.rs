@@ -193,6 +193,9 @@ pub(super) async fn dispatch_data_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    if let Some(response) = cloud_purge_routes::reject_local_write(route, host, ctx) {
+        return response;
+    }
     match route {
         DataRoute::Query => heap_route!(execute_query_route, req, ctx, host).await,
         DataRoute::QueryBatch => heap_route!(execute_query_batch_route, req, ctx, host).await,
@@ -432,6 +435,7 @@ pub(super) async fn dispatch_data_route(
         DataRoute::SyncCloudOn => {
             heap_route_ctx_host!(execute_sync_cloud_on_route, ctx, host).await
         }
+        DataRoute::SyncCloudPurgeResync => cloud_purge_routes::execute(req, ctx, host).await,
         DataRoute::SyncCloudResumePrimary => {
             execute_sync_cloud_resume_primary_route(req, ctx, host)
         }
@@ -443,6 +447,9 @@ pub(super) async fn dispatch_data_route(
         }
         DataRoute::DeliverStage => {
             heap_route!(crate::deliver::execute_stage_delivery, req, ctx, host).await
+        }
+        DataRoute::RecipientAddress => {
+            heap_route_ctx_host!(crate::deliver::execute_recipient_address, ctx, host).await
         }
         DataRoute::DeliverSnapshot => {
             heap_route!(crate::deliver::execute_publish_snapshot, req, ctx, host).await
@@ -521,6 +528,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         DataRoute::MoleculeHistory | DataRoute::AppChanges => OpKind::History,
         DataRoute::AtomContent => OpKind::Atom,
         DataRoute::DeliverStage
+        | DataRoute::RecipientAddress
         | DataRoute::DeliverSnapshot
         | DataRoute::DeliverList
         | DataRoute::DeliverApprove

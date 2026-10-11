@@ -4,7 +4,7 @@ use super::legs::*;
 use super::types::*;
 use fold_db::sharing::delivery_wire::LastDbSlicePayload;
 
-/// `POST /api/sharing/deliver` — stage a snapshot delivery (no network).
+/// `POST /api/sharing/deliver` — stage with a frozen recipient generation.
 pub async fn execute_stage_delivery(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -17,6 +17,15 @@ pub async fn execute_stage_delivery(
     if let Err(e) = validate_stage_recipient(&body) {
         return error_json(400, &e, ctx);
     }
+    let delivery_id = Uuid::new_v4().to_string();
+    let cloud_delivery_binding =
+        match super::cloud_generation::prepare(host, &body.messaging_pseudonym, &delivery_id).await
+        {
+            Ok(binding) => binding,
+            Err(error) => {
+                return error_json(502, &format!("recipient cloud check failed: {error}"), ctx)
+            }
+        };
 
     let legs = match resolve_legs(host, &body) {
         Ok(l) => l,
@@ -39,7 +48,6 @@ pub async fn execute_stage_delivery(
         Err(resp) => return resp,
     };
 
-    let delivery_id = Uuid::new_v4().to_string();
     let staged = StagedDeliveryArtifact {
         envelope,
         content_key: content_key.to_vec(),
@@ -71,6 +79,8 @@ pub async fn execute_stage_delivery(
         decided_at: None,
         messaging_public_key: Some(body.messaging_public_key),
         messaging_pseudonym: Some(body.messaging_pseudonym),
+        cloud_delivery_binding: Some(cloud_delivery_binding),
+        cloud_delivery_ciphertext: None,
     };
     if let Err(e) = store_pending_delivery_in_ops(host.db.db_ops(), &delivery).await {
         let _ = remove_pending_delivery_in_ops(host.db.db_ops(), &delivery_id).await;
@@ -80,7 +90,7 @@ pub async fn execute_stage_delivery(
     ok_json(
         &serde_json::json!({
             "delivery": delivery,
-            "note": "staged only — no network until POST /api/sharing/deliveries/{id}/approve",
+            "note": "staged after the recipient cloud check; approve sends the delivery",
         }),
         ctx,
     )

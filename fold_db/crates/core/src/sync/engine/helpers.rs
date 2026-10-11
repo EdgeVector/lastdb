@@ -209,6 +209,7 @@ pub(crate) fn cloud_sync_failure_class(operation: &str, err: &SyncError) -> Stri
         SyncError::Auth(_) => "auth",
         SyncError::Banned(_) => "auth_banned",
         SyncError::QuotaExceeded(_) => "quota_exceeded",
+        SyncError::CloudPurgeHeld(_) => "cloud_purge_held",
         SyncError::BackupSnapshotInProgress { .. }
         | SyncError::BackupSnapshotVerifyPending { .. } => "snapshot_in_progress",
         SyncError::Storage(_) => "storage",

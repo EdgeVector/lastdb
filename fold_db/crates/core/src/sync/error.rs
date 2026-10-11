@@ -23,6 +23,11 @@ pub enum SyncError {
     #[error("quota exceeded: {0}")]
     QuotaExceeded(String),
 
+    /// A permanent account marker holds cloud work until an exact replacement
+    /// is installed. This never disables local reads, writes, or durable queues.
+    #[error("cloud purge holds cloud sync: {0}")]
+    CloudPurgeHeld(String),
+
     /// An owner-requested photograph reached a held cut that still needs
     /// cloud chunks. The continuous drain owns the same cut and will retry it,
     /// so this is a bounded retry state rather than a storage failure.

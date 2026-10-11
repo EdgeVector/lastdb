@@ -150,13 +150,30 @@ impl PinLog {
         // log order, so quarantine, batching and F are exactly as before.
         let mut materialized =
             futures::stream::iter(page.records.into_iter().map(|mut record| async move {
-                let result = match &mut record.entry.op {
-                    crate::sync::log::LogOp::MutationIntent { mutations } => engine
-                        .materialize_mutation_intent(std::mem::take(mutations))
-                        .await
-                        .map(|ready| *mutations = ready),
-                    _ => Ok(()),
-                };
+                let result = async {
+                    crate::sync::cloud_purge_peer::scope_alias::rebind_entry(
+                        engine.store.as_ref(),
+                        target_prefix,
+                        &mut record.entry,
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                    match &mut record.entry.op {
+                        crate::sync::log::LogOp::MutationIntent { mutations } => engine
+                            .materialize_mutation_intent(std::mem::take(mutations))
+                            .await
+                            .map(|ready| *mutations = ready),
+                        _ => Ok(()),
+                    }?;
+                    crate::sync::cloud_purge_peer::scope_alias::wire_entry(
+                        engine.store.as_ref(),
+                        target_prefix,
+                        &mut record.entry,
+                    )
+                    .await
+                    .map_err(|error| error.to_string())
+                }
+                .await;
                 (record, result)
             }))
             .buffered(MUTATION_LOG_MATERIALIZE_CONCURRENCY);

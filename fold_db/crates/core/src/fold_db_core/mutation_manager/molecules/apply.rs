@@ -10,7 +10,9 @@ use crate::schema::SchemaError;
 
 use super::super::helpers::ModifiedFieldKeys;
 use super::super::MutationManager;
-use super::protein_batch::{eligible_protein_atoms, load_protein_fold_metadata};
+use super::protein_batch::{
+    eligible_protein_atoms, load_protein_fold_metadata, schema_storage_prefix,
+};
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) fn apply_mutations_to_molecules(
@@ -108,6 +110,7 @@ impl MutationManager {
     /// revision snapshot detects a change after this preparation starts.
     pub(in crate::fold_db_core::mutation_manager) fn rebase_sibling_updates_on_resident(
         &self,
+        schema: &Schema,
         sibling_updates: Vec<(
             String,
             crate::db_operations::MoleculeData,
@@ -119,6 +122,14 @@ impl MutationManager {
         HashSet<ChangedKey>,
     )> {
         use crate::atom::{AtomEntry, MoleculeHashRange};
+
+        if schema
+            .runtime_fields
+            .values()
+            .any(|field| field.common().storage_prefix().is_some())
+        {
+            return sibling_updates;
+        }
 
         let resident = self.resident_graph();
         let mut slot_heads: HashMap<(String, String, String), Option<AtomEntry>> = HashMap::new();
@@ -252,7 +263,8 @@ impl MutationManager {
             eligible_protein_atoms(schema, schema_mutations, mutation_key_values, atom_results);
         let member_uuids: Vec<&str> = eligible.iter().map(|(_, _, mol_uuid)| *mol_uuid).collect();
         let (owners_by_molecule, proteins_by_uuid) =
-            load_protein_fold_metadata(store, &member_uuids).await?;
+            load_protein_fold_metadata(store, &member_uuids, schema_storage_prefix(schema, None))
+                .await?;
 
         // Keep the atom order. Two fields can target the same sibling slot,
         // and the later tip must still observe the earlier update.
@@ -325,6 +337,7 @@ impl MutationManager {
                     atom.uuid(),
                     keypair,
                     author_clock,
+                    schema_storage_prefix(schema, Some(mol_uuid)),
                 )
                 .await?;
             for (sibling_molecule, data, mut changed) in updates {

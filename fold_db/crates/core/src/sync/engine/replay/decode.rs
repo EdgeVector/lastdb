@@ -322,6 +322,13 @@ impl SyncEngine {
         let key_bytes = LogOp::decode_bytes_for_replay(namespace, "key", key_b64)?;
 
         if let Some(t) = target {
+            if let Some(binding) = &t.read_binding {
+                return crate::sync::cloud_share::rewrite_key(
+                    &key_bytes,
+                    &t.prefix,
+                    &binding.storage_prefix,
+                );
+            }
             if t.prefix.starts_with("share:") {
                 let mut parts = t.prefix.split(':');
                 parts.next(); // skip "share"

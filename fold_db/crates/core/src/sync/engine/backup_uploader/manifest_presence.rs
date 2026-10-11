@@ -313,7 +313,7 @@ impl SyncEngine {
             .map(|dir| dir.join(BACKUP_PRESENCE_CACHE_FILE))
     }
 
-    pub(super) async fn clear_backup_presence_cache_for_fresh_root(&self) -> SyncResult<()> {
+    pub(crate) async fn clear_backup_presence_cache_for_fresh_root(&self) -> SyncResult<()> {
         let path = self.backup_presence_cache_path().ok_or_else(|| {
             SyncError::Storage("fresh cloud backup requires a local presence cache path".into())
         })?;

@@ -397,6 +397,7 @@ pub async fn replay_mutation_log_segments_with_crypto(
         incorporated_frontier,
         None,
         crypto,
+        None,
     )
     .await
 }
@@ -407,6 +408,7 @@ pub(super) async fn replay_mutation_log_segments_with_progress(
     incorporated_frontier: &Frontier,
     progress: Option<&RestoreProgress>,
     crypto: &Arc<dyn crate::crypto::CryptoProvider>,
+    scope_target: Option<&SyncTarget>,
 ) -> SyncResult<MutationLogReplayReport> {
     // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
     progress::phase(progress, RestorePhase::TailReplay);
@@ -518,17 +520,7 @@ pub(super) async fn replay_mutation_log_segments_with_progress(
             report.records_skipped_at_or_below_frontier += 1;
             continue;
         }
-        let target = if record.target_prefix.is_empty() {
-            None
-        } else {
-            Some(
-                engine
-                    .pin_log
-                    .sync_target_by_prefix(&record.target_prefix)
-                    .await
-                    .map_err(SyncError::Storage)?,
-            )
-        };
+        let target = super::replay_scope::target(engine, record, scope_target).await?;
         engine
             .replay_entry(&record.entry, target.as_ref())
             .await

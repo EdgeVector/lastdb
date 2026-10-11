@@ -4,143 +4,24 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::io::Write;
 use std::path::Path;
-use std::process::Output;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
-/// Escape a value for curl `--config` double-quoted strings.
-fn curl_config_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-/// Build argv for the large-object curl PUT. The presigned URL is **not** on
-/// argv — it is only referenced via `-K <config>` so process listings cannot
-/// harvest signature query material.
-fn curl_large_put_argv(config_path: &Path, file_path: &Path, max_time_secs: u64) -> Vec<String> {
-    vec![
-        "-sS".to_string(),
-        "-f".to_string(),
-        "-o".to_string(),
-        "/dev/null".to_string(),
-        "-w".to_string(),
-        "%{http_code}".to_string(),
-        "--max-time".to_string(),
-        max_time_secs.to_string(),
-        "-X".to_string(),
-        "PUT".to_string(),
-        "-H".to_string(),
-        "Content-Type: application/octet-stream".to_string(),
-        "-T".to_string(),
-        file_path.display().to_string(),
-        "-K".to_string(),
-        config_path.display().to_string(),
-    ]
-}
-
-/// Blocking curl PUT used by [`S3Client::upload_snapshot_file_via_curl`].
-///
-/// Writes the presigned URL into a temporary curl config file and invokes curl
-/// with only the config path on argv (never the raw URL).
-fn upload_snapshot_file_via_curl_blocking(
-    url: &str,
-    path: &Path,
-    max_time_secs: u64,
-) -> SyncResult<Output> {
-    let config = curl_upload_config(url)?;
-    let args = curl_large_put_argv(config.path(), path, max_time_secs);
-    // Defensive: never allow a bare URL-looking token onto argv.
-    for arg in &args {
-        if arg.starts_with("http://") || arg.starts_with("https://") {
-            return Err(SyncError::Network(
-                "S3 upload: internal error — refused to put URL on curl argv".to_string(),
-            ));
-        }
-    }
-    std::process::Command::new("curl")
-        .args(&args)
-        .output()
-        .map_err(|e| {
-            SyncError::Network(format!(
-                "S3 upload: failed to spawn curl (is curl on PATH?): {e}"
-            ))
-        })
-}
-
-fn curl_upload_config(url: &str) -> SyncResult<tempfile::NamedTempFile> {
-    let mut config = tempfile::NamedTempFile::new().map_err(|e| {
-        SyncError::Network(format!(
-            "S3 upload: failed to create curl config tempfile: {e}"
-        ))
-    })?;
-    // curl --config: double-quoted string value for `url`.
-    writeln!(config, "url = \"{}\"", curl_config_escape(url))
-        .map_err(|e| SyncError::Network(format!("S3 upload: failed to write curl config: {e}")))?;
-    config
-        .flush()
-        .map_err(|e| SyncError::Network(format!("S3 upload: failed to flush curl config: {e}")))?;
-
-    Ok(config)
-}
-
-/// Keep the large-object curl transport while streaming only the verified
-/// prefix from the retained handle. The stdin pipe is bounded; no chunk copy
-/// is written to disk or held in RAM. The URL remains in the config file.
-fn upload_backup_prefix_via_curl_blocking(
-    url: &str,
-    source: std::fs::File,
-    bytes: u64,
-    max_time_secs: u64,
-) -> SyncResult<Output> {
-    use std::io::Read;
-    use std::process::Stdio;
-
-    let config = curl_upload_config(url)?;
-    let mut args = curl_large_put_argv(config.path(), Path::new("-"), max_time_secs);
-    args.extend([
-        "--http1.1".to_string(),
-        "-H".to_string(),
-        format!("Content-Length: {bytes}"),
-        "-H".to_string(),
-        "Transfer-Encoding:".to_string(),
-        "-H".to_string(),
-        "Expect:".to_string(),
-    ]);
-    let mut child = std::process::Command::new("curl")
-        .args(&args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(SyncError::Io)?;
-    let copied = {
-        let mut stdin = child.stdin.take().expect("piped curl stdin");
-        std::io::copy(&mut source.take(bytes), &mut stdin)
-    };
-    let output = child.wait_with_output().map_err(SyncError::Io)?;
-    // Preserve curl's HTTP/transport error if it closed the pipe early.
-    if output.status.success() && copied? != bytes {
-        return Err(SyncError::Storage(
-            "backup source became shorter during upload".into(),
-        ));
-    }
-    Ok(output)
-}
-
-fn check_curl_upload_output(output: &Output) -> SyncResult<()> {
-    let http_code = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stderr = super::error::redact_sync_error_text(&stderr);
-    if output.status.success() && (http_code.starts_with('2') || http_code.is_empty()) {
-        return Ok(());
-    }
-    Err(SyncError::Network(format!(
-        "S3 upload via curl failed: exit={} http_code={http_code} stderr={stderr}",
-        output.status.code().unwrap_or(-1)
-    )))
-}
+#[path = "s3/cloud_completion.rs"]
+mod cloud_completion;
+#[path = "s3/delete.rs"]
+mod delete;
+#[path = "s3/presigned.rs"]
+mod presigned;
+pub use presigned::PresignedUrl;
+#[path = "s3/curl_transport.rs"]
+mod curl_transport;
+use curl_transport::{
+    check_curl_upload_output, upload_backup_prefix_via_curl_blocking,
+    upload_snapshot_file_via_curl_blocking,
+};
 
 const DEFAULT_S3_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const S3_SNAPSHOT_UPLOAD_BYTES_PER_SEC: u64 = 256 * 1024;
@@ -162,14 +43,6 @@ pub struct S3Client {
     request_timeout: Duration,
 }
 
-/// A presigned URL for a specific S3 operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PresignedUrl {
-    pub url: String,
-    pub method: String,
-    pub expires_in_secs: u64,
-}
-
 /// A rescue PUT URL. The service signs the create-only condition with the URL.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PresignedCreateOnlyUrl {
@@ -180,9 +53,22 @@ pub struct PresignedCreateOnlyUrl {
 }
 
 impl S3Client {
+    fn cloud_url(url: &str) -> SyncResult<reqwest::Url> {
+        let parsed = reqwest::Url::parse(url)
+            .map_err(|_| SyncError::Network("invalid cloud transfer URL".into()))?;
+        if parsed.scheme() != "https"
+            || parsed.host_str().is_none()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+        {
+            return Err(SyncError::Network("cloud transfers require HTTPS".into()));
+        }
+        Ok(parsed)
+    }
     fn rescue_headers(signed: &PresignedCreateOnlyUrl) -> SyncResult<reqwest::header::HeaderMap> {
         if signed.method != "PUT"
-            || signed.headers.get("If-None-Match").map(String::as_str) != Some("*")
+            || (!crate::sync::upload_completion::is_multipart(&signed.url)
+                && signed.headers.get("If-None-Match").map(String::as_str) != Some("*"))
             || signed.expires_in_secs == 0
         {
             return Err(SyncError::Storage(
@@ -191,6 +77,11 @@ impl S3Client {
         }
         let mut headers = reqwest::header::HeaderMap::new();
         for (name, value) in &signed.headers {
+            if crate::sync::upload_completion::is_multipart(&signed.url)
+                && name.eq_ignore_ascii_case("If-None-Match")
+            {
+                continue;
+            }
             let name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| SyncError::Storage("invalid rescue upload header name".into()))?;
             let value = reqwest::header::HeaderValue::from_str(value)
@@ -220,7 +111,7 @@ impl S3Client {
                 "rescue upload",
                 timeout,
                 self.http
-                    .put(&signed.url)
+                    .put(Self::cloud_url(&signed.url)?)
                     .headers(headers)
                     .header(reqwest::header::CONTENT_LENGTH, bytes)
                     .version(reqwest::Version::HTTP_11)
@@ -231,8 +122,17 @@ impl S3Client {
         if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
             return Ok(false);
         }
-        self.check_or_read_body(response, "rescue upload").await?;
-        Ok(true)
+        self.complete_upload_response(
+            &PresignedUrl::provider(
+                signed.url.clone(),
+                signed.method.clone(),
+                signed.expires_in_secs,
+            ),
+            response,
+            None,
+            true,
+        )
+        .await
     }
 
     /// Return false on HTTP 412. Commit checks the existing manifest bytes.
@@ -248,7 +148,7 @@ impl S3Client {
                 "rescue upload",
                 timeout,
                 self.http
-                    .put(&signed.url)
+                    .put(Self::cloud_url(&signed.url)?)
                     .headers(headers)
                     .header(reqwest::header::CONTENT_LENGTH, bytes.len())
                     .version(reqwest::Version::HTTP_11)
@@ -259,8 +159,17 @@ impl S3Client {
         if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
             return Ok(false);
         }
-        self.check_or_read_body(response, "rescue upload").await?;
-        Ok(true)
+        self.complete_upload_response(
+            &PresignedUrl::provider(
+                signed.url.clone(),
+                signed.method.clone(),
+                signed.expires_in_secs,
+            ),
+            response,
+            None,
+            true,
+        )
+        .await
     }
     pub fn new(http: Arc<Client>) -> Self {
         Self::with_request_timeout(http, DEFAULT_S3_REQUEST_TIMEOUT)
@@ -384,42 +293,6 @@ impl S3Client {
             .await
     }
 
-    /// Upload bytes only while the remote object is still the version we read.
-    ///
-    /// `expected_etag=None` is a create-only write (`If-None-Match: *`). A
-    /// failed precondition is normal CAS contention and returns `Ok(false)`;
-    /// callers can re-read, merge, and retry without string-matching an S3
-    /// error body.
-    pub async fn upload_conditional(
-        &self,
-        presigned: &PresignedUrl,
-        data: Vec<u8>,
-        expected_etag: Option<&str>,
-    ) -> SyncResult<bool> {
-        let mut request = self
-            .http
-            .put(&presigned.url)
-            .header("Content-Type", "application/octet-stream");
-        request = if let Some(etag) = expected_etag {
-            request.header(reqwest::header::IF_MATCH, etag)
-        } else {
-            request.header(reqwest::header::IF_NONE_MATCH, "*")
-        };
-        let response = self
-            .with_timeout(
-                "conditional upload",
-                self.request_timeout,
-                request.body(data).send(),
-            )
-            .await?;
-        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
-            return Ok(false);
-        }
-        self.check_or_read_body(response, "conditional upload")
-            .await?;
-        Ok(true)
-    }
-
     /// Upload snapshot bytes to S3 using a presigned PUT URL.
     pub async fn upload_snapshot(&self, presigned: &PresignedUrl, data: Vec<u8>) -> SyncResult<()> {
         let timeout = self.snapshot_upload_timeout(data.len(), presigned.expires_in_secs);
@@ -430,7 +303,7 @@ impl S3Client {
     /// body). Dogfood 2026-07-19: R2 accepts ~3.7 GiB with `curl -T` (HTTP 200
     /// in ~8 min) while reqwest `Body::wrap_stream` fails mid-transfer with a
     /// generic "error sending request" transport error under live Mini load.
-    /// Keep the reqwest path for small tests / unit harnesses.
+    /// Keep the reqwest path for small files.
     const SNAPSHOT_FILE_CURL_THRESHOLD_BYTES: u64 = 32 * 1024 * 1024;
 
     /// Upload a sealed snapshot file to S3 using a presigned PUT URL.
@@ -465,7 +338,7 @@ impl S3Client {
                 "upload",
                 timeout,
                 self.http
-                    .put(&presigned.url)
+                    .put(Self::cloud_url(&presigned.url)?)
                     .header("Content-Type", "application/octet-stream")
                     .header(reqwest::header::CONTENT_LENGTH, len)
                     .version(reqwest::Version::HTTP_11)
@@ -474,7 +347,8 @@ impl S3Client {
             )
             .await?;
 
-        self.check_or_read_body(response, "upload").await?;
+        self.complete_upload_response(presigned, response, None, false)
+            .await?;
         Ok(())
     }
 
@@ -505,7 +379,7 @@ impl S3Client {
             })
             .await
             .map_err(|error| SyncError::Network(format!("S3 upload join error: {error}")))??;
-            return check_curl_upload_output(&output);
+            return self.complete_curl_upload(presigned, output).await;
         }
         let source = tokio::fs::File::from_std(source).take(bytes);
         let body = reqwest::Body::wrap_stream(ReaderStream::new(source));
@@ -514,7 +388,7 @@ impl S3Client {
                 "upload",
                 timeout,
                 self.http
-                    .put(&presigned.url)
+                    .put(Self::cloud_url(&presigned.url)?)
                     .header("Content-Type", "application/octet-stream")
                     .header(reqwest::header::CONTENT_LENGTH, bytes)
                     .version(reqwest::Version::HTTP_11)
@@ -522,7 +396,8 @@ impl S3Client {
                     .send(),
             )
             .await?;
-        self.check_or_read_body(response, "upload").await?;
+        self.complete_upload_response(presigned, response, None, false)
+            .await?;
         Ok(())
     }
 
@@ -560,7 +435,7 @@ impl S3Client {
         .await
         .map_err(|e| SyncError::Network(format!("S3 upload join error: {e}")))?;
 
-        check_curl_upload_output(&output?)
+        self.complete_curl_upload(presigned, output?).await
     }
 
     /// Upload bytes to S3 using a presigned PUT URL.
@@ -575,14 +450,15 @@ impl S3Client {
                 "upload",
                 timeout,
                 self.http
-                    .put(&presigned.url)
+                    .put(Self::cloud_url(&presigned.url)?)
                     .header("Content-Type", "application/octet-stream")
                     .body(data)
                     .send(),
             )
             .await?;
 
-        self.check_or_read_body(response, "upload").await?;
+        self.complete_upload_response(presigned, response, None, false)
+            .await?;
         Ok(())
     }
 
@@ -610,7 +486,7 @@ impl S3Client {
             .with_timeout(
                 "download",
                 self.request_timeout,
-                self.http.get(&presigned.url).send(),
+                self.http.get(Self::cloud_url(&presigned.url)?).send(),
             )
             .await?;
         if response.status() == reqwest::StatusCode::NOT_FOUND {
@@ -648,7 +524,7 @@ impl S3Client {
                 "range download",
                 self.request_timeout,
                 self.http
-                    .get(&presigned.url)
+                    .get(Self::cloud_url(&presigned.url)?)
                     .header(reqwest::header::RANGE, range)
                     .send(),
             )
@@ -693,7 +569,7 @@ impl S3Client {
             .with_timeout(
                 "download",
                 self.request_timeout,
-                self.http.get(&presigned.url).send(),
+                self.http.get(Self::cloud_url(&presigned.url)?).send(),
             )
             .await?;
 
@@ -776,19 +652,5 @@ impl S3Client {
             buf.extend_from_slice(&chunk);
         }
         Ok(buf)
-    }
-
-    /// Delete an S3 object using a presigned DELETE URL.
-    pub async fn delete(&self, presigned: &PresignedUrl) -> SyncResult<()> {
-        let response = self
-            .with_timeout(
-                "delete",
-                self.request_timeout,
-                self.http.delete(&presigned.url).send(),
-            )
-            .await?;
-
-        self.check_or_read_body(response, "delete").await?;
-        Ok(())
     }
 }

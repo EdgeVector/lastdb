@@ -273,6 +273,7 @@ mod admit_scope;
 mod append;
 mod append_tail;
 mod chunk_install;
+mod chunk_install_file;
 mod chunk_verify;
 mod compact;
 mod counted_file;

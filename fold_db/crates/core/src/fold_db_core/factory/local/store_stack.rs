@@ -243,7 +243,7 @@ async fn build_syncing_store_stack(
         Arc::clone(&base_store),
         Arc::clone(&engine_store),
         laststore_backup_source,
-    );
+    )?;
 
     // The factory can bootstrap an empty LastStore home with this serving
     // engine before it starts background sync. Load durable cursors first so
@@ -279,7 +279,7 @@ fn build_sync_engine(
     base_store: Arc<dyn NamespacedStore>,
     engine_store: Arc<dyn NamespacedStore>,
     laststore_backup_source: Option<Arc<LastStoreNamespacedStore>>,
-) -> Arc<crate::sync::SyncEngine> {
+) -> FoldDbResult<Arc<crate::sync::SyncEngine>> {
     use crate::crypto::{CryptoProvider, LocalCryptoProvider};
 
     // Cloud outer seal uses the account E2E content key. Mini personal at-rest
@@ -292,7 +292,9 @@ fn build_sync_engine(
     // docs/observability/egress-classification-notes.md). Connect-timeout the
     // shared client so a black-holed endpoint cannot wedge the TCP handshake;
     // per-request bounds live in S3Client/AuthClient.
-    let http = Arc::new(crate::sync::build_shared_http_client());
+    let http = Arc::new(crate::sync::build_shared_http_client().map_err(|_| {
+        crate::error::FoldDbError::Config("cloud HTTPS transport unavailable".into())
+    })?);
     let s3 = crate::sync::s3::S3Client::new(http.clone());
     let db_hash = laststore_backup_source
         .as_ref()
@@ -330,7 +332,7 @@ fn build_sync_engine(
     // The local factory starts this worker only after boot migrations and
     // cloud photograph bootstrap. Construction must remain inert so an empty
     // home cannot CAS a cut that races restore.
-    Arc::new(engine)
+    Ok(Arc::new(engine))
 }
 
 /// Product coalesce knob. `None` and an unparseable string keep `default_ms`.

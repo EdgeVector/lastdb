@@ -83,6 +83,13 @@ where
         return Err("copied identity changed during DEV registration".to_string());
     }
 
+    enroll_recipient_session(
+        &canonical_home,
+        api_url,
+        &registered.api_key,
+        &identity.keypair,
+    )
+    .await?;
     write_new_cloud_sync_config(&canonical_home, api_url, &registered.api_key)?;
     pending_device.commit();
 
@@ -133,14 +140,13 @@ pub async fn connect(
         .to_str()
         .map(fold_db::sync::get_or_create_device_id);
     let registered = signed_register(api_url, &keypair, invite_code, device_id.as_deref()).await?;
+    enroll_recipient_session(home, api_url, &registered.api_key, &keypair).await?;
     write_cloud_sync_config(home, api_url, &registered.api_key)?;
 
     // A fresh (or force-replaced) identity means the local store has no
     // account data yet — clear the marker so the next boot bootstraps.
     let _ = std::fs::remove_file(home.join(BOOTSTRAP_DONE_FILE));
 
-    let user_hash = host::user_hash_from_pubkey(&keypair.public_key_base64())?;
-    debug_assert_eq!(user_hash, registered.user_hash);
     eprintln!("Connected. account user_hash={}", registered.user_hash);
     eprintln!("Start (or restart) the daemon to pull the account's data and begin syncing.");
     Ok(())

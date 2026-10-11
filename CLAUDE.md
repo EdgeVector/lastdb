@@ -134,7 +134,7 @@ CLAUDE.md holds commands only. For architecture, security model, build/test
 caveats, current gates/approvals, and gotchas, ask the brain
 (`brain ask "<q>"` / `brain get <slug>`):
 
-- `concepts-fold-build-test-ci-safety` — fmt gate, offline-safe test sweep, lints (incl. byte-slice ban), workspace path-dep model, downstream submodule pointer policy.
+- `concepts-fold-build-test-ci-safety` — fmt gate, non-test lints (incl. byte-slice ban), workspace path-dep model, downstream submodule pointer policy.
 - `concepts-fold-dev-run-and-app-isolation` — dev-node flags, app-isolation opt-out, socket-only-default vs `--with-tcp`, keyless dev, log volume knobs, Lambda/CDK.
 - `concepts-fold-error-handling-idioms` — `From<SourceError>` + bare `?` and `.context()` via `fold_db::error_context::ResultExt`; error types; coding standards.
 - `concepts-fold-endpoint-registry` — `folddb_profile/environments.json` single source of truth, `build.rs` codegen, no-hardcoded-urls lint.

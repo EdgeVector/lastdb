@@ -7,11 +7,18 @@ pub use backup_latest::{
     BackupLatestCasResponse, BackupLatestGetResponse, BackupLatestPointer,
     BackupRecoveryDescriptorPut, BACKUP_LATEST_FORMAT_VERSION_V1,
 };
+mod cloud_inventory;
+mod cloud_purge;
+mod cloud_source_roots;
 mod confirm;
+mod delete_completion;
 mod list;
+mod upload_completion;
 pub use list::LogListStats;
 mod lock;
 mod photograph_latest;
+mod recipient_enrollment;
+pub use recipient_enrollment::CloudRecipientEnrollment;
 pub mod presign;
 mod presign_backup;
 mod presign_files;

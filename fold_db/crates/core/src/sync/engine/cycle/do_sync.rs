@@ -61,6 +61,10 @@ impl SyncEngine {
         // name the slow step; this line names it.
         let mut phases = SyncPhaseTimer::start();
         let (targets, partitioner) = self.target_config_snapshot().await;
+        // The permanent marker precedes upload preparation and any peer replay.
+        // A held account keeps the existing outbox and capture queues intact.
+        let targets = self.preflight_cloud_peer_targets(&targets).await?;
+        phases.mark("cloud_generation");
         let mut state = CycleState::default();
 
         tracing::info!(

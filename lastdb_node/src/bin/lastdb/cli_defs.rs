@@ -7,6 +7,8 @@ use super::*;
 mod app;
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
+#[path = "cli_defs/cloud_purge.rs"]
+mod cloud_purge;
 #[path = "cli_defs/db.rs"]
 mod db;
 #[path = "cli_defs/schema.rs"]
@@ -14,6 +16,7 @@ mod schema;
 
 pub(super) use app::*;
 pub(super) use cloud::*;
+pub(super) use cloud_purge::*;
 pub(super) use db::*;
 pub(super) use schema::*;
 
@@ -302,8 +305,8 @@ pub(super) enum Command {
         /// Recover an S0-only backup from cloud with a recovered identity and cloud config.
         #[arg(long, conflicts_with = "reuse_chunks_from")]
         remote_s0_only: bool,
-        /// Restore normal backup/latest from cloud with only identity and cloud config.
-        /// Discovery refuses more than 10,000 recovery descriptors.
+        /// Restore the Ready generation or normal backup/latest with only identity and cloud config.
+        /// Legacy discovery refuses more than 10,000 recovery descriptors.
         #[arg(long, conflicts_with = "remote_s0_only")]
         remote_latest: bool,
         /// Select one cloud database when an account has several backups.

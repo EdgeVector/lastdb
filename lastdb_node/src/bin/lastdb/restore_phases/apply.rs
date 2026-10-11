@@ -56,6 +56,7 @@ impl Apply<'_> {
                 return Ok(Applied { report, mode });
             }
             self.check_replay_allowed()?;
+            reset_continuation_seed(&self, &frontier).await?;
             self.replay_tail(&mut report, &frontier).await?;
             report.remote_read_only = true;
             Ok(Applied { report, mode })
@@ -297,7 +298,12 @@ impl Apply<'_> {
         if let Some(progress) = self.progress {
             progress.phase(fold_db::sync::engine::RestorePhase::Flush);
         }
-        fold_db.shutdown().await.map_err(|e| {
+        let flush = if self.source.recovery_control.is_some() {
+            fold_db.shutdown_local_only().await
+        } else {
+            fold_db.shutdown().await
+        };
+        flush.map_err(|e| {
             RestoreFailure::new(
                 Stage::FlushDestination,
                 Code::OperationFailed,

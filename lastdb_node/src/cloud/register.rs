@@ -46,6 +46,7 @@ pub struct ExistingIdentityDevConnectReport {
 pub(super) struct SignedRegisterRequest {
     pub(super) url: reqwest::Url,
     pub(super) body: serde_json::Value,
+    pub(super) expected_user_hash: String,
 }
 
 /// Sign `{public_key_hex}:{timestamp}` with the account key and mint a
@@ -90,15 +91,20 @@ pub(super) fn signed_register_request(
 
     let url = reqwest::Url::parse(&format!("{api_url}/api/auth/cli/register"))
         .map_err(|_| "Invalid Exemem API URL for register".to_string())?;
-    Ok(SignedRegisterRequest { url, body })
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return Err("Register requires an HTTPS endpoint without embedded credentials".into());
+    }
+    Ok(SignedRegisterRequest {
+        url,
+        body,
+        expected_user_hash: host::user_hash_from_pubkey(&keypair.public_key_base64())?,
+    })
 }
 
 pub(super) async fn send_signed_register(
     request: SignedRegisterRequest,
 ) -> Result<Registered, String> {
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
+    let client = fold_db::sync::build_shared_http_client()
         .map_err(|_| "Failed to construct the register HTTP client".to_string())?;
     let resp = client
         .post(request.url.clone())
@@ -119,10 +125,10 @@ pub(super) async fn send_signed_register(
         .text()
         .await
         .map_err(|_| "Failed to read register response".to_string())?;
-    parse_registered_response(&text)
+    parse_registered_response(&text, &request.expected_user_hash)
 }
 
-fn parse_registered_response(text: &str) -> Result<Registered, String> {
+fn parse_registered_response(text: &str, expected_user_hash: &str) -> Result<Registered, String> {
     let json: serde_json::Value = serde_json::from_str(text)
         .map_err(|_| "Register response was not valid JSON".to_string())?;
 
@@ -145,8 +151,12 @@ fn parse_registered_response(text: &str) -> Result<Registered, String> {
     // sessions, so the daemon has no reason to retain this one.
     let api_key = field("api_key")?;
     field("session_token")?;
-    Ok(Registered {
+    let registered = Registered {
         api_key,
         user_hash: field("user_hash")?,
-    })
+    };
+    if registered.user_hash != expected_user_hash {
+        return Err("Register returned credentials for another signed account".into());
+    }
+    Ok(registered)
 }

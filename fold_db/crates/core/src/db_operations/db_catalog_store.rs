@@ -10,6 +10,7 @@ use crate::storage::{StorageError, TypedKvStore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+mod cloud_purge_membership;
 
 /// Sentinel local storage prefix for the legacy unprefixed personal instance.
 /// Catalog `instance_id` stays `None`; org-sync `storage_prefixes` uses this
@@ -52,8 +53,7 @@ impl DbCatalogStore {
     /// Insert or replace one exact `(database, schema)` reference.
     pub async fn put(&self, entry: &DbCatalogEntry) -> StorageResult<()> {
         validate_entry(entry)?;
-        self.entries
-            .put_item(&entry_key(&entry.db_locator, &entry.schema_name), entry)
+        self.put_membership_batch(std::slice::from_ref(entry))
             .await?;
         self.entries.inner().flush().await
     }
@@ -94,9 +94,15 @@ impl DbCatalogStore {
     /// Delete one exact catalog reference.
     pub async fn delete(&self, db_locator: &str, schema_name: &str) -> StorageResult<bool> {
         validate_identity(db_locator, schema_name)?;
-        let deleted = self
-            .entries
-            .delete_item(&entry_key(db_locator, schema_name))
+        let key = entry_key(db_locator, schema_name);
+        let deleted = self.entries.inner().get(key.as_bytes()).await?.is_some();
+        let locator_hash = Sha256::digest(db_locator.as_bytes());
+        self.entries
+            .inner()
+            .batch_delete(vec![
+                key.into_bytes(),
+                format!("membership:{locator_hash:x}\0{schema_name}").into_bytes(),
+            ])
             .await?;
         self.entries.inner().flush().await?;
         Ok(deleted)
@@ -132,13 +138,15 @@ impl DbCatalogStore {
 
     /// Hygiene-only: enumerate catalog entries. Not a data-plane read.
     pub async fn list_entries(&self) -> StorageResult<Vec<DbCatalogEntry>> {
-        Ok(self
+        let entries = self
             .entries
             .scan_items_with_prefix("")
             .await?
             .into_iter()
+            .filter(|(key, _)| key.starts_with("v1:"))
             .map(|(_key, entry)| entry)
-            .collect())
+            .collect();
+        Ok(entries)
     }
 }
 

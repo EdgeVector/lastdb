@@ -100,7 +100,9 @@ pub async fn setup_paid(home: &Path, api_url: &str, force: bool) -> Result<(), S
     eprintln!("Opening Stripe Checkout for paid cloud sync ($10/mo, 50 GB, test mode) ...");
 
     let (checkout_url, checkout_hash) = create_paid_checkout(api_url, &keypair, None, None).await?;
-    debug_assert_eq!(user_hash, checkout_hash);
+    if user_hash != checkout_hash {
+        return Err("Checkout returned another signed account".into());
+    }
     eprintln!();
     eprintln!("Pay here (Stripe sandbox):");
     eprintln!("  {checkout_url}");
@@ -121,6 +123,7 @@ pub async fn setup_paid(home: &Path, api_url: &str, force: bool) -> Result<(), S
         .map(fold_db::sync::get_or_create_device_id);
     // No invite — server accepts when BillingTable.plan == paid for user_hash.
     let registered = signed_register(api_url, &keypair, None, device_id.as_deref()).await?;
+    enroll_recipient_session(home, api_url, &registered.api_key, &keypair).await?;
     write_cloud_sync_config(home, api_url, &registered.api_key)?;
     let _ = std::fs::remove_file(home.join(BOOTSTRAP_DONE_FILE));
 

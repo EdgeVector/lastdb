@@ -454,6 +454,12 @@ pub trait NamespacedStore: Send + Sync {
         None
     }
 
+    /// Clone the serving LastStore backup facade without reopening its active
+    /// path. Its high-water lock and physical cut locks remain shared.
+    fn laststore_backup_source(&self) -> Option<Arc<super::laststore::LastStoreNamespacedStore>> {
+        None
+    }
+
     /// Shared logical resident set, when this backend has one.
     fn logical_resident_set(
         &self,

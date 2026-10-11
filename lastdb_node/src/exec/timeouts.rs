@@ -252,6 +252,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::SyncCloudOff
         | DataRoute::SyncCloudOn
         | DataRoute::SyncCloudResumePrimary
+        | DataRoute::SyncCloudPurgeResync
         | DataRoute::SyncQuarantineReplayBlocker
         | DataRoute::AggregateRepair
         | DataRoute::DeclareSchema
@@ -322,6 +323,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbPutFileBlob
         | DataRoute::DbPutBlobLocal
         | DataRoute::DeliverStage
+        | DataRoute::RecipientAddress
         | DataRoute::DeliverSnapshot
         | DataRoute::DeliverList
         | DataRoute::DeliverApprove

@@ -24,7 +24,6 @@ otel = [
 # dep is only needed for `inject_w3c` on the `otel` path.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 # Test-only transport helpers used by the Sentry-specific observability tests.
-sentry-test = ["sentry", "sentry/test"]
 
 [dependencies]
 # Single source of truth for the honor-both node-home resolution

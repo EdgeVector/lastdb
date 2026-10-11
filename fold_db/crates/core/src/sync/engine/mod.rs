@@ -16,7 +16,7 @@
 //! - [`configure`] — share/org target configuration
 //! - [`replay`] — convergent replay / merge paths
 //!
-//! This file keeps the `SyncEngine` struct definition and Drop scrub only.
+//! This file keeps the `SyncEngine` state definition.
 
 mod backup;
 pub mod backup_atom_rewrite;
@@ -24,10 +24,20 @@ pub(crate) mod backup_keys;
 mod backup_restore;
 pub(crate) mod backup_uploader;
 mod bootstrap;
+mod cloud_purge_file_closure;
+mod cloud_purge_local;
+mod cloud_purge_org_source;
+mod cloud_purge_selected;
+mod cloud_purge_share_files;
+mod cloud_purge_shares;
 mod compact;
 mod compact_cleanup;
 mod compact_target;
 mod configure;
+pub use cloud_purge_selected::CloudPurgeWriteFence;
+mod cloud_purge_peer;
+mod cloud_purge_queue;
+mod cloud_share_refresh;
 mod cycle;
 mod file_blob;
 pub mod gc_jobs;
@@ -46,6 +56,7 @@ pub use recovery_descriptor::{RecoveryDescriptorV1, RecoveryLayoutV1};
 pub use restore_chunk_cache::RestoreChunkCache;
 mod restore_progress;
 pub use restore_progress::{RestorePhase, RestoreProgress, RestoreProgressSnapshot};
+mod secret_scrub;
 mod status_disk_cache;
 mod thumb_pack;
 mod transfer;
@@ -239,6 +250,8 @@ pub struct SyncEngine {
     target_restore_scopes: Arc<Mutex<HashMap<String, Vec<String>>>>,
     /// Serializes snapshots and updates of the partitioner + target list pair.
     target_config_lock: Arc<Mutex<()>>,
+    /// Only one owner-scoped receiver seed can publish at a time.
+    cloud_share_refresh_lock: Mutex<()>,
     /// Monotonic generation for the target/partitioner pair. Entry allocation
     /// binds its durable HWM seed to this value, and append rejects a stale
     /// generation before it can reuse a newly configured target's frontier.
@@ -630,14 +643,4 @@ pub struct SyncEngine {
     /// Most recent oversize durable-outbox drop, surfaced on [`SyncStatus`] so
     /// operators do not have to recover permanent drops from logs.
     last_oversize_outbox_drop: Arc<Mutex<Option<OversizeOutboxDropStatus>>>,
-}
-
-impl Drop for SyncEngine {
-    fn drop(&mut self) {
-        // Scrub the cached at-rest key from memory on drop (Gap G3).
-        use zeroize::Zeroize as _;
-        if let Some(key) = self.enc_key.as_mut() {
-            key.zeroize();
-        }
-    }
 }

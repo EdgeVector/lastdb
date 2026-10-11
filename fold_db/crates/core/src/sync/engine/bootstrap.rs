@@ -39,6 +39,10 @@ impl SyncEngine {
             targets[idx].clone()
         };
 
+        if target.read_binding.is_some() {
+            return self.bootstrap_foreign_share(&target).await;
+        }
+
         tracing::info!(
             "bootstrapping target '{}' (idx={}, prefix='{}')",
             target.label,
@@ -503,9 +507,10 @@ impl SyncEngine {
         // last_seq is already max(snapshot_last_seq, max(replayed_tail)).
         {
             let mut cursors = self.download_cursors.lock().await;
-            cursors.insert(target.prefix.clone(), last_seq);
+            cursors.insert(target.cursor_key(), last_seq);
         }
-        self.save_download_cursor(&target.prefix, last_seq).await;
+        self.save_download_cursor(&target.cursor_key(), last_seq)
+            .await;
 
         let org_skips = self.org_scoped_replay_skips();
         if org_skips > 0 {

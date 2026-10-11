@@ -159,8 +159,23 @@ pub struct AuthClient {
     /// request/response future so a black-holed transport cannot wedge the
     /// engine. Defaults to [`DEFAULT_AUTH_REQUEST_TIMEOUT`].
     request_timeout: Duration,
+    /// Shared durable generation interlock used by every cloud publisher.
+    cloud_purge_peer: Option<Arc<super::cloud_purge_peer::CloudPurgePeer>>,
+    /// Failure to open a durable receipt holds cloud work rather than silently
+    /// constructing a client with no interlock.
+    cloud_purge_peer_error: Option<String>,
+    /// Narrow read-only client for an inactive exact replacement restore. It
+    /// bypasses automatic adoption so the host callback cannot recurse.
+    cloud_adoption_read: Option<super::cloud_purge_peer::AdoptionPlan>,
 }
 
+mod cloud_inventory_hydration;
+mod cloud_peer;
+mod cloud_share;
+mod completion_transport;
+mod continuation;
+mod recipient_delivery;
+pub use recipient_delivery::{RecipientDeliveryBinding, RecipientDeliveryTarget};
 mod helpers;
 mod http;
 pub mod ops;

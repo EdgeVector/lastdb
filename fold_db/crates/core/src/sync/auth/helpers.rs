@@ -41,6 +41,13 @@ pub(crate) fn attach_target_scope(body: &mut serde_json::Value, target: &SyncTar
     }
     if target.prefix.starts_with("share:") {
         body["share_prefix"] = serde_json::Value::String(target.prefix.clone());
+        if let Some(binding) = &target.read_binding {
+            body["cloud_generation"] = binding.generation.into();
+            body["cloud_read_data_generation"] = binding.data_generation.into();
+            if let Some(grant) = &binding.share_grant {
+                body["share_grant"] = serde_json::json!(grant);
+            }
+        }
         return;
     }
     // Org cloud prefix = 64-char hex org_hash (see OrgSyncTarget / strip_storage_prefix).

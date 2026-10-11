@@ -90,9 +90,13 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
                     ..
                 } => {
                     let batch_log = job.batch_log.clone();
-                    let attempt =
-                        self.mm
-                            .run_deferred_job(job, envelope.commit_id, &envelope.slot_revisions);
+                    // Flush and phase scopes must not copy the full durable
+                    // write future into each worker poll frame.
+                    let attempt = Box::pin(self.mm.run_deferred_job(
+                        job,
+                        envelope.commit_id,
+                        &envelope.slot_revisions,
+                    ));
                     let attempt = async move {
                         if let Some(log) = batch_log {
                             crate::durable_flush::scope(log, attempt).await

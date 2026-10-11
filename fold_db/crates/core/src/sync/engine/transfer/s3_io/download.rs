@@ -5,6 +5,8 @@ use crate::sync::error::{SyncError, SyncResult};
 use crate::sync::org_sync::SyncTarget;
 use futures::stream::StreamExt;
 
+mod dispatch;
+
 impl SyncEngine {
     /// Attach the pin location (target + seq) to an apply failure that stopped
     /// the download cursor.
@@ -61,9 +63,9 @@ impl SyncEngine {
         seq: u64,
     ) {
         let mut cursors = self.download_cursors.lock().await;
-        cursors.insert(target.prefix.clone(), seq);
+        cursors.insert(target.cursor_key(), seq);
         drop(cursors);
-        self.save_download_cursor(&target.prefix, seq).await;
+        self.save_download_cursor(&target.cursor_key(), seq).await;
     }
 
     pub(crate) async fn new_log_seqs_after_cursor(
@@ -124,29 +126,6 @@ impl SyncEngine {
         }
     }
     /// Download entries from a target, refreshing auth once on 401.
-    pub(crate) async fn download_with_auth_retry(&self, target: &SyncTarget) -> SyncResult<u64> {
-        match self.download_entries(target).await {
-            Ok(n) => Ok(n),
-            Err(ref e) if matches!(e, SyncError::Auth(_)) => {
-                if let Some(ref refresh_cb) = self.auth_refresh {
-                    tracing::info!(
-                        "org download from '{}' auth failed, refreshing",
-                        target.label
-                    );
-                    if let Ok(new_auth) = refresh_cb().await {
-                        self.auth.update_auth(new_auth).await;
-                        return self.download_entries(target).await;
-                    }
-                }
-                Err(SyncError::Auth(format!(
-                    "download from '{}' failed after auth refresh",
-                    target.label
-                )))
-            }
-            Err(e) => Err(e),
-        }
-    }
-
     /// Download new entries from a sync target.
     ///
     /// Lists `/{prefix}/log/{seq}.enc`, downloads, unseals with the target's
@@ -174,7 +153,7 @@ impl SyncEngine {
     pub(crate) async fn download_entries(&self, target: &SyncTarget) -> SyncResult<u64> {
         let cursor = {
             let cursors = self.download_cursors.lock().await;
-            cursors.get(&target.prefix).copied().unwrap_or(0)
+            cursors.get(&target.cursor_key()).copied().unwrap_or(0)
         };
 
         let mut new_seqs = self.new_log_seqs_after_cursor(target, cursor).await?;

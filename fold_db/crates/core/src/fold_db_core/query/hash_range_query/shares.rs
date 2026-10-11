@@ -4,6 +4,8 @@ use crate::schema::types::key_value::KeyValue;
 use crate::schema::SchemaError;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
+#[cfg(feature = "sharing")]
+mod receivers;
 
 impl HashRangeQueryProcessor {
     /// Look up active `ShareSubscription`s and return a deduped list of
@@ -14,54 +16,12 @@ impl HashRangeQueryProcessor {
     /// skipped (never silently). Inactive subscriptions are excluded.
     #[cfg(feature = "sharing")]
     pub(super) async fn collect_received_from_namespaces(&self) -> Vec<String> {
-        let subs = match crate::sharing::store::list_share_subscriptions_in_ops(&self.db_ops).await
-        {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!(
-                    "HashRangeQueryProcessor: failed to list share subscriptions: {}",
-                    e
-                );
-                return Vec::new();
-            }
-        };
-
-        let mut namespaces: Vec<String> = Vec::new();
-        for sub in subs {
-            if !sub.active {
-                continue;
-            }
-            match Self::parse_sender_hash(&sub.share_prefix) {
-                Some(sender_hash) => {
-                    let ns = format!("from:{sender_hash}");
-                    if !namespaces.contains(&ns) {
-                        namespaces.push(ns);
-                    }
-                }
-                None => {
-                    // Redacted, and this one matters more than the query logs:
-                    // `error!` is the level that reaches Sentry, so the raw
-                    // string left the machine. A share prefix is
-                    // `share:{sender}:{recipient}` — two user identity hashes —
-                    // and the case that fires here is precisely the case where
-                    // the string is not the shape we assumed.
-                    //
-                    // The segment count is kept in the clear because that is
-                    // the actual diagnostic: "got 2, expected 3" is what tells
-                    // an operator whether this is a truncation, an old format,
-                    // or something else entirely. The `<id:..>` token still
-                    // correlates repeats of the same bad subscription.
-                    tracing::error!(
-                        "HashRangeQueryProcessor: subscription has unparseable \
-                         share_prefix {} with {} colon-separated segment(s) \
-                         (expected 3, 'share:{{sender}}:{{recipient}}'); skipping.",
-                        observability::redact_id!(&sub.share_prefix),
-                        sub.share_prefix.split(':').count()
-                    );
-                }
-            }
+        if let Ok(namespaces) = receivers::namespaces(&self.db_ops).await {
+            namespaces
+        } else {
+            tracing::error!("the committed inbound receiver namespaces are unavailable");
+            Vec::new()
         }
-        namespaces
     }
 
     #[cfg(not(feature = "sharing"))]
@@ -131,27 +91,13 @@ impl HashRangeQueryProcessor {
         }
     }
 
-    /// Parse the sender hash from a share prefix of the form
-    /// `share:{sender_hash}:{recipient_hash}`. Returns `None` if the prefix
-    /// doesn't match this structure.
-    #[cfg(feature = "sharing")]
-    fn parse_sender_hash(share_prefix: &str) -> Option<String> {
-        let mut parts = share_prefix.split(':');
-        let kind = parts.next()?;
-        if kind != "share" {
-            return None;
-        }
-        let sender = parts.next()?;
-        if sender.is_empty() {
-            return None;
-        }
-        Some(sender.to_string())
-    }
-
     /// Extract the sender hash from a `from:{sender_hash}` namespace prefix.
     fn sender_hash_from_namespace(namespace: &str) -> String {
         namespace
             .strip_prefix("from:")
+            .unwrap_or(namespace)
+            .split(':')
+            .next()
             .unwrap_or(namespace)
             .to_string()
     }

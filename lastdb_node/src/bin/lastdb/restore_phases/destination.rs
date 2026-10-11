@@ -113,7 +113,10 @@ pub(crate) fn build_cloud_clients(
     source_db_hash: &str,
 ) -> Phase<CloudClients> {
     let runtime = build_runtime()?;
-    let http = std::sync::Arc::new(fold_db::sync::build_shared_http_client());
+    let http = std::sync::Arc::new(
+        fold_db::sync::build_shared_http_client()
+            .map_err(|_| runtime_failure("cloud HTTPS transport unavailable"))?,
+    );
     let s3 = fold_db::sync::s3::S3Client::new(std::sync::Arc::clone(&http));
     // Publish writes `{cloud_db_hash(source store_uuid)}/backup/latest`. A
     // restore AuthClient with no db_hash looks under the authenticated
@@ -137,6 +140,15 @@ pub(crate) fn build_engine(
     identity: &Identity,
     clients: &CloudClients,
     store: &std::sync::Arc<fold_db::storage::LastStoreNamespacedStore>,
+) -> Phase<Engine> {
+    build_engine_with_auth(identity, clients, store, &clients.auth)
+}
+
+pub(crate) fn build_engine_with_auth(
+    identity: &Identity,
+    clients: &CloudClients,
+    store: &std::sync::Arc<fold_db::storage::LastStoreNamespacedStore>,
+    auth: &fold_db::sync::auth::AuthClient,
 ) -> Phase<Engine> {
     let e2e = &identity.e2e;
     // Cloud outer seal uses the account E2E content key (same key that sealed
@@ -175,7 +187,7 @@ pub(crate) fn build_engine(
         "lastdb-restore".to_string(),
         sync_crypto,
         clients.s3.clone(),
-        clients.auth.clone(),
+        auth.clone(),
         namespaced,
         fold_db::sync::SyncConfig {
             capture_mode: fold_db::sync::engine::CaptureMode::MutationLog,

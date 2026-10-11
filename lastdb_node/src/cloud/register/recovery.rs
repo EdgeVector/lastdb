@@ -26,15 +26,11 @@ pub async fn register_dev_recovery_device(
         None,
         Some(device_id),
     )?;
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
-        .build()
+    let client = fold_db::sync::build_shared_http_client()
         .map_err(|_| "cannot construct DEV recovery register client")?;
     let mut response = client
         .post(request.url.clone())
+        .timeout(Duration::from_secs(30))
         .json(&request.body)
         .send()
         .await
@@ -60,5 +56,5 @@ pub async fn register_dev_recovery_device(
         bytes.extend_from_slice(&chunk);
     }
     let text = std::str::from_utf8(&bytes).map_err(|_| "DEV recovery response is not UTF-8")?;
-    parse_registered_response(text)
+    parse_registered_response(text, &request.expected_user_hash)
 }

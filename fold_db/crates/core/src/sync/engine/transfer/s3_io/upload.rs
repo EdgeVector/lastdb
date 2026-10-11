@@ -6,6 +6,9 @@ use crate::sync::log::LogEntry;
 use crate::sync::org_sync::SyncTarget;
 use futures::stream::StreamExt;
 
+mod cloud_generation;
+mod rollback;
+
 impl SyncEngine {
     /// Upload entries to a single sync target.
     ///
@@ -126,6 +129,8 @@ impl SyncEngine {
         if entries.is_empty() {
             return Ok(UploadOutcome::default());
         }
+        let scoped_entries = self.generation_upload_entries(target, entries).await?;
+        let entries = scoped_entries.as_deref().unwrap_or(entries);
         debug_assert!(
             entries.len() <= MAX_PRESIGN_BATCH,
             "upload_entries_chunk called with {} entries (cap {})",
@@ -441,54 +446,5 @@ impl SyncEngine {
             }
         }
         Ok(bytes_uploaded)
-    }
-
-    /// Best-effort delete of server-allocated seq objects that already landed
-    /// before a sibling PUT in the same scoped chunk failed.
-    ///
-    /// Without this, a re-alloc on the next cycle permanently advances the
-    /// scoped counter while the partial objects remain, so org download's
-    /// non-contiguous listing check hard-fails forever (manual object cleanup
-    /// required). Delete failures are non-fatal: we still surface the original
-    /// PUT error and hope a later compact/operator path heals stragglers.
-    async fn rollback_scoped_partial_puts(&self, target: &SyncTarget, seqs: &[u64]) {
-        if seqs.is_empty() {
-            return;
-        }
-        let mut sorted: Vec<u64> = seqs.to_vec();
-        sorted.sort_unstable();
-        sorted.dedup();
-        tracing::warn!(
-            target: "fold_db::sync",
-            target = %target.label,
-            count = sorted.len(),
-            first = sorted.first().copied().unwrap_or(0),
-            last = sorted.last().copied().unwrap_or(0),
-            "scoped upload partial PUT: rolling back orphan seq objects before re-alloc retry"
-        );
-        for chunk in sorted.chunks(MAX_PRESIGN_BATCH) {
-            match self.auth.presign_log_delete_target(target, chunk).await {
-                Ok(urls) => {
-                    for url in urls {
-                        if let Err(e) = self.s3.delete(&url).await {
-                            tracing::warn!(
-                                target: "fold_db::sync",
-                                target = %target.label,
-                                error = %e,
-                                "scoped partial-PUT rollback delete failed (non-fatal)"
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        target: "fold_db::sync",
-                        target = %target.label,
-                        error = %e,
-                        "scoped partial-PUT rollback presign_log_delete failed (non-fatal)"
-                    );
-                }
-            }
-        }
     }
 }

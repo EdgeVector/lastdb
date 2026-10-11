@@ -209,7 +209,10 @@ pub(super) async fn run(
         .and_then(|v| v.as_str())
         .ok_or("paused cloud key absent")?
         .to_owned();
-    let http = Arc::new(fold_db::sync::build_shared_http_client());
+    let http = Arc::new(
+        fold_db::sync::build_shared_http_client()
+            .map_err(|_| "cloud HTTPS transport unavailable")?,
+    );
     let auth = AuthClient::new(Arc::clone(&http), url, SyncAuth::ApiKey(key))
         .with_db_hash(Some(cloud_db_hash_for_store_uuid(&plan.source_store_uuid)))
         .without_db_auto_claim();

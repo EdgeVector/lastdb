@@ -39,14 +39,24 @@ impl FoldDB {
     /// prevents a caller from removing the data directory before they stop.
     /// The final storage flush still runs after either drain times out.
     pub async fn shutdown(&self) -> Result<(), StorageError> {
-        self.shutdown_with_task_drain_timeout(Self::SHUTDOWN_TASK_DRAIN_TIMEOUT)
+        self.shutdown_with_task_drain_timeout(Self::SHUTDOWN_TASK_DRAIN_TIMEOUT, true)
+            .await
+    }
+
+    /// An exact retained cloud cut cannot accept a final remote replay. Join
+    /// every cadence, retain its queues, and complete all local flush barriers.
+    pub async fn shutdown_local_only(&self) -> Result<(), StorageError> {
+        self.shutdown_with_task_drain_timeout(Self::SHUTDOWN_TASK_DRAIN_TIMEOUT, false)
             .await
     }
 
     async fn shutdown_with_task_drain_timeout(
         &self,
         task_drain_timeout: std::time::Duration,
+        final_cloud_sync: bool,
     ) -> Result<(), StorageError> {
+        #[cfg(not(feature = "cloud-sync"))]
+        let _ = final_cloud_sync;
         let mut pre_flush_errors = Vec::new();
         tracing::info!(
             target: "fold_node::database",
@@ -72,7 +82,10 @@ impl FoldDB {
         self.drain_persist_lanes_before_sync(task_drain_timeout)
             .await;
         #[cfg(feature = "cloud-sync")]
-        pre_flush_errors.extend(self.stop_sync_for_shutdown(task_drain_timeout).await);
+        pre_flush_errors.extend(
+            self.stop_sync_for_shutdown(task_drain_timeout, final_cloud_sync)
+                .await,
+        );
         // The final sync can apply remote mutations. Stop lane admission only
         // after that sync finishes, then drain each accepted envelope.
         self.mutation_manager.persist_lanes().stop();
@@ -147,7 +160,11 @@ impl FoldDB {
     }
 
     #[cfg(feature = "cloud-sync")]
-    async fn stop_sync_for_shutdown(&self, task_drain_timeout: std::time::Duration) -> Vec<String> {
+    async fn stop_sync_for_shutdown(
+        &self,
+        task_drain_timeout: std::time::Duration,
+        final_cloud_sync: bool,
+    ) -> Vec<String> {
         let mut errors = Vec::new();
         if !self
             .mutation_manager
@@ -167,6 +184,9 @@ impl FoldDB {
         {
             tracing::error!(target: "fold_node::database", %error, "shutdown: local sync task did not stop");
             errors.push(format!("local sync task did not stop: {error}"));
+            return errors;
+        }
+        if !final_cloud_sync {
             return errors;
         }
         let sync_timeout = Self::shutdown_sync_timeout();
