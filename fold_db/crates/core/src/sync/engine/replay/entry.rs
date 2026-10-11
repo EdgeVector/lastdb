@@ -80,6 +80,19 @@ impl SyncEngine {
         entry: &LogEntry,
         target: Option<&SyncTarget>,
     ) -> SyncResult<()> {
+        let mut local_entry;
+        let entry = if let Some(target) = target {
+            local_entry = entry.clone();
+            crate::sync::cloud_purge_peer::scope_alias::rebind_entry(
+                self.store.as_ref(),
+                &target.prefix,
+                &mut local_entry,
+            )
+            .await?;
+            &local_entry
+        } else {
+            entry
+        };
         // The content-key provider for this entry's prefix. Record values reach
         // the sync log as the at-rest `ENC:` envelope (Syncing sits below the
         // encrypting seam — see `unwrap_at_rest_value`), so the per-key / header

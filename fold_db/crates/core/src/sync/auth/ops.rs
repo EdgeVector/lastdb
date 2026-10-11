@@ -7,8 +7,10 @@ pub use backup_latest::{
     BackupLatestCasResponse, BackupLatestGetResponse, BackupLatestPointer,
     BackupRecoveryDescriptorPut, BACKUP_LATEST_FORMAT_VERSION_V1,
 };
+mod cloud_purge;
 mod confirm;
 mod list;
+mod upload_completion;
 pub use list::LogListStats;
 mod lock;
 mod photograph_latest;

@@ -89,6 +89,24 @@ impl SyncEngine {
             throttle_reason: None,
             throttle_source: super::super::upload_policy::UploadThrottleSource::None,
         };
+        let auth = match laststore_backup_source
+            .as_ref()
+            .and_then(|source| source.durable_sidecar_dir())
+        {
+            Some(directory) => {
+                match crate::sync::cloud_purge_peer::CloudPurgePeer::directory_for_home(&directory)
+                    .and_then(|stable| {
+                        crate::sync::cloud_purge_peer::CloudPurgePeer::open(
+                            stable,
+                            device_id.clone(),
+                        )
+                    }) {
+                    Ok(peer) => auth.with_cloud_purge_peer(peer),
+                    Err(error) => auth.with_cloud_purge_peer_error(error.to_string()),
+                }
+            }
+            None => auth,
+        };
         let backup_progress_enabled = laststore_backup_source.is_some();
         // The progress tracker is process-local, but a committed LastStore
         // manifest is not. Mutation-log mode deliberately stops cutting new

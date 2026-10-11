@@ -194,4 +194,8 @@ pub struct PendingDelivery {
     /// connect. Required on Mini when `messaging_public_key` is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub messaging_pseudonym: Option<String>,
+    /// Non-secret recipient generation and stable nonce, fixed at staging.
+    /// Missing means a legacy generation-zero delivery; approval cannot rebind it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_delivery_binding: Option<Value>,
 }

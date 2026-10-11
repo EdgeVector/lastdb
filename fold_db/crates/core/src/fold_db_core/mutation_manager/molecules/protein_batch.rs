@@ -57,9 +57,12 @@ pub(super) fn eligible_protein_atoms<'a>(
 pub(super) async fn load_protein_fold_metadata(
     store: &AtomStore,
     member_uuids: &[&str],
+    storage_prefix: Option<&str>,
 ) -> Result<ProteinFoldMetadata, SchemaError> {
     let molecule_uuids = distinct_in_order(member_uuids.iter().copied());
-    let owners = store.protein_of_molecules(&molecule_uuids).await?;
+    let owners = store
+        .protein_of_molecules_in_scope(&molecule_uuids, storage_prefix)
+        .await?;
     let owners_by_molecule: HashMap<String, Option<String>> =
         molecule_uuids.into_iter().zip(owners).collect();
     let protein_uuids = distinct_in_order(member_uuids.iter().filter_map(|mol_uuid| {
@@ -68,7 +71,9 @@ pub(super) async fn load_protein_fold_metadata(
             .and_then(Option::as_ref)
             .map(String::as_str)
     }));
-    let proteins = store.protein_get_many(&protein_uuids).await?;
+    let proteins = store
+        .protein_get_many_in_scope(&protein_uuids, storage_prefix)
+        .await?;
     let proteins_by_uuid = protein_uuids.into_iter().zip(proteins).collect();
     Ok((owners_by_molecule, proteins_by_uuid))
 }

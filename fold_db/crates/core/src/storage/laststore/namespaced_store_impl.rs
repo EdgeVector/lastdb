@@ -36,6 +36,10 @@ impl NamespacedStore for LastStoreNamespacedStore {
         Some(Arc::clone(&self.store))
     }
 
+    fn laststore_backup_source(&self) -> Option<Arc<LastStoreNamespacedStore>> {
+        Some(Arc::new(self.clone()))
+    }
+
     fn logical_resident_set(&self) -> Option<Arc<Mutex<LogicalResidentSet>>> {
         Some(Arc::clone(&self.logical))
     }

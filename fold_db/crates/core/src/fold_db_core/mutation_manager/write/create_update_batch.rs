@@ -327,7 +327,7 @@ impl MutationManager {
                     // the gates on the next attempt.
                     delta.sibling_prepared = self.prepared_sibling_slot_revisions(&sibling_updates);
                     delta.sibling_updates =
-                        self.rebase_sibling_updates_on_resident(sibling_updates);
+                        self.rebase_sibling_updates_on_resident(&delta.schema, sibling_updates);
                 }
                 continue;
             }

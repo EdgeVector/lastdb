@@ -106,6 +106,7 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/sync/cloud-off", Scope::Owner, "POST", DataRoute::SyncCloudOff),
     row("/api/sync/cloud-on", Scope::Owner, "POST", DataRoute::SyncCloudOn),
     row("/api/sync/cloud-resume-primary", Scope::Owner, "POST", DataRoute::SyncCloudResumePrimary),
+    row("/api/sync/cloud-purge-resync", Scope::Owner, "POST", DataRoute::SyncCloudPurgeResync),
     row("/api/sync/quarantine-replay-blocker", Scope::Owner, "POST", DataRoute::SyncQuarantineReplayBlocker),
     row("/api/sync/backup-concurrency", Scope::Owner, "POST", DataRoute::SyncBackupConcurrency),
     row("/api/sharing/deliver", Scope::Owner, "POST", DataRoute::DeliverStage),

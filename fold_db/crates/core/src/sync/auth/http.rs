@@ -20,6 +20,9 @@ impl AuthClient {
             db_claim: Arc::new(tokio::sync::Mutex::new(None)),
             db_auto_claim: true,
             request_timeout: DEFAULT_AUTH_REQUEST_TIMEOUT,
+            cloud_purge_peer: None,
+            cloud_purge_peer_error: None,
+            cloud_adoption_read: None,
         }
     }
 
@@ -223,7 +226,7 @@ impl AuthClient {
         last
     }
 
-    fn apply_default_db_hash(&self, body: &mut serde_json::Value) {
+    pub(super) fn apply_default_db_hash(&self, body: &mut serde_json::Value) {
         let Some(db_hash) = self.db_hash.as_deref() else {
             return;
         };
@@ -270,8 +273,9 @@ impl AuthClient {
     pub(super) async fn post_once(
         &self,
         path: &str,
-        body: serde_json::Value,
+        mut body: serde_json::Value,
     ) -> SyncResult<serde_json::Value> {
+        self.guard_cloud_request(path, &mut body).await?;
         match tokio::time::timeout(self.request_timeout, self.post_once_inner(path, body)).await {
             Ok(result) => result,
             Err(_) => Err(SyncError::Network(format!(
@@ -360,6 +364,7 @@ impl AuthClient {
             .await
             .map_err(|e| SyncError::Serialization(format!("invalid JSON from auth Lambda: {e}")))?;
 
+        crate::sync::upload_completion::register_response(self, &json)?;
         Ok(json)
     }
 }

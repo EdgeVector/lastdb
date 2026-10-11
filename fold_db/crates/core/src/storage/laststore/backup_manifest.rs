@@ -723,6 +723,7 @@ fn chunk_key(chunk: &BackupChunkRef) -> (String, u16, Option<u32>, String) {
 }
 
 mod chunk_sha_memo;
+mod local_recovery;
 mod packs;
 pub use packs::*;
 mod retirement_receipts;

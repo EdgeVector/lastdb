@@ -133,6 +133,7 @@ impl LastStoreNamespacedStore {
 }
 
 mod backup;
+mod backup_file;
 mod compact_admin;
 mod index_residue;
 mod residue_drain;

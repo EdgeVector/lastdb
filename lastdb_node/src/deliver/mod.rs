@@ -1,7 +1,7 @@
 //! Consent-gated deliver stage / list / approve on LastDB Mini.
 //!
-//! Stages a query-defined `lastdb.slice.v1` into the local outbox (no network
-//! until approve). On approve, seals a `delivery_slice` to the recipient's
+//! Stages a query-defined `lastdb.slice.v1` after a read-only recipient fence
+//! check. On approve, seals a `delivery_slice` to the recipient's
 //! messaging X25519 key and POSTs it to Exemem `messaging/connect` using the
 //! node's cloud API key — Exemem remains a blind relay.
 
@@ -25,7 +25,6 @@ use fold_db::sharing::types::{
     DeliveryArtifactDescriptor, DeliveryMode, DeliveryPreview, DeliveryRecord,
     DeliverySampleRecord, DeliverySpec, PendingDelivery, StagedDeliveryArtifact,
 };
-use fold_db::storage::config::CloudSyncConfig;
 use lastdb_host::envelope::{content_free, envelope, json_ok};
 use lastdb_host::handlers::render;
 use lastdb_host::handlers::resolve_schema_name;
@@ -37,7 +36,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
-use std::path::Path;
 use uuid::Uuid;
 
 /// Messaging blob hard cap (matches messaging_service 64KB base64 ≈ 87382 chars).
@@ -71,6 +69,7 @@ pub struct DeliverySlicePayload {
 }
 
 mod approve;
+mod cloud_generation;
 mod filters;
 mod legs;
 mod publish;
@@ -87,12 +86,6 @@ fn error_json(status: u16, message: &str, ctx: &AccessContext) -> UdsResponse {
 
 fn ok_json(value: &serde_json::Value, ctx: &AccessContext) -> UdsResponse {
     json_ok(&envelope(value, ctx.user_id.as_str()))
-}
-
-fn load_cloud_sync(home: &Path) -> Option<CloudSyncConfig> {
-    let path = home.join(crate::host::CLOUD_SYNC_CONFIG_FILE);
-    let raw = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&raw).ok()
 }
 
 /// Parse `/api/sharing/deliveries/{id}/approve|reject` path tails.

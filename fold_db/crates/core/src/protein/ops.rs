@@ -20,6 +20,11 @@ use super::types::{
 
 mod batch;
 
+struct ProteinTipScope<'a> {
+    honor_tip_lww: bool,
+    storage_prefix: Option<&'a str>,
+}
+
 impl AtomStore {
     /// Create a new empty protein (UUID identity). Membership is empty until
     /// [`Self::protein_add_member`].
@@ -409,7 +414,17 @@ impl AtomStore {
         keypair: &Ed25519KeyPair,
     ) -> Result<(), SchemaError> {
         let (molecule_uuid, mut mol, changed) = self
-            .protein_member_tip_update(molecule_uuid, hash, range, tip, keypair, false)
+            .protein_member_tip_update(
+                molecule_uuid,
+                hash,
+                range,
+                tip,
+                keypair,
+                ProteinTipScope {
+                    honor_tip_lww: false,
+                    storage_prefix: None,
+                },
+            )
             .await?;
         self.store_molecule_changed_keys(&molecule_uuid, &mol, &changed, None)
             .await?;
@@ -424,13 +439,13 @@ impl AtomStore {
         range: &str,
         tip: &AtomEntry,
         keypair: &Ed25519KeyPair,
-        honor_tip_lww: bool,
+        scope: ProteinTipScope<'_>,
     ) -> Result<(String, MoleculeData, HashSet<ChangedKey>), SchemaError> {
         let changed: HashSet<ChangedKey> =
             HashSet::from([ChangedKey::hash_range(hash.to_string(), range.to_string())]);
 
         let mut mol: MoleculeData = match self
-            .load_molecule_for_write(molecule_uuid, None, &changed)
+            .load_molecule_for_write(molecule_uuid, scope.storage_prefix, &changed)
             .await?
         {
             Some(m) => m,
@@ -448,7 +463,7 @@ impl AtomStore {
         // Local folds mint a fresh clock via set_atom_uuid_from_values.
         // Imported/replay folds must keep the envelope written_at/writer and
         // LWW-skip when a newer sibling tip already won.
-        if honor_tip_lww {
+        if scope.honor_tip_lww {
             let writer = if tip.device_id.is_empty() {
                 tip.writer_pubkey.clone()
             } else {

@@ -90,8 +90,6 @@ storage-v2 = ["dep:lastdb_docstore"]
 # kernel. Disable default features, then re-enable the product features without
 # this one, to build the system-allocator comparison binary.
 purging-allocator = ["dep:mimalloc", "dep:libmimalloc-sys"]
-# Test-only Sentry transport helpers used by the crash-telemetry event tests.
-sentry-test = ["sentry-telemetry", "sentry/test", "observability/sentry-test"]
 
 [dependencies]
 fold_db = { workspace = true }
@@ -111,7 +109,7 @@ app_identity_crypto = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["process"] }
 futures = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

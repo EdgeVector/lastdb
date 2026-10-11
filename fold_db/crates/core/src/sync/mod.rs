@@ -63,6 +63,8 @@
 
 pub mod auth;
 pub(crate) mod capture;
+pub mod cloud_purge;
+pub mod cloud_purge_peer;
 pub mod engine;
 pub mod error;
 pub mod log;
@@ -78,6 +80,7 @@ pub mod snapshot;
 /// Continuous cloud sync v1 object model (snapshot + log + frontier + CAS).
 /// Design: brain `design-lastdb-cloud-sync-snapshot-log`.
 pub mod snapshot_log;
+pub(crate) mod upload_completion;
 
 pub use crate::backup_progress::{
     format_backup_progress_line, BackupCycleSample, BackupProgressSnapshot, BackupProgressTracker,

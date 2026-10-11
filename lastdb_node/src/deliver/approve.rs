@@ -58,18 +58,8 @@ pub async fn execute_approve_delivery(
         );
     }
 
-    let cloud = match require_cloud_sync(host, ctx) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
-
-    if let Err(e) = post_messaging_connect(
-        &cloud.api_url,
-        &cloud.api_key,
-        &messaging_pseudonym,
-        &encrypted_blob,
-    )
-    .await
+    if let Err(e) =
+        super::cloud_generation::send(host, &delivery, &messaging_pseudonym, &encrypted_blob).await
     {
         return error_json(502, &format!("messaging send failed: {e}"), ctx);
     }
@@ -140,55 +130,4 @@ fn delivery_target(
     let mut target_pk = [0u8; 32];
     target_pk.copy_from_slice(&pk_bytes);
     Ok((target_pk, messaging_pseudonym.clone()))
-}
-
-fn require_cloud_sync(host: &Host, ctx: &AccessContext) -> Result<CloudSyncConfig, UdsResponse> {
-    match load_cloud_sync(&host.home) {
-        Some(c) if !c.api_url.is_empty() && !c.api_key.is_empty() => Ok(c),
-        Some(_) => Err(error_json(
-            400,
-            "cloud_sync.json present but api_key empty — re-run lastdb connect / re-register",
-            ctx,
-        )),
-        None => Err(error_json(
-            400,
-            "cloud_sync.json required to send via Exemem messaging",
-            ctx,
-        )),
-    }
-}
-
-async fn post_messaging_connect(
-    api_url: &str,
-    api_key: &str,
-    target_pseudonym: &str,
-    encrypted_blob: &str,
-) -> Result<(), String> {
-    let base = api_url.trim_end_matches('/');
-    // Exemem HTTP API mounts messaging under `/api/...` (see exemem-stack
-    // MessagingConnect route). Do not call bare `/messaging/connect` — that
-    // 404s on API Gateway.
-    let url = if base.ends_with("/api") {
-        format!("{base}/messaging/connect")
-    } else {
-        format!("{base}/api/messaging/connect")
-    };
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("X-API-Key", api_key)
-        .json(&serde_json::json!({
-            "target_pseudonym": target_pseudonym,
-            "encrypted_blob": encrypted_blob,
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("http error: {e}"))?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("status {status}: {body}"));
-    }
-    Ok(())
 }

@@ -53,6 +53,7 @@ pub(crate) fn drain_background(
 ) -> Result<(), String> {
     runtime.block_on(async {
         let drain = async {
+            lastdb_node::cloud_purge_runtime::drain(&host.home).await?;
             sampler_task
                 .await
                 .map_err(|error| format!("self-metrics task failed: {error}"))?;

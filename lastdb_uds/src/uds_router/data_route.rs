@@ -271,6 +271,8 @@ pub enum DataRoute {
     SyncCloudOn,
     /// `POST /api/sync/cloud-resume-primary` — durable owner job or status.
     SyncCloudResumePrimary,
+    /// Owner-controlled account cloud replacement with a durable job.
+    SyncCloudPurgeResync,
     /// `POST /api/sync/quarantine-replay-blocker` — clear the exact active
     /// `replay_blocker` (target+seq required). Corrupt entries delete the cloud
     /// object; apply-failed pins skip locally without deleting. OWNER only.

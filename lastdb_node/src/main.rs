@@ -153,6 +153,7 @@ fn main() -> Result<(), String> {
     // Schema resolve/register must go to the same environment the home syncs
     // to (papercut-lastdbd-connect-env-dev-still-uses-prod-schema-service).
     cloud::pin_schema_service_environment_from_home(&home);
+    runtime.block_on(lastdb_node::cloud_purge_adoption::before_boot(&home))?;
 
     // A Rust panic => a durable local crash report. Under `panic = "abort"` the
     // hook is the last code to run, so the report lands before the process dies.
@@ -180,6 +181,12 @@ fn main() -> Result<(), String> {
         let _ = host.own_boot_identity.set(ledger.own_record());
     }
     let shutdown_flag = Arc::new(AtomicBool::new(false));
+    runtime
+        .block_on(lastdb_node::cloud_purge_runtime::attach(
+            &host,
+            Arc::clone(&shutdown_flag),
+        ))
+        .map_err(&note_fatal)?;
     let sample_interval = lastdb_node::self_metrics::sample_interval_from_env();
     let (sampler_task, home_fold_task) = {
         let _runtime_guard = runtime.enter();
@@ -255,6 +262,12 @@ fn main() -> Result<(), String> {
     }
     if let Err(error) = worker_pool.close_and_drain(shutdown::shutdown_handler_drain_timeout()) {
         shutdown_errors.push(format!("request handlers did not drain: {error}"));
+    }
+    if let Err(error) = runtime.block_on(lastdb_node::cloud_purge_runtime::drain(&home)) {
+        shutdown_errors.push(error);
+    }
+    if let Err(error) = lastdb_node::cloud_purge_runtime::release_for_shutdown(&home) {
+        shutdown_errors.push(error);
     }
     if let Err(error) = shutdown::drain_background(&runtime, &host, sampler_task, home_fold_task) {
         shutdown_errors.push(error);

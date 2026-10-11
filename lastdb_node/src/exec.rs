@@ -187,6 +187,7 @@ macro_rules! heap_delivery {
 
 mod admin_routes;
 mod app_routes;
+mod cloud_purge_routes;
 mod db_compact_routes;
 mod dispatch;
 mod introspection_routes;

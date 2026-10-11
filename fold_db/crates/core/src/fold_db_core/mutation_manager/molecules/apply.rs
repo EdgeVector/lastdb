@@ -108,6 +108,7 @@ impl MutationManager {
     /// revision snapshot detects a change after this preparation starts.
     pub(in crate::fold_db_core::mutation_manager) fn rebase_sibling_updates_on_resident(
         &self,
+        schema: &Schema,
         sibling_updates: Vec<(
             String,
             crate::db_operations::MoleculeData,
@@ -119,6 +120,14 @@ impl MutationManager {
         HashSet<ChangedKey>,
     )> {
         use crate::atom::{AtomEntry, MoleculeHashRange};
+
+        if schema
+            .runtime_fields
+            .values()
+            .any(|field| field.common().storage_prefix().is_some())
+        {
+            return sibling_updates;
+        }
 
         let resident = self.resident_graph();
         let mut slot_heads: HashMap<(String, String, String), Option<AtomEntry>> = HashMap::new();
@@ -251,8 +260,15 @@ impl MutationManager {
         let eligible =
             eligible_protein_atoms(schema, schema_mutations, mutation_key_values, atom_results);
         let member_uuids: Vec<&str> = eligible.iter().map(|(_, _, mol_uuid)| *mol_uuid).collect();
-        let (owners_by_molecule, proteins_by_uuid) =
-            load_protein_fold_metadata(store, &member_uuids).await?;
+        let (owners_by_molecule, proteins_by_uuid) = load_protein_fold_metadata(
+            store,
+            &member_uuids,
+            schema
+                .runtime_fields
+                .values()
+                .find_map(|field| field.common().storage_prefix()),
+        )
+        .await?;
 
         // Keep the atom order. Two fields can target the same sibling slot,
         // and the later tip must still observe the earlier update.
@@ -325,6 +341,16 @@ impl MutationManager {
                     atom.uuid(),
                     keypair,
                     author_clock,
+                    schema
+                        .runtime_fields
+                        .values()
+                        .find(|field| {
+                            field
+                                .common()
+                                .molecule_uuid()
+                                .is_some_and(|id| id == mol_uuid)
+                        })
+                        .and_then(|field| field.common().storage_prefix()),
                 )
                 .await?;
             for (sibling_molecule, data, mut changed) in updates {

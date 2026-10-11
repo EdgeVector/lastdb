@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 mod append;
 mod audit;
+mod cloud_generation;
 mod compaction;
 mod frontier;
 mod keys;

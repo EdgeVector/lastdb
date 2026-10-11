@@ -7,6 +7,8 @@ use super::*;
 mod app;
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
+#[path = "cli_defs/cloud_purge.rs"]
+mod cloud_purge;
 #[path = "cli_defs/db.rs"]
 mod db;
 #[path = "cli_defs/schema.rs"]
@@ -14,6 +16,7 @@ mod schema;
 
 pub(super) use app::*;
 pub(super) use cloud::*;
+pub(super) use cloud_purge::*;
 pub(super) use db::*;
 pub(super) use schema::*;
 
