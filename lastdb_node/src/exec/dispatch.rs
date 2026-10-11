@@ -448,6 +448,9 @@ pub(super) async fn dispatch_data_route(
         DataRoute::DeliverStage => {
             heap_route!(crate::deliver::execute_stage_delivery, req, ctx, host).await
         }
+        DataRoute::RecipientAddress => {
+            heap_route_ctx_host!(crate::deliver::execute_recipient_address, ctx, host).await
+        }
         DataRoute::DeliverSnapshot => {
             heap_route!(crate::deliver::execute_publish_snapshot, req, ctx, host).await
         }
@@ -525,6 +528,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         DataRoute::MoleculeHistory | DataRoute::AppChanges => OpKind::History,
         DataRoute::AtomContent => OpKind::Atom,
         DataRoute::DeliverStage
+        | DataRoute::RecipientAddress
         | DataRoute::DeliverSnapshot
         | DataRoute::DeliverList
         | DataRoute::DeliverApprove

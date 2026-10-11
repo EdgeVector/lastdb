@@ -74,11 +74,13 @@ mod cloud_generation;
 mod filters;
 mod legs;
 mod publish;
+mod recipient;
 mod stage;
 mod types;
 
 pub use approve::{execute_approve_delivery, execute_reject_delivery};
 pub use publish::execute_publish_snapshot;
+pub use recipient::execute_recipient_address;
 pub use stage::{execute_list_deliveries, execute_stage_delivery};
 
 fn error_json(status: u16, message: &str, ctx: &AccessContext) -> UdsResponse {

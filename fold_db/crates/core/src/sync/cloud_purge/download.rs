@@ -122,7 +122,7 @@ async fn download_one(
         files::verify_file(&destination, item.object.bytes, &item.object.sha256)?;
         return Ok((item.object, destination));
     }
-    let mut request = client.get(&item.url);
+    let mut request = client.get(cloud_url(&item.url)?);
     for (name, value) in &item.headers {
         request = request.header(name, value);
     }
@@ -172,4 +172,19 @@ async fn download_one(
     )?
     .sync_all()?;
     Ok((item.object, destination))
+}
+
+fn cloud_url(url: &str) -> SyncResult<reqwest::Url> {
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|_| SyncError::Network("invalid replacement transfer URL".into()))?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(SyncError::Network(
+            "replacement transfers require HTTPS".into(),
+        ));
+    }
+    Ok(parsed)
 }

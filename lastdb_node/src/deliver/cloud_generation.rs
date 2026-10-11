@@ -14,6 +14,7 @@ pub(super) async fn prepare(
     delivery_id: &str,
 ) -> Result<Value, String> {
     let auth = auth(host).await?;
+    super::recipient::address(host).await?;
     let binding = auth
         .prepare_recipient_delivery(
             RecipientDeliveryTarget::Messaging {
@@ -41,6 +42,7 @@ pub(super) async fn send(
         })
         .transpose()?;
     let auth = auth(host).await?;
+    super::recipient::address(host).await?;
     auth.send_recipient_messaging(
         target_pseudonym,
         &delivery.delivery_id,

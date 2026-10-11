@@ -28,6 +28,9 @@ pub(super) async fn prepare(
         envelope: staged.envelope,
         artifact: delivery.artifact.clone(),
     };
+    let mut payload = serde_json::to_value(payload).map_err(|_| "delivery payload is invalid")?;
+    payload["sender_recipient"] = serde_json::to_value(super::recipient::address(host).await?)
+        .map_err(|_| "sender recipient address is invalid")?;
     let sealed = seal_and_encrypt_message(target_pk, &payload, host.keypair.as_ref())
         .map_err(|error| format!("seal delivery failed: {error}"))?;
     let blob = B64.encode(sealed);

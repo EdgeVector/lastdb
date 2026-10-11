@@ -481,6 +481,9 @@ pub enum DataRoute {
     /// `POST /api/sharing/deliver` — stage a consent-gated snapshot delivery.
     /// OWNER socket only; no network until approve.
     DeliverStage,
+    /// `POST /api/sharing/recipient` — enroll a new address and return its signed announcement.
+    /// OWNER socket only; never claims an existing caller-selected UUID.
+    RecipientAddress,
     /// `POST /api/sharing/snapshot` — materialize + seal a query snapshot and
     /// return `snapshot_key = sha256(canonical_query || recipient)` + sealed
     /// blob (no messaging append; object-store publishers overwrite by key).

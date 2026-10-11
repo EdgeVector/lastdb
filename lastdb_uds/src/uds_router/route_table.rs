@@ -110,6 +110,7 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/sync/quarantine-replay-blocker", Scope::Owner, "POST", DataRoute::SyncQuarantineReplayBlocker),
     row("/api/sync/backup-concurrency", Scope::Owner, "POST", DataRoute::SyncBackupConcurrency),
     row("/api/sharing/deliver", Scope::Owner, "POST", DataRoute::DeliverStage),
+    row("/api/sharing/recipient", Scope::Owner, "POST", DataRoute::RecipientAddress),
     row("/api/sharing/snapshot", Scope::Owner, "POST", DataRoute::DeliverSnapshot),
     row("/api/sharing/deliveries", Scope::Owner, "GET", DataRoute::DeliverList),
     row("/api/query", Scope::Both, "POST", DataRoute::Query),

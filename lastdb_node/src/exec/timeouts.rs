@@ -323,6 +323,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbPutFileBlob
         | DataRoute::DbPutBlobLocal
         | DataRoute::DeliverStage
+        | DataRoute::RecipientAddress
         | DataRoute::DeliverSnapshot
         | DataRoute::DeliverList
         | DataRoute::DeliverApprove

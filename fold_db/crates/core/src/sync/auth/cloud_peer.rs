@@ -302,6 +302,7 @@ fn is_control_action(action: &str) -> bool {
             | "cloud_control_download"
             | "cloud_purge_prepare"
             | "cloud_source_root_register"
+            | "cloud_recipient_enroll"
             | "cloud_purge_inventory_stage"
             | "cloud_purge_inventory_seal"
             | "cloud_purge_begin"
