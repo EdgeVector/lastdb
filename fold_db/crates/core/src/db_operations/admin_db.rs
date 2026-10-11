@@ -130,6 +130,7 @@ mod gc_atoms_probe_support;
 mod gc_orphans;
 mod history_prune;
 mod inventory;
+mod inventory_key_classes;
 mod inventory_molecule_keys;
 mod inventory_tip_format;
 mod order_log;

@@ -1,5 +1,12 @@
 use super::*;
 
+/// Raw `mk:` rows per storage page. Bounds one pass's transient scan
+/// allocation independently of store size.
+const SCAN_PAGE: usize = 2048;
+/// Wall-clock budget for one pass, well under the 600s control-socket
+/// read deadline. Also enforced only at molecule boundaries.
+const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(240);
+
 impl AtomStore {
     /// Audit every `moc:{M}` order-log count against its molecule's live `mk:`
     /// record count. Read-only; see [`OrderLogAudit`] for the invariant and why
@@ -16,46 +23,16 @@ impl AtomStore {
     /// a molecule with more keys than the cap and never finish it, so no pass
     /// would ever decide it and the cursor would not advance. Overshooting one
     /// molecule is the cheaper failure.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn audit_order_log_counts(
         &self,
         max_keys: Option<usize>,
         after_key: Option<&str>,
         storage_prefix: Option<&str>,
     ) -> Result<OrderLogAudit, SchemaError> {
-        /// Raw `mk:` rows per storage page. Bounds one pass's transient scan
-        /// allocation independently of store size.
-        const SCAN_PAGE: usize = 2048;
-        /// Wall-clock budget for one pass, well under the 600s control-socket
-        /// read deadline. Also enforced only at molecule boundaries.
-        const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(240);
-
         let pass_started = std::time::Instant::now();
         let mut report = OrderLogAudit::default();
 
-        // 1. The order counts. Small class, read whole — the audit needs random
-        // access to it by molecule, and paging a map it will fully materialize
-        // anyway buys nothing.
-        let (_moc_colon, moc_start, moc_end) = moc_plane(storage_prefix);
-        let mut order_counts: HashMap<String, u64> = HashMap::new();
-        for (k, v) in self
-            .raw()
-            .inner()
-            .scan_range(moc_start.as_bytes(), moc_end.as_bytes())
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("scan moc order counts: {e}")))?
-        {
-            let key = String::from_utf8_lossy(&k).into_owned();
-            let Some(molecule) = moc_molecule_from_key(&key) else {
-                continue;
-            };
-            let Ok(count) = serde_json::from_slice::<u64>(&v) else {
-                report.order_counts_unreadable += 1;
-                continue;
-            };
-            report.order_counts_read += 1;
-            order_counts.insert(molecule, count);
-        }
+        let order_counts = self.read_order_counts(&mut report, storage_prefix).await?;
 
         // 2. The key counts, in key order so molecules complete in order.
         let mk_prefix = build_storage_key(storage_prefix, molecule_key_codec::MK_PREFIX);
@@ -116,16 +93,15 @@ impl AtomStore {
                     _ => {
                         // Left the previous molecule: it is now fully walked.
                         if let Some(done) = open.take() {
-                            self.decide_order_log_molecule(
-                                &mut report,
-                                &order_counts,
-                                &done.molecule,
-                                done.raw_keys,
-                                done.unique.len() as u64,
-                                storage_prefix,
-                            )
-                            .await;
-                            decided_molecules.insert(done.molecule);
+                            let molecule = self
+                                .decide_open_molecule(
+                                    &mut report,
+                                    &order_counts,
+                                    done,
+                                    storage_prefix,
+                                )
+                                .await;
+                            decided_molecules.insert(molecule);
                             report.next_after_key = last_key_of_open.take();
                         }
                         if stop_at_boundary {
@@ -171,16 +147,10 @@ impl AtomStore {
 
         // The keyspace ended, so the molecule still open is complete too.
         if let Some(done) = open.take() {
-            self.decide_order_log_molecule(
-                &mut report,
-                &order_counts,
-                &done.molecule,
-                done.raw_keys,
-                done.unique.len() as u64,
-                storage_prefix,
-            )
-            .await;
-            decided_molecules.insert(done.molecule);
+            let molecule = self
+                .decide_open_molecule(&mut report, &order_counts, done, storage_prefix)
+                .await;
+            decided_molecules.insert(molecule);
         }
         report.next_after_key = None;
         let whole_keyspace = after_key.is_none();
@@ -190,6 +160,58 @@ impl AtomStore {
             &decided_molecules,
             whole_keyspace,
         ))
+    }
+
+    /// Read every `moc:{M}` order count into a map, counting unreadable rows.
+    async fn read_order_counts(
+        &self,
+        report: &mut OrderLogAudit,
+        storage_prefix: Option<&str>,
+    ) -> Result<HashMap<String, u64>, SchemaError> {
+        // The order counts. Small class, read whole — the audit needs random
+        // access to it by molecule, and paging a map it will fully materialize
+        // anyway buys nothing.
+        let (_moc_colon, moc_start, moc_end) = moc_plane(storage_prefix);
+        let mut order_counts: HashMap<String, u64> = HashMap::new();
+        for (k, v) in self
+            .raw()
+            .inner()
+            .scan_range(moc_start.as_bytes(), moc_end.as_bytes())
+            .await
+            .map_err(|e| SchemaError::InvalidData(format!("scan moc order counts: {e}")))?
+        {
+            let key = String::from_utf8_lossy(&k).into_owned();
+            let Some(molecule) = moc_molecule_from_key(&key) else {
+                continue;
+            };
+            let Ok(count) = serde_json::from_slice::<u64>(&v) else {
+                report.order_counts_unreadable += 1;
+                continue;
+            };
+            report.order_counts_read += 1;
+            order_counts.insert(molecule, count);
+        }
+        Ok(order_counts)
+    }
+
+    /// Decide a fully walked molecule and return its uuid.
+    async fn decide_open_molecule(
+        &self,
+        report: &mut OrderLogAudit,
+        order_counts: &HashMap<String, u64>,
+        done: OpenMoleculeWalk,
+        storage_prefix: Option<&str>,
+    ) -> String {
+        self.decide_order_log_molecule(
+            report,
+            order_counts,
+            &done.molecule,
+            done.raw_keys,
+            done.unique.len() as u64,
+            storage_prefix,
+        )
+        .await;
+        done.molecule
     }
 
     /// The verb writes nothing. SampleN reads `mk:` tips.

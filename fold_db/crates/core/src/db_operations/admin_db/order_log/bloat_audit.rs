@@ -1,5 +1,8 @@
 use super::*;
 
+const SCAN_PAGE: usize = 2048;
+const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(240);
+
 impl AtomStore {
     /// Audit every `moc:{M}` order-log count against its molecule's live logical
     /// `mk:` slots and measure exact stored bytes of excess residue. Read-only.
@@ -22,16 +25,12 @@ impl AtomStore {
     /// classifying zero-live residue itself. Deferring that classification to
     /// the terminal page is what made this verb unrunnable on a real store:
     /// the walk was bounded and the resulting delete batch was not.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn audit_order_log_bloat(
         &self,
         max_keys: Option<usize>,
         after_key: Option<&str>,
         storage_prefix: Option<&str>,
     ) -> Result<OrderLogBloatAudit, SchemaError> {
-        const SCAN_PAGE: usize = 2048;
-        const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(240);
-
         let pass_started = std::time::Instant::now();
         let mut report = OrderLogBloatAudit::default();
 
@@ -57,28 +56,9 @@ impl AtomStore {
                 .await;
         }
 
-        // 1. Snapshot every order count (and the count record's exact bytes).
-        // Walk `moc\0` and leftover `moc:` together — writes are kind-as-partition.
-        let mut order_counts: HashMap<String, (u64, u64)> = HashMap::new();
-        for (k, v) in self
-            .raw()
-            .inner()
-            .scan_range(moc_start.as_bytes(), moc_end.as_bytes())
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("scan moc order counts (bloat): {e}")))?
-        {
-            let key = String::from_utf8_lossy(&k).into_owned();
-            let Some(molecule) = moc_molecule_from_key(&key) else {
-                continue;
-            };
-            let Ok(count) = serde_json::from_slice::<u64>(&v) else {
-                report.order_counts_unreadable += 1;
-                continue;
-            };
-            report.order_counts_read += 1;
-            let moc_bytes = k.len() as u64 + v.len() as u64;
-            order_counts.insert(molecule, (count, moc_bytes));
-        }
+        let order_counts = self
+            .snapshot_order_counts_with_bytes(&mut report, &moc_start, &moc_end)
+            .await?;
 
         // 2. Walk live keys, decide each molecule at its boundary.
         let mk_prefix = build_storage_key(storage_prefix, molecule_key_codec::MK_PREFIX);
@@ -129,12 +109,10 @@ impl AtomStore {
                     }
                     _ => {
                         if let Some(done) = open.take() {
-                            self.decide_order_log_bloat_molecule(
+                            self.decide_open_bloat_molecule(
                                 &mut report,
                                 &order_counts,
-                                &done.molecule,
-                                done.raw_keys,
-                                done.unique.len() as u64,
+                                done,
                                 storage_prefix,
                             )
                             .await?;
@@ -168,15 +146,8 @@ impl AtomStore {
         }
 
         if let Some(done) = open.take() {
-            self.decide_order_log_bloat_molecule(
-                &mut report,
-                &order_counts,
-                &done.molecule,
-                done.raw_keys,
-                done.unique.len() as u64,
-                storage_prefix,
-            )
-            .await?;
+            self.decide_open_bloat_molecule(&mut report, &order_counts, done, storage_prefix)
+                .await?;
         }
         // The `mk:` walk is finished. Zero-live classification used to happen
         // right here, over the whole-store `order_counts` map, and
@@ -199,6 +170,56 @@ impl AtomStore {
             remaining,
             pass_started,
             PASS_TIME_BUDGET,
+            storage_prefix,
+        )
+        .await
+    }
+
+    /// Snapshot every order count and the count record's exact bytes.
+    async fn snapshot_order_counts_with_bytes(
+        &self,
+        report: &mut OrderLogBloatAudit,
+        moc_start: &str,
+        moc_end: &str,
+    ) -> Result<HashMap<String, (u64, u64)>, SchemaError> {
+        // Walk `moc\0` and leftover `moc:` together — writes are kind-as-partition.
+        let mut order_counts: HashMap<String, (u64, u64)> = HashMap::new();
+        for (k, v) in self
+            .raw()
+            .inner()
+            .scan_range(moc_start.as_bytes(), moc_end.as_bytes())
+            .await
+            .map_err(|e| SchemaError::InvalidData(format!("scan moc order counts (bloat): {e}")))?
+        {
+            let key = String::from_utf8_lossy(&k).into_owned();
+            let Some(molecule) = moc_molecule_from_key(&key) else {
+                continue;
+            };
+            let Ok(count) = serde_json::from_slice::<u64>(&v) else {
+                report.order_counts_unreadable += 1;
+                continue;
+            };
+            report.order_counts_read += 1;
+            let moc_bytes = k.len() as u64 + v.len() as u64;
+            order_counts.insert(molecule, (count, moc_bytes));
+        }
+        Ok(order_counts)
+    }
+
+    /// Decide a fully walked molecule against its order count.
+    async fn decide_open_bloat_molecule(
+        &self,
+        report: &mut OrderLogBloatAudit,
+        order_counts: &HashMap<String, (u64, u64)>,
+        done: OpenMoleculeWalk,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        self.decide_order_log_bloat_molecule(
+            report,
+            order_counts,
+            &done.molecule,
+            done.raw_keys,
+            done.unique.len() as u64,
             storage_prefix,
         )
         .await
