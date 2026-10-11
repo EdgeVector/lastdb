@@ -204,32 +204,6 @@ pub fn api_key_tail(api_key: &str) -> String {
     api_key[len - 6..].to_string()
 }
 
-/// Resolve the API key for the active env: explicit `--api-key` wins,
-/// else `EXEMEM_DEV_API_KEY` (or the profile's `api_key_env` override).
-///
-/// NOTE: this does **not** consult the secure store. The store-backed
-/// fallback (the key a `folddb login` persisted) lives in
-/// `fold_db_node`'s `resolve_api_key_with_store` — the `folddb` CLI's
-/// publish/promote paths use that one so an invited developer, who has no
-/// env var and no `--api-key`, can still publish with the key login saved
-/// for them. The `folddb dev` dev node uses the bare resolver here plus its
-/// own separate Ed25519 keypair store.
-pub fn resolve_api_key(profile: &EnvProfile, explicit: Option<&str>) -> Option<String> {
-    if let Some(key) = explicit {
-        let trimmed = key.trim();
-        if !trimmed.is_empty() {
-            return Some(key.to_string());
-        }
-    }
-    let var_name = profile
-        .api_key_env
-        .as_deref()
-        .unwrap_or("EXEMEM_DEV_API_KEY");
-    std::env::var(var_name)
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-}
-
 /// Re-export — handy for callers that want to format the URL without
 /// touching `endpoints` directly.
 pub use crate::endpoints::Environment as ProfileEnvironment;

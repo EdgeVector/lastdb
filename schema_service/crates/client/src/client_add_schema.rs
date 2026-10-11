@@ -50,21 +50,6 @@ impl SchemaServiceClient {
         }
     }
 
-    /// Like [`Self::add_schema`] but preserves the typed 409
-    /// `DescriptiveNameConflict` so callers can drive UI prompts off the
-    /// existing canonical hash rather than parsing an error string. 2xx
-    /// responses produce `AddSchemaOutcome::Accepted`; 409 produces
-    /// `AddSchemaOutcome::Conflict`. Everything else returns
-    /// `FoldDbError`.
-    pub async fn add_schema_typed(
-        &self,
-        schema: &Schema,
-        mutation_mappers: HashMap<String, String>,
-    ) -> FoldDbResult<AddSchemaOutcome> {
-        self.add_schema_typed_with_match_source(schema, mutation_mappers, "direct", None)
-            .await
-    }
-
     pub async fn add_schema_typed_with_match_source(
         &self,
         schema: &Schema,

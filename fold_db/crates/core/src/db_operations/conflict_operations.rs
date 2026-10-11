@@ -179,21 +179,6 @@ impl DbOperations {
         }
     }
 
-    /// Whether this home holds any unresolved conflict.
-    ///
-    /// `Some(false)` is the only clean answer, and only a complete stamp with
-    /// no named molecule produces it. `None` is unknown, not clean.
-    pub async fn home_has_unresolved_conflicts(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Option<bool> {
-        match self.read_home_conflict_annotation(storage_prefix).await {
-            HomeConflictAnnotation::Known { molecules } => Some(!molecules.is_empty()),
-            HomeConflictAnnotation::Incomplete { .. } => Some(true),
-            HomeConflictAnnotation::Unknown | HomeConflictAnnotation::Disabled => None,
-        }
-    }
-
     /// List all unresolved sync conflicts, optionally filtered by molecule UUID.
     /// When `storage_prefix` is `Some`, scans org-prefixed keys.
     pub async fn get_unresolved_conflicts(

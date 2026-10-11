@@ -1,6 +1,5 @@
 //! Accessors, local writes, and metadata.
 
-use crate::schema::types::key_config::KeyConfig;
 use crate::schema::types::key_value::KeyValue;
 use crate::security::Ed25519KeyPair;
 use chrono::{DateTime, Utc};
@@ -20,50 +19,6 @@ impl MoleculeHashRange {
     #[must_use]
     pub fn updated_at(&self) -> DateTime<Utc> {
         self.updated_at
-    }
-
-    /// Adds an atom UUID using a KeyConfig for field mapping.
-    ///
-    /// When the existing entry at `(hash, range)` already references the
-    /// same `atom_uuid` **and** was signed by the supplied `keypair`'s
-    /// pubkey, this is a complete no-op: `updated_at`, the existing
-    /// entry's `written_at`, and the existing signature are all
-    /// preserved. The `written_at` invariant is load-bearing —
-    /// `merge` consumes `AtomEntry.written_at` for last-writer-wins
-    /// per-key resolution, so silently bumping it on a no-op write
-    /// changes cross-node merge outcomes (mirror of PR #114's merge-side
-    /// fix and PR #123's `MoleculeHash` write-path fix). See
-    /// `MoleculeRange::set_atom_uuid` for the rationale on the
-    /// `writer_pubkey` check.
-    pub fn set_atom_uuid(
-        &mut self,
-        key_config: &KeyConfig,
-        atom_uuid: String,
-        keypair: &Ed25519KeyPair,
-    ) {
-        let hash = key_config.hash_field.clone().unwrap();
-        let range = key_config.range_field.clone().unwrap();
-        let device_id = keypair.public_key_base64();
-        // Thin tip no-op: same atom already bound for this device.
-        if self.get_atom_entry(&hash, &range).is_some_and(|e| {
-            e.atom_uuid == atom_uuid
-                && (e.device_id == device_id
-                    || e.writer_pubkey == device_id
-                    || (e.device_id.is_empty() && e.writer_pubkey.is_empty()))
-        }) {
-            return;
-        }
-        let prev_tip_id = self.archive_current_tip(&hash, &range, &atom_uuid);
-        let value_changed = self.get_atom_uuid(&hash, &range) != Some(&atom_uuid);
-        if value_changed {
-            self.version += 1;
-        }
-        let written_at = now_nanos();
-        self.atom_uuids.entry(hash).or_default().insert(
-            range,
-            AtomEntry::thin_with_prev(atom_uuid, written_at, device_id, prev_tip_id),
-        );
-        self.updated_at = Utc::now();
     }
 
     /// Adds an atom UUID using explicit hash and range values.

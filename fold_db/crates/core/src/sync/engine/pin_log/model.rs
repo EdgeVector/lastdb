@@ -527,11 +527,6 @@ impl MutationLogLocalCloud {
             .unwrap_or(0)
     }
 
-    /// Distinct writer_ids that have at least one sealed segment on the plane.
-    pub fn writer_ids(&self) -> Vec<String> {
-        self.vector_frontier().into_keys().collect()
-    }
-
     /// Vector frontier F as `{ writer_id → through_seq }` (design Phase B).
     pub fn vector_frontier(&self) -> BTreeMap<String, u64> {
         self.published_f.vector_frontier()

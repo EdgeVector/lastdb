@@ -22,16 +22,3 @@ pub const INTERNAL_INDEX_SCHEMAS: &[&str] = &[
     "AI Conversations",
     "ExtractionRule",
 ];
-
-/// Whether the given schema (identified by canonical name and optional
-/// descriptive name) is in the [`INTERNAL_INDEX_SCHEMAS`] allow-list.
-#[must_use]
-pub fn is_internal_index_schema(canonical_name: &str, descriptive_name: Option<&str>) -> bool {
-    if INTERNAL_INDEX_SCHEMAS.contains(&canonical_name) {
-        return true;
-    }
-    match descriptive_name {
-        Some(d) => INTERNAL_INDEX_SCHEMAS.contains(&d),
-        None => false,
-    }
-}

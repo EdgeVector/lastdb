@@ -70,39 +70,6 @@ impl EncryptingNamespacedStore {
         Ok(migrated)
     }
 
-    /// Startup migration sweep over an **entire** encrypted namespace.
-    ///
-    /// Like [`encrypt_legacy_plaintext`](Self::encrypt_legacy_plaintext) but
-    /// for namespaces without a meaningful key prefix to scope on — every key
-    /// (empty-prefix scan) is re-encrypted if it lacks the `ENC:` marker. This
-    /// is the sweep used for [`DEFAULT_ENCRYPT_FLIPPED_NAMESPACES`], whose
-    /// values became encrypted wholesale when the [`PLAINTEXT_NAMESPACES`]
-    /// allowlist was inverted. Idempotent and effectively free once migration
-    /// has completed (already-encrypted values are skipped). Returns the number
-    /// of values re-encrypted; `Ok(0)` when the namespace is plaintext-by-policy
-    /// or empty.
-    /// **Run this before a namespace joins the encrypted set, never after.**
-    ///
-    /// Since `decision-2026-09-14-drop-dual-read-unsealed-is-gone` an
-    /// un-enveloped row in an encrypted namespace reads as absent. So a
-    /// namespace that flips from plaintext to encrypted loses sight of every
-    /// row it still holds in cleartext the moment it flips. This sweep is the
-    /// one way to carry those rows across, and it only works while the
-    /// namespace is still plaintext by policy.
-    ///
-    /// It is no longer driven from boot. A boot-time sweep would have sealed
-    /// whatever plaintext it found, which is the bulk form of the read-path
-    /// healing that decision removed: it takes a row nothing vouched for and
-    /// makes it durable and trusted. Sealing cleartext is now a deliberate
-    /// operator act with a named reason, not something a restart does quietly.
-    pub async fn encrypt_legacy_plaintext_namespace(
-        &self,
-        namespace: &str,
-    ) -> StorageResult<usize> {
-        // An empty prefix matches every key in the namespace.
-        self.encrypt_legacy_plaintext(namespace, &[""]).await
-    }
-
     /// Startup migration sweep: **decrypt** residual `ENC:` values to plaintext
     /// for a namespace that is plaintext-by-policy (or becoming so).
     ///

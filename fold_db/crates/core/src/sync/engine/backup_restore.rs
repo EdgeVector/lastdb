@@ -16,10 +16,7 @@ use crate::storage::laststore::{
 };
 use crate::sync::snapshot_log::Frontier;
 use futures::{stream::FuturesOrdered, StreamExt};
-pub use pointer::{
-    restore_laststore_cloud_backup_from_latest_pointer,
-    restore_laststore_cloud_backup_from_latest_pointer_with_cache,
-};
+pub use pointer::restore_laststore_cloud_backup_from_latest_pointer_with_cache;
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::time::Instant;
@@ -398,20 +395,6 @@ async fn restore_into_with_cache<T: S0RestoreTarget + ?Sized>(
         mutation_log_replay: None,
         mutation_log_snapshot_frontier: None,
     })
-}
-
-/// Published S0 cut only: latest pointer + tip manifest, no chunk install.
-///
-/// Used when dest already has a committed LastStore backup (restore --into
-/// failed during mutation-log apply, or an operator resumes). `cut_csn` is the
-/// frontier for [`super::SyncEngine::restore_mutation_log_after_s0`].
-pub async fn laststore_published_backup_cut(
-    auth: &AuthClient,
-    s3: &S3Client,
-) -> SyncResult<LastStoreCloudRestoreReport> {
-    laststore_published_backup_cut_detailed(auth, s3)
-        .await
-        .map_err(|failure| failure.source)
 }
 
 /// Read the published S0 cut with typed failure boundaries, without a target

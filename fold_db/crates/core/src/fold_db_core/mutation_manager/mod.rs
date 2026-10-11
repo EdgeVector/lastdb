@@ -534,16 +534,6 @@ impl MutationManager {
         self.pending_tasks.wait_for_completion(timeout).await
     }
 
-    /// Explicitly opt subsequent writes into or out of tip-version history.
-    ///
-    /// The settled Mini default is `false`. This DB-wide seam keeps callers
-    /// that genuinely require `as_of` history explicit until schema-level
-    /// retention policy replaces it.
-    pub fn set_tip_history_enabled_for_writes(&self, enabled: bool) {
-        self.tip_history_enabled
-            .store(enabled, std::sync::atomic::Ordering::Relaxed);
-    }
-
     #[inline]
     fn tip_history_enabled_for_writes(&self) -> bool {
         self.tip_history_enabled

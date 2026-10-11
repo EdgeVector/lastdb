@@ -391,25 +391,6 @@ pub fn apply_page(
     checkpoint
 }
 
-/// Group the keep-small projection by owner.
-///
-/// `resolve_owner` is called once per metered schema name. Callers pass an
-/// in-memory schema-metadata lookup; this function never touches the store.
-///
-/// An owner row carries its schemas' atom bytes **plus** the tip and
-/// bookkeeping bytes the write path traced to those schemas' molecules.
-/// Structural bytes that belong to no schema stay on the `unattributed` row.
-pub fn build_report(
-    snapshot: &KeepSmallSnapshot,
-    resolve_owner: &dyn Fn(&str) -> OwnerResolution,
-) -> AppStorageReport {
-    build_report_with_lag(
-        snapshot,
-        resolve_owner,
-        &ReconciliationCheckpoint::default(),
-    )
-}
-
 /// Same as [`build_report`], with lag from a durable checkpoint.
 pub fn build_report_with_lag(
     snapshot: &KeepSmallSnapshot,

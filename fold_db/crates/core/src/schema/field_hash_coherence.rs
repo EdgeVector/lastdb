@@ -28,8 +28,6 @@ use crate::protein::ProteinMember;
 use crate::schema::types::key_config::KeyConfig;
 use crate::schema::types::DeclarativeSchemaDefinition;
 use crate::schema::SchemaError;
-use crate::security::Ed25519KeyPair;
-use serde_json::Value;
 
 /// Diagnostic breadcrumb: field identity → the protein that carries it.
 ///
@@ -387,23 +385,4 @@ pub async fn bind_cross_key_record_protein(
         &KeyLayoutFingerprint::from_schema(target),
     )
     .await
-}
-
-/// Write content via entry molecule under a field-hash protein (sync fold).
-pub async fn protein_write_field_with_sync_fold(
-    store: &AtomStore,
-    entry_molecule_uuid: &str,
-    fields: &HashMap<String, String>,
-    content: Value,
-    keypair: &Ed25519KeyPair,
-) -> Result<(String, String), SchemaError> {
-    let outcome = store
-        .protein_write_via_member(entry_molecule_uuid, fields, content, keypair)
-        .await?;
-    if outcome.fold_jobs_enqueued > 0 {
-        let _ = store
-            .protein_process_folds(outcome.fold_jobs_enqueued.saturating_mul(4).max(16))
-            .await?;
-    }
-    Ok((outcome.protein_uuid, outcome.atom_uuid))
 }

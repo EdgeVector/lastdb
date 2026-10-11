@@ -59,24 +59,20 @@ use crate::mini_cutover::{
 };
 use async_trait::async_trait;
 pub use backup_descriptor::{
-    assemble_descriptor_root, build_descriptor_pages, canonical_bytes,
-    descriptor_entries_from_manifest, is_stored_bytes_sha256_hex, parse_descriptor_page,
-    parse_retirement_receipt_v2, sign_carry_receipt, sign_descriptor_page,
-    sign_retirement_receipt_v2, verify_carry_receipt, verify_descriptor_page,
-    verify_retirement_receipt_v2, CanonicalRecord, CarryReceipt, DescriptorEntry,
-    DescriptorObjectClass, DescriptorPage, DescriptorPageHeader, DescriptorRootView,
-    EncryptedManifestCommitment, RetiredInstance, RetirementReceiptV2, SelectedAtomsRecord,
+    canonical_bytes, CanonicalRecord, CarryReceipt, DescriptorEntry, DescriptorObjectClass,
+    DescriptorPage, DescriptorPageHeader, DescriptorRootView, EncryptedManifestCommitment,
+    RetiredInstance, RetirementReceiptV2, SelectedAtomsRecord,
 };
 pub use backup_manifest::{
     apply_cas_proven_unbackable_retirement, apply_named_hole_exclusions,
-    cas_proven_named_hole_shas, cas_proven_unbackable_atom_shas, classify_descriptor_chain_step,
-    classify_manifest_chain_step, compute_backup_storage_footprint,
-    enumerate_backup_publish_target_candidates, manifest_referenced_chunk_shas,
-    manifest_sha256_hex, select_orphan_backup_chunk_shas, unbackable_manifest_chunk_count,
-    validate_manifest_chain, validate_manifest_chain_before_packing, AtomPhotographCopyReport,
-    BackupChunkRef, BackupChunkScan, BackupChunkUploadCandidate, BackupDeletionReceipt,
-    BackupManifest, BackupManifestChainStep, BackupManifestRole, BackupNamedHole,
-    BackupPackLocation, BackupStorageFootprint, CloudChunkPresence, DescriptorChainStep,
+    cas_proven_named_hole_shas, cas_proven_unbackable_atom_shas, classify_manifest_chain_step,
+    compute_backup_storage_footprint, enumerate_backup_publish_target_candidates,
+    manifest_referenced_chunk_shas, manifest_sha256_hex, select_orphan_backup_chunk_shas,
+    unbackable_manifest_chunk_count, validate_manifest_chain,
+    validate_manifest_chain_before_packing, AtomPhotographCopyReport, BackupChunkRef,
+    BackupChunkScan, BackupChunkUploadCandidate, BackupDeletionReceipt, BackupManifest,
+    BackupManifestChainStep, BackupManifestRole, BackupNamedHole, BackupPackLocation,
+    BackupStorageFootprint, CloudChunkPresence, DescriptorChainStep,
     StampCommittedSuccessorHistoryReport, UnresolvableChunk, DESCRIPTOR_VERSION, MANIFEST_VERSION,
     NAMED_HOLE_REASON_ABSENT_LOCAL_AND_CLOUD, PACKED_MANIFEST_VERSION,
     UNBACKABLE_RETIREMENT_REASON_ABSENT_LOCAL_AND_CLOUD,
@@ -85,8 +81,8 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 pub use dual_read_metrics::{
     apply_tip_residue_copy_page, classify_conflict_residue_copy, classify_index_residue_copy,
     classify_order_log_residue_copy, classify_protein_residue_copy, classify_tip_residue_copy,
-    dual_read_metrics_reset, dual_read_metrics_snapshot, DualReadMetricsSnapshot,
-    PlaneResidueCopyAction, TipResidueCopyAction, TipResidueCopyPageReport, CONFLICT_KEY_PREFIXES,
+    dual_read_metrics_snapshot, DualReadMetricsSnapshot, PlaneResidueCopyAction,
+    TipResidueCopyAction, TipResidueCopyPageReport, CONFLICT_KEY_PREFIXES,
     INDEX_RESIDUE_KEY_PREFIXES, INDEX_RESIDUE_LEGACY_COLLECTIONS, ORDER_LOG_KEY_PREFIXES,
     PROTEIN_FAMILY_KEY_PREFIXES, TIP_RESIDUE_KEY_PREFIXES, TIP_RESIDUE_LEGACY_COLLECTIONS,
 };

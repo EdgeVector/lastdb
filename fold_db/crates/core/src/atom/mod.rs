@@ -27,22 +27,20 @@ pub use molecule_key_codec::{
     HashKeyEncoding, MoleculeKeyCodec, MoleculeKeyCodecError, RangeKeyEncoding,
 };
 pub use molecule_uuid::{
-    encode_molecule_uuid_bytes, encode_molecule_uuid_hex, legacy_hex_molecule_uuid,
-    molecule_uuid_alt_encoding, molecule_uuid_read_candidates, MOLECULE_UUID_B64URL_LEN,
-    MOLECULE_UUID_HEX_LEN,
+    encode_molecule_uuid_bytes, encode_molecule_uuid_hex, molecule_uuid_alt_encoding,
+    molecule_uuid_read_candidates, MOLECULE_UUID_B64URL_LEN, MOLECULE_UUID_HEX_LEN,
 };
 pub use mutation_event::{
     FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,
 };
 pub use provenance::{ImportedFieldProvenance, MoleculeRef, Provenance};
 pub use size_limit::{
-    atom_content_byte_len, enforce_atom_content_limit, ensure_atom_content_within_limit,
-    is_over_default_limit, max_atom_content_bytes, observe_atom_content_over_default,
-    parse_max_atom_content_bytes, ABSOLUTE_MAX_ATOM_CONTENT_BYTES, DEFAULT_MAX_ATOM_CONTENT_BYTES,
-    HEADROOM_ALARM_FRACTION, MAX_ATOM_CONTENT_BYTES, MAX_ATOM_CONTENT_BYTES_ENV,
-    MIN_MAX_ATOM_CONTENT_BYTES,
+    atom_content_byte_len, enforce_atom_content_limit, is_over_default_limit,
+    max_atom_content_bytes, observe_atom_content_over_default, parse_max_atom_content_bytes,
+    ABSOLUTE_MAX_ATOM_CONTENT_BYTES, DEFAULT_MAX_ATOM_CONTENT_BYTES, HEADROOM_ALARM_FRACTION,
+    MAX_ATOM_CONTENT_BYTES, MAX_ATOM_CONTENT_BYTES_ENV, MIN_MAX_ATOM_CONTENT_BYTES,
 };
-pub use tombstone::{is_tombstone_value, tombstone_content, TOMBSTONE_KEY};
+pub use tombstone::{is_tombstone_value, TOMBSTONE_KEY};
 
 /// Deterministic LWW total order for sync merges (minimal tip design).
 ///

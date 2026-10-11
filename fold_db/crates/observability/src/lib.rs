@@ -41,13 +41,9 @@ pub mod truncate;
 pub use xxhash_rust;
 
 pub use crash::{
-    crash_reports_dir, install_crash_hook, list_crash_reports, resolve_crash_report,
-    scan_and_warn_previous_crashes, CrashContext,
+    crash_reports_dir, install_crash_hook, scan_and_warn_previous_crashes, CrashContext,
 };
-pub use init::{
-    init_cli, init_lambda, init_node, init_node_with_web, installed_service_name,
-    NodeObsGuardWithWeb, ObsGuard, ObsHandles,
-};
+pub use init::{init_cli, init_lambda, init_node, NodeObsGuardWithWeb, ObsGuard, ObsHandles};
 pub use layers::error::capture_error;
 
 /// Errors raised by `init_*` helpers and other crate-level operations.

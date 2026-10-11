@@ -115,28 +115,6 @@ impl SyncEngine {
         }
     }
 
-    /// List + download continuous mutation-log segments from the personal cloud
-    /// prefix that are not wholly covered by `incorporated_frontier`.
-    ///
-    /// Classic `LogEntry` objects that still share the flat `log/` namespace are
-    /// skipped (unseal-as-segment fails). Fail-closed only when a listed object
-    /// that *is* a mutation-log segment cannot be authenticated/decoded.
-    pub async fn download_mutation_log_segments_above(
-        &self,
-        incorporated_frontier: &Frontier,
-    ) -> SyncResult<Vec<MutationLogSegment>> {
-        let target = {
-            let targets = self.targets.lock().await;
-            targets.first().cloned().ok_or_else(|| {
-                SyncError::Storage(
-                    "download mutation-log segments: no personal sync target".to_string(),
-                )
-            })?
-        };
-        self.download_mutation_log_segments_above_target(&target, incorporated_frontier)
-            .await
-    }
-
     pub(crate) async fn download_mutation_log_segments_above_target(
         &self,
         target: &SyncTarget,

@@ -43,11 +43,6 @@ pub const HEADER_POW_EXPIRES_AT: &str = "X-Pow-Expires-At";
 pub const HEADER_POW_COUNTER: &str = "X-Pow-Counter";
 pub const HEADER_DEV_PUBKEY: &str = "X-Dev-Pubkey";
 
-/// ASCII-lowercase form of a canonical Title-Case header name.
-pub fn header_name_ascii_lowercase(canonical: &str) -> String {
-    canonical.to_ascii_lowercase()
-}
-
 type HmacSha256 = Hmac<Sha256>;
 
 mod config;

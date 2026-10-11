@@ -30,7 +30,7 @@ pub use local_first_resolver::{
     LocalFirstSchemaResolver, LocalShadowSummary, NoopPackStore, SharedSurfaceAttachmentRecord,
     SharedSurfacePublishOutcome, SharedSurfacePublishRequest, SharedSurfacePublishResult,
 };
-pub use resolver_pack_http::{content_length_exceeds_cap, join_object_url, HttpResolverPackStore};
+pub use resolver_pack_http::{join_object_url, HttpResolverPackStore};
 
 use app_identity_crypto::{
     compute_payload_hash, key_id, sign_envelope, Env, Purpose, SignatureEnvelope, SigningKey,

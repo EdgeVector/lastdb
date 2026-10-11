@@ -138,60 +138,6 @@ impl KeepSmallMeters {
         Ok(())
     }
 
-    /// Replace all molecule counter state after an isolated-copy scan.
-    /// Fails closed: marks incomplete if any lock operation fails, never partial bootstrap.
-    pub fn install_molecule_counter_bootstrap(
-        &self,
-        counters: HashMap<String, MoleculeStorageCounter>,
-        tip_sources: HashMap<String, MoleculeTipCounterSource>,
-        key_bytes: HashMap<String, u64>,
-        molecule_schema: HashMap<String, String>,
-    ) -> Result<(), String> {
-        let mut molecules = self
-            .molecules
-            .lock()
-            .map_err(|e| format!("molecules lock: {e}"))?;
-        *molecules = counters;
-        drop(molecules);
-
-        let mut last_tip_atom = self
-            .last_tip_atom
-            .lock()
-            .map_err(|e| format!("last_tip_atom lock: {e}"))?;
-        *last_tip_atom = tip_sources;
-        drop(last_tip_atom);
-
-        let mut last_key_bytes = self
-            .last_key_bytes
-            .lock()
-            .map_err(|e| format!("last_key_bytes lock: {e}"))?;
-        *last_key_bytes = key_bytes;
-        drop(last_key_bytes);
-
-        let mut molecule_schema_map = self
-            .molecule_schema
-            .lock()
-            .map_err(|e| format!("molecule_schema lock: {e}"))?;
-        *molecule_schema_map = molecule_schema;
-        drop(molecule_schema_map);
-
-        let mut trust = self.trust.lock().map_err(|e| format!("trust lock: {e}"))?;
-        trust.global = MeterDomainTrust::incomplete("molecule_only_bootstrap");
-        for domain in trust.schemas.values_mut() {
-            *domain = MeterDomainTrust::incomplete("molecule_only_bootstrap");
-        }
-        trust.molecules = MeterDomainTrust {
-            state: MeterTrustState::Reconciled,
-            cause: None,
-        };
-        drop(trust);
-
-        self.molecule_counters_complete
-            .store(true, Ordering::Relaxed);
-        self.mark_all_schemas_dirty();
-        Ok(())
-    }
-
     /// Publish a complete candidate only after its durable snapshot is safe.
     /// Fails closed: marks incomplete if import fails, never silently partial.
     pub fn install_repaired_snapshot(&self, snapshot: KeepSmallSnapshot) -> Result<(), String> {

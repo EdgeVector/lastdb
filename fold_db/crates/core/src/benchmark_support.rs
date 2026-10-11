@@ -104,13 +104,6 @@ impl BenchmarkSchemaBuilder {
         self
     }
 
-    /// Add a ref field (e.g. "posts" -> "Post")
-    pub fn ref_field(mut self, field: &str, target_schema: &str) -> Self {
-        self.ref_fields
-            .insert(field.to_string(), target_schema.to_string());
-        self
-    }
-
     /// Build the schema as a JSON string suitable for load_schema_from_json
     pub fn build_json(&self) -> String {
         let mut classifications = serde_json::Map::new();

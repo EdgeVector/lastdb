@@ -44,9 +44,6 @@ const COLLECTION_NAME_ANCHORS: &[&str] = &[
     "Blog Posts",
 ];
 
-/// Minimum cosine similarity to any anchor for a descriptive_name to be accepted.
-const COLLECTION_NAME_SIMILARITY_THRESHOLD: f32 = 0.3;
-
 impl SchemaServiceState {
     /// Compute embeddings for the reference collection name anchors.
     /// Returns an empty vec if the embedding model is unavailable.
@@ -67,55 +64,6 @@ impl SchemaServiceState {
             }
         }
         anchors
-    }
-
-    /// Check whether a descriptive_name looks like a proper collection name
-    /// rather than an AI-generated caption or description.
-    ///
-    /// Applies fast heuristic pre-filters (word count, sentence patterns) first,
-    /// then uses embedding similarity against reference collection names when the
-    /// embedding model is available.
-    pub fn is_valid_collection_name(&self, name: &str) -> bool {
-        // Fast pre-filter: names with more than 8 words are almost certainly captions
-        let word_count = name.split_whitespace().count();
-        if word_count > 8 {
-            return false;
-        }
-
-        // Fast pre-filter: reject names that start with common sentence/caption patterns.
-        // These are dead giveaways of AI-generated descriptions regardless of embedding similarity.
-        let dn_lower = name.to_lowercase();
-        if CAPTION_PREFIXES.iter().any(|p| dn_lower.starts_with(p)) {
-            return false;
-        }
-
-        // If anchors are empty (embedding model unavailable), use heuristic fallback
-        if self.collection_name_anchors.is_empty() {
-            return Self::heuristic_collection_name_check(name);
-        }
-
-        // Compute embedding for the candidate name
-        let Ok(candidate_embedding) = self.embedder.embed_text(name) else {
-            return Self::heuristic_collection_name_check(name);
-        };
-
-        // Find max cosine similarity to any anchor
-        let max_sim = self
-            .collection_name_anchors
-            .iter()
-            .map(|anchor| cosine_similarity(&candidate_embedding, anchor))
-            .fold(f32::NEG_INFINITY, f32::max);
-
-        max_sim >= COLLECTION_NAME_SIMILARITY_THRESHOLD
-    }
-
-    /// Heuristic fallback when embedding model is unavailable.
-    /// Rejects names that match any caption prefix or exceed 80 characters.
-    pub(super) fn heuristic_collection_name_check(name: &str) -> bool {
-        let dn_lower = name.to_lowercase();
-        let is_caption =
-            CAPTION_PREFIXES.iter().any(|p| dn_lower.starts_with(p)) || name.len() > 80;
-        !is_caption
     }
 
     /// Detect AI-generated captions/descriptions masquerading as names.

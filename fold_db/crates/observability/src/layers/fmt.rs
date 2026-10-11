@@ -122,29 +122,6 @@ pub fn rotated_log_segments(canonical_path: &Path) -> Vec<PathBuf> {
     segments.into_iter().map(|(_, _, p)| p).collect()
 }
 
-/// The newest on-disk log segment for a canonical log path — the file the
-/// appender is *currently* writing to, or `None` if no segment exists yet.
-///
-/// The rolling appender never writes the canonical `…/observability.jsonl`
-/// itself; it writes dated `…/observability.<YYYY-MM-DD>.jsonl` segments. So a
-/// user-facing `tail -f …/observability.jsonl` always fails. This returns the
-/// real, current filename to advertise instead. It is derived from
-/// [`rotated_log_segments`] (newest-first) rather than recomputing the date
-/// ourselves, so it can never drift from the appender's naming — including the
-/// UTC-vs-local date boundary, since `tracing_appender` stamps segments in UTC.
-pub fn current_log_segment(canonical_path: &Path) -> Option<PathBuf> {
-    rotated_log_segments(canonical_path).into_iter().next()
-}
-
-/// A shell glob that matches every on-disk segment for a canonical log path
-/// (`…/observability.*.jsonl`). Safe to hand to `tail -f` or `cat` so a
-/// copy-pasted command keeps working across a daily roll. Pairs with
-/// [`current_log_segment`] for the "advertise the real path" use case.
-pub fn log_segment_glob(canonical_path: &Path) -> PathBuf {
-    let (dir, prefix, suffix) = split_log_path(canonical_path);
-    dir.join(format!("{prefix}.*.{suffix}"))
-}
-
 /// Split a canonical log-file path (e.g. `…/observability.jsonl`) into the
 /// `(directory, filename_prefix, filename_suffix)` the rolling appender needs.
 ///

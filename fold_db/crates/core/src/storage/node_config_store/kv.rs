@@ -34,14 +34,6 @@ impl NodeConfigStore {
         })
     }
 
-    pub(super) fn set_many(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> Result<(), StorageError> {
-        let store = self.store.clone();
-        block_on_storage(async move {
-            store.batch_put(items).await?;
-            store.flush().await
-        })
-    }
-
     pub fn is_empty(&self) -> bool {
         // On lock contention / IO error, report NOT empty: a transiently
         // locked DB must never read as a fresh node, or onboarding/bootstrap

@@ -345,26 +345,6 @@ pub fn crash_reports_dir(folddb_home: impl AsRef<Path>) -> PathBuf {
     folddb_home.as_ref().join(CRASH_REPORTS_DIR)
 }
 
-/// List crash-report paths newest → oldest. Empty when the directory is
-/// absent. Drives `folddb crash-reports list`.
-pub fn list_crash_reports(folddb_home: impl AsRef<Path>) -> Vec<PathBuf> {
-    let dir = crash_reports_dir(folddb_home);
-    let mut reports = list_reports(&dir);
-    reports.sort_by_key(|r| std::cmp::Reverse(r.modified_ms));
-    reports.into_iter().map(|r| r.path).collect()
-}
-
-/// Resolve a single report path by its timestamp stem (the filename without
-/// the `.txt` extension). Accepts either the on-disk filename-safe form
-/// (`2026-06-19T04-32-00.000Z`) or the human RFC3339 form
-/// (`2026-06-19T04:32:00.000Z`); the latter is normalised. Returns the path
-/// only when it exists. Drives `folddb crash-reports show <ts>`.
-pub fn resolve_crash_report(folddb_home: impl AsRef<Path>, ts: &str) -> Option<PathBuf> {
-    let stem = ts.trim().trim_end_matches(".txt").replace(':', "-");
-    let path = crash_reports_dir(folddb_home).join(format!("{stem}.txt"));
-    path.exists().then_some(path)
-}
-
 // ---------------------------------------------------------------------------
 // RFC3339 UTC formatting (dependency-free)
 // ---------------------------------------------------------------------------

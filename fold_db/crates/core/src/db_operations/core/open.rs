@@ -30,21 +30,6 @@ impl DbOperations {
         .await
     }
 
-    /// Like [`Self::from_namespaced_store`], additionally sealing atom
-    /// `content` when `atom_content_key` is set (plain hash-group packaging).
-    /// HashKey encoding defaults to plain.
-    pub async fn from_namespaced_store_with_atom_content_key(
-        store: Arc<dyn NamespacedStore>,
-        atom_content_key: Option<[u8; 32]>,
-    ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_atom_content_and_hash_key(
-            store,
-            atom_content_key,
-            crate::atom::MoleculeKeyCodec::plain(),
-        )
-        .await
-    }
-
     /// Like [`Self::from_namespaced_store_with_atom_content_key`], with an
     /// explicit HashKey storage encoding (design-lastdb-hashkey-blind-v1).
     pub async fn from_namespaced_store_with_atom_content_and_hash_key(

@@ -161,21 +161,6 @@ pub const HEADROOM_ALARM_FRACTION: f64 = 0.8;
 /// so a runtime assertion could never fail anyway.
 const _: () = assert!(HEADROOM_ALARM_FRACTION > 0.5 && HEADROOM_ALARM_FRACTION < 1.0);
 
-/// Reject atom content larger than the effective limit ([`max_atom_content_bytes`]).
-///
-/// Returns [`SchemaError::AtomContentTooLarge`] with the measured size and limit.
-///
-/// Prefer [`enforce_atom_content_limit`] at a write path: this function alone
-/// records nothing, so a rejection it produces is invisible in the node log.
-pub fn ensure_atom_content_within_limit(content: &Value) -> Result<(), SchemaError> {
-    let size = atom_content_byte_len(content);
-    let limit = max_atom_content_bytes();
-    if size > limit {
-        return Err(SchemaError::AtomContentTooLarge { size, limit });
-    }
-    Ok(())
-}
-
 /// The write-path choke point: enforce the limit **and** record what happened,
 /// with the schema name attached in both directions.
 ///

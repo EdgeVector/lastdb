@@ -410,31 +410,6 @@ impl FoldDB {
         }
     }
 
-    /// Register an org cloud-sync target (org_hash prefix + shared E2E key).
-    ///
-    /// Persists to the primary storage backend and reconfigures the live sync
-    /// engine when cloud sync is enabled. When sync is dormant (no
-    /// `cloud_sync.json`), the target is still stored so the next boot with
-    /// sync can pick it up.
-    ///
-    /// `e2e_key_b64` is the base64 32-byte org AES key (from LastSecrets).
-    pub async fn register_org_sync_target(
-        &self,
-        org_hash: &str,
-        e2e_key_b64: &str,
-        slug: &str,
-    ) -> Result<crate::sharing::OrgSyncTarget, crate::error::FoldDbError> {
-        let target = crate::sharing::upsert_org_sync_target_in_ops(
-            self.db_ops(),
-            org_hash,
-            e2e_key_b64,
-            slug,
-        )
-        .await?;
-        self.apply_org_sync_targets_from_store().await?;
-        Ok(target)
-    }
-
     /// Register an org cloud target for one explicit local database prefix.
     pub async fn register_org_sync_target_for_storage_prefix(
         &self,

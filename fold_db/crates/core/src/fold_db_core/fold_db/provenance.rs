@@ -7,24 +7,6 @@ use crate::schema::SchemaError;
 use super::FoldDB;
 
 impl FoldDB {
-    /// Extracts every field's molecule signature for the record at `key` in
-    /// transplantable form (see [`crate::atom::ImportedFieldProvenance`]).
-    /// Sender side of cross-node provenance: an outbound `data_share` calls
-    /// this so the receiver can verify and store the original author's
-    /// signatures instead of re-signing the records locally. Fields whose
-    /// entry at `key` is absent or unsigned are simply omitted — the caller
-    /// degrades those fields to attribution-only sharing.
-    pub async fn field_provenance_for_key(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
-    ) -> Result<HashMap<String, ImportedFieldProvenance>, SchemaError> {
-        let mut by_key = self
-            .field_provenance_for_keys(schema_name, std::slice::from_ref(key))
-            .await?;
-        Ok(by_key.remove(key).unwrap_or_default())
-    }
-
     /// Batch variant of [`Self::field_provenance_for_key`]: extract signed
     /// provenance for MANY record keys of one schema while loading the schema
     /// and refreshing each field's molecule exactly once, instead of once per

@@ -176,25 +176,6 @@ impl DualReadMetrics {
             by_design_hits_by_collection: attribution_vec(&self.by_design_by_collection),
         }
     }
-
-    fn reset(&self) {
-        for c in self
-            .by_collection
-            .iter()
-            .chain(&self.by_design_by_collection)
-        {
-            c.store(0, Ordering::Relaxed);
-        }
-        for c in [
-            &self.gets,
-            &self.target_hits,
-            &self.legacy_hits,
-            &self.by_design_hits,
-            &self.misses,
-        ] {
-            c.store(0, Ordering::Relaxed);
-        }
-    }
 }
 
 /// Collapse one attribution array to non-zero `(collection, hits)` pairs in
@@ -232,27 +213,12 @@ pub struct DualReadMetricsSnapshot {
     pub by_design_hits_by_collection: Vec<(String, u64)>,
 }
 
-impl DualReadMetricsSnapshot {
-    /// Every read that resolved off the write target, debt or not.
-    ///
-    /// `target_hits + fallthrough_hits() + misses == gets` for any window with
-    /// no concurrent traffic — the invariant that proves the residue/by-design
-    /// split loses nothing.
-    #[must_use]
-    pub fn fallthrough_hits(&self) -> u64 {
-        self.legacy_hits.saturating_add(self.by_design_hits)
-    }
-}
+impl DualReadMetricsSnapshot {}
 
 /// Snapshot process-global dual-read counters.
 #[must_use]
 pub fn dual_read_metrics_snapshot() -> DualReadMetricsSnapshot {
     DUAL_READ.snapshot()
-}
-
-/// Reset process-global dual-read counters (tests).
-pub fn dual_read_metrics_reset() {
-    DUAL_READ.reset();
 }
 
 /// Record one dual-read resolution for a logical-main point get.
