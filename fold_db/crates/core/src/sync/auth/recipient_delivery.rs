@@ -1,4 +1,4 @@
-//! Deliveries freeze the recipient generation before entering a durable queue.
+//! Deliveries freeze sender and recipient generations before entering a durable queue.
 
 use super::AuthClient;
 use crate::sync::cloud_purge::protocol::{CloudAccount, CloudAccountKind, CloudControlGet};
@@ -78,6 +78,10 @@ pub struct RecipientDeliveryBinding {
     pub account: CloudAccount,
     pub generation: u64,
     pub operation_id: Option<String>,
+    #[serde(default)]
+    pub sender_account: Option<CloudAccount>,
+    #[serde(default)]
+    pub sender_generation: u64,
     pub delivery_nonce: String,
     pub target: RecipientDeliveryTarget,
 }
@@ -148,6 +152,7 @@ impl AuthClient {
             return Err(held("an inactive adoption reader cannot create a delivery"));
         }
         validate_nonce(delivery_nonce)?;
+        let (sender_account, sender_generation, _) = self.sender_delivery_admission().await?;
         let response = self
             .read_cloud_control_for_request(&target.request())
             .await?;
@@ -160,6 +165,8 @@ impl AuthClient {
             account,
             generation,
             operation_id,
+            sender_account: Some(sender_account),
+            sender_generation,
             delivery_nonce: delivery_nonce.into(),
             target,
         })
@@ -201,6 +208,8 @@ impl AuthClient {
                 account: account.clone(),
                 generation: 0,
                 operation_id: None,
+                sender_account: None,
+                sender_generation: 0,
                 delivery_nonce: body
                     .get("cloud_delivery_nonce")
                     .and_then(Value::as_str)
@@ -221,11 +230,22 @@ impl AuthClient {
         {
             return Err(held("the queued delivery belongs to an older recipient generation; create a new delivery"));
         }
-        let (sender_generation, sender_token) = self.sender_delivery_admission().await?;
+        let (sender_account, sender_generation, sender_token) =
+            self.sender_delivery_admission().await?;
+        if binding.sender_generation != sender_generation
+            || binding
+                .sender_account
+                .as_ref()
+                .is_some_and(|account| account != &sender_account)
+        {
+            return Err(held(
+                "the queued delivery belongs to an older sender generation; create a new delivery",
+            ));
+        }
         body["account"] = serde_json::to_value(&binding.account)?;
         body["cloud_generation"] = json!(binding.generation);
         body["cloud_delivery_nonce"] = json!(binding.delivery_nonce);
-        body["cloud_sender_generation"] = json!(sender_generation);
+        body["cloud_sender_generation"] = json!(binding.sender_generation);
         if let Some(operation) = binding.operation_id {
             body["cloud_operation_id"] = json!(operation);
         }
@@ -240,7 +260,7 @@ impl AuthClient {
         Ok(())
     }
 
-    async fn sender_delivery_admission(&self) -> SyncResult<(u64, Option<String>)> {
+    async fn sender_delivery_admission(&self) -> SyncResult<(CloudAccount, u64, Option<String>)> {
         // Omit every target selector and db_hash: this is the authenticated
         // sender's personal account, independent of the recipient account.
         let response = self
@@ -257,7 +277,7 @@ impl AuthClient {
                 peer.observe(&response)?;
                 peer.bind_local_account(&account)?;
             }
-            return Ok((0, None));
+            return Ok((account, 0, None));
         }
         let peer = self
             .cloud_purge_peer
@@ -270,7 +290,7 @@ impl AuthClient {
             .as_ref()
             .ok_or_else(|| held("sender control is absent"))?;
         let token = peer.ensure_adopted(self, control).await?;
-        Ok((generation, Some(token)))
+        Ok((account, generation, Some(token)))
     }
 }
 
