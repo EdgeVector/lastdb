@@ -46,13 +46,7 @@ impl SyncEngine {
         // the prefix proves — a brake, never a permanent stop.
         let backup_blocked = self.backup_blocker.lock().await.clone();
         if let Some(ref blocker) = backup_blocked {
-            tracing::warn!(
-                target: "fold_db::sync",
-                sync_target = %blocker.target,
-                head_seq = ?blocker.head_seq,
-                blocked_since = blocker.blocked_since,
-                "backup bootstrap blocked: suppressing upload staging for this cycle (downloads still run)"
-            );
+            log_backup_blocked(blocker);
         }
 
         // Per-phase wall time for this pass, logged once when the pass ends
@@ -78,19 +72,7 @@ impl SyncEngine {
             "do_sync starting"
         );
 
-        // Adaptive (or fixed) upload caps from RAM headroom / EWMA / env.
-        // Must run before schedule_outbox_entries so the in-memory queue depth
-        // matches what this cycle will actually select and PUT.
-        let upload_caps = self.refresh_upload_policy().await;
-        phases.mark("upload_policy");
-
-        // D3: compact-if-dirty on the ~6h photograph cadence, 5-minute budget.
-        // Independent of the 120s snapshot+log publisher. A held packing lock
-        // skips this pass so an in-flight photograph is not delayed.
-        self.maybe_photograph_aligned_compact_if_dirty().await;
-        phases.mark("photograph_compact");
-        self.compact_local_planes().await;
-        phases.mark("plane_compact");
+        let upload_caps = self.run_pre_upload_maintenance(&mut phases).await;
 
         self.stage_and_upload_pending(backup_blocked.is_some(), &mut state, &mut phases)
             .await?;
@@ -162,16 +144,8 @@ impl SyncEngine {
         if scoped_downloads_ran_before_upload {
             // No personal target: scoped downloads are the key-safety gate for
             // this cycle, so failures must block upload (propagate_errors=true).
-            self.run_scoped_downloads(ScopedDownloadPass {
-                targets: &targets,
-                scoped_idxs: &scoped_idxs,
-                scoped_total,
-                propagate_errors: true,
-                downloaded: &mut state.downloaded,
-                proven_prefixes: &mut state.proven_prefixes,
-                first_transfer_error: &mut state.first_transfer_error,
-            })
-            .await?;
+            self.run_scoped_download_pass(&targets, &scoped_idxs, scoped_total, true, &mut state)
+                .await?;
             phases.mark("scoped_download");
         }
 
@@ -207,16 +181,8 @@ impl SyncEngine {
         // Failures are non-fatal here (propagate_errors=false): personal upload
         // already ran, so org catch-up must not reverse personal progress.
         if !scoped_downloads_ran_before_upload {
-            self.run_scoped_downloads(ScopedDownloadPass {
-                targets: &targets,
-                scoped_idxs: &scoped_idxs,
-                scoped_total,
-                propagate_errors: false,
-                downloaded: &mut state.downloaded,
-                proven_prefixes: &mut state.proven_prefixes,
-                first_transfer_error: &mut state.first_transfer_error,
-            })
-            .await?;
+            self.run_scoped_download_pass(&targets, &scoped_idxs, scoped_total, false, &mut state)
+                .await?;
             phases.mark("scoped_download");
         }
 
@@ -244,39 +210,116 @@ impl SyncEngine {
         // so the degraded/backlog machinery keeps firing until the transfer
         // itself recovers. The heal still ran above; the next clean cycle can
         // retire the streak honestly.
+        let (overflow_before, overflow_after, overflow_healed) =
+            self.run_outbox_overflow_valve().await;
+        phases.mark("outbox_overflow");
+
+        finish_cycle(
+            state,
+            backup_blocked.as_ref(),
+            overflow_before,
+            overflow_after,
+            overflow_healed,
+        )
+    }
+
+    /// Refresh upload caps and run the local compaction passes before staging uploads.
+    async fn run_pre_upload_maintenance(
+        &self,
+        phases: &mut SyncPhaseTimer,
+    ) -> UploadPolicySnapshot {
+        // Adaptive (or fixed) upload caps from RAM headroom / EWMA / env.
+        // Must run before schedule_outbox_entries so the in-memory queue depth
+        // matches what this cycle will actually select and PUT.
+        let upload_caps = self.refresh_upload_policy().await;
+        phases.mark("upload_policy");
+
+        // D3: compact-if-dirty on the ~6h photograph cadence, 5-minute budget.
+        // Independent of the 120s snapshot+log publisher. A held packing lock
+        // skips this pass so an in-flight photograph is not delayed.
+        self.maybe_photograph_aligned_compact_if_dirty().await;
+        phases.mark("photograph_compact");
+        self.compact_local_planes().await;
+        phases.mark("plane_compact");
+        upload_caps
+    }
+
+    /// Run one scoped-download pass, threading the cycle state fields it updates.
+    async fn run_scoped_download_pass(
+        &self,
+        targets: &[SyncTarget],
+        scoped_idxs: &[usize],
+        scoped_total: usize,
+        propagate_errors: bool,
+        state: &mut CycleState,
+    ) -> SyncResult<()> {
+        self.run_scoped_downloads(ScopedDownloadPass {
+            targets,
+            scoped_idxs,
+            scoped_total,
+            propagate_errors,
+            downloaded: &mut state.downloaded,
+            proven_prefixes: &mut state.proven_prefixes,
+            first_transfer_error: &mut state.first_transfer_error,
+        })
+        .await
+    }
+
+    /// Outbox overflow valve. Returns `(before, after, healed)` outbox depth.
+    async fn run_outbox_overflow_valve(&self) -> (usize, usize, bool) {
         let overflow_before = self.outbox_count().await.unwrap_or(0);
         if let Err(e) = self.maybe_force_snapshot_for_outbox_overflow().await {
             tracing::warn!(error = %e, "outbox overflow snapshot step failed (non-fatal)");
         }
         let overflow_after = self.outbox_count().await.unwrap_or(overflow_before);
         let overflow_healed = overflow_before > 0 && overflow_after < overflow_before;
-        phases.mark("outbox_overflow");
-
-        // Suppressing the upload work must not launder the block into a healthy
-        // cycle: with no entries selected there is no transfer to fail, so
-        // without this the cycle would return Ok and `record_sync_success()`
-        // would clear the failure streak and `last_error` on every tick while
-        // backup remained impossible. Same reasoning as the overflow-heal note
-        // above. A real transfer error from the download side still wins.
-        if let (None, Some(blocker)) = (&state.first_transfer_error, &backup_blocked) {
-            state.first_transfer_error = Some(SyncError::BackupBootstrapBlocked {
-                target: blocker.target.clone(),
-                reason: blocker.reason.clone(),
-            });
-        }
-
-        if let Some(e) = state.first_transfer_error {
-            if overflow_healed {
-                tracing::warn!(
-                    error = %redact_sync_error_text(&e.to_string()),
-                    before = overflow_before,
-                    after = overflow_after,
-                    "outbox overflow snapshot reduced staging after transfer error; still returning transfer failure (heal must not launder failure streak)"
-                );
-            }
-            return Err(e);
-        }
-
-        Ok(state.uploaded > 0 || state.downloaded > 0 || overflow_healed)
+        (overflow_before, overflow_after, overflow_healed)
     }
+}
+
+/// Log that a latched bootstrap block suppresses upload staging this cycle.
+fn log_backup_blocked(blocker: &SyncBackupBlocker) {
+    tracing::warn!(
+        target: "fold_db::sync",
+        sync_target = %blocker.target,
+        head_seq = ?blocker.head_seq,
+        blocked_since = blocker.blocked_since,
+        "backup bootstrap blocked: suppressing upload staging for this cycle (downloads still run)"
+    );
+}
+
+/// Turn the finished cycle state into the cycle result, surfacing any block or transfer error.
+fn finish_cycle(
+    mut state: CycleState,
+    backup_blocked: Option<&SyncBackupBlocker>,
+    overflow_before: usize,
+    overflow_after: usize,
+    overflow_healed: bool,
+) -> SyncResult<bool> {
+    // Suppressing the upload work must not launder the block into a healthy
+    // cycle: with no entries selected there is no transfer to fail, so
+    // without this the cycle would return Ok and `record_sync_success()`
+    // would clear the failure streak and `last_error` on every tick while
+    // backup remained impossible. Same reasoning as the overflow-heal note
+    // above. A real transfer error from the download side still wins.
+    if let (None, Some(blocker)) = (&state.first_transfer_error, &backup_blocked) {
+        state.first_transfer_error = Some(SyncError::BackupBootstrapBlocked {
+            target: blocker.target.clone(),
+            reason: blocker.reason.clone(),
+        });
+    }
+
+    if let Some(e) = state.first_transfer_error {
+        if overflow_healed {
+            tracing::warn!(
+                error = %redact_sync_error_text(&e.to_string()),
+                before = overflow_before,
+                after = overflow_after,
+                "outbox overflow snapshot reduced staging after transfer error; still returning transfer failure (heal must not launder failure streak)"
+            );
+        }
+        return Err(e);
+    }
+
+    Ok(state.uploaded > 0 || state.downloaded > 0 || overflow_healed)
 }
