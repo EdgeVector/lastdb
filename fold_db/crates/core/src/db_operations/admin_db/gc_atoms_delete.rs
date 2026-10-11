@@ -2,6 +2,32 @@
 
 use super::*;
 
+#[derive(Clone)]
+pub(super) struct GcAtomsDeleteCandidate {
+    pub(super) key: Vec<u8>,
+    pub(super) value: Vec<u8>,
+    pub(super) uuid: String,
+}
+
+/// The candidates and counters from one page of the delete scan.
+pub(super) struct GcAtomsDeleteSelection {
+    pub(super) candidates: Vec<GcAtomsDeleteCandidate>,
+    pub(super) rows_decided: usize,
+    pub(super) atoms_skipped_recent: u64,
+    pub(super) atoms_skipped_undatable: u64,
+    pub(super) next_cursor: Option<crate::storage::traits::PhysicalScanCursor>,
+}
+
+/// The counters of one delete pass.
+pub(super) struct GcAtomsDeletePassTotals {
+    pub(super) rows_decided: u64,
+    pub(super) candidates_revalidated: u64,
+    pub(super) candidates_cleared: u64,
+    pub(super) atoms_deleted: u64,
+    pub(super) storage_keys_deleted: u64,
+    pub(super) bytes_freed_approx: u64,
+}
+
 impl AtomStore {
     /// Load the bounded automatic atom-delete checkpoint.
     pub async fn automatic_gc_atoms_delete_checkpoint(
@@ -56,24 +82,110 @@ impl AtomStore {
     /// atom writes the active generation marker in its durable batch. It either
     /// wins the lock and clears the candidate, or follows the delete and writes
     /// the body back before it can publish the tip.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn delete_orphan_atoms_from_probe(
         &self,
         options: AutomaticGcAtomsDeleteOptions,
     ) -> Result<AutomaticGcAtomsDeleteReport, SchemaError> {
-        #[derive(Clone)]
-        struct Candidate {
-            key: Vec<u8>,
-            value: Vec<u8>,
-            uuid: String,
-        }
-
         let storage_prefix = options.storage_prefix.as_deref();
         let max_rows = options
             .max_rows
             .unwrap_or(Self::GC_PLANE_SCAN_PAGE)
             .clamp(1, Self::GC_PLANE_SCAN_PAGE);
         let candidate_cap = options.candidate_cap.max(1);
+        let (probe, probe_started_at, mut checkpoint) =
+            self.load_gc_atoms_delete_state(storage_prefix).await?;
+        if checkpoint.phase == AutomaticGcAtomsDeletePhase::Complete {
+            self.set_automatic_gc_atoms_generation(0);
+            return Ok(Self::gc_atoms_delete_idle_report(&checkpoint));
+        }
+
+        let selection = self
+            .select_gc_atoms_delete_candidates(
+                storage_prefix,
+                max_rows,
+                candidate_cap,
+                probe.generation,
+                probe_started_at,
+                checkpoint.cursor.as_ref(),
+            )
+            .await?;
+        let GcAtomsDeleteSelection {
+            candidates,
+            rows_decided,
+            atoms_skipped_recent,
+            atoms_skipped_undatable,
+            next_cursor,
+        } = selection;
+
+        let candidate_uuids = candidates
+            .iter()
+            .map(|candidate| candidate.uuid.clone())
+            .collect::<Vec<_>>();
+        let _candidate_guards = self.lock_automatic_gc_atoms(&candidate_uuids).await;
+        let validated = self
+            .revalidate_gc_atoms_delete_candidates(storage_prefix, probe.generation, candidates)
+            .await?;
+
+        let candidates_revalidated_this_call = candidate_uuids.len() as u64;
+        let candidates_cleared_by_revalidation_this_call =
+            candidates_revalidated_this_call.saturating_sub(validated.len() as u64);
+        let atoms_deleted_this_call = validated.len() as u64;
+        let bytes_freed_approx_this_call = validated.iter().fold(0u64, |total, (candidate, _)| {
+            total.saturating_add(candidate.key.len() as u64 + candidate.value.len() as u64)
+        });
+        let mut storage_keys_deleted_this_call = 0u64;
+        if !validated.is_empty() {
+            storage_keys_deleted_this_call = self
+                .delete_validated_gc_atoms(storage_prefix, &probe.started_at, &validated, |entry| {
+                    entry.atoms_deleted = atoms_deleted_this_call;
+                    entry.atoms_scanned = rows_decided as u64;
+                    entry.atoms_skipped_recent = atoms_skipped_recent;
+                    entry.atoms_skipped_undatable = atoms_skipped_undatable;
+                })
+                .await?;
+        }
+
+        self.advance_gc_atoms_delete_checkpoint(
+            &mut checkpoint,
+            &GcAtomsDeletePassTotals {
+                rows_decided: rows_decided as u64,
+                candidates_revalidated: candidates_revalidated_this_call,
+                candidates_cleared: candidates_cleared_by_revalidation_this_call,
+                atoms_deleted: atoms_deleted_this_call,
+                storage_keys_deleted: storage_keys_deleted_this_call,
+                bytes_freed_approx: bytes_freed_approx_this_call,
+            },
+            next_cursor,
+        );
+        self.persist_automatic_gc_atoms_delete(storage_prefix, &checkpoint)
+            .await?;
+
+        Ok(AutomaticGcAtomsDeleteReport {
+            generation: checkpoint.generation,
+            phase: checkpoint.phase,
+            next_cursor: checkpoint.cursor.clone(),
+            rows_scanned_this_call: rows_decided as u64,
+            candidates_revalidated_this_call,
+            candidates_cleared_by_revalidation_this_call,
+            atoms_deleted_this_call,
+            storage_keys_deleted_this_call,
+            bytes_freed_approx_this_call,
+            result: Self::automatic_gc_atoms_delete_result(&checkpoint),
+        })
+    }
+
+    /// Load the complete probe and the matching delete checkpoint.
+    async fn load_gc_atoms_delete_state(
+        &self,
+        storage_prefix: Option<&str>,
+    ) -> Result<
+        (
+            AutomaticGcAtomsProbeCheckpoint,
+            DateTime<Utc>,
+            AutomaticGcAtomsDeleteCheckpoint,
+        ),
+        SchemaError,
+    > {
         let probe = self
             .automatic_gc_atoms_probe_checkpoint(storage_prefix)
             .await?;
@@ -106,22 +218,19 @@ impl AtomStore {
                 checkpoint.version
             )));
         }
-        if checkpoint.phase == AutomaticGcAtomsDeletePhase::Complete {
-            self.set_automatic_gc_atoms_generation(0);
-            return Ok(AutomaticGcAtomsDeleteReport {
-                generation: checkpoint.generation,
-                phase: checkpoint.phase,
-                next_cursor: None,
-                rows_scanned_this_call: 0,
-                candidates_revalidated_this_call: 0,
-                candidates_cleared_by_revalidation_this_call: 0,
-                atoms_deleted_this_call: 0,
-                storage_keys_deleted_this_call: 0,
-                bytes_freed_approx_this_call: 0,
-                result: Self::automatic_gc_atoms_delete_result(&checkpoint),
-            });
-        }
+        Ok((probe, probe_started_at, checkpoint))
+    }
 
+    /// Scan one page of atom rows and pick the unreferenced old candidates.
+    async fn select_gc_atoms_delete_candidates(
+        &self,
+        storage_prefix: Option<&str>,
+        max_rows: usize,
+        candidate_cap: usize,
+        probe_generation: u64,
+        probe_started_at: DateTime<Utc>,
+        cursor: Option<&crate::storage::traits::PhysicalScanCursor>,
+    ) -> Result<GcAtomsDeleteSelection, SchemaError> {
         let (atom_prefix, atom_end) = Self::kind_plane_scan_bounds(storage_prefix, "atom:");
         let page = self
             .raw()
@@ -129,7 +238,7 @@ impl AtomStore {
             .scan_range_physical_paged(
                 atom_prefix.as_bytes(),
                 atom_end.as_bytes(),
-                checkpoint.cursor.as_ref(),
+                cursor,
                 max_rows,
                 1,
             )
@@ -173,13 +282,13 @@ impl AtomStore {
             };
             if marker
                 .as_ref()
-                .is_some_and(|marker| marker.generation == probe.generation)
+                .is_some_and(|marker| marker.generation == probe_generation)
             {
                 continue;
             }
             match atom_row_created_at(value) {
                 Some(created_at) if created_at < probe_started_at => {
-                    candidates.push(Candidate {
+                    candidates.push(GcAtomsDeleteCandidate {
                         key: key.clone(),
                         value: value.clone(),
                         uuid: uuid.to_string(),
@@ -199,161 +308,12 @@ impl AtomStore {
         } else {
             page.next_cursor.clone()
         };
-
-        let candidate_uuids = candidates
-            .iter()
-            .map(|candidate| candidate.uuid.clone())
-            .collect::<Vec<_>>();
-        let _candidate_guards = self.lock_automatic_gc_atoms(&candidate_uuids).await;
-        let recheck_marker_keys = candidates
-            .iter()
-            .map(|candidate| {
-                Self::automatic_gc_atoms_reference_marker_key(storage_prefix, &candidate.uuid)
-            })
-            .collect::<Vec<_>>();
-        let rechecked_markers = self
-            .raw()
-            .get_items::<AutomaticGcAtomsProbeMarker>(&recheck_marker_keys)
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!(
-                    "revalidate automatic gc-atoms reference markers: {e}"
-                ))
-            })?;
-        let rechecked_bodies = self
-            .raw()
-            .inner()
-            .get_many(
-                candidates
-                    .iter()
-                    .map(|candidate| candidate.key.clone())
-                    .collect(),
-            )
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!("revalidate automatic gc-atoms bodies: {e}"))
-            })?;
-
-        let mut validated: Vec<(Candidate, Vec<String>)> = Vec::new();
-        for ((candidate, marker), body) in candidates
-            .into_iter()
-            .zip(rechecked_markers)
-            .zip(rechecked_bodies)
-        {
-            if marker.is_some_and(|marker| marker.generation == probe.generation)
-                || body.as_ref() != Some(&candidate.value)
-            {
-                continue;
-            }
-            if !self.atom_ref_v2_reads_ready(storage_prefix).await?
-                || self
-                    .has_active_atom_refs(&candidate.uuid, storage_prefix)
-                    .await?
-                || self
-                    .has_any_pending_atom_refs(&candidate.uuid, storage_prefix)
-                    .await?
-            {
-                continue;
-            }
-            let atom = match self.decode_atom_bytes(&candidate.value).await {
-                Ok(atom) => atom,
-                Err(error) => {
-                    tracing::warn!(
-                        atom_uuid = candidate.uuid,
-                        %error,
-                        "automatic gc-atoms retained an unreadable candidate"
-                    );
-                    continue;
-                }
-            };
-            let blob_keys =
-                crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
-                    .into_iter()
-                    .map(|blob_ref| {
-                        crate::db_operations::atom_store::BlobRefEdge::atom(
-                            &candidate.uuid,
-                            &blob_ref,
-                        )
-                        .storage_key(storage_prefix)
-                    })
-                    .collect();
-            validated.push((candidate, blob_keys));
-        }
-
-        let candidates_revalidated_this_call = candidate_uuids.len() as u64;
-        let candidates_cleared_by_revalidation_this_call =
-            candidates_revalidated_this_call.saturating_sub(validated.len() as u64);
-        let atoms_deleted_this_call = validated.len() as u64;
-        let bytes_freed_approx_this_call = validated.iter().fold(0u64, |total, (candidate, _)| {
-            total.saturating_add(candidate.key.len() as u64 + candidate.value.len() as u64)
-        });
-        let mut storage_keys_deleted_this_call = 0u64;
-        if !validated.is_empty() {
-            let ledger = self
-                .begin_delete_ledger_row(
-                    storage_prefix,
-                    AtomDeleteLedgerEntry::gc_atoms("automatic-gc-atoms", &probe.started_at),
-                )
-                .await?;
-            let mut delete_keys = Vec::with_capacity(validated.len() * 2);
-            for (candidate, blob_keys) in &validated {
-                delete_keys.push(build_storage_key(
-                    storage_prefix,
-                    &crate::atom::atom_locator_codec::locator_key(&candidate.uuid),
-                ));
-                delete_keys.push(String::from_utf8_lossy(&candidate.key).into_owned());
-                // The atom body source leaves before its derived blob edges.
-                delete_keys.extend(blob_keys.iter().cloned());
-            }
-            storage_keys_deleted_this_call = self.drain_gc_deletes(&mut delete_keys).await?;
-            let _ = self.flush().await;
-            self.commit_delete_ledger_row(ledger, |entry| {
-                entry.atoms_deleted = atoms_deleted_this_call;
-                entry.storage_keys_deleted = storage_keys_deleted_this_call;
-                entry.atoms_scanned = rows_decided as u64;
-                entry.atoms_skipped_recent = atoms_skipped_recent;
-                entry.atoms_skipped_undatable = atoms_skipped_undatable;
-            })
-            .await;
-        }
-
-        checkpoint.passes_completed = checkpoint.passes_completed.saturating_add(1);
-        checkpoint.rows_scanned = checkpoint.rows_scanned.saturating_add(rows_decided as u64);
-        checkpoint.candidates_revalidated = checkpoint
-            .candidates_revalidated
-            .saturating_add(candidates_revalidated_this_call);
-        checkpoint.candidates_cleared_by_revalidation = checkpoint
-            .candidates_cleared_by_revalidation
-            .saturating_add(candidates_cleared_by_revalidation_this_call);
-        checkpoint.atoms_deleted = checkpoint
-            .atoms_deleted
-            .saturating_add(atoms_deleted_this_call);
-        checkpoint.storage_keys_deleted = checkpoint
-            .storage_keys_deleted
-            .saturating_add(storage_keys_deleted_this_call);
-        checkpoint.bytes_freed_approx = checkpoint
-            .bytes_freed_approx
-            .saturating_add(bytes_freed_approx_this_call);
-        checkpoint.cursor = next_cursor;
-        if checkpoint.cursor.is_none() {
-            checkpoint.phase = AutomaticGcAtomsDeletePhase::Complete;
-            checkpoint.completed_at = Some(Utc::now().to_rfc3339());
-            self.set_automatic_gc_atoms_generation(0);
-        }
-        self.persist_automatic_gc_atoms_delete(storage_prefix, &checkpoint)
-            .await?;
-
-        Ok(AutomaticGcAtomsDeleteReport {
-            generation: checkpoint.generation,
-            phase: checkpoint.phase,
-            next_cursor: checkpoint.cursor.clone(),
-            rows_scanned_this_call: rows_decided as u64,
-            candidates_revalidated_this_call,
-            candidates_cleared_by_revalidation_this_call,
-            atoms_deleted_this_call,
-            storage_keys_deleted_this_call,
-            bytes_freed_approx_this_call,
-            result: Self::automatic_gc_atoms_delete_result(&checkpoint),
+        Ok(GcAtomsDeleteSelection {
+            candidates,
+            rows_decided,
+            atoms_skipped_recent,
+            atoms_skipped_undatable,
+            next_cursor,
         })
     }
 }

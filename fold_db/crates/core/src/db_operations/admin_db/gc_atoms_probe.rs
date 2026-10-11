@@ -1,5 +1,5 @@
 // lint:file-size-ok verbatim move out of the 9.8k-line admin_db.rs; one admin theme per file, split further when next touched
-//! Automatic `gc-atoms` orphan-atom probe (one long scan function; helpers are in `gc_atoms_probe_support`).
+//! Automatic `gc-atoms` orphan-atom probe (one helper per probe phase; shared helpers are in `gc_atoms_probe_support`).
 
 use super::*;
 
@@ -15,7 +15,6 @@ impl AtomStore {
     /// finish. A completed checkpoint stays terminal until the caller sets
     /// `restart_completed`, which lets the future daemon cadence open a new lap
     /// without making every status read restart the probe.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn probe_orphan_atoms_from_checkpoint(
         &self,
         options: AutomaticGcAtomsProbeOptions,
@@ -53,151 +52,24 @@ impl AtomStore {
             AutomaticGcAtomsProbePhase::ClearReferenceMarkers
                 | AutomaticGcAtomsProbePhase::ClearTipVersionSkipMarkers
         ) {
-            let marker_prefix = match checkpoint.phase {
-                AutomaticGcAtomsProbePhase::ClearReferenceMarkers => {
-                    GC_ATOMS_PROBE_REFERENCE_PREFIX
-                }
-                AutomaticGcAtomsProbePhase::ClearTipVersionSkipMarkers => {
-                    GC_ATOMS_PROBE_TV_SKIP_PREFIX
-                }
-                _ => unreachable!(),
-            };
-            let prefix = build_storage_key(storage_prefix, marker_prefix);
-            let end = FilterUtils::create_prefix_end(&prefix);
-            let page = self
-                .raw()
-                .inner()
-                .scan_range_physical_paged(
-                    prefix.as_bytes(),
-                    end.as_bytes(),
-                    checkpoint.cursor.as_ref(),
-                    max_rows,
-                    1,
-                )
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!("clear automatic gc-atoms markers: {e}"))
-                })?;
-            let rows_scanned = page.rows.len() as u64;
-            let keys = page
-                .rows
-                .into_iter()
-                .map(|(key, _)| String::from_utf8_lossy(&key).into_owned())
-                .collect::<Vec<_>>();
-            if !keys.is_empty() {
-                self.raw().batch_delete_keys(keys).await.map_err(|e| {
-                    SchemaError::InvalidData(format!("delete automatic gc-atoms markers: {e}"))
-                })?;
-            }
-            checkpoint.cursor = page.next_cursor;
-            if checkpoint.cursor.is_none() {
-                checkpoint.phase = checkpoint.phase.next();
-                if checkpoint.phase == AutomaticGcAtomsProbePhase::Atoms {
-                    self.set_automatic_gc_atoms_generation(checkpoint.generation);
-                }
-            }
-            checkpoint.pages_completed = checkpoint.pages_completed.saturating_add(1);
-            self.persist_automatic_gc_atoms_probe(storage_prefix, &checkpoint, Vec::new())
-                .await?;
-            return Ok(Self::automatic_gc_atoms_probe_report(
-                &checkpoint,
-                rows_scanned,
-            ));
+            return self
+                .probe_step_clear_markers(storage_prefix, max_rows, &mut checkpoint)
+                .await;
         }
-
         if checkpoint.phase == AutomaticGcAtomsProbePhase::Prologue {
-            let prune = self
-                .prune_tip_version_chains(
-                    true,
-                    storage_prefix,
-                    false,
-                    checkpoint.cursor.as_ref(),
-                    max_rows,
-                )
-                .await?;
-            let marker = serde_json::to_value(AutomaticGcAtomsProbeMarker {
-                generation: checkpoint.generation,
-            })
-            .map_err(|e| {
-                SchemaError::InvalidData(format!("encode automatic gc-atoms marker: {e}"))
-            })?;
-            let writes = prune
-                .tv_keys_skip
-                .iter()
-                .map(|key| {
-                    (
-                        Self::automatic_gc_atoms_tv_skip_marker_key(storage_prefix, key),
-                        marker.clone(),
-                    )
-                })
-                .collect::<Vec<_>>();
-            checkpoint.prologue_tips_scanned = checkpoint
-                .prologue_tips_scanned
-                .saturating_add(prune.keys_scanned);
-            checkpoint.prologue_tip_versions_planned = checkpoint
-                .prologue_tip_versions_planned
-                .saturating_add(prune.tip_versions_pruned);
-            checkpoint.cursor = prune.next_physical_cursor;
-            if !prune.more_remaining {
-                checkpoint.cursor = None;
-                checkpoint.phase = checkpoint.phase.next();
-            }
-            checkpoint.pages_completed = checkpoint.pages_completed.saturating_add(1);
-            self.persist_automatic_gc_atoms_probe(storage_prefix, &checkpoint, writes)
-                .await?;
-            return Ok(Self::automatic_gc_atoms_probe_report(
-                &checkpoint,
-                prune.keys_scanned,
-            ));
+            return self
+                .probe_step_prologue(storage_prefix, max_rows, &mut checkpoint)
+                .await;
         }
-
         if checkpoint.phase == AutomaticGcAtomsProbePhase::PinLogReferences {
-            // Direct AtomStore users have no sync plane. The serving automatic
-            // path always supplies a page when an engine exists and fails the
-            // step before this call if that strict read fails.
-            let page =
-                options
-                    .pin_log_reference_page
-                    .unwrap_or(AutomaticGcAtomsPinLogReferencePage {
-                        scan_complete: true,
-                        ..Default::default()
-                    });
-            let marker = serde_json::to_value(AutomaticGcAtomsProbeMarker {
-                generation: checkpoint.generation,
-            })
-            .map_err(|e| {
-                SchemaError::InvalidData(format!("encode automatic gc-atoms marker: {e}"))
-            })?;
-            let writes = page
-                .atom_uuids
-                .iter()
-                .map(|uuid| {
-                    (
-                        Self::automatic_gc_atoms_reference_marker_key(storage_prefix, uuid),
-                        marker.clone(),
-                    )
-                })
-                .collect::<Vec<_>>();
-            checkpoint.reference_rows_scanned = checkpoint
-                .reference_rows_scanned
-                .saturating_add(page.rows_scanned);
-            checkpoint.reference_uuids_marked = checkpoint
-                .reference_uuids_marked
-                .saturating_add(page.atom_uuids.len() as u64);
-            checkpoint.pin_log_after_key = page.next_after_key;
-            if page.scan_complete {
-                checkpoint.pin_log_after_key = None;
-                checkpoint.phase = checkpoint.phase.next();
-            }
-            checkpoint.pages_completed = checkpoint.pages_completed.saturating_add(1);
-            self.persist_automatic_gc_atoms_probe(storage_prefix, &checkpoint, writes)
-                .await?;
-            return Ok(Self::automatic_gc_atoms_probe_report(
-                &checkpoint,
-                page.rows_scanned,
-            ));
+            return self
+                .probe_step_pin_log(
+                    storage_prefix,
+                    options.pin_log_reference_page,
+                    &mut checkpoint,
+                )
+                .await;
         }
-
         if matches!(
             checkpoint.phase,
             AutomaticGcAtomsProbePhase::Tips
@@ -206,129 +78,316 @@ impl AtomStore {
                 | AutomaticGcAtomsProbePhase::Conflicts
                 | AutomaticGcAtomsProbePhase::LegacyRefs
         ) {
-            let plane_prefix = match checkpoint.phase {
-                AutomaticGcAtomsProbePhase::Tips => "mk:",
-                AutomaticGcAtomsProbePhase::TipVersions => "tv:",
-                AutomaticGcAtomsProbePhase::History => "history:",
-                AutomaticGcAtomsProbePhase::Conflicts => "conflict:",
-                AutomaticGcAtomsProbePhase::LegacyRefs => "ref:",
-                _ => unreachable!(),
-            };
-            let (prefix, end) = Self::kind_plane_scan_bounds(storage_prefix, plane_prefix);
-            let page = self
-                .raw()
-                .inner()
-                .scan_range_physical_paged(
-                    prefix.as_bytes(),
-                    end.as_bytes(),
-                    checkpoint.cursor.as_ref(),
-                    max_rows,
-                    1,
-                )
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!("automatic gc-atoms scan {plane_prefix}: {e}"))
-                })?;
-            let rows_scanned = page.rows.len() as u64;
-            let tv_skip_markers = if checkpoint.phase == AutomaticGcAtomsProbePhase::TipVersions {
-                let keys = page
-                    .rows
-                    .iter()
-                    .map(|(key, _)| {
-                        Self::automatic_gc_atoms_tv_skip_marker_key(
-                            storage_prefix,
-                            String::from_utf8_lossy(key).as_ref(),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                self.raw()
-                    .get_items::<AutomaticGcAtomsProbeMarker>(&keys)
-                    .await
-                    .map_err(|e| {
-                        SchemaError::InvalidData(format!(
-                            "read automatic gc-atoms tv skip markers: {e}"
-                        ))
-                    })?
-            } else {
-                vec![None; page.rows.len()]
-            };
+            return self
+                .probe_step_reference_plane(storage_prefix, max_rows, &mut checkpoint)
+                .await;
+        }
+        self.probe_step_atoms(storage_prefix, max_rows, &mut checkpoint)
+            .await
+    }
 
-            let mut referenced = HashSet::new();
-            for ((_, value), skip_marker) in page.rows.iter().zip(tv_skip_markers.iter()) {
-                if skip_marker
-                    .as_ref()
-                    .is_some_and(|marker| marker.generation == checkpoint.generation)
-                {
-                    continue;
-                }
-                match checkpoint.phase {
-                    AutomaticGcAtomsProbePhase::Tips => {
-                        if let Ok(value) = serde_json::from_slice::<Value>(value) {
-                            if let Some(uuid) = value
-                                .pointer("/entry/atom_uuid")
-                                .and_then(Value::as_str)
-                                .filter(|uuid| !uuid.is_empty())
-                            {
-                                referenced.insert(uuid.to_string());
-                            }
-                        }
-                    }
-                    AutomaticGcAtomsProbePhase::TipVersions => {
-                        if let Ok(entry) = serde_json::from_slice::<crate::atom::AtomEntry>(value) {
-                            referenced.insert(entry.atom_uuid);
-                        }
-                    }
-                    AutomaticGcAtomsProbePhase::History => {
-                        if let Ok(event) = serde_json::from_slice::<MutationEvent>(value) {
-                            referenced.insert(event.new_atom_uuid);
-                            if let Some(loser) = event.conflict_loser_atom {
-                                referenced.insert(loser);
-                            }
-                        }
-                    }
-                    AutomaticGcAtomsProbePhase::Conflicts
-                    | AutomaticGcAtomsProbePhase::LegacyRefs => {
-                        collect_atom_uuid_strings(value, &mut referenced);
-                    }
-                    _ => unreachable!(),
-                }
-            }
-
-            let marker = serde_json::to_value(AutomaticGcAtomsProbeMarker {
-                generation: checkpoint.generation,
-            })
+    /// Clear one page of reference or tip-version skip markers.
+    async fn probe_step_clear_markers(
+        &self,
+        storage_prefix: Option<&str>,
+        max_rows: usize,
+        checkpoint: &mut AutomaticGcAtomsProbeCheckpoint,
+    ) -> Result<AutomaticGcAtomsProbeReport, SchemaError> {
+        let marker_prefix = match checkpoint.phase {
+            AutomaticGcAtomsProbePhase::ClearReferenceMarkers => GC_ATOMS_PROBE_REFERENCE_PREFIX,
+            AutomaticGcAtomsProbePhase::ClearTipVersionSkipMarkers => GC_ATOMS_PROBE_TV_SKIP_PREFIX,
+            _ => unreachable!(),
+        };
+        let prefix = build_storage_key(storage_prefix, marker_prefix);
+        let end = FilterUtils::create_prefix_end(&prefix);
+        let page = self
+            .raw()
+            .inner()
+            .scan_range_physical_paged(
+                prefix.as_bytes(),
+                end.as_bytes(),
+                checkpoint.cursor.as_ref(),
+                max_rows,
+                1,
+            )
+            .await
             .map_err(|e| {
-                SchemaError::InvalidData(format!("encode automatic gc-atoms marker: {e}"))
+                SchemaError::InvalidData(format!("clear automatic gc-atoms markers: {e}"))
             })?;
-            let writes = referenced
+        let rows_scanned = page.rows.len() as u64;
+        let keys = page
+            .rows
+            .into_iter()
+            .map(|(key, _)| String::from_utf8_lossy(&key).into_owned())
+            .collect::<Vec<_>>();
+        if !keys.is_empty() {
+            self.raw().batch_delete_keys(keys).await.map_err(|e| {
+                SchemaError::InvalidData(format!("delete automatic gc-atoms markers: {e}"))
+            })?;
+        }
+        checkpoint.cursor = page.next_cursor;
+        if checkpoint.cursor.is_none() {
+            checkpoint.phase = checkpoint.phase.next();
+            if checkpoint.phase == AutomaticGcAtomsProbePhase::Atoms {
+                self.set_automatic_gc_atoms_generation(checkpoint.generation);
+            }
+        }
+        checkpoint.pages_completed = checkpoint.pages_completed.saturating_add(1);
+        self.persist_automatic_gc_atoms_probe(storage_prefix, checkpoint, Vec::new())
+            .await?;
+        Ok(Self::automatic_gc_atoms_probe_report(
+            checkpoint,
+            rows_scanned,
+        ))
+    }
+
+    /// Scan one page of tip-version chains for the probe prologue.
+    async fn probe_step_prologue(
+        &self,
+        storage_prefix: Option<&str>,
+        max_rows: usize,
+        checkpoint: &mut AutomaticGcAtomsProbeCheckpoint,
+    ) -> Result<AutomaticGcAtomsProbeReport, SchemaError> {
+        let prune = self
+            .prune_tip_version_chains(
+                true,
+                storage_prefix,
+                false,
+                checkpoint.cursor.as_ref(),
+                max_rows,
+            )
+            .await?;
+        let marker = serde_json::to_value(AutomaticGcAtomsProbeMarker {
+            generation: checkpoint.generation,
+        })
+        .map_err(|e| SchemaError::InvalidData(format!("encode automatic gc-atoms marker: {e}")))?;
+        let writes = prune
+            .tv_keys_skip
+            .iter()
+            .map(|key| {
+                (
+                    Self::automatic_gc_atoms_tv_skip_marker_key(storage_prefix, key),
+                    marker.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        checkpoint.prologue_tips_scanned = checkpoint
+            .prologue_tips_scanned
+            .saturating_add(prune.keys_scanned);
+        checkpoint.prologue_tip_versions_planned = checkpoint
+            .prologue_tip_versions_planned
+            .saturating_add(prune.tip_versions_pruned);
+        checkpoint.cursor = prune.next_physical_cursor;
+        if !prune.more_remaining {
+            checkpoint.cursor = None;
+            checkpoint.phase = checkpoint.phase.next();
+        }
+        checkpoint.pages_completed = checkpoint.pages_completed.saturating_add(1);
+        self.persist_automatic_gc_atoms_probe(storage_prefix, checkpoint, writes)
+            .await?;
+        Ok(Self::automatic_gc_atoms_probe_report(
+            checkpoint,
+            prune.keys_scanned,
+        ))
+    }
+
+    /// Mark the atom UUIDs from one pin-log reference page.
+    async fn probe_step_pin_log(
+        &self,
+        storage_prefix: Option<&str>,
+        pin_log_reference_page: Option<AutomaticGcAtomsPinLogReferencePage>,
+        checkpoint: &mut AutomaticGcAtomsProbeCheckpoint,
+    ) -> Result<AutomaticGcAtomsProbeReport, SchemaError> {
+        // Direct AtomStore users have no sync plane. The serving automatic
+        // path always supplies a page when an engine exists and fails the
+        // step before this call if that strict read fails.
+        let page = pin_log_reference_page.unwrap_or(AutomaticGcAtomsPinLogReferencePage {
+            scan_complete: true,
+            ..Default::default()
+        });
+        let marker = serde_json::to_value(AutomaticGcAtomsProbeMarker {
+            generation: checkpoint.generation,
+        })
+        .map_err(|e| SchemaError::InvalidData(format!("encode automatic gc-atoms marker: {e}")))?;
+        let writes = page
+            .atom_uuids
+            .iter()
+            .map(|uuid| {
+                (
+                    Self::automatic_gc_atoms_reference_marker_key(storage_prefix, uuid),
+                    marker.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        checkpoint.reference_rows_scanned = checkpoint
+            .reference_rows_scanned
+            .saturating_add(page.rows_scanned);
+        checkpoint.reference_uuids_marked = checkpoint
+            .reference_uuids_marked
+            .saturating_add(page.atom_uuids.len() as u64);
+        checkpoint.pin_log_after_key = page.next_after_key;
+        if page.scan_complete {
+            checkpoint.pin_log_after_key = None;
+            checkpoint.phase = checkpoint.phase.next();
+        }
+        checkpoint.pages_completed = checkpoint.pages_completed.saturating_add(1);
+        self.persist_automatic_gc_atoms_probe(storage_prefix, checkpoint, writes)
+            .await?;
+        Ok(Self::automatic_gc_atoms_probe_report(
+            checkpoint,
+            page.rows_scanned,
+        ))
+    }
+
+    /// Mark the atom UUIDs referenced from one page of a reference plane.
+    async fn probe_step_reference_plane(
+        &self,
+        storage_prefix: Option<&str>,
+        max_rows: usize,
+        checkpoint: &mut AutomaticGcAtomsProbeCheckpoint,
+    ) -> Result<AutomaticGcAtomsProbeReport, SchemaError> {
+        let plane_prefix = match checkpoint.phase {
+            AutomaticGcAtomsProbePhase::Tips => "mk:",
+            AutomaticGcAtomsProbePhase::TipVersions => "tv:",
+            AutomaticGcAtomsProbePhase::History => "history:",
+            AutomaticGcAtomsProbePhase::Conflicts => "conflict:",
+            AutomaticGcAtomsProbePhase::LegacyRefs => "ref:",
+            _ => unreachable!(),
+        };
+        let (prefix, end) = Self::kind_plane_scan_bounds(storage_prefix, plane_prefix);
+        let page = self
+            .raw()
+            .inner()
+            .scan_range_physical_paged(
+                prefix.as_bytes(),
+                end.as_bytes(),
+                checkpoint.cursor.as_ref(),
+                max_rows,
+                1,
+            )
+            .await
+            .map_err(|e| {
+                SchemaError::InvalidData(format!("automatic gc-atoms scan {plane_prefix}: {e}"))
+            })?;
+        let rows_scanned = page.rows.len() as u64;
+        let tv_skip_markers = if checkpoint.phase == AutomaticGcAtomsProbePhase::TipVersions {
+            let keys = page
+                .rows
                 .iter()
-                .map(|uuid| {
-                    (
-                        Self::automatic_gc_atoms_reference_marker_key(storage_prefix, uuid),
-                        marker.clone(),
+                .map(|(key, _)| {
+                    Self::automatic_gc_atoms_tv_skip_marker_key(
+                        storage_prefix,
+                        String::from_utf8_lossy(key).as_ref(),
                     )
                 })
                 .collect::<Vec<_>>();
-            checkpoint.reference_rows_scanned = checkpoint
-                .reference_rows_scanned
-                .saturating_add(rows_scanned);
-            checkpoint.reference_uuids_marked = checkpoint
-                .reference_uuids_marked
-                .saturating_add(referenced.len() as u64);
-            checkpoint.cursor = page.next_cursor;
-            if checkpoint.cursor.is_none() {
-                checkpoint.phase = checkpoint.phase.next();
-            }
-            checkpoint.pages_completed = checkpoint.pages_completed.saturating_add(1);
-            self.persist_automatic_gc_atoms_probe(storage_prefix, &checkpoint, writes)
-                .await?;
-            return Ok(Self::automatic_gc_atoms_probe_report(
-                &checkpoint,
-                rows_scanned,
-            ));
-        }
+            self.raw()
+                .get_items::<AutomaticGcAtomsProbeMarker>(&keys)
+                .await
+                .map_err(|e| {
+                    SchemaError::InvalidData(format!(
+                        "read automatic gc-atoms tv skip markers: {e}"
+                    ))
+                })?
+        } else {
+            vec![None; page.rows.len()]
+        };
 
-        debug_assert_eq!(checkpoint.phase, AutomaticGcAtomsProbePhase::Atoms);
+        let referenced = Self::collect_probe_page_references(
+            &page.rows,
+            &tv_skip_markers,
+            checkpoint.phase,
+            checkpoint.generation,
+        );
+
+        let marker = serde_json::to_value(AutomaticGcAtomsProbeMarker {
+            generation: checkpoint.generation,
+        })
+        .map_err(|e| SchemaError::InvalidData(format!("encode automatic gc-atoms marker: {e}")))?;
+        let writes = referenced
+            .iter()
+            .map(|uuid| {
+                (
+                    Self::automatic_gc_atoms_reference_marker_key(storage_prefix, uuid),
+                    marker.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        checkpoint.reference_rows_scanned = checkpoint
+            .reference_rows_scanned
+            .saturating_add(rows_scanned);
+        checkpoint.reference_uuids_marked = checkpoint
+            .reference_uuids_marked
+            .saturating_add(referenced.len() as u64);
+        checkpoint.cursor = page.next_cursor;
+        if checkpoint.cursor.is_none() {
+            checkpoint.phase = checkpoint.phase.next();
+        }
+        checkpoint.pages_completed = checkpoint.pages_completed.saturating_add(1);
+        self.persist_automatic_gc_atoms_probe(storage_prefix, checkpoint, writes)
+            .await?;
+        Ok(Self::automatic_gc_atoms_probe_report(
+            checkpoint,
+            rows_scanned,
+        ))
+    }
+
+    /// Collect the atom UUIDs that one page of a reference plane names.
+    fn collect_probe_page_references(
+        rows: &[(Vec<u8>, Vec<u8>)],
+        skip_markers: &[Option<AutomaticGcAtomsProbeMarker>],
+        phase: AutomaticGcAtomsProbePhase,
+        generation: u64,
+    ) -> HashSet<String> {
+        let mut referenced = HashSet::new();
+        for ((_, value), skip_marker) in rows.iter().zip(skip_markers.iter()) {
+            if skip_marker
+                .as_ref()
+                .is_some_and(|marker| marker.generation == generation)
+            {
+                continue;
+            }
+            match phase {
+                AutomaticGcAtomsProbePhase::Tips => {
+                    if let Ok(value) = serde_json::from_slice::<Value>(value) {
+                        if let Some(uuid) = value
+                            .pointer("/entry/atom_uuid")
+                            .and_then(Value::as_str)
+                            .filter(|uuid| !uuid.is_empty())
+                        {
+                            referenced.insert(uuid.to_string());
+                        }
+                    }
+                }
+                AutomaticGcAtomsProbePhase::TipVersions => {
+                    if let Ok(entry) = serde_json::from_slice::<crate::atom::AtomEntry>(value) {
+                        referenced.insert(entry.atom_uuid);
+                    }
+                }
+                AutomaticGcAtomsProbePhase::History => {
+                    if let Ok(event) = serde_json::from_slice::<MutationEvent>(value) {
+                        referenced.insert(event.new_atom_uuid);
+                        if let Some(loser) = event.conflict_loser_atom {
+                            referenced.insert(loser);
+                        }
+                    }
+                }
+                AutomaticGcAtomsProbePhase::Conflicts | AutomaticGcAtomsProbePhase::LegacyRefs => {
+                    collect_atom_uuid_strings(value, &mut referenced);
+                }
+                _ => unreachable!(),
+            }
+        }
+        referenced
+    }
+
+    /// Classify one page of atom rows against the reference markers.
+    async fn probe_step_atoms(
+        &self,
+        storage_prefix: Option<&str>,
+        max_rows: usize,
+        checkpoint: &mut AutomaticGcAtomsProbeCheckpoint,
+    ) -> Result<AutomaticGcAtomsProbeReport, SchemaError> {
         let (atom_prefix, atom_end) = Self::kind_plane_scan_bounds(storage_prefix, "atom:");
         let page = self
             .raw()
@@ -401,10 +460,10 @@ impl AtomStore {
             self.set_automatic_gc_atoms_generation(checkpoint.generation);
         }
         checkpoint.pages_completed = checkpoint.pages_completed.saturating_add(1);
-        self.persist_automatic_gc_atoms_probe(storage_prefix, &checkpoint, Vec::new())
+        self.persist_automatic_gc_atoms_probe(storage_prefix, checkpoint, Vec::new())
             .await?;
         Ok(Self::automatic_gc_atoms_probe_report(
-            &checkpoint,
+            checkpoint,
             rows_scanned,
         ))
     }
