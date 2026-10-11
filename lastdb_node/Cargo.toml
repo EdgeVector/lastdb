@@ -61,12 +61,6 @@ path = "src/bin/lastdb_recompress_atom_content.rs"
 [[bin]]
 bench = false
 test = false
-name = "lastdb_atom_ref_v2_proof"
-path = "src/bin/lastdb_atom_ref_v2_proof.rs"
-
-[[bin]]
-bench = false
-test = false
 name = "lastdb_storage_recovery_rollback_proof"
 path = "src/bin/lastdb_storage_recovery_rollback_proof.rs"
 
