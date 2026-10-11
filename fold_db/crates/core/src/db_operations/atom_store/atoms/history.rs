@@ -43,7 +43,6 @@ impl AtomStore {
             return Ok(Vec::new());
         }
 
-        crate::atom::legacy_history_memo::record_scan();
         let items: Vec<(String, MutationEvent)> = self
             .scan_exact_storage_prefix(
                 &base_prefix,

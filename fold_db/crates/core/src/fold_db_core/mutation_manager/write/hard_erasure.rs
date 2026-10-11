@@ -468,7 +468,6 @@ impl MutationManager {
                             crate::request_phases::RequestPhase::PurgeBarrier,
                             acquire_start.elapsed(),
                         );
-                        super::super::super::purge::record_barrier_write_acquisition(&schema_name);
                         self.record_schema_barrier_acquisition(&schema_name);
                         let held_from = std::time::Instant::now();
                         let mut acct = super::super::super::purge::PurgeCommitAccounting::default();

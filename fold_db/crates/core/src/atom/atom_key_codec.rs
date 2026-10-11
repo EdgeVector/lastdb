@@ -17,7 +17,7 @@
 //! `atom:{uuid}`, which carries no `\0`, so `partition_of` returned the whole id
 //! and placement fell back to full-key hashing — a partition's N bodies
 //! scattered across *every* group of the largest collection in the store.
-//! Measured in `vendor/laststore/tests/hash_group_atom_body_locality.rs`: a
+//! Measured with a locality probe over LastStore hash groups: a
 //! 128-row partition over 256 groups touched 108 atom groups instead of 16, and
 //! the scatter grows with partition size until it saturates the collection.
 //!

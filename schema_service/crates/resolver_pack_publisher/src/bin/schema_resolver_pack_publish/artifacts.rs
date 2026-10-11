@@ -38,8 +38,8 @@ pub(crate) fn build_artifacts_from_snapshot(
         ));
     }
 
-    // Callers that skip `build()` (unit tests) still project so private
-    // schemas never reach pack artifacts.
+    // Callers that skip `build()` still project so private schemas never
+    // reach pack artifacts.
     let snapshot = project_snapshot_shared_only(snapshot.clone(), offline_is_system_schema);
     let snapshot = &snapshot;
 

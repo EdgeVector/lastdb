@@ -5,7 +5,7 @@
 //! range-only, or full hash+range. Production entry point:
 //! [`apply_keyed_filter`]. The `apply_hash_filter` / `apply_range_filter` /
 //! `apply_hash_range_filter` names remain as thin mode-specific wrappers for
-//! unit tests and call sites that already know the mode.
+//! call sites that already know the mode.
 
 use crate::atom::MoleculeHashRange;
 use crate::schema::types::field::{HashRangeFilter, HashRangeFilterResult};

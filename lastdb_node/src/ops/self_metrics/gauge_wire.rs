@@ -1,7 +1,7 @@
 use super::*;
 
 /// Process-lifetime window used when the producer does not attach a boot ts to
-/// the gauge (unit tests, Default, wire restore). Display only uses the
+/// the gauge (Default, wire restore). Display only uses the
 /// qualifier ("this process"); the unix field is metadata for later tooling.
 pub(super) const GAUGE_PROCESS_LIFETIME: Window = Window::ProcessLifetime { since_boot_unix: 0 };
 /// Point-in-time occupancy / config gauges (queue depth "now", permit caps, …).

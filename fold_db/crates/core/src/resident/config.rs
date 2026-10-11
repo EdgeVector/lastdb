@@ -92,8 +92,7 @@ impl Default for ResidentPolicy {
 }
 
 impl ResidentPolicy {
-    /// Parse from environment (and defaults). Pure via the free `parse_*`
-    /// helpers so unit tests never race `std::env`.
+    /// Parse from environment (and defaults) via the free `parse_*` helpers.
     pub fn from_env() -> Self {
         Self {
             mode: parse_resident_mode(std::env::var(RESIDENT_MODE_ENV).ok()),

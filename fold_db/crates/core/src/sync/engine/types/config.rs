@@ -297,7 +297,7 @@ pub struct SyncConfig {
     /// A per-write wake used to seal one file per change. With this window
     /// the cycle waits so several changes of one kind share a file. `0`
     /// disables the quiet window. The product factory sets 1000 ms;
-    /// [`Self::default`] stays 0 so unit tests upload on the wake.
+    /// [`Self::default`] stays 0 (upload on the wake).
     pub mutation_log_coalesce_quiet_ms: u64,
     /// Maximum time a mutation-log coalesce hold may wait for more changes.
     ///
@@ -357,7 +357,7 @@ impl Default for SyncConfig {
         Self {
             legacy_personal_cloud_sync: true,
             // Default Off so intermediate bottles never experiment on primary
-            // multi-device export until explicitly enabled (tests/config).
+            // multi-device export until explicitly enabled (config).
             capture_mode: CaptureMode::Off,
             sync_interval_ms: 30_000,
             // Final backstop for both process-local and remote log counts.

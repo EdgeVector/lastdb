@@ -1,7 +1,7 @@
 //! Mini cutover helpers (Sled → Last Store). Always compiled; no cloud-sync gate.
 //!
-//! Main-key classification and plane breakdown live here so unit tests run under default
-//! `fold_db` features (`cargo test -p fold_db migrate`).
+//! Main-key classification and plane breakdown live here so they build under default
+//! `fold_db` features.
 
 pub mod main_keys;
 pub mod plane_roles;

@@ -39,8 +39,7 @@
 //! atoms survive this verb as unreferenced residue. That is by design,
 //! not a planner gap: the erasure contract is completed by the layered
 //! sweep — `gc-atoms` reaps the unreferenced bodies, then `gc-file-blobs`
-//! reaps blobs nothing references. Pinned end-to-end (residue, reap, blob
-//! layering) in `atom_delete_ledger_test.rs`; brain
+//! reaps blobs nothing references. Brain:
 //! `papercut-purge-update-superseded-atom-survives-no-tv-rows-written`.
 //!
 //! Deleting a chain node and deleting the atom it names are separate
@@ -107,7 +106,7 @@ use guarded::execute_guarded_purge;
 pub use storage_slot::*;
 pub(in crate::fold_db_core) use storage_slot_resident::resident_api_keys_for_storage_slots;
 
-// Re-export helpers so production paths and unit tests share one surface.
+// Re-export helpers for sibling modules under `fold_db_core`.
 pub(super) use helpers::{
     atom_ref_cutover_ready, collect_event_atom_uuids, collect_live_atom_uuids,
     collect_resident_live_atom_uuids, collect_retained_chain_atoms_for_storage_slots,
@@ -280,30 +279,6 @@ impl BulkPurgeReport {
 pub(super) enum PurgeReachability {
     GuardedComplement,
     AtomRefEdges,
-}
-
-/// Counts exclusive guarded-purge barrier acquisitions for each schema.
-///
-/// Always compiled (see the sibling counter in
-/// [`crate::atom::legacy_history_memo`]). This is the quantity the zero-yield
-/// fix is defined against. A test that measures how long a purge took depends
-/// on a machine. A barrier-acquisition count tests the selected purge path.
-///
-/// Keyed by schema because the barrier is per-schema: a global total cannot
-/// identify which schema used the guarded purge path.
-fn barrier_acquisitions() -> &'static std::sync::Mutex<std::collections::HashMap<String, u64>> {
-    static COUNTS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
-        std::sync::OnceLock::new();
-    COUNTS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
-/// Called by the caller that owns the barrier, immediately after acquiring it.
-pub(crate) fn record_barrier_write_acquisition(schema_name: &str) {
-    *barrier_acquisitions()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .entry(schema_name.to_string())
-        .or_insert(0) += 1;
 }
 
 /// Named sub-step time recorded inside one destructive purge, so its caller

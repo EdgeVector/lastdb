@@ -396,7 +396,7 @@ pub struct LogicalResidentSet {
     /// stripe after the store write, so a read that loaded before that write
     /// cannot admit its older bytes afterwards.
     record_epochs: [u64; RECORD_EPOCH_STRIPES],
-    /// Product gauges. Absent in unit tests that do not attach one.
+    /// Product gauges. `None` when no gauge was attached.
     metrics: Option<Arc<ResidentMetrics>>,
     /// Used records a call still holds. O(1) occupancy, not a walk.
     held_used: usize,
