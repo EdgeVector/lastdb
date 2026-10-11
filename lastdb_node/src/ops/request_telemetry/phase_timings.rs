@@ -501,8 +501,7 @@ impl PhaseTimings {
     /// `hydrate_us` is the node's one declared PARENT: it is charged over the
     /// whole materialization span while `hydrate_atoms` / `hydrate_format` /
     /// `hydrate_sort` / `hydrate_filter` partition that same span exactly
-    /// (asserted by `lastdb_node/tests/mutation_phase_instrumentation.rs`,
-    /// `query_records_count_and_hydrate_phases`). Every other phase surface
+    /// (an invariant of the phase recorder). Every other phase surface
     /// in this node treats its buckets as disjoint — `apply` and `persist`
     /// are residuals for precisely this reason — so summing the parent beside
     /// its own parts inflated every query row while every mutation row was

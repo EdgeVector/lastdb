@@ -111,7 +111,7 @@ jobs:
         with:
           # Shared fail-closed globs, repeated per filter because
           # dorny/paths-filter has no YAML-anchor support in this block:
-          # Cargo.toml, Cargo.lock, rust-toolchain.toml, nextest.toml,
+          # Cargo.toml, Cargo.lock, rust-toolchain.toml,
           # deny.toml, .cargo/**, .config/**, scripts/**,
           # .github/workflows/**.
           filters: |

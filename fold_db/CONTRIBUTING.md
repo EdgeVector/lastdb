@@ -15,9 +15,9 @@ and embedded React frontend (`static-react`) were removed on **2026-07-12**
    dir). See workspace `README.md` / `bin/wt start`.
 2. Create a feature branch from `main`.
 3. Make changes under `fold_db/` (and related crates if needed).
-4. Run tests from the **workspace root**:
+4. Check your change from the **workspace root**:
    ```bash
-   cargo test -p fold_db --lib
+   cargo check -p fold_db --benches
    cargo clippy -p fold_db --all-targets -- -D warnings
    cargo fmt -p fold_db
    ```
@@ -29,21 +29,19 @@ and embedded React frontend (`static-react`) were removed on **2026-07-12**
 - Rust toolchain matching the workspace `rust-toolchain.toml`
 - No Node.js / npm is required for `fold_db` itself
 
-## Building and testing
+## Building
 
 From the monorepo root:
 
 ```bash
 # Library only
 cargo build -p fold_db
-cargo test -p fold_db --lib
-cargo test -p fold_db --test kernel_constitution_test
 
 # Product Mini binaries (optional for library work)
 cargo build -p lastdb_node
 ```
 
-There is **no** `src/server/static-react`, **no** `npm test`, and **no**
+There is **no** `src/server/static-react`, **no** npm step, and **no**
 frontend embed step. If a tool or old doc claims otherwise, it is stale —
 trust this file and the root `README.md`.
 

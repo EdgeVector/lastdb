@@ -1,0 +1,213 @@
+use super::*;
+
+impl AtomStore {
+    /// Check one exact Delete barrier for each returned molecule row. A range
+    /// read never walks the barriers; it checks only the keys it already found.
+    pub(crate) async fn filter_delete_barriers_for_records(
+        &self,
+        rows: Vec<(String, PerKeyRecord)>,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
+        if rows.is_empty() {
+            return Ok(rows);
+        }
+        let final_keys: Vec<String> = rows
+            .iter()
+            .map(|(base, _)| build_storage_key(storage_prefix, base))
+            .collect();
+        let barrier_keys: Vec<String> = final_keys
+            .iter()
+            .map(|key| crate::atom::delete_barrier::delete_barrier_key(key.as_bytes()))
+            .collect();
+        let durable = self
+            .main_store
+            .get_items::<crate::atom::delete_barrier::DeleteBarrier>(&barrier_keys)
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!("batch read Delete barriers: {error}"))
+            })?;
+        let mut visible = Vec::with_capacity(rows.len());
+        for (((base, record), final_key), durable) in rows.into_iter().zip(final_keys).zip(durable)
+        {
+            if durable
+                .as_ref()
+                .is_some_and(|barrier| !barrier.matches_key(final_key.as_bytes()))
+            {
+                return Err(SchemaError::InvalidData(
+                    "durable Delete barrier key identity differs from the molecule key".into(),
+                ));
+            }
+            let pending = self.pending_delete_barrier(&final_key);
+            let winner = match (pending, durable) {
+                (Some(pending), Some(durable)) if pending.is_newer_than(&durable) => Some(pending),
+                (Some(_), Some(durable)) => Some(durable),
+                (Some(pending), None) => Some(pending),
+                (None, durable) => durable,
+            };
+            if winner.is_none_or(|barrier| !barrier.blocks_tip(&record.entry)) {
+                visible.push((base, record));
+            }
+        }
+        Ok(visible)
+    }
+
+    /// Fetch a single per-key record by its already-encoded base key (e.g.
+    /// [`molecule_key_codec::hash_range_record_key`]) — the O(1) point lookup.
+    /// `None` when the key is absent.
+    pub(crate) async fn get_per_key(
+        &self,
+        base_key: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<Option<(String, PerKeyRecord)>, SchemaError> {
+        let record = self
+            .get_per_key_unfiltered(base_key, storage_prefix)
+            .await?;
+        let Some((key, record)) = record else {
+            return Ok(None);
+        };
+        let storage_key = build_storage_key(storage_prefix, base_key);
+        if self
+            .winning_delete_barrier(&storage_key)
+            .await?
+            .is_some_and(|barrier| barrier.blocks_tip(&record.entry))
+        {
+            return Ok(None);
+        }
+        Ok(Some((key, record)))
+    }
+
+    /// Cleanup must inspect the physical tip even after a winning Delete
+    /// barrier hides it from readers.
+    pub(crate) async fn get_per_key_unfiltered(
+        &self,
+        base_key: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<Option<(String, PerKeyRecord)>, SchemaError> {
+        let storage_key = build_storage_key(storage_prefix, base_key);
+        let rec: Option<PerKeyRecord> =
+            self.main_store.get_item(&storage_key).await.map_err(|e| {
+                SchemaError::InvalidData(format!("read per-key record {storage_key}: {e}"))
+            })?;
+        let Some(molecule_uuid) = molecule_key_codec::molecule_uuid_from_storage_key(base_key)
+        else {
+            return Ok(rec.map(|record| (base_key.to_string(), record)));
+        };
+        let Some(pointer) = self
+            .active_molecule_generation(molecule_uuid, storage_prefix)
+            .await?
+        else {
+            return Ok(rec.map(|record| (base_key.to_string(), record)));
+        };
+        let base = self
+            .generation_slot_for_record_key(base_key, &pointer.generation, storage_prefix)
+            .await?;
+        let merged = Self::merge_generation_slot(rec, base);
+        let deletion = self
+            .generation_delete_for_record_key(base_key, storage_prefix)
+            .await?;
+        Ok(Self::apply_generation_delete(merged, deletion).map(|r| (base_key.to_string(), r)))
+    }
+
+    /// One grouped read for many candidate spellings of many caller keys.
+    ///
+    /// `groups[i]` lists the dual-read spellings of caller key `i`, in the
+    /// order [`Self::get_per_key`] would try them. The first spelling that is
+    /// present and not hidden by a Delete barrier wins. A later spelling of
+    /// that same row is ignored.
+    ///
+    /// Present spellings are read by one [`Self::load_exact_per_key_records`]
+    /// and checked by one [`Self::filter_delete_barriers_for_records`]. Keys
+    /// that share a hash group share one unpublished open. The group does
+    /// not stay. An empty candidate list reads nothing.
+    pub(crate) async fn load_first_present_candidate(
+        &self,
+        storage_prefix: Option<&str>,
+        groups: &[Vec<String>],
+    ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
+        let mut seen = std::collections::HashSet::<&str>::new();
+        let mut unique = Vec::new();
+        for group in groups {
+            for key in group {
+                if seen.insert(key.as_str()) {
+                    unique.push(key.clone());
+                }
+            }
+        }
+        if unique.is_empty() {
+            return Ok(vec![None; groups.len()]);
+        }
+        let loaded = self
+            .load_exact_per_key_records(storage_prefix, &unique)
+            .await?;
+        let present: Vec<(String, PerKeyRecord)> = unique
+            .into_iter()
+            .zip(loaded)
+            .filter_map(|(key, record)| record.map(|record| (key, record)))
+            .collect();
+        let visible = self
+            .filter_delete_barriers_for_records(present, storage_prefix)
+            .await?;
+        let visible_by_key: std::collections::HashMap<String, PerKeyRecord> =
+            visible.into_iter().collect();
+        let mut out = Vec::with_capacity(groups.len());
+        for group in groups {
+            let mut hit = None;
+            for key in group {
+                if let Some(record) = visible_by_key.get(key) {
+                    hit = Some(record.clone());
+                    break;
+                }
+            }
+            out.push(hit);
+        }
+        Ok(out)
+    }
+
+    /// Fetch a derived unique-hash marker for `HashRangeFilter::HashKey`.
+    ///
+    /// Returns `None` when the hash-key lookup index is retired, or for missing
+    /// / ambiguous markers, so callers fall back to the authoritative `mk:`
+    /// prefix scan.
+    pub(crate) async fn get_unique_hash_key_record(
+        &self,
+        molecule_uuid: &str,
+        api_hash: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<Option<(String, PerKeyRecord)>, SchemaError> {
+        if !super::super::super::helpers::HASH_RANGE_HASH_KEY_LOOKUP_ENABLED {
+            // `mhk:` co-write retired — never prefer historical markers.
+            let _ = (molecule_uuid, api_hash, storage_prefix);
+            return Ok(None);
+        }
+        // Single storage form (plain or blind — no dual-read).
+        let candidates = self
+            .key_codec_for_molecule(molecule_uuid)
+            .storage_hash_read_candidates(molecule_uuid, api_hash)
+            .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+        for storage_hash in candidates {
+            let base_key = molecule_key_codec::hash_key_lookup_key(molecule_uuid, &storage_hash);
+            let storage_key = build_storage_key(storage_prefix, &base_key);
+            let marker: Option<HashKeyLookupRecord> =
+                self.main_store.get_item(&storage_key).await.map_err(|e| {
+                    SchemaError::InvalidData(format!("read hash-key marker {storage_key}: {e}"))
+                })?;
+            let Some(marker) = marker else {
+                continue;
+            };
+            match (marker.range, marker.record) {
+                (Some(range), Some(record)) => {
+                    return Ok(Some((
+                        molecule_key_codec::hash_range_record_key(
+                            molecule_uuid,
+                            &storage_hash,
+                            &range,
+                        ),
+                        record,
+                    )));
+                }
+                _ => return Ok(None),
+            }
+        }
+        Ok(None)
+    }
+}

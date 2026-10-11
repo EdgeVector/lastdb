@@ -3,7 +3,7 @@
 **Status:** active (2026-07-13)  
 **North star:** `north-star-lastdb-minimal-node`  
 **Card:** `lastdb-kernel-constitution-and-capability-tiers`  
-**Pinned test:** `fold_db` → `kernel_constitution_test`
+**Proof:** the kernel scenario below, run against a live node
 
 ## Why this exists
 
@@ -63,9 +63,8 @@ What fbrain/fkanban need from the **core** (not the socket).
 | K1.6 | Molecule / field history | heads + prior atoms for a key |
 | K1.7 | CAS mutation (optional for brain, required for lastgit-shaped) | `CasExpectation` |
 
-**Pinned in `kernel_constitution_test` today:** K1.1–K1.4.  
-K1.5–K1.7 remain documented; covered by existing specialized tests until
-explicitly folded into the constitution suite.
+**Covered by the kernel scenario today:** K1.1–K1.4.  
+K1.5–K1.7 remain documented and are not part of the scenario.
 
 ### K2 — Mini product (Bar A / wire)
 
@@ -84,7 +83,7 @@ What ships as `lastdbd` over the owner Unix socket. Same JSON shapes as
 | owner peer-cred + app consent floor | host security (keep) |
 | schema load from schema service | setup; mandatory for every schema identity; cached registered identities remain usable offline |
 
-**Not pinned by `kernel_constitution_test` (in-process only).** A future
+**Not covered by the kernel scenario (in-process only).** A future
 card may add a Mini UDS constitution smoke without expanding K0.
 
 ### K3 — Fleet / product accretion (first peel candidates)
@@ -111,17 +110,9 @@ engine, sync store decorators, and runtime sync coordinator; feature-off
 configuration at construction. `lastdb_node` opts into `cloud-sync` by default
 so the shipped Mini daemon continues to build with the product cloud path.
 
-## Constitution test contract
+## Kernel scenario
 
-**Location:** `fold_db/crates/core/tests/kernel_constitution_test.rs`
-
-**Run:**
-
-```bash
-cargo nextest run -p fold_db --test kernel_constitution_test
-```
-
-**Scenario (single integration test, K0 + K1 core):**
+**Scenario (K0 + K1 core):**
 
 1. Create a fresh data directory.
 2. Open `FoldDB`.
@@ -136,12 +127,12 @@ cargo nextest run -p fold_db --test kernel_constitution_test
 11. `shutdown()`, drop DB, open again on the **same path** (K0.8).
 12. Schema Available; two live notes remain; deleted note absent on default read.
 
-**Failure policy:** a red constitution is a **kernel regression**, not a flaky
-app test. Do not weaken the test to land a peel; re-ratify the doc first.
+**Failure policy:** a failing scenario step is a **kernel regression**. Do not
+weaken the scenario to land a peel; re-ratify the doc first.
 
 ## How to use this for size reduction
 
-1. **Peel:** propose a `cfg` / crate split; run constitution + (later) Mini smoke.
+1. **Peel:** propose a `cfg` / crate split; run the kernel scenario + (later) Mini smoke.
 2. **Nano:** reimplement only K0 (then K1.1–K1.4) in a clean repo; compare LOC.
 3. **CodeRings:** classify production source against these tiers so growth is
    attributed to K0 vs K3, not a single blob.

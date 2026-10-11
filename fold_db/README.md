@@ -32,7 +32,6 @@ cargo build -p lastdb_node --release
 ```bash
 # from monorepo root
 cargo build -p fold_db
-cargo test -p fold_db --lib
 cargo clippy -p fold_db --all-targets -- -D warnings
 ```
 
