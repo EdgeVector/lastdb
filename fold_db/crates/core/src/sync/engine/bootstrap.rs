@@ -7,6 +7,11 @@ use super::*;
 use crate::hex::sha256_hex;
 use std::time::Instant;
 
+mod replay;
+mod snapshot;
+use replay::BootstrapReplayState;
+use snapshot::BootstrapSnapshotFetch;
+
 impl SyncEngine {
     // =========================================================================
 
@@ -66,168 +71,33 @@ impl SyncEngine {
         let photograph_frontier = photograph_latest
             .as_ref()
             .map(|latest| latest.frontier.clone());
-        let mut snapshot_download_ms = 0u64;
-        let mut snapshot_data = if let Some(latest) = photograph_latest.as_ref() {
-            let snapshot_name = format!("{}.enc", latest.snapshot_id);
-            let snapshot_url = self
-                .auth
-                .presign_snapshot_download_for_target(&target, &snapshot_name)
-                .await?;
-            let download_started = Instant::now();
-            let data = self.s3.download(&snapshot_url).await?;
-            snapshot_download_ms =
-                snapshot_download_ms.saturating_add(elapsed_ms(download_started));
-            let Some(data) = data else {
-                return Err(SyncError::Storage(format!(
-                    "latest names photograph {} but snapshots/{snapshot_name} is missing",
-                    latest.snapshot_id
-                )));
-            };
-            let actual = sha256_hex(&data);
-            if actual != latest.snapshot_id {
-                return Err(SyncError::Crypto(format!(
-                    "photograph id mismatch: latest={} downloaded={actual}",
-                    latest.snapshot_id
-                )));
-            }
-            Some(data)
-        } else {
-            let snapshot_url = self
-                .auth
-                .presign_snapshot_download_for_target(&target, "latest.enc")
-                .await?;
-            let download_started = Instant::now();
-            let data = self.s3.download(&snapshot_url).await?;
-            snapshot_download_ms =
-                snapshot_download_ms.saturating_add(elapsed_ms(download_started));
-            data
-        };
-        let mut snapshot_present = snapshot_data.is_some();
-        let mut log_objects = None;
-        let mut legacy_personal_root = false;
+        let BootstrapSnapshotFetch {
+            snapshot_data,
+            snapshot_download_ms,
+            snapshot_present,
+            log_objects,
+            legacy_personal_root,
+        } = self
+            .fetch_bootstrap_snapshot(
+                idx,
+                &target,
+                photograph_latest
+                    .as_ref()
+                    .map(|latest| latest.snapshot_id.as_str()),
+            )
+            .await?;
 
-        if !snapshot_present {
-            let db_hash_log_objects = self.auth.list_log_objects(&target).await?;
-            if idx == 0 && target.prefix.is_empty() && db_hash_log_objects.is_empty() {
-                let legacy_snapshot_url = self
-                    .auth
-                    .presign_snapshot_download_legacy_personal("latest.enc")
-                    .await?;
-                let download_started = Instant::now();
-                let legacy_snapshot_data = self.s3.download(&legacy_snapshot_url).await?;
-                snapshot_download_ms =
-                    snapshot_download_ms.saturating_add(elapsed_ms(download_started));
-                let legacy_log_objects = self.auth.list_objects_legacy_personal("log/").await?;
-                if legacy_snapshot_data.is_some() || !legacy_log_objects.is_empty() {
-                    tracing::info!(
-                        target: "fold_db::sync::bootstrap",
-                        "db_hash root is empty; bootstrapping personal target from legacy principal root"
-                    );
-                    snapshot_data = legacy_snapshot_data;
-                    snapshot_present = snapshot_data.is_some();
-                    log_objects = Some(legacy_log_objects);
-                    legacy_personal_root = true;
-                } else {
-                    log_objects = Some(db_hash_log_objects);
-                }
-            } else {
-                log_objects = Some(db_hash_log_objects);
+        let snapshot_last_seq = match snapshot_data {
+            Some(data) => {
+                self.restore_bootstrap_snapshot(
+                    &target,
+                    &data,
+                    photograph_frontier.as_ref(),
+                    snapshot_download_ms,
+                )
+                .await?
             }
-        }
-
-        let snapshot_last_seq = if let Some(data) = snapshot_data {
-            let unseal_started = Instant::now();
-            let snapshot = Snapshot::unseal(&data, &target.crypto).await?;
-            let unseal_decode_ms = elapsed_ms(unseal_started);
-            let last_seq = snapshot.last_seq;
-            if let Some(frontier) = photograph_frontier.as_ref() {
-                let named_through = frontier.max_through();
-                if last_seq != named_through {
-                    return Err(SyncError::Storage(format!(
-                        "photograph frontier mismatch: snapshot last_seq={last_seq}, latest F={named_through}"
-                    )));
-                }
-            }
-            tracing::info!(
-                "restoring snapshot for '{}': {} namespaces, last_seq={}",
-                target.label,
-                snapshot.namespaces.len(),
-                last_seq
-            );
-            let restore_report = if target.prefix.is_empty() {
-                // AtRestEnc checkpoints must land on the raw store so ENC:
-                // envelopes are not double-sealed by EncryptingNamespacedStore.
-                // Logical (historical) snapshots restore through the encrypting
-                // seam so puts re-seal under local at-rest crypto.
-                if snapshot.is_at_rest_enc() {
-                    tracing::info!(
-                        target: "fold_db::sync",
-                        "bootstrap: restoring at_rest_enc snapshot into raw store"
-                    );
-                    snapshot.restore(self.cursor_store.as_ref()).await?
-                } else {
-                    snapshot.restore(self.store.as_ref()).await?
-                }
-            } else {
-                let restore_scopes = self
-                    .target_restore_scopes
-                    .lock()
-                    .await
-                    .get(&target.prefix)
-                    .cloned()
-                    .unwrap_or_else(|| vec![target.prefix.clone()]);
-                snapshot
-                    .restore_scoped_to_prefixes(self.store.as_ref(), &restore_scopes)
-                    .await?
-            };
-            if target.prefix.is_empty() {
-                self.invoke_photograph_restore_barrier()
-                    .await
-                    .map_err(|error| {
-                        SyncError::Storage(format!(
-                            "refresh serving store after photograph restore: {error}"
-                        ))
-                    })?;
-            }
-            tracing::info!(
-                target: "fold_db::sync::photograph",
-                target_label = %target.label,
-                snapshot_bytes = data.len(),
-                namespaces = restore_report.namespaces,
-                entries = restore_report.entries,
-                batches = restore_report.batches,
-                download_ms = snapshot_download_ms,
-                unseal_decode_ms,
-                materialize_ms = restore_report.materialize_ms,
-                final_flush_ms = restore_report.final_flush_ms,
-                restore_total_ms = restore_report.total_ms(),
-                ingress_total_ms = snapshot_download_ms.saturating_add(unseal_decode_ms),
-                "photograph restore phases complete"
-            );
-            if target.prefix.is_empty() {
-                let pack_id = format!("{last_seq}.enc");
-                match self
-                    .warm_thumb_cache_for_snapshot(&snapshot, &pack_id)
-                    .await
-                {
-                    Ok(0) => {}
-                    Ok(count) => tracing::info!(
-                        target: "fold_db::sync",
-                        pack_id = %pack_id,
-                        thumbnails = count,
-                        "bootstrap warmed thumbnail cache"
-                    ),
-                    Err(e) => tracing::warn!(
-                        target: "fold_db::sync",
-                        pack_id = %pack_id,
-                        error = %e,
-                        "bootstrap thumbnail cache warm failed (non-fatal)"
-                    ),
-                }
-            }
-            last_seq
-        } else {
-            0
+            None => 0,
         };
 
         let log_objects = match log_objects {
@@ -285,202 +155,26 @@ impl SyncEngine {
             }
         }
 
-        let mut schemas_replayed = false;
-        let mut embeddings_replayed = false;
-        let mut entries_replayed: usize = 0;
-        let mut photograph_tail_last_seq = snapshot_last_seq;
+        let mut state = BootstrapReplayState {
+            schemas_replayed: false,
+            embeddings_replayed: false,
+            entries_replayed: 0,
+            photograph_tail_last_seq: snapshot_last_seq,
+        };
 
         if let Some(frontier) = photograph_frontier.as_ref() {
-            // S can contain schema rows required by a MutationIntent in the
-            // writer tail. Reload SchemaCore after S lands and before replay;
-            // bootstrap_all's final reload happens too late for that apply.
-            let schema_reload_started = Instant::now();
-            if snapshot_present {
-                self.invoke_reloader(
-                    &self.schema_reloader,
-                    "schema",
-                    "named photograph before writer tail",
-                )
-                .await;
-            }
-            let schema_reload_ms = elapsed_ms(schema_reload_started);
-            let tail_replay_started = Instant::now();
-            let report = self
-                .restore_mutation_log_after_photograph(&target, frontier)
-                .await?;
-            let tail_replay_ms = elapsed_ms(tail_replay_started);
-            entries_replayed = entries_replayed.saturating_add(report.records_applied);
-            photograph_tail_last_seq = report
-                .frontier_after
-                .values()
-                .copied()
-                .max()
-                .unwrap_or(snapshot_last_seq)
-                .max(snapshot_last_seq);
-            if report.records_applied > 0 {
-                // Mutation intents can touch schemas or native indexes.
-                // Reload both caches after a photograph tail rather than
-                // infer namespaces from the aggregate replay report.
-                schemas_replayed = true;
-                embeddings_replayed = true;
-            }
-            tracing::info!(
-                target: "fold_db::sync::photograph",
-                target_label = %target.label,
-                snapshot_frontier = frontier.max_through(),
-                segments_applied = report.segments_applied,
-                records_applied = report.records_applied,
-                schema_reload_ms,
-                tail_replay_ms,
-                "loaded named photograph and applied writer log tail"
-            );
+            self.replay_photograph_tail(
+                &target,
+                frontier,
+                snapshot_present,
+                snapshot_last_seq,
+                &mut state,
+            )
+            .await?;
         }
 
-        if !log_seqs.is_empty() {
-            tracing::info!(
-                "replaying {} log entries for '{}' (seq {}..={})",
-                log_seqs.len(),
-                target.label,
-                log_seqs[0],
-                log_seqs[log_seqs.len() - 1]
-            );
-
-            // Bootstrap may replay the entire log tail — hundreds of thousands
-            // of entries on a long-lived device. Done serially (one
-            // download→unseal→replay per iteration) the network legs dominate:
-            // a ~1 GiB log takes hours. Fan the download+unseal out with a
-            // bounded-concurrency pipeline (`bootstrap_concurrency`, default
-            // higher than the steady-state `sync_concurrency` since this is a
-            // one-time large fetch), while keeping REPLAY strictly sequential
-            // in seq order. `buffered(cap)` yields decrypted entries in input
-            // (seq) order and caps the in-flight set, so memory stays bounded
-            // and the contiguous-cursor invariant holds: a `?` in the replay
-            // loop aborts at the first failed seq and `last_seq` only advances
-            // because we return `Err` on any failure (see download_entries).
-            let cap = self.config.bootstrap_concurrency.max(1);
-
-            // Chunk the presign call at MAX_PRESIGN_BATCH (storage_service caps
-            // `seq_numbers` per request and a bootstrap can list far more than
-            // that). Chunks are processed in seq order, so the contiguous
-            // replay invariant holds across chunk boundaries.
-            for chunk in log_seqs.chunks(MAX_PRESIGN_BATCH) {
-                let urls = if legacy_personal_root {
-                    self.auth.presign_download_legacy_personal(chunk).await?
-                } else {
-                    self.auth.presign_download(&target, chunk).await?
-                };
-                if urls.len() != chunk.len() {
-                    return Err(SyncError::Auth(format!(
-                        "presign_download '{}': expected {} urls, got {}",
-                        target.label,
-                        chunk.len(),
-                        urls.len()
-                    )));
-                }
-
-                // Iterate OWNED `(seq, url)` pairs so the fetch closure borrows
-                // nothing from the iterator (mirrors download_entries — avoids
-                // the higher-ranked-lifetime bound when buffered). FETCH
-                // (download + unseal) runs up to `cap` concurrently;
-                // `ordered_concurrent_fetch` re-orders results into seq order
-                // and REPLAY (consume) runs strictly sequentially, so the
-                // contiguous-cursor invariant holds (`last_seq`, advanced after
-                // the loop, never moves past a failed seq because any error
-                // aborts the whole bootstrap).
-                let target = &target;
-                let schemas_seen = &mut schemas_replayed;
-                let embeddings_seen = &mut embeddings_replayed;
-                let items = chunk.iter().copied().zip(urls);
-                ordered_concurrent_fetch(
-                    items,
-                    cap,
-                    |(seq, url)| async move {
-                        // Per-object size cap applies to bootstrap too so a
-                        // poison multi-GB log object cannot pin process RSS.
-                        self.fetch_and_unseal_entry_detailed("bootstrap download", target, seq, url)
-                            .await
-                            .map(|f| {
-                                (
-                                    f.seq,
-                                    f.entry,
-                                    f.mutation_log_records,
-                                    f.skipped_oversize,
-                                )
-                            })
-                    },
-                    |(seq, entry, mutation_log_records, skipped_oversize): (
-                        u64,
-                        Option<LogEntry>,
-                        Option<Vec<crate::sync::engine::pin_log::PinLogRecord>>,
-                        bool,
-                    )| {
-                        if skipped_oversize {
-                            tracing::warn!(
-                                target: "fold_db::sync::memory",
-                                target_label = %target.label,
-                                seq,
-                                "bootstrap: skipped oversize log object"
-                            );
-                        }
-                        // Replay strictly in seq order (consume is awaited
-                        // sequentially). `schema_states` shares the schema
-                        // reloader: see `download_entries` for rationale.
-                        // Mutation-log segments on the flat key must be applied
-                        // before bootstrap treats the seq as handled.
-                        if let Some(records) = &mutation_log_records {
-                            for record in records {
-                                match record.entry.op.namespace() {
-                                    "schemas" | "schema_states" => *schemas_seen = true,
-                                    "native_index" => *embeddings_seen = true,
-                                    _ => {}
-                                }
-                                tracing::info!(
-                                    "bootstrap mutation-log replay '{}' seq={} frontier_after={}: {}",
-                                    target.label,
-                                    seq,
-                                    record.frontier_after,
-                                    record.entry.op.describe()
-                                );
-                            }
-                        } else if let Some(entry) = &entry {
-                            match entry.op.namespace() {
-                                "schemas" | "schema_states" => *schemas_seen = true,
-                                "native_index" => *embeddings_seen = true,
-                                _ => {}
-                            }
-                            tracing::info!(
-                                "bootstrap replay '{}' seq={}: {}",
-                                target.label,
-                                seq,
-                                entry.op.describe()
-                            );
-                        }
-                        if mutation_log_records.is_some() || entry.is_some() {
-                            futures::future::Either::Left(async move {
-                                if let Some(records) = mutation_log_records {
-                                    for record in records {
-                                        self.replay_entry(&record.entry, Some(target)).await?;
-                                    }
-                                    Ok(())
-                                } else if let Some(entry) = entry {
-                                    self.replay_entry(&entry, Some(target)).await
-                                } else {
-                                    Ok(())
-                                }
-                            })
-                        } else {
-                            futures::future::Either::Right(futures::future::ready(Ok(())))
-                        }
-                    },
-                )
-                .await?;
-
-                // The helper aborts on the first replay error (returning Err
-                // above), so reaching here means every seq in this chunk
-                // replayed contiguously — count them all.
-                entries_replayed += chunk.len();
-            }
-        }
+        self.replay_bootstrap_log_tail(&target, &log_seqs, legacy_personal_root, &mut state)
+            .await?;
 
         // Bootstrap replayed every listed seq contiguously (we return Err on
         // any failure), so `last_seq` is safe to advance to the max listed.
@@ -488,7 +182,7 @@ impl SyncEngine {
             .last()
             .copied()
             .unwrap_or(snapshot_last_seq)
-            .max(photograph_tail_last_seq);
+            .max(state.photograph_tail_last_seq);
 
         // Advance the local sequence counter only from the personal target.
         // Org targets write to their own R2 prefix and must not rewind the
@@ -522,22 +216,22 @@ impl SyncEngine {
                  SKIPPED {org_skips} org-scoped storage key(s) (consented drop after org-crypto strip)",
                 target.label,
                 last_seq,
-                entries_replayed
+                state.entries_replayed
             );
         } else {
             tracing::info!(
                 "bootstrap of '{}' complete at seq {} ({} entries replayed)",
                 target.label,
                 last_seq,
-                entries_replayed
+                state.entries_replayed
             );
         }
 
         Ok(BootstrapOutcome {
             last_seq,
-            entries_replayed,
-            schemas_replayed,
-            embeddings_replayed,
+            entries_replayed: state.entries_replayed,
+            schemas_replayed: state.schemas_replayed,
+            embeddings_replayed: state.embeddings_replayed,
         })
     }
 

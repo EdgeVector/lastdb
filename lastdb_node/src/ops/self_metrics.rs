@@ -60,6 +60,7 @@ mod sync_health;
 mod sync_lines;
 mod sync_probe;
 mod write;
+mod write_fields;
 
 pub use at_rest::*;
 pub use build_health::*;
