@@ -79,7 +79,6 @@ impl SyncEngine {
         let _publish_turn = self.backup_publish_turn.lock().await;
 
         let current_previous = self.effective_previous_manifest(previous_manifest)?;
-        let previous_manifest = current_previous.as_ref();
 
         let drain_started = Instant::now();
         let force_env = env_flag::var_truthy("LASTDB_SNAPSHOT_LOG_PUBLISH_EVERY_CYCLE");
@@ -103,6 +102,10 @@ impl SyncEngine {
         // Drain the sticky target, not a freshly re-derived live cut. Re-cutting
         // each attempt is what made a busy home non-convergent: the denominator
         // moved faster than the 16-put budget could close it.
+        let current_previous = self
+            .recover_missing_normal_backup_predecessor(current_previous)
+            .await?;
+        let previous_manifest = current_previous.as_ref();
         self.ensure_backup_publish_target(previous_manifest).await?;
         let (chunk_stats, generation) = self.drain_backup_publish_target(allow_drain_puts).await?;
         report.chunks = chunk_stats;

@@ -78,6 +78,7 @@ mod gc_test_hooks;
 mod gc_types;
 mod manifest_presence;
 mod policy_helpers;
+mod predecessor;
 mod progress_recovery;
 mod publish_cycle;
 mod publish_target;
