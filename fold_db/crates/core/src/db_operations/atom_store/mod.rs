@@ -75,7 +75,6 @@ pub use tip_version_backrefs::{
     TipVersionBackrefReindexStatus,
 };
 pub use types::MoleculeData;
-#[cfg(feature = "cloud-sync")]
 pub(crate) use types::MoleculeHeader;
 pub(crate) use types::{
     ChangedKey, FilterLayout, HashKeyLookupRecord, MoleculeGenerationDelete,
