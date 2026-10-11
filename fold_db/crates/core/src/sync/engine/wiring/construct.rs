@@ -57,7 +57,6 @@ impl SyncEngine {
     /// and a live cut do not serialize. Pass the coordinator's slots here so
     /// there is one packing lock for the process.
     #[allow(clippy::too_many_arguments)]
-    // lint:fn-size-ok verbatim move from wiring.rs; splitting this function is separate work
     pub(crate) fn new_with_shared_packing(
         device_id: String,
         crypto: Arc<dyn CryptoProvider>,
@@ -72,41 +71,8 @@ impl SyncEngine {
         >,
         cloud_sync_disabled_at: Option<Arc<Mutex<Option<u64>>>>,
     ) -> Self {
-        let initial_caps = super::super::upload_policy::UploadPolicySnapshot {
-            mode: super::super::upload_policy::UploadPolicyMode::Fixed,
-            max_pending: config.max_pending,
-            max_upload_entries: config.max_upload_entries_per_cycle,
-            max_upload_bytes: config.max_upload_bytes_per_cycle,
-            concurrency: config.sync_concurrency,
-            budget_bytes: config.max_upload_bytes_per_cycle,
-            headroom_rss_bytes: None,
-            rss_bytes: None,
-            rss_limit_bytes: super::super::upload_policy::UploadPolicySnapshot::default()
-                .rss_limit_bytes,
-            ewma_upload_bps: 0.0,
-            cpu_percent: None,
-            foreground_pressure: None,
-            throttle_reason: None,
-            throttle_source: super::super::upload_policy::UploadThrottleSource::None,
-        };
-        let auth = match laststore_backup_source
-            .as_ref()
-            .and_then(|source| source.durable_sidecar_dir())
-        {
-            Some(directory) => {
-                match crate::sync::cloud_purge_peer::CloudPurgePeer::directory_for_home(&directory)
-                    .and_then(|stable| {
-                        crate::sync::cloud_purge_peer::CloudPurgePeer::open(
-                            stable,
-                            device_id.clone(),
-                        )
-                    }) {
-                    Ok(peer) => auth.with_cloud_purge_peer(peer),
-                    Err(error) => auth.with_cloud_purge_peer_error(error.to_string()),
-                }
-            }
-            None => auth,
-        };
+        let initial_caps = Self::initial_upload_caps(&config);
+        let auth = Self::auth_with_purge_peer(auth, laststore_backup_source.as_ref(), &device_id);
         let backup_progress_enabled = laststore_backup_source.is_some();
         // The progress tracker is process-local, but a committed LastStore
         // manifest is not. Mutation-log mode deliberately stops cutting new
@@ -234,24 +200,10 @@ impl SyncEngine {
             backup_gc_identity_revoked: AtomicBool::new(false),
             backup_consecutive_reseal_kills: AtomicU64::new(0),
             backup_unbackable_manifest_chunks: AtomicU64::new(0),
-            backup_progress: Arc::new(std::sync::Mutex::new({
-                let mut t = crate::backup_progress::BackupProgressTracker::default();
-                t.set_enabled(backup_progress_enabled);
-                if let Some(durability) = durable_backup.as_ref() {
-                    t.restore_published_manifest(durability.last_backup_commit_unix_secs);
-                    // The commit timestamp is positive evidence only. Restore
-                    // the abandon beside it, or a home whose sealed base was
-                    // given up as unpublishable comes back reporting
-                    // `complete: true` off the older commit.
-                    if durability.sealed_base_abandoned_outstanding() {
-                        t.restore_sealed_base_abandoned(
-                            crate::sync::engine::backup_uploader::SEALED_BASE_ABANDONED_STATUS_ERROR
-                                .to_string(),
-                        );
-                    }
-                }
-                t
-            })),
+            backup_progress: Arc::new(std::sync::Mutex::new(Self::initial_backup_progress(
+                backup_progress_enabled,
+                durable_backup.as_ref(),
+            ))),
             post_cas_backup_gc_tip: Arc::new(Mutex::new(None)),
             post_cas_backup_gc_generation: AtomicU64::new(0),
             backup_orphan_gc_mutex,
@@ -303,5 +255,70 @@ impl SyncEngine {
         // every freeze dir on disk is stale. Sweep unconditionally.
         engine.sweep_backup_freeze_dirs(None);
         engine
+    }
+
+    fn initial_upload_caps(
+        config: &SyncConfig,
+    ) -> super::super::upload_policy::UploadPolicySnapshot {
+        super::super::upload_policy::UploadPolicySnapshot {
+            mode: super::super::upload_policy::UploadPolicyMode::Fixed,
+            max_pending: config.max_pending,
+            max_upload_entries: config.max_upload_entries_per_cycle,
+            max_upload_bytes: config.max_upload_bytes_per_cycle,
+            concurrency: config.sync_concurrency,
+            budget_bytes: config.max_upload_bytes_per_cycle,
+            headroom_rss_bytes: None,
+            rss_bytes: None,
+            rss_limit_bytes: super::super::upload_policy::UploadPolicySnapshot::default()
+                .rss_limit_bytes,
+            ewma_upload_bps: 0.0,
+            cpu_percent: None,
+            foreground_pressure: None,
+            throttle_reason: None,
+            throttle_source: super::super::upload_policy::UploadThrottleSource::None,
+        }
+    }
+
+    /// Attach the durable cloud-purge peer when the backup source has a sidecar
+    /// directory; record the open error on the client otherwise.
+    fn auth_with_purge_peer(
+        auth: AuthClient,
+        laststore_backup_source: Option<&Arc<crate::storage::LastStoreNamespacedStore>>,
+        device_id: &str,
+    ) -> AuthClient {
+        let Some(directory) =
+            laststore_backup_source.and_then(|source| source.durable_sidecar_dir())
+        else {
+            return auth;
+        };
+        match crate::sync::cloud_purge_peer::CloudPurgePeer::directory_for_home(&directory)
+            .and_then(|stable| {
+                crate::sync::cloud_purge_peer::CloudPurgePeer::open(stable, device_id.to_string())
+            }) {
+            Ok(peer) => auth.with_cloud_purge_peer(peer),
+            Err(error) => auth.with_cloud_purge_peer_error(error.to_string()),
+        }
+    }
+
+    fn initial_backup_progress(
+        enabled: bool,
+        durable_backup: Option<&crate::storage::laststore::BackupDurability>,
+    ) -> crate::backup_progress::BackupProgressTracker {
+        let mut t = crate::backup_progress::BackupProgressTracker::default();
+        t.set_enabled(enabled);
+        if let Some(durability) = durable_backup {
+            t.restore_published_manifest(durability.last_backup_commit_unix_secs);
+            // The commit timestamp is positive evidence only. Restore
+            // the abandon beside it, or a home whose sealed base was
+            // given up as unpublishable comes back reporting
+            // `complete: true` off the older commit.
+            if durability.sealed_base_abandoned_outstanding() {
+                t.restore_sealed_base_abandoned(
+                    crate::sync::engine::backup_uploader::SEALED_BASE_ABANDONED_STATUS_ERROR
+                        .to_string(),
+                );
+            }
+        }
+        t
     }
 }

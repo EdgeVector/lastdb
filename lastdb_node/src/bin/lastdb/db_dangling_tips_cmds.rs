@@ -74,13 +74,51 @@ pub(crate) fn db_unresolved_atoms(socket: &Path, json_only: bool) -> Result<(), 
     Ok(())
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
 pub(crate) fn db_repair_dangling_tips(
     socket: &Path,
     execute: bool,
     args: &RepairDanglingTipsArgs,
     json_only: bool,
 ) -> Result<(), String> {
+    let request = repair_dangling_tips_request(execute, args);
+    let value = db_post_json(socket, "/api/db/repair-dangling-tips", &request)?;
+    let report = value
+        .get("repair_dangling_tips")
+        .cloned()
+        .ok_or_else(|| "response missing repair_dangling_tips".to_string())?;
+    if json_only {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
+        );
+        return Ok(());
+    }
+    let mode = if execute { "EXECUTED" } else { "DRY RUN" };
+    println!("Dangling tip repair — {mode}");
+    let scope = report.get("scope").filter(|s| !s.is_null());
+    print_repair_scope(scope);
+    print_repair_counters(&report);
+    print_refused_molecules(&report);
+    print_unresolved_tips(&report, scope.is_some());
+    if report
+        .get("aborted_on_repeated_failures")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        println!();
+        println!(
+            "  WARNING: stopped early on an unbroken run of repair failures — \
+             treat this as a store fault, not a few bad molecules."
+        );
+    }
+    if !execute {
+        println!();
+        println!("Re-run with --execute to remove repairable dangling tips.");
+    }
+    Ok(())
+}
+
+fn repair_dangling_tips_request(execute: bool, args: &RepairDanglingTipsArgs) -> serde_json::Value {
     // A scoped pass exists to name the keys it would touch, so it reports
     // per-key detail by default; an unscoped pass keeps its old default (none).
     let audit_limit = args
@@ -100,21 +138,10 @@ pub(crate) fn db_repair_dangling_tips(
     if let Some(hash_key) = &args.hash_key {
         request["hash_key"] = serde_json::json!(hash_key);
     }
-    let value = db_post_json(socket, "/api/db/repair-dangling-tips", &request)?;
-    let report = value
-        .get("repair_dangling_tips")
-        .cloned()
-        .ok_or_else(|| "response missing repair_dangling_tips".to_string())?;
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
-        );
-        return Ok(());
-    }
-    let mode = if execute { "EXECUTED" } else { "DRY RUN" };
-    println!("Dangling tip repair — {mode}");
-    let scope = report.get("scope").filter(|s| !s.is_null());
+    request
+}
+
+fn print_repair_scope(scope: Option<&serde_json::Value>) {
     if let Some(scope) = scope {
         let list = |key: &str| {
             scope
@@ -144,6 +171,9 @@ pub(crate) fn db_repair_dangling_tips(
                 .unwrap_or(0)
         );
     }
+}
+
+fn print_repair_counters(report: &serde_json::Value) {
     for key in [
         "tips_scanned",
         "repairable_tips",
@@ -174,6 +204,9 @@ pub(crate) fn db_repair_dangling_tips(
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
     );
+}
+
+fn print_refused_molecules(report: &serde_json::Value) {
     // `skipped_unrepairable` is a size; this is what it sits on. Without it the
     // only record of which molecules were refused is a daemon-log warn line, so
     // an operator reading the report cannot tell bounded, explained residue from
@@ -209,6 +242,9 @@ pub(crate) fn db_repair_dangling_tips(
              rejects, and the repair is delete-then-store."
         );
     }
+}
+
+fn print_unresolved_tips(report: &serde_json::Value, scoped: bool) {
     // `unresolved[].schema` joins each dangling molecule against the live
     // schema catalog. Grouped here so "which schema is producing these" is a
     // line count on the report itself, not a separate molecule-keys probe
@@ -238,7 +274,7 @@ pub(crate) fn db_repair_dangling_tips(
         }
         // A scoped pass is small by construction, so name each key: that is
         // the list an operator checks before re-running with --execute.
-        if scope.is_some() {
+        if scoped {
             println!();
             println!("  Repairable tips (tip key -> missing atom):");
             for row in rows {
@@ -256,22 +292,6 @@ pub(crate) fn db_repair_dangling_tips(
             }
         }
     }
-    if report
-        .get("aborted_on_repeated_failures")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        println!();
-        println!(
-            "  WARNING: stopped early on an unbroken run of repair failures — \
-             treat this as a store fault, not a few bad molecules."
-        );
-    }
-    if !execute {
-        println!();
-        println!("Re-run with --execute to remove repairable dangling tips.");
-    }
-    Ok(())
 }
 
 // lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
