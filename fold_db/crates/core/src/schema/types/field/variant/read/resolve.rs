@@ -477,6 +477,38 @@ impl FieldVariant {
                 .scan_per_key_prefixes(&prefixes, storage_prefix)
                 .await?
         };
+        let rows = Self::api_rows_from_scan(db_ops, hash, scanned)?;
+        if partition_read.is_some() || (window_applied && page_read.is_some()) {
+            let tips = rows
+                .iter()
+                .map(|(key, rec, _)| crate::resident::ResidentTip {
+                    molecule_uuid: molecule_uuid.to_string(),
+                    hash: hash.to_string(),
+                    range: key.range.clone().unwrap_or_default(),
+                    atom_uuid: rec.entry.atom_uuid.clone(),
+                    written_at: rec.entry.written_at,
+                    logical_counter: rec.entry.logical_counter,
+                    device_id: rec.entry.lww_device().to_string(),
+                    mutation_uuid: rec.entry.mutation_uuid.clone(),
+                    writer_pubkey: rec.entry.writer_pubkey.clone(),
+                    key_metadata: rec.meta.clone(),
+                })
+                .collect();
+            if let Some(read) = partition_read {
+                db_ops.resident().finish_partition_read(&read, tips);
+            } else if let Some(read) = page_read {
+                db_ops.resident().finish_page_read(&read, tips);
+            }
+        }
+        Ok((rows, window_applied))
+    }
+
+    /// Convert scanned storage keys into API-keyed tip matches.
+    fn api_rows_from_scan(
+        db_ops: &Arc<DbOperations>,
+        hash: &str,
+        scanned: Vec<(String, crate::db_operations::atom_store::PerKeyRecord)>,
+    ) -> Result<Vec<TipMatch>, SchemaError> {
         let mut rows = Vec::with_capacity(scanned.len());
         for (storage_key, rec) in scanned {
             let (_decoded_hash, decoded_range) =
@@ -502,29 +534,7 @@ impl FieldVariant {
                 storage_key,
             ));
         }
-        if partition_read.is_some() || (window_applied && page_read.is_some()) {
-            let tips = rows
-                .iter()
-                .map(|(key, rec, _)| crate::resident::ResidentTip {
-                    molecule_uuid: molecule_uuid.to_string(),
-                    hash: hash.to_string(),
-                    range: key.range.clone().unwrap_or_default(),
-                    atom_uuid: rec.entry.atom_uuid.clone(),
-                    written_at: rec.entry.written_at,
-                    logical_counter: rec.entry.logical_counter,
-                    device_id: rec.entry.lww_device().to_string(),
-                    mutation_uuid: rec.entry.mutation_uuid.clone(),
-                    writer_pubkey: rec.entry.writer_pubkey.clone(),
-                    key_metadata: rec.meta.clone(),
-                })
-                .collect();
-            if let Some(read) = partition_read {
-                db_ops.resident().finish_partition_read(&read, tips);
-            } else if let Some(read) = page_read {
-                db_ops.resident().finish_page_read(&read, tips);
-            }
-        }
-        Ok((rows, window_applied))
+        Ok(rows)
     }
 
     /// Drop hidden tombstones and apply the key window when storage did not.
@@ -559,6 +569,31 @@ impl FieldVariant {
             };
         }
         visible_matches
+    }
+
+    /// Count and log a tip whose atom body could not be resolved.
+    fn record_unresolved_tip_atom(
+        db_ops: &Arc<DbOperations>,
+        molecule_uuid: &str,
+        atom_uuid: &str,
+        key: &KeyValue,
+        tip_key: &str,
+    ) {
+        db_ops.record_unresolved_atom_skip(
+            atom_uuid,
+            key,
+            crate::db_operations::core::UnresolvedAtomContext {
+                molecule_uuid: Some(molecule_uuid),
+                atom_partition: crate::atom::AtomPartition::from_record_key(tip_key).as_ref(),
+                tip_storage_key: Some(tip_key),
+                ..Default::default()
+            },
+        );
+        tracing::warn!(
+            atom_uuid = %atom_uuid,
+            key = %key,
+            "Skipping unresolved atom ref from hash-key query result"
+        );
     }
 
     /// Hydrate atoms for the selected tips into field values.
@@ -601,22 +636,7 @@ impl FieldVariant {
                     tracing::warn!("Filtering orphan atom ref from org-scoped hash-key read");
                     continue;
                 }
-                db_ops.record_unresolved_atom_skip(
-                    &atom_uuid,
-                    &key,
-                    crate::db_operations::core::UnresolvedAtomContext {
-                        molecule_uuid: Some(molecule_uuid),
-                        atom_partition: crate::atom::AtomPartition::from_record_key(&tip_key)
-                            .as_ref(),
-                        tip_storage_key: Some(&tip_key),
-                        ..Default::default()
-                    },
-                );
-                tracing::warn!(
-                    atom_uuid = %atom_uuid,
-                    key = %key,
-                    "Skipping unresolved atom ref from hash-key query result"
-                );
+                Self::record_unresolved_tip_atom(db_ops, molecule_uuid, &atom_uuid, &key, &tip_key);
                 continue;
             };
 
