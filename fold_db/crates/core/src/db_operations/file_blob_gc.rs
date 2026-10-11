@@ -57,12 +57,16 @@
 //! `gc-file-blobs`), counts only — a blob_ref is a hash of the file's
 //! plaintext, so the ledger's no-uuid rule applies to it verbatim.
 
-use crate::db_operations::{AtomDeleteLedgerEntry, DbOperations};
-use crate::schema::types::field::build_storage_key;
+use crate::db_operations::DbOperations;
 use crate::schema::SchemaError;
-use crate::sharing::blob_cas;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::Serialize;
+use sweep::{
+    classify_candidates, collect_candidates, delete_candidates, execute_ledger_entry,
+    record_empty_pass, stamp_candidates,
+};
+
+mod sweep;
 
 /// Prefix of resident-persist blob rows on the main store.
 const RESIDENT_BLOB_PREFIX: &str = "cas_blob:";
@@ -103,62 +107,6 @@ pub struct FileBlobGcReport {
     pub bytes_freed_approx: u64,
 }
 
-/// One candidate row from either local plane.
-struct BlobCandidate {
-    blob_ref: String,
-    /// Full main-store key for resident-plane rows; `None` for `cas_blobs`
-    /// namespace rows (addressed by bare `blob_ref`).
-    main_store_key: Option<String>,
-    approx_bytes: u64,
-    stored_at: Option<String>,
-}
-
-async fn candidate_still_predates(
-    db_ops: &DbOperations,
-    candidate: &BlobCandidate,
-    reclaim_before: DateTime<Utc>,
-) -> Result<bool, SchemaError> {
-    let stored_at = if let Some(key) = &candidate.main_store_key {
-        let Some(bytes) = db_ops
-            .atoms()
-            .raw()
-            .inner()
-            .get(key.as_bytes())
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "gc-file-blobs recheck resident row {}: {error}",
-                    candidate.blob_ref
-                ))
-            })?
-        else {
-            return Ok(false);
-        };
-        serde_json::from_slice::<serde_json::Value>(&bytes)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("stored_at")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string)
-            })
-    } else {
-        blob_cas::get_blob_in_ops(db_ops, &candidate.blob_ref)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "gc-file-blobs recheck {}: {error}",
-                    candidate.blob_ref
-                ))
-            })?
-            .and_then(|blob| blob.stored_at)
-    };
-    Ok(stored_at
-        .as_deref()
-        .and_then(|stamp| DateTime::parse_from_rfc3339(stamp).ok())
-        .is_some_and(|stamp| stamp.with_timezone(&Utc) < reclaim_before))
-}
-
 /// Delete every local blob row no live atom references, oldest-first-safe.
 /// See the module docs for the exact contract.
 pub async fn gc_orphan_file_blobs(
@@ -188,53 +136,7 @@ pub async fn gc_orphan_file_blobs(
     // ---- Candidates first, then references. A blob stored after this
     // snapshot is not a candidate at all; one stored before it is either seen
     // by the atom scan below or protected by the age gate.
-    let mut candidates: Vec<BlobCandidate> = Vec::new();
-    let cas_scan = blob_cas::scan_blob_row_headers(db_ops)
-        .await
-        .map_err(|e| SchemaError::InvalidData(format!("gc-file-blobs scan cas_blobs: {e}")))?;
-    // An unreadable row is never a candidate: retained, counted, and warned
-    // (per blob_ref) by the scan. It must not abort the pass for every other
-    // row.
-    report.file_blobs_unreadable_retained = cas_scan.unreadable.len() as u64;
-    for header in cas_scan.headers {
-        candidates.push(BlobCandidate {
-            blob_ref: header.blob_ref,
-            main_store_key: None,
-            approx_bytes: header.approx_bytes,
-            stored_at: header.stored_at,
-        });
-    }
-
-    let resident_prefix = build_storage_key(None, RESIDENT_BLOB_PREFIX);
-    let resident_rows = db_ops
-        .atoms()
-        .raw()
-        .inner()
-        .scan_prefix(resident_prefix.as_bytes())
-        .await
-        .map_err(|e| SchemaError::InvalidData(format!("gc-file-blobs scan cas_blob:: {e}")))?;
-    for (key, value) in resident_rows {
-        let full_key = String::from_utf8_lossy(&key).into_owned();
-        let Some(blob_ref) = full_key
-            .strip_prefix(resident_prefix.as_str())
-            .map(str::to_string)
-        else {
-            continue;
-        };
-        let stored_at = serde_json::from_slice::<serde_json::Value>(&value)
-            .ok()
-            .and_then(|v| {
-                v.get("stored_at")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string)
-            });
-        candidates.push(BlobCandidate {
-            blob_ref,
-            main_store_key: Some(full_key),
-            approx_bytes: (key.len() + value.len()) as u64,
-            stored_at,
-        });
-    }
+    let candidates = collect_candidates(db_ops, &mut report).await?;
     report.file_blobs_scanned = candidates.len() as u64 + report.file_blobs_unreadable_retained;
 
     // Nothing to reason about — skip the atom scan entirely. An execute pass
@@ -243,65 +145,15 @@ pub async fn gc_orphan_file_blobs(
     // as gc-atoms records its zero-delete passes.
     if candidates.is_empty() {
         if !dry_run {
-            let ledger_entry =
-                AtomDeleteLedgerEntry::gc_file_blobs("gc-file-blobs", &report.scan_started_at);
-            let handle = db_ops
-                .atoms()
-                .begin_delete_ledger_row(None, ledger_entry)
-                .await?;
-            db_ops
-                .atoms()
-                .commit_delete_ledger_row(handle, |_| {})
-                .await;
+            record_empty_pass(db_ops, &report).await?;
         }
         return Ok(report);
     }
 
     // ---- Classify candidates.
     let reclaim_before = scan_started_at - chrono::Duration::seconds(FRESH_WRITE_GRACE_SECS);
-    let mut to_delete: Vec<BlobCandidate> = Vec::new();
-    let mut to_stamp: Vec<BlobCandidate> = Vec::new();
-    for candidate in candidates {
-        let _target_gate = db_ops
-            .atoms()
-            .lock_liveness_blobs(std::slice::from_ref(&candidate.blob_ref))
-            .await;
-        if !db_ops.atoms().blob_ref_edges_complete(None).await? {
-            report.file_blobs_retained_incomplete =
-                report.file_blobs_retained_incomplete.saturating_add(1);
-            report.file_blobs_referenced = report.file_blobs_referenced.saturating_add(1);
-            continue;
-        }
-        if db_ops
-            .atoms()
-            .has_active_blob_refs(&candidate.blob_ref, None)
-            .await?
-        {
-            report.file_blobs_referenced += 1;
-            report.blob_refs_referenced = report.blob_refs_referenced.saturating_add(1);
-            continue;
-        }
-        match candidate
-            .stored_at
-            .as_deref()
-            .map(DateTime::parse_from_rfc3339)
-        {
-            None => {
-                report.file_blobs_stamped += 1;
-                to_stamp.push(candidate);
-            }
-            Some(Ok(at)) if at.with_timezone(&Utc) < reclaim_before => {
-                report.file_blobs_deleted += 1;
-                report.bytes_freed_approx += candidate.approx_bytes;
-                to_delete.push(candidate);
-            }
-            // Inside the grace window — or a stamp this run cannot parse.
-            // Either way the row cannot be reasoned about as old, so it stays.
-            Some(_) => {
-                report.file_blobs_skipped_recent += 1;
-            }
-        }
-    }
+    let (to_delete, to_stamp) =
+        classify_candidates(db_ops, candidates, reclaim_before, &mut report).await?;
 
     if dry_run {
         return Ok(report);
@@ -309,87 +161,15 @@ pub async fn gc_orphan_file_blobs(
 
     // ---- Execute. Ledger row first (write-ahead), including a zero-delete
     // pass: "a sweep ran at T and removed 0" is itself audit evidence.
-    let mut ledger_entry =
-        AtomDeleteLedgerEntry::gc_file_blobs("gc-file-blobs", &report.scan_started_at);
-    ledger_entry.file_blobs_scanned = report.file_blobs_scanned;
-    ledger_entry.file_blobs_referenced = report.file_blobs_referenced;
-    ledger_entry.file_blobs_deleted = report.file_blobs_deleted;
-    ledger_entry.file_blobs_skipped_recent = report.file_blobs_skipped_recent;
-    ledger_entry.file_blobs_stamped = report.file_blobs_stamped;
-    ledger_entry.file_blob_bytes_freed_approx = report.bytes_freed_approx;
-    ledger_entry.storage_keys_deleted = report.file_blobs_deleted;
+    let ledger_entry = execute_ledger_entry(&report);
     let handle = db_ops
         .atoms()
         .begin_delete_ledger_row(None, ledger_entry)
         .await?;
 
-    for candidate in &to_stamp {
-        if candidate.main_store_key.is_some() {
-            stamp_resident_row(db_ops, &candidate.blob_ref, &report.scan_started_at).await?;
-        } else {
-            blob_cas::stamp_blob_stored_at(db_ops, &candidate.blob_ref, &report.scan_started_at)
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!(
-                        "gc-file-blobs stamp {}: {e}",
-                        candidate.blob_ref
-                    ))
-                })?;
-        }
-    }
+    stamp_candidates(db_ops, &to_stamp, &report.scan_started_at).await?;
 
-    let mut main_store_deletes: Vec<String> = Vec::new();
-    for candidate in &to_delete {
-        let _target_gate = db_ops
-            .atoms()
-            .lock_liveness_blobs(std::slice::from_ref(&candidate.blob_ref))
-            .await;
-        if !db_ops.atoms().blob_ref_edges_complete(None).await?
-            || db_ops
-                .atoms()
-                .has_active_blob_refs(&candidate.blob_ref, None)
-                .await?
-        {
-            report.file_blobs_deleted = report.file_blobs_deleted.saturating_sub(1);
-            report.bytes_freed_approx = report
-                .bytes_freed_approx
-                .saturating_sub(candidate.approx_bytes);
-            report.file_blobs_referenced = report.file_blobs_referenced.saturating_add(1);
-            continue;
-        }
-        if !candidate_still_predates(db_ops, candidate, reclaim_before).await? {
-            report.file_blobs_deleted = report.file_blobs_deleted.saturating_sub(1);
-            report.bytes_freed_approx = report
-                .bytes_freed_approx
-                .saturating_sub(candidate.approx_bytes);
-            report.file_blobs_skipped_recent = report.file_blobs_skipped_recent.saturating_add(1);
-            continue;
-        }
-        match &candidate.main_store_key {
-            Some(key) => main_store_deletes.push(key.clone()),
-            None => {
-                blob_cas::delete_blob_in_ops(db_ops, &candidate.blob_ref)
-                    .await
-                    .map_err(|e| {
-                        SchemaError::InvalidData(format!(
-                            "gc-file-blobs delete {}: {e}",
-                            candidate.blob_ref
-                        ))
-                    })?;
-            }
-        }
-    }
-    const CHUNK: usize = 2000;
-    for chunk in main_store_deletes.chunks(CHUNK) {
-        db_ops
-            .atoms()
-            .raw()
-            .batch_delete_keys(chunk.to_vec())
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!("gc-file-blobs delete cas_blob rows: {e}"))
-            })?;
-    }
+    delete_candidates(db_ops, &to_delete, reclaim_before, &mut report).await?;
 
     if !to_delete.is_empty() || !to_stamp.is_empty() {
         let _ = db_ops.flush().await;
@@ -411,43 +191,4 @@ pub async fn gc_orphan_file_blobs(
     );
 
     Ok(report)
-}
-
-/// Stamp `stored_at` on a resident-plane `cas_blob:{ref}` row that lacks one,
-/// leaving every other byte unchanged. Sibling of
-/// `blob_cas::stamp_blob_stored_at` for the main-store plane.
-async fn stamp_resident_row(
-    db_ops: &DbOperations,
-    blob_ref: &str,
-    stored_at: &str,
-) -> Result<(), SchemaError> {
-    let key = build_storage_key(None, &format!("{RESIDENT_BLOB_PREFIX}{blob_ref}"));
-    let store = db_ops.atoms().raw().inner();
-    let Some(bytes) = store
-        .get(key.as_bytes())
-        .await
-        .map_err(|e| SchemaError::InvalidData(format!("gc-file-blobs read {key}: {e}")))?
-    else {
-        return Ok(());
-    };
-    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-        return Ok(());
-    };
-    let Some(obj) = value.as_object_mut() else {
-        return Ok(());
-    };
-    if obj.get("stored_at").is_some_and(|v| !v.is_null()) {
-        return Ok(());
-    }
-    obj.insert(
-        "stored_at".to_string(),
-        serde_json::Value::String(stored_at.to_string()),
-    );
-    let encoded = serde_json::to_vec(&value)
-        .map_err(|e| SchemaError::InvalidData(format!("gc-file-blobs stamp encode: {e}")))?;
-    store
-        .put(key.as_bytes(), encoded)
-        .await
-        .map_err(|e| SchemaError::InvalidData(format!("gc-file-blobs stamp write {key}: {e}")))?;
-    Ok(())
 }

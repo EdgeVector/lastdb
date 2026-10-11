@@ -103,7 +103,6 @@ impl SyncEngine {
 
     /// `prelisted_presence` lets a fenced cut do its cloud list before it
     /// stops new local mutations. The outer `Some` means the list was tried.
-    // lint:fn-size-ok moved verbatim from backup_uploader.rs; splitting this function is separate work.
     pub(super) async fn ensure_backup_publish_target_with_presence(
         &self,
         previous_manifest: Option<&BackupManifest>,
@@ -182,196 +181,23 @@ impl SyncEngine {
         // target keeps the marker unchanged across upload retries.
         self.prepare_backup_restore_frontier().await?;
 
-        let missing_atom_groups = match store.stamp_pending_committed_successor_history() {
-            Ok(report) => {
-                tracing::info!(
-                    target: "fold_db::sync::backup",
-                    retired = report.retired_shas.len(),
-                    retired_bytes = report.retired_bytes,
-                    scope_ok = report.scope_ok,
-                    groups_without_local_file = report.groups_without_local_file,
-                    unstamped_successor_history_refs = report.unstamped_successor_history_refs,
-                    "stamped committed atom successor history before photograph cut"
-                );
-                if report.unstamped_successor_history_refs > 0 {
-                    tracing::error!(
-                        target: "fold_db::sync::backup",
-                        unstamped_successor_history_refs = report.unstamped_successor_history_refs,
-                        "atom_successor_history_stamp_miss"
-                    );
-                    return Err(SyncError::Storage(
-                        "atom keep-set is not a copy of disk: successor-history stamp miss"
-                            .to_string(),
-                    ));
-                }
-                if report.groups_without_local_file > 0
-                    && !self.backup_only_mode.load(Ordering::SeqCst)
-                {
-                    tracing::error!(
-                        target: "fold_db::sync::backup",
-                        groups_without_local_file = report.groups_without_local_file,
-                        "atom_missing_successor_refs"
-                    );
-                    return Err(SyncError::Storage(
-                        "atom keep-set is not a copy of disk: restore missing atom groups from cloud onto disk, then retry"
-                            .to_string(),
-                    ));
-                }
-                report.groups_without_local_file
-            }
-            Err(e) => {
-                tracing::error!(
-                    target: "fold_db::sync::backup",
-                    error = %e,
-                    "atom_successor_history_stamp_miss"
-                );
-                return Err(SyncError::Storage(format!(
-                    "atom keep-set is not a copy of disk: successor-history stamp failed: {e}"
-                )));
-            }
-        };
-
-        let mut manifest = if self.backup_only_mode.load(Ordering::SeqCst) {
-            store.cut_backup_manifest_with_cloud_presence_strict(
-                previous_manifest,
-                cloud_presence.as_ref(),
-            )
-        } else if primary_resume_root {
-            store
-                .cut_backup_manifest_with_cloud_presence(previous_manifest, cloud_presence.as_ref())
-        } else {
-            store.cut_normal_backup_manifest_with_cloud_presence(
-                previous_manifest,
-                cloud_presence.as_ref(),
-            )
-        }
-        .map_err(|e| SyncError::Storage(format!("cut backup manifest failed: {e}")))?;
-        if missing_atom_groups > 0 && !accept_local_damage {
-            let proven = store
-                .missing_committed_atom_groups_have_cloud_copies(
-                    previous_manifest,
-                    &manifest,
-                    cloud_presence.as_ref(),
-                    missing_atom_groups,
-                )
-                .map_err(|e| SyncError::Storage(format!("atom group cloud proof failed: {e}")))?;
-            if !proven {
-                return Err(SyncError::Storage(
-                    "atom keep-set is not a copy of disk: missing atom group lacks exact prior manifest and cloud proof"
-                        .to_string(),
-                ));
-            }
-        } else if missing_atom_groups > 0 {
-            tracing::warn!(
-                target: "fold_db::sync::backup",
-                missing_atom_groups,
-                "owner accepted a fresh backup of local files with missing historical atom groups"
-            );
-        }
-        require_atom_photograph_copy(
+        let missing_atom_groups = self.stamp_successor_history_for_cut(store)?;
+        let mut manifest = self.cut_publish_target_manifest(
             store,
-            &manifest,
+            previous_manifest,
             cloud_presence.as_ref(),
-            primary_resume_root && previous_manifest.is_none(),
-            self.backup_only_mode.load(Ordering::SeqCst),
+            primary_resume_root,
+            accept_local_damage,
+            missing_atom_groups,
         )?;
-        if primary_resume_root {
-            if let Some(previous) = previous_manifest {
-                make_verified_primary_resume_root(previous, &mut manifest)?;
-            } else {
-                manifest.deletion_receipts.clear();
-                validate_manifest_chain_before_packing(None, &manifest).map_err(|error| {
-                    SyncError::Storage(format!("fresh local root is invalid: {error}"))
-                })?;
-            }
-        } else {
-            validate_manifest_chain_before_packing(previous_manifest, &manifest).map_err(
-                |error| SyncError::Storage(format!("validate backup manifest failed: {error}")),
-            )?;
-        }
-        if !manifest.deletion_receipts.is_empty() {
-            let retired: usize = manifest
-                .deletion_receipts
-                .iter()
-                .map(|r| r.retired_atom_chunk_shas.len())
-                .sum();
-            tracing::info!(
-                target: "fold_db::sync::backup",
-                generation = manifest.counter,
-                retired,
-                receipts = manifest.deletion_receipts.len(),
-                "retired unbackable carried-forward atom chunk refs at cut"
-            );
-        }
-
-        // The held target is the denominator for progress and the source for
-        // uploads. It must therefore be the same chunk universe CAS validates
-        // through the manifest, not only the delta since `previous_manifest`.
-        // Previous atom refs are copied into every later manifest; excluding
-        // them here let a target report 100% present while CAS still rejected
-        // the same cut for missing manifest chunks.
-        let candidates = store
-            .enumerate_backup_publish_target_candidates()
-            .map_err(|e| SyncError::Storage(format!("enumerate backup chunks failed: {e}")))?;
-        let candidates = bind_backup_candidates_to_manifest(&manifest, candidates);
-        let candidates = self.prepare_backup_file_packs(
+        let candidates = self.publish_target_candidates(
             store,
             &mut manifest,
-            candidates,
             previous_manifest,
             cloud_presence.as_ref(),
             primary_resume_root,
         )?;
-        {
-            let candidate_shas: std::collections::BTreeSet<_> =
-                candidates.iter().map(|c| c.chunk.sha256.clone()).collect();
-            let unbackable = unbackable_manifest_chunk_count(&manifest, &candidate_shas);
-            if unbackable > 0 {
-                tracing::warn!(
-                    target: "fold_db::sync::backup",
-                    generation = manifest.counter,
-                    unbackable,
-                    "manifest still names chunks outside the local candidate set (kept because still in cloud, or reconcile incomplete)"
-                );
-            }
-        }
-
-        let generation = manifest.counter;
-        let total = candidates.len();
-        // Classify the manifest/candidate gap NOW. Discovering it at CAS costs a
-        // full drain first, and the drain reports "100% present" while it does,
-        // so the shortfall reads as a transient network condition rather than a
-        // structural one.
-        let unbackable_manifest_chunks =
-            unbackable_manifest_chunk_count(&manifest, &candidate_sha_set(&candidates));
-        if unbackable_manifest_chunks > 0 {
-            tracing::warn!(
-                target: "fold_db::sync::backup",
-                generation,
-                chunks = total,
-                unbackable_manifest_chunks,
-                "cut names manifest chunks with no local candidate; if any of them \
-                 is absent from cloud this cut cannot publish and must be re-cut"
-            );
-        }
-        // Mirror onto the engine so the count survives this cut's abandonment:
-        // the CAS path retires the target BEFORE the cycle ends, and the sample
-        // is recorded after, so reading the target there reports 0 on precisely
-        // the cycle that had something to say.
-        self.backup_unbackable_manifest_chunks
-            .store(unbackable_manifest_chunks as u64, Ordering::Relaxed);
-        *slot = Some(BackupPublishTarget::new(
-            manifest,
-            candidates,
-            unbackable_manifest_chunks,
-        ));
-        tracing::info!(
-            target: "fold_db::sync::backup",
-            generation,
-            chunks = total,
-            unbackable_manifest_chunks,
-            "publish target established; packing lock held until it lands"
-        );
+        self.install_publish_target(&mut slot, manifest, candidates);
         Ok(())
     }
 

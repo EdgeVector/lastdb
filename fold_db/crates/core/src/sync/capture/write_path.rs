@@ -27,8 +27,11 @@ mod catalog_capture;
 mod kv_store;
 mod logical_admission;
 mod logical_commit;
+mod logical_commit_finish;
+mod logical_intent;
 mod mutation_fence;
 mod namespaced;
+mod physical_jobs;
 mod queue;
 
 use kv_store::*;
