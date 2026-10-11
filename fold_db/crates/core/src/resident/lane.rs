@@ -6,7 +6,7 @@
 //! parallel: a stalled lane delays only its schema.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -15,158 +15,20 @@ use tokio::sync::Notify;
 
 use super::metrics::ResidentMetrics;
 
+mod counters;
+mod envelope;
 mod health;
+mod status;
 mod worker;
 
 use health::*;
 use worker::*;
 
+pub use counters::*;
+pub use envelope::*;
+
 /// Poll interval for [`PersistLaneSet::wait_for_quiescent`].
 const QUIESCENT_POLL: Duration = Duration::from_millis(10);
-
-/// Slot identity and exact resident/durable revisions carried on an envelope.
-///
-/// The lane waits for `durable_revision`, writes the complete envelope, and
-/// then advances the slot to `resident_revision`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PersistSlotRevision {
-    pub molecule_uuid: String,
-    pub disk_hash: String,
-    pub disk_range: String,
-    pub resident_revision: u64,
-    pub durable_revision: u64,
-}
-
-/// Lane identity: one FIFO per schema instance.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PersistLaneKey {
-    pub storage_prefix: String,
-    pub schema_name: String,
-}
-
-impl PersistLaneKey {
-    pub fn new(storage_prefix: impl Into<String>, schema_name: impl Into<String>) -> Self {
-        Self {
-            storage_prefix: storage_prefix.into(),
-            schema_name: schema_name.into(),
-        }
-    }
-}
-
-/// Immutable persist envelope — one acknowledged mutation batch.
-///
-/// `payload` is the mutation batch (atoms, tips, key-set changes, schema
-/// metadata, mutation/delete events, search-index events, idempotency
-/// result). Optional `completion` and `after_release` run only after the
-/// lane drops this envelope's byte charge. A send from inside `write_batch`
-/// wakes the next reserve while the charge is still held.
-pub struct PersistEnvelope<T> {
-    pub commit_id: u64,
-    pub slot_revisions: Vec<PersistSlotRevision>,
-    pub bytes: u64,
-    pub enqueued_at: Instant,
-    pub completion: Option<tokio::sync::oneshot::Sender<()>>,
-    /// Runs on the lane worker after admission for this envelope is released.
-    pub after_release: Option<Box<dyn FnOnce() + Send>>,
-    pub payload: T,
-}
-
-/// Result of one persist-lane batch write.
-///
-/// A writer returns ownership of every failed or untried envelope in original
-/// commit order. The lane retries that suffix before any later envelope. This
-/// ownership-return contract does not copy a payload.
-#[must_use]
-pub enum PersistBatchOutcome<T> {
-    /// The writer made every envelope durable.
-    ///
-    /// The envelopes are dropped inside `write_batch`. Use [`Self::Released`]
-    /// when a waiter must run after the lane drops the byte charge.
-    Complete,
-    /// Every envelope is durable, and the lane still owns the waiters.
-    ///
-    /// The lane releases the byte charge, then runs `after_release` and sends
-    /// `completion`. A writer must not send those waiters itself.
-    Released(Vec<PersistEnvelope<T>>),
-    /// The writer could not make `remaining` durable.
-    ///
-    /// `remaining` must contain only envelopes from the input batch. It must
-    /// contain the first failed envelope and every untried envelope.
-    /// `finished` is the durable prefix. The lane notifies it after the
-    /// failed suffix is back on the FIFO.
-    Retry {
-        remaining: Vec<PersistEnvelope<T>>,
-        finished: Vec<PersistEnvelope<T>>,
-        error: String,
-    },
-    /// The first envelope of `remaining` failed with a deterministic error.
-    ///
-    /// A deterministic error does not change on retry, for example a durable
-    /// row that does not decode. The lane retries the head a few times, then
-    /// hands it to [`PersistLaneWriter::quarantine`] and continues with the
-    /// rest. `remaining` has the same contract as [`Self::Retry`].
-    Poisoned {
-        remaining: Vec<PersistEnvelope<T>>,
-        finished: Vec<PersistEnvelope<T>>,
-        error: String,
-    },
-}
-
-impl<T> PersistEnvelope<T> {
-    pub fn new(payload: T, bytes: u64) -> Self {
-        Self {
-            commit_id: 0,
-            slot_revisions: Vec::new(),
-            bytes,
-            enqueued_at: Instant::now(),
-            completion: None,
-            after_release: None,
-            payload,
-        }
-    }
-}
-
-/// Wake durable waiters after their byte charge is gone.
-fn notify_released<T>(envelopes: Vec<PersistEnvelope<T>>) {
-    for mut envelope in envelopes {
-        if let Some(hook) = envelope.after_release.take() {
-            hook();
-        }
-        if let Some(tx) = envelope.completion.take() {
-            let _ = tx.send(());
-        }
-    }
-}
-
-/// Why [`PersistLaneSet::enqueue`] refused an envelope.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PersistLaneFull {
-    Entries,
-    Bytes,
-    /// The lane rejected admission after repeated durable-store failures.
-    Unhealthy,
-}
-
-/// Writer invoked by a lane worker with one or more adjacent envelopes.
-#[async_trait]
-pub trait PersistLaneWriter<T: Send + 'static>: Send + Sync + 'static {
-    async fn write_batch(&self, batch: Vec<PersistEnvelope<T>>) -> PersistBatchOutcome<T>;
-
-    /// Preserve one poisoned envelope outside the lane and release its turn.
-    ///
-    /// `Ok(())` means the writer kept a durable record of the envelope and
-    /// released every resource that later envelopes wait on. `Err` gives the
-    /// envelope back. The lane then keeps it at the head and uses the normal
-    /// retry and unhealthy path. The default refuses: a writer that cannot
-    /// preserve an envelope must never lose one.
-    async fn quarantine(
-        &self,
-        envelope: PersistEnvelope<T>,
-        _error: &str,
-    ) -> Result<(), PersistEnvelope<T>> {
-        Err(envelope)
-    }
-}
 
 struct FifoState<T> {
     queue: VecDeque<PersistEnvelope<T>>,
@@ -271,128 +133,6 @@ pub struct PersistLaneSet<T: Send + 'static> {
     breaker_cooldown: Duration,
 }
 
-/// Process-local lane counters (also mirrored onto [`super::ResidentMetrics`]).
-#[derive(Debug, Default)]
-pub struct PersistLaneCounters {
-    depth: AtomicU64,
-    failures: AtomicU64,
-    unhealthy_lanes: AtomicU64,
-    /// Reserved status field for a future aggregate slot-lag gauge.
-    resident_minus_durable_revision: AtomicU64,
-    refuse_bytes: AtomicU64,
-    refuse_entries: AtomicU64,
-    refuse_unhealthy: AtomicU64,
-    write_throughs: AtomicU64,
-    /// Envelopes moved to quarantine (process lifetime).
-    quarantined: AtomicU64,
-    /// Quarantine-breaker trips (process lifetime). Each trip closed one
-    /// lane's admission until its half-open probe.
-    breaker_trips: AtomicU64,
-}
-
-/// Occupancy of one persist lane for status / ops.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PersistLaneOccupancy {
-    pub storage_prefix: String,
-    pub schema_name: String,
-    /// Bytes in the queue or in an active writer call.
-    pub queued_bytes: u64,
-    pub reserved_bytes: u64,
-    pub queued_entries: u64,
-    pub reserved_entries: u64,
-    pub unhealthy: bool,
-}
-
-impl PersistLaneOccupancy {
-    #[must_use]
-    pub fn occupied_bytes(&self) -> u64 {
-        self.queued_bytes.saturating_add(self.reserved_bytes)
-    }
-}
-
-/// Cheap persist-lane pressure for `lastdb status` / `lastdb ops`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PersistLanePressure {
-    pub fair_share_bytes: u64,
-    pub write_through_threshold_bytes: u64,
-    pub heaviest_schema: String,
-    pub heaviest_bytes: u64,
-    pub queued_entries: u64,
-    pub reserved_entries: u64,
-    pub oldest_age_ms: u64,
-    pub refuse_bytes: u64,
-    pub refuse_entries: u64,
-    pub refuse_unhealthy: u64,
-    pub write_throughs: u64,
-    pub unhealthy_lanes: u64,
-    /// Envelopes moved to quarantine since process start.
-    pub quarantined: u64,
-    /// Quarantine-breaker trips since process start.
-    pub breaker_trips: u64,
-}
-
-impl PersistLaneCounters {
-    pub fn depth(&self) -> u64 {
-        self.depth.load(Ordering::Relaxed)
-    }
-
-    pub fn failures(&self) -> u64 {
-        self.failures.load(Ordering::Relaxed)
-    }
-
-    pub fn unhealthy_lanes(&self) -> u64 {
-        self.unhealthy_lanes.load(Ordering::Relaxed)
-    }
-
-    pub fn resident_minus_durable_revision(&self) -> u64 {
-        self.resident_minus_durable_revision.load(Ordering::Relaxed)
-    }
-
-    pub fn refuse_bytes(&self) -> u64 {
-        self.refuse_bytes.load(Ordering::Relaxed)
-    }
-
-    pub fn refuse_entries(&self) -> u64 {
-        self.refuse_entries.load(Ordering::Relaxed)
-    }
-
-    pub fn refuse_unhealthy(&self) -> u64 {
-        self.refuse_unhealthy.load(Ordering::Relaxed)
-    }
-
-    pub fn write_throughs(&self) -> u64 {
-        self.write_throughs.load(Ordering::Relaxed)
-    }
-
-    pub fn quarantined(&self) -> u64 {
-        self.quarantined.load(Ordering::Relaxed)
-    }
-
-    pub fn breaker_trips(&self) -> u64 {
-        self.breaker_trips.load(Ordering::Relaxed)
-    }
-
-    pub fn record_failure(&self) {
-        self.failures.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_refuse_bytes(&self) {
-        self.refuse_bytes.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_refuse_entries(&self) {
-        self.refuse_entries.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_refuse_unhealthy(&self) {
-        self.refuse_unhealthy.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_write_through(&self) {
-        self.write_throughs.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
 impl<T: Send + 'static> PersistLaneSet<T> {
     pub fn new(
         max_entries: usize,
@@ -437,98 +177,6 @@ impl<T: Send + 'static> PersistLaneSet<T> {
             age_tracker: Arc::new(PersistLaneAgeTracker::default()),
             stopped: AtomicBool::new(true),
             breaker_cooldown: BREAKER_COOLDOWN_DEFAULT,
-        }
-    }
-
-    pub fn metrics(&self) -> &PersistLaneCounters {
-        &self.metrics
-    }
-
-    /// Sum of queued and in-flight envelopes across lanes.
-    pub fn depth(&self) -> u64 {
-        self.metrics.depth()
-    }
-
-    /// Age of the oldest queued or in-flight envelope.
-    pub fn oldest_age(&self) -> Option<Duration> {
-        let now = Instant::now();
-        let lanes = self.lanes.lock().expect("persist lanes map");
-        let mut oldest: Option<Instant> = None;
-        for lane in lanes.values() {
-            let fifo = lane.fifo.lock().expect("persist lane fifo");
-            let lane_oldest = fifo_oldest_enqueued_at(&fifo);
-            if let Some(front) = lane_oldest {
-                oldest = Some(match oldest {
-                    Some(t) if t <= front => t,
-                    _ => front,
-                });
-            }
-        }
-        oldest.map(|t| now.saturating_duration_since(t))
-    }
-
-    pub fn oldest_age_ms(&self) -> u64 {
-        self.oldest_age()
-            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-    }
-
-    #[must_use]
-    pub fn max_bytes(&self) -> u64 {
-        self.max_bytes
-    }
-
-    /// Occupancy of every live lane. Status-path cheap: one map lock plus
-    /// one fifo lock per lane.
-    #[must_use]
-    pub fn occupancy(&self) -> Vec<PersistLaneOccupancy> {
-        let lanes = self.lanes.lock().expect("persist lanes map");
-        lanes
-            .values()
-            .map(|lane| {
-                let fifo = lane.fifo.lock().expect("persist lane fifo");
-                PersistLaneOccupancy {
-                    storage_prefix: lane.key.storage_prefix.clone(),
-                    schema_name: lane.key.schema_name.clone(),
-                    queued_bytes: fifo.bytes,
-                    reserved_bytes: fifo.reserved_bytes,
-                    queued_entries: fifo.queue.len() as u64,
-                    reserved_entries: fifo.reserved_entries as u64,
-                    unhealthy: fifo.unhealthy,
-                }
-            })
-            .collect()
-    }
-
-    #[must_use]
-    pub fn heaviest_occupancy(&self) -> Option<PersistLaneOccupancy> {
-        self.occupancy()
-            .into_iter()
-            .max_by_key(PersistLaneOccupancy::occupied_bytes)
-            .filter(|row| row.occupied_bytes() > 0)
-    }
-
-    #[must_use]
-    pub fn pressure(&self) -> PersistLanePressure {
-        let heaviest = self.heaviest_occupancy();
-        PersistLanePressure {
-            fair_share_bytes: self.max_bytes,
-            write_through_threshold_bytes: crate::memory_budget::write_through_threshold_bytes(),
-            heaviest_schema: heaviest
-                .as_ref()
-                .map_or_else(String::new, |row| row.schema_name.clone()),
-            heaviest_bytes: heaviest
-                .as_ref()
-                .map_or(0, PersistLaneOccupancy::occupied_bytes),
-            queued_entries: heaviest.as_ref().map_or(0, |row| row.queued_entries),
-            reserved_entries: heaviest.as_ref().map_or(0, |row| row.reserved_entries),
-            oldest_age_ms: self.oldest_age_ms(),
-            refuse_bytes: self.metrics.refuse_bytes(),
-            refuse_entries: self.metrics.refuse_entries(),
-            refuse_unhealthy: self.metrics.refuse_unhealthy(),
-            write_throughs: self.metrics.write_throughs(),
-            unhealthy_lanes: self.metrics.unhealthy_lanes(),
-            quarantined: self.metrics.quarantined(),
-            breaker_trips: self.metrics.breaker_trips(),
         }
     }
 
