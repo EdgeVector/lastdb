@@ -151,7 +151,6 @@ impl SyncEngine {
         progress: Option<&RestoreProgress>,
         skip_writer: Option<&str>,
     ) -> SyncResult<Vec<MutationLogSegment>> {
-        // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         progress::phase(progress, RestorePhase::TailDownload);
         let list_started = std::time::Instant::now();
         let objects = match skip_writer {

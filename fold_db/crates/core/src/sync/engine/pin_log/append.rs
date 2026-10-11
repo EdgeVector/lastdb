@@ -169,7 +169,6 @@ impl PinLog {
         targets: &[SyncTarget],
         partitioner: &Option<SyncPartitioner>,
     ) -> Result<Vec<Vec<u8>>, String> {
-        // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         if markers.is_empty() {
             return Ok(Vec::new());
         }

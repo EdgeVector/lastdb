@@ -29,7 +29,6 @@ impl AtomStore {
     /// Returning `more_remaining` with a `moc:`-namespace cursor is what banks
     /// progress: the caller commits this page before asking for the next one.
     #[allow(clippy::too_many_arguments)]
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub(in super::super) async fn sweep_zero_live_page(
         &self,
         mut report: OrderLogBloatAudit,
@@ -102,34 +101,14 @@ impl AtomStore {
                 report.order_counts_read += 1;
                 examined += 1;
 
-                if !self
-                    .molecule_has_any_live_key(&molecule, storage_prefix)
-                    .await?
-                {
-                    let moc_bytes = k.len() as u64 + v.len() as u64;
-                    let (order_log_entries, order_log_bytes) = self
-                        .measure_order_log_storage(&molecule, storage_prefix)
-                        .await?;
-                    if order_count > 0 || order_log_entries > 0 {
-                        report.molecules_zero_live += 1;
-                        report.stale_entries += order_log_entries;
-                        report.order_log_bytes += order_log_bytes;
-                        report.order_count_bytes += moc_bytes;
-                        report.zero_live_bytes += order_log_bytes + moc_bytes;
-                        report.zero_live_molecules.push(OrderLogBloatRow {
-                            molecule,
-                            schema: None,
-                            order_count,
-                            live_keys: 0,
-                            live_unique_keys: 0,
-                            stale_entries: order_log_entries,
-                            order_log_entries,
-                            order_log_bytes,
-                            order_count_bytes: moc_bytes,
-                            zero_live: true,
-                        });
-                    }
-                }
+                self.record_zero_live_candidate(
+                    &mut report,
+                    molecule,
+                    order_count,
+                    k.len() + v.len(),
+                    storage_prefix,
+                )
+                .await?;
 
                 if report.zero_live_molecules.len() >= ZERO_LIVE_COMMIT_BATCH
                     || max_keys.is_some_and(|max| examined >= max)
@@ -148,6 +127,48 @@ impl AtomStore {
         report.next_after_key = None;
         Self::sort_order_log_bloat(&mut report);
         Ok(report)
+    }
+
+    /// Measure one `moc:` row's molecule and record it as zero-live residue
+    /// when it has no live `mk:` key but still holds an order count or log.
+    async fn record_zero_live_candidate(
+        &self,
+        report: &mut OrderLogBloatAudit,
+        molecule: String,
+        order_count: u64,
+        moc_row_bytes: usize,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        if self
+            .molecule_has_any_live_key(&molecule, storage_prefix)
+            .await?
+        {
+            return Ok(());
+        }
+        let moc_bytes = moc_row_bytes as u64;
+        let (order_log_entries, order_log_bytes) = self
+            .measure_order_log_storage(&molecule, storage_prefix)
+            .await?;
+        if order_count > 0 || order_log_entries > 0 {
+            report.molecules_zero_live += 1;
+            report.stale_entries += order_log_entries;
+            report.order_log_bytes += order_log_bytes;
+            report.order_count_bytes += moc_bytes;
+            report.zero_live_bytes += order_log_bytes + moc_bytes;
+            report.zero_live_molecules.push(OrderLogBloatRow {
+                molecule,
+                schema: None,
+                order_count,
+                live_keys: 0,
+                live_unique_keys: 0,
+                stale_entries: order_log_entries,
+                order_log_entries,
+                order_log_bytes,
+                order_count_bytes: moc_bytes,
+                zero_live: true,
+            });
+        }
+        Ok(())
     }
 
     /// True when `mk:{M}:` holds at least one live storage row. Point-scoped.

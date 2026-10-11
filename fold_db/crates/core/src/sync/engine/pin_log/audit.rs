@@ -121,7 +121,6 @@ pub async fn audit_pin_log_plane(
     max_keys: usize,
     after_key: Option<&str>,
 ) -> Result<PinLogPlaneReport, crate::schema::SchemaError> {
-    // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
     let max_keys = max_keys.clamp(1, 10_000_000);
     let mut published_maps: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
 
