@@ -415,29 +415,6 @@ pub struct MutationLogReplayReport {
     pub frontier_after: BTreeMap<String, u64>,
 }
 
-/// Where a continuous mutation-log cycle publishes its sealed segments.
-///
-/// Chosen by the CALL SITE, deliberately not by config: a production node must
-/// not be able to fall into the local-only path by misconfiguration. Before
-/// this existed the cycle always wrote to [`MutationLogLocalCloud`] — an
-/// in-process `HashMap` — so `segments_uploaded` and the published frontier
-/// advanced while nothing left the machine (primary, 2026-08-08: 236
-/// "uploads", 0 `log/` objects in R2, lag growing ~1 s/s forever).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MutationLogPublish {
-    /// Production: presign -> PUT -> confirm under `{scope}/log/{seq}.enc`.
-    /// The frontier advances only for segments cloud confirmed.
-    Cloud,
-    /// TEST DOUBLE ONLY: record segments in the in-process plane so unit tests
-    /// and CoW harnesses can assert object geometry without a network. Provides
-    /// **no** off-box durability and must never be used by a production cycle.
-    ///
-    /// Only ever constructed under `cfg(test)` — that is the point, and it is
-    /// why the non-test build sees it as dead.
-    #[allow(dead_code)]
-    LocalPlaneForTests,
-}
-
 /// In-process continuous log plane: sealed segments under `log/{writer_id}/{seq}`
 /// plus published scalar F. Production maps this onto the account prefix; unit
 /// tests and CoW harnesses use the local plane as ground truth for geometry.

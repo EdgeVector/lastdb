@@ -199,7 +199,6 @@ impl SyncEngine {
         target_prefix: &str,
         plane: &mut super::pin_log::MutationLogLocalCloud,
         max_segments: usize,
-        publish: super::pin_log::MutationLogPublish,
         budget: std::time::Duration,
     ) -> Result<MutationLogUploadPassReport, MutationLogUploadPassFailure> {
         let started = std::time::Instant::now();
@@ -207,13 +206,7 @@ impl SyncEngine {
         loop {
             let report = match self
                 .pin_log
-                .run_mutation_log_segment_upload_cycle(
-                    self,
-                    target_prefix,
-                    plane,
-                    max_segments,
-                    publish,
-                )
+                .run_mutation_log_segment_upload_cycle(self, target_prefix, plane, max_segments)
                 .await
             {
                 Ok(report) => report,
