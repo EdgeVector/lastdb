@@ -10,6 +10,7 @@ struct GcAtomWalk<'a> {
     scan_started_at: DateTime<Utc>,
 }
 
+mod atom_row;
 mod atom_walk;
 mod proteins;
 mod references;
