@@ -1,6 +1,101 @@
 use super::*;
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
+/// Per-pass counters that `db_compact_order_log` sums across passes.
+const COMPACTION_SUMMED_KEYS: [&str; 23] = [
+    "molecules_planned",
+    "entries_planned",
+    "bytes_planned",
+    "molecules_compacted",
+    "entries_deleted",
+    "bytes_deleted",
+    "molecules_skipped_live",
+    "molecules_filter_planned",
+    "entries_retained_planned",
+    "entries_stale_planned",
+    "molecules_filtered",
+    "entries_retained",
+    "entries_stale_removed",
+    "bytes_filter_deleted",
+    "molecules_skipped_concurrent",
+    "molecules_expired_planned",
+    "entries_expired_planned",
+    "bytes_expired_planned",
+    "molecules_expired",
+    "entries_expired_deleted",
+    "bytes_expired_deleted",
+    "tips_bytes_planned",
+    "tips_bytes_deleted",
+];
+
+fn json_u64(value: &serde_json::Value, key: &str) -> u64 {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+}
+
+fn compaction_totals_seed(execute: bool, retention_seconds: Option<u64>) -> serde_json::Value {
+    let mut totals = serde_json::json!({
+        "dry_run": !execute,
+        "passes": 0u64,
+        "keys_scanned": 0u64,
+        "fanout": 0u64,
+        "skipped_backup_cut": false,
+        "retention_seconds": retention_seconds.unwrap_or(2_592_000u64),
+    });
+    for key in COMPACTION_SUMMED_KEYS {
+        totals[key] = serde_json::json!(0u64);
+    }
+    totals
+}
+
+/// Fold one compaction pass response into the running totals.
+fn accumulate_compaction_pass(totals: &mut serde_json::Value, pass: &serde_json::Value) {
+    totals["passes"] = serde_json::json!(json_u64(totals, "passes").saturating_add(1));
+    for key in COMPACTION_SUMMED_KEYS {
+        totals[key] = serde_json::json!(json_u64(totals, key).saturating_add(json_u64(pass, key)));
+    }
+    if let Some(fanout) = pass.get("fanout").and_then(serde_json::Value::as_u64) {
+        totals["fanout"] = serde_json::json!(fanout);
+    }
+    if pass
+        .get("skipped_backup_cut")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        totals["skipped_backup_cut"] = serde_json::json!(true);
+    }
+    let scanned = pass
+        .get("audit")
+        .map_or(0, |audit| json_u64(audit, "keys_scanned"));
+    totals["keys_scanned"] =
+        serde_json::json!(json_u64(totals, "keys_scanned").saturating_add(scanned));
+}
+
+fn print_compaction_report(totals: &serde_json::Value, execute: bool) {
+    println!(
+        "Order-log compaction (delete zero-live, bloated, and clean logs) — {}",
+        if execute { "EXECUTED" } else { "DRY RUN" }
+    );
+    let keys = ["passes", "keys_scanned"]
+        .into_iter()
+        .chain(COMPACTION_SUMMED_KEYS)
+        .chain(["fanout", "retention_seconds", "wall_ms", "deletes_per_sec"]);
+    for key in keys {
+        println!("  {key}: {}", json_u64(totals, key));
+    }
+    if execute {
+        println!(
+            "\nLogical deletes are appends. Return the bytes with:\n  \
+             lastdb db compact --collection tips --execute\n  \
+             lastdb db compact --collection field_update_order_log --execute\n  \
+             lastdb db compact --collection field_update_order_count --execute"
+        );
+    } else {
+        println!("\nNo rows were deleted. Re-run with --execute on a CoW clone first.");
+    }
+}
+
 pub(crate) fn db_compact_order_log(
     socket: &Path,
     execute: bool,
@@ -10,37 +105,7 @@ pub(crate) fn db_compact_order_log(
 ) -> Result<(), String> {
     let max_keys = max_keys.unwrap_or(ORDER_LOG_AUDIT_KEYS_PER_CALL);
     let started = std::time::Instant::now();
-    let mut totals = serde_json::json!({
-        "dry_run": !execute,
-        "passes": 0u64,
-        "keys_scanned": 0u64,
-        "molecules_planned": 0u64,
-        "entries_planned": 0u64,
-        "bytes_planned": 0u64,
-        "molecules_compacted": 0u64,
-        "entries_deleted": 0u64,
-        "bytes_deleted": 0u64,
-        "molecules_skipped_live": 0u64,
-        "molecules_filter_planned": 0u64,
-        "entries_retained_planned": 0u64,
-        "entries_stale_planned": 0u64,
-        "molecules_filtered": 0u64,
-        "entries_retained": 0u64,
-        "entries_stale_removed": 0u64,
-        "bytes_filter_deleted": 0u64,
-        "molecules_skipped_concurrent": 0u64,
-        "molecules_expired_planned": 0u64,
-        "entries_expired_planned": 0u64,
-        "bytes_expired_planned": 0u64,
-        "molecules_expired": 0u64,
-        "entries_expired_deleted": 0u64,
-        "bytes_expired_deleted": 0u64,
-        "tips_bytes_planned": 0u64,
-        "tips_bytes_deleted": 0u64,
-        "fanout": 0u64,
-        "skipped_backup_cut": false,
-        "retention_seconds": retention_seconds.unwrap_or(2_592_000u64),
-    });
+    let mut totals = compaction_totals_seed(execute, retention_seconds);
     let mut after_key: Option<String> = None;
     loop {
         let mut body = serde_json::json!({
@@ -57,56 +122,7 @@ pub(crate) fn db_compact_order_log(
         let pass = value
             .get("order_log_compaction")
             .ok_or_else(|| "response missing order_log_compaction".to_string())?;
-        totals["passes"] =
-            serde_json::json!(totals["passes"].as_u64().unwrap_or(0).saturating_add(1));
-        for key in [
-            "molecules_planned",
-            "entries_planned",
-            "bytes_planned",
-            "molecules_compacted",
-            "entries_deleted",
-            "bytes_deleted",
-            "molecules_skipped_live",
-            "molecules_filter_planned",
-            "entries_retained_planned",
-            "entries_stale_planned",
-            "molecules_filtered",
-            "entries_retained",
-            "entries_stale_removed",
-            "bytes_filter_deleted",
-            "molecules_skipped_concurrent",
-            "molecules_expired_planned",
-            "entries_expired_planned",
-            "bytes_expired_planned",
-            "molecules_expired",
-            "entries_expired_deleted",
-            "bytes_expired_deleted",
-            "tips_bytes_planned",
-            "tips_bytes_deleted",
-        ] {
-            totals[key] = serde_json::json!(totals[key].as_u64().unwrap_or(0).saturating_add(
-                pass.get(key)
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0)
-            ));
-        }
-        if let Some(fanout) = pass.get("fanout").and_then(serde_json::Value::as_u64) {
-            totals["fanout"] = serde_json::json!(fanout);
-        }
-        if pass
-            .get("skipped_backup_cut")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-        {
-            totals["skipped_backup_cut"] = serde_json::json!(true);
-        }
-        totals["keys_scanned"] =
-            serde_json::json!(totals["keys_scanned"].as_u64().unwrap_or(0).saturating_add(
-                pass.get("audit")
-                    .and_then(|audit| audit.get("keys_scanned"))
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0)
-            ));
+        accumulate_compaction_pass(&mut totals, pass);
         let more = pass
             .get("more_remaining")
             .and_then(serde_json::Value::as_bool)
@@ -122,27 +138,15 @@ pub(crate) fn db_compact_order_log(
             println!(
                 "{}",
                 pass_progress_line(
-                    totals["passes"].as_u64().unwrap_or(0),
-                    totals["keys_scanned"].as_u64().unwrap_or(0),
+                    json_u64(&totals, "passes"),
+                    json_u64(&totals, "keys_scanned"),
                     &[
                         (
                             "zero-live molecule(s) planned",
-                            pass.get("molecules_planned")
-                                .and_then(serde_json::Value::as_u64)
-                                .unwrap_or(0)
+                            json_u64(pass, "molecules_planned")
                         ),
-                        (
-                            "live-filter",
-                            pass.get("molecules_filter_planned")
-                                .and_then(serde_json::Value::as_u64)
-                                .unwrap_or(0)
-                        ),
-                        (
-                            "expired",
-                            pass.get("molecules_expired_planned")
-                                .and_then(serde_json::Value::as_u64)
-                                .unwrap_or(0)
-                        ),
+                        ("live-filter", json_u64(pass, "molecules_filter_planned")),
+                        ("expired", json_u64(pass, "molecules_expired_planned")),
                     ],
                 )
             );
@@ -150,11 +154,9 @@ pub(crate) fn db_compact_order_log(
     }
 
     let wall_ms = started.elapsed().as_millis() as u64;
-    let deleted = totals["entries_deleted"]
-        .as_u64()
-        .unwrap_or(0)
-        .saturating_add(totals["entries_expired_deleted"].as_u64().unwrap_or(0))
-        .saturating_add(totals["entries_stale_removed"].as_u64().unwrap_or(0));
+    let deleted = json_u64(&totals, "entries_deleted")
+        .saturating_add(json_u64(&totals, "entries_expired_deleted"))
+        .saturating_add(json_u64(&totals, "entries_stale_removed"));
     let deletes_per_sec = deleted
         .saturating_mul(1000)
         .checked_div(wall_ms)
@@ -173,57 +175,33 @@ pub(crate) fn db_compact_order_log(
         println!("Order-log compaction skipped: a backup cut is held.");
         return Ok(());
     }
-    println!(
-        "Order-log compaction (delete zero-live, bloated, and clean logs) — {}",
-        if execute { "EXECUTED" } else { "DRY RUN" }
-    );
-    for key in [
-        "passes",
-        "keys_scanned",
-        "molecules_planned",
-        "entries_planned",
-        "bytes_planned",
-        "molecules_compacted",
-        "entries_deleted",
-        "bytes_deleted",
-        "molecules_skipped_live",
-        "molecules_filter_planned",
-        "entries_retained_planned",
-        "entries_stale_planned",
-        "molecules_filtered",
-        "entries_retained",
-        "entries_stale_removed",
-        "bytes_filter_deleted",
-        "molecules_skipped_concurrent",
-        "molecules_expired_planned",
-        "entries_expired_planned",
-        "bytes_expired_planned",
-        "molecules_expired",
-        "entries_expired_deleted",
-        "bytes_expired_deleted",
-        "tips_bytes_planned",
-        "tips_bytes_deleted",
-        "fanout",
-        "retention_seconds",
-        "wall_ms",
-        "deletes_per_sec",
-    ] {
-        println!("  {key}: {}", totals[key].as_u64().unwrap_or(0));
-    }
-    if execute {
-        println!(
-            "\nLogical deletes are appends. Return the bytes with:\n  \
-             lastdb db compact --collection tips --execute\n  \
-             lastdb db compact --collection field_update_order_log --execute\n  \
-             lastdb db compact --collection field_update_order_count --execute"
-        );
-    } else {
-        println!("\nNo rows were deleted. Re-run with --execute on a CoW clone first.");
-    }
+    print_compaction_report(&totals, execute);
     Ok(())
 }
 
-// lint:fn-size-ok moved verbatim from db_cmds.rs; splitting these functions is separate work.
+/// Fold one shortfall-repair pass response into the running totals.
+fn accumulate_shortfall_pass(totals: &mut serde_json::Value, pass: &serde_json::Value) {
+    totals["passes"] = serde_json::json!(json_u64(totals, "passes").saturating_add(1));
+    for key in [
+        "molecules_planned",
+        "entries_planned",
+        "molecules_repaired",
+        "entries_appended",
+    ] {
+        totals[key] = serde_json::json!(json_u64(totals, key).saturating_add(json_u64(pass, key)));
+    }
+    let audit = pass.get("audit").cloned().unwrap_or_default();
+    for key in [
+        "keys_scanned",
+        "molecules_short",
+        "entries_missing",
+        "logical_entries_missing",
+    ] {
+        totals[key] =
+            serde_json::json!(json_u64(totals, key).saturating_add(json_u64(&audit, key)));
+    }
+}
+
 pub(crate) fn db_repair_order_log_shortfall(
     socket: &Path,
     execute: bool,
@@ -256,34 +234,7 @@ pub(crate) fn db_repair_order_log_shortfall(
         let pass = value
             .get("order_log_repair")
             .ok_or_else(|| "response missing order_log_repair".to_string())?;
-        totals["passes"] =
-            serde_json::json!(totals["passes"].as_u64().unwrap_or(0).saturating_add(1));
-        for key in [
-            "molecules_planned",
-            "entries_planned",
-            "molecules_repaired",
-            "entries_appended",
-        ] {
-            totals[key] = serde_json::json!(totals[key].as_u64().unwrap_or(0).saturating_add(
-                pass.get(key)
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0)
-            ));
-        }
-        let audit = pass.get("audit").cloned().unwrap_or_default();
-        for key in [
-            "keys_scanned",
-            "molecules_short",
-            "entries_missing",
-            "logical_entries_missing",
-        ] {
-            totals[key] = serde_json::json!(totals[key].as_u64().unwrap_or(0).saturating_add(
-                audit
-                    .get(key)
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0)
-            ));
-        }
+        accumulate_shortfall_pass(&mut totals, pass);
         let more = pass
             .get("more_remaining")
             .and_then(serde_json::Value::as_bool)
@@ -299,14 +250,9 @@ pub(crate) fn db_repair_order_log_shortfall(
             println!(
                 "{}",
                 pass_progress_line(
-                    totals["passes"].as_u64().unwrap_or(0),
-                    totals["keys_scanned"].as_u64().unwrap_or(0),
-                    &[(
-                        "entries planned",
-                        pass.get("entries_planned")
-                            .and_then(serde_json::Value::as_u64)
-                            .unwrap_or(0)
-                    )],
+                    json_u64(&totals, "passes"),
+                    json_u64(&totals, "keys_scanned"),
+                    &[("entries planned", json_u64(pass, "entries_planned"))],
                 )
             );
         }
@@ -334,7 +280,7 @@ pub(crate) fn db_repair_order_log_shortfall(
         "molecules_repaired",
         "entries_appended",
     ] {
-        println!("  {key}: {}", totals[key].as_u64().unwrap_or(0));
+        println!("  {key}: {}", json_u64(&totals, key));
     }
     if !execute {
         println!("\nNo rows were written. Re-run with --execute on a CoW clone first.");
