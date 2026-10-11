@@ -88,7 +88,7 @@ impl AtomStore {
         // The repairable set is bounded by the damage, not by store size. Hold
         // that small set until the walk finishes so exact slots from one
         // molecule share one batch read.
-        'groups: for (molecule_uuid, candidates) in repair_groups {
+        for (molecule_uuid, candidates) in repair_groups {
             let (attempts, molecule_loads) = self
                 .repair_dangling_tip_group(&molecule_uuid, candidates, storage_prefix)
                 .await;
