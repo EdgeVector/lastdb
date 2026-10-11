@@ -448,10 +448,6 @@ aws-sdk-dynamodb = { version = "1", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
 ] }
-aws-sdk-secretsmanager = { version = "1", default-features = false, features = [
-    "default-https-client",
-    "rt-tokio",
-] }
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 async-trait = "0.1"
 sha2 = "0.10"

@@ -13,9 +13,9 @@ description = "Schema service registry brain — schema dedup, canonical fields,
 default = ["local-store"]
 local-store = ["dep:laststore"]
 # Offline generators + dump-parse tests only. The Lambda crate must not
-# enable this: include_str!/include_dir! of the Schema.org JSON-LD and
-# starter-seed snapshots is ~3.85 MiB in the bootstrap zip.
-schema-org-seed-data = ["dep:include_dir"]
+# enable this: include_str! of the Schema.org JSON-LD and classification
+# overlay is several MiB in the bootstrap zip.
+schema-org-seed-data = []
 
 [dependencies]
 schema_core_resolver = { workspace = true }
@@ -28,9 +28,6 @@ app_identity_crypto = { workspace = true }
 base64 = { workspace = true }
 blake3 = { workspace = true }
 hmac = { workspace = true }
-
-# Only linked when `schema-org-seed-data` is on (generators / dump tests).
-include_dir = { version = "0.7", optional = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
