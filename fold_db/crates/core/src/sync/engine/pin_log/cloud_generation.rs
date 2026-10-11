@@ -53,42 +53,13 @@ impl PinLog {
                 .map_err(|e| e.to_string())?;
             store.flush().await.map_err(|e| e.to_string())?;
         }
-        // Marker receipts are target-bound; leaving one would let its retry
-        // reconstruct a retired row after the replacement is adopted.
-        let prefix = CAPTURE_MARKER_RECEIPT_PREFIX.as_bytes();
-        let end = prefix_upper_bound(prefix).ok_or("capture receipt prefix has no upper bound")?;
-        let mut cursor = prefix.to_vec();
-        loop {
-            let rows = store
-                .scan_range_paged(&cursor, &end, 128)
-                .await
-                .map_err(|e| e.to_string())?;
-            if rows.is_empty() {
-                break;
-            }
-            cursor = key_after(&rows.last().expect("nonempty page").0);
-            let mut retired = Vec::new();
-            for (key, value) in rows {
-                let receipt: CaptureMarkerAppendReceipt =
-                    serde_json::from_slice(&value).map_err(|e| e.to_string())?;
-                if receipt
-                    .records
-                    .iter()
-                    .any(|record| replacement_frontiers.contains_key(&record.target_prefix))
-                {
-                    retired.push((key, value));
-                }
-            }
-            if retired.is_empty() {
-                continue;
-            }
-            archive_pages.push(archive(&retired)?);
-            store
-                .batch_delete(retired.into_iter().map(|(key, _)| key).collect())
-                .await
-                .map_err(|e| e.to_string())?;
-            store.flush().await.map_err(|e| e.to_string())?;
-        }
+        Self::detach_marker_receipts(
+            store.as_ref(),
+            replacement_frontiers,
+            &mut archive,
+            archive_pages,
+        )
+        .await?;
         let published_keys: Vec<_> = target_ids
             .keys()
             .map(|id| pin_log_published_f_key(id))
@@ -130,5 +101,52 @@ impl PinLog {
             .await
             .retain(|prefix| !replacement_frontiers.contains_key(prefix));
         Ok(count)
+    }
+    async fn detach_marker_receipts<F>(
+        store: &dyn crate::storage::traits::KvStore,
+        replacement_frontiers: &BTreeMap<String, BTreeMap<String, u64>>,
+        archive: &mut F,
+        archive_pages: &mut Vec<String>,
+    ) -> Result<(), String>
+    where
+        F: FnMut(&[(Vec<u8>, Vec<u8>)]) -> Result<String, String>,
+    {
+        // Marker receipts are target-bound; leaving one would let its retry
+        // reconstruct a retired row after the replacement is adopted.
+        let prefix = CAPTURE_MARKER_RECEIPT_PREFIX.as_bytes();
+        let end = prefix_upper_bound(prefix).ok_or("capture receipt prefix has no upper bound")?;
+        let mut cursor = prefix.to_vec();
+        loop {
+            let rows = store
+                .scan_range_paged(&cursor, &end, 128)
+                .await
+                .map_err(|e| e.to_string())?;
+            if rows.is_empty() {
+                break;
+            }
+            cursor = key_after(&rows.last().expect("nonempty page").0);
+            let mut retired = Vec::new();
+            for (key, value) in rows {
+                let receipt: CaptureMarkerAppendReceipt =
+                    serde_json::from_slice(&value).map_err(|e| e.to_string())?;
+                if receipt
+                    .records
+                    .iter()
+                    .any(|record| replacement_frontiers.contains_key(&record.target_prefix))
+                {
+                    retired.push((key, value));
+                }
+            }
+            if retired.is_empty() {
+                continue;
+            }
+            archive_pages.push(archive(&retired)?);
+            store
+                .batch_delete(retired.into_iter().map(|(key, _)| key).collect())
+                .await
+                .map_err(|e| e.to_string())?;
+            store.flush().await.map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 }

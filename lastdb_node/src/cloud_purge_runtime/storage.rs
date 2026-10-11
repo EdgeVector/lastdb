@@ -11,6 +11,43 @@ pub(super) fn save_intent(host: &Host, intent: &Intent) -> Result<(), String> {
     atomic(&host.home.join("cloud-purge-resync/active.json"), intent)
 }
 
+fn cancel_path(host: &Host, id: &str) -> Result<PathBuf, String> {
+    Ok(crate::cloud_purge_job::directory(&host.home, id)?.join("cancel-request.json"))
+}
+
+pub(super) fn request_cancel(host: &Host, intent: &Intent) -> Result<(), String> {
+    atomic(
+        &cancel_path(host, &intent.operation_id)?,
+        &serde_json::json!({"operation_id":intent.operation_id,"account":intent.account}),
+    )
+}
+
+pub(super) fn cancel_requested(host: &Host, intent: &Intent) -> Result<bool, String> {
+    let path = cancel_path(host, &intent.operation_id)?;
+    if !path.exists() {
+        return Ok(false);
+    }
+    let request: Value = read(&path)?;
+    if request.get("operation_id").and_then(Value::as_str) != Some(&intent.operation_id)
+        || request.get("account")
+            != Some(&serde_json::to_value(&intent.account).map_err(|e| e.to_string())?)
+    {
+        return Err("the durable cancellation request belongs to another operation".into());
+    }
+    Ok(true)
+}
+
+pub(super) fn clear_cancel_for_resume(host: &Host, intent: &Intent) -> Result<(), String> {
+    if cancel_requested(host, intent)? {
+        let path = cancel_path(host, &intent.operation_id)?;
+        fs::remove_file(&path).map_err(|error| error.to_string())?;
+        File::open(path.parent().ok_or("cancel request has no parent")?)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 pub(crate) fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
     if fs::metadata(path).map_err(|error| error.to_string())?.len() > 64 * 1024 * 1024 {
         return Err("cloud purge receipt is too large".into());

@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod source;
+
 impl MoleculeKeyStore {
     /// Preserve keys from this same node's stopped old store. Never replace a
     /// canonical bundle used by the adopted personal data or another org.
@@ -43,34 +45,8 @@ impl MoleculeKeyStore {
             .zip(keys.chunks_exact(2))
         {
             validate_identity(molecule, NODE_DOMAIN)?;
-            let open = |rows: &[Option<Vec<u8>>]| -> StorageResult<Option<MoleculeKeyBundle>> {
-                match (&rows[0], &rows[1]) {
-                    (None, None) => Ok(None),
-                    (Some(metadata), Some(wrap)) => {
-                        let metadata: BundleMetadata =
-                            serde_json::from_slice(metadata).map_err(|_| {
-                                StorageError::InvalidOperation(
-                                    "local molecule metadata is invalid".into(),
-                                )
-                            })?;
-                        if metadata.version != BUNDLE_VERSION || metadata.molecule_uuid != *molecule
-                        {
-                            return Err(StorageError::InvalidOperation(
-                                "local molecule identity differs".into(),
-                            ));
-                        }
-                        let wrap: BundleWrap = serde_json::from_slice(wrap).map_err(|_| {
-                            StorageError::InvalidOperation("local molecule wrap is invalid".into())
-                        })?;
-                        open_wrap(&wrap, molecule, NODE_DOMAIN, node_key).map(Some)
-                    }
-                    _ => Err(StorageError::InvalidOperation(
-                        "local molecule bundle is incomplete".into(),
-                    )),
-                }
-            };
-            let old = open(previous)?;
-            let existing = open(current)?;
+            let old = source::open_local_bundle(previous, molecule, node_key)?;
+            let existing = source::open_local_bundle(current, molecule, node_key)?;
             if let (Some(old), Some(existing)) = (&old, &existing) {
                 if old.content_dek != existing.content_dek
                     || old.blind_key != existing.blind_key
@@ -141,53 +117,9 @@ impl MoleculeKeyStore {
                 "org bundle source returned an incomplete batch".into(),
             ));
         }
-        let mut imported = Vec::with_capacity(molecules.len());
-        for (molecule, rows) in molecules.iter().zip(rows.chunks_exact(2)) {
-            let metadata: BundleMetadata =
-                serde_json::from_slice(rows[0].as_deref().ok_or_else(|| {
-                    StorageError::InvalidOperation(
-                        "org replacement has a missing molecule bundle".into(),
-                    )
-                })?)
-                .map_err(|_| {
-                    StorageError::InvalidOperation(
-                        "org replacement has invalid molecule metadata".into(),
-                    )
-                })?;
-            if metadata.version != BUNDLE_VERSION || metadata.molecule_uuid != *molecule {
-                return Err(StorageError::InvalidOperation(
-                    "org molecule metadata identity differs".into(),
-                ));
-            }
-            let wrap: BundleWrap = serde_json::from_slice(rows[1].as_deref().ok_or_else(|| {
-                StorageError::InvalidOperation(
-                    "org replacement lacks the authorized domain wrap".into(),
-                )
-            })?)
-            .map_err(|_| {
-                StorageError::InvalidOperation(
-                    "org replacement has invalid domain wrap metadata".into(),
-                )
-            })?;
-            let bundle = open_wrap(&wrap, molecule, domain, domain_wrap_key)?;
-            if let Some(existing) = self.load(molecule).await? {
-                if existing.content_dek != bundle.content_dek
-                    || existing.blind_key != bundle.blind_key
-                    || existing.ope_key != bundle.ope_key
-                {
-                    return Err(StorageError::InvalidOperation(
-                        "org replacement conflicts with an existing molecule key bundle".into(),
-                    ));
-                }
-            }
-            imported.push((
-                molecule.clone(),
-                bundle,
-                rows[1].clone().ok_or_else(|| {
-                    StorageError::InvalidOperation("org source wrap disappeared".into())
-                })?,
-            ));
-        }
+        let imported = self
+            .read_domain_import(&molecules, &rows, domain, domain_wrap_key)
+            .await?;
         let mut puts = Vec::with_capacity(imported.len() * 3);
         for (molecule, bundle, source_wrap) in &imported {
             let plaintext = serde_json::to_vec(bundle).map_err(|_| {

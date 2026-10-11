@@ -69,6 +69,7 @@ pub struct DeliverySlicePayload {
 }
 
 mod approve;
+mod ciphertext;
 mod cloud_generation;
 mod filters;
 mod legs;

@@ -263,12 +263,6 @@ fn main() -> Result<(), String> {
     if let Err(error) = worker_pool.close_and_drain(shutdown::shutdown_handler_drain_timeout()) {
         shutdown_errors.push(format!("request handlers did not drain: {error}"));
     }
-    if let Err(error) = runtime.block_on(lastdb_node::cloud_purge_runtime::drain(&home)) {
-        shutdown_errors.push(error);
-    }
-    if let Err(error) = lastdb_node::cloud_purge_runtime::release_for_shutdown(&home) {
-        shutdown_errors.push(error);
-    }
     if let Err(error) = shutdown::drain_background(&runtime, &host, sampler_task, home_fold_task) {
         shutdown_errors.push(error);
     }

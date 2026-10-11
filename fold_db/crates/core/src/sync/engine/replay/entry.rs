@@ -15,6 +15,8 @@ use sha2::{Digest, Sha256};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+mod cloud_generation;
+
 /// The latest physical replay delete for one molecule key. The cloud log keeps
 /// every mutation; this small row keeps the ordering boundary after tip removal.
 #[derive(Debug, Serialize, Deserialize)]
@@ -51,48 +53,13 @@ enum ReplayDeleteDecision {
 }
 
 impl SyncEngine {
-    fn legacy_physical_molecule_uuid(key: &str) -> Option<String> {
-        let base_key =
-            crate::sync::org_sync::strip_storage_prefix(key).map_or(key, |(_, base_key)| base_key);
-        // A partition-prefixed atom body carries an embedded `mk:` segment.
-        // Its Delete removes the atom body, not the molecule tip.
-        if crate::atom::atom_key_codec::uuid_of(base_key).is_some() {
-            return None;
-        }
-        molecule_uuid_from_record_key(key)
-    }
-
-    fn legacy_delete_barrier(entry: &LogEntry, key: &str) -> DeleteBarrier {
-        DeleteBarrier {
-            mk_key: key.to_string(),
-            written_at: entry.timestamp_ms.saturating_mul(1_000_000),
-            logical_counter: 0,
-            device_id: entry.device_id.clone(),
-            mutation_uuid: String::new(),
-            kind: DeleteKind::LegacyPhysical,
-            displaced_atom_uuid: None,
-            cloud_sequence: Some(entry.seq),
-        }
-    }
-
     pub(super) async fn replay_entry_inner(
         &self,
         entry: &LogEntry,
         target: Option<&SyncTarget>,
     ) -> SyncResult<()> {
-        let mut local_entry;
-        let entry = if let Some(target) = target {
-            local_entry = entry.clone();
-            crate::sync::cloud_purge_peer::scope_alias::rebind_entry(
-                self.store.as_ref(),
-                &target.prefix,
-                &mut local_entry,
-            )
-            .await?;
-            &local_entry
-        } else {
-            entry
-        };
+        let local_entry = self.local_generation_entry(entry, target).await?;
+        let entry = local_entry.as_ref().unwrap_or(entry);
         // The content-key provider for this entry's prefix. Record values reach
         // the sync log as the at-rest `ENC:` envelope (Syncing sits below the
         // encrypting seam — see `unwrap_at_rest_value`), so the per-key / header

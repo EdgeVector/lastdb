@@ -11,6 +11,11 @@ use tokio_util::io::ReaderStream;
 
 #[path = "s3/cloud_completion.rs"]
 mod cloud_completion;
+#[path = "s3/delete.rs"]
+mod delete;
+#[path = "s3/presigned.rs"]
+mod presigned;
+pub use presigned::PresignedUrl;
 #[path = "s3/curl_transport.rs"]
 mod curl_transport;
 use curl_transport::{
@@ -36,14 +41,6 @@ const S3_PRESIGNED_EXPIRY_SAFETY_MARGIN: Duration = Duration::from_secs(30);
 pub struct S3Client {
     http: Arc<Client>,
     request_timeout: Duration,
-}
-
-/// A presigned URL for a specific S3 operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PresignedUrl {
-    pub url: String,
-    pub method: String,
-    pub expires_in_secs: u64,
 }
 
 /// A rescue PUT URL. The service signs the create-only condition with the URL.
@@ -114,11 +111,11 @@ impl S3Client {
             return Ok(false);
         }
         self.complete_upload_response(
-            &PresignedUrl {
-                url: signed.url.clone(),
-                method: signed.method.clone(),
-                expires_in_secs: signed.expires_in_secs,
-            },
+            &PresignedUrl::provider(
+                signed.url.clone(),
+                signed.method.clone(),
+                signed.expires_in_secs,
+            ),
             response,
             None,
             true,
@@ -151,11 +148,11 @@ impl S3Client {
             return Ok(false);
         }
         self.complete_upload_response(
-            &PresignedUrl {
-                url: signed.url.clone(),
-                method: signed.method.clone(),
-                expires_in_secs: signed.expires_in_secs,
-            },
+            &PresignedUrl::provider(
+                signed.url.clone(),
+                signed.method.clone(),
+                signed.expires_in_secs,
+            ),
             response,
             None,
             true,
@@ -643,19 +640,5 @@ impl S3Client {
             buf.extend_from_slice(&chunk);
         }
         Ok(buf)
-    }
-
-    /// Delete an S3 object using a presigned DELETE URL.
-    pub async fn delete(&self, presigned: &PresignedUrl) -> SyncResult<()> {
-        let response = self
-            .with_timeout(
-                "delete",
-                self.request_timeout,
-                self.http.delete(&presigned.url).send(),
-            )
-            .await?;
-
-        self.check_or_read_body(response, "delete").await?;
-        Ok(())
     }
 }

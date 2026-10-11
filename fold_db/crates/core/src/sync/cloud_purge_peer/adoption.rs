@@ -189,11 +189,7 @@ impl CloudPurgePeer {
             let current = self.known_control(&plan.account)?.ok_or_else(|| {
                 held("the current cloud control disappeared before acknowledgement")
             })?;
-            if current.generation != plan.generation {
-                Box::pin(auth.cloud_previous_ready_token(&current, &plan.source_id))
-                    .await?
-                    .ok_or_else(|| held("the historical replacement acknowledgement is absent"))?
-            } else {
+            if current.generation == plan.generation {
                 Box::pin(auth.cloud_control_adopt(
                     &plan.account,
                     plan.generation,
@@ -201,6 +197,10 @@ impl CloudPurgePeer {
                     &plan.source_id,
                 ))
                 .await?
+            } else {
+                Box::pin(auth.cloud_previous_ready_token(&current, &plan.source_id))
+                    .await?
+                    .ok_or_else(|| held("the historical replacement acknowledgement is absent"))?
             }
         };
         self.complete_adoption(&plan, token.clone())?;

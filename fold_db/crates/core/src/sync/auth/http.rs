@@ -365,6 +365,7 @@ impl AuthClient {
             .map_err(|e| SyncError::Serialization(format!("invalid JSON from auth Lambda: {e}")))?;
 
         crate::sync::upload_completion::register_response(self, &json)?;
+        crate::sync::delete_completion::register_response(self, &json)?;
         Ok(json)
     }
 }

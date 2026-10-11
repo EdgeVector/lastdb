@@ -176,22 +176,12 @@ impl SyncEngine {
         }
         self.backup_gc_jobs.phase(job_id, "presign")?;
         for batch in orphans.chunks(BACKUP_GC_DELETE_BATCH) {
-            // Presign only mints URLs. Keep it outside the publication turn
-            // so a slow auth request cannot delay snapshot CAS.
-            let presigns = join_all(
-                batch
-                    .iter()
-                    .map(|sha| self.auth.presign_backup_chunk_delete(sha)),
-            )
-            .await;
-
             // Re-check once per batch. Hold the turn across every DELETE in
             // the batch so this process cannot publish a new reference to
             // those SHAs while the HTTP calls are in flight.
             let publish_turn = self.backup_publish_turn.lock().await;
             // SHAs whose DELETE the provider acknowledged in this batch; their
             // meter debit is confirmed after the publication fence is released.
-            let mut deleted_shas: Vec<String> = Vec::new();
             let current_state = self
                 .capture_backup_gc_publication_state_for_keep_set(live_manifests, keep_proof)
                 .await;
@@ -208,14 +198,14 @@ impl SyncEngine {
                         batch_size = batch.len(),
                         deleted_before_stop = report.deleted,
                         error = %redact_sync_error_text(&e.to_string()),
-                        "backup orphan GC publication revalidate failed after DELETE presign; retargeting this batch then stopping"
+                        "backup orphan GC publication revalidate failed before DELETE dispatch; retargeting this batch then stopping"
                     );
                 } else {
                     tracing::info!(
                         target: "fold_db::sync::backup",
                         batch_size = batch.len(),
                         deleted_before_stop = report.deleted,
-                        "backup orphan GC publication state changed after DELETE presign; retargeting this batch then stopping"
+                        "backup orphan GC publication state changed before DELETE dispatch; retargeting this batch then stopping"
                     );
                 }
                 let refreshed = match self
@@ -259,85 +249,18 @@ impl SyncEngine {
                 }
             }
 
-            let mut failed_specs: Vec<(String, u64)> = Vec::new();
-            let mut ready: Vec<(String, crate::sync::s3::PresignedUrl, u64)> = Vec::new();
-            for (sha, presign) in batch.iter().zip(presigns) {
-                if now_keep
-                    .as_ref()
-                    .is_some_and(|keep| keep.contains(sha.as_str()))
-                {
-                    continue;
-                }
-                let bytes = sizes[sha.as_str()];
-                match presign {
-                    Ok(url) => ready.push((sha.clone(), url, bytes)),
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "fold_db::sync::backup",
-                            chunk_sha256 = %sha,
-                            error = %redact_sync_error_text(&e.to_string()),
-                            "backup orphan chunk delete presign failed; continuing sweep"
-                        );
-                        failed_specs.push((sha.clone(), bytes));
-                    }
-                }
-            }
-
-            if !failed_specs.is_empty() {
-                report.failed += failed_specs.len();
-                let intents = self.backup_gc_jobs.intent_batch(job_id, &failed_specs)?;
-                self.backup_gc_jobs.outcome_batch(
-                    intents
-                        .into_iter()
-                        .map(|intent| (intent, GcObjectOutcome::FailedBeforeDispatch))
-                        .collect(),
-                )?;
-            }
-
-            if !ready.is_empty() {
-                let specs: Vec<(String, u64)> = ready
-                    .iter()
-                    .map(|(sha, _, bytes)| (sha.clone(), *bytes))
-                    .collect();
-                let intents = self.backup_gc_jobs.intent_batch(job_id, &specs)?;
-                let mut known_present = self.backup_known_present.lock().await;
-                let deletes = join_all(ready.iter().map(|(_, url, _)| self.s3.delete(url))).await;
-                let mut outcomes = Vec::with_capacity(intents.len());
-                for ((sha, _, _), (intent, result)) in
-                    ready.iter().zip(intents.into_iter().zip(deletes))
-                {
-                    match result {
-                        Ok(()) => {
-                            report.deleted += 1;
-                            known_present.remove(sha);
-                            deleted_shas.push(sha.clone());
-                            outcomes.push((intent, GcObjectOutcome::DeleteAcknowledged));
-                        }
-                        Err(e) => {
-                            report.failed += 1;
-                            // A timeout/error does not cancel a DELETE already
-                            // accepted by the provider. Do not report exact
-                            // reclaimed bytes.
-                            outcomes.push((intent, GcObjectOutcome::Unknown));
-                            tracing::warn!(
-                                target: "fold_db::sync::backup",
-                                chunk_sha256 = %sha,
-                                error = %redact_sync_error_text(&e.to_string()),
-                                "backup orphan chunk delete failed; continuing sweep"
-                            );
-                        }
-                    }
-                }
-                // This fence covers only one live SyncEngine. A request timeout,
-                // task cancellation, or process loss can release it while the
-                // object store still accepts DELETE. A second process or device
-                // does not share it. The current S3 API has no durable cancellation
-                // or compare-and-delete token, so those remote protocol risks
-                // remain outside this repair. A batch raises in-flight DELETEs
-                // from 1 SHA to at most BACKUP_GC_DELETE_BATCH.
-                drop(known_present);
-                self.backup_gc_jobs.outcome_batch(outcomes)?;
-            }
+            let specs: Vec<(String, u64)> = batch
+                .iter()
+                .filter(|sha| {
+                    !now_keep
+                        .as_ref()
+                        .is_some_and(|keep| keep.contains(sha.as_str()))
+                })
+                .map(|sha| (sha.clone(), sizes[sha.as_str()]))
+                .collect();
+            let deleted_shas = self
+                .dispatch_backup_gc_deletes(job_id, &specs, &mut report)
+                .await?;
             drop(publish_turn);
             // Debit the storage meter for the reclaimed chunks. Best effort and
             // outside the publication fence: a metering round trip must not

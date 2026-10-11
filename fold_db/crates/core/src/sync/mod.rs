@@ -75,6 +75,7 @@ mod replay_diagnosis;
 pub use replay_diagnosis::{
     MutationIntentReplayError, ReplayApplyDiagnosis, ReplayCause, ReplayOperation,
 };
+pub(crate) mod delete_completion;
 pub mod s3;
 pub mod snapshot;
 /// Continuous cloud sync v1 object model (snapshot + log + frontier + CAS).

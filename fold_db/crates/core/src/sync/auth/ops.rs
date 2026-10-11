@@ -9,6 +9,7 @@ pub use backup_latest::{
 };
 mod cloud_purge;
 mod confirm;
+mod delete_completion;
 mod list;
 mod upload_completion;
 pub use list::LogListStats;

@@ -5,6 +5,7 @@ use crate::sync::cloud_purge_peer::{AdoptionPlan, RetainedHome};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod cursors;
 mod personal;
 mod preservation;
 
@@ -105,36 +106,8 @@ impl SyncEngine {
             )
             .await
             .map_err(SyncError::Storage)?;
-        // The old allocation floor remains, so a new write cannot reuse a retired seq.
-        let cursors = self.cursor_store.open_namespace("sync_cursors").await?;
-        let cursor_keys: Vec<_> = context
-            .retired_prefixes
-            .iter()
-            .map(|prefix| format!("cursor:{prefix}").into_bytes())
-            .collect();
-        let old = cursors.get_many(cursor_keys.clone()).await?;
-        let archived: Vec<_> = cursor_keys
-            .iter()
-            .cloned()
-            .zip(old)
-            .filter_map(|(key, old)| old.map(|old| (key, old)))
-            .collect();
-        if !archived.is_empty() {
-            self.archive_detach_page(&context, "sync_cursors", &archived, &mut receipt)?;
-        }
-        cursors
-            .batch_put(
-                cursor_keys
-                    .into_iter()
-                    .map(|key| Ok((key, self.encode_cursor(0).map_err(SyncError::Storage)?)))
-                    .collect::<SyncResult<Vec<_>>>()?,
-            )
+        self.detach_generation_cursors(&context, &mut receipt)
             .await?;
-        cursors.flush().await?;
-        self.download_cursors
-            .lock()
-            .await
-            .retain(|prefix, _| !context.retired_prefixes.contains(prefix));
         let mut pending = self.pending.lock().await;
         let mut remaining = Vec::new();
         for entry in pending.iter() {

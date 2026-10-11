@@ -7,7 +7,7 @@ pub(crate) async fn handle(host: &Host, request: Request) -> Result<Value, Strin
     match request.action.as_str() {
         "begin" => accept(host, request.operation_id, request.account),
         "status" => status(host, request).await,
-        "resume" => resume(host, request).await,
+        "resume" => resume(host, &request),
         "cancel" => cancel(host, request).await,
         _ => Err("unknown cloud purge action".into()),
     }
@@ -40,7 +40,7 @@ async fn status(host: &Host, request: Request) -> Result<Value, String> {
     Ok(status)
 }
 
-async fn resume(host: &Host, request: Request) -> Result<Value, String> {
+fn resume(host: &Host, request: &Request) -> Result<Value, String> {
     let mut intent = selected_intent(host, request.operation_id.as_deref())?;
     require_active(host, &intent)?;
     if intent.phase == "cancelled" {
@@ -51,6 +51,7 @@ async fn resume(host: &Host, request: Request) -> Result<Value, String> {
     }
     intent.error = None;
     intent.phase = "accepted".into();
+    super::storage::clear_cancel_for_resume(host, &intent)?;
     save_intent(host, &intent)?;
     spawn(host, &intent.operation_id)?;
     serde_json::to_value(intent).map_err(|error| error.to_string())
@@ -65,6 +66,7 @@ async fn cancel(host: &Host, request: Request) -> Result<Value, String> {
     if intent.phase == "cancelled" {
         return serde_json::to_value(intent).map_err(|error| error.to_string());
     }
+    super::storage::request_cancel(host, &intent)?;
     if is_running(host, &intent.operation_id)? {
         let mut runtimes = runtimes()
             .lock()

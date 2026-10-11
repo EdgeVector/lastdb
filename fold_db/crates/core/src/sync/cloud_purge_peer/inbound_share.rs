@@ -5,6 +5,11 @@ use crate::sync::{SyncError, SyncResult};
 use sha2::Digest;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod metadata;
+mod source;
+use metadata::preserve_metadata;
+use source::{physical_keys, InboundData};
+
 const COLLECTIONS: &[&str] = &[
     "main",
     "legacy_blob_refs",
@@ -43,53 +48,12 @@ pub async fn preserve_inbound_shares(
         }
         scopes.insert(format!("from:{}:", parts[1]));
     }
-    let source_raw = previous
-        .namespaced_store()
-        .raw_last_store()
-        .ok_or_else(|| error("inbound preservation requires a LastStore source"))?;
-    let source = previous.open_namespace("main").await.map_err(error)?;
+    let InboundData {
+        rows,
+        molecules,
+        atom_keys,
+    } = source::read(previous, &scopes).await?;
     let destination = candidate.open_namespace("main").await.map_err(error)?;
-    let mut keys = BTreeSet::new();
-    for scope in &scopes {
-        keys.extend(physical_keys(&source_raw, scope)?);
-    }
-    let mut rows = Vec::new();
-    let mut molecules = BTreeSet::new();
-    let mut atom_keys = Vec::new();
-    for page in keys.into_iter().collect::<Vec<_>>().chunks(128) {
-        let values = source
-            .get_many(page.iter().map(|key| key.as_bytes().to_vec()).collect())
-            .await
-            .map_err(error)?;
-        if values.len() != page.len() {
-            return Err(error("the prior inbound data batch is incomplete"));
-        }
-        for (key, value) in page.iter().zip(values) {
-            let value = value.ok_or_else(|| error("an exact inbound source key disappeared"))?;
-            let bare = scopes
-                .iter()
-                .find_map(|prefix| key.strip_prefix(prefix))
-                .ok_or_else(|| error("an inbound key escaped its scope"))?;
-            if let Some(molecule) = molecule(bare) {
-                molecules.insert(molecule.to_string());
-            }
-            if crate::kind_partition::starts_with_kind(bare, "atom") {
-                atom_keys.push(key.clone());
-                let header = crate::atom::parse_atom_binary_row(&value)
-                    .map_err(error)?
-                    .map(|(header, _)| header)
-                    .or_else(|| serde_json::from_slice::<serde_json::Value>(&value).ok());
-                if let Some(molecule) = header
-                    .as_ref()
-                    .and_then(|header| header.get("molecule_key_bundle"))
-                    .and_then(serde_json::Value::as_str)
-                {
-                    molecules.insert(molecule.into());
-                }
-            }
-            rows.push((key.as_bytes().to_vec(), value));
-        }
-    }
     preserve_metadata(previous, candidate, &molecules).await?;
     let mut blobs = BTreeSet::new();
     for keys in atom_keys.chunks(128) {
@@ -147,156 +111,6 @@ pub async fn preserve_inbound_shares(
             .into_iter()
             .collect(),
     ))
-}
-
-fn physical_keys(store: &laststore::LastStore, prefix: &str) -> SyncResult<BTreeSet<String>> {
-    let (start, end) = crate::kind_partition::exact_prefix_bounds(prefix);
-    let mut output = BTreeSet::new();
-    for collection in COLLECTIONS {
-        let mut cursor = None;
-        loop {
-            let page = store
-                .walk_all_groups(
-                    collection,
-                    start.as_str()..end.as_str(),
-                    cursor.as_ref(),
-                    128,
-                    64,
-                    laststore::AllGroupsPurpose::Admin,
-                )
-                .map_err(error)?;
-            output.extend(page.rows.into_iter().map(|(key, _)| key));
-            match page.next_cursor {
-                Some(next) => cursor = Some(next),
-                None => break,
-            }
-        }
-    }
-    Ok(output)
-}
-
-fn molecule(bare: &str) -> Option<&str> {
-    for prefix in [
-        "mgp:v1:",
-        "mgr:v1:",
-        "mgd:v1:",
-        "history:",
-        "history\0",
-        "mord\0",
-        "moc\0",
-        "molprot:",
-    ] {
-        if let Some(rest) = bare.strip_prefix(prefix) {
-            return rest.split([':', '\0']).next();
-        }
-    }
-    crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(bare)
-}
-
-async fn preserve_metadata(
-    previous: &DbOperations,
-    candidate: &DbOperations,
-    molecules: &BTreeSet<String>,
-) -> SyncResult<()> {
-    if molecules.is_empty() {
-        return Ok(());
-    }
-    let mut covered = BTreeSet::new();
-    let schemas = previous
-        .schemas()
-        .get_all_schemas_strict()
-        .await
-        .map_err(error)?;
-    let selected: BTreeMap<_, _> = schemas
-        .into_iter()
-        .filter(|(_, schema)| {
-            let ids = schema
-                .runtime_fields
-                .iter()
-                .map(|(field, value)| {
-                    value.common().molecule_uuid().cloned().unwrap_or_else(|| {
-                        crate::atom::deterministic_molecule_uuid(&schema.name, field)
-                    })
-                })
-                .collect::<BTreeSet<_>>();
-            covered.extend(ids.intersection(molecules).cloned());
-            !ids.is_disjoint(molecules)
-        })
-        .collect();
-    if covered != *molecules {
-        return Err(error(
-            "prior inbound molecules lack their canonical schemas",
-        ));
-    }
-    let existing = candidate.open_namespace("schemas").await.map_err(error)?;
-    let names = selected
-        .keys()
-        .map(|name| name.as_bytes().to_vec())
-        .collect();
-    let values = existing.get_many(names).await.map_err(error)?;
-    if values.len() != selected.len() {
-        return Err(error("inbound schema comparison is incomplete"));
-    }
-    let mut definitions = Vec::new();
-    for ((name, schema), current) in selected.iter().zip(values) {
-        if let Some(current) = current {
-            let mut current: crate::schema::Schema =
-                serde_json::from_slice(&current).map_err(error)?;
-            current.populate_runtime_fields().map_err(error)?;
-            if serde_json::to_value(current).map_err(error)?
-                != serde_json::to_value(schema).map_err(error)?
-            {
-                return Err(error(
-                    "prior inbound schema conflicts with the adopted personal definition",
-                ));
-            }
-        } else {
-            definitions.push((
-                name.as_bytes().to_vec(),
-                serde_json::to_vec(schema).map_err(error)?,
-            ));
-        }
-    }
-    let source_keys = previous
-        .open_namespace("molecule_keys")
-        .await
-        .map_err(error)?;
-    candidate
-        .molecule_keys()
-        .preserve_local_node_bundles(source_keys.as_ref(), molecules)
-        .await
-        .map_err(error)?;
-    existing.batch_put(definitions).await.map_err(error)?;
-    let state_keys = selected
-        .keys()
-        .map(|name| name.as_bytes().to_vec())
-        .collect::<Vec<_>>();
-    let source_states = previous
-        .open_namespace("schema_states")
-        .await
-        .map_err(error)?;
-    let states = candidate
-        .open_namespace("schema_states")
-        .await
-        .map_err(error)?;
-    let (old, current) = futures::join!(
-        source_states.get_many(state_keys.clone()),
-        states.get_many(state_keys.clone())
-    );
-    let (old, current) = (old.map_err(error)?, current.map_err(error)?);
-    let additions = state_keys
-        .into_iter()
-        .zip(old)
-        .zip(current)
-        .filter_map(|((key, old), current)| {
-            current
-                .is_none()
-                .then(|| old.map(|value| (key, value)))
-                .flatten()
-        })
-        .collect();
-    states.batch_put(additions).await.map_err(error)?;
-    Ok(())
 }
 
 async fn copy_blobs(

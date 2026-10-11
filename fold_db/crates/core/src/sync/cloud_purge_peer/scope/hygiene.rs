@@ -68,6 +68,13 @@ pub async fn remove_inherited_orgs_from_inactive_store(ops: &DbOperations) -> Sy
             main.batch_delete(keys).await.map_err(storage)?;
         }
     }
+    reset_device_registry(ops).await?;
+    store.restore_durability_barrier().await.map_err(storage)?;
+    Ok(removed)
+}
+
+async fn reset_device_registry(ops: &DbOperations) -> SyncResult<()> {
+    let store = ops.namespaced_store();
     // The registry is device-specific and cannot come from another writer.
     let registry = store
         .open_namespace("org_sync_targets")
@@ -105,6 +112,5 @@ pub async fn remove_inherited_orgs_from_inactive_store(ops: &DbOperations) -> Sy
         }
         aliases.batch_delete(keys).await.map_err(storage)?;
     }
-    store.restore_durability_barrier().await.map_err(storage)?;
-    Ok(removed)
+    Ok(())
 }

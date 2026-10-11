@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
+mod continuation;
 mod persistence;
 mod token;
 use persistence::validate_successor;
@@ -212,67 +213,6 @@ impl CloudPurgePeer {
             .accounts
             .get(&key)
             .map(|entry| entry.control.clone()))
-    }
-
-    /// A cancellation cannot bypass a prior successful purge that this peer
-    /// missed. Its previously committed local receipt proves that floor.
-    pub(super) fn require_continuation_floor(&self, control: &CloudPurgeControl) -> SyncResult<()> {
-        let Some(continuation) = control.unchanged_continuation() else {
-            return Ok(());
-        };
-        let floor = continuation["required_adopted_generation"]
-            .as_u64()
-            .ok_or_else(|| held("the continuation adoption floor is absent"))?;
-        if floor == 0 {
-            return Ok(());
-        }
-        let key = account_key(&control.account)?;
-        let state = self
-            .inner
-            .lock()
-            .map_err(|_| held("cloud peer state lock failed"))?;
-        let receipt = state
-            .accounts
-            .get(&key)
-            .and_then(|entry| entry.adoption.as_ref())
-            .filter(|receipt| {
-                receipt.generation >= floor
-                    && receipt.generation <= control.generation
-                    && receipt.source_id == self.source_id
-            })
-            .ok_or_else(|| {
-                held("the peer must adopt the previous ready replacement before it can continue")
-            })?;
-        super::retention::verify_retention_receipt(receipt)
-    }
-
-    pub(super) fn continuation_needs_previous_ready(
-        &self,
-        control: &CloudPurgeControl,
-    ) -> SyncResult<bool> {
-        let Some(continuation) = control.unchanged_continuation() else {
-            return Ok(false);
-        };
-        let floor = continuation["required_adopted_generation"]
-            .as_u64()
-            .ok_or_else(|| held("the continuation adoption floor is absent"))?;
-        if floor == 0 {
-            return Ok(false);
-        }
-        let key = account_key(&control.account)?;
-        let state = self
-            .inner
-            .lock()
-            .map_err(|_| held("cloud peer state lock failed"))?;
-        Ok(!state
-            .accounts
-            .get(&key)
-            .and_then(|entry| entry.adoption.as_ref())
-            .is_some_and(|receipt| {
-                receipt.generation >= floor
-                    && receipt.generation <= control.generation
-                    && receipt.source_id == self.source_id
-            }))
     }
 
     pub fn statuses(&self) -> SyncResult<Vec<PeerAccountStatus>> {

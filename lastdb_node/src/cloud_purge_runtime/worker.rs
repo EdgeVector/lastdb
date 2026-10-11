@@ -25,7 +25,7 @@ pub(super) async fn run(
     cancel: &AtomicBool,
 ) -> Result<(), String> {
     let mut intent = selected_intent(host, Some(id))?;
-    if cancel.load(Ordering::Acquire) {
+    if cancel.load(Ordering::Acquire) || super::storage::cancel_requested(host, &intent)? {
         return finish_cancel(host, &mut intent).await;
     }
     if !crate::cloud_purge_job::directory(&host.home, id)?
@@ -60,7 +60,7 @@ pub(super) async fn run(
     intent.phase = "active".into();
     save_intent(host, &intent)?;
     while !stop.load(Ordering::Acquire) {
-        if cancel.load(Ordering::Acquire) {
+        if cancel.load(Ordering::Acquire) || super::storage::cancel_requested(host, &intent)? {
             return finish_cancel(host, &mut intent).await;
         }
         if crate::cloud_purge_job::run_step(host, id).await? {

@@ -109,6 +109,27 @@ impl AuthClient {
                 control.generation
             )));
         }
+        let Some(peer) = self.local_adoption_peer(body, account, control, is_read)? else {
+            return Ok(());
+        };
+        let token = peer.ensure_adopted(self, control).await?;
+        put_generation(
+            body,
+            account,
+            control.generation,
+            Some(&control.operation_id),
+        )?;
+        body["cloud_adoption_token"] = serde_json::Value::String(token);
+        Ok(())
+    }
+
+    fn local_adoption_peer(
+        &self,
+        body: &mut serde_json::Value,
+        account: &crate::sync::cloud_purge::protocol::CloudAccount,
+        control: &crate::sync::cloud_purge::protocol::CloudPurgeControl,
+        is_read: bool,
+    ) -> SyncResult<Option<&Arc<crate::sync::cloud_purge_peer::CloudPurgePeer>>> {
         // Ordinary downloads cannot merge new data into the old local home
         // before the exact inactive adoption. The host's read-only clone above
         // supplies the narrow exception for that adoption itself.
@@ -135,21 +156,13 @@ impl AuthClient {
                     control.generation,
                     Some(&control.operation_id),
                 )?;
-                return Ok(());
+                return Ok(None);
             }
             return Err(SyncError::CloudPurgeHeld(
                 "a foreign account cannot replace this device's local data".into(),
             ));
         }
-        let token = peer.ensure_adopted(self, control).await?;
-        put_generation(
-            body,
-            account,
-            control.generation,
-            Some(&control.operation_id),
-        )?;
-        body["cloud_adoption_token"] = serde_json::Value::String(token);
-        Ok(())
+        Ok(Some(peer))
     }
 
     pub(super) async fn read_cloud_control_for_request(
@@ -168,6 +181,7 @@ impl AuthClient {
             for key in [
                 "cloud_capability",
                 "cloud_adoption_token",
+                "cloud_sender_adoption_token",
                 "completion_ticket",
             ] {
                 object.remove(key);

@@ -2,11 +2,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::Utc;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::atom::{AtomEntry, MoleculeHashRange};
+use crate::atom::AtomEntry;
 use crate::db_operations::atom_store::{AtomStore, ChangedKey, MoleculeData, MoleculeRefEdge};
 use crate::schema::SchemaError;
 use crate::security::Ed25519KeyPair;
@@ -19,6 +18,7 @@ use super::types::{
 };
 
 mod batch;
+mod tip;
 
 struct ProteinTipScope<'a> {
     honor_tip_lww: bool,
@@ -430,66 +430,5 @@ impl AtomStore {
             .await?;
         let _ = mol.take_pending_tip_versions();
         Ok(())
-    }
-
-    async fn protein_member_tip_update(
-        &self,
-        molecule_uuid: &str,
-        hash: &str,
-        range: &str,
-        tip: &AtomEntry,
-        keypair: &Ed25519KeyPair,
-        scope: ProteinTipScope<'_>,
-    ) -> Result<(String, MoleculeData, HashSet<ChangedKey>), SchemaError> {
-        let changed: HashSet<ChangedKey> =
-            HashSet::from([ChangedKey::hash_range(hash.to_string(), range.to_string())]);
-
-        let mut mol: MoleculeData = match self
-            .load_molecule_for_write(molecule_uuid, scope.storage_prefix, &changed)
-            .await?
-        {
-            Some(m) => m,
-            None => {
-                // Brand-new molecule identity for this member.
-                MoleculeHashRange::from_write_records(
-                    molecule_uuid.to_string(),
-                    0,
-                    Utc::now(),
-                    Vec::new(),
-                )
-            }
-        };
-
-        // Local folds mint a fresh clock via set_atom_uuid_from_values.
-        // Imported/replay folds must keep the envelope written_at/writer and
-        // LWW-skip when a newer sibling tip already won.
-        if scope.honor_tip_lww {
-            let writer = if tip.device_id.is_empty() {
-                tip.writer_pubkey.clone()
-            } else {
-                tip.device_id.clone()
-            };
-            mol.set_atom_uuid_from_values_imported_with_author(
-                hash.to_string(),
-                range.to_string(),
-                tip.atom_uuid.clone(),
-                writer,
-                tip.writer_pubkey.clone(),
-                String::new(),
-                0,
-                Some(tip.written_at),
-                tip.logical_counter,
-                tip.mutation_uuid.clone(),
-            );
-        } else {
-            mol.set_atom_uuid_from_values(
-                hash.to_string(),
-                range.to_string(),
-                tip.atom_uuid.clone(),
-                keypair,
-            );
-        }
-
-        Ok((molecule_uuid.to_string(), mol, changed))
     }
 }

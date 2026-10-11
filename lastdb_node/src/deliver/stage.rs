@@ -80,6 +80,7 @@ pub async fn execute_stage_delivery(
         messaging_public_key: Some(body.messaging_public_key),
         messaging_pseudonym: Some(body.messaging_pseudonym),
         cloud_delivery_binding: Some(cloud_delivery_binding),
+        cloud_delivery_ciphertext: None,
     };
     if let Err(e) = store_pending_delivery_in_ops(host.db.db_ops(), &delivery).await {
         let _ = remove_pending_delivery_in_ops(host.db.db_ops(), &delivery_id).await;

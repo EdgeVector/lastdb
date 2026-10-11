@@ -13,6 +13,19 @@ pub(super) type ProteinFoldMetadata = (
     HashMap<String, Option<Protein>>,
 );
 
+pub(super) fn schema_storage_prefix<'a>(
+    schema: &'a Schema,
+    molecule_uuid: Option<&str>,
+) -> Option<&'a str> {
+    schema.runtime_fields.values().find_map(|field| {
+        let common = field.common();
+        molecule_uuid
+            .is_none_or(|uuid| common.molecule_uuid().is_some_and(|id| id == uuid))
+            .then(|| common.storage_prefix())
+            .flatten()
+    })
+}
+
 fn distinct_in_order<'a>(values: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     let mut seen = HashSet::new();
     values

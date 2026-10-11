@@ -198,4 +198,7 @@ pub struct PendingDelivery {
     /// Missing means a legacy generation-zero delivery; approval cannot rebind it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud_delivery_binding: Option<Value>,
+    /// Exact sealed payload retained before send, so a nonce never changes bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_delivery_ciphertext: Option<String>,
 }

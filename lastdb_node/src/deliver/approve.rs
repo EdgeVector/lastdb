@@ -6,7 +6,8 @@ pub async fn execute_approve_delivery(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let delivery = match get_pending_delivery_in_ops(host.db.db_ops(), delivery_id).await {
+    let _decision = super::ciphertext::decision_guard().await;
+    let mut delivery = match get_pending_delivery_in_ops(host.db.db_ops(), delivery_id).await {
         Ok(Some(d)) => d,
         Ok(None) => return error_json(404, &format!("Delivery not found: {delivery_id}"), ctx),
         Err(e) => return error_json(500, &format!("get delivery: {e}"), ctx),
@@ -23,40 +24,10 @@ pub async fn execute_approve_delivery(
         Err(resp) => return resp,
     };
 
-    let staged = match get_staged_delivery_artifact_in_ops(host.db.db_ops(), delivery_id).await {
-        Ok(Some(a)) => a,
-        Ok(None) => {
-            return error_json(
-                500,
-                "pending snapshot delivery missing staged wire artifact; re-stage",
-                ctx,
-            )
-        }
-        Err(e) => return error_json(500, &format!("get staged artifact: {e}"), ctx),
+    let encrypted_blob = match super::ciphertext::prepare(host, &mut delivery, &target_pk).await {
+        Ok(blob) => blob,
+        Err(error) => return error_json(500, &error, ctx),
     };
-
-    let slice_payload = DeliverySlicePayload {
-        message_type: "delivery_slice".to_string(),
-        content_key: B64.encode(&staged.content_key),
-        envelope: staged.envelope,
-        artifact: delivery.artifact.clone(),
-    };
-
-    let sealed = match seal_and_encrypt_message(&target_pk, &slice_payload, host.keypair.as_ref()) {
-        Ok(b) => b,
-        Err(e) => return error_json(500, &format!("seal delivery failed: {e}"), ctx),
-    };
-    let encrypted_blob = B64.encode(&sealed);
-    if encrypted_blob.len() > MAX_BLOB_B64_CHARS {
-        return error_json(
-            400,
-            &format!(
-                "sealed delivery is {} base64 chars (max {MAX_BLOB_B64_CHARS}); shrink the query slice",
-                encrypted_blob.len()
-            ),
-            ctx,
-        );
-    }
 
     if let Err(e) =
         super::cloud_generation::send(host, &delivery, &messaging_pseudonym, &encrypted_blob).await
@@ -84,6 +55,7 @@ pub async fn execute_reject_delivery(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    let _decision = super::ciphertext::decision_guard().await;
     match get_pending_delivery_in_ops(host.db.db_ops(), delivery_id).await {
         Ok(None) => return error_json(404, &format!("Delivery not found: {delivery_id}"), ctx),
         Ok(Some(_)) => {}
