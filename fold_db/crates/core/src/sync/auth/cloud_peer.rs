@@ -183,6 +183,7 @@ impl AuthClient {
                 "cloud_adoption_token",
                 "cloud_sender_adoption_token",
                 "completion_ticket",
+                "deletion_ticket",
             ] {
                 object.remove(key);
             }

@@ -16,7 +16,13 @@ impl AuthClient {
                 "delete completion requires a captured ticket and writable client".into(),
             ));
         }
-        let body = serde_json::json!({"action":"cloud_delete_complete", "account":account, "deletion_ticket":ticket});
+        let mut body = serde_json::json!({"action":"cloud_delete_complete", "account":account, "deletion_ticket":ticket});
+        self.guard_cloud_request("/api/sync", &mut body).await?;
+        if body.get("account") != Some(&serde_json::to_value(account)?) {
+            return Err(SyncError::CloudPurgeHeld(
+                "delete completion resolved a different account".into(),
+            ));
+        }
         // The service-bound private ticket names the exact account/key and
         // generation. The service rechecks admission at the effect boundary.
         let send = || async {
