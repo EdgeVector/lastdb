@@ -13,6 +13,9 @@ pub use list::LogListStats;
 mod lock;
 mod photograph_latest;
 pub mod presign;
+mod presign_backup;
+mod presign_files;
+mod presign_segments;
 pub mod register_db;
 mod rescue_s0;
 pub use rescue_s0::{

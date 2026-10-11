@@ -3,10 +3,7 @@
 # Measure the phys_footprint cost of one plane compaction on a copy-on-write
 # clone of a REAL LastDB home.
 #
-# Why this exists. `vendor/laststore/tests/compact_memory_bound.rs` proves the
-# bounded rewrite keeps peak live heap flat as a synthetic plane grows. That is
-# a regression bar, not a claim about the primary. The claim the memory guard
-# actually cares about is "the 11M-key / 5.9 GiB tips plane rewrites without
+# Why this exists. The claim the memory guard actually cares about is "the 11M-key / 5.9 GiB tips plane rewrites without
 # crossing LASTDBD_RSS_LIMIT_MB at the primary's steady baseline", and only a
 # real-data measurement can make it. See
 # `docs/lastdb-bounded-tips-compaction-cow-proof.md`.

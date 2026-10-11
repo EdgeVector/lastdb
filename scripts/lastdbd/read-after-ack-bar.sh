@@ -3,7 +3,6 @@
 # LastDB home. NEVER touches the live primary.
 #
 # North Star: north-star-lastdb-no-stale-reads
-# Companion CI test: fold_db/crates/core/tests/resident_read_after_ack_test.rs
 #
 # For each cell (mutation × read), performs the mutation via /api/mutation,
 # then immediately (zero settle) issues the read and records whether the
