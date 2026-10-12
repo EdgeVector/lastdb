@@ -50,7 +50,7 @@ pub(crate) async fn load_app_single_catalog_binding(
         .schema_manager()
         .get_schema_metadata(catalog_hash)
         .map_err(|e| format!("failed to read catalog schema {catalog_hash}: {e}"))?
-        .and_then(|catalog| catalog.fields)
+        .and_then(|mut catalog| catalog.fields.take())
     {
         check_binding_sources_exist(&binding, catalog_hash, &catalog_fields)?;
     }

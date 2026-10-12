@@ -382,7 +382,7 @@ impl SchemaCore {
         &self,
         name: &str,
         mut schema: Schema,
-        existing_schema: Schema,
+        mut existing_schema: Schema,
     ) -> Result<(), SchemaError> {
         // A same-hash load is a metadata refresh, not a no-op. This matters
         // when a local/older definition was cached before the catalog
@@ -399,7 +399,7 @@ impl SchemaCore {
             .map(|m| m.keys().cloned().collect())
             .unwrap_or_default();
         let mut merged_molecules = schema.field_molecule_uuids.take().unwrap_or_default();
-        if let Some(existing_molecules) = existing_schema.field_molecule_uuids {
+        if let Some(existing_molecules) = existing_schema.field_molecule_uuids.take() {
             for (field, molecule_uuid) in existing_molecules {
                 if !mapped_fields.contains(&field) {
                     merged_molecules.entry(field).or_insert(molecule_uuid);

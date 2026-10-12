@@ -143,8 +143,11 @@ pub(super) fn collect_home_app_attribution(
             })
             .collect();
         bindings.push(AppLogicalBinding {
-            schema_binding: schema.name,
-            app_id: schema.owner_app_id.filter(|owner| !owner.trim().is_empty()),
+            schema_binding: schema.name.clone(),
+            app_id: schema
+                .owner_app_id
+                .clone()
+                .filter(|owner| !owner.trim().is_empty()),
             molecules,
         });
     }

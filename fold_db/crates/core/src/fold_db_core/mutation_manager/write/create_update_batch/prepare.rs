@@ -140,7 +140,7 @@ impl MutationManager {
             let owner = self
                 .schema_manager
                 .get_schema_metadata(&schema_name)?
-                .and_then(|schema| schema.owner_app_id);
+                .and_then(|mut schema| schema.owner_app_id.take());
             let delta = crate::warm_admit::with_schema_owner(
                 owner.as_deref(),
                 self.prepare_schema_delta(

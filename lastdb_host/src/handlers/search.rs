@@ -92,7 +92,7 @@ pub fn search_app_query<H: HostNode>(
                 .get_schema_metadata(&canonical)
                 .ok()
                 .flatten()
-                .and_then(|s| s.owner_app_id);
+                .and_then(|mut s| s.owner_app_id.take());
             if owner_app_id.as_deref() != Some(SEARCH_APP_ID) {
                 return Err(HostError::new(
                     403,
@@ -109,7 +109,7 @@ pub fn search_app_query<H: HostNode>(
             .map_err(HostError::from)?
             .into_iter()
             .filter(|entry| entry.schema.owner_app_id.as_deref() == Some(SEARCH_APP_ID))
-            .map(|entry| entry.schema.name)
+            .map(|entry| entry.schema.name.clone())
             .collect()
     };
 
@@ -230,7 +230,7 @@ pub(super) fn owner_search_scope<H: HostNode>(
         .get_active_schemas_with_states()
         .map_err(HostError::from)?
         .into_iter()
-        .map(|entry| entry.schema.name)
+        .map(|entry| entry.schema.name.clone())
         .collect())
 }
 
@@ -249,7 +249,7 @@ pub(super) fn app_owned_search_scope<H: HostNode>(
             .get_schema_metadata(&canonical)
             .ok()
             .flatten()
-            .and_then(|s| s.owner_app_id);
+            .and_then(|mut s| s.owner_app_id.take());
         return Ok((owner_app_id.as_deref() == Some(app_id))
             .then_some(canonical)
             .into_iter()
@@ -263,7 +263,7 @@ pub(super) fn app_owned_search_scope<H: HostNode>(
         .map_err(HostError::from)?
         .into_iter()
         .filter(|entry| entry.schema.owner_app_id.as_deref() == Some(app_id))
-        .map(|entry| entry.schema.name)
+        .map(|entry| entry.schema.name.clone())
         .collect())
 }
 

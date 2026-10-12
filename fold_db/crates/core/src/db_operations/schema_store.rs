@@ -281,9 +281,10 @@ impl SchemaStore {
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let existing = self.get_schema(schema_name).await?;
         let existed = existing.is_some();
-        if let Some(schema) = existing {
+        if let Some(mut schema) = existing {
             let mut field_molecule_uuids: Vec<String> = schema
                 .field_molecule_uuids
+                .take()
                 .unwrap_or_default()
                 .into_values()
                 .collect();
