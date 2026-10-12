@@ -7,6 +7,14 @@ use crate::crypto::CryptoProvider;
 use crate::sync::error::{SyncError, SyncResult};
 use std::sync::Arc;
 
+/// The replayed `mk:` key, its at-rest value and the molecule it belongs to.
+#[derive(Clone, Copy)]
+struct ReplayedKey<'a> {
+    key_bytes: &'a [u8],
+    value_bytes: &'a [u8],
+    mol_uuid: &'a str,
+}
+
 impl SyncEngine {
     /// Merge one incoming per-key molecule record (`mk:{M}:{key}`) into the
     /// local store with last-writer-wins on `AtomEntry.written_at`. Records a
@@ -69,9 +77,11 @@ impl SyncEngine {
             .merge_per_key_lww(
                 &kv,
                 namespace,
-                key_bytes,
-                value_bytes,
-                mol_uuid,
+                ReplayedKey {
+                    key_bytes,
+                    value_bytes,
+                    mol_uuid,
+                },
                 crypto,
                 &incoming,
                 local,
@@ -105,18 +115,20 @@ impl SyncEngine {
 
     /// Apply the LWW decision for one per-key record. Returns whether the
     /// incoming value was written.
-    #[allow(clippy::too_many_arguments)]
     async fn merge_per_key_lww(
         &self,
         kv: &Arc<dyn crate::storage::traits::KvStore>,
         namespace: &str,
-        key_bytes: &[u8],
-        value_bytes: &[u8],
-        mol_uuid: &str,
+        entry: ReplayedKey<'_>,
         crypto: &dyn CryptoProvider,
         incoming: &crate::db_operations::atom_store::PerKeyRecord,
         local: Option<crate::db_operations::atom_store::PerKeyRecord>,
     ) -> SyncResult<bool> {
+        let ReplayedKey {
+            key_bytes,
+            value_bytes,
+            mol_uuid,
+        } = entry;
         let mut accepted_incoming = false;
         match local {
             None => {
