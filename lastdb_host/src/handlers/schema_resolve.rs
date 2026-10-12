@@ -62,7 +62,7 @@ pub(super) fn resolve_descriptive_matches(
             }
             Ok(None)
         }
-        1 => Ok(Some(candidates.pop().unwrap().name)),
+        1 => Ok(Some(candidates.pop().unwrap().name.clone())),
         _ => {
             candidates.sort_by(|a, b| a.name.cmp(&b.name));
             let details = candidates

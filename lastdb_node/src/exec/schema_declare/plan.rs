@@ -227,8 +227,8 @@ async fn plan_from_resolver(
                     .get_schema(catalog_hash)
                     .await
                     .map_err(|e| format!("failed to fetch catalog schema {catalog_hash}: {e}"))?;
-                let schema: Schema = envelope.schema.into();
-                schema.fields
+                let mut schema: Schema = envelope.schema.into();
+                schema.fields.take()
             };
             check_reuse_bind(
                 host,

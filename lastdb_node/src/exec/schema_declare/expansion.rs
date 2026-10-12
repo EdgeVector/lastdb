@@ -36,7 +36,7 @@ pub(crate) fn anchor_catalog_expansion_to(
     // storage name can be a different Schema Service hash. FieldMapper source
     // lookups use installed schema names, so always anchor to that name.
     let source_schema = old.name.clone();
-    let new_fields: HashSet<&str> = schema.fields.iter().flatten().map(String::as_str).collect();
+    let new_fields: HashSet<String> = schema.fields.iter().flatten().cloned().collect();
     let mappers = schema.field_mappers.get_or_insert_with(HashMap::new);
     for field in old.fields.iter().flatten() {
         if !new_fields.contains(field.as_str()) {

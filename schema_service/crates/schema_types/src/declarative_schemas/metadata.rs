@@ -88,7 +88,7 @@ pub fn derive_transform_metadata(
 impl DeclarativeSchemaDefinition {
     /// Regenerate all derived transform metadata (hash mappings, inputs, source schemas).
     /// Called after construction and after deserialization from database.
-    pub(crate) fn regenerate_metadata(&mut self) {
+    pub fn regenerate_metadata(&mut self) {
         let meta = derive_transform_metadata(self.transform_fields.as_ref());
         self.field_to_hash_code.extend(meta.field_to_hash_code);
         self.hash_to_code = meta.hash_to_code;

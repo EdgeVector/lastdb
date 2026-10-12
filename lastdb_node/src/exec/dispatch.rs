@@ -190,7 +190,7 @@ pub(super) fn schema_owner_for_hint(host: &Host, schema: Option<&str>) -> Option
         .get_schema_metadata(&canonical)
         .ok()
         .flatten()
-        .and_then(|schema| schema.owner_app_id)
+        .and_then(|mut schema| schema.owner_app_id.take())
         .filter(|owner| !owner.trim().is_empty())
 }
 

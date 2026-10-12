@@ -168,7 +168,7 @@ pub(super) fn change_visible_to_caller(
         .get_schema_metadata(&canonical)
         .ok()
         .flatten()
-        .and_then(|schema| schema.owner_app_id)
+        .and_then(|mut schema| schema.owner_app_id.take())
         .as_deref()
         == Some(app_id)
 }

@@ -76,7 +76,7 @@ impl DeclarativeSchemaDefinition {
 
         self.runtime_fields = runtime_fields;
 
-        if let Some(field_mappers) = &self.field_mappers {
+        if let Some(field_mappers) = &self.wire.field_mappers {
             for (field_name, mapper) in field_mappers {
                 if let Some(field) = self.runtime_fields.get_mut(field_name) {
                     let mut mapper_map = HashMap::new();
