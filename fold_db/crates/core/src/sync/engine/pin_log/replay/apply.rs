@@ -1,8 +1,8 @@
 use super::sources::ReplaySources;
 use super::*;
 
-struct ValidatedReplayUnit {
-    records: Vec<PinLogRecord>,
+pub(super) struct ValidatedReplayUnit {
+    pub(super) records: Vec<PinLogRecord>,
     source_object_keys: Vec<String>,
     transaction_group: bool,
 }
@@ -137,7 +137,7 @@ pub(in super::super) async fn replay_mutation_log_segments_with_progress(
         .filter(|preserved| *preserved)
         .count();
     progress::update(progress, |p| {
-        p.replay_segments_applied = report.segments_applied
+        p.replay_segments_applied = report.segments_applied;
     });
 
     flush_touched_namespaces(engine, touched_namespaces).await?;
@@ -174,7 +174,7 @@ fn record_outcome(
 
 /// Check every replay unit's identity, writer stream and record order before
 /// any record is applied.
-fn validate_replay_units(
+pub(super) fn validate_replay_units(
     ordered: Vec<MutationLogReplayUnit>,
 ) -> SyncResult<Vec<ValidatedReplayUnit>> {
     let mut validated = Vec::with_capacity(ordered.len());

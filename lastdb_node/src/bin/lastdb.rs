@@ -19,6 +19,8 @@ mod backup_gc_compact_cmd;
 mod record_get_cmds;
 #[path = "lastdb/replay_schema_probe_cmd.rs"]
 mod replay_schema_probe_cmd;
+#[path = "lastdb/retired_intent_probe_cmd.rs"]
+mod retired_intent_probe_cmd;
 use record_get_cmds::*;
 #[path = "lastdb/version_retention_cmds.rs"]
 mod version_retention_cmds;
@@ -285,6 +287,9 @@ fn schema_inspect_dispatch(
     action: SchemaInspectCommand,
 ) -> Result<(), String> {
     match action {
+        SchemaInspectCommand::RetiredIntent { command } => {
+            retired_intent_probe_cmd::run(data_dir, command)
+        }
         SchemaInspectCommand::ReplayAuthorityProbe {
             schema_name_stdin,
             closed_owned_copy,

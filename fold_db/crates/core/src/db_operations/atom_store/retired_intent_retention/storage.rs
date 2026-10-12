@@ -196,10 +196,7 @@ impl AtomStore {
                 .await
                 .map_err(|_| refused("retired intent root write failed"))?;
         }
-        store
-            .flush()
-            .await
-            .map_err(|_| refused("retired intent root flush failed"))?;
+        self.flush_retired_roots(store.as_ref(), &keys).await?;
         let after = read_many(store.as_ref(), &keys).await?;
         if after
             .into_iter()
@@ -209,6 +206,38 @@ impl AtomStore {
             return Err(refused("retired intent root readback differs"));
         }
         Ok(())
+    }
+
+    /// One native barrier for the exact written groups, with the ordinary fallback.
+    async fn flush_retired_roots(
+        &self,
+        root_store: &dyn KvStore,
+        keys: &[Vec<u8>],
+    ) -> Result<(), SchemaError> {
+        let namespaced = self
+            .namespaced_store
+            .as_ref()
+            .ok_or_else(|| refused("retired intent retention requires a native store"))?;
+        let Some(native) = namespaced.raw_last_store() else {
+            return root_store
+                .flush()
+                .await
+                .map_err(|_| refused("retired intent root flush failed"));
+        };
+        let mut groups = keys
+            .iter()
+            .map(|key| {
+                let key = std::str::from_utf8(key)
+                    .map_err(|_| refused("retired intent root key is invalid"))?;
+                Ok(native.shard_key_of(RETIRED_INTENT_RETENTION_NAMESPACE, key))
+            })
+            .collect::<Result<Vec<_>, SchemaError>>()?;
+        groups.sort_unstable();
+        groups.dedup();
+        namespaced
+            .flush_written_keys(&groups)
+            .await
+            .map_err(|_| refused("retired intent scoped root flush failed"))
     }
 }
 

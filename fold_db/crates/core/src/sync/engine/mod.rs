@@ -93,6 +93,7 @@ pub(crate) use types::RetiredIntentPreserver;
 
 pub use crate::SyncConflict;
 pub use file_blob::{FileBlobRef, FileThumbnailUpload};
+pub use pin_log::verify_retired_replay_source;
 pub use pin_log::{
     audit_pin_log_plane, prepare_offline_s0_restore_marker, replay_mutation_log_segments,
     require_offline_s0_restore_marker, restore_mutation_log_after_s0,

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::{OwnedMutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard};
 
 mod dependencies;
+mod reclaim;
 mod storage;
 
 /// This namespace uses the normal encryption wrapper and default backup role.

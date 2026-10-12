@@ -12,12 +12,20 @@ use std::sync::Arc;
 pub const RETIRED_INTENT_NAMESPACE: &str = "retired_schema_intent_outcomes";
 pub const RETIRED_SOURCE_NAMESPACE: &str = "retired_schema_intent_sources";
 const MAX_OUTCOME_BYTES: usize = 32 * 1024 * 1024;
+const MAX_SOURCE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_SOURCE_OBJECTS: usize = 1024;
+
+mod pointer;
+mod probe;
+pub use pointer::read_last_preserved_retired_source_id;
+pub use probe::{probe_preserved_retired_intent, PreservedRetiredIntentProof};
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SourceObjectRef {
     segment: MutationLogSegmentId,
     ciphertext_sha256: String,
+    ciphertext_bytes: usize,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -46,6 +54,7 @@ pub fn retired_intent_source_id(record: &PinLogRecord) -> String {
 }
 
 pub(crate) struct PreparedRetiredIntent {
+    store: Arc<dyn NamespacedStore>,
     outcomes: Arc<dyn KvStore>,
     objects: Arc<dyn KvStore>,
     outcome_key: Vec<u8>,
@@ -61,14 +70,28 @@ impl PreparedRetiredIntent {
             .batch_put(self.missing_objects)
             .await
             .map_err(storage_error)?;
-        self.objects.flush().await.map_err(storage_error)?;
+        flush_keys(
+            &self.store,
+            &self.objects,
+            RETIRED_SOURCE_NAMESPACE,
+            &self.object_items,
+        )
+        .await?;
         verify_exact(&self.objects, &self.object_items).await?;
         self.outcomes
             .batch_put(vec![(self.outcome_key.clone(), self.outcome.clone())])
             .await
             .map_err(storage_error)?;
-        self.outcomes.flush().await.map_err(storage_error)?;
-        verify_exact(&self.outcomes, &[(self.outcome_key, self.outcome)]).await
+        let outcome_items = [(self.outcome_key.clone(), self.outcome)];
+        flush_keys(
+            &self.store,
+            &self.outcomes,
+            RETIRED_INTENT_NAMESPACE,
+            &outcome_items,
+        )
+        .await?;
+        verify_exact(&self.outcomes, &outcome_items).await?;
+        pointer::commit_last_preserved(&self.store, &self.outcomes, &self.outcome_key).await
     }
 }
 
@@ -78,6 +101,14 @@ pub(crate) async fn prepare_retired_intent(
     proofs: Vec<RetiredReplayProof>,
 ) -> Result<PreparedRetiredIntent, SchemaError> {
     if source.objects.is_empty()
+        || source.objects.len() > MAX_SOURCE_OBJECTS
+        || source
+            .objects
+            .iter()
+            .try_fold(0usize, |size, object| {
+                size.checked_add(object.ciphertext.len())
+            })
+            .is_none_or(|size| size > MAX_SOURCE_BYTES)
         || source.record.target_id != "personal"
         || !source.record.target_prefix.is_empty()
         || source.record.entry.seq != source.record.frontier_after
@@ -99,6 +130,7 @@ pub(crate) async fn prepare_retired_intent(
         source_objects.push(SourceObjectRef {
             segment: object.segment.clone(),
             ciphertext_sha256: digest,
+            ciphertext_bytes: object.ciphertext.len(),
         });
     }
     let value = serde_json::to_value(PreservedIntent {
@@ -129,11 +161,13 @@ pub(crate) async fn prepare_retired_intent(
     let object_items: Vec<_> = object_items.into_iter().collect();
     let outcome_key = source_id.into_bytes();
     let outcome_items = [(outcome_key.clone(), outcome.clone())];
+    pointer::read_last_preserved_retired_source_id(store).await?;
     let (missing_objects, _) = tokio::try_join!(
         check_conflicts(&objects, &object_items),
         check_conflicts(&outcomes, &outcome_items),
     )?;
     Ok(PreparedRetiredIntent {
+        store: Arc::clone(store),
         outcomes,
         objects,
         outcome_key,
@@ -245,6 +279,31 @@ async fn read_exact(
 
 fn storage_error(_: crate::storage::StorageError) -> SchemaError {
     refused("retired journal storage operation failed")
+}
+
+async fn flush_keys(
+    store: &Arc<dyn NamespacedStore>,
+    kv: &Arc<dyn KvStore>,
+    namespace: &str,
+    items: &[(Vec<u8>, Vec<u8>)],
+) -> Result<(), SchemaError> {
+    let Some(raw) = store.raw_last_store() else {
+        return kv.flush().await.map_err(storage_error);
+    };
+    let mut written = items
+        .iter()
+        .map(|(key, _)| {
+            std::str::from_utf8(key)
+                .map(|key| raw.shard_key_of(namespace, key))
+                .map_err(|_| refused("invalid retired journal storage key"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    written.sort_unstable();
+    written.dedup();
+    store
+        .flush_written_keys(&written)
+        .await
+        .map_err(storage_error)
 }
 
 fn refused(message: &str) -> SchemaError {

@@ -4,6 +4,11 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum SchemaInspectCommand {
+    /// Inspect preserved retired intent history on a closed owned temporary copy.
+    RetiredIntent {
+        #[command(subcommand)]
+        command: RetiredIntentCommand,
+    },
     /// Diagnose exact durable schema authority on a closed owned temporary copy.
     /// The schema name comes only from stdin; no names or stored values are output.
     ReplayAuthorityProbe {
@@ -65,6 +70,22 @@ pub(crate) enum SchemaInspectCommand {
         must_exist: bool,
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, Copy)]
+pub(crate) enum RetiredIntentCommand {
+    /// Send the exact private source ID only through a FIFO to the proof command.
+    LastSource {
+        #[arg(long, required = true)]
+        closed_owned_copy: bool,
+    },
+    /// Verify one exact source ID from stdin; output only fixed facts and counts.
+    Proof {
+        #[arg(long, required = true)]
+        source_id_stdin: bool,
+        #[arg(long, required = true)]
+        closed_owned_copy: bool,
     },
 }
 

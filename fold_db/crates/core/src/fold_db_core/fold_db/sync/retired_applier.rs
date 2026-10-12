@@ -66,7 +66,8 @@ async fn preserve(
     }
     // No permanent root write occurs until materialization and native signature
     // validation succeed. The shared fence prevents reclaim during those reads.
-    let mut retention = db_ops.atoms().retired_intent_retention_guard().await?;
+    let mut retention: crate::db_operations::atom_store::RetiredIntentRetentionGuard =
+        db_ops.atoms().retired_intent_retention_guard().await?;
     let materialized = materializer(original.clone())
         .await
         .map_err(|_| refused("retired intent materialization failed"))?;

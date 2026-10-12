@@ -38,10 +38,12 @@ pub async fn unseal_mutation_log_segment(
 mod apply;
 mod groups;
 mod object_keys;
+mod retired_verify;
 mod sources;
 mod staging;
 
 pub use apply::*;
 use groups::*;
 pub(crate) use object_keys::*;
+pub use retired_verify::verify_retired_replay_source;
 use staging::*;
