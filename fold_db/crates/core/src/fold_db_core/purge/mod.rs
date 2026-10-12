@@ -226,6 +226,33 @@ pub(super) enum PurgeReachability {
     AtomRefEdges,
 }
 
+/// What every purge entry point is aimed at: one schema of one node.
+#[derive(Clone, Copy)]
+pub(super) struct PurgeScope<'a> {
+    pub(super) db_ops: &'a Arc<DbOperations>,
+    pub(super) schema_manager: &'a Arc<SchemaCore>,
+    pub(super) schema_name: &'a str,
+}
+
+/// How a purge proves reachability and what it evicts afterwards.
+pub(super) struct PurgeMode {
+    pub(super) evict_resident: bool,
+    pub(super) reachability: PurgeReachability,
+    pub(super) precomputed_retained: Option<HashSet<String>>,
+}
+
+/// A planned destructive purge, ready for [`guarded::execute_guarded_purge`].
+pub(super) struct GuardedPurge {
+    pub(super) candidate_atoms: HashSet<String>,
+    pub(super) history_keys: Vec<String>,
+    pub(super) tip_version_keys: Vec<String>,
+    pub(super) atom_ref_edge_keys: Vec<String>,
+    pub(super) atom_ref_v2_edge_keys: Vec<String>,
+    pub(super) history_referenced_by_retained: HashSet<String>,
+    pub(super) records_purged: usize,
+    pub(super) mode: PurgeMode,
+}
+
 /// Named sub-step time recorded inside one destructive purge, so its caller
 /// can report [`RequestPhase::PurgeCommit`] as the RESIDUAL of the exclusive
 /// hold instead of as a total that double-counts its own parts.

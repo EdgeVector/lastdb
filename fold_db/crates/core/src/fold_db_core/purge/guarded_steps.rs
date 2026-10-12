@@ -1,5 +1,6 @@
 //! Helper steps of the guarded purge; see `guarded.rs`.
 
+use super::guarded_prepare::GuardedRemovalInputs;
 use super::*;
 
 /// Live-head atoms, captured before `remove_key_from_field` drops them.
@@ -127,17 +128,20 @@ pub(super) fn removed_tip_keys_of(owned_for_batch: &[OwnedMoleculeKeyRemoval]) -
 
 /// Batched molecule-key removal, plus derived keys where the reachability
 /// mode or compact edges require them.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn persist_molecule_removals(
     db_ops: &Arc<DbOperations>,
     owned_for_batch: &[OwnedMoleculeKeyRemoval],
-    reachability: PurgeReachability,
-    atom_ref_edge_keys: &[String],
-    atom_ref_v2_edge_keys: &[String],
-    history_keys: &[String],
-    tip_version_keys: &[String],
+    inputs: &GuardedRemovalInputs<'_>,
     tip_version_backref_keys: &[Vec<u8>],
 ) -> Result<(), SchemaError> {
+    let GuardedRemovalInputs {
+        atom_ref_edge_keys,
+        atom_ref_v2_edge_keys,
+        history_keys,
+        tip_version_keys,
+        reachability,
+        ..
+    } = *inputs;
     if owned_for_batch.is_empty() {
         return Ok(());
     }
