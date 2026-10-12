@@ -23,7 +23,6 @@ otel = [
 # Sentry's own crate features pull a reqwest transport; our optional `reqwest`
 # dep is only needed for `inject_w3c` on the `otel` path.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
-# Test-only transport helpers used by the Sentry-specific observability tests.
 
 [dependencies]
 # Single source of truth for the honor-both node-home resolution
