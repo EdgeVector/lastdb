@@ -94,10 +94,7 @@ impl GcJobManager {
         let mut job: GcJobReceipt = read(&self.job_path(&object.job_id)?)?;
         object.outcome = outcome;
         Self::apply_outcome(&mut job, &object)?;
-        put_object(
-            &self.object_path(&object.job_id, object.sequence)?,
-            &mut object,
-        )?;
+        self.put_objects(&object.job_id, std::slice::from_ref(&object))?;
         job.progress_unix_ms = unix_millis();
         put_job(&self.job_path(&object.job_id)?, &mut job)?;
         drop(guard);
@@ -151,11 +148,10 @@ impl GcJobManager {
                 instance_id: None,
                 provider_version: None,
             };
-            put_file(&self.object_path(id, object.sequence)?, &object)?;
             objects.push(object);
         }
         let job_path = self.job_path(id)?;
-        sync_parent(&self.object_path(id, objects[0].sequence)?)?;
+        self.put_objects(id, &objects)?;
         job.set_in_flight(objects.clone());
         job.phase = "delete".into();
         job.progress_unix_ms = unix_millis();
@@ -174,12 +170,13 @@ impl GcJobManager {
         let job_id = items[0].0.job_id.clone();
         let guard = self.index()?;
         let mut job: GcJobReceipt = read(&self.job_path(&job_id)?)?;
+        let mut objects = Vec::with_capacity(items.len());
         for (mut object, outcome) in items {
             object.outcome = outcome;
             Self::apply_outcome(&mut job, &object)?;
-            put_file(&self.object_path(&job_id, object.sequence)?, &object)?;
+            objects.push(object);
         }
-        sync_parent(&self.object_path(&job_id, job.objects_reconciled)?)?;
+        self.put_objects(&job_id, &objects)?;
         job.progress_unix_ms = unix_millis();
         put(&self.job_path(&job_id)?, &job)?;
         drop(guard);
@@ -193,7 +190,7 @@ impl GcJobManager {
     ) -> SyncResult<()> {
         if let Some(job) = self.get(Some(id))? {
             for pending in job.in_flight_objects() {
-                let object: GcObjectReceipt = read(&self.object_path(id, pending.sequence)?)?;
+                let object = self.read_object(id, pending.sequence)?;
                 let outcome = if object.outcome == GcObjectOutcome::Intent {
                     GcObjectOutcome::Unknown
                 } else {
@@ -240,6 +237,7 @@ impl GcJobManager {
             job.stop_reason = reason;
             job.stop_code = code;
             job.phase = "terminal".into();
-        })
+        })?;
+        compact_terminal_receipts(self.root()?, id, true).map(|_| ())
     }
 }

@@ -13,6 +13,8 @@ use app_cmds::*;
 #[path = "lastdb/schema_record_cmds.rs"]
 mod schema_record_cmds;
 use schema_record_cmds::*;
+#[path = "lastdb/backup_gc_compact_cmd.rs"]
+mod backup_gc_compact_cmd;
 #[path = "lastdb/record_get_cmds.rs"]
 mod record_get_cmds;
 use record_get_cmds::*;
@@ -395,6 +397,7 @@ fn run(cli: Cli) -> Result<(), String> {
             json,
         ),
         Command::Cloud { action } => cloud_command(cli.data_dir, action),
+        Command::BackupGcCompact(args) => backup_gc_compact_cmd::command(cli.data_dir, &args),
         Command::Mutate {
             schema,
             mutation_type,
