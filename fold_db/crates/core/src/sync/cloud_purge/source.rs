@@ -230,6 +230,16 @@ impl RetainedSource {
     }
 
     pub fn verify(&self) -> SyncResult<()> {
+        self.verify_receipt_shape()?;
+        self.verify_manifest_identity()?;
+        self.verify_chunk_inventory()?;
+        self.verify_recovery_inventory()?;
+        self.verify_source_roots()?;
+        self.verify_file_identities()
+    }
+
+    /// The receipt has a known format and lists exactly the files it carries.
+    fn verify_receipt_shape(&self) -> SyncResult<()> {
         if self.format_version != 1
             || self.prepared.source_id.is_empty()
             || self.files.is_empty()
@@ -242,6 +252,11 @@ impl RetainedSource {
         {
             return Err(SyncError::Storage("invalid retained source receipt".into()));
         }
+        Ok(())
+    }
+
+    /// The manifest hashes to the prepared digest and starts a fresh chain.
+    fn verify_manifest_identity(&self) -> SyncResult<()> {
         let digest = manifest_sha256_hex(&self.manifest)
             .map_err(|error| SyncError::Storage(error.to_string()))?;
         if digest != self.prepared.manifest_sha256
@@ -255,6 +270,11 @@ impl RetainedSource {
         }
         validate_manifest_chain(None, &self.manifest)
             .map_err(|error| SyncError::Storage(error.to_string()))?;
+        Ok(())
+    }
+
+    /// Every manifest chunk appears in the prepared object inventory.
+    fn verify_chunk_inventory(&self) -> SyncResult<()> {
         let root = cloud_db_hash_for_store_uuid(&self.manifest.store_uuid);
         for chunk in self
             .manifest
@@ -273,6 +293,11 @@ impl RetainedSource {
                 ));
             }
         }
+        Ok(())
+    }
+
+    /// The manifest, layout and (for orgs) catalog objects each appear once.
+    fn verify_recovery_inventory(&self) -> SyncResult<()> {
         if self
             .prepared
             .objects
@@ -307,7 +332,11 @@ impl RetainedSource {
                 "org source lacks its encrypted catalog inventory".into(),
             ));
         }
-        self.verify_source_roots()?;
+        Ok(())
+    }
+
+    /// Object identities are unique and each file matches its recorded size and digest.
+    fn verify_file_identities(&self) -> SyncResult<()> {
         let mut identities = BTreeSet::new();
         for file in &self.files {
             file.object.validate().map_err(SyncError::Storage)?;

@@ -14,6 +14,21 @@ struct StatusLiveness {
     last_capture_reexport_error: Option<String>,
 }
 
+/// Cloud-sync-off grace readings for one status snapshot.
+struct SyncOffStatus {
+    cloud_sync_disabled_at: Option<u64>,
+    recording_local_changes: bool,
+    sync_off_grace_expired: bool,
+    reenable_strategy: Option<String>,
+}
+
+/// Outbox overflow readings for one status snapshot.
+struct OutboxOverflowStatus {
+    last_outbox_overflow_reason: Option<String>,
+    oversize_outbox_drop_count: u64,
+    last_oversize_outbox_drop: Option<OversizeOutboxDropStatus>,
+}
+
 impl SyncEngine {
     /// Get the device identifier.
     pub fn device_id(&self) -> &str {
@@ -94,11 +109,11 @@ impl SyncEngine {
         let backup_upload_concurrency = self.backup_upload_concurrency_status().await;
         let outbox_over_target = self.config.max_outbox_entries > 0
             && durable_outbox_count >= self.config.max_outbox_entries;
-        let last_outbox_overflow_reason = self.last_outbox_overflow_reason.lock().await.clone();
-        let oversize_outbox_drop_count = self
-            .oversize_outbox_drop_count
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let last_oversize_outbox_drop = self.last_oversize_outbox_drop.lock().await.clone();
+        let OutboxOverflowStatus {
+            last_outbox_overflow_reason,
+            oversize_outbox_drop_count,
+            last_oversize_outbox_drop,
+        } = self.outbox_overflow_status().await;
         let pin_logs = self.pin_log.pin_log_statuses().await;
         let plane_vector_f = self.mutation_log_frontier.vector_frontier();
         let mutation_log = self.mutation_log_plane_status_from_pin_logs(&pin_logs, &plane_vector_f);
@@ -122,18 +137,12 @@ impl SyncEngine {
             last_capture_reexport_error,
         } = liveness;
 
-        let now_secs = crate::clock::unix_secs();
-        let cloud_sync_disabled_at = *self.cloud_sync_disabled_at.lock().await;
-        let recording_local_changes = self
-            .config
-            .recording_local_changes(cloud_sync_disabled_at, now_secs);
-        let sync_off_grace_expired = self
-            .config
-            .sync_off_grace_expired(cloud_sync_disabled_at, now_secs);
-        let reenable_strategy = self
-            .config
-            .reenable_strategy(cloud_sync_disabled_at, now_secs)
-            .map(str::to_string);
+        let SyncOffStatus {
+            cloud_sync_disabled_at,
+            recording_local_changes,
+            sync_off_grace_expired,
+            reenable_strategy,
+        } = self.sync_off_status().await;
 
         SyncStatus {
             state: *self.state.lock().await,
@@ -176,6 +185,36 @@ impl SyncEngine {
             capture_reexport_failure_count,
             last_capture_reexport_error,
             capture,
+        }
+    }
+
+    /// Cloud-sync-off grace fields for the status snapshot.
+    async fn sync_off_status(&self) -> SyncOffStatus {
+        let now_secs = crate::clock::unix_secs();
+        let cloud_sync_disabled_at = *self.cloud_sync_disabled_at.lock().await;
+        SyncOffStatus {
+            cloud_sync_disabled_at,
+            recording_local_changes: self
+                .config
+                .recording_local_changes(cloud_sync_disabled_at, now_secs),
+            sync_off_grace_expired: self
+                .config
+                .sync_off_grace_expired(cloud_sync_disabled_at, now_secs),
+            reenable_strategy: self
+                .config
+                .reenable_strategy(cloud_sync_disabled_at, now_secs)
+                .map(str::to_string),
+        }
+    }
+
+    /// Outbox overflow and oversize-drop readings for the status snapshot.
+    async fn outbox_overflow_status(&self) -> OutboxOverflowStatus {
+        OutboxOverflowStatus {
+            last_outbox_overflow_reason: self.last_outbox_overflow_reason.lock().await.clone(),
+            oversize_outbox_drop_count: self
+                .oversize_outbox_drop_count
+                .load(std::sync::atomic::Ordering::Relaxed),
+            last_oversize_outbox_drop: self.last_oversize_outbox_drop.lock().await.clone(),
         }
     }
 

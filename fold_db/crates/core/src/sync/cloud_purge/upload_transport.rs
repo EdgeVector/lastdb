@@ -13,10 +13,8 @@ fn escape(value: &str) -> SyncResult<String> {
     Ok(value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-pub(super) fn upload_part(path: &Path, part: &CloudPurgeUploadPart) -> SyncResult<String> {
-    if !reqwest::Url::parse(&part.url).is_ok_and(|url| url.scheme() == "https") {
-        return Err(SyncError::Storage("source upload requires HTTPS".into()));
-    }
+/// Write the curl `-K` config: the grant URL and its validated headers.
+fn write_curl_config(part: &CloudPurgeUploadPart) -> SyncResult<tempfile::NamedTempFile> {
     let mut config = tempfile::NamedTempFile::new()?;
     writeln!(config, "url = \"{}\"", escape(&part.url)?)?;
     for (name, value) in &part.headers {
@@ -31,37 +29,66 @@ pub(super) fn upload_part(path: &Path, part: &CloudPurgeUploadPart) -> SyncResul
         writeln!(config, "header = \"{}: {}\"", name, escape(value)?)?;
     }
     config.flush()?;
+    Ok(config)
+}
+
+/// Fixed curl flags: HTTPS only, streamed PUT from stdin, status code on stdout.
+const CURL_PUT_ARGS: [&str; 23] = [
+    "-sS",
+    "-f",
+    "--proto",
+    "=https",
+    "--proto-redir",
+    "=https",
+    "-o",
+    "/dev/null",
+    "-w",
+    "%{http_code}",
+    "--connect-timeout",
+    "30",
+    "--speed-limit",
+    "1",
+    "--speed-time",
+    "90",
+    "--http1.1",
+    "-X",
+    "PUT",
+    "-T",
+    "-",
+    "-H",
+    "Transfer-Encoding:",
+];
+
+/// Last non-empty `ETag` value in a curl `--dump-header` file.
+fn last_etag(headers: &tempfile::NamedTempFile) -> SyncResult<String> {
+    if headers.as_file().metadata()?.len() > 65536 {
+        return Err(SyncError::Network(
+            "source part response headers exceed the limit".into(),
+        ));
+    }
+    let bytes = std::fs::read(headers.path())?;
+    String::from_utf8_lossy(&bytes)
+        .lines()
+        .filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("etag")
+                .then(|| value.trim().to_string())
+        })
+        .rfind(|value| !value.is_empty())
+        .ok_or_else(|| SyncError::Storage("source upload part has no provider ETag".into()))
+}
+
+pub(super) fn upload_part(path: &Path, part: &CloudPurgeUploadPart) -> SyncResult<String> {
+    if !reqwest::Url::parse(&part.url).is_ok_and(|url| url.scheme() == "https") {
+        return Err(SyncError::Storage("source upload requires HTTPS".into()));
+    }
+    let config = write_curl_config(part)?;
     let headers = tempfile::NamedTempFile::new()?;
     let mut source = std::fs::File::open(path)?;
     source.seek(SeekFrom::Start(part.offset))?;
     let mut child = Command::new("curl")
-        .args([
-            "-sS",
-            "-f",
-            "--proto",
-            "=https",
-            "--proto-redir",
-            "=https",
-            "-o",
-            "/dev/null",
-            "-w",
-            "%{http_code}",
-            "--connect-timeout",
-            "30",
-            "--speed-limit",
-            "1",
-            "--speed-time",
-            "90",
-            "--http1.1",
-            "-X",
-            "PUT",
-            "-T",
-            "-",
-            "-H",
-            "Transfer-Encoding:",
-            "-H",
-            "Expect:",
-        ])
+        .args(CURL_PUT_ARGS)
+        .args(["-H", "Expect:"])
         .arg("-H")
         .arg(format!("Content-Length: {}", part.bytes))
         .arg("-K")
@@ -91,19 +118,5 @@ pub(super) fn upload_part(path: &Path, part: &CloudPurgeUploadPart) -> SyncResul
             "retained source part became shorter".into(),
         ));
     }
-    if headers.as_file().metadata()?.len() > 65536 {
-        return Err(SyncError::Network(
-            "source part response headers exceed the limit".into(),
-        ));
-    }
-    let bytes = std::fs::read(headers.path())?;
-    String::from_utf8_lossy(&bytes)
-        .lines()
-        .filter_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            name.eq_ignore_ascii_case("etag")
-                .then(|| value.trim().to_string())
-        })
-        .rfind(|value| !value.is_empty())
-        .ok_or_else(|| SyncError::Storage("source upload part has no provider ETag".into()))
+    last_etag(&headers)
 }

@@ -301,21 +301,21 @@ fn build(args: &BuildArgs) -> Result<(), String> {
     Ok(())
 }
 
-async fn publish(args: PublishArgs) -> Result<(), String> {
-    let resolver_config = read_file("resolver_config", &args.resolver_config)?;
-    let schema_snapshot = read_file("schema_snapshot", &args.schema_snapshot)?;
-    let embedding_artifact = read_file("embedding_artifact", &args.embedding_artifact)?;
-
+/// Build the signed manifest for `inputs` and verify it against the trusted keys.
+fn sign_and_verify_manifest(
+    args: &PublishArgs,
+    env: Env,
+    inputs: PackInputs<'_>,
+) -> Result<ResolverPackManifest, String> {
     let signing_key = load_signing_key(&args.signing_key_locator)?;
     let trusted_keys = parse_trusted_keys(&args.trusted_keys)?;
-    let env = Env::from(args.env);
     let issued_at = Utc::now();
     let expires_at = args.expires_at.unwrap_or(issued_at + Duration::days(90));
     let manifest = build_signed_manifest(
         PackInputs {
-            resolver_config: &resolver_config,
-            schema_snapshot: &schema_snapshot,
-            embedding_artifact: &embedding_artifact,
+            resolver_config: inputs.resolver_config,
+            schema_snapshot: inputs.schema_snapshot,
+            embedding_artifact: inputs.embedding_artifact,
         },
         env,
         &signing_key,
@@ -323,18 +323,49 @@ async fn publish(args: PublishArgs) -> Result<(), String> {
         Some(expires_at),
     )?;
 
-    let embedding: EmbeddingArtifact = parse_embedding_artifact(&embedding_artifact)
+    let embedding: EmbeddingArtifact = parse_embedding_artifact(inputs.embedding_artifact)
         .map_err(|e| format!("embedding artifact parse failed: {e}"))?;
     verify_resolver_pack_manifest(
         &manifest,
-        &resolver_config,
-        &schema_snapshot,
-        &embedding_artifact,
+        inputs.resolver_config,
+        inputs.schema_snapshot,
+        inputs.embedding_artifact,
         &trusted_keys,
         env,
         &embedding.embedder_id,
     )
     .map_err(|e| format!("signed manifest validation failed: {e}"))?;
+    Ok(manifest)
+}
+
+/// Upload the pack to the bucket unless the run only wrote a local layout.
+async fn upload_published_pack(
+    args: &PublishArgs,
+    plan: &PublishPlan,
+    manifest_bytes: &[u8],
+    inputs: PackInputs<'_>,
+) -> Result<(), String> {
+    let bucket = args
+        .r2_bucket
+        .clone()
+        .ok_or("--r2-bucket or SCHEMA_RESOLVER_PACK_BUCKET is required without --dry-run (or use --local-out-dir only)")?;
+    let uploader =
+        S3Uploader::new(args.aws_region.as_deref(), args.r2_endpoint_url.as_deref()).await;
+    upload_pack(&uploader, &bucket, plan, manifest_bytes, inputs).await
+}
+
+async fn publish(args: PublishArgs) -> Result<(), String> {
+    let resolver_config = read_file("resolver_config", &args.resolver_config)?;
+    let schema_snapshot = read_file("schema_snapshot", &args.schema_snapshot)?;
+    let embedding_artifact = read_file("embedding_artifact", &args.embedding_artifact)?;
+    let inputs = || PackInputs {
+        resolver_config: &resolver_config,
+        schema_snapshot: &schema_snapshot,
+        embedding_artifact: &embedding_artifact,
+    };
+
+    let env = Env::from(args.env);
+    let manifest = sign_and_verify_manifest(&args, env, inputs())?;
 
     let manifest_bytes = serde_json::to_vec_pretty(&manifest)
         .map_err(|e| format!("manifest serialization failed: {e}"))?;
@@ -359,16 +390,7 @@ async fn publish(args: PublishArgs) -> Result<(), String> {
     };
 
     if let Some(local_dir) = args.local_out_dir.as_ref() {
-        write_pack_local_layout(
-            local_dir,
-            &receipt.plan,
-            &manifest_bytes,
-            PackInputs {
-                resolver_config: &resolver_config,
-                schema_snapshot: &schema_snapshot,
-                embedding_artifact: &embedding_artifact,
-            },
-        )?;
+        write_pack_local_layout(local_dir, &receipt.plan, &manifest_bytes, inputs())?;
         eprintln!(
             "wrote local pack layout under {} (serve this directory as base_url)",
             local_dir.display()
@@ -378,82 +400,67 @@ async fn publish(args: PublishArgs) -> Result<(), String> {
     if args.dry_run {
         print_dry_run_manifest(&manifest, &receipt)?;
     } else if args.r2_bucket.is_some() || args.local_out_dir.is_none() {
-        let bucket = args
-            .r2_bucket
-            .clone()
-            .ok_or("--r2-bucket or SCHEMA_RESOLVER_PACK_BUCKET is required without --dry-run (or use --local-out-dir only)")?;
-        let uploader =
-            S3Uploader::new(args.aws_region.as_deref(), args.r2_endpoint_url.as_deref()).await;
-        upload_pack(
-            &uploader,
-            &bucket,
-            &receipt.plan,
-            &manifest_bytes,
-            PackInputs {
-                resolver_config: &resolver_config,
-                schema_snapshot: &schema_snapshot,
-                embedding_artifact: &embedding_artifact,
-            },
-        )
-        .await?;
+        upload_published_pack(&args, &receipt.plan, &manifest_bytes, inputs()).await?;
     }
     write_receipt(args.audit_log.as_deref(), &receipt)?;
     Ok(())
 }
 
-async fn rollback(args: RollbackArgs) -> Result<(), String> {
-    let manifest_bytes = read_file("manifest", &args.manifest)?;
-    let manifest: ResolverPackManifest = serde_json::from_slice(&manifest_bytes)
-        .map_err(|e| format!("manifest parse failed: {e}"))?;
-    let trusted_keys = parse_trusted_keys(&args.trusted_keys)?;
-    let env = Env::from(args.env);
+/// Validate a rollback manifest and return the embedder id it targets.
+///
+/// With all three artifacts the manifest is verified against them; otherwise
+/// only the pointer-level checks run.
+fn rollback_embedding_id(
+    args: &RollbackArgs,
+    manifest: &ResolverPackManifest,
+    trusted_keys: &[schema_service_core::resolver_pack::TrustedResolverPackKey],
+    env: Env,
+) -> Result<String, String> {
+    let (Some(resolver_config), Some(schema_snapshot), Some(embedding_artifact)) = (
+        args.resolver_config.as_ref(),
+        args.schema_snapshot.as_ref(),
+        args.embedding_artifact.as_ref(),
+    ) else {
+        validate_manifest_for_pointer_only(manifest, trusted_keys, env)?;
+        return Ok(manifest.embedder_id.clone());
+    };
+    let resolver_config = read_file("resolver_config", resolver_config)?;
+    let schema_snapshot = read_file("schema_snapshot", schema_snapshot)?;
+    let embedding_artifact = read_file("embedding_artifact", embedding_artifact)?;
+    let embedding: EmbeddingArtifact = parse_embedding_artifact(&embedding_artifact)
+        .map_err(|e| format!("embedding artifact parse failed: {e}"))?;
+    verify_resolver_pack_manifest(
+        manifest,
+        &resolver_config,
+        &schema_snapshot,
+        &embedding_artifact,
+        trusted_keys,
+        env,
+        &embedding.embedder_id,
+    )
+    .map_err(|e| format!("rollback manifest validation failed: {e}"))?;
+    Ok(embedding.embedder_id)
+}
 
-    if manifest.format_version != RESOLVER_PACK_FORMAT_VERSION {
-        return Err(format!(
-            "rollback requires format_version {}, got {}",
-            RESOLVER_PACK_FORMAT_VERSION, manifest.format_version
-        ));
-    }
-
-    let embedding_id =
-        if let (Some(resolver_config), Some(schema_snapshot), Some(embedding_artifact)) = (
-            args.resolver_config.as_ref(),
-            args.schema_snapshot.as_ref(),
-            args.embedding_artifact.as_ref(),
-        ) {
-            let resolver_config = read_file("resolver_config", resolver_config)?;
-            let schema_snapshot = read_file("schema_snapshot", schema_snapshot)?;
-            let embedding_artifact = read_file("embedding_artifact", embedding_artifact)?;
-            let embedding: EmbeddingArtifact = parse_embedding_artifact(&embedding_artifact)
-                .map_err(|e| format!("embedding artifact parse failed: {e}"))?;
-            verify_resolver_pack_manifest(
-                &manifest,
-                &resolver_config,
-                &schema_snapshot,
-                &embedding_artifact,
-                &trusted_keys,
-                env,
-                &embedding.embedder_id,
-            )
-            .map_err(|e| format!("rollback manifest validation failed: {e}"))?;
-            embedding.embedder_id
-        } else {
-            validate_manifest_for_pointer_only(&manifest, &trusted_keys, env)?;
-            manifest.embedder_id.clone()
-        };
-
+/// Keys a rollback touches: the manifest, its artifacts, and the latest pointer.
+fn rollback_plan(
+    env: Env,
+    manifest: &ResolverPackManifest,
+    manifest_bytes: &[u8],
+    embedding_id: &str,
+) -> PublishPlan {
     let pointer_key = latest_compatible_manifest_pointer_key(
         env,
         manifest.resolver_contract_version,
         &manifest.algorithm.id,
         manifest.algorithm.version,
-        &embedding_id,
+        embedding_id,
     );
-    let plan = PublishPlan {
+    PublishPlan {
         manifest_key: resolver_pack_artifact_key(
             env,
             ResolverPackArtifactKind::Manifest,
-            &artifact_sha256_hex(&manifest_bytes),
+            &artifact_sha256_hex(manifest_bytes),
         ),
         resolver_config_key: resolver_pack_artifact_key(
             env,
@@ -471,7 +478,25 @@ async fn rollback(args: RollbackArgs) -> Result<(), String> {
             &manifest.embedding_artifact_hash,
         ),
         latest_manifest_pointer_key: pointer_key,
-    };
+    }
+}
+
+async fn rollback(args: RollbackArgs) -> Result<(), String> {
+    let manifest_bytes = read_file("manifest", &args.manifest)?;
+    let manifest: ResolverPackManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|e| format!("manifest parse failed: {e}"))?;
+    let trusted_keys = parse_trusted_keys(&args.trusted_keys)?;
+    let env = Env::from(args.env);
+
+    if manifest.format_version != RESOLVER_PACK_FORMAT_VERSION {
+        return Err(format!(
+            "rollback requires format_version {}, got {}",
+            RESOLVER_PACK_FORMAT_VERSION, manifest.format_version
+        ));
+    }
+
+    let embedding_id = rollback_embedding_id(&args, &manifest, &trusted_keys, env)?;
+    let plan = rollback_plan(env, &manifest, &manifest_bytes, &embedding_id);
     let receipt = PublishReceipt {
         action: "rollback",
         env,

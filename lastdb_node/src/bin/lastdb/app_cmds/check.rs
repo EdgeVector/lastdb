@@ -39,59 +39,68 @@ pub(crate) fn ensure_app_schemas_catalog_ready(
     Ok(())
 }
 
-pub(crate) fn print_check_outcomes(
+/// One JSON row per schema: how its coverage resolves and the detail to show.
+fn check_outcome_rows(
+    outcomes: &[lastdb_node::app_publish::CheckOutcome],
+) -> Vec<serde_json::Value> {
+    use lastdb_node::app_publish::SchemaCoverage;
+    outcomes
+        .iter()
+        .map(|o| {
+            let (resolution, detail) = match &o.coverage {
+                SchemaCoverage::Reuse { identity_hash } => ("reuse", identity_hash.clone()),
+                SchemaCoverage::Compose { components } => ("compose", components.join(",")),
+                SchemaCoverage::Register {
+                    identity_hash,
+                    expanded,
+                    ..
+                } => (
+                    if *expanded { "expand" } else { "register" },
+                    identity_hash.clone(),
+                ),
+                SchemaCoverage::WouldRegister {
+                    identity_hash,
+                    expanded,
+                    ..
+                } => (
+                    if *expanded {
+                        "would-expand"
+                    } else {
+                        "would-register"
+                    },
+                    identity_hash.clone(),
+                ),
+                SchemaCoverage::Novel { reason } => ("novel", reason.clone()),
+            };
+            serde_json::json!({
+                "schema": o.schema_name,
+                "resolution": resolution,
+                "detail": detail,
+                "covered": o.coverage.is_covered(),
+            })
+        })
+        .collect()
+}
+
+fn print_check_outcomes_json(
     manifest: &lastdb_node::app_publish::AppManifest,
     outcomes: &[lastdb_node::app_publish::CheckOutcome],
-    json: bool,
+) {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "app_id": manifest.app_id,
+            "schemas": check_outcome_rows(outcomes),
+        }))
+        .unwrap_or_default()
+    );
+}
+
+fn print_check_outcomes_text(
+    manifest: &lastdb_node::app_publish::AppManifest,
+    outcomes: &[lastdb_node::app_publish::CheckOutcome],
 ) {
     use lastdb_node::app_publish::SchemaCoverage;
-    if json {
-        let rows: Vec<serde_json::Value> = outcomes
-            .iter()
-            .map(|o| {
-                let (resolution, detail) = match &o.coverage {
-                    SchemaCoverage::Reuse { identity_hash } => ("reuse", identity_hash.clone()),
-                    SchemaCoverage::Compose { components } => ("compose", components.join(",")),
-                    SchemaCoverage::Register {
-                        identity_hash,
-                        expanded,
-                        ..
-                    } => (
-                        if *expanded { "expand" } else { "register" },
-                        identity_hash.clone(),
-                    ),
-                    SchemaCoverage::WouldRegister {
-                        identity_hash,
-                        expanded,
-                        ..
-                    } => (
-                        if *expanded {
-                            "would-expand"
-                        } else {
-                            "would-register"
-                        },
-                        identity_hash.clone(),
-                    ),
-                    SchemaCoverage::Novel { reason } => ("novel", reason.clone()),
-                };
-                serde_json::json!({
-                    "schema": o.schema_name,
-                    "resolution": resolution,
-                    "detail": detail,
-                    "covered": o.coverage.is_covered(),
-                })
-            })
-            .collect();
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "app_id": manifest.app_id,
-                "schemas": rows,
-            }))
-            .unwrap_or_default()
-        );
-        return;
-    }
     println!("app: {}", manifest.app_id);
     for o in outcomes {
         match &o.coverage {
@@ -134,6 +143,18 @@ pub(crate) fn print_check_outcomes(
             ),
             SchemaCoverage::Novel { reason } => println!("  {}\tNOVEL\t{reason}", o.schema_name),
         }
+    }
+}
+
+pub(crate) fn print_check_outcomes(
+    manifest: &lastdb_node::app_publish::AppManifest,
+    outcomes: &[lastdb_node::app_publish::CheckOutcome],
+    json: bool,
+) {
+    if json {
+        print_check_outcomes_json(manifest, outcomes);
+    } else {
+        print_check_outcomes_text(manifest, outcomes);
     }
 }
 
