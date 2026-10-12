@@ -179,14 +179,7 @@ impl PinLog {
             .await
             .map_err(|error| format!("ensure capture marker targets: {error}"))?;
         let store = self.pin_log_store().await?;
-        let mut seen = BTreeSet::new();
-        let mut receipt_keys = Vec::with_capacity(markers.len());
-        for (marker_key, _) in markers {
-            if marker_key.is_empty() || !seen.insert(marker_key.as_slice()) {
-                return Err("capture marker batch has an empty or duplicate marker key".into());
-            }
-            receipt_keys.push(capture_marker_receipt_key(marker_key));
-        }
+        let receipt_keys = capture_marker_receipt_keys(markers)?;
         let prior = store
             .get_many(receipt_keys.clone())
             .await
@@ -194,58 +187,21 @@ impl PinLog {
         if prior.len() != markers.len() {
             return Err("capture marker receipt read returned the wrong row count".into());
         }
-        let active_ids: std::collections::HashSet<String> = self
-            .state
-            .lock()
-            .await
-            .values()
-            .filter(|runtime| runtime.active)
-            .map(|runtime| runtime.target_id.clone())
-            .collect();
-        let mut records = Vec::new();
-        let mut receipt_puts = Vec::new();
-        let mut existing = Vec::new();
-        let mut row_bytes = 0usize;
-        let mut receipt_bytes = 0usize;
-        for (((marker_key, entry), receipt_key), raw) in markers.iter().zip(receipt_keys).zip(prior)
-        {
-            let op_sha256 = capture_marker_op_sha256(&entry.op)?;
-            if let Some(raw) = raw {
-                existing.push(check_existing_capture_marker_receipt(
-                    &raw,
-                    marker_key,
-                    entry,
-                    &op_sha256,
-                    targets,
-                    partitioner,
-                )?);
-                continue;
-            }
-
-            let marker_records = build_capture_marker_records(
-                entry,
-                targets,
-                partitioner,
-                &active_ids,
-                &mut row_bytes,
-            )?;
-            let receipt = CaptureMarkerAppendReceipt {
-                version: CAPTURE_MARKER_RECEIPT_VERSION,
-                marker_key: marker_key.clone(),
-                op_sha256,
-                records: marker_records.clone(),
-            };
-            let bytes = serde_json::to_vec(&receipt)
-                .map_err(|error| format!("encode capture marker receipt: {error}"))?;
-            receipt_bytes = receipt_bytes.saturating_add(receipt_key.len() + bytes.len());
-            if row_bytes.saturating_add(receipt_bytes) > CAPTURE_MARKER_BATCH_MAX_DURABLE_BYTES {
-                return Err(format!(
-                    "capture marker batch exceeds {CAPTURE_MARKER_BATCH_MAX_DURABLE_BYTES} durable bytes"
-                ));
-            }
-            receipt_puts.push((receipt_key, bytes));
-            records.extend(marker_records);
-        }
+        let active_ids = self.active_target_ids().await;
+        let CaptureMarkerPlan {
+            mut records,
+            receipt_puts,
+            existing,
+            mut row_bytes,
+            receipt_bytes,
+        } = plan_capture_marker_batch(
+            markers,
+            receipt_keys,
+            prior,
+            targets,
+            partitioner,
+            &active_ids,
+        )?;
 
         self.repair_existing_capture_receipts(&store, existing, &mut records, &mut row_bytes)
             .await?;
@@ -266,6 +222,17 @@ impl PinLog {
         self.persist_pin_log_records_with_receipts(&records, receipt_puts)
             .await?;
         Ok(markers.iter().map(|(key, _)| key.clone()).collect())
+    }
+
+    /// Ids of the targets whose runtime is currently active.
+    async fn active_target_ids(&self) -> std::collections::HashSet<String> {
+        self.state
+            .lock()
+            .await
+            .values()
+            .filter(|runtime| runtime.active)
+            .map(|runtime| runtime.target_id.clone())
+            .collect()
     }
 
     /// An earlier flush may have left the marker in the re-export plane.
@@ -323,4 +290,82 @@ impl PinLog {
         }
         Ok(())
     }
+}
+
+/// Receipt keys for a marker page; rejects empty or duplicate marker keys.
+fn capture_marker_receipt_keys(markers: &[(Vec<u8>, LogEntry)]) -> Result<Vec<Vec<u8>>, String> {
+    let mut seen = BTreeSet::new();
+    let mut receipt_keys = Vec::with_capacity(markers.len());
+    for (marker_key, _) in markers {
+        if marker_key.is_empty() || !seen.insert(marker_key.as_slice()) {
+            return Err("capture marker batch has an empty or duplicate marker key".into());
+        }
+        receipt_keys.push(capture_marker_receipt_key(marker_key));
+    }
+    Ok(receipt_keys)
+}
+
+/// Rows and receipts a marker page needs written, plus receipts that already exist.
+struct CaptureMarkerPlan {
+    records: Vec<PinLogRecord>,
+    receipt_puts: Vec<(Vec<u8>, Vec<u8>)>,
+    existing: Vec<CaptureMarkerAppendReceipt>,
+    row_bytes: usize,
+    receipt_bytes: usize,
+}
+
+/// Build the new rows and receipts for markers without a receipt; verify the rest against theirs.
+fn plan_capture_marker_batch(
+    markers: &[(Vec<u8>, LogEntry)],
+    receipt_keys: Vec<Vec<u8>>,
+    prior: Vec<Option<Vec<u8>>>,
+    targets: &[SyncTarget],
+    partitioner: &Option<SyncPartitioner>,
+    active_ids: &std::collections::HashSet<String>,
+) -> Result<CaptureMarkerPlan, String> {
+    let mut records = Vec::new();
+    let mut receipt_puts = Vec::new();
+    let mut existing = Vec::new();
+    let mut row_bytes = 0usize;
+    let mut receipt_bytes = 0usize;
+    for (((marker_key, entry), receipt_key), raw) in markers.iter().zip(receipt_keys).zip(prior) {
+        let op_sha256 = capture_marker_op_sha256(&entry.op)?;
+        if let Some(raw) = raw {
+            existing.push(check_existing_capture_marker_receipt(
+                &raw,
+                marker_key,
+                entry,
+                &op_sha256,
+                targets,
+                partitioner,
+            )?);
+            continue;
+        }
+
+        let marker_records =
+            build_capture_marker_records(entry, targets, partitioner, active_ids, &mut row_bytes)?;
+        let receipt = CaptureMarkerAppendReceipt {
+            version: CAPTURE_MARKER_RECEIPT_VERSION,
+            marker_key: marker_key.clone(),
+            op_sha256,
+            records: marker_records.clone(),
+        };
+        let bytes = serde_json::to_vec(&receipt)
+            .map_err(|error| format!("encode capture marker receipt: {error}"))?;
+        receipt_bytes = receipt_bytes.saturating_add(receipt_key.len() + bytes.len());
+        if row_bytes.saturating_add(receipt_bytes) > CAPTURE_MARKER_BATCH_MAX_DURABLE_BYTES {
+            return Err(format!(
+                "capture marker batch exceeds {CAPTURE_MARKER_BATCH_MAX_DURABLE_BYTES} durable bytes"
+            ));
+        }
+        receipt_puts.push((receipt_key, bytes));
+        records.extend(marker_records);
+    }
+    Ok(CaptureMarkerPlan {
+        records,
+        receipt_puts,
+        existing,
+        row_bytes,
+        receipt_bytes,
+    })
 }

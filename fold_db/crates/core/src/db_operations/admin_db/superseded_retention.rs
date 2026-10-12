@@ -2,6 +2,9 @@
 
 use super::*;
 
+mod page;
+use page::RetainPass;
+
 impl AtomStore {
     /// One bounded, resumable pass that drops **expired** `tv:` nodes on live
     /// heads while keeping versions written inside the 7-day window.
@@ -19,7 +22,6 @@ impl AtomStore {
         use crate::atom::molecule_key_codec;
 
         const SCAN_PAGE: usize = 512;
-        const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
 
         let max_keys = options.max_keys.max(1);
         let max_prunes = options.max_prunes.unwrap_or(max_keys).max(1);
@@ -31,7 +33,14 @@ impl AtomStore {
             .unwrap_or(molecule_key_codec::SUPERSEDED_VERSION_RETENTION_SECS);
         let now_ns = unix_nanos();
         let cutoff_ns = now_ns.saturating_sub(retention_seconds.saturating_mul(1_000_000_000));
-        let pass_started = std::time::Instant::now();
+        let pass = RetainPass {
+            max_keys,
+            max_prunes,
+            storage_prefix,
+            cutoff_ns,
+            dry_run,
+            started: std::time::Instant::now(),
+        };
         let pass_started_at = Utc::now().to_rfc3339();
 
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
@@ -68,36 +77,9 @@ impl AtomStore {
             }
 
             let head = skip_head.take();
-            let mut stop_after_page = false;
-            for (raw_key, raw_value) in rows {
-                let mk_key = String::from_utf8_lossy(&raw_key).into_owned();
-                page_start = mk_key.clone();
-                if head.as_deref() == Some(mk_key.as_str()) {
-                    continue;
-                }
-
-                if report.keys_scanned as usize >= max_keys
-                    || report.tips_truncated as usize >= max_prunes
-                    || (report.keys_scanned > 0 && pass_started.elapsed() >= PASS_TIME_BUDGET)
-                {
-                    report.more_remaining = true;
-                    stop_after_page = true;
-                    break;
-                }
-
-                report.keys_scanned += 1;
-                report.next_after_key = Some(mk_key.clone());
-
-                self.retain_one_tip(
-                    &mut report,
-                    &mk_key,
-                    &raw_value,
-                    storage_prefix,
-                    cutoff_ns,
-                    dry_run,
-                )
+            let stop_after_page = self
+                .retain_page(rows, head.as_deref(), &mut page_start, &mut report, &pass)
                 .await?;
-            }
 
             skip_head = Some(page_start.clone());
             if stop_after_page {
@@ -148,7 +130,7 @@ impl AtomStore {
     }
 
     /// Apply retention to one `mk:` head and record the outcome in `report`.
-    async fn retain_one_tip(
+    pub(super) async fn retain_one_tip(
         &self,
         report: &mut SupersededVersionRetentionReport,
         mk_key: &str,
