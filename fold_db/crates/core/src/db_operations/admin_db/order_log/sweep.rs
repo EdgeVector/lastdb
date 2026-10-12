@@ -31,7 +31,7 @@ impl AtomStore {
     ///   no single request can delete more than this many molecules.
     /// * `max_keys` `moc:` rows examined — the bound on classification work,
     ///   which costs a live probe plus a storage measure per row.
-    /// * `pass_budget` wall-clock.
+    /// * `clock.budget` wall-clock.
     ///
     /// Returning `more_remaining` with a `moc:`-namespace cursor is what banks
     /// progress: the caller commits this page before asking for the next one.
