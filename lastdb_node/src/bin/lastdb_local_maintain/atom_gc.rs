@@ -194,7 +194,103 @@ impl AtomGcScan {
     }
 }
 
-// lint:fn-size-ok moved verbatim from lastdb_local_maintain.rs; splitting this function is separate work
+/// Namespace/prefix pairs that can carry a reference to an atom body.
+const ATOM_REF_SOURCES: [(&str, &str); 11] = [
+    ("main", "mk:"),
+    ("tips", "mk:"),
+    ("field_tips", "mk:"),
+    ("main", "tv:"),
+    ("tips", "tv:"),
+    ("field_tip_versions", "tv:"),
+    ("main", "history:"),
+    ("tips", "history:"),
+    ("main", "conflict:"),
+    ("sync_conflicts", "conflict:"),
+    ("main", "ref:"),
+];
+
+#[derive(Default)]
+struct AtomBodyTally {
+    copies_by_uuid: BTreeMap<String, Vec<AtomCopy>>,
+    flat: u64,
+    prefixed: u64,
+    opaque: u64,
+}
+
+async fn collect_all_atom_refs(
+    store: &dyn NamespacedStore,
+    namespace_set: &BTreeSet<String>,
+    namespaces_scanned: &mut BTreeSet<String>,
+) -> Result<HashSet<String>, String> {
+    let mut refs = HashSet::new();
+    for (namespace, prefix) in ATOM_REF_SOURCES {
+        collect_atom_refs_from_prefix(
+            store,
+            namespace_set,
+            namespaces_scanned,
+            namespace,
+            prefix,
+            &mut refs,
+        )
+        .await?;
+    }
+    Ok(refs)
+}
+
+async fn collect_all_atom_bodies(
+    store: &dyn NamespacedStore,
+    namespace_set: &BTreeSet<String>,
+    namespaces_scanned: &mut BTreeSet<String>,
+) -> Result<AtomBodyTally, String> {
+    let mut tally = AtomBodyTally::default();
+    let mut sources = vec![("main", Some("atom:")), ("atoms", Some("atom:"))];
+    for (namespace, prefix) in sources.drain(..) {
+        collect_body_source(
+            store,
+            namespace_set,
+            namespaces_scanned,
+            namespace,
+            prefix,
+            &mut tally,
+        )
+        .await?;
+    }
+    if namespace_set.contains("atoms") && !namespaces_scanned.contains("atoms") {
+        collect_body_source(
+            store,
+            namespace_set,
+            namespaces_scanned,
+            "atoms",
+            None,
+            &mut tally,
+        )
+        .await?;
+    }
+    Ok(tally)
+}
+
+async fn collect_body_source(
+    store: &dyn NamespacedStore,
+    namespace_set: &BTreeSet<String>,
+    namespaces_scanned: &mut BTreeSet<String>,
+    namespace: &str,
+    prefix: Option<&str>,
+    tally: &mut AtomBodyTally,
+) -> Result<(), String> {
+    collect_atom_body_rows(
+        store,
+        namespace_set,
+        namespaces_scanned,
+        namespace,
+        prefix,
+        &mut tally.copies_by_uuid,
+        &mut tally.flat,
+        &mut tally.prefixed,
+        &mut tally.opaque,
+    )
+    .await
+}
+
 pub(crate) async fn scan_atom_gc(store: &dyn NamespacedStore) -> Result<AtomGcScan, String> {
     let namespaces = store
         .list_namespaces()
@@ -203,79 +299,15 @@ pub(crate) async fn scan_atom_gc(store: &dyn NamespacedStore) -> Result<AtomGcSc
     let namespace_set: BTreeSet<String> = namespaces.into_iter().collect();
     let mut namespaces_scanned = BTreeSet::new();
 
-    let mut refs = HashSet::new();
-    for (namespace, prefix) in [
-        ("main", "mk:"),
-        ("tips", "mk:"),
-        ("field_tips", "mk:"),
-        ("main", "tv:"),
-        ("tips", "tv:"),
-        ("field_tip_versions", "tv:"),
-        ("main", "history:"),
-        ("tips", "history:"),
-        ("main", "conflict:"),
-        ("sync_conflicts", "conflict:"),
-        ("main", "ref:"),
-    ] {
-        collect_atom_refs_from_prefix(
-            store,
-            &namespace_set,
-            &mut namespaces_scanned,
-            namespace,
-            prefix,
-            &mut refs,
-        )
-        .await?;
-    }
-
-    let mut copies_by_uuid: BTreeMap<String, Vec<AtomCopy>> = BTreeMap::new();
-    let mut flat_atom_body_keys = 0u64;
-    let mut prefixed_atom_body_keys = 0u64;
-    let mut opaque_atom_body_keys = 0u64;
-    collect_atom_body_rows(
-        store,
-        &namespace_set,
-        &mut namespaces_scanned,
-        "main",
-        Some("atom:"),
-        &mut copies_by_uuid,
-        &mut flat_atom_body_keys,
-        &mut prefixed_atom_body_keys,
-        &mut opaque_atom_body_keys,
-    )
-    .await?;
-    collect_atom_body_rows(
-        store,
-        &namespace_set,
-        &mut namespaces_scanned,
-        "atoms",
-        Some("atom:"),
-        &mut copies_by_uuid,
-        &mut flat_atom_body_keys,
-        &mut prefixed_atom_body_keys,
-        &mut opaque_atom_body_keys,
-    )
-    .await?;
-    if namespace_set.contains("atoms") && !namespaces_scanned.contains("atoms") {
-        collect_atom_body_rows(
-            store,
-            &namespace_set,
-            &mut namespaces_scanned,
-            "atoms",
-            None,
-            &mut copies_by_uuid,
-            &mut flat_atom_body_keys,
-            &mut prefixed_atom_body_keys,
-            &mut opaque_atom_body_keys,
-        )
-        .await?;
-    }
+    let refs = collect_all_atom_refs(store, &namespace_set, &mut namespaces_scanned).await?;
+    let tally = collect_all_atom_bodies(store, &namespace_set, &mut namespaces_scanned).await?;
 
     let locators = collect_atom_locators(store, &namespace_set, &mut namespaces_scanned).await?;
     let schema_names = collect_schema_names(store, &namespace_set, &mut namespaces_scanned).await?;
     let encoding_marker = read_encoding_marker(store).await?;
 
-    let groups = copies_by_uuid
+    let groups = tally
+        .copies_by_uuid
         .into_iter()
         .map(|(atom_uuid, copies)| AtomGroup {
             referenced: refs.contains(&atom_uuid),
@@ -290,9 +322,9 @@ pub(crate) async fn scan_atom_gc(store: &dyn NamespacedStore) -> Result<AtomGcSc
         namespaces_scanned,
         schema_names,
         referenced_atom_uuids: refs.len() as u64,
-        flat_atom_body_keys,
-        prefixed_atom_body_keys,
-        opaque_atom_body_keys,
+        flat_atom_body_keys: tally.flat,
+        prefixed_atom_body_keys: tally.prefixed,
+        opaque_atom_body_keys: tally.opaque,
         locator_rows: locators.len() as u64,
         encoding_marker,
     })

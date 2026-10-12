@@ -327,9 +327,10 @@ pub(crate) struct ReclaimIndexResidueReport {
     next_step: &'static str,
 }
 
-// lint:fn-size-ok moved verbatim from lastdb_local_maintain.rs; splitting this function is separate work
-pub(crate) fn reclaim_index_residue(args: &ReclaimIndexResidueArgs<'_>) -> Result<(), String> {
-    let reclaimable = retired_index_reclaim_prefixes();
+fn resolve_reclaim_prefixes(
+    reclaimable: &[&'static str],
+    requested: Option<&String>,
+) -> Result<Vec<String>, String> {
     if reclaimable.is_empty() {
         return Err(
             "no reclaimable index prefixes in this build — a derived HashRange \
@@ -337,17 +338,90 @@ pub(crate) fn reclaim_index_residue(args: &ReclaimIndexResidueArgs<'_>) -> Resul
                 .to_string(),
         );
     }
-    let prefixes: Vec<String> = match &args.prefix {
+    match requested {
         Some(one) => {
             if !reclaimable.contains(&one.as_str()) {
                 return Err(format!(
                     "prefix {one} is not reclaimable in this build; expected one of {reclaimable:?}"
                 ));
             }
-            vec![one.clone()]
+            Ok(vec![one.clone()])
         }
-        None => reclaimable.iter().map(|p| (*p).to_string()).collect(),
+        None => Ok(reclaimable.iter().map(|p| (*p).to_string()).collect()),
+    }
+}
+
+/// Page through one prefix until the store reports it done.
+fn reclaim_one_prefix(
+    store: &LastStoreNamespacedStore,
+    runtime: &tokio::runtime::Runtime,
+    args: &ReclaimIndexResidueArgs<'_>,
+    prefix: &str,
+) -> Result<fold_db::storage::IndexResidueReclaimReport, String> {
+    let mut total = fold_db::storage::IndexResidueReclaimReport {
+        prefix: prefix.to_string(),
+        dry_run: !args.execute,
+        done: false,
+        ..Default::default()
     };
+    let mut after: Option<String> = None;
+    loop {
+        let page = runtime
+            .block_on(
+                store.reclaim_retired_index_residue(IndexResidueReclaimOptions {
+                    prefix: prefix.to_string(),
+                    after: after.clone(),
+                    limit: args.limit,
+                    execute: args.execute,
+                }),
+            )
+            .map_err(|e| format!("reclaim {prefix}: {e}"))?;
+        total.keys_scanned = total.keys_scanned.saturating_add(page.keys_scanned);
+        total.keys_deleted = total.keys_deleted.saturating_add(page.keys_deleted);
+        total.bytes_freed_approx = total
+            .bytes_freed_approx
+            .saturating_add(page.bytes_freed_approx);
+        total.skipped = total.skipped.saturating_add(page.skipped);
+        if page.done {
+            total.done = true;
+            return Ok(total);
+        }
+        // On a dry run the rows stay put, so the cursor is the only thing
+        // that advances — without it this would re-read page one forever.
+        let Some(next) = page.after else {
+            total.done = true;
+            return Ok(total);
+        };
+        after = Some(next);
+    }
+}
+
+fn print_reclaim_report(report: &ReclaimIndexResidueReport) {
+    println!(
+        "reclaim-index-residue {} ({})",
+        if report.dry_run { "dry-run" } else { "execute" },
+        report.home
+    );
+    for row in &report.per_prefix {
+        println!(
+            "  {:<8} scanned={:<10} deleted={:<10} bytes~{:<14} skipped={} done={}",
+            row.prefix,
+            row.keys_scanned,
+            row.keys_deleted,
+            row.bytes_freed_approx,
+            row.skipped,
+            row.done
+        );
+    }
+    println!(
+        "  total deleted={} bytes~{} — deletes are appends; next: {}",
+        report.keys_deleted, report.bytes_freed_approx, report.next_step
+    );
+}
+
+pub(crate) fn reclaim_index_residue(args: &ReclaimIndexResidueArgs<'_>) -> Result<(), String> {
+    let prefixes =
+        resolve_reclaim_prefixes(&retired_index_reclaim_prefixes(), args.prefix.as_ref())?;
 
     let store = open_laststore(args.home, args.i_know_this_is_primary)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -357,43 +431,7 @@ pub(crate) fn reclaim_index_residue(args: &ReclaimIndexResidueArgs<'_>) -> Resul
 
     let mut per_prefix = Vec::new();
     for prefix in prefixes {
-        let mut total = fold_db::storage::IndexResidueReclaimReport {
-            prefix: prefix.clone(),
-            dry_run: !args.execute,
-            done: false,
-            ..Default::default()
-        };
-        let mut after: Option<String> = None;
-        loop {
-            let page = runtime
-                .block_on(
-                    store.reclaim_retired_index_residue(IndexResidueReclaimOptions {
-                        prefix: prefix.clone(),
-                        after: after.clone(),
-                        limit: args.limit,
-                        execute: args.execute,
-                    }),
-                )
-                .map_err(|e| format!("reclaim {prefix}: {e}"))?;
-            total.keys_scanned = total.keys_scanned.saturating_add(page.keys_scanned);
-            total.keys_deleted = total.keys_deleted.saturating_add(page.keys_deleted);
-            total.bytes_freed_approx = total
-                .bytes_freed_approx
-                .saturating_add(page.bytes_freed_approx);
-            total.skipped = total.skipped.saturating_add(page.skipped);
-            if page.done {
-                total.done = true;
-                break;
-            }
-            // On a dry run the rows stay put, so the cursor is the only thing
-            // that advances — without it this would re-read page one forever.
-            let Some(next) = page.after else {
-                total.done = true;
-                break;
-            };
-            after = Some(next);
-        }
-        per_prefix.push(total);
+        per_prefix.push(reclaim_one_prefix(&store, &runtime, args, &prefix)?);
     }
 
     let report = ReclaimIndexResidueReport {
@@ -412,26 +450,7 @@ pub(crate) fn reclaim_index_residue(args: &ReclaimIndexResidueArgs<'_>) -> Resul
             serde_json::to_string_pretty(&report).map_err(|e| format!("json report: {e}"))?
         );
     } else {
-        println!(
-            "reclaim-index-residue {} ({})",
-            if report.dry_run { "dry-run" } else { "execute" },
-            report.home
-        );
-        for row in &report.per_prefix {
-            println!(
-                "  {:<8} scanned={:<10} deleted={:<10} bytes~{:<14} skipped={} done={}",
-                row.prefix,
-                row.keys_scanned,
-                row.keys_deleted,
-                row.bytes_freed_approx,
-                row.skipped,
-                row.done
-            );
-        }
-        println!(
-            "  total deleted={} bytes~{} — deletes are appends; next: {}",
-            report.keys_deleted, report.bytes_freed_approx, report.next_step
-        );
+        print_reclaim_report(&report);
     }
     Ok(())
 }
