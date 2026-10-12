@@ -76,7 +76,6 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
     cloud: Option<&CloudChunkPresence>,
     require_complete_seal: bool,
     allow_verified_atom_append: bool,
-    // lint:fn-size-ok verbatim move from backup_manifest.rs; splitting this function is separate work
 ) -> StorageResult<BackupManifest> {
     let _retirement_guard = store
         .atom_retirement_lock
@@ -113,18 +112,6 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
         )));
     }
 
-    let mut atom_chunks = previous_manifest
-        .map(|manifest| manifest.atom_chunks.clone())
-        .unwrap_or_default();
-    let mut mutable_chunks = Vec::new();
-    let mut local_atom_keys = BTreeSet::new();
-    let mut local_atom_shas = BTreeSet::new();
-    let prior_by_key: BTreeMap<_, _> = previous_manifest
-        .into_iter()
-        .flat_map(|manifest| manifest.atom_chunks.iter().chain(&manifest.mutable_chunks))
-        .map(|chunk| (chunk_key(chunk), chunk))
-        .collect();
-
     let selected = chunk_refs_from_walk(store, verified)?;
     let pending_purged = load_pending_purged_atom_retirements(store)?;
     verify_selected_atom_replacements(
@@ -133,66 +120,20 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
         &pending_purged,
         allow_verified_atom_append,
     )?;
-    for (mut chunk, _path) in selected {
-        if let Some(prior) = prior_by_key.get(&chunk_key(&chunk)) {
-            if prior.sha256 == chunk.sha256 && prior.bytes == chunk.bytes {
-                chunk.pack.clone_from(&prior.pack);
-            }
-        }
-        match chunk.role {
-            BackupManifestRole::Atom => {
-                local_atom_keys.insert(chunk_key(&chunk));
-                local_atom_shas.insert(chunk.sha256.clone());
-                atom_chunks.push(chunk);
-            }
-            BackupManifestRole::Mutable => mutable_chunks.push(chunk),
-        }
-    }
+    let mut merged = merge_selected_chunks(previous_manifest, selected);
 
-    atom_chunks = dedupe_and_sort_chunks(atom_chunks);
-    mutable_chunks = dedupe_and_sort_chunks(mutable_chunks);
-
-    let mut deletion_receipts = Vec::new();
-    if !pending_purged.compaction_in_progress_shas.is_empty()
-        || !pending_purged.compaction_in_progress_prefixes.is_empty()
-    {
-        return Err(StorageError::BackendError(
-            "atom compaction retirement record is incomplete; refusing backup manifest cut"
-                .to_string(),
-        ));
-    }
-    let retired_purged_shas: BTreeSet<_> = pending_purged
-        .pending_shas
-        .difference(&local_atom_shas)
-        .cloned()
-        .collect();
-    if !retired_purged_shas.is_empty() {
-        atom_chunks.retain(|chunk| !retired_purged_shas.contains(&chunk.sha256));
-        deletion_receipts.push(BackupDeletionReceipt::new_purged_atom_retirement(
-            previous_manifest.map_or(0, |manifest| manifest.counter),
-            state.backup_manifest_counter,
-            retired_purged_shas.into_iter().collect(),
-            state.updated_at_unix_secs.max(1),
-        ));
-    }
-    if let (Some(previous), Some(cloud)) = (previous_manifest, cloud) {
-        if cloud.listing_complete {
-            let (kept, retired_shas) = partition_unbackable_carried_forward_atoms(
-                &atom_chunks,
-                &local_atom_keys,
-                &cloud.present_shas,
-            );
-            if !retired_shas.is_empty() {
-                deletion_receipts.push(BackupDeletionReceipt::new_unbackable_atom_retirement(
-                    previous.counter,
-                    state.backup_manifest_counter,
-                    retired_shas,
-                    state.updated_at_unix_secs.max(1),
-                ));
-                atom_chunks = kept;
-            }
-        }
-    }
+    let deletion_receipts = retire_atom_chunks(
+        &mut merged,
+        previous_manifest,
+        cloud,
+        &pending_purged,
+        &state,
+    )?;
+    let MergedChunks {
+        atom_chunks,
+        mutable_chunks,
+        ..
+    } = merged;
 
     let previous_manifest_sha256 = previous_manifest.map(manifest_sha256_hex).transpose()?;
 
@@ -216,6 +157,112 @@ pub(super) fn cut_backup_manifest_with_cloud_presence_inner(
         deletion_receipts,
         named_holes: Vec::new(),
     })
+}
+
+/// Atom and mutable chunks of a cut after folding the freshly walked chunks
+/// into the previous manifest, plus the keys and digests found locally.
+struct MergedChunks {
+    atom_chunks: Vec<BackupChunkRef>,
+    mutable_chunks: Vec<BackupChunkRef>,
+    local_atom_keys: BTreeSet<(String, u16, Option<u32>, String)>,
+    local_atom_shas: BTreeSet<String>,
+}
+
+/// Fold the walked chunks into the previous manifest's atom chunks, reuse the
+/// prior pack assignment for byte-identical chunks, then dedupe and sort.
+fn merge_selected_chunks(
+    previous_manifest: Option<&BackupManifest>,
+    selected: Vec<(BackupChunkRef, std::path::PathBuf)>,
+) -> MergedChunks {
+    let mut atom_chunks = previous_manifest
+        .map(|manifest| manifest.atom_chunks.clone())
+        .unwrap_or_default();
+    let mut mutable_chunks = Vec::new();
+    let mut local_atom_keys = BTreeSet::new();
+    let mut local_atom_shas = BTreeSet::new();
+    let prior_by_key: BTreeMap<_, _> = previous_manifest
+        .into_iter()
+        .flat_map(|manifest| manifest.atom_chunks.iter().chain(&manifest.mutable_chunks))
+        .map(|chunk| (chunk_key(chunk), chunk))
+        .collect();
+
+    for (mut chunk, _path) in selected {
+        if let Some(prior) = prior_by_key.get(&chunk_key(&chunk)) {
+            if prior.sha256 == chunk.sha256 && prior.bytes == chunk.bytes {
+                chunk.pack.clone_from(&prior.pack);
+            }
+        }
+        match chunk.role {
+            BackupManifestRole::Atom => {
+                local_atom_keys.insert(chunk_key(&chunk));
+                local_atom_shas.insert(chunk.sha256.clone());
+                atom_chunks.push(chunk);
+            }
+            BackupManifestRole::Mutable => mutable_chunks.push(chunk),
+        }
+    }
+
+    MergedChunks {
+        atom_chunks: dedupe_and_sort_chunks(atom_chunks),
+        mutable_chunks: dedupe_and_sort_chunks(mutable_chunks),
+        local_atom_keys,
+        local_atom_shas,
+    }
+}
+
+/// Drop purged and cloud-unbackable carried-forward atoms from the cut and
+/// return the deletion receipts that record each retirement.
+fn retire_atom_chunks(
+    merged: &mut MergedChunks,
+    previous_manifest: Option<&BackupManifest>,
+    cloud: Option<&CloudChunkPresence>,
+    pending_purged: &PendingPurgedAtomRetirements,
+    state: &crate::storage::laststore::high_water::LastStoreHighWater,
+) -> StorageResult<Vec<BackupDeletionReceipt>> {
+    let mut deletion_receipts = Vec::new();
+    if !pending_purged.compaction_in_progress_shas.is_empty()
+        || !pending_purged.compaction_in_progress_prefixes.is_empty()
+    {
+        return Err(StorageError::BackendError(
+            "atom compaction retirement record is incomplete; refusing backup manifest cut"
+                .to_string(),
+        ));
+    }
+    let retired_purged_shas: BTreeSet<_> = pending_purged
+        .pending_shas
+        .difference(&merged.local_atom_shas)
+        .cloned()
+        .collect();
+    if !retired_purged_shas.is_empty() {
+        merged
+            .atom_chunks
+            .retain(|chunk| !retired_purged_shas.contains(&chunk.sha256));
+        deletion_receipts.push(BackupDeletionReceipt::new_purged_atom_retirement(
+            previous_manifest.map_or(0, |manifest| manifest.counter),
+            state.backup_manifest_counter,
+            retired_purged_shas.into_iter().collect(),
+            state.updated_at_unix_secs.max(1),
+        ));
+    }
+    if let (Some(previous), Some(cloud)) = (previous_manifest, cloud) {
+        if cloud.listing_complete {
+            let (kept, retired_shas) = partition_unbackable_carried_forward_atoms(
+                &merged.atom_chunks,
+                &merged.local_atom_keys,
+                &cloud.present_shas,
+            );
+            if !retired_shas.is_empty() {
+                deletion_receipts.push(BackupDeletionReceipt::new_unbackable_atom_retirement(
+                    previous.counter,
+                    state.backup_manifest_counter,
+                    retired_shas,
+                    state.updated_at_unix_secs.max(1),
+                ));
+                merged.atom_chunks = kept;
+            }
+        }
+    }
+    Ok(deletion_receipts)
 }
 
 pub fn commit_backup_manifest(

@@ -206,7 +206,7 @@ pub(super) fn mutation_requests_cloud_publication_wait(req: &UdsRequest) -> bool
 /// decide "is this bounded per-request work, or does it scan the store?" —
 /// getting it wrong by omission is what shipped the bug.
 #[must_use]
-// lint:fn-size-ok moved verbatim from exec.rs; splitting this function is separate work.
+// lint:fn-size-ok one exhaustive match with no `_` arm, so a new DataRoute forces a budget decision; the length is the variant list.
 pub fn data_route_budget(route: DataRoute) -> Duration {
     match route {
         // Owner admin work that walks the store, or blocks on a remote service.

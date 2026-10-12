@@ -22,6 +22,62 @@ pub(in crate::exec) async fn molecule_has_live_rows(
         .map_err(|error| error.to_string())
 }
 
+/// Request body of the schema molecule-map repair route.
+#[derive(Deserialize)]
+struct Body {
+    schema: String,
+    #[serde(default)]
+    field_molecule_uuids: Option<HashMap<String, String>>,
+    #[serde(default)]
+    execute: bool,
+    #[serde(default)]
+    expected_current_fingerprint: Option<String>,
+}
+
+impl Body {
+    /// The proposed replacement map, or `None` for inspect-only calls.
+    fn requested_map(&self) -> Option<&HashMap<String, String>> {
+        match self.field_molecule_uuids.as_ref() {
+            Some(map) if map.is_empty() => None,
+            other => other,
+        }
+    }
+}
+
+/// Decode the request body and apply every check that needs no schema state.
+fn parse_repair_body(req: &UdsRequest, ctx: &AccessContext) -> Result<Body, UdsResponse> {
+    let fail = |status: u16, message: &str| Err(error_response(status, message, ctx));
+    if !ctx.is_owner {
+        return fail(403, "schema molecule-map repair is owner-only");
+    }
+    let body: Body = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(error) => {
+            return fail(
+                400,
+                &format!("invalid /api/db/repair-schema-molecule-map body: {error}"),
+            )
+        }
+    };
+    if body.schema.trim().is_empty() {
+        return fail(400, "schema is required");
+    }
+    let requested_map = body.requested_map();
+    if body.execute && requested_map.is_none() {
+        return fail(400, "field_molecule_uuids is required with execute=true");
+    }
+    if let Some((field, _)) = requested_map.and_then(|map| {
+        map.iter()
+            .find(|(_, molecule)| molecule.trim().is_empty() || molecule.contains('\0'))
+    }) {
+        return fail(
+            400,
+            &format!("field '{field}' has an invalid molecule UUID"),
+        );
+    }
+    Ok(body)
+}
+
 /// `POST /api/db/repair-schema-molecule-map` — owner-only, compare-and-set
 /// repair of one schema's physical field map. The default is a dry run.
 ///
@@ -36,54 +92,11 @@ pub(in crate::exec) async fn execute_db_repair_schema_molecule_map_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    // lint:fn-size-ok moved verbatim from exec/db_maintenance.rs; one linear parse/inspect/execute flow
-    #[derive(Deserialize)]
-    struct Body {
-        schema: String,
-        #[serde(default)]
-        field_molecule_uuids: Option<HashMap<String, String>>,
-        #[serde(default)]
-        execute: bool,
-        #[serde(default)]
-        expected_current_fingerprint: Option<String>,
-    }
-    if !ctx.is_owner {
-        return error_response(403, "schema molecule-map repair is owner-only", ctx);
-    }
-    let body: Body = match serde_json::from_slice(&req.body) {
+    let body = match parse_repair_body(req, ctx) {
         Ok(body) => body,
-        Err(error) => {
-            return error_response(
-                400,
-                &format!("invalid /api/db/repair-schema-molecule-map body: {error}"),
-                ctx,
-            )
-        }
+        Err(response) => return response,
     };
-    if body.schema.trim().is_empty() {
-        return error_response(400, "schema is required", ctx);
-    }
-    let requested_map = match body.field_molecule_uuids.as_ref() {
-        Some(map) if map.is_empty() => None,
-        other => other,
-    };
-    if body.execute && requested_map.is_none() {
-        return error_response(
-            400,
-            "field_molecule_uuids is required with execute=true",
-            ctx,
-        );
-    }
-    if let Some((field, _)) = requested_map.and_then(|map| {
-        map.iter()
-            .find(|(_, molecule)| molecule.trim().is_empty() || molecule.contains('\0'))
-    }) {
-        return error_response(
-            400,
-            &format!("field '{field}' has an invalid molecule UUID"),
-            ctx,
-        );
-    }
+    let requested_map = body.requested_map();
 
     let canonical = match handlers::resolve_schema_name(host, &body.schema) {
         Ok(Some(canonical)) => canonical,
@@ -191,105 +204,34 @@ pub(in crate::exec) async fn execute_db_repair_schema_molecule_map_route(
     let mut candidates = Vec::new();
     let mut suggested_map: Option<HashMap<String, String>> = None;
     if requested_map.is_none() {
-        let installed = match manager.get_schemas() {
-            Ok(installed) => installed,
-            Err(error) => return error_response(500, &format!("schema list failed: {error}"), ctx),
+        let search = CandidateSearch {
+            canonical: &canonical,
+            declared: &declared,
+            current_fingerprint: &current_fingerprint,
+            current_key_has_live_rows,
+            key_field: key_field.as_deref(),
         };
-        let mut names: Vec<_> = installed.keys().cloned().collect();
-        names.sort();
-        for name in names {
-            if name == canonical || candidates.len() >= MOLECULE_MAP_CANDIDATE_LIMIT {
-                continue;
+        match collect_candidates(host, ctx, &search, &mut probes).await {
+            Ok((found, suggested)) => {
+                candidates = found;
+                suggested_map = suggested;
             }
-            let Some(other_map) = installed
-                .get(&name)
-                .and_then(|other| other.field_molecule_uuids.as_ref())
-            else {
-                continue;
-            };
-            let mut mapped = HashMap::with_capacity(declared.len());
-            for field in &declared {
-                let Some(molecule) = other_map.get(field) else {
-                    break;
-                };
-                mapped.insert(field.clone(), molecule.clone());
-            }
-            if mapped.len() != declared.len() {
-                continue;
-            }
-            let fingerprint = fold_db::schema::SchemaCore::field_molecule_map_fingerprint(&mapped);
-            if fingerprint == current_fingerprint {
-                continue;
-            }
-            let candidate_key_molecule = key_molecule_of(&mapped);
-            let candidate_key_has_live_rows = match candidate_key_molecule.as_deref() {
-                Some(molecule) => match probes.get(molecule).copied() {
-                    Some(live) => Some(live),
-                    None => match molecule_has_live_rows(host, molecule).await {
-                        Ok(live) => {
-                            probes.insert(molecule.to_string(), live);
-                            Some(live)
-                        }
-                        Err(error) => {
-                            return error_response(
-                                500,
-                                &format!("candidate live-row probe failed: {error}"),
-                                ctx,
-                            )
-                        }
-                    },
-                },
-                None => None,
-            };
-            candidates.push(serde_json::json!({
-                "schema": name,
-                "fingerprint": fingerprint,
-                "key_molecule": candidate_key_molecule,
-                "key_has_live_rows": candidate_key_has_live_rows,
-                "field_molecule_uuids": mapped.clone(),
-            }));
-            if suggested_map.is_none()
-                && candidate_key_has_live_rows == Some(true)
-                && current_key_has_live_rows != Some(true)
-            {
-                suggested_map = Some(mapped);
-            }
+            Err(response) => return response,
         }
     }
 
     if body.execute {
-        let Some(replacement) = requested_map.cloned() else {
-            return error_response(
-                400,
-                "field_molecule_uuids is required with execute=true",
-                ctx,
-            );
-        };
-        let Some(expected) = body.expected_current_fingerprint.as_deref() else {
-            return error_response(
-                400,
-                "expected_current_fingerprint is required with execute=true",
-                ctx,
-            );
-        };
-        if expected != current_fingerprint {
-            return error_response(
-                409,
-                &format!(
-                    "schema molecule map changed: expected {expected}, current {current_fingerprint}"
-                ),
-                ctx,
-            );
-        }
-        if let Err(error) = manager
-            .repair_field_molecule_uuids(&canonical, expected, replacement)
-            .await
+        if let Err(response) = execute_repair(
+            host,
+            ctx,
+            &body,
+            requested_map,
+            &canonical,
+            &current_fingerprint,
+        )
+        .await
         {
-            return error_response(
-                409,
-                &format!("schema molecule-map repair failed: {error}"),
-                ctx,
-            );
+            return response;
         }
     }
 
@@ -313,4 +255,51 @@ pub(in crate::exec) async fn execute_db_repair_schema_molecule_map_route(
         }),
         ctx.user_id.as_str(),
     ))
+}
+
+/// Check the fingerprint guard and write the replacement molecule map.
+async fn execute_repair(
+    host: &Host,
+    ctx: &AccessContext,
+    body: &Body,
+    requested_map: Option<&HashMap<String, String>>,
+    canonical: &str,
+    current_fingerprint: &str,
+) -> Result<(), UdsResponse> {
+    let Some(replacement) = requested_map.cloned() else {
+        return Err(error_response(
+            400,
+            "field_molecule_uuids is required with execute=true",
+            ctx,
+        ));
+    };
+    let Some(expected) = body.expected_current_fingerprint.as_deref() else {
+        return Err(error_response(
+            400,
+            "expected_current_fingerprint is required with execute=true",
+            ctx,
+        ));
+    };
+    if expected != current_fingerprint {
+        return Err(error_response(
+            409,
+            &format!(
+                "schema molecule map changed: expected {expected}, current {current_fingerprint}"
+            ),
+            ctx,
+        ));
+    }
+    if let Err(error) = host
+        .db
+        .schema_manager()
+        .repair_field_molecule_uuids(canonical, expected, replacement)
+        .await
+    {
+        return Err(error_response(
+            409,
+            &format!("schema molecule-map repair failed: {error}"),
+            ctx,
+        ));
+    }
+    Ok(())
 }
