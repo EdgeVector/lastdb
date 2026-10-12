@@ -273,6 +273,21 @@ impl AtomStore {
                 .await;
         }
 
+        self.load_scanned_hash_range(molecule_uuid, header, storage_prefix, filter)
+            .await
+    }
+
+    /// Scan the narrowed `mk:` window for a key-restricted filter and wrap it
+    /// as a transient molecule.
+    async fn load_scanned_hash_range(
+        &self,
+        molecule_uuid: &str,
+        header: &MoleculeHeader,
+        storage_prefix: Option<&str>,
+        filter: &crate::schema::types::field::HashRangeFilter,
+    ) -> Result<Option<MoleculeData>, SchemaError> {
+        use crate::schema::types::field::HashRangeFilter as F;
+
         // Filters carry API HashKey/RangeKey; map to storage-form before keying.
         let api_hash_for_response: Option<&str> = match filter {
             F::HashKey(h)

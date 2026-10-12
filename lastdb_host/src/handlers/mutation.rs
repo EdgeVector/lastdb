@@ -69,20 +69,7 @@ pub async fn execute_mutation<H: HostNode>(
         aggregate_set,
     } = components;
 
-    // Phase timers are always-on: each is one pair of monotonic clock reads
-    // (sub-microsecond) around work that is µs-to-ms scale, reported through
-    // the task-local accumulator (`fold_db::request_phases`) so no signature
-    // here changes. Outside an instrumented socket request the adds no-op.
-    let resolve_started = std::time::Instant::now();
-    let resolved = (|| {
-        let canonical = resolve_required_schema_name(host, &schema)?;
-        let aggregate_set = aggregate_set
-            .map(|aggregate| resolve_aggregate_set_schema_names(host, aggregate))
-            .transpose()?;
-        Ok::<_, HostError>((canonical, aggregate_set))
-    })();
-    request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
-    let (canonical, aggregate_set) = resolved?;
+    let (canonical, aggregate_set) = resolve_mutation_schema(host, &schema, aggregate_set)?;
     reject_illegal_must_exist(mutation_type, must_exist)?;
     let cloud_policy =
         cloud_capture_policy(mutation_type, durability, cloud_publication, must_exist)?;
@@ -148,6 +135,45 @@ pub async fn execute_mutation<H: HostNode>(
     // spawned and never blocks the request even under Sync).
     let background_tasks_drained = wait_for_requested_convergence(host, convergence).await;
 
+    Ok(mutation_response(
+        &mutation_id,
+        background_tasks_drained,
+        &receipt,
+        payload_bytes,
+    ))
+}
+
+/// Resolve the schema name and the aggregate-set schema names, timed as the
+/// schema-resolve phase.
+///
+/// Phase timers are always-on: each is one pair of monotonic clock reads
+/// (sub-microsecond) around work that is µs-to-ms scale, reported through
+/// the task-local accumulator (`fold_db::request_phases`) so no signature
+/// here changes. Outside an instrumented socket request the adds no-op.
+fn resolve_mutation_schema<H: HostNode>(
+    host: &H,
+    schema: &str,
+    aggregate_set: Option<AggregateSet>,
+) -> Result<(String, Option<AggregateSet>), HostError> {
+    let resolve_started = std::time::Instant::now();
+    let resolved = (|| {
+        let canonical = resolve_required_schema_name(host, schema)?;
+        let aggregate_set = aggregate_set
+            .map(|aggregate| resolve_aggregate_set_schema_names(host, aggregate))
+            .transpose()?;
+        Ok::<_, HostError>((canonical, aggregate_set))
+    })();
+    request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
+    resolved
+}
+
+/// Build the `{ mutation_id, success, … }` payload of a committed mutation.
+fn mutation_response(
+    mutation_id: &str,
+    background_tasks_drained: bool,
+    receipt: &ResidentCommitReceipt,
+    payload_bytes: usize,
+) -> Value {
     let mut response = serde_json::json!({
         "mutation_id": mutation_id,
         "success": true,
@@ -164,8 +190,8 @@ pub async fn execute_mutation<H: HostNode>(
         // proof) has the write's size before it does a second read.
         "size": payload_bytes
     });
-    attach_cloud_receipt(&mut response, &mutation_id, receipt.cloud.as_ref());
-    Ok(response)
+    attach_cloud_receipt(&mut response, mutation_id, receipt.cloud.as_ref());
+    response
 }
 
 /// Reject a `key_range_prefix` delete that combines unsupported fields.

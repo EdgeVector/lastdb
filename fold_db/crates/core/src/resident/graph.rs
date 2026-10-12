@@ -25,6 +25,7 @@ mod slot_reads;
 pub(crate) use slot_reads::SlotRead;
 #[path = "overlay_page.rs"]
 mod overlay_page;
+pub(crate) use overlay_page::ResidentOverlayEntry;
 
 mod budget;
 mod dirty;
