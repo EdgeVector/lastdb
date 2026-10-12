@@ -18,6 +18,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: read-after-ack-bar.sh [--bin PATH] [--source PATH] [--reps N]
+                             [--mode off|read|write]
                              [--label TEXT] [--json-out PATH] [--keep]
                              [--print-probe-config]
 
@@ -26,9 +27,18 @@ Boots lastdbd against a throwaway APFS CoW copy of --source (default
 ~/.lastdb). NEVER mutates the live home.
 
 Cells (zero settle between ack and read):
-  create × point-get / range-list (Page) / count
-  update × point-get / range-list
-  delete × point-get / range-list / count
+  create × point-get / range-list (Page) / count-signal
+  update × point-get / range-list (Page)
+Delete cells are not implemented; Skip-Delete read-after-ack is not covered.
+
+--mode sets LASTDB_RESIDENT_MODE for the node (default write). Run the same
+cells with --mode off for a baseline: a cell that is stale only under write
+is a write-mode gap; a cell stale under off too is a query-shape or bar
+problem. The defer-window check only applies to --mode write.
+
+For every stale cell the first raw response body is printed so a wire-shape
+mismatch can be told apart from stale data. count-signal only checks that the
+response has .ok, .total_count or .data; it does not test freshness.
 
 N = --reps samples per cell (default 20; CI-style small N). Report per-cell
 stale counts and a RED/GREEN matrix. Asserts defer-window liveness via
@@ -48,6 +58,7 @@ REPS=20
 LABEL=""
 JSON_OUT=""
 KEEP=0
+MODE="write"
 PROBE_ROOT="${LASTDB_PROBE_ROOT:-$HOME/.lastdb-test-copies}"
 LAUNCHD_PLIST="${LASTDB_LAUNCHD_PLIST:-$HOME/Library/LaunchAgents/com.tomtang.lastdbd-primary-506.plist}"
 SIDEBIN_DIR="${LASTDB_SIDEBIN_DIR:-$HOME/.lastdb/sidebin}"
@@ -62,6 +73,7 @@ while [ "$#" -gt 0 ]; do
     --bin) BIN="$2"; shift 2 ;;
     --source) SOURCE_HOME="$2"; shift 2 ;;
     --reps) REPS="$2"; shift 2 ;;
+    --mode) MODE="$2"; shift 2 ;;
     --label) LABEL="$2"; shift 2 ;;
     --json-out) JSON_OUT="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
@@ -71,7 +83,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-LABEL="${LABEL:-read-after-ack}"
+case "$MODE" in off|read|write) ;; *) echo "--mode must be off|read|write" >&2; exit 64 ;; esac
+LABEL="${LABEL:-read-after-ack-$MODE}"
 
 log() { printf 'read-after-ack-bar: %s\n' "$*" >&2; }
 
@@ -93,7 +106,7 @@ live_env_pairs() {
         $1 ~ /^ *LASTDB_/ {
           key=$1; gsub(/^ +| +$/,"",key)
           if (key == "LASTDB_HOME" || key == "FOLDDB_HOME" || key == "LASTDB_DATA_DIR") next
-          # Force write mode for the bar so the defer window is the path under test.
+          # The bar sets the mode itself (--mode).
           if (key == "LASTDB_RESIDENT_MODE") next
           val=$2; gsub(/^ +| +$/,"",val)
           if (key != "" && val != "") print key "=" val
@@ -111,7 +124,7 @@ if [ "$PRINT_PROBE_CONFIG" = "1" ]; then
   echo "launchd_plist=$LAUNCHD_PLIST"
   echo "bin=${BIN:-}"
   echo "source_home=$SOURCE_HOME"
-  echo "forced_resident_mode=write"
+  echo "resident_mode=$MODE"
   if [ "${#ENV_PAIRS[@]}" -eq 0 ]; then
     echo "launchd_env=none"
   else
@@ -159,10 +172,10 @@ printf 'read-after-ack-bar %s pid=%s — do not reap while present\n' "$STAMP" "
 rm -f "$COPY/cloud_sync.json" "$COPY/data/"*.sock 2>/dev/null || true
 SOCK="$COPY/data/folddb.sock"
 
-log "boot: $BIN --data-dir <copy> LASTDB_RESIDENT_MODE=write"
+log "boot: $BIN --data-dir <copy> LASTDB_RESIDENT_MODE=$MODE"
 (
   exec env -u SENTRY_DSN -u FOLD_SENTRY_DSN ${ENV_PAIRS[@]+"${ENV_PAIRS[@]}"} \
-    LASTDB_RESIDENT_MODE=write \
+    LASTDB_RESIDENT_MODE="$MODE" \
     "$BIN" --data-dir "$COPY"
 ) >"$BLOG" 2>&1 &
 PID=$!
@@ -208,9 +221,12 @@ op_mutate() {
     http://x/api/mutation 2>/dev/null | jq -e '.ok == true' >/dev/null 2>&1
 }
 
+LAST_BODY=""
+
 op_point() {
   local want="$1"
   local got
+  LAST_BODY=""
   got="$(curl_sock -H 'Content-Type: application/json' \
     --data "{\"schema_name\":\"$SCHEMA\",\"fields\":[\"title\"],\"filter\":{\"HashKey\":\"$HASH_KEY\"}}" \
     http://x/api/query 2>/dev/null \
@@ -227,6 +243,7 @@ op_page() {
   body="$(curl_sock -H 'Content-Type: application/json' \
     --data "{\"schema_name\":\"$SCHEMA\",\"fields\":[\"title\"],\"filter\":{\"Page\":{\"offset\":0,\"limit\":500}}}" \
     http://x/api/query 2>/dev/null || true)"
+  LAST_BODY="$body"
   printf '%s' "$body" | jq -e --arg want "$want" '
     (.. | strings? | select(test($want))) as $s | $s
   ' >/dev/null 2>&1
@@ -234,10 +251,11 @@ op_page() {
 
 # Count path: use status or a dedicated count if available; fall back to page size signal.
 op_count_signal() {
-  # Returns "ok" if query succeeds (count semantics measured separately in CI test).
-  curl_sock -H 'Content-Type: application/json' \
+  # Wire-shape check only; it does not test freshness.
+  LAST_BODY="$(curl_sock -H 'Content-Type: application/json' \
     --data "{\"schema_name\":\"$SCHEMA\",\"fields\":[\"title\"],\"filter\":{\"Page\":{\"offset\":0,\"limit\":1}},\"include_total_count\":true}" \
-    http://x/api/query 2>/dev/null | jq -e '.ok == true or .total_count != null or .data != null' >/dev/null 2>&1
+    http://x/api/query 2>/dev/null || true)"
+  printf '%s' "$LAST_BODY" | jq -e '.ok == true or .total_count != null or .data != null' >/dev/null 2>&1
 }
 
 PERSIST_BEFORE="$(metric persist_enqueued)"
@@ -245,11 +263,15 @@ FAIL_BEFORE="$(metric deferred_persist_failed)"
 
 declare -A CELL_STALE
 declare -A CELL_TOTAL
+declare -A CELL_SAMPLE
 record() {
   local cell="$1" stale="$2"
   CELL_TOTAL["$cell"]=$(( ${CELL_TOTAL["$cell"]:-0} + 1 ))
   if [ "$stale" = "1" ]; then
     CELL_STALE["$cell"]=$(( ${CELL_STALE["$cell"]:-0} + 1 ))
+    if [ -z "${CELL_SAMPLE["$cell"]:-}" ]; then
+      CELL_SAMPLE["$cell"]="$(printf '%s' "$LAST_BODY" | head -c 600)"
+    fi
   fi
 }
 
@@ -301,6 +323,7 @@ PERSIST_AFTER="$(metric persist_enqueued)"
 FAIL_AFTER="$(metric deferred_persist_failed)"
 
 echo "label=$LABEL"
+echo "mode=$MODE"
 echo "bin=$BIN"
 echo "reps=$REPS"
 echo "schema=$SCHEMA hash_key=$HASH_KEY"
@@ -324,8 +347,16 @@ for cell in "${!CELL_TOTAL[@]}"; do
   echo "cell $cell total=$total stale=$stale status=$status"
 done
 
-# Defer-window liveness (when metrics are exposed)
-if [ "$PERSIST_BEFORE" != "-1" ] && [ "$PERSIST_AFTER" != "-1" ]; then
+for cell in "${!CELL_SAMPLE[@]}"; do
+  echo "sample_response cell=$cell body=${CELL_SAMPLE[$cell]}"
+done
+
+# Defer-window liveness (when metrics are exposed). persist_enqueued counts
+# newly dirty keys, and every rep here writes the same key, so it can stay
+# flat while deferral works; read the before/after values, not only the verdict.
+if [ "$MODE" != "write" ]; then
+  echo "defer_window=NOT_APPLICABLE (mode=$MODE)"
+elif [ "$PERSIST_BEFORE" != "-1" ] && [ "$PERSIST_AFTER" != "-1" ]; then
   if [ "$PERSIST_AFTER" -le "$PERSIST_BEFORE" ]; then
     echo "defer_window=NOT_OPEN (persist_enqueued did not rise)"
     VERDICT="RED"
@@ -349,6 +380,7 @@ if [ -n "$JSON_OUT" ]; then
   {
     echo "{"
     echo "  \"label\": $(printf '%s' "$LABEL" | jq -Rs .),"
+    echo "  \"mode\": \"$MODE\","
     echo "  \"verdict\": \"$VERDICT\","
     echo "  \"reps\": $REPS,"
     echo "  \"persist_enqueued_before\": $PERSIST_BEFORE,"
