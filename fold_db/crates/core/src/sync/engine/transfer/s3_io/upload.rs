@@ -184,25 +184,9 @@ impl SyncEngine {
         })
     }
 
-    /// [`Self::upload_mutation_log_segments`] with an explicit PUT fan-out.
-    ///
-    /// `None` keeps the adaptive upload-policy concurrency. The continuous
-    /// cycle passes `Some(n)` when it carries a backlog: the policy pins
-    /// concurrency to 1 under `interactive_busy`, which on the primary is
-    /// effectively always set, and a backlog of one small segment per record
-    /// then drains at one serial PUT per record. Every PUT in the call must
-    /// still land before the call returns Ok, so published F ordering does not
-    /// depend on the fan-out.
-    pub(crate) async fn upload_mutation_log_segments_with_put_concurrency(
-        &self,
-        target: &SyncTarget,
-        segments: &[crate::sync::engine::MutationLogSegment],
-        put_concurrency: Option<usize>,
-    ) -> SyncResult<u64> {
-        if segments.is_empty() {
-            return Ok(0);
-        }
-
+    /// Refuse a principal-root personal upload and prove the prefix key
+    /// before any raw segment can be presigned or PUT.
+    async fn guard_mutation_log_upload_target(&self, target: &SyncTarget) -> SyncResult<()> {
         // The empty target prefix is the internal selector for the personal
         // database. It is safe only when AuthClient will attach a concrete
         // db_hash to every request. Never fall back to the principal root for
@@ -234,104 +218,154 @@ impl SyncEngine {
         // covers callers outside `do_sync` and preserves fail-closed behavior
         // for established or indeterminate prefixes.
         self.prove_prefix_decryptable(target).await?;
+        Ok(())
+    }
 
+    /// Presign, PUT and meter one chunk of mutation-log segments. Returns the
+    /// payload bytes confirmed uploaded (zero if the chunk did not fully land).
+    async fn upload_log_segment_chunk(
+        &self,
+        target: &SyncTarget,
+        chunk: &[crate::sync::engine::MutationLogSegment],
+        put_concurrency: Option<usize>,
+    ) -> SyncResult<u64> {
         let mut bytes_uploaded = 0u64;
-        for chunk in segments.chunks(MAX_PRESIGN_BATCH) {
-            let max_sealed = chunk
-                .iter()
-                .map(|s| s.payload.len() as u64)
-                .max()
-                .unwrap_or(1024)
-                .max(1);
-            let urls = self
-                .auth
-                .presign_upload_segments(
-                    target,
-                    &chunk
-                        .iter()
-                        .map(|segment| segment.segment.clone())
-                        .collect::<Vec<_>>(),
-                    Some(max_sealed),
-                )
-                .await?;
-            if urls.len() != chunk.len() {
-                return Err(SyncError::Auth(format!(
-                    "expected {} presigned log-segment URLs for '{}', got {}",
-                    chunk.len(),
-                    target.label,
-                    urls.len()
-                )));
-            }
-            let cap = match put_concurrency {
-                Some(explicit) => explicit.max(1),
-                None => self.active_upload_caps().await.concurrency.max(1),
-            };
-            // Iterate OWNED `((seq, bytes), url)` items. Borrowing the iterator
-            // item here trips the higher-ranked-lifetime bound when this future
-            // is later spawned by the sync coordinator — the same trap called
-            // out in `upload_entries_chunk`.
-            // clippy::needless_collect is wrong here: the collect is what makes
-            // the stream items OWNED. Feeding `chunk.iter()` straight into the
-            // closure yields `&MutationLogSegment` and trips the
-            // higher-ranked-lifetime bound when the sync coordinator spawns
-            // this future ("implementation of `FnOnce` is not general enough").
-            #[allow(clippy::needless_collect)]
-            let owned: Vec<(u64, Vec<u8>)> = chunk
-                .iter()
-                .map(|s| (s.segment.through_id, s.payload.clone()))
-                .collect();
-            let mut put_stream = futures::stream::iter(owned.into_iter().zip(urls).map(
-                |((seq, bytes), url)| async move {
-                    self.retry_s3(&format!("upload mutation-log segment {seq}"), || {
-                        let url = url.clone();
-                        let bytes = bytes.clone();
-                        async move { self.s3.upload(&url, bytes).await }
-                    })
-                    .await
-                },
-            ))
-            .buffer_unordered(cap);
+        let max_sealed = chunk
+            .iter()
+            .map(|s| s.payload.len() as u64)
+            .max()
+            .unwrap_or(1024)
+            .max(1);
+        let urls = self
+            .auth
+            .presign_upload_segments(
+                target,
+                &chunk
+                    .iter()
+                    .map(|segment| segment.segment.clone())
+                    .collect::<Vec<_>>(),
+                Some(max_sealed),
+            )
+            .await?;
+        if urls.len() != chunk.len() {
+            return Err(SyncError::Auth(format!(
+                "expected {} presigned log-segment URLs for '{}', got {}",
+                chunk.len(),
+                target.label,
+                urls.len()
+            )));
+        }
+        let cap = match put_concurrency {
+            Some(explicit) => explicit.max(1),
+            None => self.active_upload_caps().await.concurrency.max(1),
+        };
+        // Iterate OWNED `((seq, bytes), url)` items. Borrowing the iterator
+        // item here trips the higher-ranked-lifetime bound when this future
+        // is later spawned by the sync coordinator — the same trap called
+        // out in `upload_entries_chunk`.
+        // clippy::needless_collect is wrong here: the collect is what makes
+        // the stream items OWNED. Feeding `chunk.iter()` straight into the
+        // closure yields `&MutationLogSegment` and trips the
+        // higher-ranked-lifetime bound when the sync coordinator spawns
+        // this future ("implementation of `FnOnce` is not general enough").
+        #[allow(clippy::needless_collect)]
+        let owned: Vec<(u64, Vec<u8>)> = chunk
+            .iter()
+            .map(|s| (s.segment.through_id, s.payload.clone()))
+            .collect();
+        let mut put_stream = futures::stream::iter(owned.into_iter().zip(urls).map(
+            |((seq, bytes), url)| async move {
+                self.retry_s3(&format!("upload mutation-log segment {seq}"), || {
+                    let url = url.clone();
+                    let bytes = bytes.clone();
+                    async move { self.s3.upload(&url, bytes).await }
+                })
+                .await
+            },
+        ))
+        .buffer_unordered(cap);
 
-            let mut first_err: Option<SyncError> = None;
-            let mut ok = 0usize;
-            while let Some(res) = put_stream.next().await {
-                match res {
-                    Ok(()) => ok += 1,
-                    Err(e) => {
-                        if first_err.is_none() {
-                            first_err = Some(e);
-                        }
+        let mut first_err: Option<SyncError> = None;
+        let mut ok = 0usize;
+        while let Some(res) = put_stream.next().await {
+            match res {
+                Ok(()) => ok += 1,
+                Err(e) => {
+                    if first_err.is_none() {
+                        first_err = Some(e);
                     }
                 }
             }
-            if let Some(e) = first_err {
-                return Err(e);
-            }
-            // Only confirm a fully-landed chunk. Metering confirm is
-            // best-effort (absolute reconcile heals drift) and must never fail
-            // the publish that already succeeded.
-            if ok == chunk.len() {
-                bytes_uploaded = bytes_uploaded
-                    .saturating_add(chunk.iter().map(|s| s.payload.len() as u64).sum::<u64>());
-                if let Err(e) = self
-                    .auth
-                    .confirm_log_upload_segments_for_target(
-                        target,
-                        &chunk
-                            .iter()
-                            .map(|segment| segment.segment.clone())
-                            .collect::<Vec<_>>(),
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        target: "fold_db::sync::mutation_log",
-                        error = %e,
-                        count = chunk.len(),
-                        "confirm_log_upload for mutation-log segments failed (non-fatal; reconcile heals)"
-                    );
-                }
-            }
+        }
+        if let Some(e) = first_err {
+            return Err(e);
+        }
+        // Only confirm a fully-landed chunk. Metering confirm is
+        // best-effort (absolute reconcile heals drift) and must never fail
+        // the publish that already succeeded.
+        if ok == chunk.len() {
+            bytes_uploaded = bytes_uploaded
+                .saturating_add(chunk.iter().map(|s| s.payload.len() as u64).sum::<u64>());
+            Box::pin(self.confirm_log_chunk_upload(target, chunk)).await;
+        }
+        Ok(bytes_uploaded)
+    }
+
+    /// Best-effort metering confirm for a fully uploaded chunk; reconcile heals
+    /// any drift, so a failure only warns.
+    async fn confirm_log_chunk_upload(
+        &self,
+        target: &SyncTarget,
+        chunk: &[crate::sync::engine::MutationLogSegment],
+    ) {
+        if let Err(e) = self
+            .auth
+            .confirm_log_upload_segments_for_target(
+                target,
+                &chunk
+                    .iter()
+                    .map(|segment| segment.segment.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .await
+        {
+            tracing::warn!(
+                target: "fold_db::sync::mutation_log",
+                error = %e,
+                count = chunk.len(),
+                "confirm_log_upload for mutation-log segments failed (non-fatal; reconcile heals)"
+            );
+        }
+    }
+
+    /// [`Self::upload_mutation_log_segments`] with an explicit PUT fan-out.
+    ///
+    /// `None` keeps the adaptive upload-policy concurrency. The continuous
+    /// cycle passes `Some(n)` when it carries a backlog: the policy pins
+    /// concurrency to 1 under `interactive_busy`, which on the primary is
+    /// effectively always set, and a backlog of one small segment per record
+    /// then drains at one serial PUT per record. Every PUT in the call must
+    /// still land before the call returns Ok, so published F ordering does not
+    /// depend on the fan-out.
+    pub(crate) async fn upload_mutation_log_segments_with_put_concurrency(
+        &self,
+        target: &SyncTarget,
+        segments: &[crate::sync::engine::MutationLogSegment],
+        put_concurrency: Option<usize>,
+    ) -> SyncResult<u64> {
+        if segments.is_empty() {
+            return Ok(0);
+        }
+
+        // Boxed: an inline async layer here overflows the compiler's async-layout
+        // depth limit in the `lastdb` restore path.
+        Box::pin(self.guard_mutation_log_upload_target(target)).await?;
+
+        let mut bytes_uploaded = 0u64;
+        for chunk in segments.chunks(MAX_PRESIGN_BATCH) {
+            bytes_uploaded = bytes_uploaded.saturating_add(
+                Box::pin(self.upload_log_segment_chunk(target, chunk, put_concurrency)).await?,
+            );
         }
         Ok(bytes_uploaded)
     }

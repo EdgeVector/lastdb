@@ -120,6 +120,44 @@ impl SyncEngine {
         }
     }
 
+    /// Seed the snapshot cut from the durable floor; refuse rather than
+    /// publish a stale cut.
+    async fn seed_snapshot_cut(&self, targets_snapshot: &[SyncTarget]) -> SyncResult<u64> {
+        let target_generation = self
+            .target_config_generation
+            .load(std::sync::atomic::Ordering::Acquire);
+        self
+            .seed_seq_from_durable_floor(target_generation, targets_snapshot)
+            .await
+            .map_err(|e| {
+                SyncError::Storage(format!(
+                    "backup_snapshot refused: cannot seed the snapshot cut from the durable frontier: {e}"
+                ))
+            })
+    }
+
+    /// Upload the thumbnail pack for a snapshot; failure is non-fatal.
+    async fn upload_thumb_pack_best_effort(&self, snapshot: &Snapshot, seq_name: &str) {
+        match self
+            .upload_thumb_pack_for_snapshot(snapshot, seq_name)
+            .await
+        {
+            Ok(Some(count)) => tracing::info!(
+                target: "fold_db::sync",
+                pack_id = %seq_name,
+                thumbnails = count,
+                "backup_snapshot: uploaded thumbnail pack"
+            ),
+            Ok(None) => {}
+            Err(e) => tracing::warn!(
+                target: "fold_db::sync",
+                pack_id = %seq_name,
+                error = %e,
+                "backup_snapshot: thumbnail pack upload failed (non-fatal)"
+            ),
+        }
+    }
+
     pub(crate) async fn backup_snapshot_once(&self) -> SyncResult<u64> {
         // Defense in depth: same hard interlock as `backup_snapshot` so any
         // future direct caller cannot skip the Off gate.
@@ -149,17 +187,7 @@ impl SyncEngine {
         // at 0 therefore invites a replay of logs older than its own contents
         // — reversing a delete that only the snapshot captured. Seed from the
         // durable floor, and fail rather than publish a stale cut.
-        let target_generation = self
-            .target_config_generation
-            .load(std::sync::atomic::Ordering::Acquire);
-        let current_seq = self
-            .seed_seq_from_durable_floor(target_generation, &targets_snapshot)
-            .await
-            .map_err(|e| {
-                SyncError::Storage(format!(
-                    "backup_snapshot refused: cannot seed the snapshot cut from the durable frontier: {e}"
-                ))
-            })?;
+        let current_seq = self.seed_snapshot_cut(&targets_snapshot).await?;
         tracing::info!(
             "backup_snapshot: creating snapshot at seq {} (device='{}')",
             current_seq,
@@ -212,24 +240,8 @@ impl SyncEngine {
 
         // Thumb pack needs the in-memory snapshot; run before drop. at_rest_enc
         // thumbs often no-op (values are ENC: envelopes) — non-fatal either way.
-        match self
-            .upload_thumb_pack_for_snapshot(&snapshot, &seq_name)
-            .await
-        {
-            Ok(Some(count)) => tracing::info!(
-                target: "fold_db::sync",
-                pack_id = %seq_name,
-                thumbnails = count,
-                "backup_snapshot: uploaded thumbnail pack"
-            ),
-            Ok(None) => {}
-            Err(e) => tracing::warn!(
-                target: "fold_db::sync",
-                pack_id = %seq_name,
-                error = %e,
-                "backup_snapshot: thumbnail pack upload failed (non-fatal)"
-            ),
-        }
+        self.upload_thumb_pack_best_effort(&snapshot, &seq_name)
+            .await;
         let upload_result = self
             .upload_sealed_snapshot_pair_from_path(&sealed_path, &seq_name)
             .await;

@@ -81,22 +81,11 @@ impl SyncEngine {
 
         let drain_started = Instant::now();
         let force_env = env_flag::var_truthy("LASTDB_SNAPSHOT_LOG_PUBLISH_EVERY_CYCLE");
-        // Rate-limit *cutting* a new target (the sealed-file walk is the
-        // expensive part). Draining an existing target is never rate-limited —
-        // that is the work that has to finish. Enumerate-only (drain-PUT
-        // backoff) still refreshes remaining counts on an existing target
-        // every interval.
-        let has_held = self.has_backup_publish_target().await;
-        if !has_held {
-            if !allow_new_cut {
-                // Demoted continuous path: never open a new full-home seal.
-                report.publish_phase = "idle".into();
-                return Ok(());
-            }
-            if !force_env && last_publish.elapsed() < snapshot_log_publish_interval() {
-                report.publish_phase = "idle".into();
-                return Ok(());
-            }
+        if self
+            .publish_cut_gate_closed(force_env, allow_new_cut, last_publish, report)
+            .await
+        {
+            return Ok(());
         }
         // Drain the sticky target, not a freshly re-derived live cut. Re-cutting
         // each attempt is what made a busy home non-convergent: the denominator
@@ -126,56 +115,16 @@ impl SyncEngine {
             return Ok(());
         }
 
-        // Proven unpublishability (`source_missing > 0` after cloud-presence
-        // heal): abandon under the consecutive-reseal bound and re-cut so the
-        // replacement names the post-reseal sealed set. A mere incomplete drain
-        // (source still present) must NOT re-cut — that is the 2026-07-31
-        // livelock. Loop is bound-limited by handle_unpublishable_backup_cut.
-        //
-        // Before treating residual source_missing as terminal, promote digests
-        // already in cloud (or already in known_present) so a prior generation's
-        // uploads can still satisfy CAS. Measured 2026-08-14: residual=215 was
-        // reported as "cannot publish" without re-checking cloud presence.
-        //
-        // Demoted continuous drain (`allow_new_cut=false`) must not re-cut a
-        // full-home snapshot. When residual source_missing remains under
-        // demotion, abandon the held cut so the continuous loop returns to the
-        // demoted-idle branch (mutation-log durability) instead of spinning
-        // FAILING forever with a fixed residual (2026-08-14 primary: 6d+ on
-        // remaining=215 all_source_missing auto_recut=disabled).
-        if report.chunks.source_missing > 0 {
-            // A presence check that could not be confirmed (transport/auth
-            // error) fails closed: no abandon or re-cut on an unconfirmed
-            // residual. The next cycle re-probes with a fresh presign call.
-            if self.heal_source_missing_via_cloud_presence(report).await {
-                report.publish_phase = "chunks_only".into();
-                return Ok(());
-            }
-        }
-        while report.chunks.source_missing > 0 {
-            if !allow_new_cut {
-                self.abandon_unpublishable_cut_when_demoted(report).await;
-                return Ok(());
-            }
-            let generation = report.target_generation;
-            let abandoned = self
-                .handle_unpublishable_backup_cut(report.chunks.source_missing, generation)
-                .await;
-            if !abandoned {
-                self.report_recut_bound_hit(report);
-                return Ok(());
-            }
-            self.ensure_backup_publish_target(previous_manifest).await?;
-            let (chunk_stats, generation) =
-                self.drain_backup_publish_target(allow_drain_puts).await?;
-            report.chunks = chunk_stats;
-            report.target_generation = generation;
-            if report.chunks.source_missing > 0
-                && self.heal_source_missing_via_cloud_presence(report).await
-            {
-                report.publish_phase = "chunks_only".into();
-                return Ok(());
-            }
+        if self
+            .resolve_source_missing_residual(
+                previous_manifest,
+                allow_drain_puts,
+                allow_new_cut,
+                report,
+            )
+            .await?
+        {
+            return Ok(());
         }
 
         // A target that is not yet fully uploaded cannot CAS. That is ordinary
@@ -200,6 +149,101 @@ impl SyncEngine {
         // rebind retry re-cuts under the same chain head (not a silent None).
         self.cas_and_record_publish(previous_manifest, last_publish, report)
             .await
+    }
+
+    /// True when there is no held target and a new cut must not start now
+    /// (demoted path, or rate-limited). Sets the `idle` phase in that case.
+    async fn publish_cut_gate_closed(
+        &self,
+        force_env: bool,
+        allow_new_cut: bool,
+        last_publish: &Instant,
+        report: &mut SnapshotLogPublishCycleReport,
+    ) -> bool {
+        // Rate-limit *cutting* a new target (the sealed-file walk is the
+        // expensive part). Draining an existing target is never rate-limited —
+        // that is the work that has to finish. Enumerate-only (drain-PUT
+        // backoff) still refreshes remaining counts on an existing target
+        // every interval.
+        let has_held = self.has_backup_publish_target().await;
+        if !has_held {
+            if !allow_new_cut {
+                // Demoted continuous path: never open a new full-home seal.
+                report.publish_phase = "idle".into();
+                return true;
+            }
+            if !force_env && last_publish.elapsed() < snapshot_log_publish_interval() {
+                report.publish_phase = "idle".into();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Handle chunks with no local sealed file. Returns `Ok(true)` when the
+    /// cycle must stop (healed-but-unconfirmed, abandoned, bound hit, or still
+    /// missing after a re-cut), `Ok(false)` when the drain is clean enough to
+    /// continue toward CAS.
+    ///
+    /// Proven unpublishability (`source_missing > 0` after cloud-presence
+    /// heal): abandon under the consecutive-reseal bound and re-cut so the
+    /// replacement names the post-reseal sealed set. A mere incomplete drain
+    /// (source still present) must NOT re-cut — that is the 2026-07-31
+    /// livelock. Loop is bound-limited by handle_unpublishable_backup_cut.
+    ///
+    /// Before treating residual source_missing as terminal, promote digests
+    /// already in cloud (or already in known_present) so a prior generation's
+    /// uploads can still satisfy CAS. Measured 2026-08-14: residual=215 was
+    /// reported as "cannot publish" without re-checking cloud presence.
+    ///
+    /// Demoted continuous drain (`allow_new_cut=false`) must not re-cut a
+    /// full-home snapshot. When residual source_missing remains under
+    /// demotion, abandon the held cut so the continuous loop returns to the
+    /// demoted-idle branch (mutation-log durability) instead of spinning
+    /// FAILING forever with a fixed residual (2026-08-14 primary: 6d+ on
+    /// remaining=215 all_source_missing auto_recut=disabled).
+    async fn resolve_source_missing_residual(
+        &self,
+        previous_manifest: Option<&BackupManifest>,
+        allow_drain_puts: bool,
+        allow_new_cut: bool,
+        report: &mut SnapshotLogPublishCycleReport,
+    ) -> SyncResult<bool> {
+        if report.chunks.source_missing > 0 {
+            // A presence check that could not be confirmed (transport/auth
+            // error) fails closed: no abandon or re-cut on an unconfirmed
+            // residual. The next cycle re-probes with a fresh presign call.
+            if self.heal_source_missing_via_cloud_presence(report).await {
+                report.publish_phase = "chunks_only".into();
+                return Ok(true);
+            }
+        }
+        while report.chunks.source_missing > 0 {
+            if !allow_new_cut {
+                self.abandon_unpublishable_cut_when_demoted(report).await;
+                return Ok(true);
+            }
+            let generation = report.target_generation;
+            let abandoned = self
+                .handle_unpublishable_backup_cut(report.chunks.source_missing, generation)
+                .await;
+            if !abandoned {
+                self.report_recut_bound_hit(report);
+                return Ok(true);
+            }
+            self.ensure_backup_publish_target(previous_manifest).await?;
+            let (chunk_stats, generation) =
+                self.drain_backup_publish_target(allow_drain_puts).await?;
+            report.chunks = chunk_stats;
+            report.target_generation = generation;
+            if report.chunks.source_missing > 0
+                && self.heal_source_missing_via_cloud_presence(report).await
+            {
+                report.publish_phase = "chunks_only".into();
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Promote digests already in cloud; returns true when a presence check was
