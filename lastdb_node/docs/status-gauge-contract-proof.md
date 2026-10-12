@@ -42,7 +42,7 @@ Terminal card: `lastdb-status-gauge-contract-terminal-proof` (last-stack).
 # Offline (no primary, no live daemon):
 last-stack-north-star-proof --offline north-star-lastdb-status-gauge-contract
 
-# Live (ephemeral CoW node only — never primary lastdbd):
+# Live (ephemeral node on a fresh empty home only — never primary lastdbd):
 NORTH_STAR_PROOF_MODE=live last-stack-north-star-proof north-star-lastdb-status-gauge-contract
 ```
 
@@ -75,5 +75,5 @@ cargo test -p lastdb_node --lib status_gauge_contract -- --nocapture
 ## Hard rules
 
 - Never point proof at Tom's primary `~/.lastdb` / live `lastdbd`.
-- Use ephemeral CoW + safe-upgrade paths for live mode.
+- Use an ephemeral node on a fresh empty home + safe-upgrade paths for live mode.
 - Do not rename or retype existing `/api/status` fields in this NS.

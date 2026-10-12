@@ -20,7 +20,7 @@ not from a tag push. Proved end to end on 2026-09-24 (fold `b734bebff`
 | --- | --- | --- |
 | Build Forge `main` → staged bundle | routine `lastdb-canary-candidate-set`, daily 02:47 PT | `last-stack-canary-build-main` |
 | Candidate set + isolated install smoke on the candidate `lastdbd` | same run | `last-stack-canary-candidate-set`, `skills/llms-txt-install-smoke/run.sh` |
-| Primary cutover (Loom safe-upgrade, CoW bars first) | same run | `last-stack-lastdb-canary-dogfood --cutover` → `last-stack-safe-upgrade-loom` |
+| Primary cutover (Loom safe-upgrade, synthetic-data bars first) | same run | `last-stack-lastdb-canary-dogfood --cutover` → `last-stack-safe-upgrade-loom` |
 | Proved rows → registry `next` (tap PR) | same run | `last-stack-registry-publish-next` |
 | 1 h quiet window on the primary (24 h before 2026-09-24) | routine `lastdb-canary-soak-watch`, hourly | `last-stack-canary-reconcile-gate` (`LAST_STACK_CANARY_V2_WINDOW_SECONDS`) |
 | Green window → brew stable tag + formula PR + registry `stable` rows | same tick | `last-stack-canary-promote-material` → `last-stack-release-publish --if-needed` |

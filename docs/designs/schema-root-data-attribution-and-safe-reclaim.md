@@ -18,7 +18,7 @@
 | Date | 2026-09-21 |
 | Scope | LastDB Mini owner maintenance |
 | Canonical model | `docs/lastdb-canonical-model.md` |
-| Related work | `docs/physical-atom-delete-proof.md`, `fold_db/docs/ATOM_GC_TIP_FOLD_GATE.md`, `fold_db/docs/DELETE_RETURNS_BYTES.md` |
+| Related work | `docs/physical-atom-delete-proof.md`, `fold_db/docs/DELETE_RETURNS_BYTES.md` |
 | Delivery plan | `docs/designs/schema-root-data-attribution-delivery-plan.md` (also superseded) |
 
 ## Decision
@@ -490,8 +490,9 @@ then on a supervised live run.
 
 ## Relationship to existing work
 
-- `ATOM_GC_TIP_FOLD_GATE` already proves that atom reclaim must preserve live
-  fold paths. This design makes those paths explicit and durable.
+- The atom GC tip-fold gate (a real-data clone harness, deleted 2026-10-12)
+  showed that atom reclaim must preserve live fold paths. This design makes
+  those paths explicit and durable.
 - `DELETE_RETURNS_BYTES` already defines the delete-to-compaction chain. This
   design supplies the schema-root proof before the chain begins.
 - `physical-atom-delete-proof` already requires a physical positive control.

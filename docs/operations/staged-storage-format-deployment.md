@@ -19,7 +19,7 @@ The runbook covers:
 
 | Stage | Purpose |
 |-------|---------|
-| **P0 CoW Proof** | Isolated copy-on-write validation; format change code paths exercised |
+| **P0 Synthetic Proof** | Fresh empty home with synthetic data; format change code paths exercised |
 | **P1 Read-first stage** | New code ships read-only, dual-read in effect, no writes to new locations yet |
 | **P2 Migration receipt capture** | Measure compaction space, verify membership / key move integrity, receipt proof |
 | **P3 Safe stop conditions** | Define gates where rollback is still reversible; no point-of-no-return without approval |
@@ -32,37 +32,38 @@ The runbook covers:
 
 - A new Mini release candidate with the format change code landed.
 - A branch or tag pinpoints the exact commit under test.
-- An isolated synthetic home directory (not the primary), prepared with pre-change data or a CoW of it.
+- A fresh empty home (not the primary) with synthetic data that the installed pre-change binary wrote.
 - The candidate Mini binary (`lastdb`, `lastdbd`) can be built or fetched.
 - Disk space available: **3× the largest collection** you plan to migrate or compact.
 - The `lastdb` and `lastdbd` binaries on `PATH` (or named explicitly in commands below).
 - Tools: `jq`, `du`, `sha256sum`, `grep`.
 
-Do not test against the primary home. Use `CoW` (copy-on-write) or an isolated synthetic home prepared from backups.
+Do not test against the primary home. Never copy it (Tom, 2026-10-12). Use a fresh empty home with synthetic data.
 
-## P0 CoW Proof — Read-first code paths on isolated data
+## P0 Synthetic Proof — Read-first code paths on isolated data
 
-Before any staged production deployment, run the format change on a CoW of real data to exercise code paths and measure safe stop points.
+Before any staged production deployment, run the format change on synthetic data in a fresh empty home to exercise code paths and measure safe stop points.
 
-### 1. Prepare isolated home
+### 1. Prepare a fresh empty home with synthetic data
+
+Never copy the primary home. Make a new empty home. Keep the path short: the
+socket path must fit 103 bytes.
 
 ```bash
 set -euo pipefail
 
-REAL_HOME="$HOME/.lastdb"
-TEST_HOME="$TMPDIR/lastdb-format-test-$(date +%s)"
-STORAGE_SOURCE="${REAL_HOME}/data"
-
-# Copy-on-write the data directory (requires CoW fs support)
-cp -c "$STORAGE_SOURCE" "$TEST_HOME/data"
-
-# Single-user socket for isolation
-mkdir -p "$TEST_HOME"
+TEST_HOME="$(mktemp -d /private/tmp/lfmt.XXXXXX)"
 chmod 700 "$TEST_HOME"
 export LASTDB_HOME="$TEST_HOME"
 ```
 
-### 2. Start daemon with candidate release on CoW
+Write the synthetic data in the OLD format first. Start the installed
+(pre-change) `lastdbd` on `$TEST_HOME`, write synthetic records through the node
+API, and stop it. `scripts/lastdbd/lib/synthetic-node.sh` shows how a bar boots
+a fresh empty home and writes synthetic records. Then start the candidate on the
+same home in step 2.
+
+### 2. Start daemon with candidate release on the synthetic home
 
 ```bash
 # Verify no running daemon on this test home
@@ -114,7 +115,7 @@ echo "Succeeded: $(count of reads)" >> "$TEST_HOME/read-receipt.txt"
 
 If any read fails, the code is not ready for P1 deploy. Stop here and fix.
 
-### 4. Stop daemon and measure CoW usage
+### 4. Stop daemon and measure disk usage
 
 ```bash
 # Stop the test daemon
@@ -123,13 +124,11 @@ wait $DAEMON_PID 2>/dev/null || true
 
 # Measure data directory size
 du -sh "$TEST_HOME/data" | tee "$TEST_HOME/final-size.txt"
-
-# Check for write amplification (CoW creates copies)
-cp --verbose "$TEST_HOME/data" "$TEST_HOME/data.backup" 2>&1 | \
-  grep -c "copy" | tee "$TEST_HOME/cow-write-count.txt"
 ```
 
-**CoW proof requirement:** If the data dir grew **more than 2×** the original after the isolated test, investigate write-heavy code paths before production deployment.
+**Size requirement:** If the data dir grew **more than 2×** the size it had before the candidate started, investigate write-heavy code paths before production deployment.
+
+Copy the receipts out, then delete `$TEST_HOME`. The home is yours and is not the primary.
 
 ## P1 Read-first stage — Canary without writes to new locations
 
@@ -525,7 +524,7 @@ Record non-secret evidence from each stage:
 
 | Stage | Evidence |
 |-------|----------|
-| **P0 CoW Proof** | CLI version, read success count, CoW write amplification |
+| **P0 Synthetic Proof** | CLI version, read success count, final data size |
 | **P1 Read-first** | Canary workload scale, read success rate %, latency baseline, fallback count |
 | **P2 Migration receipt** | Migration job ID, keys migrated (sampled), hash agreement result, space before/after |
 | **P3 Safe stop** | Backup job ID, write test result (pass/fail), write target config, timestamp of point-of-no-return |

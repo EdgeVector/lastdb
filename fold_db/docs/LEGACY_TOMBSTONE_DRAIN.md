@@ -14,12 +14,12 @@ lastdb db drain-legacy-tombstones --schema '<descriptive-or-stored-schema>'
 lastdb db drain-legacy-tombstones --schema '<descriptive-or-stored-schema>' --execute
 ```
 
-Before using `--execute` on a real home, make a copy-on-write clone or durable
-copy of the entire node home, start a throwaway `lastdbd` against that clone and
-its own Unix socket, and point the CLI at that socket. Never start the probe on
-`~/.lastdb`, never reuse the primary socket, and never restart the primary for
-this operation. On the clone, require all of the following before scheduling a
-live supervised drain:
+Before using `--execute` on a real home, rehearse on a fresh empty home with
+synthetic data: start a throwaway `lastdbd` on it with its own Unix socket, and
+point the CLI at that socket. Never copy `~/.lastdb` (Tom, 2026-10-12), never
+start the probe on `~/.lastdb`, never reuse the primary socket, and never
+restart the primary for this operation. On the synthetic home, require all of
+the following before scheduling a live supervised drain:
 
 1. Dry-run reports the expected tombstone population and zero unowned slots.
 2. `--execute` completes, and a second dry-run reports zero tombstones for the

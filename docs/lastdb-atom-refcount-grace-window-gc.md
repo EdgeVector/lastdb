@@ -50,19 +50,12 @@ the queue in one bounded batch. The results were:
 
 The 24-hour default is more than 300 times the measured p99.
 
-## CoW proof
+## Measured proof
 
-The ignored host-lane test uses an isolated real-data APFS clone. It refuses
-the live `~/.lastdb` path. It creates 100 protein writes, applies each queued
-sibling fold, and reports p50, p99, and maximum propagation time.
-
-```text
-LASTDB_ATOM_KEY_ENCODING=partition_prefix \
-LASTDB_ATOM_GC_COW_HOME=<isolated-clone> \
-cargo test -p fold_db \
-  host_lane_protein_fold_propagation_p99_on_real_data_clone \
-  -- --ignored --nocapture
-```
+The 2026-09-28 run above used an APFS clone of the real data. That harness and
+its ignored host-lane test are removed (Tom, 2026-10-12: nothing copies the
+primary home). The numbers stay as the historical measurement. A new
+measurement uses a fresh empty home with synthetic protein writes.
 
 The focused LastStore test also proves these results:
 
