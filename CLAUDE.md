@@ -136,6 +136,9 @@ is not checked until you touch it.
 - Check before you push: `python3 scripts/lints/lint-diff-file-size.py --base origin/main`
   and `python3 scripts/lints/lint-diff-fn-size.py --base origin/main` (the second
   needs `pip install tree-sitter==0.23.2 tree-sitter-rust==0.23.2`).
+  CI also runs `python3 scripts/lints/lint-diff-new-allows.py --base origin/main`:
+  a PR may not add more `too_many_arguments` allows than it removes (override one
+  line with `lint:allow-ok <reason>`).
 - Brain: `preference-fold-code-size-limits`.
 
 ## Not dead code: do not remove without the owner
