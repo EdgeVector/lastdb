@@ -10,6 +10,8 @@ use super::super::AtomStore;
 use super::PageFill;
 
 mod hash_range;
+mod hash_range_pages;
+mod hash_range_scan;
 mod legacy_fork;
 mod one_d;
 
