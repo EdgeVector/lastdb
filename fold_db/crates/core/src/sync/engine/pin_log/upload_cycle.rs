@@ -2,14 +2,35 @@ use super::*;
 
 /// Output of the scan and materialize phase of one upload cycle.
 struct ScannedPage {
+    summary: ScanSummary,
+    batch: Vec<PinLogRecord>,
+    scan_ms: u128,
+    materialize_ms: u128,
+}
+
+/// What the scan phase tells the cycle's report.
+struct ScanSummary {
     /// `(rows_scanned, scan_complete, row_budget_exhausted)` from the scan.
     scan_stats: (usize, bool, bool),
-    batch: Vec<PinLogRecord>,
     records_quarantined: usize,
     last_quarantine_reason: Option<String>,
     retried_truncations: usize,
+}
+
+/// Wall time of each phase of one upload cycle, for the cycle log line.
+#[derive(Clone, Copy)]
+struct CycleTimings {
     scan_ms: u128,
     materialize_ms: u128,
+    seal_ms: u128,
+    upload_ms: u128,
+}
+
+/// The sealed output of one cycle, ready to publish.
+struct SealedCycle<'a> {
+    units: &'a [Vec<MutationLogSegment>],
+    record_batches: &'a [Vec<PinLogRecord>],
+    confirmed_frontiers: &'a [u64],
 }
 
 impl PinLog {
@@ -37,11 +58,8 @@ impl PinLog {
             state.get(&target_id).map_or(0, |r| r.published_frontier)
         };
         let ScannedPage {
-            scan_stats,
+            summary,
             batch,
-            records_quarantined,
-            last_quarantine_reason,
-            retried_truncations,
             scan_ms,
             materialize_ms,
         } = self
@@ -63,10 +81,7 @@ impl PinLog {
         let mut report = Self::new_upload_report(
             &target_id,
             published_before_max,
-            retried_truncations,
-            records_quarantined,
-            last_quarantine_reason.as_ref(),
-            scan_stats,
+            &summary,
             records_selected,
             page_record_count,
         );
@@ -83,9 +98,11 @@ impl PinLog {
                 engine,
                 &target,
                 plane,
-                &sealed_units,
-                &record_batches,
-                &confirmed_frontiers,
+                SealedCycle {
+                    units: &sealed_units,
+                    record_batches: &record_batches,
+                    confirmed_frontiers: &confirmed_frontiers,
+                },
                 &mut report,
             )
             .await?;
@@ -97,10 +114,12 @@ impl PinLog {
                 &target_id,
                 &report,
                 advanced.len(),
-                scan_ms,
-                materialize_ms,
-                seal_ms,
-                upload_started.elapsed().as_millis(),
+                CycleTimings {
+                    scan_ms,
+                    materialize_ms,
+                    seal_ms,
+                    upload_ms: upload_started.elapsed().as_millis(),
+                },
             );
         }
         self.clear_upload_scan_pending(target_prefix, &report).await;
@@ -159,15 +178,17 @@ impl PinLog {
         )
         .await;
         Ok(ScannedPage {
-            scan_stats: (
-                page_rows_scanned,
-                page_scan_complete,
-                page_row_budget_exhausted,
-            ),
+            summary: ScanSummary {
+                scan_stats: (
+                    page_rows_scanned,
+                    page_scan_complete,
+                    page_row_budget_exhausted,
+                ),
+                records_quarantined,
+                last_quarantine_reason,
+                retried_truncations,
+            },
             batch,
-            records_quarantined,
-            last_quarantine_reason,
-            retried_truncations,
             scan_ms,
             materialize_ms,
         })
@@ -203,17 +224,21 @@ impl PinLog {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn new_upload_report(
         target_id: &str,
         published_before_max: u64,
-        retried_truncations: usize,
-        records_quarantined: usize,
-        last_quarantine_reason: Option<&String>,
-        (rows_scanned, scan_complete, row_budget_exhausted): (usize, bool, bool),
+        summary: &ScanSummary,
         records_selected: usize,
         page_record_count: usize,
     ) -> MutationLogUploadReport {
+        let ScanSummary {
+            scan_stats: (rows_scanned, scan_complete, row_budget_exhausted),
+            records_quarantined,
+            last_quarantine_reason,
+            retried_truncations,
+        } = summary;
+        let (rows_scanned, scan_complete, row_budget_exhausted) =
+            (*rows_scanned, *scan_complete, *row_budget_exhausted);
         MutationLogUploadReport {
             target_id: target_id.to_string(),
             writer_id: String::new(),
@@ -224,9 +249,9 @@ impl PinLog {
             published_frontier_after: published_before_max,
             upload_backlog_after: 0,
             object_keys: Vec::new(),
-            records_truncated: retried_truncations,
-            records_quarantined,
-            last_quarantine_reason: last_quarantine_reason.cloned(),
+            records_truncated: *retried_truncations,
+            records_quarantined: *records_quarantined,
+            last_quarantine_reason: last_quarantine_reason.clone(),
             put_concurrency: 0,
             rows_scanned,
             records_considered_is_lower_bound: !scan_complete
@@ -235,16 +260,18 @@ impl PinLog {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn log_upload_cycle(
         target_id: &str,
         report: &MutationLogUploadReport,
         writers: usize,
-        scan_ms: u128,
-        materialize_ms: u128,
-        seal_ms: u128,
-        upload_ms: u128,
+        timings: CycleTimings,
     ) {
+        let CycleTimings {
+            scan_ms,
+            materialize_ms,
+            seal_ms,
+            upload_ms,
+        } = timings;
         // Vector F geometry is recorded on plane/runtime maps; status still
         // surfaces scalar max. Log writer count so multi-writer cycles are
         // visible without constructing an unused Frontier value.
@@ -459,17 +486,19 @@ impl PinLog {
     /// local plane, and truncate confirmed rows. Returns the per-writer
     /// `(through, record timestamp)` confirmed this cycle (empty when there
     /// was nothing to publish).
-    #[allow(clippy::too_many_arguments)]
     async fn publish_sealed_units(
         &self,
         engine: &SyncEngine,
         target: &SyncTarget,
         plane: &mut MutationLogLocalCloud,
-        sealed_units: &[Vec<MutationLogSegment>],
-        record_batches: &[Vec<PinLogRecord>],
-        confirmed_frontiers: &[u64],
+        sealed: SealedCycle<'_>,
         report: &mut MutationLogUploadReport,
     ) -> Result<HashMap<String, (u64, u64)>, String> {
+        let SealedCycle {
+            units: sealed_units,
+            record_batches,
+            confirmed_frontiers,
+        } = sealed;
         let target_id = &report.target_id.clone();
         // writer_id → (through, record timestamp) confirmed this cycle.
         let mut advanced: HashMap<String, (u64, u64)> = HashMap::new();
