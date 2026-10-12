@@ -305,7 +305,7 @@ fn add_schema_outcome_response(
     telemetry_reason: Option<&str>,
     response_composition: Option<SchemaRegistrationComposition>,
 ) -> HttpResponse {
-    let record = |outcome: &str| {
+    let record = |outcome: &'static str| {
         state.record_schema_match_outcome(outcome, telemetry_source, telemetry_reason);
     };
     match result {
