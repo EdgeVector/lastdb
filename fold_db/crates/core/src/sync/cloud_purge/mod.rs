@@ -20,6 +20,7 @@ mod restore;
 pub(crate) mod row_copy;
 mod source;
 mod source_roots;
+mod source_verify;
 mod upload;
 mod upload_transport;
 
