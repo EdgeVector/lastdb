@@ -2,6 +2,22 @@
 
 use super::*;
 
+/// Which tips a pass may clear and whether it writes.
+#[derive(Clone, Copy)]
+struct PruneMode {
+    include_live: bool,
+    dry_run: bool,
+}
+
+impl PruneMode {
+    fn new(include_live: bool, dry_run: bool) -> Self {
+        Self {
+            include_live,
+            dry_run,
+        }
+    }
+}
+
 impl AtomStore {
     /// Plan (and optionally apply) tip-version chain pruning.
     ///
@@ -107,8 +123,7 @@ impl AtomStore {
                 &mk_key,
                 &v,
                 storage_prefix,
-                include_live,
-                dry_run,
+                PruneMode::new(include_live, dry_run),
             )
             .await?;
         }
@@ -147,7 +162,6 @@ impl AtomStore {
     /// if a writer moved it; deciding a key right after reading it narrows that
     /// window from a full `mk:` scan to one row. A skipped chain is still
     /// prunable on a later pass.
-    #[allow(clippy::too_many_arguments)]
     async fn prune_one_tip_chain(
         &self,
         plan: &mut TipVersionPrunePlan,
@@ -155,9 +169,12 @@ impl AtomStore {
         mk_key: &str,
         raw_value: &[u8],
         storage_prefix: Option<&str>,
-        include_live: bool,
-        dry_run: bool,
+        mode: PruneMode,
     ) -> Result<(), SchemaError> {
+        let PruneMode {
+            include_live,
+            dry_run,
+        } = mode;
         use crate::db_operations::atom_store::PerKeyRecord;
 
         let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(raw_value) else {

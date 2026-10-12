@@ -8,3 +8,4 @@ mod bloat_audit;
 mod bloat_decide;
 mod compact;
 mod sweep;
+use sweep::PassClock;

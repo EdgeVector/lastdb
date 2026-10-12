@@ -2,6 +2,14 @@
 
 use super::*;
 
+/// Where one rekey walk reads and checkpoints, and how many tips a page holds.
+#[derive(Clone, Copy)]
+struct RekeyWalk<'a> {
+    storage_prefix: Option<&'a str>,
+    checkpoint_key: &'a str,
+    tip_page: usize,
+}
+
 impl AtomStore {
     /// Resumable dual-readable rekey: copy flat atom bodies onto
     /// `atom:{partition}\0{uuid}` + locator, optionally drop flats after
@@ -96,9 +104,11 @@ impl AtomStore {
         let (last_tip, saw_remaining) = self
             .walk_rekey_pages(
                 &options,
-                storage_prefix,
-                &checkpoint_key,
-                tip_page,
+                RekeyWalk {
+                    storage_prefix,
+                    checkpoint_key: &checkpoint_key,
+                    tip_page,
+                },
                 &baseline,
                 &mut report,
                 &mut checkpoint,
@@ -136,18 +146,21 @@ impl AtomStore {
     /// Keyset-walk the `mk:` range page by page from the checkpoint cursor,
     /// rekeying each page and persisting the cursor after it. Returns the last
     /// tip walked and whether `max_ops` cut the walk short.
-    #[allow(clippy::too_many_arguments)]
     async fn walk_rekey_pages(
         &self,
         options: &AtomPartitionRekeyOptions,
-        storage_prefix: Option<&str>,
-        checkpoint_key: &str,
-        tip_page: usize,
+        walk: RekeyWalk<'_>,
         baseline: &AtomPartitionRekeyCheckpoint,
         report: &mut AtomPartitionRekeyReport,
         checkpoint: &mut AtomPartitionRekeyCheckpoint,
     ) -> Result<(Option<String>, bool), SchemaError> {
         use crate::schema::types::field::FilterUtils;
+
+        let RekeyWalk {
+            storage_prefix,
+            checkpoint_key,
+            tip_page,
+        } = walk;
 
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
         let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
