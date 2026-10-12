@@ -117,29 +117,44 @@ What this means:
   are the figures to hold, not a target already met. A step must not move the
   write p50 above 46 ms or the point p50 above 30 ms.
 
-Read-after-ack, `write` mode, 20 reps per cell: create by point-get and update
-by point-get pass. Create by page, update by page and create by count-signal are
-stale in all 20 reps. The defer window reported `NOT_OPEN`.
+Read-after-ack, 20 reps per cell, run by the owner on a copy of the real data
+with a script copy that took `--mode` (release `lastdbd`, 817b7d55). Both modes
+returned the same matrix:
 
-These results are not yet interpreted, for three reasons found by reading
-`scripts/lastdbd/read-after-ack-bar.sh`:
+| Cell | `off` | `write` |
+|---|---|---|
+| create by point-get | green | green |
+| update by point-get | green | green |
+| create by page | stale 20/20 | stale 20/20 |
+| update by page | stale 20/20 | stale 20/20 |
+| create by count-signal | stale 20/20 | stale 20/20 |
 
-- The run had no `off` baseline, so a write-mode gap cannot be told from a bar
-  problem. The script now takes `--mode`.
-- The count-signal cell only checks that the response has `.ok`, `.total_count`
-  or `.data`. It cannot detect stale data.
-- A freshness race would fail some reps. Failing every rep, while the point-get
-  on the same key passes, points to something deterministic: either the page
-  query does not surface the `default` key within its first 500 rows, or page
-  reads do not overlay acknowledged but unflushed tips in `write` mode. The
-  second would be a real defect and step 3 must not make it worse.
-- `NOT_OPEN` was read from real metrics, not a failed lookup. `persist_enqueued`
-  counts newly dirty keys and every rep writes one key, so it can stay flat while
-  deferral works. The raw before and after values decide it.
-- Delete cells are not implemented, so Skip-Delete read-after-ack is untested.
+`persist_enqueued` went 0 to 282 in `off` (window OPEN) and stayed 0 in `write`
+(NOT_OPEN). `deferred_persist_failed` stayed 0 in both. No delete cells exist.
 
-To settle it, run the same cells with `--mode off`, and look at the raw
-`sample_response` lines the script now prints for each stale cell.
+Interpretation:
+
+- The stale page and count cells are not a resident-mode defect. In `off` the
+  acknowledgment waits for the persist lane, so the write is durable before the
+  read, and the cells are still stale 20/20. Either the page query or the bar is
+  wrong, or page reads have a defect that is independent of this work. The
+  count-signal cell only checks the response shape and cannot detect staleness.
+  None of the three cells can gate a step until the cause is known.
+- Point-get read-after-ack is green in both modes. That is the one proven
+  invariant, and every step must keep it.
+- `write` mode did not mark anything dirty in this run, and the cause is
+  unknown. In `off`, 100 mutations produced 282 new dirty keys, about 2.8 per
+  mutation, because every mutation creates a new atom. A deferred path must
+  therefore raise the counter. A flat 0 means one of: the mutations took the
+  durable-wait branch (`LASTDB_MUTATION_SYNC_FLUSH`, or `force_durable`), they
+  took the write-through branch (defer window disabled, or
+  `should_write_through`), or the status snapshot was not refreshed. The bar
+  mirrors the live node's `LASTDB_*` environment, so a flag in the live plist
+  would explain it.
+- The latency bar still shows `write` at 46 ms against 641 ms. So the 14 times
+  gain may not come from deferral at all. What `write` mode actually does on the
+  live configuration must be established before step 3, because the design
+  assumes acknowledge-before-durable is what runs.
 
 ## Open questions to verify before step 3
 
@@ -149,8 +164,9 @@ To settle it, run the same cells with `--mode off`, and look at the raw
 - Which readers still need a resident answer for a key the logical set evicted?
   The graph's coverage tracking answers "is this key set complete" for range
   reads. The logical set has only a negative barrier cache.
-- Whether the page and count-signal stale reads are a write-mode defect or a bar
-  problem. See the baseline section.
+- Why `write` mode left `persist_enqueued` at 0, and what produces its 46 ms
+  write p50. See the baseline section. Step 2b answers both.
+- Why the page cells are stale in `off`. Step 2b answers this too.
 
 ## Review hazards
 
