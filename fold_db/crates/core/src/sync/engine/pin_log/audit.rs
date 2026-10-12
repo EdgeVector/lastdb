@@ -121,29 +121,10 @@ pub async fn audit_pin_log_plane(
     max_keys: usize,
     after_key: Option<&str>,
 ) -> Result<PinLogPlaneReport, crate::schema::SchemaError> {
-    // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
     let max_keys = max_keys.clamp(1, 10_000_000);
     let mut published_maps: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
 
-    let entry_prefix = PIN_LOG_ENTRY_PREFIX.as_bytes();
-    let end = prefix_upper_bound(entry_prefix).ok_or_else(|| {
-        crate::schema::SchemaError::InvalidData(
-            "pin-log entry prefix has no finite range upper bound".to_string(),
-        )
-    })?;
-    let mut cursor = match after_key {
-        Some(s) => {
-            let bytes = s.as_bytes().to_vec();
-            // Resume must stay inside the entry keyspace.
-            if !bytes.starts_with(entry_prefix) {
-                return Err(crate::schema::SchemaError::InvalidCursor(format!(
-                    "after_key must be a pin-log entry key under '{PIN_LOG_ENTRY_PREFIX}'"
-                )));
-            }
-            bytes
-        }
-        None => entry_prefix.to_vec(),
-    };
+    let (end, mut cursor) = audit_start_range(after_key)?;
 
     let mut report = PinLogPlaneReport::default();
     let mut writers: BTreeMap<(String, String), PinLogWriterStat> = BTreeMap::new();
@@ -186,32 +167,15 @@ pub async fn audit_pin_log_plane(
 
             match serde_json::from_slice::<PinLogRecord>(&value) {
                 Ok(record) => {
-                    let bytes = value.len() as u64;
-                    report.entry_rows += 1;
-                    report.entry_bytes = report.entry_bytes.saturating_add(bytes);
-                    if !published_maps.contains_key(&record.target_id) {
-                        let map = load_durable_published_f_map(store, &record.target_id)
-                            .await
-                            .map_err(crate::schema::SchemaError::InvalidData)?;
-                        published_maps.insert(record.target_id.clone(), map);
-                    }
-                    let hwm = writer_hwm(&published_maps, &record.target_id, &record.writer_id);
-                    let confirmed = record.frontier_after <= hwm;
-                    if confirmed {
-                        report.confirmed_rows += 1;
-                        report.confirmed_bytes = report.confirmed_bytes.saturating_add(bytes);
-                    } else {
-                        report.pending_rows += 1;
-                        report.pending_bytes = report.pending_bytes.saturating_add(bytes);
-                    }
-                    bump_writer_stat(
+                    audit_classify_record(
+                        store,
+                        &record,
+                        value.len() as u64,
+                        &mut published_maps,
+                        &mut report,
                         &mut writers,
-                        &record.target_id,
-                        &record.writer_id,
-                        hwm,
-                        confirmed,
-                        bytes,
-                    );
+                    )
+                    .await?;
                 }
                 Err(e) if final_page && idx == last_idx => {
                     tracing::warn!(
@@ -265,4 +229,67 @@ pub async fn audit_pin_log_plane(
     report.next_after_key = next_after;
 
     Ok(report)
+}
+
+/// Compute the scan end bound and the starting cursor for the plane audit.
+fn audit_start_range(
+    after_key: Option<&str>,
+) -> Result<(Vec<u8>, Vec<u8>), crate::schema::SchemaError> {
+    let entry_prefix = PIN_LOG_ENTRY_PREFIX.as_bytes();
+    let end = prefix_upper_bound(entry_prefix).ok_or_else(|| {
+        crate::schema::SchemaError::InvalidData(
+            "pin-log entry prefix has no finite range upper bound".to_string(),
+        )
+    })?;
+    let cursor = match after_key {
+        Some(s) => {
+            let bytes = s.as_bytes().to_vec();
+            // Resume must stay inside the entry keyspace.
+            if !bytes.starts_with(entry_prefix) {
+                return Err(crate::schema::SchemaError::InvalidCursor(format!(
+                    "after_key must be a pin-log entry key under '{PIN_LOG_ENTRY_PREFIX}'"
+                )));
+            }
+            bytes
+        }
+        None => entry_prefix.to_vec(),
+    };
+    Ok((end, cursor))
+}
+
+/// Classify one decoded entry row as confirmed or pending and update the report.
+async fn audit_classify_record(
+    store: &dyn crate::storage::traits::KvStore,
+    record: &PinLogRecord,
+    bytes: u64,
+    published_maps: &mut BTreeMap<String, BTreeMap<String, u64>>,
+    report: &mut PinLogPlaneReport,
+    writers: &mut BTreeMap<(String, String), PinLogWriterStat>,
+) -> Result<(), crate::schema::SchemaError> {
+    report.entry_rows += 1;
+    report.entry_bytes = report.entry_bytes.saturating_add(bytes);
+    if !published_maps.contains_key(&record.target_id) {
+        let map = load_durable_published_f_map(store, &record.target_id)
+            .await
+            .map_err(crate::schema::SchemaError::InvalidData)?;
+        published_maps.insert(record.target_id.clone(), map);
+    }
+    let hwm = writer_hwm(published_maps, &record.target_id, &record.writer_id);
+    let confirmed = record.frontier_after <= hwm;
+    if confirmed {
+        report.confirmed_rows += 1;
+        report.confirmed_bytes = report.confirmed_bytes.saturating_add(bytes);
+    } else {
+        report.pending_rows += 1;
+        report.pending_bytes = report.pending_bytes.saturating_add(bytes);
+    }
+    bump_writer_stat(
+        writers,
+        &record.target_id,
+        &record.writer_id,
+        hwm,
+        confirmed,
+        bytes,
+    );
+    Ok(())
 }

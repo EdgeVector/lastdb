@@ -136,7 +136,127 @@ impl SyncEngine {
         Ok(Some(cached))
     }
 
-    // lint:fn-size-ok moved verbatim from backup_uploader.rs; splitting this function is separate work.
+    /// Cloud-presence heal for source-missing chunks, shared by the first
+    /// drain and every re-cut drain. Fails closed when presence could not be
+    /// confirmed so the snapshot retries instead of abandoning.
+    async fn heal_snapshot_source_missing(
+        &self,
+        upload_stats: &mut LastStoreBackupUploadStats,
+        generation: Option<u64>,
+    ) -> SyncResult<()> {
+        let heal = self
+            .resolve_source_missing_via_cloud_presence(generation)
+            .await;
+        if heal.remaining < upload_stats.source_missing {
+            upload_stats.chunks_present = self
+                .count_held_candidates_in_known_present()
+                .await
+                .unwrap_or(upload_stats.chunks_present);
+        }
+        upload_stats.source_missing = heal.remaining;
+        if heal.probe_error && upload_stats.source_missing > 0 {
+            // Could not confirm cloud presence for at least one digest
+            // this cycle (transport/auth error) — fail closed, retry the
+            // snapshot rather than abandoning on an unconfirmed residual.
+            return Err(SyncError::Network(format!(
+                "backup snapshot could not confirm cloud presence for {} chunk(s) this \
+                 cycle (transport/auth error); not abandoning — retry the snapshot",
+                upload_stats.source_missing
+            )));
+        }
+        Ok(())
+    }
+
+    /// Re-cut the held target while the drain still reports source-missing
+    /// chunks, until none remain or the re-cut budget stops.
+    async fn recut_snapshot_until_no_source_missing(
+        &self,
+        previous_manifest: Option<&BackupManifest>,
+        allow_recut: bool,
+        upload_stats: &mut LastStoreBackupUploadStats,
+        generation: &mut Option<u64>,
+    ) -> SyncResult<()> {
+        while upload_stats.source_missing > 0 {
+            if !allow_recut {
+                return Err(SyncError::Storage(format!(
+                    "primary resume cut has {} source-missing chunks; retry with a new fenced cut",
+                    upload_stats.source_missing
+                )));
+            }
+            let abandoned = self
+                .handle_unpublishable_backup_cut(upload_stats.source_missing, *generation)
+                .await;
+            if !abandoned {
+                let consecutive = self.backup_consecutive_reseal_kills.load(Ordering::Relaxed);
+                return Err(SyncError::Storage(format!(
+                    "backup snapshot cannot complete ({} chunks not in cloud, of which {} have \
+                     no local sealed file); automatic re-cut stopped after {consecutive} \
+                     consecutive reseal-killed cuts (max={MAX_CONSECUTIVE_RESEAL_KILLED_CUTS}) \
+                     — reseal rate is the defect (uploaded_this_drain={})",
+                    upload_stats
+                        .known_missing_chunks()
+                        .unwrap_or(upload_stats.source_missing),
+                    upload_stats.source_missing,
+                    upload_stats.uploaded
+                )));
+            }
+            self.ensure_backup_publish_target(previous_manifest).await?;
+            let next = self.drain_backup_publish_target(true).await?;
+            *upload_stats = next.0;
+            *generation = next.1;
+            if upload_stats.source_missing > 0 {
+                self.heal_snapshot_source_missing(upload_stats, *generation)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Keep draining the held cut while it is known incomplete and progress
+    /// continues.
+    ///
+    /// The drain already knows locally whether this cut can possibly be
+    /// complete; `try_verify_manifest_chunks_present` would spend one network
+    /// round trip per uncached chunk to re-derive "incomplete". Short-circuit
+    /// on local state only: this can only skip a verify that was going to fail.
+    ///
+    /// Operator snapshot must finish the held cut instead of 500-ing on the
+    /// first incomplete drain (a fresh home recut is tens of hash-group
+    /// segs; one cycle uploads a handful). Keep looping only while a cycle
+    /// actually uploaded; a no-progress cycle used to sleep-wait because
+    /// `will_finish` is true whenever sealed-home is not demoted. The
+    /// freeze+upload window is hours on a multi-GiB node (Tom 2026-08-19
+    /// packing-lock photograph): a 300s cap 500s a progressing drain.
+    /// Default 4h; override with LASTDB_OPERATOR_SNAPSHOT_DRAIN_SECS or
+    /// LASTDB_UDS_ADMIN_TIMEOUT_SECS (raise the daemon's admin timeout to
+    /// match, or the UDS handler 503s first).
+    async fn drain_snapshot_until_complete(
+        &self,
+        upload_stats: &mut LastStoreBackupUploadStats,
+    ) -> SyncResult<()> {
+        let drain_started = Instant::now();
+        let drain_deadline = Self::operator_snapshot_drain_deadline();
+        while let Some(missing) = upload_stats.known_missing_chunks() {
+            let will_finish = self.continuous_held_cut_drain_active().await;
+            if !Self::operator_snapshot_keep_draining(
+                will_finish,
+                upload_stats.uploaded,
+                drain_started.elapsed(),
+                drain_deadline,
+            ) {
+                return Err(Self::incomplete_cut_operator_error(
+                    missing,
+                    upload_stats.uploaded,
+                    will_finish,
+                ));
+            }
+            let next = self.drain_backup_publish_target(true).await?;
+            *upload_stats = next.0;
+            let _ = next.1;
+        }
+        Ok(())
+    }
+
     pub(super) async fn laststore_cloud_snapshot_once(
         &self,
         previous_manifest: Option<&BackupManifest>,
@@ -164,116 +284,18 @@ impl SyncEngine {
         // Same cloud-presence heal + reseal-bound abandon as the continuous
         // publisher. Operator/UDS snapshot path always allows re-cut.
         if upload_stats.source_missing > 0 {
-            let heal = self
-                .resolve_source_missing_via_cloud_presence(generation)
-                .await;
-            if heal.remaining < upload_stats.source_missing {
-                upload_stats.chunks_present = self
-                    .count_held_candidates_in_known_present()
-                    .await
-                    .unwrap_or(upload_stats.chunks_present);
-            }
-            upload_stats.source_missing = heal.remaining;
-            if heal.probe_error && upload_stats.source_missing > 0 {
-                // Could not confirm cloud presence for at least one digest
-                // this cycle (transport/auth error) — fail closed, retry the
-                // snapshot rather than abandoning on an unconfirmed residual.
-                return Err(SyncError::Network(format!(
-                    "backup snapshot could not confirm cloud presence for {} chunk(s) this \
-                     cycle (transport/auth error); not abandoning — retry the snapshot",
-                    upload_stats.source_missing
-                )));
-            }
+            self.heal_snapshot_source_missing(&mut upload_stats, generation)
+                .await?;
         }
-        while upload_stats.source_missing > 0 {
-            if !allow_recut {
-                return Err(SyncError::Storage(format!(
-                    "primary resume cut has {} source-missing chunks; retry with a new fenced cut",
-                    upload_stats.source_missing
-                )));
-            }
-            let abandoned = self
-                .handle_unpublishable_backup_cut(upload_stats.source_missing, generation)
-                .await;
-            if !abandoned {
-                let consecutive = self.backup_consecutive_reseal_kills.load(Ordering::Relaxed);
-                return Err(SyncError::Storage(format!(
-                    "backup snapshot cannot complete ({} chunks not in cloud, of which {} have \
-                     no local sealed file); automatic re-cut stopped after {consecutive} \
-                     consecutive reseal-killed cuts (max={MAX_CONSECUTIVE_RESEAL_KILLED_CUTS}) \
-                     — reseal rate is the defect (uploaded_this_drain={})",
-                    upload_stats
-                        .known_missing_chunks()
-                        .unwrap_or(upload_stats.source_missing),
-                    upload_stats.source_missing,
-                    upload_stats.uploaded
-                )));
-            }
-            self.ensure_backup_publish_target(previous_manifest).await?;
-            let next = self.drain_backup_publish_target(true).await?;
-            upload_stats = next.0;
-            generation = next.1;
-            if upload_stats.source_missing > 0 {
-                let heal = self
-                    .resolve_source_missing_via_cloud_presence(generation)
-                    .await;
-                if heal.remaining < upload_stats.source_missing {
-                    upload_stats.chunks_present = self
-                        .count_held_candidates_in_known_present()
-                        .await
-                        .unwrap_or(upload_stats.chunks_present);
-                }
-                upload_stats.source_missing = heal.remaining;
-                if heal.probe_error && upload_stats.source_missing > 0 {
-                    return Err(SyncError::Network(format!(
-                        "backup snapshot could not confirm cloud presence for {} chunk(s) this \
-                         cycle (transport/auth error); not abandoning — retry the snapshot",
-                        upload_stats.source_missing
-                    )));
-                }
-            }
-        }
-
-        // The drain already knows whether this cut can possibly be complete, and
-        // it knows it locally. `try_verify_manifest_chunks_present` costs one
-        // network round trip per chunk it has not already cached, sequentially —
-        // so asking it about a cut with thousands of un-uploaded chunks spends
-        // thousands of round trips to re-derive "incomplete", which the drain
-        // just established for free.
-        //
-        // Short-circuit on local state only. This is strictly conservative: it
-        // can only *skip* a verify that was going to fail, never admit a CAS the
-        // verify would have blocked.
-        // Operator snapshot must finish the held cut instead of 500-ing on the
-        // first incomplete drain (a fresh home recut is tens of hash-group
-        // segs; one cycle uploads a handful). Keep looping only while a cycle
-        // actually uploaded; a no-progress cycle used to sleep-wait because
-        // `will_finish` is true whenever sealed-home is not demoted. The
-        // freeze+upload window is hours on a multi-GiB node (Tom 2026-08-19
-        // packing-lock photograph): a 300s cap 500s a progressing drain.
-        // Default 4h; override with LASTDB_OPERATOR_SNAPSHOT_DRAIN_SECS or
-        // LASTDB_UDS_ADMIN_TIMEOUT_SECS (raise the daemon's admin timeout to
-        // match, or the UDS handler 503s first).
-        let drain_started = Instant::now();
-        let drain_deadline = Self::operator_snapshot_drain_deadline();
-        while let Some(missing) = upload_stats.known_missing_chunks() {
-            let will_finish = self.continuous_held_cut_drain_active().await;
-            if !Self::operator_snapshot_keep_draining(
-                will_finish,
-                upload_stats.uploaded,
-                drain_started.elapsed(),
-                drain_deadline,
-            ) {
-                return Err(Self::incomplete_cut_operator_error(
-                    missing,
-                    upload_stats.uploaded,
-                    will_finish,
-                ));
-            }
-            let next = self.drain_backup_publish_target(true).await?;
-            upload_stats = next.0;
-            let _ = next.1;
-        }
+        self.recut_snapshot_until_no_source_missing(
+            previous_manifest,
+            allow_recut,
+            &mut upload_stats,
+            &mut generation,
+        )
+        .await?;
+        self.drain_snapshot_until_complete(&mut upload_stats)
+            .await?;
         if let Some(expected) = expected_primary_resume_cut {
             self.require_held_primary_resume_cut(expected).await?;
         }

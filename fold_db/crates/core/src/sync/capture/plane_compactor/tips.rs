@@ -12,7 +12,6 @@ impl PlaneCompactor {
     /// apparent length. Require both a proportional gap and an absolute floor,
     /// then serialize the physical rewrite against a held backup cut.
     pub(crate) async fn maybe_compact_tips_plane(&self) {
-        // lint:fn-size-ok verbatim move from plane_compactor.rs; splitting this function is separate work
         let min_overhang = self.tips_compact_min_overhang_bytes.load(Ordering::Relaxed);
         if min_overhang == 0 {
             return;
@@ -76,6 +75,18 @@ impl PlaneCompactor {
             return;
         }
 
+        self.compact_tips_for_overhang(usage, overhang, min_bps, min_overhang)
+            .await;
+    }
+
+    /// Rewrite `tips` and report the outcome. Caller holds the backup guard.
+    async fn compact_tips_for_overhang(
+        &self,
+        usage: crate::storage::traits::CollectionDiskUsage,
+        overhang: u64,
+        min_bps: u64,
+        min_overhang: u64,
+    ) {
         let options = crate::storage::laststore::CollectionCompactOptions {
             collection: TIPS_NAMESPACE.to_string(),
             dry_run: false,
