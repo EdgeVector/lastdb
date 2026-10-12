@@ -258,10 +258,29 @@ pub async fn add_schema(
     let (schema_to_add, mutation_mappers_to_add, response_composition) =
         split_residual_registration(&state, request, registration_cover);
 
-    match state
+    let result = state
         .add_schema(schema_to_add, mutation_mappers_to_add)
-        .await
-    {
+        .await;
+    add_schema_outcome_response(
+        &state,
+        result,
+        &schema_name,
+        &telemetry_source,
+        telemetry_reason.as_deref(),
+        response_composition,
+    )
+}
+
+/// Record the match telemetry and build the HTTP response for one add-schema result.
+fn add_schema_outcome_response(
+    state: &SchemaServiceState,
+    result: schema_types::FoldDbResult<SchemaAddOutcome>,
+    schema_name: &str,
+    telemetry_source: &str,
+    telemetry_reason: Option<&str>,
+    response_composition: Option<SchemaRegistrationComposition>,
+) -> HttpResponse {
+    match result {
         Ok(SchemaAddOutcome::Added(schema, mutation_mappers)) => {
             state.record_schema_match_outcome(
                 if response_composition.is_some() {
@@ -269,8 +288,8 @@ pub async fn add_schema(
                 } else {
                     "created_new"
                 },
-                &telemetry_source,
-                telemetry_reason.as_deref(),
+                telemetry_source,
+                telemetry_reason,
             );
             let system = state.is_system_schema(&schema.name);
             HttpResponse::Created().json(AddSchemaResponse {
@@ -285,8 +304,8 @@ pub async fn add_schema(
         Ok(SchemaAddOutcome::AlreadyExists(schema, mutation_mappers)) => {
             state.record_schema_match_outcome(
                 "matched_existing",
-                &telemetry_source,
-                telemetry_reason.as_deref(),
+                telemetry_source,
+                telemetry_reason,
             );
             let system = state.is_system_schema(&schema.name);
             HttpResponse::Ok().json(AddSchemaResponse {
@@ -301,8 +320,8 @@ pub async fn add_schema(
         Ok(SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers)) => {
             state.record_schema_match_outcome(
                 "expanded_existing",
-                &telemetry_source,
-                telemetry_reason.as_deref(),
+                telemetry_source,
+                telemetry_reason,
             );
             let system = state.is_system_schema(&schema.name);
             HttpResponse::Created().json(AddSchemaResponse {
@@ -326,8 +345,8 @@ pub async fn add_schema(
         Ok(SchemaAddOutcome::Composed(schema, mutation_mappers, _advice)) => {
             state.record_schema_match_outcome(
                 "composed_existing",
-                &telemetry_source,
-                telemetry_reason.as_deref(),
+                telemetry_source,
+                telemetry_reason,
             );
             let system = state.is_system_schema(&schema.name);
             HttpResponse::Created().json(AddSchemaResponse {
@@ -340,11 +359,7 @@ pub async fn add_schema(
             })
         }
         Ok(SchemaAddOutcome::DescriptiveNameConflict(conflict)) => {
-            state.record_schema_match_outcome(
-                "rejected",
-                &telemetry_source,
-                telemetry_reason.as_deref(),
-            );
+            state.record_schema_match_outcome("rejected", telemetry_source, telemetry_reason);
             tracing::warn!(
                 target: "schema_service::schema",
                 descriptive_name = %conflict.descriptive_name,
@@ -354,11 +369,7 @@ pub async fn add_schema(
             HttpResponse::Conflict().json(conflict)
         }
         Err(error) => {
-            state.record_schema_match_outcome(
-                "rejected",
-                &telemetry_source,
-                telemetry_reason.as_deref(),
-            );
+            state.record_schema_match_outcome("rejected", telemetry_source, telemetry_reason);
             tracing::error!(
             target: "schema_service::schema",
                 "Failed to add schema '{}': {}",

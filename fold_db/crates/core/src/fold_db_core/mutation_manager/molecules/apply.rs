@@ -201,6 +201,33 @@ impl MutationManager {
         rebased_updates
     }
 
+    /// Bind cross-key record proteins against every peer schema when this batch
+    /// writes a record-molecule field.
+    async fn bind_peer_record_proteins(
+        &self,
+        schema: &Schema,
+        atom_results: &[(usize, String, crate::atom::Atom)],
+    ) -> Result<(), SchemaError> {
+        let store = self.db_ops.atoms();
+        if atom_results
+            .iter()
+            .any(|(_, name, _)| crate::record_molecule::is_record_molecule_field(name))
+        {
+            if let Ok(peers) = self.schema_manager.get_schemas() {
+                for (peer_name, peer) in peers {
+                    if peer_name == schema.name {
+                        continue;
+                    }
+                    crate::schema::field_hash_coherence::bind_cross_key_record_protein(
+                        store, schema, &peer,
+                    )
+                    .await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// After normal molecule tip writes, prepare protein sibling tip updates
     /// when the entry field molecule is bound (field_hash auto-protein or
     /// explicit bind).
@@ -232,32 +259,9 @@ impl MutationManager {
         // entry slot from field names alone, so exclude every slot this batch
         // writes directly. Publishing an entry twice lets a stale sibling
         // plan replace the fresh resident tip even when durable LWW rejects it.
-        let entry_slots: HashSet<(String, String, String)> = atom_results
-            .iter()
-            .filter_map(|(idx, field_name, _)| {
-                let field = schema.runtime_fields.get(field_name)?;
-                let molecule_uuid = field.common().molecule_uuid()?.clone();
-                let (hash, range) = field.disk_slot_for_key(&mutation_key_values[*idx])?;
-                Some((molecule_uuid, hash, range))
-            })
-            .collect();
+        let entry_slots = direct_entry_slots(schema, mutation_key_values, atom_results);
 
-        if atom_results
-            .iter()
-            .any(|(_, name, _)| crate::record_molecule::is_record_molecule_field(name))
-        {
-            if let Ok(peers) = self.schema_manager.get_schemas() {
-                for (peer_name, peer) in peers {
-                    if peer_name == schema.name {
-                        continue;
-                    }
-                    crate::schema::field_hash_coherence::bind_cross_key_record_protein(
-                        store, schema, &peer,
-                    )
-                    .await?;
-                }
-            }
-        }
+        self.bind_peer_record_proteins(schema, atom_results).await?;
 
         let eligible =
             eligible_protein_atoms(schema, schema_mutations, mutation_key_values, atom_results);
@@ -284,50 +288,14 @@ impl MutationManager {
                     ))
                 })?;
 
-            let mut fields: HashMap<String, String> = HashMap::new();
-            if let Some(ref key) = schema.key {
-                if let (Some(hf), Some(h)) = (key.hash_field.as_ref(), key_value.hash.as_ref()) {
-                    fields.insert(hf.clone(), h.clone());
-                }
-                if let (Some(rf), Some(r)) = (key.range_field.as_ref(), key_value.range.as_ref()) {
-                    fields.insert(rf.clone(), r.clone());
-                }
-            }
-            // Include sibling key fields if present on the mutation payload
-            // (multi-key fold needs both board and milestone in the field map).
-            for (k, v) in &mutation.fields_and_values {
-                if let Some(s) = v.as_str() {
-                    fields.entry(k.clone()).or_insert_with(|| s.to_string());
-                } else if !v.is_null() {
-                    fields
-                        .entry(k.clone())
-                        .or_insert_with(|| v.to_string().trim_matches('"').to_string());
-                }
-            }
+            let fields = sibling_key_fields(schema, key_value, mutation);
 
             let entry_layout = schema.key.as_ref().and_then(|key| {
                 key.hash_field
                     .as_deref()
                     .map(|hash_field| (hash_field, key.range_field.as_deref()))
             });
-            let author_clock = mutation.imported_written_at.map(|written_at| {
-                let device_id = if mutation.author_clock_writer_id.is_empty() {
-                    match &mutation.provenance {
-                        Some(crate::atom::provenance::Provenance::User { pubkey, .. }) => {
-                            pubkey.clone()
-                        }
-                        _ => mutation.pub_key.clone(),
-                    }
-                } else {
-                    mutation.author_clock_writer_id.clone()
-                };
-                (
-                    written_at,
-                    mutation.logical_counter,
-                    device_id,
-                    mutation.uuid.clone(),
-                )
-            });
+            let author_clock = mutation_author_clock(mutation);
             let updates = store
                 .protein_sibling_tip_updates_for_loaded_protein(
                     protein,
@@ -355,4 +323,71 @@ impl MutationManager {
         }
         Ok(sibling_updates)
     }
+}
+
+/// Every `(molecule, hash, range)` slot this batch writes directly.
+fn direct_entry_slots(
+    schema: &Schema,
+    mutation_key_values: &[KeyValue],
+    atom_results: &[(usize, String, crate::atom::Atom)],
+) -> HashSet<(String, String, String)> {
+    atom_results
+        .iter()
+        .filter_map(|(idx, field_name, _)| {
+            let field = schema.runtime_fields.get(field_name)?;
+            let molecule_uuid = field.common().molecule_uuid()?.clone();
+            let (hash, range) = field.disk_slot_for_key(&mutation_key_values[*idx])?;
+            Some((molecule_uuid, hash, range))
+        })
+        .collect()
+}
+
+/// Key fields of the entry plus any string-like payload fields (multi-key fold
+/// needs both board and milestone in the field map).
+fn sibling_key_fields(
+    schema: &Schema,
+    key_value: &KeyValue,
+    mutation: &Mutation,
+) -> HashMap<String, String> {
+    let mut fields: HashMap<String, String> = HashMap::new();
+    if let Some(ref key) = schema.key {
+        if let (Some(hf), Some(h)) = (key.hash_field.as_ref(), key_value.hash.as_ref()) {
+            fields.insert(hf.clone(), h.clone());
+        }
+        if let (Some(rf), Some(r)) = (key.range_field.as_ref(), key_value.range.as_ref()) {
+            fields.insert(rf.clone(), r.clone());
+        }
+    }
+    // Include sibling key fields if present on the mutation payload
+    // (multi-key fold needs both board and milestone in the field map).
+    for (k, v) in &mutation.fields_and_values {
+        if let Some(s) = v.as_str() {
+            fields.entry(k.clone()).or_insert_with(|| s.to_string());
+        } else if !v.is_null() {
+            fields
+                .entry(k.clone())
+                .or_insert_with(|| v.to_string().trim_matches('"').to_string());
+        }
+    }
+    fields
+}
+
+/// The imported author clock `(written_at, counter, writer, uuid)` of a mutation.
+fn mutation_author_clock(mutation: &Mutation) -> Option<(u64, u64, String, String)> {
+    mutation.imported_written_at.map(|written_at| {
+        let device_id = if mutation.author_clock_writer_id.is_empty() {
+            match &mutation.provenance {
+                Some(crate::atom::provenance::Provenance::User { pubkey, .. }) => pubkey.clone(),
+                _ => mutation.pub_key.clone(),
+            }
+        } else {
+            mutation.author_clock_writer_id.clone()
+        };
+        (
+            written_at,
+            mutation.logical_counter,
+            device_id,
+            mutation.uuid.clone(),
+        )
+    })
 }

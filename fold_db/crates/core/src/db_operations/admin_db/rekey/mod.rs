@@ -35,8 +35,6 @@ impl AtomStore {
         &self,
         options: AtomPartitionRekeyOptions,
     ) -> Result<AtomPartitionRekeyReport, SchemaError> {
-        use crate::schema::types::field::FilterUtils;
-
         // Bounds the transient allocation of a pass to the page, independent of
         // store size.
         //
@@ -88,6 +86,69 @@ impl AtomStore {
             checkpoint.completed = false;
         }
 
+        let mut report = Self::new_rekey_report(&options, &checkpoint, tip_page);
+
+        // Baseline of the durable counters this call accumulates onto. Held
+        // separately so the checkpoint can be re-derived and persisted after
+        // every page without double-counting.
+        let baseline = checkpoint.clone();
+
+        let (last_tip, saw_remaining) = self
+            .walk_rekey_pages(
+                &options,
+                storage_prefix,
+                &checkpoint_key,
+                tip_page,
+                &baseline,
+                &mut report,
+                &mut checkpoint,
+            )
+            .await?;
+
+        // The walk reached the end of the keyspace iff it was not cut short by
+        // max_ops. That is a statement about the *scan*, and it is all a dry run
+        // can ever establish.
+        report.scan_reached_end = !saw_remaining;
+        // The migration is complete only when an executing pass walked to the
+        // end. A dry run writes nothing, so it cannot complete anything.
+        report.completed = report.scan_reached_end && !options.dry_run;
+
+        if options.dry_run {
+            Self::apply_dry_run_checkpoint(&mut checkpoint, &baseline, &report, last_tip);
+        } else {
+            checkpoint = self
+                .persist_rekey_checkpoint(
+                    &checkpoint_key,
+                    &baseline,
+                    &report,
+                    &last_tip,
+                    report.completed,
+                )
+                .await?;
+            let _ = self.flush().await;
+        }
+        report.tips_walked_total = checkpoint.tips_walked_total;
+        report.checkpoint = checkpoint;
+
+        Ok(report)
+    }
+
+    /// Keyset-walk the `mk:` range page by page from the checkpoint cursor,
+    /// rekeying each page and persisting the cursor after it. Returns the last
+    /// tip walked and whether `max_ops` cut the walk short.
+    #[allow(clippy::too_many_arguments)]
+    async fn walk_rekey_pages(
+        &self,
+        options: &AtomPartitionRekeyOptions,
+        storage_prefix: Option<&str>,
+        checkpoint_key: &str,
+        tip_page: usize,
+        baseline: &AtomPartitionRekeyCheckpoint,
+        report: &mut AtomPartitionRekeyReport,
+        checkpoint: &mut AtomPartitionRekeyCheckpoint,
+    ) -> Result<(Option<String>, bool), SchemaError> {
+        use crate::schema::types::field::FilterUtils;
+
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
         let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
 
@@ -97,13 +158,6 @@ impl AtomStore {
         // the backend encodes key bounds, and this does not.
         let resume_after = checkpoint.after_tip_key.clone();
         let mut page_start = resume_after.clone().unwrap_or_else(|| mk_prefix.clone());
-
-        let mut report = Self::new_rekey_report(&options, &checkpoint, tip_page);
-
-        // Baseline of the durable counters this call accumulates onto. Held
-        // separately so the checkpoint can be re-derived and persisted after
-        // every page without double-counting.
-        let baseline = checkpoint.clone();
 
         let mut ops = 0usize;
         let mut last_tip: Option<String> = checkpoint.after_tip_key.clone();
@@ -149,7 +203,7 @@ impl AtomStore {
             if !decoded.is_empty() {
                 ops += decoded.len();
                 last_tip = Some(decoded[decoded.len() - 1].tip_key.clone());
-                self.rekey_page(&decoded, &options, storage_prefix, &mut report)
+                self.rekey_page(&decoded, options, storage_prefix, report)
                     .await?;
             }
 
@@ -157,8 +211,8 @@ impl AtomStore {
             // restart mid-call resumes at the next page rather than redoing this
             // call. The cursor only ever names a tip whose work is done.
             if !options.dry_run {
-                checkpoint = self
-                    .persist_rekey_checkpoint(&checkpoint_key, &baseline, &report, &last_tip, false)
+                *checkpoint = self
+                    .persist_rekey_checkpoint(checkpoint_key, baseline, report, &last_tip, false)
                     .await?;
             }
 
@@ -167,32 +221,7 @@ impl AtomStore {
             }
         }
 
-        // The walk reached the end of the keyspace iff it was not cut short by
-        // max_ops. That is a statement about the *scan*, and it is all a dry run
-        // can ever establish.
-        report.scan_reached_end = !saw_remaining;
-        // The migration is complete only when an executing pass walked to the
-        // end. A dry run writes nothing, so it cannot complete anything.
-        report.completed = report.scan_reached_end && !options.dry_run;
-
-        if options.dry_run {
-            Self::apply_dry_run_checkpoint(&mut checkpoint, &baseline, &report, last_tip);
-        } else {
-            checkpoint = self
-                .persist_rekey_checkpoint(
-                    &checkpoint_key,
-                    &baseline,
-                    &report,
-                    &last_tip,
-                    report.completed,
-                )
-                .await?;
-            let _ = self.flush().await;
-        }
-        report.tips_walked_total = checkpoint.tips_walked_total;
-        report.checkpoint = checkpoint;
-
-        Ok(report)
+        Ok((last_tip, saw_remaining))
     }
 }
 
