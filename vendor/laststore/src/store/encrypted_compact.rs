@@ -109,10 +109,11 @@ pub(super) fn evict_frame_cache(sh: &mut Shard, key: FrameKey) {
     }
 }
 
+/// Live records grouped by the source frame that holds them.
+type FrameMembers = BTreeMap<FrameKey, Vec<(String, Loc)>>;
+
 /// Group the live set by source frame, with locations that have no frame apart.
-fn live_locations_by_source_frame(
-    sh: &Shard,
-) -> Result<(BTreeMap<FrameKey, Vec<(String, Loc)>>, Vec<(String, Loc)>)> {
+fn live_locations_by_source_frame(sh: &Shard) -> Result<(FrameMembers, Vec<(String, Loc)>)> {
     let mut by_source: BTreeMap<FrameKey, Vec<(String, Loc)>> = BTreeMap::new();
     let mut unframed: Vec<(String, Loc)> = Vec::new();
     for (id, loc) in sh.live_locations()? {
