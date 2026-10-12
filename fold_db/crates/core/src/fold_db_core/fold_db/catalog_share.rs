@@ -1,7 +1,7 @@
 use crate::access::{parse_db_locator, DbLocator};
 use crate::db_operations::{DbCatalogEntry, DbCatalogKeySelection};
 use crate::error::{FoldDbError, FoldDbResult};
-use crate::schema::types::SchemaError;
+use crate::schema::types::{Schema, SchemaError};
 use crate::storage::StorageError;
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +34,90 @@ impl FoldDB {
         target_access_domain: &str,
         target_domain_wrap_key: &[u8; 32],
     ) -> FoldDbResult<DbSchemaShareResult> {
+        let ShareTarget {
+            source_parsed,
+            source_canonical,
+            target_canonical,
+            target_entry,
+        } = self
+            .resolve_share_target(source_db_locator, target_db_locator, schema_name)
+            .await?;
+
+        let schema = self
+            .schema_manager()
+            .get_schema_metadata(schema_name)?
+            .ok_or_else(|| SchemaError::NotFound(schema_name.to_string()))?;
+        let storage_prefix = target_entry.instance_id.clone();
+        let mut molecule_uuids: Vec<String> = schema
+            .field_molecule_uuids
+            .as_ref()
+            .into_iter()
+            .flat_map(|molecules| molecules.values().cloned())
+            .collect();
+        molecule_uuids.sort_unstable();
+        molecule_uuids.dedup();
+        let mut _molecule_guards = Vec::with_capacity(molecule_uuids.len());
+        for molecule_uuid in &molecule_uuids {
+            _molecule_guards.push(
+                self.db_ops()
+                    .atoms()
+                    .lock_molecule_commit(molecule_uuid, storage_prefix.as_deref())
+                    .await,
+            );
+        }
+        let molecules_wrapped = self
+            .db_ops()
+            .molecule_keys()
+            .grant_schema_domain(&schema, target_access_domain, target_domain_wrap_key)
+            .await?;
+
+        let republished_rows = if source_parsed == DbLocator::Personal {
+            self.attach_shared_instance_to_org_targets(
+                &target_canonical,
+                schema_name,
+                target_entry.instance_id.as_deref(),
+            )
+            .await?;
+            self.republish_personal_schema_to_org_targets(schema_name)
+                .await?
+        } else {
+            0
+        };
+        self.commit_catalog_share(
+            &target_entry,
+            &target_canonical,
+            schema_name,
+            &schema,
+            storage_prefix.as_deref(),
+        )
+        .await?;
+        Ok(DbSchemaShareResult {
+            source_db_locator: source_canonical,
+            target_entry,
+            access_domain: target_access_domain.to_string(),
+            molecules_wrapped,
+            republished_rows,
+        })
+    }
+}
+
+/// Parsed and validated endpoints of one schema share.
+struct ShareTarget {
+    source_parsed: DbLocator,
+    source_canonical: String,
+    target_canonical: String,
+    target_entry: DbCatalogEntry,
+}
+
+impl FoldDB {
+    /// Parse both locators, read the source membership, and reject a target
+    /// that already references another instance of the schema.
+    async fn resolve_share_target(
+        &self,
+        source_db_locator: &str,
+        target_db_locator: &str,
+        schema_name: &str,
+    ) -> FoldDbResult<ShareTarget> {
         let catalog = self.db_ops().db_catalog();
         let source_parsed = parse_db_locator(source_db_locator)
             .map_err(|e| FoldDbError::Config(format!("invalid source db locator: {e}")))?;
@@ -76,58 +160,31 @@ impl FoldDB {
                 .into());
             }
         }
+        Ok(ShareTarget {
+            source_parsed,
+            source_canonical,
+            target_canonical,
+            target_entry,
+        })
+    }
 
-        let schema = self
-            .schema_manager()
-            .get_schema_metadata(schema_name)?
-            .ok_or_else(|| SchemaError::NotFound(schema_name.to_string()))?;
-        let storage_prefix = target_entry.instance_id.clone();
-        let mut molecule_uuids: Vec<String> = schema
-            .field_molecule_uuids
-            .as_ref()
-            .into_iter()
-            .flat_map(|molecules| molecules.values().cloned())
-            .collect();
-        molecule_uuids.sort_unstable();
-        molecule_uuids.dedup();
-        let mut _molecule_guards = Vec::with_capacity(molecule_uuids.len());
-        for molecule_uuid in &molecule_uuids {
-            _molecule_guards.push(
-                self.db_ops()
-                    .atoms()
-                    .lock_molecule_commit(molecule_uuid, storage_prefix.as_deref())
-                    .await,
-            );
-        }
-        let molecules_wrapped = self
-            .db_ops()
-            .molecule_keys()
-            .grant_schema_domain(&schema, target_access_domain, target_domain_wrap_key)
-            .await?;
-
-        let republished_rows = if source_parsed == DbLocator::Personal {
-            self.attach_shared_instance_to_org_targets(
-                &target_canonical,
-                schema_name,
-                target_entry.instance_id.as_deref(),
-            )
-            .await?;
-            self.republish_personal_schema_to_org_targets(schema_name)
-                .await?
-        } else {
-            0
-        };
+    /// Prepare the atom references, write the catalog entry, and commit the
+    /// references. A failed catalog write aborts the prepared references.
+    async fn commit_catalog_share(
+        &self,
+        target_entry: &DbCatalogEntry,
+        target_canonical: &str,
+        schema_name: &str,
+        schema: &Schema,
+        storage_prefix: Option<&str>,
+    ) -> FoldDbResult<()> {
+        let catalog = self.db_ops().db_catalog();
         let atom_ref_plan = self
             .db_ops()
             .atoms()
-            .prepare_catalog_atom_refs(
-                &target_canonical,
-                schema_name,
-                &schema,
-                storage_prefix.as_deref(),
-            )
+            .prepare_catalog_atom_refs(target_canonical, schema_name, schema, storage_prefix)
             .await?;
-        if let Err(catalog_error) = catalog.put(&target_entry).await {
+        if let Err(catalog_error) = catalog.put(target_entry).await {
             let abort_result = self
                 .db_ops()
                 .atoms()
@@ -139,13 +196,7 @@ impl FoldDB {
             .atoms()
             .commit_catalog_atom_refs(atom_ref_plan)
             .await?;
-        Ok(DbSchemaShareResult {
-            source_db_locator: source_canonical,
-            target_entry,
-            access_domain: target_access_domain.to_string(),
-            molecules_wrapped,
-            republished_rows,
-        })
+        Ok(())
     }
 }
 
