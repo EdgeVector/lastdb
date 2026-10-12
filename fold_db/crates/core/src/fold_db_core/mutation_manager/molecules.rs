@@ -2,6 +2,7 @@
 
 mod apply;
 mod apply_gate;
+mod field_atom;
 mod persist;
 mod prepare;
 mod protein_batch;
