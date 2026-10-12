@@ -283,7 +283,7 @@ impl MutationManager {
             crate::request_phases::RequestCounter::ResidentOperations,
             erased,
         );
-        return Ok(receipt);
+        Ok(receipt)
     }
 
     /// Enqueue each peeled erasure group on its persist lanes and return the
