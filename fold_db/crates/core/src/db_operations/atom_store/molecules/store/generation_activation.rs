@@ -59,6 +59,73 @@ impl AtomStore {
         Ok(items)
     }
 
+    /// A full rewrite requires the molecule's complete key set. A tail
+    /// molecule holds only the keys this write touched.
+    fn refuse_partial_full_rewrite(
+        molecule_uuid: &str,
+        data: &MoleculeData,
+    ) -> Result<(), SchemaError> {
+        if data.order_is_tail() {
+            return Err(SchemaError::InvalidData(format!(
+                "refusing full rewrite of molecule {molecule_uuid} from a write-only \
+                 (partial) molecule: it holds {} touched key(s) and an order tail, \
+                 not the molecule's complete state",
+                data.per_key_records().len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Derived HashRange page-index rows for a full rewrite, plus the
+    /// completeness marker when the legacy marker was absent.
+    fn page_index_items(
+        molecule_uuid: &str,
+        records: &[(String, PerKeyRecord)],
+        header: &MoleculeHeader,
+        legacy_page_index_complete: bool,
+        storage_prefix: Option<&str>,
+    ) -> Vec<(String, Value)> {
+        let mut items: Vec<(String, Value)> = records
+            .iter()
+            .filter_map(|(base_key, _)| {
+                hash_range_page_index_item_for_record_key(molecule_uuid, base_key, storage_prefix)
+            })
+            .collect();
+        if !legacy_page_index_complete {
+            // Stamp the marker with the header this full rewrite is writing:
+            // the index emitted just above is derived from exactly these
+            // records, so a later rebuild at an unchanged header is provably
+            // a no-op and can be skipped.
+            items.push(hash_range_page_index_complete_item(
+                molecule_uuid,
+                header.version,
+                header.updated_at,
+                false,
+                storage_prefix,
+            ));
+        }
+        items
+    }
+
+    /// Serialized generation tip records keyed for storage.
+    fn tip_record_items(
+        records: &[(String, PerKeyRecord)],
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<(String, Value)>, SchemaError> {
+        records
+            .iter()
+            .map(|(base_key, record)| {
+                serde_json::to_value(record)
+                    .map(|value| (build_storage_key(storage_prefix, base_key), value))
+                    .map_err(|error| {
+                        SchemaError::InvalidData(format!(
+                            "serialize generation tip record: {error}"
+                        ))
+                    })
+            })
+            .collect()
+    }
+
     pub(in super::super) async fn prepare_molecule_generation_activation(
         &self,
         molecule_uuid: &str,
@@ -68,16 +135,7 @@ impl AtomStore {
         generation_cut: super::super::PreparedMoleculeGeneration,
     ) -> Result<super::super::PreparedMoleculeGenerationActivation, SchemaError> {
         let records = self.per_key_storage_records(molecule_uuid, data, domain)?;
-        // A full rewrite requires the molecule's complete key set. A tail
-        // molecule holds only the keys this write touched.
-        if data.order_is_tail() {
-            return Err(SchemaError::InvalidData(format!(
-                "refusing full rewrite of molecule {molecule_uuid} from a write-only \
-                 (partial) molecule: it holds {} touched key(s) and an order tail, \
-                 not the molecule's complete state",
-                data.per_key_records().len()
-            )));
-        }
+        Self::refuse_partial_full_rewrite(molecule_uuid, data)?;
         let header = MoleculeHeader {
             version: data.version(),
             updated_at: data.updated_at(),
@@ -124,22 +182,13 @@ impl AtomStore {
             storage_prefix,
         )?);
         if include_hash_range_page_index {
-            items.extend(records.iter().filter_map(|(base_key, _)| {
-                hash_range_page_index_item_for_record_key(molecule_uuid, base_key, storage_prefix)
-            }));
-            if !legacy_page_index_complete {
-                // Stamp the marker with the header this full rewrite is writing:
-                // the index emitted just above is derived from exactly these
-                // records, so a later rebuild at an unchanged header is provably
-                // a no-op and can be skipped.
-                items.push(hash_range_page_index_complete_item(
-                    molecule_uuid,
-                    header.version,
-                    header.updated_at,
-                    false,
-                    storage_prefix,
-                ));
-            }
+            items.extend(Self::page_index_items(
+                molecule_uuid,
+                &records,
+                &header,
+                legacy_page_index_complete,
+                storage_prefix,
+            ));
         }
         // HashKey lookup markers (`mhk:`) — retired co-write; see
         // HASH_RANGE_HASH_KEY_LOOKUP_ENABLED.
@@ -160,18 +209,7 @@ impl AtomStore {
             header_value,
         ));
 
-        let tip_items: Vec<(String, Value)> = records
-            .iter()
-            .map(|(base_key, record)| {
-                serde_json::to_value(record)
-                    .map(|value| (build_storage_key(storage_prefix, base_key), value))
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "serialize generation tip record: {error}"
-                        ))
-                    })
-            })
-            .collect::<Result<_, _>>()?;
+        let tip_items = Self::tip_record_items(&records, storage_prefix)?;
         let automatic_gc_uuids = self.automatic_gc_tip_reference_uuids(&tip_items, storage_prefix);
         items
             .extend(self.automatic_gc_reference_marker_items(&automatic_gc_uuids, storage_prefix)?);

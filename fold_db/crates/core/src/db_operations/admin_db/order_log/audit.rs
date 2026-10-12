@@ -1,3 +1,4 @@
+use super::audit_walk::{OrderAuditWalk, WalkStep};
 use super::*;
 
 /// Raw `mk:` rows per storage page. Bounds one pass's transient scan
@@ -41,18 +42,7 @@ impl AtomStore {
         let mut skip_head = after_key.map(str::to_owned);
         let mut range_exhausted = false;
 
-        // The molecule currently being walked, and the last key seen for it.
-        // Nothing is decided until the walk leaves the molecule, so a pass that
-        // is cut short cannot report a half-counted molecule as healthy.
-        //
-        // `unique` tracks decoded (hash, range) identities so H1 (missing
-        // append: unique > moc) can be told from H2 (dual encoding: raw > unique
-        // with unique ≈ moc). Undecodable suffixes fall back to the full storage
-        // key so they never collapse into each other.
-        let mut open: Option<OpenMoleculeWalk> = None;
-        let mut last_key_of_open: Option<String> = None;
-        let mut decided_molecules: HashSet<String> = HashSet::new();
-        let mut stop_at_boundary = false;
+        let mut walk = OrderAuditWalk::default();
 
         while !range_exhausted {
             let rows = self
@@ -75,89 +65,59 @@ impl AtomStore {
                 if head.as_deref() == Some(key.as_str()) {
                     continue;
                 }
-                let Some(molecule) = key
-                    .strip_prefix(mk_prefix.as_str())
-                    .and_then(|rest| rest.split_once(':'))
-                    .map(|(molecule, _)| molecule.to_string())
-                else {
-                    continue;
-                };
-                let logical = Self::order_audit_logical_id(&molecule, &key, mk_prefix.as_str());
-
-                match &mut open {
-                    Some(cur) if cur.molecule == molecule => {
-                        cur.raw_keys += 1;
-                        cur.unique.insert(logical);
-                        last_key_of_open = Some(key);
+                let step = self
+                    .walk_mk_row(
+                        &mut report,
+                        &order_counts,
+                        &mut walk,
+                        key,
+                        &mk_prefix,
+                        storage_prefix,
+                    )
+                    .await;
+                if step == WalkStep::Counted {
+                    report.keys_scanned += 1;
+                    // Soft caps: arm the brake, and stop at the next boundary. A
+                    // HARD cap here decides the molecule the walk is standing
+                    // inside, on a key count that is still partial — and a partial
+                    // count under a full `moc:` reads as healthy. With a hard cap
+                    // the truncated molecule is not merely mis-scored, it
+                    // disappears from the report.
+                    if !walk.stop_at_boundary
+                        && (max_keys.is_some_and(|max| report.keys_scanned as usize >= max)
+                            || pass_started.elapsed() >= PASS_TIME_BUDGET)
+                    {
+                        walk.stop_at_boundary = true;
                     }
-                    _ => {
-                        // Left the previous molecule: it is now fully walked.
-                        if let Some(done) = open.take() {
-                            let molecule = self
-                                .decide_open_molecule(
-                                    &mut report,
-                                    &order_counts,
-                                    done,
-                                    storage_prefix,
-                                )
-                                .await;
-                            decided_molecules.insert(molecule);
-                            report.next_after_key = last_key_of_open.take();
-                        }
-                        if stop_at_boundary {
-                            // This row belongs to the NEXT molecule and is not
-                            // counted: the cursor points before it, so the
-                            // resumed pass walks it.
-                            report.more_remaining = true;
-                            return Ok(Self::finish_order_log_audit(
-                                report,
-                                &order_counts,
-                                &decided_molecules,
-                                false,
-                            ));
-                        }
-                        let mut unique = HashSet::new();
-                        unique.insert(logical);
-                        open = Some(OpenMoleculeWalk {
-                            molecule,
-                            raw_keys: 1,
-                            unique,
-                        });
-                        last_key_of_open = Some(key);
-                    }
-                }
-                report.keys_scanned += 1;
-
-                // Soft caps: arm the brake, and stop at the next boundary. A
-                // HARD cap here decides the molecule the walk is standing
-                // inside, on a key count that is still partial — and a partial
-                // count under a full `moc:` reads as healthy. Verified by
-                // mutation: with a hard cap, the truncated molecule in
-                // `order_log_audit_paging_never_clears_a_partly_walked_molecule`
-                // is not merely mis-scored, it disappears from the report.
-                if !stop_at_boundary
-                    && (max_keys.is_some_and(|max| report.keys_scanned as usize >= max)
-                        || pass_started.elapsed() >= PASS_TIME_BUDGET)
-                {
-                    stop_at_boundary = true;
+                } else if step == WalkStep::StopPass {
+                    // This row belongs to the NEXT molecule and is not
+                    // counted: the cursor points before it, so the
+                    // resumed pass walks it.
+                    report.more_remaining = true;
+                    return Ok(Self::finish_order_log_audit(
+                        report,
+                        &order_counts,
+                        &walk.decided_molecules,
+                        false,
+                    ));
                 }
             }
             skip_head = Some(page_start.clone());
         }
 
         // The keyspace ended, so the molecule still open is complete too.
-        if let Some(done) = open.take() {
+        if let Some(done) = walk.open.take() {
             let molecule = self
                 .decide_open_molecule(&mut report, &order_counts, done, storage_prefix)
                 .await;
-            decided_molecules.insert(molecule);
+            walk.decided_molecules.insert(molecule);
         }
         report.next_after_key = None;
         let whole_keyspace = after_key.is_none();
         Ok(Self::finish_order_log_audit(
             report,
             &order_counts,
-            &decided_molecules,
+            &walk.decided_molecules,
             whole_keyspace,
         ))
     }
@@ -195,7 +155,7 @@ impl AtomStore {
     }
 
     /// Decide a fully walked molecule and return its uuid.
-    async fn decide_open_molecule(
+    pub(super) async fn decide_open_molecule(
         &self,
         report: &mut OrderLogAudit,
         order_counts: &HashMap<String, u64>,

@@ -45,6 +45,115 @@ impl MutationManager {
         .await
     }
 
+    /// Whether the schema feeds the retention-age or hash-partition trackers.
+    fn retention_tracking(
+        schema: &crate::schema::types::Schema,
+        storage_prefix: Option<&str>,
+    ) -> (bool, bool) {
+        use crate::schema::types::schema::DeclarativeSchemaType as Kind;
+        let tracks_age =
+            storage_prefix.is_none() && matches!(&schema.schema_type, Kind::Hash | Kind::Single);
+        let tracks_hash_partitions =
+            storage_prefix.is_none() && matches!(&schema.schema_type, Kind::HashRange);
+        (tracks_age, tracks_hash_partitions)
+    }
+
+    /// Create atoms and key values, restore missing molecules, and dedupe.
+    #[allow(clippy::type_complexity)]
+    async fn prepare_atom_phase(
+        &self,
+        schema_name: &str,
+        schema: &mut crate::schema::types::Schema,
+        schema_mutations: &mut [Mutation],
+        storage_prefix: Option<&str>,
+        timing_breakdown: &mut HashMap<&str, std::time::Duration>,
+    ) -> Result<
+        (
+            Vec<crate::schema::types::KeyValue>,
+            Vec<(usize, String, crate::atom::Atom)>,
+            Option<Vec<(crate::atom::Atom, Option<crate::atom::AtomPartition>)>>,
+            HashMap<String, HashSet<crate::db_operations::ChangedKey>>,
+        ),
+        SchemaError,
+    > {
+        let phase1_start = std::time::Instant::now();
+        let (mutation_key_values, atom_results, deferred_atoms) = self
+            .prepare_atoms_and_key_values(schema_name, schema, schema_mutations, storage_prefix)?;
+        Self::add_timing(
+            timing_breakdown,
+            "  - create_atoms_batch",
+            phase1_start.elapsed(),
+        );
+
+        let changed_keys =
+            Self::changed_keys_by_field(schema, schema_mutations, &mutation_key_values);
+        let restore_start = std::time::Instant::now();
+        self.restore_missing_molecules(schema, &changed_keys)
+            .await?;
+        Self::add_timing(
+            timing_breakdown,
+            "  - restore_molecules",
+            restore_start.elapsed(),
+        );
+
+        let atom_results = self.dedupe_atom_results(
+            schema_name,
+            schema,
+            schema_mutations,
+            &mutation_key_values,
+            atom_results,
+            timing_breakdown,
+        );
+        Ok((
+            mutation_key_values,
+            atom_results,
+            deferred_atoms,
+            changed_keys,
+        ))
+    }
+
+    /// Prepare sibling tip data before resident apply. There must be no await
+    /// between apply and the infallible lane fill, or cancellation can drop
+    /// the only durable owner after the value becomes visible.
+    async fn prepare_sibling_phase(
+        &self,
+        schema: &crate::schema::types::Schema,
+        schema_mutations: &[Mutation],
+        mutation_key_values: &[crate::schema::types::KeyValue],
+        atom_results: &[(usize, String, crate::atom::Atom)],
+        timing_breakdown: &mut HashMap<&str, std::time::Duration>,
+    ) -> Result<
+        (
+            Vec<(
+                String,
+                crate::db_operations::MoleculeData,
+                HashSet<crate::db_operations::ChangedKey>,
+            )>,
+            Vec<super::super::molecules::PreparedSlotRevision>,
+        ),
+        SchemaError,
+    > {
+        let fold_start = std::time::Instant::now();
+        let sibling_updates = self
+            .build_protein_sibling_updates(
+                schema,
+                schema_mutations,
+                mutation_key_values,
+                atom_results,
+            )
+            .await?;
+        // Capture before the resident rebase. The gate check rejects a
+        // sibling change that overlaps either preparation step.
+        let sibling_prepared = self.prepared_sibling_slot_revisions(&sibling_updates);
+        let sibling_updates = self.rebase_sibling_updates_on_resident(schema, sibling_updates);
+        Self::add_timing(
+            timing_breakdown,
+            "  - protein_sibling_fold",
+            fold_start.elapsed(),
+        );
+        Ok((sibling_updates, sibling_prepared))
+    }
+
     /// Prepare one schema group's atoms, restored tips, and persist capacity.
     /// Publishes no resident tip change.
     pub(super) async fn prepare_schema_delta(
@@ -67,74 +176,28 @@ impl MutationManager {
         let share_prefixes = self
             .active_share_prefixes(&schema_name, storage_prefix)
             .await?;
-        let tracks_retention_age = storage_prefix.is_none()
-            && matches!(
-                &schema.schema_type,
-                crate::schema::types::schema::DeclarativeSchemaType::Hash
-                    | crate::schema::types::schema::DeclarativeSchemaType::Single
-            );
-        let tracks_retention_hash_partitions = storage_prefix.is_none()
-            && matches!(
-                &schema.schema_type,
-                crate::schema::types::schema::DeclarativeSchemaType::HashRange
-            );
+        let (tracks_retention_age, tracks_retention_hash_partitions) =
+            Self::retention_tracking(&schema, storage_prefix);
         Self::add_timing(timing_breakdown, "schema_load", load_start.elapsed());
 
-        let phase1_start = std::time::Instant::now();
-        let (mutation_key_values, atom_results, deferred_atoms) = self
-            .prepare_atoms_and_key_values(
+        let (mutation_key_values, atom_results, deferred_atoms, changed_keys) = self
+            .prepare_atom_phase(
                 &schema_name,
-                &schema,
+                &mut schema,
                 &mut schema_mutations,
                 storage_prefix,
-            )?;
-        Self::add_timing(
-            timing_breakdown,
-            "  - create_atoms_batch",
-            phase1_start.elapsed(),
-        );
-
-        let changed_keys =
-            Self::changed_keys_by_field(&schema, &schema_mutations, &mutation_key_values);
-        let restore_start = std::time::Instant::now();
-        self.restore_missing_molecules(&mut schema, &changed_keys)
+                timing_breakdown,
+            )
             .await?;
-        Self::add_timing(
-            timing_breakdown,
-            "  - restore_molecules",
-            restore_start.elapsed(),
-        );
-
-        let atom_results = self.dedupe_atom_results(
-            &schema_name,
-            &schema,
-            &schema_mutations,
-            &mutation_key_values,
-            atom_results,
-            timing_breakdown,
-        );
-
-        // Prepare sibling tip data before resident apply. There must be no
-        // await between apply and the infallible lane fill, or cancellation
-        // can drop the only durable owner after the value becomes visible.
-        let fold_start = std::time::Instant::now();
-        let sibling_updates = self
-            .build_protein_sibling_updates(
+        let (sibling_updates, sibling_prepared) = self
+            .prepare_sibling_phase(
                 &schema,
                 &schema_mutations,
                 &mutation_key_values,
                 &atom_results,
+                timing_breakdown,
             )
             .await?;
-        // Capture before the resident rebase. The gate check rejects a
-        // sibling change that overlaps either preparation step.
-        let sibling_prepared = self.prepared_sibling_slot_revisions(&sibling_updates);
-        let sibling_updates = self.rebase_sibling_updates_on_resident(&schema, sibling_updates);
-        Self::add_timing(
-            timing_breakdown,
-            "  - protein_sibling_fold",
-            fold_start.elapsed(),
-        );
 
         let search_batch = Self::build_index_change_batch(
             &schema_name,

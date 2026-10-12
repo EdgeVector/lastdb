@@ -9,7 +9,7 @@ mod restore;
 mod scoped_gate;
 
 pub(in crate::fold_db_core::mutation_manager) use apply_gate::{
-    ApplyGateOutcome, PreparedSchemaDelta,
+    ApplyGateOutcome, PreparedSchemaDelta, PreparedSlotRevision,
 };
 pub(in crate::fold_db_core::mutation_manager) use persist::{
     DeferredLaneWriter, DeferredPersistJob, LanePersistJob, MoleculeGateGuard, PurgeCompletion,
