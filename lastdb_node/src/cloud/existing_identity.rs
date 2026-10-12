@@ -60,18 +60,10 @@ pub(super) fn preflight_existing_identity_dev_with_pending_device(
     )
 }
 
-// lint:fn-size-ok moved verbatim from its original module; no logic change
-pub(super) fn preflight_existing_identity_dev_with_device(
-    home: &Path,
-    protected_homes: &[PathBuf],
-    daemon_is_live: impl Fn(&Path) -> bool,
-    device_override_present: bool,
-    expected_device_id: Option<&str>,
-) -> Result<PathBuf, String> {
+fn canonical_copied_home(home: &Path) -> Result<PathBuf, String> {
     if !home.is_absolute() {
         return Err("--use-existing-identity requires an absolute --data-dir path".to_string());
     }
-
     let home_meta = std::fs::symlink_metadata(home)
         .map_err(|e| format!("cannot inspect copied LastDB home {}: {e}", home.display()))?;
     if !home_meta.file_type().is_dir() {
@@ -80,13 +72,18 @@ pub(super) fn preflight_existing_identity_dev_with_device(
             home.display()
         ));
     }
-    let canonical_home = std::fs::canonicalize(home).map_err(|e| {
+    std::fs::canonicalize(home).map_err(|e| {
         format!(
             "cannot canonicalize copied LastDB home {}: {e}",
             home.display()
         )
-    })?;
+    })
+}
 
+fn refuse_protected_overlap(
+    canonical_home: &Path,
+    protected_homes: &[PathBuf],
+) -> Result<(), String> {
     for protected in protected_homes {
         let protected_meta = match std::fs::symlink_metadata(protected) {
             Ok(meta) => meta,
@@ -112,7 +109,7 @@ pub(super) fn preflight_existing_identity_dev_with_device(
         })?;
         if canonical_home == canonical_protected
             || canonical_home.starts_with(&canonical_protected)
-            || canonical_protected.starts_with(&canonical_home)
+            || canonical_protected.starts_with(canonical_home)
         {
             return Err(format!(
                 "refusing a path that overlaps the live primary LastDB home: {}",
@@ -120,16 +117,10 @@ pub(super) fn preflight_existing_identity_dev_with_device(
             ));
         }
     }
+    Ok(())
+}
 
-    if daemon_is_live(&canonical_home)
-        && !session_marker_matches_protected_home(&canonical_home, protected_homes)
-    {
-        return Err(format!(
-            "refusing copied home with a live lastdbd process: {}",
-            canonical_home.display()
-        ));
-    }
-
+fn canonical_copied_data_dir(canonical_home: &Path) -> Result<PathBuf, String> {
     let data_dir = canonical_home.join("data");
     let data_meta = std::fs::symlink_metadata(&data_dir).map_err(|e| {
         format!(
@@ -145,10 +136,19 @@ pub(super) fn preflight_existing_identity_dev_with_device(
     }
     let canonical_data = std::fs::canonicalize(&data_dir)
         .map_err(|e| format!("cannot canonicalize copied data directory: {e}"))?;
-    if !canonical_data.starts_with(&canonical_home) {
+    if !canonical_data.starts_with(canonical_home) {
         return Err("copied data directory escapes the copied LastDB home".to_string());
     }
+    Ok(canonical_data)
+}
 
+/// The copy must carry no daemon socket, no cloud credentials, and no
+/// production device ID (unless the caller expects a specific pending one).
+fn refuse_copied_live_state(
+    canonical_home: &Path,
+    canonical_data: &Path,
+    expected_device_id: Option<&str>,
+) -> Result<(), String> {
     for socket_name in [
         lastdb_uds::uds::SOCKET_FILE_NAME,
         lastdb_uds::uds::FULL_SOCKET_FILE_NAME,
@@ -159,7 +159,7 @@ pub(super) fn preflight_existing_identity_dev_with_device(
         )?;
     }
 
-    let (active_config, paused_config) = cloud_sync_paths(&canonical_home);
+    let (active_config, paused_config) = cloud_sync_paths(canonical_home);
     refuse_existing_entry(
         &active_config,
         "copied home already contains active cloud credentials",
@@ -170,13 +170,36 @@ pub(super) fn preflight_existing_identity_dev_with_device(
     )?;
     let device_path = canonical_data.join(DEVICE_ID_FILE);
     if let Some(expected) = expected_device_id {
-        validate_pending_device_file(&device_path, expected)?;
+        validate_pending_device_file(&device_path, expected)
     } else {
         refuse_existing_entry(
             &device_path,
             "copied home still contains its production device ID",
-        )?;
+        )
     }
+}
+
+pub(super) fn preflight_existing_identity_dev_with_device(
+    home: &Path,
+    protected_homes: &[PathBuf],
+    daemon_is_live: impl Fn(&Path) -> bool,
+    device_override_present: bool,
+    expected_device_id: Option<&str>,
+) -> Result<PathBuf, String> {
+    let canonical_home = canonical_copied_home(home)?;
+    refuse_protected_overlap(&canonical_home, protected_homes)?;
+
+    if daemon_is_live(&canonical_home)
+        && !session_marker_matches_protected_home(&canonical_home, protected_homes)
+    {
+        return Err(format!(
+            "refusing copied home with a live lastdbd process: {}",
+            canonical_home.display()
+        ));
+    }
+
+    let canonical_data = canonical_copied_data_dir(&canonical_home)?;
+    refuse_copied_live_state(&canonical_home, &canonical_data, expected_device_id)?;
 
     if device_override_present {
         return Err("FOLD_SYNC_DEVICE_ID must be unset for --use-existing-identity".to_string());
