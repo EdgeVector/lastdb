@@ -3,6 +3,7 @@
 use super::*;
 
 mod gc;
+mod molecule_map_candidates;
 mod molecule_map_repair;
 mod order_log;
 mod reclaim;
@@ -12,6 +13,7 @@ mod tips;
 mod tombstone;
 
 pub(super) use gc::*;
+use molecule_map_candidates::*;
 pub(super) use molecule_map_repair::*;
 pub(super) use order_log::*;
 pub(super) use reclaim::*;
