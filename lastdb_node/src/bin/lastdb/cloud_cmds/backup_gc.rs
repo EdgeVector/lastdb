@@ -72,23 +72,9 @@ pub(crate) fn cloud_backup_gc(
     terminal_result
 }
 
-/// Validate the versioned receipt before either polling or reporting success.
-/// Status may explicitly report no job; an execution/wait may not.
-// lint:fn-size-ok moved verbatim from its original module
-pub(crate) fn validate_backup_gc_receipt(
-    value: &serde_json::Value,
-    expected_id: Option<&str>,
-    allow_no_job: bool,
-) -> Result<Option<(String, String)>, String> {
-    let job = value
-        .get("job")
-        .or_else(|| value.pointer("/data/job"))
-        .ok_or("GC response lacks job receipt")?;
-    if job.is_null() && allow_no_job {
-        return Ok(None);
-    }
-    // Receipt versions 1 and 2 share the fields below. Version 2 adds
-    // optional typed fields; anything newer is refused by name.
+/// Receipt versions 1 and 2 share the fields checked elsewhere. Version 2 adds
+/// optional typed fields; anything newer is refused by name.
+fn check_receipt_version(job: &serde_json::Value) -> Result<(), String> {
     let version = match job.get("version").and_then(serde_json::Value::as_u64) {
         Some(version @ (1 | 2)) => version,
         Some(version) => {
@@ -112,14 +98,10 @@ pub(crate) fn validate_backup_gc_receipt(
             return Err("GC receipt has a malformed dispositions block".into());
         }
     }
-    let id = job
-        .get("job_id")
-        .and_then(|v| v.as_str())
-        .ok_or("GC receipt lacks job ID")?;
-    uuid::Uuid::parse_str(id).map_err(|_| "GC receipt has invalid job ID")?;
-    if expected_id.is_some_and(|expected| expected != id) {
-        return Err("GC receipt refers to a different job".into());
-    }
+    Ok(())
+}
+
+fn check_receipt_counters(job: &serde_json::Value) -> Result<(), String> {
     if job
         .get("dry_run")
         .and_then(serde_json::Value::as_bool)
@@ -140,6 +122,10 @@ pub(crate) fn validate_backup_gc_receipt(
             return Err(format!("GC receipt lacks valid {field}"));
         }
     }
+    Ok(())
+}
+
+fn check_receipt_state(job: &serde_json::Value) -> Result<&str, String> {
     let state = job
         .get("state")
         .and_then(|v| v.as_str())
@@ -156,28 +142,60 @@ pub(crate) fn validate_backup_gc_receipt(
     ) {
         return Err(format!("GC receipt has unknown state {state}"));
     }
-    if state == "completed"
-        && (job["unknown"] != 0
-            || job["failed_before_dispatch"] != 0
-            || job.get("pending").is_none_or(|v| !v.is_null())
-            || !job.get("report").is_some_and(serde_json::Value::is_object))
+    Ok(state)
+}
+
+fn check_completed_receipt(job: &serde_json::Value) -> Result<(), String> {
+    if job["unknown"] != 0
+        || job["failed_before_dispatch"] != 0
+        || job.get("pending").is_none_or(|v| !v.is_null())
+        || !job.get("report").is_some_and(serde_json::Value::is_object)
     {
         return Err("GC completed receipt has failures, uncertainty, or no report".into());
     }
+    let report = &job["report"];
+    if report["failed"] != 0
+        || report["superseded"] != false
+        || report["deleted"] != job["delete_acknowledged"]
+        || job["objects_reconciled"] != job["delete_acknowledged"]
+        || report
+            .get("orphans_selected")
+            .and_then(serde_json::Value::as_u64)
+            .is_none()
+        || (job["dry_run"] == false && report["orphans_selected"] != job["objects_reconciled"])
+    {
+        return Err("GC completed receipt has inconsistent report counts".into());
+    }
+    Ok(())
+}
+
+/// Validate the versioned receipt before either polling or reporting success.
+/// Status may explicitly report no job; an execution/wait may not.
+pub(crate) fn validate_backup_gc_receipt(
+    value: &serde_json::Value,
+    expected_id: Option<&str>,
+    allow_no_job: bool,
+) -> Result<Option<(String, String)>, String> {
+    let job = value
+        .get("job")
+        .or_else(|| value.pointer("/data/job"))
+        .ok_or("GC response lacks job receipt")?;
+    if job.is_null() && allow_no_job {
+        return Ok(None);
+    }
+    check_receipt_version(job)?;
+    let id = job
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .ok_or("GC receipt lacks job ID")?;
+    uuid::Uuid::parse_str(id).map_err(|_| "GC receipt has invalid job ID")?;
+    if expected_id.is_some_and(|expected| expected != id) {
+        return Err("GC receipt refers to a different job".into());
+    }
+    check_receipt_counters(job)?;
+    let state = check_receipt_state(job)?;
     if state == "completed" {
-        let report = &job["report"];
-        if report["failed"] != 0
-            || report["superseded"] != false
-            || report["deleted"] != job["delete_acknowledged"]
-            || job["objects_reconciled"] != job["delete_acknowledged"]
-            || report
-                .get("orphans_selected")
-                .and_then(serde_json::Value::as_u64)
-                .is_none()
-            || (job["dry_run"] == false && report["orphans_selected"] != job["objects_reconciled"])
-        {
-            return Err("GC completed receipt has inconsistent report counts".into());
-        }
+        check_completed_receipt(job)?;
     }
     Ok(Some((id.into(), state.into())))
 }

@@ -244,23 +244,94 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
     ))
 }
 
-pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
-    // lint:fn-size-ok moved verbatim from self_metrics.rs; splitting this function is separate work.
-    let home_size = dir_size_display(snapshot.home_bytes, snapshot.home_size_walks);
-    let home_line = match (snapshot.home_path_disclosed, snapshot.home.as_deref()) {
-        (true, Some(path)) => format!("Node home: {path} ({home_size})"),
-        (true, None) => format!("Node home: (path missing) ({home_size})"),
-        (false, _) => format!("Node home: (path not disclosed) ({home_size})"),
-    };
-    let data_dir_size = dir_size_display(snapshot.data_dir_bytes, snapshot.data_dir_size_walks);
-    let data_dir_line = match (
+fn node_home_line(snapshot: &StatusSnapshot) -> String {
+    let size = dir_size_display(snapshot.home_bytes, snapshot.home_size_walks);
+    match (snapshot.home_path_disclosed, snapshot.home.as_deref()) {
+        (true, Some(path)) => format!("Node home: {path} ({size})"),
+        (true, None) => format!("Node home: (path missing) ({size})"),
+        (false, _) => format!("Node home: (path not disclosed) ({size})"),
+    }
+}
+
+fn data_dir_line(snapshot: &StatusSnapshot) -> String {
+    let size = dir_size_display(snapshot.data_dir_bytes, snapshot.data_dir_size_walks);
+    match (
         snapshot.data_dir_path_disclosed,
         snapshot.data_dir.as_deref(),
     ) {
-        (true, Some(path)) => format!("Data dir: {path} ({data_dir_size})"),
-        (true, None) => format!("Data dir: (path missing) ({data_dir_size})"),
-        (false, _) => format!("Data dir: (path not disclosed) ({data_dir_size})"),
-    };
+        (true, Some(path)) => format!("Data dir: {path} ({size})"),
+        (true, None) => format!("Data dir: (path missing) ({size})"),
+        (false, _) => format!("Data dir: (path not disclosed) ({size})"),
+    }
+}
+
+fn sampler_line(snapshot: &StatusSnapshot) -> String {
+    format!(
+        "Sampler: last_sample={} retention_cap={}{}",
+        snapshot
+            .sampler
+            .last_sample_at
+            .map_or_else(|| "none".to_string(), |ts| ts.to_string()),
+        wire_u64(&snapshot.sampler.retention_max_samples)
+            .map_or_else(|| "unknown".to_string(), |n| n.to_string()),
+        snapshot
+            .sampler
+            .last_error
+            .as_ref()
+            .map(|e| format!(" last_error={e}"))
+            .unwrap_or_default()
+    )
+}
+
+fn qos_line(snapshot: &StatusSnapshot) -> String {
+    format!(
+        "QoS: total={}/{} bulk={}/{} sheds_i={} sheds_b={}",
+        gauge_or_zero(&snapshot.qos.total_in_use),
+        gauge_or_zero(&snapshot.qos.total_permits),
+        gauge_or_zero(&snapshot.qos.bulk_in_use),
+        gauge_or_zero(&snapshot.qos.bulk_permits),
+        gauge_or_zero(&snapshot.qos.interactive_sheds),
+        gauge_or_zero(&snapshot.qos.bulk_sheds),
+    )
+}
+
+fn uds_pool_line(snapshot: &StatusSnapshot) -> String {
+    format!(
+        "UDS pool: workers={} queue_cap={} in_flight={} rejects={}",
+        gauge_or_zero(&snapshot.uds.workers),
+        gauge_or_zero(&snapshot.uds.queue_capacity),
+        gauge_or_zero(&snapshot.uds.in_flight),
+        gauge_or_zero(&snapshot.uds.queue_full_rejects),
+    )
+}
+
+/// Blocking long-poll waiters hold a worker and take no QoS permit, so
+/// `in_flight` can be high while `QoS total` reads 0. This line is what
+/// closes that gap: it names the share of the pool that is asleep.
+fn watchers_line(snapshot: &StatusSnapshot) -> String {
+    format!(
+        "Watchers: {}/{} peak={} sheds={} (blocking long-polls; hold a UDS \
+         worker, invisible to QoS)",
+        gauge_or_zero(&snapshot.watchers.active),
+        gauge_or_zero(&snapshot.watchers.max),
+        gauge_or_zero(&snapshot.watchers.peak),
+        gauge_or_zero(&snapshot.watchers.sheds),
+    )
+}
+
+fn limits_line(snapshot: &StatusSnapshot) -> String {
+    format!(
+        "Limits: max_request_body={} B; max_atom_content={} B (default {} B; abs max {} B; env {})",
+        gauge_or_zero(&snapshot.limits.max_request_body_bytes),
+        gauge_or_zero(&snapshot.limits.max_atom_content_bytes),
+        gauge_or_zero(&snapshot.limits.max_atom_content_bytes_default),
+        gauge_or_zero(&snapshot.limits.max_atom_content_bytes_absolute_max),
+        snapshot.limits.max_atom_content_bytes_env,
+    )
+}
+
+/// Memory, CPU, paths, logs, and the sync/recoverability lines that open the report.
+fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let mut lines = vec![
         memory_status_line(snapshot),
         format!(
@@ -269,8 +340,8 @@ pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
                 .cpu_percent
                 .map_or_else(|| "warming up".to_string(), |pct| format!("{pct:.2}%"))
         ),
-        home_line,
-        data_dir_line,
+        node_home_line(snapshot),
+        data_dir_line(snapshot),
         log_streams_line(&snapshot.logs),
         atom_ref_edge_status_line(&snapshot.atom_ref_edges),
         at_rest_compression_status_line(snapshot.at_rest_compression.as_ref()),
@@ -285,6 +356,11 @@ pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     if let Some(line) = memory_budget_status_line(&snapshot.memory_budget) {
         lines.insert(2, line);
     }
+    lines
+}
+
+fn backup_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
+    let mut lines = Vec::new();
     if let Some(backup) = snapshot.backup.as_ref() {
         if let Some(line) = backup_progress_status_line(backup) {
             lines.push(line);
@@ -301,58 +377,11 @@ pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         snapshot.sync.enabled,
         mutation_log_plane_recording(&snapshot.sync),
     ));
-    lines.extend([
-        format!(
-            "Sampler: last_sample={} retention_cap={}{}",
-            snapshot
-                .sampler
-                .last_sample_at
-                .map_or_else(|| "none".to_string(), |ts| ts.to_string()),
-            wire_u64(&snapshot.sampler.retention_max_samples)
-                .map_or_else(|| "unknown".to_string(), |n| n.to_string()),
-            snapshot
-                .sampler
-                .last_error
-                .as_ref()
-                .map(|e| format!(" last_error={e}"))
-                .unwrap_or_default()
-        ),
-        format!(
-            "QoS: total={}/{} bulk={}/{} sheds_i={} sheds_b={}",
-            gauge_or_zero(&snapshot.qos.total_in_use),
-            gauge_or_zero(&snapshot.qos.total_permits),
-            gauge_or_zero(&snapshot.qos.bulk_in_use),
-            gauge_or_zero(&snapshot.qos.bulk_permits),
-            gauge_or_zero(&snapshot.qos.interactive_sheds),
-            gauge_or_zero(&snapshot.qos.bulk_sheds),
-        ),
-        format!(
-            "UDS pool: workers={} queue_cap={} in_flight={} rejects={}",
-            gauge_or_zero(&snapshot.uds.workers),
-            gauge_or_zero(&snapshot.uds.queue_capacity),
-            gauge_or_zero(&snapshot.uds.in_flight),
-            gauge_or_zero(&snapshot.uds.queue_full_rejects),
-        ),
-        // Blocking long-poll waiters hold a worker and take no QoS permit, so
-        // `in_flight` can be high while `QoS total` reads 0. This line is what
-        // closes that gap: it names the share of the pool that is asleep.
-        format!(
-            "Watchers: {}/{} peak={} sheds={} (blocking long-polls; hold a UDS \
-             worker, invisible to QoS)",
-            gauge_or_zero(&snapshot.watchers.active),
-            gauge_or_zero(&snapshot.watchers.max),
-            gauge_or_zero(&snapshot.watchers.peak),
-            gauge_or_zero(&snapshot.watchers.sheds),
-        ),
-        format!(
-            "Limits: max_request_body={} B; max_atom_content={} B (default {} B; abs max {} B; env {})",
-            gauge_or_zero(&snapshot.limits.max_request_body_bytes),
-            gauge_or_zero(&snapshot.limits.max_atom_content_bytes),
-            gauge_or_zero(&snapshot.limits.max_atom_content_bytes_default),
-            gauge_or_zero(&snapshot.limits.max_atom_content_bytes_absolute_max),
-            snapshot.limits.max_atom_content_bytes_env,
-        ),
-    ]);
+    lines
+}
+
+fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
+    let mut lines = Vec::new();
     if let Some(rc) = snapshot.read_cost.as_ref() {
         lines.push(read_cost_status_line(rc));
     }
@@ -370,6 +399,20 @@ pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     }
     lines.extend(purge_stats_lines(snapshot));
     lines.extend(local_retention_lines(snapshot));
+    lines
+}
+
+pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
+    let mut lines = leading_status_lines(snapshot);
+    lines.extend(backup_status_lines(snapshot));
+    lines.extend([
+        sampler_line(snapshot),
+        qos_line(snapshot),
+        uds_pool_line(snapshot),
+        watchers_line(snapshot),
+        limits_line(snapshot),
+    ]);
+    lines.extend(trailing_status_lines(snapshot));
     lines
 }
 

@@ -86,24 +86,21 @@ pub(crate) fn atom_gc_reap(args: &AtomGcReapArgs<'_>) -> Result<(), String> {
     Ok(())
 }
 
-// lint:fn-size-ok moved verbatim from lastdb_local_maintain.rs; splitting this function is separate work
-pub(crate) async fn atom_gc_reap_run(
+fn verdict_label(verdict: &ReapVerdict) -> (&'static str, &'static str) {
+    match verdict {
+        ReapVerdict::Keep { reason } => ("keep", *reason),
+        ReapVerdict::Delete { reason, .. } => ("delete", *reason),
+        ReapVerdict::Ambiguous { reason } => ("ambiguous", *reason),
+    }
+}
+
+fn new_reap_report(
     opened: &HomeStore,
     home: &Path,
     args: &AtomGcReapArgs<'_>,
-) -> Result<AtomGcReapReport, String> {
-    let scan = scan_atom_gc(opened.store.as_ref()).await?;
-    let encoding = scan.encoding();
-
-    if args.execute && scan.encoding_marker.is_none() && scan.prefixed_atom_body_keys > 0 {
-        return Err(format!(
-            "refusing --execute: home carries {} partition-prefixed body keys but no \
-             amigr:atom_key_encoding_v1 marker. Which copy is canonical is undecidable here.",
-            scan.prefixed_atom_body_keys
-        ));
-    }
-
-    let mut report = AtomGcReapReport {
+    scan: &AtomGcScan,
+) -> AtomGcReapReport {
+    AtomGcReapReport {
         ok: true,
         mode: if args.execute { "execute" } else { "dry-run" },
         home: home.display().to_string(),
@@ -125,7 +122,64 @@ pub(crate) async fn atom_gc_reap_run(
         decisions: Vec::new(),
         decisions_truncated: false,
         notes: Vec::new(),
+    }
+}
+
+/// Attribute a delete verdict to molecules from every partition in the group,
+/// survivor included: the copy being deleted is usually the flat one, which
+/// names no partition, so attributing from deletions alone would report an
+/// empty blast radius for the common case.
+fn collect_affected_molecules(group: &AtomGroup, affected: &mut BTreeSet<String>) {
+    for copy in &group.copies {
+        if let Some(molecule) = copy.shape.partition().and_then(molecule_uuid_of_partition) {
+            affected.insert(molecule.to_string());
+        }
+    }
+}
+
+fn push_reap_decision(
+    report: &mut AtomGcReapReport,
+    detail_limit: usize,
+    group: &AtomGroup,
+    verdict: &ReapVerdict,
+    label: &'static str,
+    reason: &'static str,
+) {
+    if report.decisions.len() >= detail_limit {
+        report.decisions_truncated = true;
+        return;
+    }
+    let survivor_key = match verdict {
+        ReapVerdict::Delete { survivor_key, .. } => survivor_key.clone(),
+        _ => String::new(),
     };
+    report.decisions.push(AtomGcReapDecision {
+        atom_uuid: group.atom_uuid.clone(),
+        verdict: label,
+        reason: reason.to_string(),
+        referenced: group.referenced,
+        survivor_key,
+        deleted_keys: verdict.delete_keys().to_vec(),
+    });
+}
+
+pub(crate) async fn atom_gc_reap_run(
+    opened: &HomeStore,
+    home: &Path,
+    args: &AtomGcReapArgs<'_>,
+) -> Result<AtomGcReapReport, String> {
+    let scan = scan_atom_gc(opened.store.as_ref()).await?;
+    let encoding = scan.encoding();
+
+    if args.execute && scan.encoding_marker.is_none() && scan.prefixed_atom_body_keys > 0 {
+        return Err(format!(
+            "refusing --execute: home carries {} partition-prefixed body keys but no \
+             amigr:atom_key_encoding_v1 marker. Which copy is canonical is undecidable here.",
+            scan.prefixed_atom_body_keys
+        ));
+    }
+
+    let mut report = new_reap_report(opened, home, args, &scan);
     let mut affected_molecules: BTreeSet<String> = BTreeSet::new();
     // Namespace handles are opened once and reused: a delete pass over a large
     // home must not reopen a namespace per key.
@@ -133,11 +187,7 @@ pub(crate) async fn atom_gc_reap_run(
 
     for group in &scan.groups {
         let verdict = classify_group(group, encoding, args.policy);
-        let (label, reason) = match &verdict {
-            ReapVerdict::Keep { reason } => ("keep", *reason),
-            ReapVerdict::Delete { reason, .. } => ("delete", *reason),
-            ReapVerdict::Ambiguous { reason } => ("ambiguous", *reason),
-        };
+        let (label, reason) = verdict_label(&verdict);
         *report
             .reason_counts
             .entry(format!("{label}:{reason}"))
@@ -157,17 +207,7 @@ pub(crate) async fn atom_gc_reap_run(
                 report.delete_groups += 1;
                 report.deleted_keys += delete_keys.len() as u64;
                 report.kept_keys += group.copies.len() as u64 - delete_keys.len() as u64;
-                // Attributed from every partition in the group, survivor
-                // included: the copy being deleted is usually the flat one,
-                // which names no partition, so attributing from deletions alone
-                // would report an empty blast radius for the common case.
-                for copy in &group.copies {
-                    if let Some(molecule) =
-                        copy.shape.partition().and_then(molecule_uuid_of_partition)
-                    {
-                        affected_molecules.insert(molecule.to_string());
-                    }
-                }
+                collect_affected_molecules(group, &mut affected_molecules);
                 if args.execute {
                     execute_group_delete(
                         opened.store.as_ref(),
@@ -180,23 +220,14 @@ pub(crate) async fn atom_gc_reap_run(
                 }
             }
         }
-
-        if report.decisions.len() < args.detail_limit {
-            let survivor_key = match &verdict {
-                ReapVerdict::Delete { survivor_key, .. } => survivor_key.clone(),
-                _ => String::new(),
-            };
-            report.decisions.push(AtomGcReapDecision {
-                atom_uuid: group.atom_uuid.clone(),
-                verdict: label,
-                reason: reason.to_string(),
-                referenced: group.referenced,
-                survivor_key,
-                deleted_keys: delete_keys.to_vec(),
-            });
-        } else {
-            report.decisions_truncated = true;
-        }
+        push_reap_decision(
+            &mut report,
+            args.detail_limit,
+            group,
+            &verdict,
+            label,
+            reason,
+        );
     }
 
     report.affected_schemas = resolve_schema_names(&affected_molecules, &scan.schema_names);

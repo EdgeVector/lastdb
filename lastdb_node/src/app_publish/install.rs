@@ -1,5 +1,6 @@
 //! Install, upgrade, and run installed apps.
 
+use super::install_steps::*;
 use super::*;
 
 pub async fn list_apps(schema_service_url: &str) -> Result<Vec<AppRecord>, String> {
@@ -63,7 +64,6 @@ pub(super) struct InstallReceipt {
     version: String,
 }
 
-// lint:fn-size-ok moved verbatim from its original module; no logic change
 pub async fn install_app(
     schema_service_url: &str,
     app_id: &str,
@@ -77,110 +77,21 @@ pub async fn install_app(
         .await
         .map_err(|e| format!("app lookup failed: {e}"))?
         .ok_or_else(|| format!("app '{app_id}' is not in the registry"))?;
-    if lookup.revoked {
-        return Err(format!(
-            "install rejected: app '{app_id}' publisher is revoked"
-        ));
-    }
-    let tier = match lookup.tier {
-        AppTier::Live => "live",
-        AppTier::Sandbox => "sandbox",
-    };
-    if lookup.tier != AppTier::Live && !allow_sandbox {
-        return Err(format!(
-            "install rejected: app '{app_id}' is {tier}; pass --allow-sandbox to install sandbox records"
-        ));
-    }
-    if lookup.owner_dev_pubkey.trim().is_empty() {
-        return Err(format!(
-            "install rejected: app '{app_id}' registry record has no publisher key"
-        ));
-    }
-    let source = lookup.source.clone().ok_or_else(|| {
-        if lookup.artifact.is_some() {
-            format!(
-                "install rejected: app '{app_id}' only has an artifact pointer; signed artifact download is not implemented yet"
-            )
-        } else {
-            format!("install rejected: app '{app_id}' has no source or artifact pointer")
-        }
-    })?;
+    let (tier, source) = vet_app_lookup(&lookup, app_id, allow_sandbox)?;
     let checkout_path = install_dir.join("source");
-    if install_dir.exists() {
-        if !force {
-            return Err(format!(
-                "install directory already exists: {} (pass --force to replace it)",
-                install_dir.display()
-            ));
-        }
-        std::fs::remove_dir_all(install_dir).map_err(|e| {
-            format!(
-                "failed to remove existing install directory {}: {e}",
-                install_dir.display()
-            )
-        })?;
-    }
-    if let Some(parent) = install_dir.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            format!(
-                "failed to create install parent directory {}: {e}",
-                parent.display()
-            )
-        })?;
-    }
-    std::fs::create_dir_all(install_dir).map_err(|e| {
-        format!(
-            "failed to create install directory {}: {e}",
-            install_dir.display()
-        )
-    })?;
-    let clone_status = ProcessCommand::new("git")
-        .arg("clone")
-        .arg("--depth=1")
-        .arg(&source)
-        .arg(&checkout_path)
-        .status()
-        .map_err(|e| format!("failed to run git clone: {e}"))?;
-    if !clone_status.success() {
-        let _ = std::fs::remove_dir_all(install_dir);
-        return Err(format!(
-            "git clone failed for app '{app_id}' from {source} into {}",
-            checkout_path.display()
-        ));
-    }
-
-    let code_signature_declared = lookup.code_signature.is_some();
-    let app_id = lookup.app_id.clone();
-    let owner_dev_pubkey = lookup.owner_dev_pubkey.clone();
-    let version = lookup.version.clone();
-    let install_record = json!({
-        "app_id": app_id,
-        "version": version,
-        "installed_at": chrono::Utc::now().to_rfc3339(),
-        "schema_service_url": schema_service_url,
-        "source": source,
-        "tier": tier,
-        "owner_dev_pubkey": owner_dev_pubkey,
-        "metadata": lookup.metadata,
-        "code_signature": lookup.code_signature,
-        "artifact": lookup.artifact,
-        "uses": lookup.uses,
-    });
-    let record_path = install_dir.join("lastdb-app-install.json");
-    let record_bytes = serde_json::to_vec_pretty(&install_record)
-        .map_err(|e| format!("failed to encode install record: {e}"))?;
-    std::fs::write(&record_path, record_bytes)
-        .map_err(|e| format!("failed to write {}: {e}", record_path.display()))?;
+    prepare_install_dir(install_dir, force)?;
+    clone_app_source(app_id, &source, install_dir, &checkout_path)?;
+    write_install_record(install_dir, schema_service_url, &lookup, &source, tier)?;
 
     Ok(InstallOutcome {
-        app_id,
-        version,
+        app_id: lookup.app_id.clone(),
+        version: lookup.version.clone(),
         install_dir: install_dir.display().to_string(),
         checkout_path: checkout_path.display().to_string(),
         source,
         tier: tier.to_string(),
-        owner_dev_pubkey,
-        code_signature_declared,
+        owner_dev_pubkey: lookup.owner_dev_pubkey.clone(),
+        code_signature_declared: lookup.code_signature.is_some(),
     })
 }
 

@@ -6,7 +6,7 @@
 //! sled engine — use live `lastdb` status / cloud heal / restore instead.
 // lint:file-size-ok moved verbatim from lastdb_local_maintain.rs; cohesive unit, split further in a later pass
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use fold_db::storage::{
@@ -315,10 +315,14 @@ fn main() {
     }
 }
 
-// lint:fn-size-ok moved verbatim from lastdb_local_maintain.rs; splitting this function is separate work
 fn run() -> Result<(), String> {
     let args = Args::parse();
-    match args.cmd {
+    run_drain(&args.home, args.cmd)
+}
+
+/// The drain subcommands; anything else falls through to [`run_report`].
+fn run_drain(home: &Path, cmd: Cmd) -> Result<(), String> {
+    match cmd {
         Cmd::DrainTipResidue {
             collection,
             execute,
@@ -331,7 +335,7 @@ fn run() -> Result<(), String> {
         } => {
             let after = resolve_after_cursor(after, after_hex)?;
             drain_tip_residue(TipDrainArgs {
-                home: &args.home,
+                home,
                 legacy_collection: collection.as_str(),
                 execute,
                 after,
@@ -358,7 +362,7 @@ fn run() -> Result<(), String> {
         } => {
             let after = resolve_after_cursor(after, after_hex)?;
             drain_plane(PlaneDrainArgs {
-                home: &args.home,
+                home,
                 options: PlaneResidueDrainOptions {
                     family: PlaneResidueFamily::Protein,
                     source_collection: "tips".into(),
@@ -392,7 +396,7 @@ fn run() -> Result<(), String> {
             }
             let after = resolve_after_cursor(after, after_hex)?;
             drain_plane(PlaneDrainArgs {
-                home: &args.home,
+                home,
                 options: PlaneResidueDrainOptions {
                     family: PlaneResidueFamily::Index,
                     source_collection,
@@ -407,16 +411,23 @@ fn run() -> Result<(), String> {
                 json,
             })
         }
+        other => run_report(home, other),
+    }
+}
+
+/// The inventory, reclaim and atom-gc subcommands.
+fn run_report(home: &Path, cmd: Cmd) -> Result<(), String> {
+    match cmd {
         Cmd::IndexPlaneInventory {
             limit,
             i_know_this_is_primary,
             json,
-        } => index_plane_inventory(&args.home, limit, i_know_this_is_primary, json),
+        } => index_plane_inventory(home, limit, i_know_this_is_primary, json),
         Cmd::ReclaimKeepSmallLegacy {
             execute,
             i_know_this_is_primary,
             json,
-        } => reclaim_keep_small_legacy(&args.home, execute, i_know_this_is_primary, json),
+        } => reclaim_keep_small_legacy(home, execute, i_know_this_is_primary, json),
         Cmd::ReclaimIndexResidue {
             prefix,
             execute,
@@ -424,7 +435,7 @@ fn run() -> Result<(), String> {
             i_know_this_is_primary,
             json,
         } => reclaim_index_residue(&ReclaimIndexResidueArgs {
-            home: &args.home,
+            home,
             prefix,
             execute,
             limit,
@@ -435,7 +446,7 @@ fn run() -> Result<(), String> {
             detail_limit,
             i_know_this_is_primary,
             json,
-        } => atom_gc_audit(&args.home, detail_limit, i_know_this_is_primary, json),
+        } => atom_gc_audit(home, detail_limit, i_know_this_is_primary, json),
         Cmd::AtomGcReap {
             execute,
             reap_unreferenced_orphans,
@@ -443,7 +454,7 @@ fn run() -> Result<(), String> {
             i_know_this_is_primary,
             json,
         } => atom_gc_reap(&AtomGcReapArgs {
-            home: &args.home,
+            home,
             execute,
             policy: ReapPolicy {
                 reap_unreferenced_orphans,
@@ -452,5 +463,9 @@ fn run() -> Result<(), String> {
             i_know_this_is_primary,
             json,
         }),
+        Cmd::DrainTipResidue { .. }
+        | Cmd::DrainFieldTips { .. }
+        | Cmd::DrainProteinResidue { .. }
+        | Cmd::DrainIndexResidue { .. } => unreachable!("handled by run_drain"),
     }
 }
