@@ -1,5 +1,15 @@
 use super::*;
 
+/// One durable row the pending scan is classifying.
+#[derive(Clone, Copy)]
+struct ScannedRow<'a> {
+    key: &'a [u8],
+    value: &'a [u8],
+    /// `true` for the last row of the final page, where a decode failure is a
+    /// truncated trailing append rather than corruption.
+    tolerate_corrupt: bool,
+}
+
 impl PinLog {
     pub(super) async fn persist_pin_log_records(
         &self,
@@ -244,9 +254,11 @@ impl PinLog {
                     is_pending,
                     want,
                     pending_byte_budget,
-                    &key,
-                    &value,
-                    tolerate_corrupt,
+                    ScannedRow {
+                        key: &key,
+                        value: &value,
+                        tolerate_corrupt,
+                    },
                 )?;
                 if stop {
                     return Ok(page);
@@ -273,17 +285,19 @@ impl PinLog {
 
     /// Classify one scanned row into `page`. Returns `true` when the scan must
     /// stop because the batch or byte budget is full (`scan_complete` cleared).
-    #[allow(clippy::too_many_arguments)]
     fn absorb_pending_row(
         page: &mut PendingPinLogPage,
         pending_bytes: &mut usize,
         is_pending: &(dyn Fn(&PinLogRecord) -> bool + Sync),
         want: usize,
         pending_byte_budget: usize,
-        key: &[u8],
-        value: &[u8],
-        tolerate_corrupt: bool,
+        row: ScannedRow<'_>,
     ) -> Result<bool, String> {
+        let ScannedRow {
+            key,
+            value,
+            tolerate_corrupt,
+        } = row;
         match serde_json::from_slice::<PinLogRecord>(value) {
             Ok(record) => {
                 if !is_pending(&record) {
