@@ -121,6 +121,7 @@ impl AtomStore {
             .iter()
             .map(|candidate| candidate.uuid.clone())
             .collect::<Vec<_>>();
+        let _retired_reclaim = self.retired_intent_reclaim_guard().await;
         let _candidate_guards = self.lock_automatic_gc_atoms(&candidate_uuids).await;
         let validated = self
             .revalidate_gc_atoms_delete_candidates(storage_prefix, probe.generation, candidates)

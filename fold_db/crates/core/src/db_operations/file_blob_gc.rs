@@ -88,7 +88,7 @@ pub struct FileBlobGcReport {
     pub blob_refs_referenced: u64,
     /// Blob rows walked across both local planes.
     pub file_blobs_scanned: u64,
-    /// Rows kept because a live atom references them.
+    /// Rows kept because a live atom or a retired-intent outcome references them.
     pub file_blobs_referenced: u64,
     /// Rows retained because the `bref:v1` completeness marker is absent.
     pub file_blobs_retained_incomplete: u64,

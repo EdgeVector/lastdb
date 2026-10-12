@@ -9,6 +9,13 @@ impl AtomStore {
         probe_generation: u64,
         candidates: Vec<GcAtomsDeleteCandidate>,
     ) -> Result<Vec<(GcAtomsDeleteCandidate, Vec<String>)>, SchemaError> {
+        let candidate_ids: Vec<String> = candidates
+            .iter()
+            .map(|candidate| candidate.uuid.clone())
+            .collect();
+        let retired_roots = self
+            .retired_intent_atom_roots(&candidate_ids, storage_prefix)
+            .await?;
         let recheck_marker_keys = candidates
             .iter()
             .map(|candidate| {
@@ -44,6 +51,9 @@ impl AtomStore {
             .zip(rechecked_markers)
             .zip(rechecked_bodies)
         {
+            if retired_roots.contains(&candidate.uuid) {
+                continue;
+            }
             if marker.is_some_and(|marker| marker.generation == probe_generation)
                 || body.as_ref() != Some(&candidate.value)
             {

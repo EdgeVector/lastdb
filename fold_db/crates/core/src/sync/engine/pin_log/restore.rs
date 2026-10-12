@@ -505,6 +505,12 @@ impl SyncEngine {
                     combined.records_applied = combined
                         .records_applied
                         .saturating_add(report.records_applied);
+                    combined.segments_retired_authority_preserved +=
+                        report.segments_retired_authority_preserved;
+                    combined.records_retired_authority_preserved +=
+                        report.records_retired_authority_preserved;
+                    combined.mutations_retired_authority_preserved +=
+                        report.mutations_retired_authority_preserved;
                     combined.records_skipped_at_or_below_frontier = combined
                         .records_skipped_at_or_below_frontier
                         .saturating_add(report.records_skipped_at_or_below_frontier);

@@ -21,6 +21,7 @@ pub(super) mod helpers;
 mod index;
 mod molecules;
 pub mod receipt;
+mod retired_replay;
 mod write;
 
 use std::collections::HashMap;

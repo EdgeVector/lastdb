@@ -408,7 +408,14 @@ pub struct MutationLogUploadReport {
 pub struct MutationLogReplayReport {
     pub segments_considered: usize,
     pub segments_applied: usize,
+    #[serde(default)]
+    pub segments_retired_authority_preserved: usize,
     pub records_applied: usize,
+    /// Preserved original intent records, not writes of live records.
+    #[serde(default)]
+    pub records_retired_authority_preserved: usize,
+    #[serde(default)]
+    pub mutations_retired_authority_preserved: usize,
     pub records_skipped_at_or_below_frontier: usize,
     /// Per-writer frontier after replay. This is the cursor a restored home
     /// persists/advertises before fetching the next cloud page.

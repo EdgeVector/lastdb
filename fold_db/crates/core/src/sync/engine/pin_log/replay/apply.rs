@@ -1,4 +1,11 @@
+use super::sources::ReplaySources;
 use super::*;
+
+struct ValidatedReplayUnit {
+    records: Vec<PinLogRecord>,
+    source_object_keys: Vec<String>,
+    transaction_group: bool,
+}
 
 /// Apply encrypted mutation-log segments newer than an incorporated snapshot
 /// frontier, then flush every touched namespace before returning.
@@ -77,10 +84,16 @@ pub(in super::super) async fn replay_mutation_log_segments_with_progress(
     progress::update(progress, |p| p.replay_segments_total = Some(ordered.len()));
     let validated = validate_replay_units(ordered)?;
     let apply_order = order_replay_records(&validated);
+    let sources = ReplaySources::new(
+        segments,
+        scope_target.is_none() && engine.retired_intent_preserver.lock().await.is_some(),
+    )?;
 
     let mut unit_applied = vec![false; validated.len()];
+    let mut unit_preserved = vec![false; validated.len()];
     for (unit_index, record_index) in apply_order {
-        let record = &validated[unit_index][record_index];
+        let unit = &validated[unit_index];
+        let record = &unit.records[record_index];
         let writer_frontier = frontier_after
             .entry(record.writer_id.clone())
             .or_insert_with(|| scalar_base.unwrap_or(0));
@@ -89,33 +102,43 @@ pub(in super::super) async fn replay_mutation_log_segments_with_progress(
             continue;
         }
         let target = super::super::replay_scope::target(engine, record, scope_target).await?;
-        engine
+        let outcome = engine
             .replay_entry_with_schema_refresh(
                 &record.entry,
                 target.as_ref(),
                 schema_barrier.requires_refresh(&record.entry),
+                sources.source_for(
+                    record,
+                    record_index,
+                    unit.transaction_group,
+                    &unit.source_object_keys,
+                )?,
             )
             .await
             .map_err(|error| {
                 error.with_replay_operation(record.entry.seq, (&record.entry.op).into())
             })?;
         schema_barrier.applied(&record.entry, &mut touched_namespaces);
-        touched_namespaces.insert(log_entry_namespace(&record.entry).to_string());
-        *writer_frontier = record.frontier_after;
-        report.records_applied += 1;
-        unit_applied[unit_index] = true;
-        progress::update(progress, |p| {
-            p.replay_records_applied = report.records_applied;
-        });
-    }
-    for applied in unit_applied {
-        if applied {
-            report.segments_applied += 1;
-            progress::update(progress, |p| {
-                p.replay_segments_applied = report.segments_applied;
-            });
+        if outcome == ReplayEntryOutcome::Applied {
+            touched_namespaces.insert(log_entry_namespace(&record.entry).to_string());
         }
+        *writer_frontier = record.frontier_after;
+        record_outcome(
+            outcome,
+            &mut report,
+            &mut unit_applied[unit_index],
+            &mut unit_preserved[unit_index],
+            progress,
+        );
     }
+    report.segments_applied = unit_applied.into_iter().filter(|applied| *applied).count();
+    report.segments_retired_authority_preserved = unit_preserved
+        .into_iter()
+        .filter(|preserved| *preserved)
+        .count();
+    progress::update(progress, |p| {
+        p.replay_segments_applied = report.segments_applied
+    });
 
     flush_touched_namespaces(engine, touched_namespaces).await?;
     schema_barrier.finish(engine).await?;
@@ -123,12 +146,38 @@ pub(in super::super) async fn replay_mutation_log_segments_with_progress(
     Ok(report)
 }
 
+fn record_outcome(
+    outcome: ReplayEntryOutcome,
+    report: &mut MutationLogReplayReport,
+    unit_applied: &mut bool,
+    unit_preserved: &mut bool,
+    progress: Option<&RestoreProgress>,
+) {
+    match outcome {
+        ReplayEntryOutcome::Applied => {
+            report.records_applied += 1;
+            *unit_applied = true;
+        }
+        ReplayEntryOutcome::RetiredAuthorityPreserved { mutations } => {
+            report.records_retired_authority_preserved += 1;
+            report.mutations_retired_authority_preserved += mutations;
+            *unit_preserved = true;
+        }
+    }
+    progress::update(progress, |p| {
+        p.replay_records_applied = report.records_applied;
+        p.replay_records_retired_authority_preserved = report.records_retired_authority_preserved;
+        p.replay_mutations_retired_authority_preserved =
+            report.mutations_retired_authority_preserved;
+    });
+}
+
 /// Check every replay unit's identity, writer stream and record order before
 /// any record is applied.
 fn validate_replay_units(
     ordered: Vec<MutationLogReplayUnit>,
-) -> SyncResult<Vec<Vec<PinLogRecord>>> {
-    let mut validated: Vec<Vec<PinLogRecord>> = Vec::with_capacity(ordered.len());
+) -> SyncResult<Vec<ValidatedReplayUnit>> {
+    let mut validated = Vec::with_capacity(ordered.len());
     for segment in ordered {
         let records = segment.records;
         let last = records.last().ok_or_else(|| {
@@ -181,23 +230,27 @@ fn validate_replay_units(
                 segment.segment.object_key
             )));
         }
-        validated.push(records);
+        validated.push(ValidatedReplayUnit {
+            records,
+            source_object_keys: segment.source_object_keys,
+            transaction_group: segment.transaction_group,
+        });
     }
     Ok(validated)
 }
 
 /// Order `(unit, record)` pairs by writer, then frontier, so a record that
 /// sits between two files is not skipped by an earlier frontier advance.
-fn order_replay_records(validated: &[Vec<PinLogRecord>]) -> Vec<(usize, usize)> {
+fn order_replay_records(validated: &[ValidatedReplayUnit]) -> Vec<(usize, usize)> {
     let mut apply_order: Vec<(usize, usize)> = Vec::new();
-    for (unit_index, records) in validated.iter().enumerate() {
-        for record_index in 0..records.len() {
+    for (unit_index, unit) in validated.iter().enumerate() {
+        for record_index in 0..unit.records.len() {
             apply_order.push((unit_index, record_index));
         }
     }
     apply_order.sort_by(|&(left_unit, left_rec), &(right_unit, right_rec)| {
-        let left = &validated[left_unit][left_rec];
-        let right = &validated[right_unit][right_rec];
+        let left = &validated[left_unit].records[left_rec];
+        let right = &validated[right_unit].records[right_rec];
         left.writer_id
             .cmp(&right.writer_id)
             .then(left.frontier_after.cmp(&right.frontier_after))

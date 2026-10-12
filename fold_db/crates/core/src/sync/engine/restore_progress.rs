@@ -56,6 +56,8 @@ pub struct RestoreProgressSnapshot {
     pub replay_segments_total: Option<usize>,
     pub replay_segments_applied: usize,
     pub replay_records_applied: usize,
+    pub replay_records_retired_authority_preserved: usize,
+    pub replay_mutations_retired_authority_preserved: usize,
 }
 
 pub struct RestoreProgress {
@@ -98,6 +100,8 @@ impl RestoreProgress {
                     replay_segments_total: None,
                     replay_segments_applied: 0,
                     replay_records_applied: 0,
+                    replay_records_retired_authority_preserved: 0,
+                    replay_mutations_retired_authority_preserved: 0,
                 },
                 started,
             )),

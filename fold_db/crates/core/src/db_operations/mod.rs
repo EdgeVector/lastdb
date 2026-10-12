@@ -20,6 +20,7 @@ pub mod molecule_key_store;
 mod public_key_operations;
 pub mod public_key_store;
 pub mod resident_read;
+pub mod retired_intents;
 mod schema_operations;
 pub mod schema_store;
 pub mod search_index;

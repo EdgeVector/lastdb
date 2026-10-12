@@ -14,6 +14,7 @@ pub(in super::super) async fn open_mutation_log_replay_units(
                 segment: object.segment.clone(),
                 records: decode_legacy_mutation_log_records(&json)?,
                 transaction_group: false,
+                source_object_keys: vec![object.segment.object_key.clone()],
             });
             continue;
         };
@@ -82,6 +83,12 @@ fn assemble_transaction_group(
         ));
     }
     assembly.shards.sort_by_key(|shard| shard.shard_index);
+    let mut source_object_keys: Vec<_> = assembly
+        .shards
+        .iter()
+        .map(|shard| shard.segment.object_key.clone())
+        .collect();
+    source_object_keys.push(manifest.segment.object_key.clone());
     let (mutations, raw_mutations) =
         collect_group_operations(group_id, &manifest, assembly.shards)?;
     let record = rebuild_group_record(group_id, &manifest, mutations, &raw_mutations)?;
@@ -89,6 +96,7 @@ fn assemble_transaction_group(
         segment: manifest.segment,
         records: vec![record],
         transaction_group: true,
+        source_object_keys,
     })
 }
 

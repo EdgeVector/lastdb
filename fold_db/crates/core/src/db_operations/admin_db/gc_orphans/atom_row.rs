@@ -51,7 +51,11 @@ impl AtomStore {
                     Self::atom_uuid_from_body_key(&key).map(str::to_string)
                 })
                 .collect::<Vec<_>>();
+            let _retired_reclaim = self.retired_intent_reclaim_guard().await;
             let _target_gates = self.lock_automatic_gc_atoms(&page_uuids).await;
+            let retired_roots = self
+                .retired_intent_atom_roots(&page_uuids, ctx.storage_prefix)
+                .await?;
             for (k, v) in page.rows {
                 if ctx.source_schema_name.is_some_and(|schema| {
                     atom_row_source_schema_name(&v).as_deref() != Some(schema)
@@ -60,6 +64,12 @@ impl AtomStore {
                 }
                 report.atoms_scanned += 1;
                 progress.walked(1);
+                if Self::atom_uuid_from_body_key(&String::from_utf8_lossy(&k))
+                    .is_some_and(|uuid| retired_roots.contains(uuid))
+                {
+                    report.atoms_referenced += 1;
+                    continue;
+                }
                 self.process_gc_atom_row(ctx, &k, &v, referenced, report, pending)
                     .await?;
             }
