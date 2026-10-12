@@ -273,7 +273,11 @@ impl ResolverConfig {
         if self.permissions.create_canonical_schema {
             return Err(ResolverConfigError::CanonicalCreationForbidden);
         }
+        self.validate_scores()?;
+        self.validate_hard_limits()
+    }
 
+    fn validate_scores(&self) -> Result<(), ResolverConfigError> {
         let unit = |name: &str, v: f32| -> Result<(), ResolverConfigError> {
             if !v.is_finite() {
                 return Err(ResolverConfigError::NonFinite(name.to_string()));
@@ -328,7 +332,10 @@ impl ResolverConfig {
         if (weight_sum - 1.0).abs() > WEIGHT_EPS {
             return Err(ResolverConfigError::WeightsDoNotSumToOne);
         }
+        Ok(())
+    }
 
+    fn validate_hard_limits(&self) -> Result<(), ResolverConfigError> {
         let lim = |name: &str, v: u32, hard: u32| -> Result<(), ResolverConfigError> {
             if v == 0 || v > hard {
                 return Err(ResolverConfigError::ExceedsHardLimit(name.to_string()));

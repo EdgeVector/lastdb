@@ -210,92 +210,37 @@ impl SchemaServiceState {
         // descriptive_name, the purpose score, and its field set + descriptions
         // (cloned so the guard can embed field names without re-taking the
         // schemas lock).
+        let scan = ReuseScan {
+            incoming,
+            inc_desc,
+            inc_desc_vec,
+            inc_blob,
+            purpose_threshold,
+            struct_floor,
+            field_fidelity,
+        };
         let mut best: Option<BestReuseCandidate> = None;
         let mut best_raw: Option<(String, f32, f32)> = None;
         for existing in schemas.values() {
-            let Some(ex_desc) = existing.descriptive_name.as_deref() else {
-                continue;
-            };
             if !self.is_reuse_eligible(incoming, existing, target_owner, allow_same_name) {
                 continue;
             }
-
-            // Compare on the candidate's SEMANTIC name — strip any
-            // cross-schema_type de-collision suffix so a de-collided canonical
-            // (`"Contacts (Hash)"`) is matched as the concept it actually is
-            // (`"Contacts"`). See [`strip_decollision_suffix`].
-            let ex_desc_semantic = strip_decollision_suffix(ex_desc);
-
-            // Struct signal first — the cheap pre-filter gate. Exact
-            // case-insensitive name → 1.0 (mirrors `dual_signal_diagnostic`'s
-            // short-circuit). For an un-mangled candidate read the pre-computed
-            // descriptive_name embedding (keyed by the STORED name) and skip if
-            // uncached (see the cache note above) — this keeps the hot path off
-            // a cold-embed-per-seed cost. For the RARE de-collided candidate the
-            // cached embedding is of the poisoned `" (<Type>)"` name, so embed
-            // the stripped semantic name inline instead; de-collided canonicals
-            // are few, so this stays cheap.
-            let Some(struct_sim) = self.reuse_struct_similarity(
-                inc_desc,
-                &inc_desc_vec,
-                existing,
-                ex_desc,
-                &embeddings,
-            ) else {
-                continue;
-            };
-            if struct_sim < struct_floor {
-                continue; // pruned cheaply — no purpose embed needed
-            }
-
-            // Only now (rare — struct floor already passed) pay for the purpose
-            // signal. The incoming blob is embedded at most once here (cached
-            // thereafter); each surviving candidate's blob likewise. Build the
-            // candidate blob from its SEMANTIC name so the de-collision suffix
-            // doesn't contaminate the purpose signal either.
-            let Some(purpose_sim) =
-                self.reuse_purpose_similarity(&inc_blob, existing, ex_desc_semantic)
+            let Some((candidate, struct_sim, accepted)) =
+                self.score_reuse_candidate(&scan, existing, &embeddings)
             else {
                 continue;
             };
-
-            let cand_desc = ex_desc.to_string();
-            if best_raw.as_ref().is_none_or(|(_, p, _)| purpose_sim > *p) {
-                best_raw = Some((cand_desc.clone(), purpose_sim, struct_sim));
+            if best_raw
+                .as_ref()
+                .is_none_or(|(_, p, _)| candidate.purpose_sim > *p)
+            {
+                best_raw = Some((candidate.desc.clone(), candidate.purpose_sim, struct_sim));
             }
-            let candidate = BestReuseCandidate {
-                hash: existing.name.clone(),
-                desc: cand_desc,
-                purpose_sim,
-                fields: existing.fields.clone().unwrap_or_default(),
-                field_descriptions: existing.field_descriptions.clone(),
-            };
-            let field_coverage = self.reuse_field_coverage(incoming, &candidate);
-            if purpose_sim < purpose_threshold {
-                // Field coverage may rescue a low purpose score (this is how
-                // "Transactions" / "Financial Transactions" eval duplicates
-                // collapse), but only when the shared fields are DESCRIBED
-                // the same way. Coverage counts literal name matches, so on
-                // names alone LastgitPackBlobIndex (purpose 0.57) expanded into
-                // LastgitRepoIndex on DEV (2026-09-22): both are `key` /
-                // `payload_json` / `updated_at` rollups, of pack blobs and of
-                // repos.
-                if field_coverage < field_fidelity {
-                    continue;
-                }
-                if !self.shared_field_descriptions_agree(incoming, &candidate) {
-                    tracing::info!(
-                        target: "schema_service::schema",
-                        incoming_desc = %incoming.descriptive_name.as_deref().unwrap_or(""),
-                        candidate = %candidate.desc,
-                        purpose_similarity = purpose_sim,
-                        field_coverage,
-                        "Reuse-before-NEW: field coverage cannot rescue a low purpose score — the shared fields are described differently",
-                    );
-                    continue;
-                }
-            }
-            if best.as_ref().is_none_or(|b| purpose_sim > b.purpose_sim) {
+            if accepted
+                && best
+                    .as_ref()
+                    .is_none_or(|b| candidate.purpose_sim > b.purpose_sim)
+            {
                 best = Some(candidate);
             }
         }
@@ -320,4 +265,99 @@ impl SchemaServiceState {
         let best = best?;
         self.apply_field_fidelity_guard(incoming, best, field_fidelity)
     }
+
+    /// Score one eligible reuse candidate against the scan inputs.
+    ///
+    /// Returns `None` when the candidate has no descriptive_name, no usable
+    /// embedding, or falls below the struct floor. Otherwise returns the
+    /// candidate, its struct similarity and whether it clears the live gates
+    /// (purpose threshold, or field coverage rescue with agreeing field
+    /// descriptions). Candidates that fail the gates are still returned so the
+    /// caller can track the best raw near-miss for the debug log.
+    fn score_reuse_candidate(
+        &self,
+        scan: &ReuseScan<'_>,
+        existing: &Schema,
+        embeddings: &HashMap<String, Vec<f32>>,
+    ) -> Option<(BestReuseCandidate, f32, bool)> {
+        let ex_desc = existing.descriptive_name.as_deref()?;
+        // Compare on the candidate's SEMANTIC name — strip any
+        // cross-schema_type de-collision suffix so a de-collided canonical
+        // (`"Contacts (Hash)"`) is matched as the concept it actually is
+        // (`"Contacts"`). See [`strip_decollision_suffix`].
+        let ex_desc_semantic = strip_decollision_suffix(ex_desc);
+
+        // Struct signal first — the cheap pre-filter gate. Exact
+        // case-insensitive name → 1.0 (mirrors `dual_signal_diagnostic`'s
+        // short-circuit). Un-mangled candidates read the pre-computed
+        // descriptive_name embedding and are skipped when uncached; the rare
+        // de-collided candidate embeds its stripped semantic name inline.
+        let struct_sim = self.reuse_struct_similarity(
+            scan.inc_desc,
+            &scan.inc_desc_vec,
+            existing,
+            ex_desc,
+            embeddings,
+        )?;
+        if struct_sim < scan.struct_floor {
+            return None; // pruned cheaply — no purpose embed needed
+        }
+
+        // Only now (rare — struct floor already passed) pay for the purpose
+        // signal, built from the SEMANTIC name so the de-collision suffix
+        // doesn't contaminate it either.
+        let purpose_sim =
+            self.reuse_purpose_similarity(&scan.inc_blob, existing, ex_desc_semantic)?;
+
+        let candidate = BestReuseCandidate {
+            hash: existing.name.clone(),
+            desc: ex_desc.to_string(),
+            purpose_sim,
+            fields: existing.fields.clone().unwrap_or_default(),
+            field_descriptions: existing.field_descriptions.clone(),
+        };
+        let accepted = purpose_sim >= scan.purpose_threshold
+            || self.field_coverage_rescues_purpose(scan, &candidate);
+        Some((candidate, struct_sim, accepted))
+    }
+
+    /// Field coverage may rescue a low purpose score (this is how
+    /// "Transactions" / "Financial Transactions" eval duplicates collapse), but
+    /// only when the shared fields are DESCRIBED the same way. Coverage counts
+    /// literal name matches, so on names alone LastgitPackBlobIndex (purpose
+    /// 0.57) expanded into LastgitRepoIndex on DEV (2026-09-22): both are `key` /
+    /// `payload_json` / `updated_at` rollups, of pack blobs and of repos.
+    fn field_coverage_rescues_purpose(
+        &self,
+        scan: &ReuseScan<'_>,
+        candidate: &BestReuseCandidate,
+    ) -> bool {
+        let field_coverage = self.reuse_field_coverage(scan.incoming, candidate);
+        if field_coverage < scan.field_fidelity {
+            return false;
+        }
+        if !self.shared_field_descriptions_agree(scan.incoming, candidate) {
+            tracing::info!(
+                target: "schema_service::schema",
+                incoming_desc = %scan.incoming.descriptive_name.as_deref().unwrap_or(""),
+                candidate = %candidate.desc,
+                purpose_similarity = candidate.purpose_sim,
+                field_coverage,
+                "Reuse-before-NEW: field coverage cannot rescue a low purpose score — the shared fields are described differently",
+            );
+            return false;
+        }
+        true
+    }
+}
+
+/// Inputs shared by every candidate in one purpose-reuse scan.
+struct ReuseScan<'a> {
+    incoming: &'a Schema,
+    inc_desc: &'a str,
+    inc_desc_vec: Vec<f32>,
+    inc_blob: String,
+    purpose_threshold: f32,
+    struct_floor: f32,
+    field_fidelity: f32,
 }
