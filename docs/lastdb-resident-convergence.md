@@ -1,8 +1,9 @@
 # Resident set convergence: one cache, one ordering gate, one persist path
 
-Status (2026-10-12): steps 1 and 2 are done. Step 2b (investigation and bar
-fixes) is done in its PR. Steps 3 to 6 are not started. Each later step adds a
-dated line to the "Status log" at the end of this file.
+Status (2026-10-12): steps 1, 2, 2b and 2c are done and merged (2c fixed a
+read-after-ack defect in write mode). Steps 3 to 6 are not started: see "Answers
+to the open questions, and what step 3 needs". Each later step adds a dated line
+to the "Status log" at the end of this file.
 
 Read this first. On the live configuration `write` mode does defer the persist.
 The 2026-10-12 owner run read `persist_enqueued` as 0 because `/api/status`
@@ -277,14 +278,51 @@ worked because it takes the resident fast path in `resolve_hash_key_fast`.
 Fix (step 2c): the overlay now uses the same key form as the molecule it joins.
 It does not change any other behavior.
 
-## Open questions to verify before step 3
+## Answers to the open questions, and what step 3 needs (2026-10-12)
+
+Read from the code at 4bcd264a, with no change made.
 
 - Does a lane persist job report durability back so that the logical set can
-  clear a dirty record? The logical set has a `DurabilityToken` for this. Whether
-  the persist lane feeds it today was not checked.
-- Which readers still need a resident answer for a key the logical set evicted?
-  The graph's coverage tracking answers "is this key set complete" for range
-  reads. The logical set has only a negative barrier cache.
+  clear a dirty record? Not directly. The logical set clears a dirty record
+  when the store flush seals its `DurabilityToken` (`apply_durable_through`,
+  called after a store flush). The lane's job writes through the store, so a
+  record becomes dirty in the logical set when the lane writes it and clean on
+  the next seal. Between the acknowledgment and the lane write, the record is in
+  the graph only: the logical set does not know it. That window is the real
+  "acked but unflushed" gap, and it is what the graph's dirty set covers today.
+- Which readers still need a resident answer? Thirty-five files outside
+  `resident/` name the graph. The read side is `schema/types/field/variant/`
+  (`read.rs`, `read/resolve.rs`, `read/refresh.rs`, `read/collect.rs`,
+  `partition_window.rs`), `fold_db_core/query/` (`hash_range_query/count.rs`,
+  `secondary.rs`, `query_executor.rs`), `record_molecule/` and `purge/`. The
+  write side is `mutation_manager/` (the apply gate, `restore.rs`, the CAS
+  state readers, the persist jobs, hard erasure and delete winners). Each read
+  site has its own rule for when the graph's answer is authoritative (key-set
+  completeness, partition and page coverage tickets, `molecule_has_dirty`).
+- The graph holds API-form keys and the logical set holds raw store rows. The
+  same record has two spellings, and step 2c was a bug at that seam.
+
+What this means for steps 3 to 6:
+
+- Step 3 as written adds three behaviors to the logical set (range coverage, the
+  Skip-Delete overlay, and records that are acknowledged but not yet in the
+  store). Nothing reads them until step 4. They cannot be verified by the two
+  bars alone, because the bars do not exercise coverage tickets, protein sibling
+  folds or Skip Deletes. A shadow comparison (the logical set answers every
+  graph read in parallel and a counter in `/api/status` counts disagreements) is
+  the proof that fits the no-tests rule, and it must be built first.
+- Step 5 changes the optimistic-concurrency gate (`PreparedSlotRevision`,
+  `PersistSlotRevision`, the persist turn). A mistake there loses or reorders a
+  write, and none of the bars can see a reorder.
+- The shorter route may be to make the ack follow a store write instead of a
+  graph apply. The store already acknowledges before it flushes and tracks
+  dirty records with a durability token. That removes the graph's deferred
+  apply and the window above, but it changes what the lane batches and
+  orders, and it is a durability design change. It needs Tom's decision.
+
+Step 3 is not started. The work stops here with 2b and 2c merged, because the
+rules do not decide between the doc's order and the store-ack route, and
+building the doc's step 3 without the shadow comparison cannot be verified.
 
 ## Review hazards
 
@@ -306,4 +344,8 @@ It does not change any other behavior.
   the write. Matrix on the fixed build, median of 3: off point 13/15 write
   284/669 ms, read 13/17 and 275/519, write 13/17 and 24/35. All 8
   read-after-ack cells GREEN in all 3 modes, 3 runs each; `deferred_persist_failed`
-  0. This is the baseline for steps 3 to 6. Merged-build proof: pending.
+  0. This is the baseline for steps 3 to 6. Merged-build proof: main at 4bcd264a, one
+pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
+355/462, write 13/55 and 26/86 ms; all 24 cells GREEN; `deferred_persist_failed`
+0. No primary upgrade was made.
+- 2026-10-12, step 3: not started. See the assessment above.
