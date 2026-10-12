@@ -107,7 +107,6 @@ impl MutationManager {
 
     /// Account the erased ids, then run any remaining create/update mutations
     /// through the standard pipeline with the hard-erasure ids first.
-    #[allow(clippy::too_many_arguments)]
     async fn commit_remaining_after_erasures(
         &self,
         mutations: Vec<Mutation>,
@@ -208,7 +207,6 @@ impl MutationManager {
 
     /// Mixed batch: any Purge/Delete riding with create/update becomes a
     /// later envelope on the same schema lane.
-    #[allow(clippy::too_many_arguments)]
     async fn write_mixed_batch_with_erasures(
         &self,
         mutations: Vec<Mutation>,
