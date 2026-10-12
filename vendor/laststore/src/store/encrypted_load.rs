@@ -36,7 +36,6 @@ pub(super) fn load_sorted_encrypted_tail(mut sh: Shard) -> Result<Shard> {
     Ok(sh)
 }
 
-// lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
 pub(super) fn load_encrypted_shard(mut sh: Shard) -> Result<Shard> {
     if !sh.dir.exists() {
         return Ok(sh);
@@ -74,32 +73,55 @@ pub(super) fn load_encrypted_shard(mut sh: Shard) -> Result<Shard> {
     //
     // Decoding is split from applying so the sort can happen in between;
     // `decode_encrypted_file` takes `&Shard`, so this costs no extra reads.
-    let mut sealed = Vec::with_capacity(chunks.len());
-    for (chunk_uuid, path) in chunks {
-        match decode_verified_sealed_chunk(&sh, chunk_uuid, &path) {
-            Ok(decoded) => sealed.push((decoded.max_csn, chunk_uuid, decoded)),
-            Err(err) => {
-                if matches!(err, Error::Io(_)) {
-                    return Err(err);
-                }
-                quarantine_encrypted_chunk(&sh, chunk_uuid, &path)?;
-            }
-        }
-    }
-    sealed.sort_by_key(|(csn, uuid, _)| (*csn, *uuid));
-    for (_, chunk_uuid, decoded) in sealed {
-        apply_verified_sealed_chunk(&mut sh, chunk_uuid, decoded)?;
-    }
+    replay_sealed_chunks(&mut sh, chunks)?;
 
     // Same ordering rule for unsealed tails, and for the same reason. Ordering
     // also decides which tail is adopted as THE open tail below (the loop's
     // last iteration wins), so by-CSN makes that the genuinely newest one
     // rather than whichever the filesystem happened to stamp last.
+    let open_tails = decode_open_tails(&sh, tails)?;
+    for (_, chunk_uuid, decoded) in open_tails {
+        adopt_recovered_tail(&mut sh, chunk_uuid, decoded)?;
+    }
+    if sh.data_key.is_some() && sh.open_chunk_uuid.is_none() {
+        LastStore::open_fresh_encrypted_tail(&mut sh);
+    }
+    Ok(sh)
+}
+
+/// Decode every sealed chunk, order them by CSN, then apply. A chunk that fails
+/// authentication is quarantined; an I/O error aborts the load.
+fn replay_sealed_chunks(sh: &mut Shard, chunks: Vec<(Uuid, PathBuf)>) -> Result<()> {
+    let mut sealed = Vec::with_capacity(chunks.len());
+    for (chunk_uuid, path) in chunks {
+        match decode_verified_sealed_chunk(sh, chunk_uuid, &path) {
+            Ok(decoded) => sealed.push((decoded.max_csn, chunk_uuid, decoded)),
+            Err(err) => {
+                if matches!(err, Error::Io(_)) {
+                    return Err(err);
+                }
+                quarantine_encrypted_chunk(sh, chunk_uuid, &path)?;
+            }
+        }
+    }
+    sealed.sort_by_key(|(csn, uuid, _)| (*csn, *uuid));
+    for (_, chunk_uuid, decoded) in sealed {
+        apply_verified_sealed_chunk(sh, chunk_uuid, decoded)?;
+    }
+
+    Ok(())
+}
+
+/// Decode each unsealed tail, trim a torn suffix, drop empty tails, and return
+/// the rest ordered by CSN.
+fn decode_open_tails(
+    sh: &Shard,
+    tails: Vec<(Uuid, PathBuf)>,
+) -> Result<Vec<(u64, Uuid, DecodedEncryptedFile)>> {
     let mut open_tails = Vec::with_capacity(tails.len());
     for (chunk_uuid, path) in tails {
         let disk_data = fs::read(&path)?;
-        let decoded = decode_encrypted_file(&sh, chunk_uuid, &path, &disk_data, true)?;
-        sh.max_csn = sh.max_csn.max(decoded.max_csn);
+        let decoded = decode_encrypted_file(sh, chunk_uuid, &path, &disk_data, true)?;
         if decoded.clean_disk_len < disk_data.len() as u64 {
             let f = OpenOptions::new().write(true).open(&path)?;
             f.set_len(decoded.clean_disk_len)?;
@@ -113,31 +135,37 @@ pub(super) fn load_encrypted_shard(mut sh: Shard) -> Result<Shard> {
     }
     open_tails.sort_by_key(|(csn, uuid, _)| (*csn, *uuid));
 
-    for (_, chunk_uuid, decoded) in open_tails {
-        apply_encrypted_frames(&mut sh, chunk_uuid, &decoded.frames, false)?;
-        let plaintext: Vec<u8> = decoded
-            .frames
-            .iter()
-            .flat_map(|(_, payload)| payload.iter().copied())
-            .collect();
-        for (frame_idx, payload) in decoded.frames {
-            insert_frame_cache(&mut sh, (chunk_uuid, frame_idx), payload);
-        }
-        for (frame_idx, loc) in decoded.frame_locs {
-            sh.insert_frame_loc((chunk_uuid, frame_idx), loc);
-        }
-        sh.open_chunk_uuid = Some(chunk_uuid);
-        sh.open_len = plaintext.len() as u64;
-        sh.file_len = plaintext.len() as u64;
-        sh.open_buf = plaintext;
-        sh.next_frame_counter = decoded.next_frame_counter;
-        sh.open_frame_start_csn = None;
-        seal_recovered_tail(&mut sh, chunk_uuid)?;
+    Ok(open_tails)
+}
+
+/// Make a decoded unsealed tail the shard's open tail, then seal it.
+fn adopt_recovered_tail(
+    sh: &mut Shard,
+    chunk_uuid: Uuid,
+    decoded: DecodedEncryptedFile,
+) -> Result<()> {
+    sh.max_csn = sh.max_csn.max(decoded.max_csn);
+    apply_encrypted_frames(sh, chunk_uuid, &decoded.frames, false)?;
+    let plaintext: Vec<u8> = decoded
+        .frames
+        .iter()
+        .flat_map(|(_, payload)| payload.iter().copied())
+        .collect();
+    for (frame_idx, payload) in decoded.frames {
+        insert_frame_cache(sh, (chunk_uuid, frame_idx), payload);
     }
-    if sh.data_key.is_some() && sh.open_chunk_uuid.is_none() {
-        LastStore::open_fresh_encrypted_tail(&mut sh);
+    for (frame_idx, loc) in decoded.frame_locs {
+        sh.insert_frame_loc((chunk_uuid, frame_idx), loc);
     }
-    Ok(sh)
+    sh.open_chunk_uuid = Some(chunk_uuid);
+    sh.open_len = plaintext.len() as u64;
+    sh.file_len = plaintext.len() as u64;
+    sh.open_buf = plaintext;
+    sh.next_frame_counter = decoded.next_frame_counter;
+    sh.open_frame_start_csn = None;
+    seal_recovered_tail(sh, chunk_uuid)?;
+
+    Ok(())
 }
 
 pub(super) fn apply_encrypted_frames(
@@ -189,7 +217,6 @@ pub(super) struct DecodedEncryptedFile {
     pub(super) max_csn: u64,
 }
 
-// lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
 pub(super) fn decode_encrypted_file(
     sh: &Shard,
     expected_uuid: Uuid,
@@ -212,39 +239,18 @@ pub(super) fn decode_encrypted_file(
         if is_footer_trailer_at(disk_data, off) {
             break;
         }
-        if disk_data.len() - off < frame::min_encoded_len() {
-            if allow_truncated_tail {
-                break;
-            }
-            return Err(Error::Corrupt(format!(
-                "bad sealed encrypted chunk {expected_uuid}"
-            )));
-        }
-        let frame_len = match frame::encoded_len(&disk_data[off..off + frame::header_size()]) {
-            Ok(len) if off + len <= disk_data.len() => len,
-            Ok(_) if allow_truncated_tail => break,
-            Ok(_) => {
-                return Err(Error::Corrupt(format!(
-                    "bad sealed encrypted chunk {expected_uuid}"
-                )));
-            }
-            Err(e) => return Err(e),
+        let Some((decoded, frame_len)) = read_authenticated_frame(
+            sh,
+            data_key,
+            expected_uuid,
+            disk_data,
+            off,
+            next_frame_counter,
+            allow_truncated_tail,
+        )?
+        else {
+            break;
         };
-        let decoded = if sh.uses_sorted_index() && !sh.sorted_legacy_encrypted {
-            frame::decode_frame_bounded(
-                data_key,
-                &disk_data[off..off + frame_len],
-                SORTED_ENCRYPTED_TAIL_BYTES as usize,
-            )?
-        } else {
-            frame::decode_frame(data_key, &disk_data[off..off + frame_len])?
-        };
-        if decoded.header.shard != sh.shard || decoded.header.chunk_uuid != expected_uuid {
-            return Err(Error::AeadAuthFail);
-        }
-        if decoded.header.counter != next_frame_counter {
-            return Err(Error::AeadAuthFail);
-        }
         if is_seal_record(&decoded.payload) {
             let end_csn = decode_seal_record(&decoded.payload)?;
             if decoded.header.start_csn != end_csn.saturating_add(1) {
@@ -306,6 +312,53 @@ pub(super) fn decode_encrypted_file(
         sealed,
         max_csn,
     })
+}
+
+/// Decode and authenticate the frame at `off`. Returns `None` at a truncated
+/// tail when `allow_truncated_tail` is set; otherwise a short frame is corrupt.
+fn read_authenticated_frame(
+    sh: &Shard,
+    data_key: &[u8; 32],
+    expected_uuid: Uuid,
+    disk_data: &[u8],
+    off: usize,
+    next_frame_counter: u64,
+    allow_truncated_tail: bool,
+) -> Result<Option<(frame::DecodedFrame, usize)>> {
+    if disk_data.len() - off < frame::min_encoded_len() {
+        if allow_truncated_tail {
+            return Ok(None);
+        }
+        return Err(Error::Corrupt(format!(
+            "bad sealed encrypted chunk {expected_uuid}"
+        )));
+    }
+    let frame_len = match frame::encoded_len(&disk_data[off..off + frame::header_size()]) {
+        Ok(len) if off + len <= disk_data.len() => len,
+        Ok(_) if allow_truncated_tail => return Ok(None),
+        Ok(_) => {
+            return Err(Error::Corrupt(format!(
+                "bad sealed encrypted chunk {expected_uuid}"
+            )));
+        }
+        Err(e) => return Err(e),
+    };
+    let decoded = if sh.uses_sorted_index() && !sh.sorted_legacy_encrypted {
+        frame::decode_frame_bounded(
+            data_key,
+            &disk_data[off..off + frame_len],
+            SORTED_ENCRYPTED_TAIL_BYTES as usize,
+        )?
+    } else {
+        frame::decode_frame(data_key, &disk_data[off..off + frame_len])?
+    };
+    if decoded.header.shard != sh.shard || decoded.header.chunk_uuid != expected_uuid {
+        return Err(Error::AeadAuthFail);
+    }
+    if decoded.header.counter != next_frame_counter {
+        return Err(Error::AeadAuthFail);
+    }
+    Ok(Some((decoded, frame_len)))
 }
 
 /// Read and authenticate a sealed chunk WITHOUT applying it.

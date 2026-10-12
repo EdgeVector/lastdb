@@ -62,7 +62,6 @@ impl LastStore {
     /// next access to the group creates it empty, which is the correct state
     /// for an id whose every copy was dead bytes. Without `execute` the
     /// report carries the same measurements and the directory is untouched.
-    // lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
     pub fn drop_hash_group_dir(
         &self,
         collection: &str,
@@ -98,19 +97,41 @@ impl LastStore {
                 ..DroppedGroupReport::default()
             });
         }
+        let mut report =
+            self.prove_group_droppable(collection, shard, group, &key, &dir, expected_only_id)?;
+        if !execute {
+            return Ok(report);
+        }
+        self.remove_group_dir(collection, group, &key, &dir)?;
+        report.dropped = true;
+        Ok(report)
+    }
+
+    /// Prove the group directory holds only `expected_only_id` without loading
+    /// it, and measure it. Refuses a non-directory, a resident group, a group
+    /// with no trusted id sidecar, and a group that holds any other id.
+    fn prove_group_droppable(
+        &self,
+        collection: &str,
+        shard: u16,
+        group: u32,
+        key: &ShardKey,
+        dir: &Path,
+        expected_only_id: &str,
+    ) -> Result<DroppedGroupReport> {
         if !dir.is_dir() {
             return Err(Error::Config(format!(
                 "drop_hash_group_dir: {} exists but is not a group directory; refusing",
                 dir.display()
             )));
         }
-        if self.shards.lock().expect("poison").holds(&key) {
+        if self.shards.lock().expect("poison").holds(key) {
             return Err(Error::Config(format!(
                 "drop_hash_group_dir: {collection} group {group:#05x} is resident in the warm \
                  set; evict it (or stop writing to it) first"
             )));
         }
-        let Some(ids) = keysidecar::read_ids_tolerating_appends(&dir) else {
+        let Some(ids) = keysidecar::read_ids_tolerating_appends(dir) else {
             return Err(Error::Config(format!(
                 "drop_hash_group_dir: no trusted id sidecar for {collection} group {group:#05x} \
                  at {}; refusing to drop a group whose ids cannot be proven without a load",
@@ -126,22 +147,30 @@ impl LastStore {
                 foreign.len()
             )));
         }
-        let segments = keysidecar::segment_stamps(&dir)?.len() as u64;
-        let on_disk_bytes = estimate_group_on_disk_bytes(&dir);
-        let mut report = DroppedGroupReport {
+        let segments = keysidecar::segment_stamps(dir)?.len() as u64;
+        let on_disk_bytes = estimate_group_on_disk_bytes(dir);
+        Ok(DroppedGroupReport {
             collection: collection.to_string(),
             shard,
             group,
-            dir: dir.clone(),
+            dir: dir.to_path_buf(),
             segments,
             on_disk_bytes,
             ids: ids.into_iter().collect(),
             dropped: false,
             already_absent: false,
-        };
-        if !execute {
-            return Ok(report);
-        }
+        })
+    }
+
+    /// Rename the group aside under the warm-set lock, remove it, and fsync the
+    /// parent so the drop is durable.
+    fn remove_group_dir(
+        &self,
+        collection: &str,
+        group: u32,
+        key: &ShardKey,
+        dir: &Path,
+    ) -> Result<()> {
         let unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -158,23 +187,22 @@ impl LastStore {
             // load, so a loader either sees the handle-less key and then a
             // missing directory (an empty group), or waits here.
             let warm = self.shards.lock().expect("poison");
-            if warm.holds(&key) {
+            if warm.holds(key) {
                 return Err(Error::Config(format!(
                     "drop_hash_group_dir: {collection} group {group:#05x} became resident \
                      during the drop; refusing"
                 )));
             }
-            fs::rename(&dir, &aside)?;
+            fs::rename(dir, &aside)?;
         }
-        self.key_index.lock().expect("poison").forget(&key);
+        self.key_index.lock().expect("poison").forget(key);
         fs::remove_dir_all(&aside)?;
         if let Some(parent) = dir.parent() {
             if let Ok(parent_dir) = fs::File::open(parent) {
                 let _ = parent_dir.sync_all();
             }
         }
-        report.dropped = true;
-        Ok(report)
+        Ok(())
     }
 
     /// [`Self::flush`] durability barriers since open (see the field docs).

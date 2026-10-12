@@ -3,10 +3,25 @@ use super::*;
 impl LastStore {
     /// Force-seal all dirty encrypted tails and return the chunks sealed by
     /// this call.
-    // lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
     pub fn snapshot(&self) -> Result<Snapshot> {
         let before = self.meta.lock().expect("poison").sealed_chunks.len();
         let mut skipped_capped_groups = 0_u64;
+        for key in self.snapshot_candidate_keys()? {
+            if self.seal_group_for_snapshot(&key)? {
+                skipped_capped_groups = skipped_capped_groups.saturating_add(1);
+            }
+        }
+        let meta = self.meta.lock().expect("poison");
+        Ok(Snapshot {
+            sealed_chunks: meta.sealed_chunks[before..].to_vec(),
+            max_csn: meta.next_csn.saturating_sub(1),
+            skipped_capped_groups,
+        })
+    }
+
+    /// Every group a snapshot must consider: resident, pinned, and cold groups
+    /// that still hold an unsealed encrypted tail.
+    fn snapshot_candidate_keys(&self) -> Result<BTreeSet<ShardKey>> {
         let mut keys: BTreeSet<ShardKey> = self
             .shards
             .lock()
@@ -33,81 +48,78 @@ impl LastStore {
                 }
             }
         }
-        for (c, s, g) in keys {
-            // A group over the cold-load cap cannot be sealed without loading
-            // it, and loading it is what the cap forbids. Skip it: its tail
-            // stays unsealed on disk and out of this photograph, which is the
-            // documented state of a group an operator has to reclaim. Failing
-            // the whole photograph instead blocked the 2026-09-22 safe-upgrade
-            // cutover on a 2.3 GB legacy `keep_small:meters` group.
-            let key = (c.clone(), s, g);
-            let pin = self.pin_table_handle(&key);
-            let h = if let Some(handle) = pin.clone() {
-                handle
-            } else {
-                match self.shard_handle_at(&c, s, g, WarmAdmission::Point, WarmTouch::unspecified())
-                {
-                    Ok(h) => h,
-                    Err(Error::ColdGroupTooLarge {
-                        collection,
-                        shard,
-                        group,
-                        bytes,
-                        cap,
-                    }) => {
-                        skipped_capped_groups = skipped_capped_groups.saturating_add(1);
-                        eprintln!(
-                            "LASTSTORE_SNAPSHOT_SKIPPED_CAPPED_GROUP collection={collection} shard={shard} \
-                             group=0x{group:03x} bytes={bytes} cap={cap}: unsealed tail left out of this \
-                             photograph; reclaim or compact the group"
-                        );
-                        continue;
-                    }
-                    Err(e) => return Err(e),
+        Ok(keys)
+    }
+
+    /// Seal one group's tail for [`Self::snapshot`]. Returns `true` when the
+    /// group was skipped because it is over the cold-load cap.
+    fn seal_group_for_snapshot(&self, key: &ShardKey) -> Result<bool> {
+        // A group over the cold-load cap cannot be sealed without loading
+        // it, and loading it is what the cap forbids. Skip it: its tail
+        // stays unsealed on disk and out of this photograph, which is the
+        // documented state of a group an operator has to reclaim. Failing
+        // the whole photograph instead blocked the 2026-09-22 safe-upgrade
+        // cutover on a 2.3 GB legacy `keep_small:meters` group.
+        let (c, s, g) = key.clone();
+        let pin = self.pin_table_handle(key);
+        let h = if let Some(handle) = pin.clone() {
+            handle
+        } else {
+            match self.shard_handle_at(&c, s, g, WarmAdmission::Point, WarmTouch::unspecified()) {
+                Ok(h) => h,
+                Err(Error::ColdGroupTooLarge {
+                    collection,
+                    shard,
+                    group,
+                    bytes,
+                    cap,
+                }) => {
+                    eprintln!(
+                        "LASTSTORE_SNAPSHOT_SKIPPED_CAPPED_GROUP collection={collection} shard={shard} \
+                         group=0x{group:03x} bytes={bytes} cap={cap}: unsealed tail left out of this \
+                         photograph; reclaim or compact the group"
+                    );
+                    return Ok(true);
                 }
-            };
-            let mut sh = h.lock().expect("poison");
-            if sh.data_key.is_some() && sh.uses_sorted_index() {
-                let previous_high = sh.plain_high_seq;
-                Self::seal_sorted_tail(&mut sh)?;
-                if sh.plain_high_seq > previous_high {
-                    let path = sh.dir.join(format!("{:010}.seg", sh.plain_high_seq));
-                    let mut files = sorted_file::physical_parts(&path)?;
-                    files.push((plain_segment_log_uuid(&c, s, g, sh.plain_high_seq), path));
-                    for (chunk_uuid, path) in files {
-                        let sealed = SealedChunkMeta {
-                            collection: c.clone(),
-                            shard: s,
-                            group_id: g,
-                            chunk_uuid,
-                            path,
-                            end_csn: sh.max_csn,
-                        };
-                        if !sh.policy.backup_excluded {
-                            if let Some(on_seal) = &self.opts.on_seal {
-                                let _ = on_seal(&sealed);
-                            }
+                Err(e) => return Err(e),
+            }
+        };
+        let mut sh = h.lock().expect("poison");
+        if sh.data_key.is_some() && sh.uses_sorted_index() {
+            let previous_high = sh.plain_high_seq;
+            Self::seal_sorted_tail(&mut sh)?;
+            if sh.plain_high_seq > previous_high {
+                let path = sh.dir.join(format!("{:010}.seg", sh.plain_high_seq));
+                let mut files = sorted_file::physical_parts(&path)?;
+                files.push((plain_segment_log_uuid(&c, s, g, sh.plain_high_seq), path));
+                for (chunk_uuid, path) in files {
+                    let sealed = SealedChunkMeta {
+                        collection: c.clone(),
+                        shard: s,
+                        group_id: g,
+                        chunk_uuid,
+                        path,
+                        end_csn: sh.max_csn,
+                    };
+                    if !sh.policy.backup_excluded {
+                        if let Some(on_seal) = &self.opts.on_seal {
+                            let _ = on_seal(&sealed);
                         }
-                        self.meta.lock().expect("poison").sealed_chunks.push(sealed);
                     }
+                    self.meta.lock().expect("poison").sealed_chunks.push(sealed);
                 }
-            } else if sh.data_key.is_some() && sh.open_len > 0 {
-                Self::seal_open(&self.opts, &self.meta, &mut sh)?;
-                Self::open_fresh_encrypted_tail(&mut sh);
-            } else {
-                Self::sync_open(&mut sh)?;
             }
-            drop(sh);
-            if pin.is_none() {
-                self.refresh_warm_resident_bytes(&key, &h)?;
-            }
+        } else if sh.data_key.is_some() && sh.open_len > 0 {
+            Self::seal_open(&self.opts, &self.meta, &mut sh)?;
+            Self::open_fresh_encrypted_tail(&mut sh);
+        } else {
+            Self::sync_open(&mut sh)?;
         }
-        let meta = self.meta.lock().expect("poison");
-        Ok(Snapshot {
-            sealed_chunks: meta.sealed_chunks[before..].to_vec(),
-            max_csn: meta.next_csn.saturating_sub(1),
-            skipped_capped_groups,
-        })
+        drop(sh);
+        if pin.is_none() {
+            self.refresh_warm_resident_bytes(key, &h)?;
+        }
+        Ok(false)
     }
 
     /// Alias for [`Self::snapshot`] when callers need only the force-seal
