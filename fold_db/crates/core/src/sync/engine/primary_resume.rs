@@ -335,6 +335,35 @@ impl SyncEngine {
         Ok(frontier)
     }
 
+    /// An explicit fresh owner job claims only its native local database.
+    /// Read-only plan and inventory clients never enter this method.
+    pub(crate) async fn register_fresh_primary_resume_owner(&self) -> SyncResult<()> {
+        if !self.is_backup_only_mode() {
+            return Err(SyncError::Storage(
+                "fresh owner registration requires backup-only mode".into(),
+            ));
+        }
+        let source = self.laststore_backup_source.as_ref().ok_or_else(|| {
+            SyncError::Storage("fresh owner registration requires a LastStore source".into())
+        })?;
+        let db_hash = source
+            .cloud_db_hash()
+            .map_err(|error| SyncError::Storage(format!("read cloud database identity: {error}")))?
+            .ok_or_else(|| SyncError::Storage("cloud database identity is absent".into()))?;
+        if self.auth.db_hash_scope() != Some(db_hash.as_str()) {
+            return Err(SyncError::Storage(
+                "fresh owner registration scope differs from the local database".into(),
+            ));
+        }
+        let registration = self.auth.register_db().await?;
+        if registration.db_hash != db_hash || registration.role != "owner" {
+            return Err(SyncError::Storage(
+                "fresh owner registration did not return the exact database owner".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Inspect every cloud log key. No cloud write or peer replay occurs.
     /// The cut raises a lower local frontier before it publishes a snapshot.
     pub async fn inspect_primary_resume_logs(&self) -> SyncResult<PrimaryResumeLogInventory> {
