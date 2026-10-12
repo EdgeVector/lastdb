@@ -1,5 +1,4 @@
 //! Recording a single op or mutation-intent marker into the outbox.
-// lint:file-size-ok moved verbatim from outbox.rs; one method family per file
 
 use super::*;
 
@@ -67,144 +66,7 @@ impl SyncEngine {
         Ok(self.record_op_with_publication(op).await?.frontier)
     }
 
-    /// Move a bounded page of durable Async markers into the mutation log.
-    /// The pin-log writer flushes an allocation floor, marker receipts, and
-    /// target rows in that order. A retry after marker-delete failure reuses
-    /// the receipt's positions instead of minting duplicate cloud operations.
-    // lint:fn-size-ok verbatim move from outbox.rs; splitting this function is separate work
-    pub(crate) async fn record_mutation_intent_marker_batch(
-        &self,
-        markers: &[(Vec<u8>, Vec<crate::sync::log::MutationEnvelope>)],
-    ) -> Result<Vec<Vec<u8>>, String> {
-        const MAX_MARKERS: usize = 256;
-        if markers.is_empty() {
-            return Ok(Vec::new());
-        }
-        if markers.len() > MAX_MARKERS {
-            return Err(format!(
-                "capture marker batch exceeds {MAX_MARKERS} markers"
-            ));
-        }
-        let mut total_bytes = 0usize;
-        for (marker_key, envelopes) in markers {
-            if marker_key.is_empty() || envelopes.is_empty() {
-                return Err("capture marker batch has an empty key or mutation intent".into());
-            }
-            let bytes = serde_json::to_vec(envelopes)
-                .map_err(|error| format!("encode capture marker envelope: {error}"))?;
-            total_bytes = total_bytes.saturating_add(bytes.len());
-            if total_bytes > CAPTURE_MARKER_BATCH_MAX_ENVELOPE_BYTES {
-                return Err(format!(
-                    "capture marker batch exceeds {CAPTURE_MARKER_BATCH_MAX_ENVELOPE_BYTES} envelope bytes"
-                ));
-            }
-        }
-        if !matches!(self.config.capture_mode, CaptureMode::MutationLog)
-            || !self.should_stage_cloud_mutations().await
-        {
-            return Err("continuous cloud capture is unavailable; durable marker retained".into());
-        }
-
-        // The destination set cannot change between frontier allocation and
-        // the durable rows/receipts. This is the same lock order as record_op.
-        let _target_config = self.target_config_lock.lock().await;
-        let targets = self.targets.lock().await.clone();
-        let partitioner = self.partitioner.lock().await.clone();
-        let generation = self
-            .target_config_generation
-            .load(std::sync::atomic::Ordering::Acquire);
-        let marker_keys = markers
-            .iter()
-            .map(|(key, _)| key.clone())
-            .collect::<Vec<_>>();
-        let existing_receipts = self
-            .pin_log
-            .capture_marker_receipt_presence(&marker_keys)
-            .await?;
-        let activation_guard = self.automatic_gc_pin_log_barrier.lock().await;
-        let activation_pending = self
-            .automatic_gc_pin_log_activation_pending
-            .load(std::sync::atomic::Ordering::Acquire);
-        let atom_store = self.automatic_gc_atom_store.lock().await.clone();
-        let atom_generation = atom_store.as_ref().map_or(
-            0,
-            crate::db_operations::AtomStore::automatic_gc_atoms_generation,
-        );
-        let hold_for_activation = activation_pending && atom_generation == 0;
-        if !hold_for_activation {
-            drop(activation_guard);
-        }
-        let mut entries = Vec::with_capacity(markers.len());
-        for ((marker_key, envelopes), already_recorded) in markers.iter().zip(existing_receipts) {
-            let op = crate::sync::mutation_intent::mutation_intent_op(envelopes.clone());
-            let mut entry = if already_recorded {
-                // The pin-log method validates the full receipt and repairs
-                // its original rows. These unused coordinates do not advance
-                // the process sequence or a durable allocation floor.
-                LogEntry {
-                    seq: 0,
-                    timestamp_ms: 0,
-                    device_id: self.device_id.clone(),
-                    op,
-                }
-            } else {
-                self.make_entry_for_target_snapshot(op, generation, &targets)
-                    .await?
-            };
-            entry.op.strip_sot_field_values();
-
-            // Reference-only historical rows still need GC roots until their
-            // pin-log append is durable. New self-contained rows have none.
-            let roots = Self::mutation_intent_gc_roots(&entry.op);
-            if !roots.is_empty() {
-                if let Some(atoms) = &atom_store {
-                    for (prefix, atom_uuids) in roots {
-                        atoms
-                            .protect_automatic_gc_atom_references(&atom_uuids, prefix.as_deref())
-                            .await
-                            .map_err(|error| {
-                                format!("protect marker pin-log atom references: {error}")
-                            })?;
-                    }
-                } else if atom_generation > 0 || activation_pending {
-                    return Err(
-                        "automatic gc-atoms pin protection has no registered atom store"
-                            .to_string(),
-                    );
-                }
-            }
-            entries.push((marker_key.clone(), entry));
-        }
-        let cleared = self
-            .pin_log
-            .append_capture_marker_batch(&entries, &targets, &partitioner)
-            .await?;
-        self.set_state(SyncState::Dirty, None).await;
-        // Product capture is async: the marker drain is the append the
-        // coalesce hold must see. Stamp before the wake so that wake does
-        // not read "no append in this process" and seal at once.
-        self.note_mutation_log_local_append();
-        self.wake.notify_one();
-        Ok(cleared)
-    }
-
-    /// The direct publication path uses the same marker receipt as the
-    /// background drain. The caller holds the drain lock through marker
-    /// deletion, so the receipt remains available for this exact read.
-    pub(crate) async fn record_mutation_intent_marker_with_publication(
-        &self,
-        marker_key: Vec<u8>,
-        envelopes: Vec<crate::sync::log::MutationEnvelope>,
-    ) -> Result<super::super::pin_log::MutationLogAppendReceipt, String> {
-        self.record_mutation_intent_marker_batch(&[(marker_key.clone(), envelopes)])
-            .await?;
-        self.pin_log
-            .capture_marker_append_receipt(&marker_key)
-            .await
-    }
-
     /// Record one operation and return the exact mutation-log target positions.
-    // lint:fn-size-ok verbatim move from outbox.rs; splitting this function is separate work
     pub(crate) async fn record_op_with_publication(
         &self,
         op: LogOp,
@@ -234,61 +96,9 @@ impl SyncEngine {
         let mut entry = self
             .make_entry_for_target_snapshot(op, target_generation, &targets_snapshot)
             .await?;
-        let targets;
-
-        // Continuous mutation-log plane (product default for LastStore Mini).
-        // Pin-mode freeze also appends via the same durable store when active.
-        if matches!(self.config.capture_mode, CaptureMode::MutationLog) {
-            entry.op.strip_sot_field_values();
-            // A record that starts before marker activation must finish its
-            // append before the pin-log scan starts. Once a generation is
-            // active, a legacy reference-only row writes its marker first and
-            // uses the same per-atom guards as deletion. New self-contained
-            // rows have no roots here and pay no marker IO.
-            let activation_guard = self.automatic_gc_pin_log_barrier.lock().await;
-            let activation_pending = self
-                .automatic_gc_pin_log_activation_pending
-                .load(std::sync::atomic::Ordering::Acquire);
-            let atom_store = self.automatic_gc_atom_store.lock().await.clone();
-            let generation = atom_store.as_ref().map_or(
-                0,
-                crate::db_operations::AtomStore::automatic_gc_atoms_generation,
-            );
-            let roots = Self::mutation_intent_gc_roots(&entry.op);
-            let hold_for_activation = activation_pending && generation == 0;
-            if !hold_for_activation {
-                drop(activation_guard);
-            }
-            if !roots.is_empty() {
-                if let Some(atoms) = atom_store {
-                    for (prefix, atom_uuids) in roots {
-                        atoms
-                            .protect_automatic_gc_atom_references(&atom_uuids, prefix.as_deref())
-                            .await
-                            .map_err(|error| {
-                                format!("protect pin-log atom references before append: {error}")
-                            })?;
-                    }
-                } else if generation > 0 || activation_pending {
-                    return Err(
-                        "automatic gc-atoms pin protection has no registered atom store"
-                            .to_string(),
-                    );
-                } else {
-                    // Test and legacy engines without a serving AtomStore keep
-                    // their pre-existing behavior while no GC lap is active.
-                }
-            }
-            targets = self
-                .append_mutation_log_entry(&entry, &targets_snapshot, &partitioner_snapshot)
-                .await?;
-        } else {
-            // Pin-mode path (legacy capture modes): pin append was fallible; propagate.
-            targets = self
-                .pin_log
-                .append_entry_to_active_pin_logs(&entry, &targets_snapshot, &partitioner_snapshot)
-                .await?;
-        }
+        let targets = self
+            .append_capture_entry(&mut entry, &targets_snapshot, &partitioner_snapshot)
+            .await?;
 
         // The durable pin-log batch is now flushed, so a later target change
         // cannot create a destination hole for this receipt.
@@ -311,6 +121,63 @@ impl SyncEngine {
             });
         }
 
+        self.admit_legacy_outbox_entry(entry, targets).await
+    }
+
+    /// Append one entry to the durable capture plane.
+    async fn append_capture_entry(
+        &self,
+        entry: &mut LogEntry,
+        targets_snapshot: &[SyncTarget],
+        partitioner_snapshot: &Option<SyncPartitioner>,
+    ) -> Result<Vec<super::super::pin_log::MutationLogTargetPosition>, String> {
+        // Continuous mutation-log plane (product default for LastStore Mini).
+        // Pin-mode freeze also appends via the same durable store when active.
+        if !matches!(self.config.capture_mode, CaptureMode::MutationLog) {
+            // Pin-mode path (legacy capture modes): pin append was fallible; propagate.
+            return self
+                .pin_log
+                .append_entry_to_active_pin_logs(entry, targets_snapshot, partitioner_snapshot)
+                .await;
+        }
+        entry.op.strip_sot_field_values();
+        // A record that starts before marker activation must finish its
+        // append before the pin-log scan starts. Once a generation is
+        // active, a legacy reference-only row writes its marker first and
+        // uses the same per-atom guards as deletion. New self-contained
+        // rows have no roots here and pay no marker IO.
+        let activation_guard = self.automatic_gc_pin_log_barrier.lock().await;
+        let activation_pending = self
+            .automatic_gc_pin_log_activation_pending
+            .load(std::sync::atomic::Ordering::Acquire);
+        let atom_store = self.automatic_gc_atom_store.lock().await.clone();
+        let generation = atom_store.as_ref().map_or(
+            0,
+            crate::db_operations::AtomStore::automatic_gc_atoms_generation,
+        );
+        let hold_for_activation = activation_pending && generation == 0;
+        if !hold_for_activation {
+            drop(activation_guard);
+        }
+        Self::protect_intent_gc_roots(
+            &entry.op,
+            atom_store.as_ref(),
+            generation,
+            activation_pending,
+            "pin-log atom references before append",
+        )
+        .await?;
+        self.append_mutation_log_entry(entry, targets_snapshot, partitioner_snapshot)
+            .await
+    }
+
+    /// Persist the entry in the legacy outbox, then admit it to the bounded
+    /// upload queue when the adaptive budget and queue cap allow.
+    async fn admit_legacy_outbox_entry(
+        &self,
+        entry: LogEntry,
+        targets: Vec<super::super::pin_log::MutationLogTargetPosition>,
+    ) -> Result<super::super::pin_log::MutationLogAppendReceipt, String> {
         let size = entry.serialized_len();
         // Absolute (config/env) max decides durable forget. Adaptive cycle
         // budget only gates whether the entry joins the in-memory upload queue

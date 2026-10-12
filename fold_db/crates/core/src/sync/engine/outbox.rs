@@ -25,6 +25,7 @@ pub(crate) fn upload_queue_cap(max_pending: usize, max_upload_entries: usize) ->
 
 mod backpressure;
 mod record_kv;
+mod record_marker;
 mod record_op;
 mod schedule;
 mod storage;

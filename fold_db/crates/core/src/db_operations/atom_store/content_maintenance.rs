@@ -168,7 +168,6 @@ impl AtomStore {
     /// Already-compressed `ENZ:` rows are idempotent skips. Legacy `ENC:` rows
     /// are only rewritten when the new envelope is actually `ENZ:`; small or
     /// incompressible content keeps its original ciphertext byte-for-byte.
-    // lint:fn-size-ok verbatim move from atom_store/mod.rs; splitting this function is separate work
     pub async fn recompress_atom_content_page(
         &self,
         after_key: Option<&str>,
@@ -191,6 +190,53 @@ impl AtomStore {
             )));
         }
 
+        let (page, more_remaining) = self
+            .read_atom_row_page(
+                after_key,
+                max_atoms,
+                "recompress after_key must be an atom storage key",
+                "recompress atom range page",
+            )
+            .await?;
+        let mut report = RecompressAtomContentReport::default();
+        let mut rewrites = Vec::new();
+
+        for (storage_key_bytes, stored_bytes) in page {
+            let storage_key = String::from_utf8_lossy(&storage_key_bytes).into_owned();
+            if crate::kind_partition::rest_of(&storage_key, "atom").is_none() {
+                continue;
+            }
+            report.scanned += 1;
+            report.last_walked_key = Some(storage_key.clone());
+            if let Some(encoded) =
+                Self::recompress_atom_row(&key, &storage_key, &stored_bytes, &mut report)?
+            {
+                rewrites.push((storage_key_bytes, encoded));
+            }
+        }
+
+        report.recompressed = rewrites.len();
+        self.write_atom_row_page(rewrites, "recompressed atom page")
+            .await?;
+        report.bytes_saved = report
+            .sealed_bytes_before
+            .saturating_sub(report.sealed_bytes_after);
+        report.more_remaining = more_remaining;
+        report.next_after_key = more_remaining
+            .then(|| report.last_walked_key.clone())
+            .flatten();
+        Ok(report)
+    }
+
+    /// Read one keyset page of raw atom rows. The cursor row is dropped, and
+    /// one extra row proves whether more work remains.
+    async fn read_atom_row_page(
+        &self,
+        after_key: Option<&str>,
+        max_atoms: usize,
+        cursor_error: &str,
+        range_error: &str,
+    ) -> Result<(Vec<(Vec<u8>, Vec<u8>)>, bool), crate::schema::SchemaError> {
         let (plane_start, plane_end) =
             crate::kind_partition::colon_plane_bounds(crate::atom::atom_key_codec::ATOM_PREFIX);
         if let Some(after_key) = after_key {
@@ -198,7 +244,7 @@ impl AtomStore {
                 || after_key.as_bytes() >= plane_end.as_bytes()
             {
                 return Err(crate::schema::SchemaError::InvalidCursor(
-                    "recompress after_key must be an atom storage key".into(),
+                    cursor_error.into(),
                 ));
             }
         }
@@ -213,130 +259,120 @@ impl AtomStore {
             .inner()
             .scan_range_paged(start.as_bytes(), plane_end.as_bytes(), raw_limit)
             .await
-            .map_err(|e| {
-                crate::schema::SchemaError::InvalidData(format!("recompress atom range page: {e}"))
-            })?;
+            .map_err(|e| crate::schema::SchemaError::InvalidData(format!("{range_error}: {e}")))?;
 
         let mut rows = raw.into_iter().filter(|(storage_key, _)| {
             after_key.map(str::as_bytes) != Some(storage_key.as_slice())
         });
         let page: Vec<_> = rows.by_ref().take(max_atoms).collect();
         let more_remaining = rows.next().is_some();
-        let mut report = RecompressAtomContentReport::default();
-        let mut rewrites = Vec::new();
+        Ok((page, more_remaining))
+    }
 
-        for (storage_key_bytes, stored_bytes) in page {
-            let storage_key = String::from_utf8_lossy(&storage_key_bytes).into_owned();
-            if crate::kind_partition::rest_of(&storage_key, "atom").is_none() {
-                continue;
+    /// Batch-write the rewritten rows of one page, then flush.
+    async fn write_atom_row_page(
+        &self,
+        rewrites: Vec<(Vec<u8>, Vec<u8>)>,
+        what: &str,
+    ) -> Result<(), crate::schema::SchemaError> {
+        if rewrites.is_empty() {
+            return Ok(());
+        }
+        self.main_store
+            .inner()
+            .batch_put(rewrites)
+            .await
+            .map_err(|e| crate::schema::SchemaError::InvalidData(format!("write {what}: {e}")))?;
+        self.flush()
+            .await
+            .map_err(|e| crate::schema::SchemaError::InvalidData(format!("flush {what}: {e}")))
+    }
+
+    /// Recompress one legacy `ENC:` row. `Some` is the rewritten row; `None`
+    /// means the row was skipped and the report counted why.
+    fn recompress_atom_row(
+        key: &[u8; 32],
+        storage_key: &str,
+        stored_bytes: &[u8],
+        report: &mut RecompressAtomContentReport,
+    ) -> Result<Option<Vec<u8>>, crate::schema::SchemaError> {
+        if stored_bytes.starts_with(crate::atom::ATOM_BINARY_ROW_PREFIX) {
+            report.already_binary += 1;
+            return Ok(None);
+        }
+        let mut value: serde_json::Value = match serde_json::from_slice(stored_bytes) {
+            Ok(value) => value,
+            Err(error) => {
+                report.errors += 1;
+                tracing::warn!(%storage_key, %error, "recompress decode skipped");
+                return Ok(None);
             }
-            report.scanned += 1;
-            report.last_walked_key = Some(storage_key.clone());
+        };
 
-            if stored_bytes.starts_with(crate::atom::ATOM_BINARY_ROW_PREFIX) {
-                report.already_binary += 1;
-                continue;
-            }
-            let mut value: serde_json::Value = match serde_json::from_slice(&stored_bytes) {
-                Ok(value) => value,
-                Err(error) => {
-                    report.errors += 1;
-                    tracing::warn!(%storage_key, %error, "recompress decode skipped");
-                    continue;
-                }
-            };
+        let Some(stored) = value.get("content").and_then(serde_json::Value::as_str) else {
+            report.not_legacy_enc += 1;
+            return Ok(None);
+        };
+        let stored_len = stored.len() as u64;
+        report.sealed_bytes_before += stored_len;
 
-            let Some(stored) = value.get("content").and_then(serde_json::Value::as_str) else {
-                report.not_legacy_enc += 1;
-                continue;
-            };
-            let stored_len = stored.len() as u64;
-            report.sealed_bytes_before += stored_len;
+        if stored.starts_with(crate::crypto::AT_REST_ENC_DEFLATE_PREFIX) {
+            report.already_compressed += 1;
+            report.sealed_bytes_after += stored_len;
+            return Ok(None);
+        }
+        if !stored.starts_with(crate::crypto::AT_REST_ENC_PREFIX) {
+            report.not_legacy_enc += 1;
+            report.sealed_bytes_after += stored_len;
+            return Ok(None);
+        }
 
-            if stored.starts_with(crate::crypto::AT_REST_ENC_DEFLATE_PREFIX) {
-                report.already_compressed += 1;
-                report.sealed_bytes_after += stored_len;
-                continue;
-            }
-            if !stored.starts_with(crate::crypto::AT_REST_ENC_PREFIX) {
-                report.not_legacy_enc += 1;
-                report.sealed_bytes_after += stored_len;
-                continue;
-            }
-
-            let opened = match crate::atom::open_content_value(
-                &key,
-                serde_json::Value::String(stored.to_owned()),
-            ) {
-                Ok(opened) => opened,
-                Err(e) => {
-                    report.errors += 1;
-                    report.sealed_bytes_after += stored_len;
-                    tracing::warn!(%storage_key, error = %e, "recompress open skipped");
-                    continue;
-                }
-            };
-            let resealed = match crate::atom::seal_content_value(&key, &opened) {
-                Ok(resealed) => resealed,
-                Err(e) => {
-                    report.errors += 1;
-                    report.sealed_bytes_after += stored_len;
-                    tracing::warn!(%storage_key, error = %e, "recompress seal skipped");
-                    continue;
-                }
-            };
-            let Some(resealed_str) = resealed.as_str() else {
+        let opened = match crate::atom::open_content_value(
+            key,
+            serde_json::Value::String(stored.to_owned()),
+        ) {
+            Ok(opened) => opened,
+            Err(e) => {
                 report.errors += 1;
                 report.sealed_bytes_after += stored_len;
-                tracing::warn!(%storage_key, "recompress seal returned non-string content");
-                continue;
-            };
-            if !resealed_str.starts_with(crate::crypto::AT_REST_ENC_DEFLATE_PREFIX) {
-                // Do not churn AES-GCM nonces when compression does not help.
-                report.compression_not_helpful += 1;
-                report.sealed_bytes_after += stored_len;
-                continue;
+                tracing::warn!(%storage_key, error = %e, "recompress open skipped");
+                return Ok(None);
             }
-
-            let new_len = resealed_str.len() as u64;
-            report.sealed_bytes_after += new_len;
-            value
-                .as_object_mut()
-                .expect("content lookup proved atom JSON is an object")
-                .insert("content".to_string(), resealed);
-            let encoded = serde_json::to_vec(&value).map_err(|e| {
-                crate::schema::SchemaError::InvalidData(format!(
-                    "encode recompressed atom {storage_key}: {e}"
-                ))
-            })?;
-            rewrites.push((storage_key_bytes, encoded));
+        };
+        let resealed = match crate::atom::seal_content_value(key, &opened) {
+            Ok(resealed) => resealed,
+            Err(e) => {
+                report.errors += 1;
+                report.sealed_bytes_after += stored_len;
+                tracing::warn!(%storage_key, error = %e, "recompress seal skipped");
+                return Ok(None);
+            }
+        };
+        let Some(resealed_str) = resealed.as_str() else {
+            report.errors += 1;
+            report.sealed_bytes_after += stored_len;
+            tracing::warn!(%storage_key, "recompress seal returned non-string content");
+            return Ok(None);
+        };
+        if !resealed_str.starts_with(crate::crypto::AT_REST_ENC_DEFLATE_PREFIX) {
+            // Do not churn AES-GCM nonces when compression does not help.
+            report.compression_not_helpful += 1;
+            report.sealed_bytes_after += stored_len;
+            return Ok(None);
         }
 
-        report.recompressed = rewrites.len();
-        if !rewrites.is_empty() {
-            self.main_store
-                .inner()
-                .batch_put(rewrites)
-                .await
-                .map_err(|e| {
-                    crate::schema::SchemaError::InvalidData(format!(
-                        "write recompressed atom page: {e}"
-                    ))
-                })?;
-            self.flush().await.map_err(|e| {
-                crate::schema::SchemaError::InvalidData(format!(
-                    "flush recompressed atom page: {e}"
-                ))
-            })?;
-        }
-        report.bytes_saved = report
-            .sealed_bytes_before
-            .saturating_sub(report.sealed_bytes_after);
-        report.more_remaining = more_remaining;
-        report.next_after_key = more_remaining
-            .then(|| report.last_walked_key.clone())
-            .flatten();
-        Ok(report)
+        let new_len = resealed_str.len() as u64;
+        report.sealed_bytes_after += new_len;
+        value
+            .as_object_mut()
+            .expect("content lookup proved atom JSON is an object")
+            .insert("content".to_string(), resealed);
+        let encoded = serde_json::to_vec(&value).map_err(|e| {
+            crate::schema::SchemaError::InvalidData(format!(
+                "encode recompressed atom {storage_key}: {e}"
+            ))
+        })?;
+        Ok(Some(encoded))
     }
 
     /// Rewrite one bounded atom page from JSON-string content to the binary
@@ -345,7 +381,6 @@ impl AtomStore {
     /// The read side accepts both forms. This offline helper forces the new
     /// form independently of the live writer switch so a CoW home can measure
     /// the exact inner-container and logical-row reductions before rollout.
-    // lint:fn-size-ok verbatim move from atom_store/mod.rs; splitting this function is separate work
     pub async fn repack_atom_content_binary_page(
         &self,
         after_key: Option<&str>,
@@ -363,113 +398,28 @@ impl AtomStore {
             )));
         }
 
-        let (plane_start, plane_end) =
-            crate::kind_partition::colon_plane_bounds(crate::atom::atom_key_codec::ATOM_PREFIX);
-        if let Some(after_key) = after_key {
-            if crate::kind_partition::rest_of(after_key, "atom").is_none()
-                || after_key.as_bytes() >= plane_end.as_bytes()
-            {
-                return Err(crate::schema::SchemaError::InvalidCursor(
-                    "binary atom repack after_key must be an atom storage key".into(),
-                ));
-            }
-        }
-        let start = after_key.unwrap_or(plane_start.as_str());
-        let raw_limit = max_atoms
-            .saturating_add(1)
-            .saturating_add(usize::from(after_key.is_some()));
-        let raw = self
-            .main_store
-            .inner()
-            .scan_range_paged(start.as_bytes(), plane_end.as_bytes(), raw_limit)
-            .await
-            .map_err(|e| {
-                crate::schema::SchemaError::InvalidData(format!(
-                    "binary atom repack range page: {e}"
-                ))
-            })?;
-        let mut rows = raw.into_iter().filter(|(storage_key, _)| {
-            after_key.map(str::as_bytes) != Some(storage_key.as_slice())
-        });
-        let page: Vec<_> = rows.by_ref().take(max_atoms).collect();
-        let more_remaining = rows.next().is_some();
+        let (page, more_remaining) = self
+            .read_atom_row_page(
+                after_key,
+                max_atoms,
+                "binary atom repack after_key must be an atom storage key",
+                "binary atom repack range page",
+            )
+            .await?;
         let mut report = RepackAtomContentReport::default();
         let mut rewrites = Vec::new();
 
         for (storage_key, stored) in page {
             report.scanned += 1;
             report.last_walked_key = String::from_utf8(storage_key.clone()).ok();
-            if stored.starts_with(crate::atom::ATOM_BINARY_ROW_PREFIX) {
-                report.already_binary += 1;
-                continue;
+            if let Some(encoded) = self.repack_atom_row(&stored, &mut report).await? {
+                rewrites.push((storage_key, encoded));
             }
-            let raw_value: serde_json::Value = match serde_json::from_slice(&stored) {
-                Ok(value) => value,
-                Err(error) => {
-                    report.errors += 1;
-                    tracing::warn!(%error, "binary atom repack JSON decode skipped");
-                    continue;
-                }
-            };
-            let Some(content) = raw_value.get("content") else {
-                report.errors += 1;
-                continue;
-            };
-            let inner_before = serde_json::to_vec(content).map_or(0, |bytes| bytes.len() as u64);
-            let molecule_uuid = raw_value
-                .get("molecule_key_bundle")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned);
-            let atom = match self.decode_atom_bytes(&stored).await {
-                Ok(atom) => atom,
-                Err(error) => {
-                    report.errors += 1;
-                    tracing::warn!(%error, "binary atom repack open skipped");
-                    continue;
-                }
-            };
-            let encoded = match self
-                .encode_atom_bytes_with_binary(&atom, molecule_uuid.as_deref(), true)
-                .await
-            {
-                Ok(encoded) => encoded,
-                Err(error) => {
-                    report.errors += 1;
-                    tracing::warn!(%error, "binary atom repack seal skipped");
-                    continue;
-                }
-            };
-            let inner_after = crate::atom::parse_atom_binary_row(&encoded)
-                .map_err(|e| {
-                    crate::schema::SchemaError::InvalidData(format!(
-                        "binary atom repack encoded row invalid: {e}"
-                    ))
-                })?
-                .map_or(0, |(_, sealed)| sealed.len() as u64);
-            report.inner_bytes_before += inner_before;
-            report.inner_bytes_after += inner_after;
-            report.row_bytes_before += stored.len() as u64;
-            report.row_bytes_after += encoded.len() as u64;
-            rewrites.push((storage_key, encoded));
         }
 
         report.repacked = rewrites.len();
-        if !rewrites.is_empty() {
-            self.main_store
-                .inner()
-                .batch_put(rewrites)
-                .await
-                .map_err(|e| {
-                    crate::schema::SchemaError::InvalidData(format!(
-                        "write binary atom repack page: {e}"
-                    ))
-                })?;
-            self.flush().await.map_err(|e| {
-                crate::schema::SchemaError::InvalidData(format!(
-                    "flush binary atom repack page: {e}"
-                ))
-            })?;
-        }
+        self.write_atom_row_page(rewrites, "binary atom repack page")
+            .await?;
         report.inner_bytes_saved = report
             .inner_bytes_before
             .saturating_sub(report.inner_bytes_after);
@@ -481,5 +431,66 @@ impl AtomStore {
             .then(|| report.last_walked_key.clone())
             .flatten();
         Ok(report)
+    }
+
+    /// Repack one JSON-content row to the binary container. `Some` is the new
+    /// row; `None` means the row was skipped and the report counted why.
+    async fn repack_atom_row(
+        &self,
+        stored: &[u8],
+        report: &mut RepackAtomContentReport,
+    ) -> Result<Option<Vec<u8>>, crate::schema::SchemaError> {
+        if stored.starts_with(crate::atom::ATOM_BINARY_ROW_PREFIX) {
+            report.already_binary += 1;
+            return Ok(None);
+        }
+        let raw_value: serde_json::Value = match serde_json::from_slice(stored) {
+            Ok(value) => value,
+            Err(error) => {
+                report.errors += 1;
+                tracing::warn!(%error, "binary atom repack JSON decode skipped");
+                return Ok(None);
+            }
+        };
+        let Some(content) = raw_value.get("content") else {
+            report.errors += 1;
+            return Ok(None);
+        };
+        let inner_before = serde_json::to_vec(content).map_or(0, |bytes| bytes.len() as u64);
+        let molecule_uuid = raw_value
+            .get("molecule_key_bundle")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        let atom = match self.decode_atom_bytes(stored).await {
+            Ok(atom) => atom,
+            Err(error) => {
+                report.errors += 1;
+                tracing::warn!(%error, "binary atom repack open skipped");
+                return Ok(None);
+            }
+        };
+        let encoded = match self
+            .encode_atom_bytes_with_binary(&atom, molecule_uuid.as_deref(), true)
+            .await
+        {
+            Ok(encoded) => encoded,
+            Err(error) => {
+                report.errors += 1;
+                tracing::warn!(%error, "binary atom repack seal skipped");
+                return Ok(None);
+            }
+        };
+        let inner_after = crate::atom::parse_atom_binary_row(&encoded)
+            .map_err(|e| {
+                crate::schema::SchemaError::InvalidData(format!(
+                    "binary atom repack encoded row invalid: {e}"
+                ))
+            })?
+            .map_or(0, |(_, sealed)| sealed.len() as u64);
+        report.inner_bytes_before += inner_before;
+        report.inner_bytes_after += inner_after;
+        report.row_bytes_before += stored.len() as u64;
+        report.row_bytes_after += encoded.len() as u64;
+        Ok(Some(encoded))
     }
 }

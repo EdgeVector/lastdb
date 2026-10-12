@@ -20,23 +20,13 @@ impl MutationManager {
     /// Mirrors the molecule-restore + head-read done by
     /// [`Self::idempotency_hit_matches_current_state`], so it observes the same
     /// freshly-persisted state the write pipeline will build on.
-    // lint:fn-size-ok verbatim move from cas.rs; splitting this function is separate work
     pub(super) async fn read_current_head(
         &self,
         mutation: &Mutation,
         field: &str,
         storage_prefix: Option<&str>,
     ) -> Result<(Option<String>, Option<serde_json::Value>), SchemaError> {
-        let Some(mut schema) = self
-            .schema_manager
-            .get_schema_metadata(&mutation.schema_name)?
-        else {
-            return Err(SchemaError::InvalidData(format!(
-                "Schema '{}' not found",
-                mutation.schema_name
-            )));
-        };
-        super::helpers::apply_storage_prefix_to_schema(&mut schema, storage_prefix);
+        let mut schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
 
         let key_value = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
         let single = vec![mutation.clone()];
@@ -52,65 +42,12 @@ impl MutationManager {
             )));
         };
 
-        // Prefer the acknowledged resident tip over the catalog molecule head.
-        // A sibling schema that shares a node identity can reload the catalog
-        // with a stale `state` tip while event_id/log_excerpt already advanced.
-        // CAS that followed the catalog atom UUID then compared the pre-write
-        // value (`expected "pending", found "failure"` on 2026-09-02).
         let hint = schema_field.partition_hint(&key_value);
-        if let (Some(mol_uuid), Some(changed)) = (
-            schema_field.common().molecule_uuid(),
-            schema_field.changed_key_for(&key_value),
-        ) {
-            // A hard-erase (`Delete`/`Purge`) stamps this resident overlay
-            // synchronously, before its ack, and removes the resident tip
-            // in the same step — but the catalog molecule head below is
-            // only updated later by the deferred converge/purge lane. A
-            // CAS read that lands in that window would otherwise fall
-            // through resolve_tip's miss straight to the stale catalog
-            // uuid and its still-undeleted atom body, which is never
-            // tombstone-shaped for a `Delete` (no per-field tombstone
-            // atom is written — see `MutationType::Delete`), so the old
-            // value would read as live. Check the overlay first, exactly
-            // like the sibling `read_current_row_fields_with_winner`
-            // does, so a tombstoned key reads as absent regardless of
-            // which path (resident tip or catalog fallback) would
-            // otherwise have answered next.
-            //
-            // Org-prefix Delete stamps the same overlay
-            // (`purge_apply_gate_transaction`). Skipping the consult when
-            // `storage_prefix` is set made a byte-identical org Create a
-            // catalog-head no-op while count already hid the row.
-            if self.db_ops.resident().is_key_tombstoned(
-                mol_uuid,
-                changed.disk_hash(),
-                changed.disk_range(),
-            ) {
-                return Ok((None, None));
-            }
-            if let Some(tip) = self.db_ops.resident().resolve_tip(
-                mol_uuid,
-                changed.disk_hash(),
-                changed.disk_range(),
-            ) {
-                let uuid = tip.value.atom_uuid;
-                let content = if let Some(atom) = self.db_ops.resident().resolve_atom(&uuid) {
-                    Some(atom.value.content)
-                } else {
-                    self.db_ops
-                        .atoms()
-                        .get_atom_by_uuid_in_partition(&uuid, hint.as_ref(), storage_prefix)
-                        .await?
-                        .map(|atom| atom.content().clone())
-                };
-                if content
-                    .as_ref()
-                    .is_some_and(crate::atom::is_tombstone_value)
-                {
-                    return Ok((None, None));
-                }
-                return Ok((Some(uuid), content));
-            }
+        if let Some(resident) = self
+            .resident_head(schema_field, &key_value, hint.as_ref(), storage_prefix)
+            .await?
+        {
+            return Ok(resident);
         }
 
         let Some(uuid) = current_atom_uuid(schema_field, &key_value) else {
@@ -124,15 +61,9 @@ impl MutationManager {
         // resident tip before its atom drains to storage. Resolve the paired
         // resident atom first or this point read can observe a new head as an
         // absent value during that persistence window.
-        let content = if let Some(atom) = self.db_ops.resident().resolve_atom(&uuid) {
-            Some(atom.value.content)
-        } else {
-            self.db_ops
-                .atoms()
-                .get_atom_by_uuid_in_partition(&uuid, hint.as_ref(), storage_prefix)
-                .await?
-                .map(|atom| atom.content().clone())
-        };
+        let content = self
+            .read_atom_content(&uuid, hint.as_ref(), storage_prefix)
+            .await?;
 
         // A tombstoned head reads as absent — a deleted record has no live
         // value to compare against.
@@ -144,6 +75,107 @@ impl MutationManager {
         }
 
         Ok((Some(uuid), content))
+    }
+
+    fn load_schema_for_point_read(
+        &self,
+        mutation: &Mutation,
+        storage_prefix: Option<&str>,
+    ) -> Result<crate::schema::Schema, SchemaError> {
+        let Some(mut schema) = self
+            .schema_manager
+            .get_schema_metadata(&mutation.schema_name)?
+        else {
+            return Err(SchemaError::InvalidData(format!(
+                "Schema '{}' not found",
+                mutation.schema_name
+            )));
+        };
+        super::helpers::apply_storage_prefix_to_schema(&mut schema, storage_prefix);
+        Ok(schema)
+    }
+
+    /// Resident atom body when present, else a storage point read.
+    async fn read_atom_content(
+        &self,
+        uuid: &str,
+        hint: Option<&crate::atom::AtomPartition>,
+        storage_prefix: Option<&str>,
+    ) -> Result<Option<serde_json::Value>, SchemaError> {
+        if let Some(atom) = self.db_ops.resident().resolve_atom(uuid) {
+            return Ok(Some(atom.value.content));
+        }
+        Ok(self
+            .db_ops
+            .atoms()
+            .get_atom_by_uuid_in_partition(uuid, hint, storage_prefix)
+            .await?
+            .map(|atom| atom.content().clone()))
+    }
+
+    /// Answer a head read from the acknowledged resident state, if it knows
+    /// the key. `None` means fall through to the catalog molecule head.
+    ///
+    /// Prefer the acknowledged resident tip over the catalog molecule head.
+    /// A sibling schema that shares a node identity can reload the catalog
+    /// with a stale `state` tip while event_id/log_excerpt already advanced.
+    /// CAS that followed the catalog atom UUID then compared the pre-write
+    /// value (`expected "pending", found "failure"` on 2026-09-02).
+    async fn resident_head(
+        &self,
+        schema_field: &crate::schema::types::field::FieldVariant,
+        key_value: &crate::schema::types::KeyValue,
+        hint: Option<&crate::atom::AtomPartition>,
+        storage_prefix: Option<&str>,
+    ) -> Result<Option<(Option<String>, Option<serde_json::Value>)>, SchemaError> {
+        let (Some(mol_uuid), Some(changed)) = (
+            schema_field.common().molecule_uuid(),
+            schema_field.changed_key_for(key_value),
+        ) else {
+            return Ok(None);
+        };
+        // A hard-erase (`Delete`/`Purge`) stamps this resident overlay
+        // synchronously, before its ack, and removes the resident tip
+        // in the same step — but the catalog molecule head below is
+        // only updated later by the deferred converge/purge lane. A
+        // CAS read that lands in that window would otherwise fall
+        // through resolve_tip's miss straight to the stale catalog
+        // uuid and its still-undeleted atom body, which is never
+        // tombstone-shaped for a `Delete` (no per-field tombstone
+        // atom is written — see `MutationType::Delete`), so the old
+        // value would read as live. Check the overlay first, exactly
+        // like the sibling `read_current_row_fields_with_winner`
+        // does, so a tombstoned key reads as absent regardless of
+        // which path (resident tip or catalog fallback) would
+        // otherwise have answered next.
+        //
+        // Org-prefix Delete stamps the same overlay
+        // (`purge_apply_gate_transaction`). Skipping the consult when
+        // `storage_prefix` is set made a byte-identical org Create a
+        // catalog-head no-op while count already hid the row.
+        if self.db_ops.resident().is_key_tombstoned(
+            mol_uuid,
+            changed.disk_hash(),
+            changed.disk_range(),
+        ) {
+            return Ok(Some((None, None)));
+        }
+        let Some(tip) =
+            self.db_ops
+                .resident()
+                .resolve_tip(mol_uuid, changed.disk_hash(), changed.disk_range())
+        else {
+            return Ok(None);
+        };
+        let uuid = tip.value.atom_uuid;
+        let content = self.read_atom_content(&uuid, hint, storage_prefix).await?;
+        if content
+            .as_ref()
+            .is_some_and(crate::atom::is_tombstone_value)
+        {
+            return Ok(Some((None, None)));
+        }
+        Ok(Some((Some(uuid), content)))
     }
 
     /// Point-read a fixed field set from one exact row.
@@ -166,23 +198,13 @@ impl MutationManager {
     /// The winner comes from the same hydrated tips as the returned values.
     /// AggregateSet uses it to distinguish an exact replay from a newer
     /// byte-identical mutation that the molecule layer would keep as a no-op.
-    // lint:fn-size-ok verbatim move from cas.rs; splitting this function is separate work
     pub(super) async fn read_current_row_fields_with_winner(
         &self,
         mutation: &Mutation,
         fields: &[String],
         storage_prefix: Option<&str>,
     ) -> Result<(CurrentRowFields, Option<AggregateWinner>), SchemaError> {
-        let Some(mut schema) = self
-            .schema_manager
-            .get_schema_metadata(&mutation.schema_name)?
-        else {
-            return Err(SchemaError::InvalidData(format!(
-                "Schema '{}' not found",
-                mutation.schema_name
-            )));
-        };
-        super::helpers::apply_storage_prefix_to_schema(&mut schema, storage_prefix);
+        let mut schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
         let key_value = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
         let mut changed_keys: HashMap<
             String,
@@ -215,65 +237,15 @@ impl MutationManager {
                     mutation.schema_name
                 ))
             })?;
-            let changed_key = schema_field.changed_key_for(&key_value).ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "point read cannot resolve field '{field}' key in schema '{}'",
-                    mutation.schema_name
-                ))
-            })?;
-            let molecule_uuid =
-                schema_field
-                    .common()
-                    .molecule_uuid()
-                    .cloned()
-                    .ok_or_else(|| {
-                        SchemaError::InvalidData(format!(
-                            "point read field '{}.{field}' has no molecule identity",
-                            mutation.schema_name
-                        ))
-                    })?;
-            if self.db_ops.resident().is_key_tombstoned(
-                &molecule_uuid,
-                changed_key.disk_hash(),
-                changed_key.disk_range(),
-            ) {
-                continue;
-            }
-            let resident_entry = self
-                .db_ops
-                .resident()
-                .resolve_tip(
-                    &molecule_uuid,
-                    changed_key.disk_hash(),
-                    changed_key.disk_range(),
+            let Some(entry) = self
+                .point_read_field_entry(
+                    &mutation.schema_name,
+                    field,
+                    schema_field,
+                    &key_value,
+                    storage_prefix,
                 )
-                .map(|tip| {
-                    crate::atom::AtomEntry::thin_with_author(
-                        tip.value.atom_uuid,
-                        tip.value.written_at,
-                        tip.value.logical_counter,
-                        tip.value.device_id,
-                        tip.value.mutation_uuid,
-                        String::new(),
-                    )
-                });
-            let durable_entry = if resident_entry.is_none() {
-                let changed = std::collections::HashSet::from([changed_key.clone()]);
-                self.db_ops
-                    .atoms()
-                    .load_molecule_for_write(&molecule_uuid, storage_prefix, &changed)
-                    .await?
-                    .and_then(|molecule| {
-                        molecule
-                            .get_atom_entry(changed_key.disk_hash(), changed_key.disk_range())
-                            .cloned()
-                    })
-            } else {
-                None
-            };
-            let Some(entry) = resident_entry
-                .or(durable_entry)
-                .or_else(|| schema_field.atom_entry_at_key(&key_value).cloned())
+                .await?
             else {
                 continue;
             };
@@ -291,33 +263,21 @@ impl MutationManager {
                 _ => {}
             }
             let hint = schema_field.partition_hint(&key_value);
-            let content = if let Some(atom) = self.db_ops.resident().resolve_atom(&uuid) {
-                Some(atom.value.content.clone())
-            } else {
-                self.db_ops
-                    .atoms()
-                    .get_atom_by_uuid_in_partition(&uuid, hint.as_ref(), storage_prefix)
-                    .await?
-                    .map(|atom| atom.content().clone())
+            let content = self
+                .read_atom_content(&uuid, hint.as_ref(), storage_prefix)
+                .await?;
+            let content = match content {
+                Some(content) if !crate::atom::is_tombstone_value(&content) => content,
+                _ => {
+                    return Ok((
+                        CurrentRowFields::Corrupt {
+                            field: field.clone(),
+                            atom_uuid: uuid,
+                        },
+                        None,
+                    ));
+                }
             };
-            let Some(content) = content else {
-                return Ok((
-                    CurrentRowFields::Corrupt {
-                        field: field.clone(),
-                        atom_uuid: uuid,
-                    },
-                    None,
-                ));
-            };
-            if crate::atom::is_tombstone_value(&content) {
-                return Ok((
-                    CurrentRowFields::Corrupt {
-                        field: field.clone(),
-                        atom_uuid: uuid,
-                    },
-                    None,
-                ));
-            }
             values.insert(field.clone(), content);
         }
         if saw_tip {
@@ -325,5 +285,74 @@ impl MutationManager {
         } else {
             Ok((CurrentRowFields::Absent, None))
         }
+    }
+
+    /// Find the current atom entry of one field at one key: resident overlay,
+    /// then resident tip, then the durable molecule, then the schema cache.
+    /// `None` means the key is tombstoned or has no tip.
+    async fn point_read_field_entry(
+        &self,
+        schema_name: &str,
+        field: &str,
+        schema_field: &crate::schema::types::field::FieldVariant,
+        key_value: &crate::schema::types::KeyValue,
+        storage_prefix: Option<&str>,
+    ) -> Result<Option<crate::atom::AtomEntry>, SchemaError> {
+        let changed_key = schema_field.changed_key_for(key_value).ok_or_else(|| {
+            SchemaError::InvalidData(format!(
+                "point read cannot resolve field '{field}' key in schema '{schema_name}'"
+            ))
+        })?;
+        let molecule_uuid = schema_field
+            .common()
+            .molecule_uuid()
+            .cloned()
+            .ok_or_else(|| {
+                SchemaError::InvalidData(format!(
+                    "point read field '{schema_name}.{field}' has no molecule identity"
+                ))
+            })?;
+        if self.db_ops.resident().is_key_tombstoned(
+            &molecule_uuid,
+            changed_key.disk_hash(),
+            changed_key.disk_range(),
+        ) {
+            return Ok(None);
+        }
+        let resident_entry = self
+            .db_ops
+            .resident()
+            .resolve_tip(
+                &molecule_uuid,
+                changed_key.disk_hash(),
+                changed_key.disk_range(),
+            )
+            .map(|tip| {
+                crate::atom::AtomEntry::thin_with_author(
+                    tip.value.atom_uuid,
+                    tip.value.written_at,
+                    tip.value.logical_counter,
+                    tip.value.device_id,
+                    tip.value.mutation_uuid,
+                    String::new(),
+                )
+            });
+        let durable_entry = if resident_entry.is_none() {
+            let changed = std::collections::HashSet::from([changed_key.clone()]);
+            self.db_ops
+                .atoms()
+                .load_molecule_for_write(&molecule_uuid, storage_prefix, &changed)
+                .await?
+                .and_then(|molecule| {
+                    molecule
+                        .get_atom_entry(changed_key.disk_hash(), changed_key.disk_range())
+                        .cloned()
+                })
+        } else {
+            None
+        };
+        Ok(resident_entry
+            .or(durable_entry)
+            .or_else(|| schema_field.atom_entry_at_key(key_value).cloned()))
     }
 }

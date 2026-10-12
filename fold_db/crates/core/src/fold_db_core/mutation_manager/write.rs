@@ -1,7 +1,6 @@
 //! Public write entry points, batch pipeline orchestration, timing, finalize.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use crate::schema::types::Mutation;
 use crate::schema::{SchemaError, SchemaState};
@@ -26,6 +25,7 @@ mod create_update_batch;
 mod delete_winners;
 mod erasure;
 mod hard_erasure;
+mod hard_erasure_process;
 mod molecule_keys;
 use attribution::{attribution_scopes, attribution_source_events_enabled};
 use erasure::estimate_retained_atom_set_bytes;
