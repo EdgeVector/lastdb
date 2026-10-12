@@ -85,7 +85,6 @@ impl MutationManager {
     /// the entry key, then enqueue the sibling key under its own schema. This
     /// reads one fixed-field row and checks the resident schema and protein
     /// metadata. It never traverses a data partition or scans stored records.
-    // lint:fn-size-ok verbatim move from write.rs; splitting this function is separate work
     pub(super) async fn expand_protein_hashrange_erasures(
         &self,
         erasures: Vec<Mutation>,
@@ -121,38 +120,9 @@ impl MutationManager {
                 continue;
             }
 
-            let source_molecules: Vec<String> = source_schema
-                .runtime_fields
-                .values()
-                .filter_map(|field| field.common().molecule_uuid().cloned())
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect();
-            if source_molecules.is_empty() {
-                continue;
-            }
-
-            let mut protein_uuids: Vec<String> = self
-                .db_ops
-                .atoms()
-                .protein_of_molecules_in_scope(&source_molecules, storage_prefix)
-                .await?
-                .into_iter()
-                .flatten()
-                .collect();
-            protein_uuids.sort_unstable();
-            protein_uuids.dedup();
-            if protein_uuids.is_empty() {
-                continue;
-            }
-            let proteins: Vec<_> = self
-                .db_ops
-                .atoms()
-                .protein_get_many_in_scope(&protein_uuids, storage_prefix)
-                .await?
-                .into_iter()
-                .flatten()
-                .collect();
+            let proteins = self
+                .proteins_of_schema_molecules(source_schema, storage_prefix)
+                .await?;
             if proteins.is_empty() {
                 continue;
             }
@@ -173,71 +143,123 @@ impl MutationManager {
                 {
                     continue;
                 }
-                let Some(peer_key) = peer_schema.key.as_ref() else {
-                    continue;
-                };
-                let (Some(peer_hash_field), Some(peer_range_field)) = (
-                    peer_key.hash_field.as_deref(),
-                    peer_key.range_field.as_deref(),
+                let Some(reverse) = Self::reverse_erasure_for_peer(
+                    &erasure,
+                    peer_name,
+                    peer_schema,
+                    &proteins,
+                    &row,
                 ) else {
                     continue;
                 };
-                let peer_molecules: HashSet<&str> = peer_schema
-                    .runtime_fields
-                    .values()
-                    .filter_map(|field| field.common().molecule_uuid().map(String::as_str))
-                    .collect();
-                let peer_is_member = proteins.iter().any(|protein| {
-                    protein.members.iter().any(|member| {
-                        peer_molecules.contains(member.molecule_uuid.as_str())
-                            && member.hash_field == peer_hash_field
-                            && member.range_field.as_deref() == Some(peer_range_field)
-                    })
-                });
-                if !peer_is_member {
+                if !seen.insert((peer_name.clone(), reverse.key_value.to_storage_key())) {
                     continue;
-                }
-
-                let Some(hash) = row.get(peer_hash_field).and_then(serde_json::Value::as_str)
-                else {
-                    continue;
-                };
-                let Some(range) = row
-                    .get(peer_range_field)
-                    .and_then(serde_json::Value::as_str)
-                else {
-                    continue;
-                };
-                let key_value = KeyValue::new(Some(hash.to_string()), Some(range.to_string()));
-                if !seen.insert((peer_name.clone(), key_value.to_storage_key())) {
-                    continue;
-                }
-
-                let mut reverse = Mutation::new(
-                    peer_name.clone(),
-                    HashMap::new(),
-                    key_value,
-                    erasure.pub_key.clone(),
-                    erasure.mutation_type,
-                );
-                // The forward row proves the logical edge exists. The sibling
-                // can already be absent after an interrupted older writer, so
-                // its cleanup stays idempotent even for a loud forward delete.
-                reverse.synchronous = erasure.synchronous;
-                if erasure.mutation_type == MutationType::Delete {
-                    // Both molecule keys describe one signed source Delete.
-                    // The derived key has no separate signature, but its
-                    // durable winner must retain the source device's order.
-                    reverse.uuid = erasure.uuid.clone();
-                    reverse.imported_written_at = erasure.imported_written_at;
-                    reverse.logical_counter = erasure.logical_counter;
-                    reverse.author_clock_writer_id = erasure.author_clock_writer_id.clone();
                 }
                 expanded.push(reverse);
             }
         }
 
         Ok(expanded)
+    }
+
+    /// Proteins that any molecule of `source_schema` belongs to.
+    async fn proteins_of_schema_molecules(
+        &self,
+        source_schema: &crate::schema::Schema,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<crate::protein::Protein>, SchemaError> {
+        let source_molecules: Vec<String> = source_schema
+            .runtime_fields
+            .values()
+            .filter_map(|field| field.common().molecule_uuid().cloned())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if source_molecules.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut protein_uuids: Vec<String> = self
+            .db_ops
+            .atoms()
+            .protein_of_molecules_in_scope(&source_molecules, storage_prefix)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
+        protein_uuids.sort_unstable();
+        protein_uuids.dedup();
+        if protein_uuids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .db_ops
+            .atoms()
+            .protein_get_many_in_scope(&protein_uuids, storage_prefix)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect())
+    }
+
+    /// The sibling-view delete for `erasure` on `peer_schema`, when the peer is
+    /// a protein member and the forward row carries its hash and range values.
+    fn reverse_erasure_for_peer(
+        erasure: &Mutation,
+        peer_name: &str,
+        peer_schema: &crate::schema::Schema,
+        proteins: &[crate::protein::Protein],
+        row: &std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Option<Mutation> {
+        let peer_key = peer_schema.key.as_ref()?;
+        let (peer_hash_field, peer_range_field) = (
+            peer_key.hash_field.as_deref()?,
+            peer_key.range_field.as_deref()?,
+        );
+        let peer_molecules: HashSet<&str> = peer_schema
+            .runtime_fields
+            .values()
+            .filter_map(|field| field.common().molecule_uuid().map(String::as_str))
+            .collect();
+        let peer_is_member = proteins.iter().any(|protein| {
+            protein.members.iter().any(|member| {
+                peer_molecules.contains(member.molecule_uuid.as_str())
+                    && member.hash_field == peer_hash_field
+                    && member.range_field.as_deref() == Some(peer_range_field)
+            })
+        });
+        if !peer_is_member {
+            return None;
+        }
+
+        let hash = row
+            .get(peer_hash_field)
+            .and_then(serde_json::Value::as_str)?;
+        let range = row
+            .get(peer_range_field)
+            .and_then(serde_json::Value::as_str)?;
+        let key_value = KeyValue::new(Some(hash.to_string()), Some(range.to_string()));
+
+        let mut reverse = Mutation::new(
+            peer_name.to_string(),
+            HashMap::new(),
+            key_value,
+            erasure.pub_key.clone(),
+            erasure.mutation_type,
+        );
+        // The forward row proves the logical edge exists. The sibling
+        // can already be absent after an interrupted older writer, so
+        // its cleanup stays idempotent even for a loud forward delete.
+        reverse.synchronous = erasure.synchronous;
+        if erasure.mutation_type == MutationType::Delete {
+            // Both molecule keys describe one signed source Delete.
+            // The derived key has no separate signature, but its
+            // durable winner must retain the source device's order.
+            reverse.uuid = erasure.uuid.clone();
+            reverse.imported_written_at = erasure.imported_written_at;
+            reverse.logical_counter = erasure.logical_counter;
+            reverse.author_clock_writer_id = erasure.author_clock_writer_id.clone();
+        }
+        Some(reverse)
     }
 
     /// Purge exact storage-form slots discovered by an owner scan.

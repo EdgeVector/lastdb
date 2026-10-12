@@ -70,7 +70,6 @@ use super::*;
 /// mode requires the schema purge barrier. The exact-edge mode runs in the
 /// persist lane after its molecule manifests report replay-complete.
 #[allow(clippy::too_many_arguments)]
-// lint:fn-size-ok verbatim move from purge/mod.rs; splitting this function is separate work
 pub(in crate::fold_db_core) async fn purge_records_bulk(
     db_ops: &Arc<DbOperations>,
     schema_manager: &Arc<SchemaCore>,
@@ -97,23 +96,7 @@ pub(in crate::fold_db_core) async fn purge_records_bulk(
         validate_purge_key_shape(&schema, schema_name, key)?;
     }
 
-    // A batch is a SET of records. The per-record path made a repeated key a
-    // loud error by accident — the second purge found nothing where the first
-    // had just erased it — and that is not a contract worth reconstructing at
-    // batch scale: the caller asked for the record to be gone, and after the
-    // first removal it is. Deduping here keeps `records_purged` a count of
-    // distinct records and stops a repeated key from tripping the not-found
-    // check against a target this same batch erased.
-    //
-    // `describe_key` is the dedup token because it renders exactly the
-    // `(hash, range)` pair that identifies a slot; on a Single schema every key
-    // collapses to `<single>`, which is correct — there is only one record.
-    let mut seen: HashSet<String> = HashSet::new();
-    let deduped: Vec<KeyValue> = keys
-        .iter()
-        .filter(|k| seen.insert(describe_key(k)))
-        .cloned()
-        .collect();
+    let deduped = dedup_purge_keys(keys);
     let keys: &[KeyValue] = &deduped;
 
     let materialize_start = std::time::Instant::now();
@@ -147,33 +130,12 @@ pub(in crate::fold_db_core) async fn purge_records_bulk(
         traced,
     } = traced_batch?;
 
-    // Missing-target policy, BEFORE any mutation. Compliance (`Refuse`) keeps
-    // the loud contract from `purge_record`. Delete (`Skip`) filters to the
-    // keys that left a trace so re-delete is a no-op without weakening
-    // compliance purge. Candidate atoms / history / tip-version keys were
-    // only collected for traced targets, so filtering keys keeps those sets
-    // consistent with the destructive half of the batch.
-    let keys_present: Vec<KeyValue>;
-    let keys: &[KeyValue] = if traced.len() == keys.len() {
-        keys
-    } else {
-        match missing {
-            PurgeMissingPolicy::Refuse => {
-                return Err(missing_targets_error(schema_name, keys, &traced, verb));
-            }
-            PurgeMissingPolicy::Skip => {
-                keys_present = keys
-                    .iter()
-                    .enumerate()
-                    .filter(|(idx, _)| traced.contains(idx))
-                    .map(|(_, k)| k.clone())
-                    .collect();
-                if keys_present.is_empty() {
-                    return Ok(BulkPurgeReport::empty());
-                }
-                &keys_present
-            }
-        }
+    // Missing-target policy, BEFORE any mutation: see `filter_missing_targets`.
+    let keys_present = filter_missing_targets(schema_name, keys, &traced, missing, verb)?;
+    let keys: &[KeyValue] = match &keys_present {
+        Some(present) if present.is_empty() => return Ok(BulkPurgeReport::empty()),
+        Some(present) => present,
+        None => keys,
     };
 
     let described_key = if keys.len() == 1 {
@@ -181,25 +143,7 @@ pub(in crate::fold_db_core) async fn purge_records_bulk(
     } else {
         format!("<bulk:{} keys>", keys.len())
     };
-    let mut storage_slots = Vec::new();
-    for (field_name, field) in &schema.runtime_fields {
-        let Some(molecule_uuid) = field.common().molecule_uuid().cloned() else {
-            continue;
-        };
-        for (api_key, storage_key) in keys.iter().zip(storage_form_keys(db_ops, field, keys)?) {
-            let Some((disk_hash, disk_range)) = field.disk_slot_for_key(&storage_key) else {
-                continue;
-            };
-            storage_slots.push(PlannedStorageSlot {
-                field_name: field_name.clone(),
-                molecule_uuid: molecule_uuid.clone(),
-                storage_key,
-                resident_key: Some(api_key.clone()),
-                disk_hash,
-                disk_range,
-            });
-        }
-    }
+    let storage_slots = plan_storage_slots(db_ops, &schema, keys)?;
 
     execute_guarded_purge(
         db_ops,
@@ -222,6 +166,81 @@ pub(in crate::fold_db_core) async fn purge_records_bulk(
         precomputed_retained,
     )
     .await
+}
+
+/// A batch is a SET of records.
+/// The per-record path made a repeated key a loud error by accident — the
+/// second purge found nothing where the first had just erased it — and that is
+/// not a contract worth reconstructing at batch scale: the caller asked for the
+/// record to be gone, and after the first removal it is. Deduping keeps
+/// `records_purged` a count of distinct records and stops a repeated key from
+/// tripping the not-found check against a target this same batch erased.
+///
+/// `describe_key` is the dedup token because it renders exactly the
+/// `(hash, range)` pair that identifies a slot; on a Single schema every key
+/// collapses to `<single>`, which is correct — there is only one record.
+fn dedup_purge_keys(keys: &[KeyValue]) -> Vec<KeyValue> {
+    let mut seen: HashSet<String> = HashSet::new();
+    keys.iter()
+        .filter(|k| seen.insert(describe_key(k)))
+        .cloned()
+        .collect()
+}
+
+/// Missing-target policy. Compliance (`Refuse`) keeps the loud contract from
+/// `purge_record`. Delete (`Skip`) filters to the keys that left a trace so
+/// re-delete is a no-op without weakening compliance purge. Candidate atoms /
+/// history / tip-version keys were only collected for traced targets, so
+/// filtering keys keeps those sets consistent with the destructive half of the
+/// batch. Returns `None` when every key was traced.
+fn filter_missing_targets(
+    schema_name: &str,
+    keys: &[KeyValue],
+    traced: &HashSet<usize>,
+    missing: PurgeMissingPolicy,
+    verb: HardEraseVerb,
+) -> Result<Option<Vec<KeyValue>>, SchemaError> {
+    if traced.len() == keys.len() {
+        return Ok(None);
+    }
+    match missing {
+        PurgeMissingPolicy::Refuse => Err(missing_targets_error(schema_name, keys, traced, verb)),
+        PurgeMissingPolicy::Skip => Ok(Some(
+            keys.iter()
+                .enumerate()
+                .filter(|(idx, _)| traced.contains(idx))
+                .map(|(_, k)| k.clone())
+                .collect(),
+        )),
+    }
+}
+
+/// One planned slot per (field with a molecule, key) pair.
+fn plan_storage_slots(
+    db_ops: &Arc<DbOperations>,
+    schema: &crate::schema::Schema,
+    keys: &[KeyValue],
+) -> Result<Vec<PlannedStorageSlot>, SchemaError> {
+    let mut storage_slots = Vec::new();
+    for (field_name, field) in &schema.runtime_fields {
+        let Some(molecule_uuid) = field.common().molecule_uuid().cloned() else {
+            continue;
+        };
+        for (api_key, storage_key) in keys.iter().zip(storage_form_keys(db_ops, field, keys)?) {
+            let Some((disk_hash, disk_range)) = field.disk_slot_for_key(&storage_key) else {
+                continue;
+            };
+            storage_slots.push(PlannedStorageSlot {
+                field_name: field_name.clone(),
+                molecule_uuid: molecule_uuid.clone(),
+                storage_key,
+                resident_key: Some(api_key.clone()),
+                disk_hash,
+                disk_range,
+            });
+        }
+    }
+    Ok(storage_slots)
 }
 
 /// Read-only. Callers must have already refreshed `schema`'s runtime molecules.

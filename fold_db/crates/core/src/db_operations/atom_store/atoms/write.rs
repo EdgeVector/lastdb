@@ -1,5 +1,8 @@
 use super::*;
 
+mod rows;
+use rows::AtomBatchRows;
+
 impl AtomStore {
     /// Creates an atom in memory without storing it.
     /// Used for batch operations where atoms are collected first then stored together.
@@ -83,7 +86,6 @@ impl AtomStore {
         atoms: &[(Atom, Option<crate::atom::AtomPartition>)],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
-        // lint:fn-size-ok verbatim move from atoms.rs; splitting this function is separate work
         if atoms.is_empty() {
             return Ok(());
         }
@@ -103,94 +105,14 @@ impl AtomStore {
         let _blob_liveness_guards = self.lock_liveness_blobs(&guarded_blob_refs).await;
         let automatic_gc_generation = self.automatic_gc_atoms_generation();
 
-        let encoding = self.atom_key_encoding();
-
-        // Deduplicate by key - atoms with same content have same UUID.
-        // Canonical atoms stay in `main`; the schema-keyed marker is derived
-        // and lives in the separate local-only `schema_index` namespace so
-        // point reads over `atom:{uuid}` do not pay for index marker churn.
-        let mut seen_keys = std::collections::HashSet::new();
-        let mut seen_gc_markers = std::collections::HashSet::new();
-        let mut seen_blob_edges = std::collections::HashSet::new();
-        let mut blob_edge_items: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-        let mut atom_items: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-        let mut index_items: Vec<(String, Value)> = Vec::new();
-        let mut keep_small_puts: Vec<(String, String, u64, u64, bool)> = Vec::new();
-        for (atom, partition) in atoms {
-            crate::atom::enforce_atom_content_limit(atom.source_schema_name(), atom.content())?;
-            let base_key = atom_key_codec::storage_key(encoding, partition.as_ref(), atom.uuid());
-            let key = build_storage_key(storage_prefix, &base_key);
-            if !seen_keys.insert(key.clone()) {
-                continue; // Skip duplicate keys
-            }
-            let index_key = build_storage_key(
-                storage_prefix,
-                &schema_index_codec::record_key(atom.source_schema_name(), atom.uuid()),
-            );
-            let bundle_molecule = storage_prefix
-                .and(partition.as_ref())
-                .and_then(crate::atom::AtomPartition::molecule_uuid);
-            let atom_value = self.encode_atom_bytes(atom, bundle_molecule).await?;
-            let logical = serde_json::to_vec(atom).map_or(0, |v| v.len() as u64);
-            let blob_bytes = crate::atom::file_pointer::blob_logical_bytes_of_atom(
-                atom.content(),
-                atom.metadata(),
-            );
-            keep_small_puts.push((
-                atom.source_schema_name().to_string(),
-                atom.uuid().to_string(),
-                logical,
-                blob_bytes.unwrap_or_default(),
-                blob_bytes.is_some(),
-            ));
-            for blob_ref in
-                crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
-            {
-                let edge = BlobRefEdge::atom(atom.uuid(), &blob_ref);
-                let edge_key = edge.storage_key(storage_prefix);
-                if seen_blob_edges.insert(edge_key.clone()) {
-                    let edge_value = serde_json::to_vec(&edge).map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "serialize blob reference edge for {}: {error}",
-                            atom.uuid()
-                        ))
-                    })?;
-                    blob_edge_items.push((edge_key.into_bytes(), edge_value));
-                }
-            }
-            atom_items.push((key.into_bytes(), atom_value));
-            index_items.push((index_key, Value::Bool(true)));
-
-            // Only a body that actually landed at a prefixed key needs a
-            // locator; a flat body is already where the uuid-only path looks.
-            if let Some(partition) = partition
-                .as_ref()
-                .filter(|_| encoding.writes_partition_prefix())
-            {
-                let locator_key = build_storage_key(
-                    storage_prefix,
-                    &atom_locator_codec::locator_key(atom.uuid()),
-                );
-                let locator_value = serde_json::to_vec(&atom_locator_codec::encode_value(
-                    partition,
-                ))
-                .map_err(|e| SchemaError::InvalidData(format!("serialize atom locator: {e}")))?;
-                atom_items.push((locator_key.into_bytes(), locator_value));
-            }
-            if automatic_gc_generation > 0 && seen_gc_markers.insert(atom.uuid().to_string()) {
-                let marker_key =
-                    Self::automatic_gc_atoms_reference_marker_key(storage_prefix, atom.uuid());
-                let marker_value = serde_json::to_vec(&serde_json::json!({
-                    "generation": automatic_gc_generation,
-                }))
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!(
-                        "serialize automatic gc-atoms reference marker: {e}"
-                    ))
-                })?;
-                atom_items.push((marker_key.into_bytes(), marker_value));
-            }
-        }
+        let AtomBatchRows {
+            mut blob_edge_items,
+            atom_items,
+            index_items,
+            keep_small_puts,
+        } = self
+            .build_atom_batch_rows(atoms, storage_prefix, automatic_gc_generation)
+            .await?;
 
         // `index_items` is one per stored atom; `atom_items` also carries the
         // locator rows, so it is not the atom count.

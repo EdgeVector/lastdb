@@ -2,6 +2,9 @@
 
 use super::*;
 
+mod plan;
+use plan::{checkpoint_slot_evidence, plan_storage_slot_targets, slot_ledger_descriptor};
+
 /// One exact, already-encoded molecule slot discovered from storage.
 ///
 /// The hash/range segments are deliberately private and this type does not
@@ -231,7 +234,6 @@ pub(in crate::fold_db_core) async fn purge_storage_slots_bulk(
     acct: &mut PurgeCommitAccounting,
     evidence_checkpoint: &mut Vec<StorageSlotPurgeEvidence>,
 ) -> Result<StorageSlotBulkPurgeResult, SchemaError> {
-    // lint:fn-size-ok verbatim move from purge/mod.rs; splitting this function is separate work
     if targets.is_empty() {
         return Ok(StorageSlotBulkPurgeResult {
             report: BulkPurgeReport::empty(),
@@ -239,136 +241,33 @@ pub(in crate::fold_db_core) async fn purge_storage_slots_bulk(
     }
 
     let schema = &prep.schema;
-
-    let mut planned = Vec::new();
-    let mut seen: HashSet<(String, String, String)> = HashSet::new();
-    let mut candidate_atoms: HashSet<String> = HashSet::new();
-    let mut tip_version_keys = Vec::new();
-    let mut atom_ref_v2_edge_keys = Vec::new();
-
-    for target in targets {
-        let field = schema
-            .runtime_fields
-            .get(&target.field_name)
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "Storage-slot purge field '{}' is not present in schema '{schema_name}'",
-                    target.field_name
-                ))
-            })?;
-        let actual_molecule = field.common().molecule_uuid().ok_or_else(|| {
-            SchemaError::InvalidData(format!(
-                "Storage-slot purge field '{}' has no molecule in schema '{schema_name}'",
-                target.field_name
-            ))
-        })?;
-        if actual_molecule != &target.molecule_uuid {
-            return Err(SchemaError::InvalidData(format!(
-                "Storage-slot purge molecule does not belong to field '{}' in schema '{schema_name}'",
-                target.field_name
-            )));
-        }
-        let Some((disk_hash, disk_range)) = field.disk_slot_for_key(&target.storage_key) else {
-            return Err(SchemaError::InvalidData(format!(
-                "Storage-slot purge target has the wrong key shape for field '{}' in schema '{schema_name}'",
-                target.field_name
-            )));
-        };
-        let identity = (
-            target.molecule_uuid.clone(),
-            disk_hash.clone(),
-            disk_range.clone(),
-        );
-        if !seen.insert(identity) {
-            continue;
-        }
-        let Some(atom_uuid) = current_atom_for_key(field, &target.storage_key) else {
-            match missing {
-                PurgeMissingPolicy::Refuse => {
-                    return Err(SchemaError::InvalidData(format!(
-                        "Storage-slot purge target not found in field '{}' of schema '{schema_name}'",
-                        target.field_name
-                    )));
-                }
-                // Already gone is the expected steady state for a scan-driven
-                // drain: an earlier chunk in this same run can legitimately
-                // have erased this slot's shared tombstone atom.
-                PurgeMissingPolicy::Skip => continue,
-            }
-        };
-        candidate_atoms.insert(atom_uuid);
-        let chain = collect_target_chain(db_ops, field, &target.storage_key).await?;
-        tip_version_keys.extend(chain.tip_version_keys);
-        atom_ref_v2_edge_keys.extend(chain.atom_ref_v2_edge_keys);
-        candidate_atoms.extend(chain.atom_uuids);
-        planned.push(PlannedStorageSlot {
-            field_name: target.field_name.clone(),
-            molecule_uuid: target.molecule_uuid.clone(),
-            storage_key: target.storage_key.clone(),
-            resident_key: None,
-            disk_hash,
-            disk_range,
-        });
-    }
+    let plan = plan_storage_slot_targets(db_ops, schema, schema_name, targets, missing).await?;
 
     // Every slot in this chunk was already erased (see `PurgeMissingPolicy::Skip`
-    // above) — nothing to execute, and `execute_guarded_purge` must not be
-    // handed an empty plan.
-    if planned.is_empty() {
+    // in `plan_storage_slot_targets`) — nothing to execute, and
+    // `execute_guarded_purge` must not be handed an empty plan.
+    if plan.planned.is_empty() {
         return Ok(StorageSlotBulkPurgeResult {
             report: BulkPurgeReport::empty(),
         });
     }
 
     let history_referenced_by_retained = prep.history_referenced_by_retained.clone();
-
-    let evidence = planned
-        .iter()
-        .map(|slot| StorageSlotPurgeEvidence {
-            field_name: slot.field_name.clone(),
-            molecule_uuid: slot.molecule_uuid.clone(),
-            storage_key: slot.storage_key.clone(),
-        })
-        .collect::<Vec<_>>();
-    // Keep the invalidation intent before the first destructive operation.
-    // A flush can fail after the core removes the slot and reloads the
-    // schema. The next idempotent attempt then finds no slot, so only this
-    // retained checkpoint can still produce the Search tombstone.
-    for item in &evidence {
-        let duplicate = evidence_checkpoint.iter().any(|saved| {
-            saved.field_name == item.field_name
-                && saved.molecule_uuid == item.molecule_uuid
-                && saved.storage_key == item.storage_key
-        });
-        if !duplicate {
-            evidence_checkpoint.push(item.clone());
-        }
-    }
-    // The descriptor is consumed only by the delete-ledger fingerprint helper;
-    // it is never persisted or logged. That preserves per-slot audit identity
-    // without exposing opaque storage segments in operator-facing material.
-    let ledger_descriptor = if planned.len() == 1 {
-        format!(
-            "storage-slot:{}:{}",
-            planned[0].molecule_uuid,
-            describe_key(&planned[0].storage_key)
-        )
-    } else {
-        format!("<bulk-storage-slots:{}>", planned.len())
-    };
+    checkpoint_slot_evidence(&plan.planned, evidence_checkpoint);
+    let ledger_descriptor = slot_ledger_descriptor(&plan.planned);
     let report = execute_guarded_purge(
         db_ops,
         schema_manager,
         schema_name,
         schema.clone(),
-        &planned,
-        candidate_atoms,
+        &plan.planned,
+        plan.candidate_atoms,
         Vec::new(),
-        tip_version_keys,
+        plan.tip_version_keys,
         Vec::new(),
-        atom_ref_v2_edge_keys,
+        plan.atom_ref_v2_edge_keys,
         history_referenced_by_retained,
-        planned.len(),
+        plan.planned.len(),
         &ledger_descriptor,
         HardEraseVerb::Purge,
         acct,
