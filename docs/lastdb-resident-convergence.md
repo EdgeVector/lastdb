@@ -11,6 +11,9 @@ resident counters come from a sampler that publishes once per 60 seconds, and
 that run was shorter than the interval. See "Step 2b findings". Acknowledge
 before durable is the contract and it is what runs.
 
+The design for the warm set and the write queue, with options, pros, cons and a
+staged plan, is in `docs/lastdb-warm-set-design.md`. It replaces steps 3 to 6 below.
+
 Written from reading the code in `fold_db/crates/core/src/resident/`,
 `storage/laststore/logical_path/` and `fold_db_core/mutation_manager/`.
 
@@ -349,3 +352,5 @@ pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
 355/462, write 13/55 and 26/86 ms; all 24 cells GREEN; `deferred_persist_failed`
 0. No primary upgrade was made.
 - 2026-10-12, step 3: not started. See the assessment above.
+- 2026-10-12, warm set design: `docs/lastdb-warm-set-design.md` written and open for
+  Tom's decisions. No code change.
