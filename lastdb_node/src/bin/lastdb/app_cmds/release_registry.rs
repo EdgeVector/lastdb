@@ -7,21 +7,26 @@
 
 use super::*;
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn app_release_publish(
     home: &Path,
-    manifest_path: &Path,
-    app_uuid: &str,
-    source_commit: &str,
-    artifact: &Path,
-    artifact_url: &str,
-    env: Option<String>,
-    schema_url: Option<String>,
-    api_url: Option<String>,
-    key_file: Option<PathBuf>,
-    api_key: Option<String>,
+    input: ReleasePublishInput<'_>,
+    flags: RegistryFlags,
     json: bool,
 ) -> Result<(), String> {
+    let ReleasePublishInput {
+        manifest_path,
+        app_uuid,
+        source_commit,
+        artifact,
+        artifact_url,
+    } = input;
+    let RegistryFlags {
+        env,
+        schema_url,
+        api_url,
+        key_file,
+        api_key,
+    } = flags;
     use lastdb_node::app_publish;
     let app_manifest = app_publish::load_manifest(manifest_path)?;
     let artifact_bytes = std::fs::read(artifact)
@@ -65,20 +70,22 @@ pub(crate) fn app_release_publish(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn app_release_channel(
     home: &Path,
     app_id: &str,
     channel: &str,
     release_id: &str,
     generation: Option<u64>,
-    env: Option<String>,
-    schema_url: Option<String>,
-    api_url: Option<String>,
-    key_file: Option<PathBuf>,
-    api_key: Option<String>,
+    flags: RegistryFlags,
     json: bool,
 ) -> Result<(), String> {
+    let RegistryFlags {
+        env,
+        schema_url,
+        api_url,
+        key_file,
+        api_key,
+    } = flags;
     use lastdb_node::app_publish;
     let target =
         DevPublishTarget::resolve(home, env.as_deref(), schema_url, api_url, key_file, api_key)?;
@@ -118,19 +125,21 @@ pub(crate) fn app_release_channel(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn app_release_revoke(
     home: &Path,
     app_id: &str,
     release_id: &str,
     reason: Option<&str>,
-    env: Option<String>,
-    schema_url: Option<String>,
-    api_url: Option<String>,
-    key_file: Option<PathBuf>,
-    api_key: Option<String>,
+    flags: RegistryFlags,
     json: bool,
 ) -> Result<(), String> {
+    let RegistryFlags {
+        env,
+        schema_url,
+        api_url,
+        key_file,
+        api_key,
+    } = flags;
     let target =
         DevPublishTarget::resolve(home, env.as_deref(), schema_url, api_url, key_file, api_key)?;
     let response = block_on_app(lastdb_node::app_publish::revoke_release(
