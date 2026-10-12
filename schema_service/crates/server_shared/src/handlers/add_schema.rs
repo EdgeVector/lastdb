@@ -305,17 +305,16 @@ fn add_schema_outcome_response(
     telemetry_reason: Option<&str>,
     response_composition: Option<SchemaRegistrationComposition>,
 ) -> HttpResponse {
+    let record = |outcome: &str| {
+        state.record_schema_match_outcome(outcome, telemetry_source, telemetry_reason);
+    };
     match result {
         Ok(SchemaAddOutcome::Added(schema, mutation_mappers)) => {
-            state.record_schema_match_outcome(
-                if response_composition.is_some() {
-                    "residual_created"
-                } else {
-                    "created_new"
-                },
-                telemetry_source,
-                telemetry_reason,
-            );
+            record(if response_composition.is_some() {
+                "residual_created"
+            } else {
+                "created_new"
+            });
             add_schema_success_response(
                 state,
                 true,
@@ -326,11 +325,7 @@ fn add_schema_outcome_response(
             )
         }
         Ok(SchemaAddOutcome::AlreadyExists(schema, mutation_mappers)) => {
-            state.record_schema_match_outcome(
-                "matched_existing",
-                telemetry_source,
-                telemetry_reason,
-            );
+            record("matched_existing");
             add_schema_success_response(
                 state,
                 false,
@@ -341,11 +336,7 @@ fn add_schema_outcome_response(
             )
         }
         Ok(SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers)) => {
-            state.record_schema_match_outcome(
-                "expanded_existing",
-                telemetry_source,
-                telemetry_reason,
-            );
+            record("expanded_existing");
             add_schema_success_response(
                 state,
                 true,
@@ -365,11 +356,7 @@ fn add_schema_outcome_response(
         // internally). Only produced when the apply step is enabled
         // (`SCHEMA_COMPOSITIONAL_DECOMPOSITION=apply`, off by default).
         Ok(SchemaAddOutcome::Composed(schema, mutation_mappers, _advice)) => {
-            state.record_schema_match_outcome(
-                "composed_existing",
-                telemetry_source,
-                telemetry_reason,
-            );
+            record("composed_existing");
             add_schema_success_response(
                 state,
                 true,
@@ -380,7 +367,7 @@ fn add_schema_outcome_response(
             )
         }
         Ok(SchemaAddOutcome::DescriptiveNameConflict(conflict)) => {
-            state.record_schema_match_outcome("rejected", telemetry_source, telemetry_reason);
+            record("rejected");
             tracing::warn!(
                 target: "schema_service::schema",
                 descriptive_name = %conflict.descriptive_name,
@@ -390,7 +377,7 @@ fn add_schema_outcome_response(
             HttpResponse::Conflict().json(conflict)
         }
         Err(error) => {
-            state.record_schema_match_outcome("rejected", telemetry_source, telemetry_reason);
+            record("rejected");
             tracing::error!(
             target: "schema_service::schema",
                 "Failed to add schema '{}': {}",
