@@ -121,8 +121,18 @@ impl SchemaServiceState {
 
     /// Populate every in-memory cache from the external backend.
     /// Called from `new_with_external`.
-    // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub(super) async fn load_all_from_external(&self) -> FoldDbResult<()> {
+        self.load_schemas_and_name_embeddings().await?;
+        self.load_canonical_fields_and_embeddings().await?;
+        self.load_near_misses_cache().await?;
+        self.load_apps_cache().await?;
+        self.load_releases_and_channels_cache().await?;
+        self.load_declared_fields_cache().await?;
+        Ok(())
+    }
+
+    /// Schemas and their persisted descriptive_name embeddings.
+    async fn load_schemas_and_name_embeddings(&self) -> FoldDbResult<()> {
         let backend = self.storage.backend().clone();
 
         // Schemas + their persisted descriptive_name embeddings. Same
@@ -187,6 +197,13 @@ impl SchemaServiceState {
             );
         }
 
+        Ok(())
+    }
+
+    /// Canonical fields and their persisted embeddings.
+    async fn load_canonical_fields_and_embeddings(&self) -> FoldDbResult<()> {
+        let backend = self.storage.backend().clone();
+
         // Canonical fields — populate the registry AND the persisted
         // embedding cache. Embeddings are NEVER re-computed at cold
         // start anymore: that path used to run fastembed on every
@@ -226,6 +243,13 @@ impl SchemaServiceState {
             );
         }
 
+        Ok(())
+    }
+
+    /// Canonicalization near-misses.
+    async fn load_near_misses_cache(&self) -> FoldDbResult<()> {
+        let backend = self.storage.backend().clone();
+
         // Near-misses (Phase C shadow-mode audit log). Backends that
         // didn't opt in return an empty vec from the default trait impl,
         // which is the correct degraded state — shadow observability is
@@ -241,6 +265,13 @@ impl SchemaServiceState {
                 count
             );
         }
+
+        Ok(())
+    }
+
+    /// Canonical app registry.
+    async fn load_apps_cache(&self) -> FoldDbResult<()> {
+        let backend = self.storage.backend().clone();
 
         // Apps (canonical app registry, app_identity v3.1 Lane B2b).
         // Backends that predate the apps blob return an empty map from the
@@ -258,6 +289,13 @@ impl SchemaServiceState {
             );
         }
 
+        Ok(())
+    }
+
+    /// App releases and channels.
+    async fn load_releases_and_channels_cache(&self) -> FoldDbResult<()> {
+        let backend = self.storage.backend().clone();
+
         // App releases + channels (`/v2` registry). Same opt-in shape: a
         // backend that predates the release store returns empty maps, so the
         // service starts with no published releases rather than failing.
@@ -274,6 +312,13 @@ impl SchemaServiceState {
                 channels
             );
         }
+
+        Ok(())
+    }
+
+    /// Declared fields.
+    async fn load_declared_fields_cache(&self) -> FoldDbResult<()> {
+        let backend = self.storage.backend().clone();
 
         // Declared fields (brain `design-lastdb-declared-fields`). Rebuilding
         // BOTH indexes here is what keeps a re-declare idempotent across a

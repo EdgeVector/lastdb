@@ -28,7 +28,6 @@ where
     /// On success with a newly fetched pack, the optional etag is returned for
     /// the next refresh. On last-known-good fallback the etag is cleared
     /// (`None`) so a later refresh revalidates the latest pointer.
-    // lint:fn-size-ok moved verbatim from its original module
     pub async fn load_latest_conditional(
         &self,
         if_none_match: Option<&str>,
@@ -84,41 +83,7 @@ where
             }
             ObjectFetchResult::NotModified { etag } => {
                 self.record_fetch("latest_manifest_not_modified");
-                // Prefer still-valid LKG (or previously staged cache) without
-                // network artifact fetches. If LKG is missing, fall back live.
-                return match self.try_load_last_known_good() {
-                    Ok(Some(loaded)) => {
-                        self.record_verification("ok_not_modified");
-                        self.record_import("ok");
-                        Ok((
-                            ResolverPackLoadOutcome::Loaded {
-                                source: ResolverPackLoadSource::NotModified,
-                            },
-                            Some(loaded),
-                            etag,
-                        ))
-                    }
-                    Ok(None) => {
-                        self.record_fallback(ResolverPackFallbackReason::MissingPack);
-                        Ok((
-                            ResolverPackLoadOutcome::LiveServiceFallback {
-                                reason: ResolverPackFallbackReason::MissingPack,
-                            },
-                            None,
-                            etag,
-                        ))
-                    }
-                    Err(err) => {
-                        let reason = fallback_reason_for_error(&err);
-                        self.record_verification(reason.as_str());
-                        self.record_fallback(reason);
-                        Ok((
-                            ResolverPackLoadOutcome::LiveServiceFallback { reason },
-                            None,
-                            None,
-                        ))
-                    }
-                };
+                return Ok(self.load_not_modified(etag));
             }
             ObjectFetchResult::Found { bytes, etag } => {
                 self.record_fetch("latest_manifest_fetched");
@@ -153,5 +118,55 @@ where
             Some(staged.loaded),
             etag,
         ))
+    }
+}
+
+impl<S> ResolverPackConsumer<S>
+where
+    S: ResolverPackObjectStore,
+{
+    /// Prefer still-valid LKG (or previously staged cache) without network
+    /// artifact fetches. If LKG is missing, fall back live.
+    fn load_not_modified(
+        &self,
+        etag: Option<String>,
+    ) -> (
+        ResolverPackLoadOutcome,
+        Option<LoadedResolverPack>,
+        Option<String>,
+    ) {
+        match self.try_load_last_known_good() {
+            Ok(Some(loaded)) => {
+                self.record_verification("ok_not_modified");
+                self.record_import("ok");
+                (
+                    ResolverPackLoadOutcome::Loaded {
+                        source: ResolverPackLoadSource::NotModified,
+                    },
+                    Some(loaded),
+                    etag,
+                )
+            }
+            Ok(None) => {
+                self.record_fallback(ResolverPackFallbackReason::MissingPack);
+                (
+                    ResolverPackLoadOutcome::LiveServiceFallback {
+                        reason: ResolverPackFallbackReason::MissingPack,
+                    },
+                    None,
+                    etag,
+                )
+            }
+            Err(err) => {
+                let reason = fallback_reason_for_error(&err);
+                self.record_verification(reason.as_str());
+                self.record_fallback(reason);
+                (
+                    ResolverPackLoadOutcome::LiveServiceFallback { reason },
+                    None,
+                    None,
+                )
+            }
+        }
     }
 }

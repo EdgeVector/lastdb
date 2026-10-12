@@ -65,7 +65,6 @@ impl SchemaServiceState {
     /// Never holds the `schemas` write-lock across `.await` — the
     /// workspace lint floor (`clippy::await_holding_lock`) rejects
     /// that pattern.
-    // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub async fn backfill_purpose_statements(
         &self,
         mapping: &HashMap<String, String>,
@@ -73,109 +72,11 @@ impl SchemaServiceState {
     ) -> FoldDbResult<BackfillPurposeReport> {
         let mut report = BackfillPurposeReport::default();
 
-        let candidates: Vec<BackfillCandidate> = {
-            let schemas = read_lock(&self.schemas, "schemas")?;
-            report.considered = schemas.len();
-
-            let mut candidates = Vec::new();
-            for schema in schemas.values() {
-                if !schema
-                    .purpose_statement
-                    .as_deref()
-                    .is_none_or(|p| p.trim().is_empty())
-                {
-                    report.skipped_already_set += 1;
-                    continue;
-                }
-
-                let descriptive = schema
-                    .descriptive_name
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty());
-                let Some(descriptive) = descriptive else {
-                    tracing::warn!(
-                        target: "schema_service::backfill",
-                        schema = %schema.name,
-                        "backfill: skipping schema with no descriptive_name — cannot derive default",
-                    );
-                    report.skipped_no_descriptive_name += 1;
-                    continue;
-                };
-
-                let (chosen, source) = match mapping.get(descriptive) {
-                    Some(curated) => (curated.clone(), "mapped"),
-                    None => (descriptive.to_string(), "default_to_descriptive_name"),
-                };
-
-                candidates.push(BackfillCandidate {
-                    name: schema.name.clone(),
-                    descriptive_name: descriptive.to_string(),
-                    chosen,
-                    source,
-                });
-            }
-            candidates
-        };
+        let candidates = self.collect_purpose_backfill_candidates(mapping, &mut report)?;
 
         for candidate in candidates {
-            let BackfillCandidate {
-                name,
-                descriptive_name,
-                chosen,
-                source,
-            } = candidate;
-
-            if dry_run {
-                tracing::info!(
-                    target: "schema_service::backfill",
-                    schema = %name,
-                    descriptive_name = %descriptive_name,
-                    source = source,
-                    would_set = %chosen,
-                    "backfill: dry-run — would set purpose_statement",
-                );
-                report.would_update += 1;
-                continue;
-            }
-
-            let updated_schema = {
-                let mut schemas = write_lock(&self.schemas, "schemas")?;
-                let Some(schema) = schemas.get_mut(&name) else {
-                    tracing::warn!(
-                        target: "schema_service::backfill",
-                        schema = %name,
-                        "backfill: schema vanished between snapshot and write — skipping",
-                    );
-                    continue;
-                };
-                if !schema
-                    .purpose_statement
-                    .as_deref()
-                    .is_none_or(|p| p.trim().is_empty())
-                {
-                    tracing::info!(
-                        target: "schema_service::backfill",
-                        schema = %name,
-                        "backfill: purpose_statement filled by concurrent writer — skipping",
-                    );
-                    report.skipped_already_set += 1;
-                    continue;
-                }
-                schema.purpose_statement = Some(chosen.clone());
-                schema.clone()
-            };
-
-            self.persist_schema(&updated_schema).await?;
-            tracing::info!(
-                target: "schema_service::backfill",
-                schema = %name,
-                descriptive_name = %descriptive_name,
-                source = source,
-                set = %chosen,
-                "backfill: persisted purpose_statement",
-            );
-            report.updated += 1;
+            self.apply_purpose_backfill(candidate, dry_run, &mut report)
+                .await?;
         }
 
         tracing::info!(
@@ -190,5 +91,124 @@ impl SchemaServiceState {
         );
 
         Ok(report)
+    }
+
+    /// Snapshot the schemas that still need a purpose statement.
+    fn collect_purpose_backfill_candidates(
+        &self,
+        mapping: &HashMap<String, String>,
+        report: &mut BackfillPurposeReport,
+    ) -> FoldDbResult<Vec<BackfillCandidate>> {
+        let schemas = read_lock(&self.schemas, "schemas")?;
+        report.considered = schemas.len();
+
+        let mut candidates = Vec::new();
+        for schema in schemas.values() {
+            if !schema
+                .purpose_statement
+                .as_deref()
+                .is_none_or(|p| p.trim().is_empty())
+            {
+                report.skipped_already_set += 1;
+                continue;
+            }
+
+            let descriptive = schema
+                .descriptive_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let Some(descriptive) = descriptive else {
+                tracing::warn!(
+                    target: "schema_service::backfill",
+                    schema = %schema.name,
+                    "backfill: skipping schema with no descriptive_name — cannot derive default",
+                );
+                report.skipped_no_descriptive_name += 1;
+                continue;
+            };
+
+            let (chosen, source) = match mapping.get(descriptive) {
+                Some(curated) => (curated.clone(), "mapped"),
+                None => (descriptive.to_string(), "default_to_descriptive_name"),
+            };
+
+            candidates.push(BackfillCandidate {
+                name: schema.name.clone(),
+                descriptive_name: descriptive.to_string(),
+                chosen,
+                source,
+            });
+        }
+        Ok(candidates)
+    }
+
+    /// Write one candidate, or log it when `dry_run` is set. The `schemas`
+    /// write-lock is released before the persist `.await`.
+    async fn apply_purpose_backfill(
+        &self,
+        candidate: BackfillCandidate,
+        dry_run: bool,
+        report: &mut BackfillPurposeReport,
+    ) -> FoldDbResult<()> {
+        let BackfillCandidate {
+            name,
+            descriptive_name,
+            chosen,
+            source,
+        } = candidate;
+
+        if dry_run {
+            tracing::info!(
+                target: "schema_service::backfill",
+                schema = %name,
+                descriptive_name = %descriptive_name,
+                source = source,
+                would_set = %chosen,
+                "backfill: dry-run — would set purpose_statement",
+            );
+            report.would_update += 1;
+            return Ok(());
+        }
+
+        let updated_schema = {
+            let mut schemas = write_lock(&self.schemas, "schemas")?;
+            let Some(schema) = schemas.get_mut(&name) else {
+                tracing::warn!(
+                    target: "schema_service::backfill",
+                    schema = %name,
+                    "backfill: schema vanished between snapshot and write — skipping",
+                );
+                return Ok(());
+            };
+            if !schema
+                .purpose_statement
+                .as_deref()
+                .is_none_or(|p| p.trim().is_empty())
+            {
+                tracing::info!(
+                    target: "schema_service::backfill",
+                    schema = %name,
+                    "backfill: purpose_statement filled by concurrent writer — skipping",
+                );
+                report.skipped_already_set += 1;
+                return Ok(());
+            }
+            schema.purpose_statement = Some(chosen.clone());
+            schema.clone()
+        };
+
+        self.persist_schema(&updated_schema).await?;
+        tracing::info!(
+            target: "schema_service::backfill",
+            schema = %name,
+            descriptive_name = %descriptive_name,
+            source = source,
+            set = %chosen,
+            "backfill: persisted purpose_statement",
+        );
+        report.updated += 1;
+
+        Ok(())
     }
 }
