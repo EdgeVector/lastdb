@@ -249,28 +249,33 @@ Read-after-ack, 20 reps per cell per run, 8 cells, 3 runs per mode:
 |---|---|
 | off | none, every cell GREEN in all 3 runs |
 | read | none, every cell GREEN in all 3 runs |
-| write | `create x point-get` 20/20 and `update x point-get` 20/20 in all 3 runs; the other 6 cells GREEN |
+| write | `create x point-get` 20/20 and `update x point-get` 20/20 in all 3 runs; the other 6 cells GREEN (fixed in step 2c) |
 
 `deferred_persist_failed` stayed 0 in all 9 runs.
 
-### Product defect found: point read after ack misses in write mode
+### Product defect found and fixed in step 2c: reads after an ack missed in write mode
 
-In `write` mode a `HashRangeKey` point read that follows a create or an update
-acknowledgment returns no record. The same key shows up on the `HashKey` range
-list at the same moment, and the point read becomes correct after about 300 ms.
-`off` and `read` mode are correct at once. The old bar could not see this,
-because the Board schema is a Hash schema and its point read goes through
-another path. This breaks the second fixed constraint (a read after an
-acknowledgment sees the write) for HashRange point reads in the mode that
-runs on the primary. It is not fixed in step 2b. Step 4 changes the read path
-and must turn these two cells GREEN in `write` mode. Until then the write-mode
-baseline above is the number to hold: these two cells must not get worse, and
-the other six must stay GREEN.
+In `write` mode a `HashRangeKey` point read (and `HashRangeKeys`,
+`HashRangePrefix`, `HashRangeRange`) that followed a create or an update
+acknowledgment returned no record. The same key showed up on the `HashKey`
+range list, and the other filters became correct after about 300 ms. `off` and
+`read` mode were correct at once. The old bar could not see this, because the
+Board schema is a Hash schema. This broke the second fixed constraint (a read
+after an acknowledgment sees the write) for HashRange reads in the mode that
+runs on the primary.
 
-Leads for step 4: `query_executor` tries `hash_range_key_from_envelope` first
-and falls through to the field-tip read when the record envelope is absent. The
-range list path honors the resident dirty overlay (`molecule_has_dirty`) and
-the point path does not appear to.
+Cause, found by logging the molecule keys in `collect_matches`:
+`resident_overlay_for_read` (`schema/types/field/variant/read/refresh.rs`)
+joins the resident dirty keys to the molecule that the read built. It converted
+every dirty key to storage form (blind hash, OPE range). The durable load of a
+HashRange field builds that molecule with the API hash for every filter, and
+with the API range for a point or multi-get filter (the load remaps it) and the
+storage range for any other filter. So a dirty key never matched the filter
+until the persist lane made it durable and the overlay went away. `HashKey`
+worked because it takes the resident fast path in `resolve_hash_key_fast`.
+
+Fix (step 2c): the overlay now uses the same key form as the molecule it joins.
+It does not change any other behavior.
 
 ## Open questions to verify before step 3
 
@@ -296,3 +301,9 @@ the point path does not appear to.
 - 2026-10-12, step 2b: findings above; both bars run on synthetic data with a
   driver, `scripts/lastdbd/resident-bars-matrix.sh`. Merged-build proof: run the bars on the
   merged main build (see the rule on copies above); no primary upgrade yet.
+- 2026-10-12, step 2c: fixed the dirty-overlay key form in
+  `resident_overlay_for_read`, so a HashRange read after a write-mode ack sees
+  the write. Matrix on the fixed build, median of 3: off point 13/15 write
+  284/669 ms, read 13/17 and 275/519, write 13/17 and 24/35. All 8
+  read-after-ack cells GREEN in all 3 modes, 3 runs each; `deferred_persist_failed`
+  0. This is the baseline for steps 3 to 6. Merged-build proof: pending.
