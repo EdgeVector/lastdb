@@ -66,26 +66,7 @@ pub fn install_pinned(
         ));
     }
     let checkout_path = install_dir.join("source");
-    if install_dir.exists() {
-        if !force {
-            return Err(format!(
-                "install directory already exists: {} (pass --force to replace it)",
-                install_dir.display()
-            ));
-        }
-        std::fs::remove_dir_all(install_dir).map_err(|e| {
-            format!(
-                "failed to remove existing install directory {}: {e}",
-                install_dir.display()
-            )
-        })?;
-    }
-    std::fs::create_dir_all(install_dir).map_err(|e| {
-        format!(
-            "failed to create install directory {}: {e}",
-            install_dir.display()
-        )
-    })?;
+    prepare_install_dir(install_dir, force)?;
 
     let cleanup = |why: String| -> String {
         let _ = std::fs::remove_dir_all(install_dir);
@@ -166,6 +147,32 @@ pub fn install_pinned(
         checkout_path: checkout_path.display().to_string(),
         proof_run: resolution.proof_run.clone(),
     })
+}
+
+/// Remove (with `force`) or reject an existing install directory, then create it.
+fn prepare_install_dir(install_dir: &Path, force: bool) -> Result<(), String> {
+    if install_dir.exists() {
+        if !force {
+            return Err(format!(
+                "install directory already exists: {} (pass --force to replace it)",
+                install_dir.display()
+            ));
+        }
+        std::fs::remove_dir_all(install_dir).map_err(|e| {
+            format!(
+                "failed to remove existing install directory {}: {e}",
+                install_dir.display()
+            )
+        })?;
+    }
+    std::fs::create_dir_all(install_dir).map_err(|e| {
+        format!(
+            "failed to create install directory {}: {e}",
+            install_dir.display()
+        )
+    })?;
+
+    Ok(())
 }
 
 /// Reinstall only when the resolved commit differs from the installed one.
