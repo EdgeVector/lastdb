@@ -44,10 +44,6 @@ impl AtomStore {
         clock: PassClock,
         storage_prefix: Option<&str>,
     ) -> Result<OrderLogBloatAudit, SchemaError> {
-        let PassClock {
-            started: pass_started,
-            budget: pass_budget,
-        } = clock;
         const SCAN_PAGE: usize = 2048;
         /// Molecules one call may hand to the delete phase. Sized so a page's
         /// deletes stay well inside any client deadline; the cursor makes the
@@ -58,7 +54,7 @@ impl AtomStore {
         // Hand the caller the cursor it came in on so the next call, which
         // gets a fresh budget, resumes exactly here instead of crawling one
         // row per round trip.
-        if max_keys == Some(0) || pass_started.elapsed() >= pass_budget {
+        if max_keys == Some(0) || clock.started.elapsed() >= clock.budget {
             report.more_remaining = true;
             report.next_after_key = Some(cursor.to_owned());
             Self::sort_order_log_bloat(&mut report);
@@ -121,7 +117,7 @@ impl AtomStore {
 
                 if report.zero_live_molecules.len() >= ZERO_LIVE_COMMIT_BATCH
                     || max_keys.is_some_and(|max| examined >= max)
-                    || pass_started.elapsed() >= pass_budget
+                    || clock.started.elapsed() >= clock.budget
                 {
                     report.more_remaining = true;
                     report.next_after_key = Some(page_start.clone());

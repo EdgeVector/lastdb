@@ -9,6 +9,15 @@ struct PruneMode {
     dry_run: bool,
 }
 
+impl PruneMode {
+    fn new(include_live: bool, dry_run: bool) -> Self {
+        Self {
+            include_live,
+            dry_run,
+        }
+    }
+}
+
 impl AtomStore {
     /// Plan (and optionally apply) tip-version chain pruning.
     ///
@@ -114,10 +123,7 @@ impl AtomStore {
                 &mk_key,
                 &v,
                 storage_prefix,
-                PruneMode {
-                    include_live,
-                    dry_run,
-                },
+                PruneMode::new(include_live, dry_run),
             )
             .await?;
         }
