@@ -50,12 +50,15 @@ impl SchemaServiceState {
         Ok(outcome)
     }
 
-    pub(super) async fn add_schema_inner(
+    /// Validate and canonicalize a proposal in place, up to (not including)
+    /// the identity hash. `Ok(Err(outcome))` is an early idempotent-repost
+    /// result; `Ok(Ok(advice))` carries the compositional reuse advice.
+    fn normalize_proposal(
         &self,
-        mut schema: Schema,
-        mut mutation_mappers: HashMap<String, String>,
-    ) -> FoldDbResult<SchemaAddOutcome> {
-        Self::validate_proposal_shape(&schema)?;
+        schema: &mut Schema,
+        mutation_mappers: &mut HashMap<String, String>,
+    ) -> FoldDbResult<Result<Vec<crate::ComponentReuseAdvice>, SchemaAddOutcome>> {
+        Self::validate_proposal_shape(schema)?;
 
         // Snapshot version bump (app_identity v3.1, Lane B2a). add_schema
         // has many branches and outcomes (Added / AlreadyExisted /
@@ -66,7 +69,7 @@ impl SchemaServiceState {
         // that no-op after validation.
         self.bump_state_version();
 
-        self.auto_correct_user_descriptive_name(&mut schema)?;
+        self.auto_correct_user_descriptive_name(schema)?;
 
         // De-collide a User proposal whose (possibly auto-corrected)
         // descriptive_name exactly collides with an incompatible-schema_type
@@ -79,20 +82,20 @@ impl SchemaServiceState {
         // collisions are intentionally NOT de-collided (they keep the 409
         // contract — see `decollide_seed_descriptive_name`).
         // (Card `schema-eval-persona-seed-type-collision`.)
-        if let Some(existing) = self.find_decollided_idempotent_repost(&schema, &mutation_mappers) {
-            return Ok(SchemaAddOutcome::AlreadyExists(
+        if let Some(existing) = self.find_decollided_idempotent_repost(schema, mutation_mappers) {
+            return Ok(Err(SchemaAddOutcome::AlreadyExists(
                 existing,
                 mutation_mappers.clone(),
-            ));
+            )));
         }
 
-        if let Some(decollided) = self.decollide_seed_descriptive_name(&schema) {
+        if let Some(decollided) = self.decollide_seed_descriptive_name(schema) {
             schema.descriptive_name = Some(decollided);
             // The name changed, so any precomputed identity hash is stale.
             schema.identity_hash = None;
         }
 
-        self.prepare_proposal_fields(&mut schema, &mut mutation_mappers)?;
+        self.prepare_proposal_fields(schema, mutation_mappers)?;
 
         // Compositional canonicalization (advisory / shadow). When the
         // `SCHEMA_COMPOSITIONAL_DECOMPOSITION` flag is on, decompose the
@@ -103,7 +106,7 @@ impl SchemaServiceState {
         // does NOT alter the live add-schema decision. With the flag off
         // (default) this is a cheap no-op, so the persisted result is
         // byte-for-byte today's whole-schema behavior.
-        let _compositional_advice = self.log_compositional_advice(&schema);
+        let _compositional_advice = self.log_compositional_advice(schema);
 
         // Compositional APPLY step (only when `SCHEMA_COMPOSITIONAL_DECOMPOSITION=apply`).
         // Rewrite the proposal's `ref_fields` so each component that clears the
@@ -114,7 +117,22 @@ impl SchemaServiceState {
         // unaffected; this only changes the reference topology of a brand-new
         // canonical. Empty unless apply mode rewrote ≥1 component — in which
         // case the terminal new-registration return emits `Composed`.
-        let composition_advice = self.apply_compositional_reuse(&mut schema);
+        let composition_advice = self.apply_compositional_reuse(schema);
+
+        // Compute (or recompute after canonicalization) the identity hash.
+        Ok(Ok(composition_advice))
+    }
+
+    pub(super) async fn add_schema_inner(
+        &self,
+        mut schema: Schema,
+        mut mutation_mappers: HashMap<String, String>,
+    ) -> FoldDbResult<SchemaAddOutcome> {
+        let composition_advice =
+            match self.normalize_proposal(&mut schema, &mut mutation_mappers)? {
+                Ok(advice) => advice,
+                Err(outcome) => return Ok(outcome),
+            };
 
         // Compute (or recompute after canonicalization) the identity hash.
         schema.compute_identity_hash();
