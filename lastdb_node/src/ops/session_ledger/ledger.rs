@@ -43,7 +43,6 @@ impl Ledger {
     ///
     /// Best-effort: returns an `Err` (so the caller can WARN) but a node should
     /// treat any failure here as non-fatal.
-    // lint:fn-size-ok moved verbatim from its original module
     pub fn record_start(
         home: &Path,
         pid: u32,
@@ -55,24 +54,7 @@ impl Ledger {
         let current = read_current_session(home);
 
         let restart_intent = read_restart_intent(home, prev.as_ref(), start_ts);
-        // The previous session's "last sign of life": its clean end_ts if it
-        // shut down cleanly, else the most recent heartbeat. current-session.json
-        // (rewritten every ~60s) usually has a fresher timestamp than the ledger
-        // line, so prefer it when it belongs to the same prior pid.
-        let prev_last_alive = prev.as_ref().and_then(|p| {
-            if p.ended_with_recorded_disposition() {
-                p.end_ts
-            } else {
-                // Heartbeat file (if it's the prior session's) beats the ledger
-                // line, which for an unclean session has no liveness tail.
-                current
-                    .as_ref()
-                    .filter(|c| c.pid == p.pid)
-                    .map(|c| c.last_heartbeat_ts)
-                    .or(p.last_heartbeat_ts)
-                    .or(Some(p.start_ts))
-            }
-        });
+        let prev_last_alive = previous_last_alive(prev.as_ref(), current.as_ref());
 
         let prev_session_clean = prev.as_ref().is_some_and(SessionRecord::ended_clean);
         let prev_session_exit_recorded = prev
@@ -189,4 +171,27 @@ impl Ledger {
             },
         )
     }
+}
+
+/// The previous session's "last sign of life": its clean end_ts if it shut
+/// down cleanly, else the most recent heartbeat. current-session.json
+/// (rewritten every ~60s) usually has a fresher timestamp than the ledger
+/// line, so prefer it when it belongs to the same prior pid.
+fn previous_last_alive(
+    prev: Option<&SessionRecord>,
+    current: Option<&CurrentSession>,
+) -> Option<u64> {
+    prev.and_then(|p| {
+        if p.ended_with_recorded_disposition() {
+            p.end_ts
+        } else {
+            // Heartbeat file (if it's the prior session's) beats the ledger
+            // line, which for an unclean session has no liveness tail.
+            current
+                .filter(|c| c.pid == p.pid)
+                .map(|c| c.last_heartbeat_ts)
+                .or(p.last_heartbeat_ts)
+                .or(Some(p.start_ts))
+        }
+    })
 }

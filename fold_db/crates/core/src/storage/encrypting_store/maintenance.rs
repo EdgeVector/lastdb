@@ -9,7 +9,6 @@ impl EncryptingKvStore {
     /// and does not consult `KvCompressionPolicy`. Each replace is one atomic
     /// [`KvStore::compare_and_swap`] against the raw bytes the scan read, so a
     /// concurrent write is never overwritten. Resume uses `resume`.
-    // lint:fn-size-ok moved verbatim from its original module
     pub(crate) async fn reseal_at_rest_pass(
         &self,
         collection: &str,
@@ -77,91 +76,15 @@ impl EncryptingKvStore {
                 }
                 report.rows_scanned += 1;
 
-                let binary_deflated = if raw.starts_with(AT_REST_ENC_BINARY_PREFIX.as_bytes()) {
-                    if let Ok(Some((deflated, _))) = decode_binary_ciphertext(&raw) {
-                        Some(deflated)
-                    } else {
-                        report.rows_unreadable += 1;
-                        blocked = true;
-                        continue;
-                    }
-                } else {
-                    None
-                };
-                let sealed = binary_deflated.is_some()
-                    || raw.starts_with(AT_REST_ENC_PREFIX.as_bytes())
-                    || raw.starts_with(AT_REST_ENC_DEFLATE_PREFIX.as_bytes());
-                if !sealed {
-                    report.rows_plaintext += 1;
-                    if !blocked {
-                        durable_cursor = Some(row_cursor);
-                    }
-                    continue;
-                }
-
-                let already_target = matches!(
-                    (options.target, binary_deflated),
-                    (ResealAtRestTarget::Binary, Some(false))
-                        | (ResealAtRestTarget::BinaryCompress, Some(true))
-                );
-                let Ok(Some(plaintext)) =
-                    self.open_sealed_value(raw.clone(), crypto.as_ref()).await
-                else {
-                    // Wrong key, invalid envelope, or corrupt compression.
-                    report.rows_unreadable += 1;
-                    blocked = true;
-                    continue;
-                };
-                if already_target {
-                    report.rows_already_target += 1;
-                    if !blocked {
-                        durable_cursor = Some(row_cursor);
-                    }
-                    continue;
-                }
-                let (new_sealed, used_deflate) = self
-                    .seal_explicit_enb(&key, &plaintext, options.target)
-                    .await?;
-                if options.target == ResealAtRestTarget::BinaryCompress
-                    && binary_deflated == Some(false)
-                    && !used_deflate
-                {
-                    report.rows_already_target += 1;
-                    if !blocked {
-                        durable_cursor = Some(row_cursor);
-                    }
-                    continue;
-                }
-                report.rows_to_convert += 1;
-                report.bytes_before += raw.len() as u64;
-                report.bytes_after += new_sealed.len() as u64;
-
-                if options.dry_run {
-                    if !blocked {
-                        durable_cursor = Some(row_cursor);
-                    }
-                    continue;
-                }
-
-                // One atomic compare-and-replace. A writer that landed after
-                // the scan read `raw` makes the swap refuse, so its value
-                // stays; the next pass reseals it.
-                let new_len = new_sealed.len() as u64;
-                if !self
-                    .inner
-                    .compare_and_swap(&key, &raw, Some(new_sealed))
+                if self
+                    .reseal_one_row(&key, &raw, options, crypto.as_ref(), &mut report)
                     .await?
                 {
-                    report.rows_cas_skipped += 1;
-                    report.bytes_before = report.bytes_before.saturating_sub(raw.len() as u64);
-                    report.bytes_after = report.bytes_after.saturating_sub(new_len);
-                    report.rows_to_convert = report.rows_to_convert.saturating_sub(1);
+                    if !blocked {
+                        durable_cursor = Some(row_cursor);
+                    }
+                } else {
                     blocked = true;
-                    continue;
-                }
-                report.rows_converted += 1;
-                if !blocked {
-                    durable_cursor = Some(row_cursor);
                 }
             }
 
@@ -182,6 +105,88 @@ impl EncryptingKvStore {
         report.more_remaining |= blocked;
         report.next_cursor = durable_cursor.filter(|_| report.more_remaining);
         Ok(report)
+    }
+
+    /// Reseal one scanned row and update `report`.
+    ///
+    /// Returns `true` when the durable resume cursor may advance past the row
+    /// and `false` when the row blocks it (unreadable, or a concurrent writer
+    /// won the compare-and-swap).
+    async fn reseal_one_row(
+        &self,
+        key: &[u8],
+        raw: &[u8],
+        options: &ResealAtRestOptions,
+        crypto: &dyn CryptoProvider,
+        report: &mut ResealAtRestReport,
+    ) -> StorageResult<bool> {
+        let binary_deflated = if raw.starts_with(AT_REST_ENC_BINARY_PREFIX.as_bytes()) {
+            if let Ok(Some((deflated, _))) = decode_binary_ciphertext(raw) {
+                Some(deflated)
+            } else {
+                report.rows_unreadable += 1;
+                return Ok(false);
+            }
+        } else {
+            None
+        };
+        let sealed = binary_deflated.is_some()
+            || raw.starts_with(AT_REST_ENC_PREFIX.as_bytes())
+            || raw.starts_with(AT_REST_ENC_DEFLATE_PREFIX.as_bytes());
+        if !sealed {
+            report.rows_plaintext += 1;
+            return Ok(true);
+        }
+
+        let already_target = matches!(
+            (options.target, binary_deflated),
+            (ResealAtRestTarget::Binary, Some(false))
+                | (ResealAtRestTarget::BinaryCompress, Some(true))
+        );
+        let Ok(Some(plaintext)) = self.open_sealed_value(raw.to_vec(), crypto).await else {
+            // Wrong key, invalid envelope, or corrupt compression.
+            report.rows_unreadable += 1;
+            return Ok(false);
+        };
+        if already_target {
+            report.rows_already_target += 1;
+            return Ok(true);
+        }
+        let (new_sealed, used_deflate) = self
+            .seal_explicit_enb(key, &plaintext, options.target)
+            .await?;
+        if options.target == ResealAtRestTarget::BinaryCompress
+            && binary_deflated == Some(false)
+            && !used_deflate
+        {
+            report.rows_already_target += 1;
+            return Ok(true);
+        }
+        report.rows_to_convert += 1;
+        report.bytes_before += raw.len() as u64;
+        report.bytes_after += new_sealed.len() as u64;
+
+        if options.dry_run {
+            return Ok(true);
+        }
+
+        // One atomic compare-and-replace. A writer that landed after the scan
+        // read `raw` makes the swap refuse, so its value stays; the next pass
+        // reseals it.
+        let new_len = new_sealed.len() as u64;
+        if !self
+            .inner
+            .compare_and_swap(key, raw, Some(new_sealed))
+            .await?
+        {
+            report.rows_cas_skipped += 1;
+            report.bytes_before = report.bytes_before.saturating_sub(raw.len() as u64);
+            report.bytes_after = report.bytes_after.saturating_sub(new_len);
+            report.rows_to_convert = report.rows_to_convert.saturating_sub(1);
+            return Ok(false);
+        }
+        report.rows_converted += 1;
+        Ok(true)
     }
 
     /// One bounded pass that removes un-enveloped rows from `self.inner`.
