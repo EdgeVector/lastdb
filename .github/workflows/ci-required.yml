@@ -190,6 +190,12 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 scripts/lints/lint-diff-file-size.py --base "$BASE_SHA" --head "$HEAD_SHA"
+      - name: No new too_many_arguments allows
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/lints/lint-diff-new-allows.py --base "$BASE_SHA" --head "$HEAD_SHA"
 
   ci-required:
     name: ci-required
