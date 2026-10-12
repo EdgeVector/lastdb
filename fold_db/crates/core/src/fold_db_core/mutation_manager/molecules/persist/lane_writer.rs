@@ -32,7 +32,6 @@ pub(super) fn storage_slot_release_hook(
 
 #[async_trait::async_trait]
 impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
-    // lint:fn-size-ok moved verbatim from its original module
     async fn write_batch(
         &self,
         batch: Vec<crate::resident::PersistEnvelope<LanePersistJob>>,
@@ -40,108 +39,17 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
         let mut envelopes = batch.into_iter();
         let mut finished = Vec::new();
         while let Some(mut envelope) = envelopes.next() {
-            let author_clock_barrier = match &envelope.payload {
-                LanePersistJob::Write { job, .. } => job.author_clock_barrier.as_ref(),
-                LanePersistJob::Purge { job, .. } => job.author_clock_barrier.as_ref(),
-                LanePersistJob::StorageSlotPurge { .. } => None,
-            };
-            if let Some(barrier) = author_clock_barrier {
-                if let Err(error) = barrier.wait().await {
-                    let mut remaining = Vec::with_capacity(envelopes.len() + 1);
-                    remaining.push(envelope);
-                    remaining.extend(envelopes);
-                    return crate::resident::PersistBatchOutcome::Retry {
-                        remaining,
-                        finished,
-                        error: format!("author clock durability wait failed: {error}"),
-                    };
-                }
+            if let Err(error) = self.wait_for_envelope_turn(&mut envelope).await {
+                let mut remaining = Vec::with_capacity(envelopes.len() + 1);
+                remaining.push(envelope);
+                remaining.extend(envelopes);
+                return crate::resident::PersistBatchOutcome::Retry {
+                    remaining,
+                    finished,
+                    error,
+                };
             }
-            let owns_resident_turn = matches!(
-                &envelope.payload,
-                LanePersistJob::Write { .. } | LanePersistJob::Purge { .. }
-            );
-            if owns_resident_turn {
-                if let Err(error) = self
-                    .mm
-                    .db_ops
-                    .resident()
-                    .wait_for_persist_turn(&envelope.slot_revisions)
-                    .await
-                {
-                    let mut remaining = Vec::with_capacity(envelopes.len() + 1);
-                    remaining.push(envelope);
-                    remaining.extend(envelopes);
-                    return crate::resident::PersistBatchOutcome::Retry {
-                        remaining,
-                        finished,
-                        error: format!("resident persist turn wait failed: {error}"),
-                    };
-                }
-            }
-            // Waiters stay on the envelope. The lane runs them after it drops
-            // the byte charge. A send here races the next reserve on a 1-byte
-            // lane (`LASTDB_RESIDENT_MAX_DEFERRED_BYTES=0`).
-            let step = match &mut envelope.payload {
-                LanePersistJob::Write {
-                    job,
-                    counts,
-                    counts_completion,
-                    ..
-                } => {
-                    let batch_log = job.batch_log.clone();
-                    // Flush and phase scopes must not copy the full durable
-                    // write future into each worker poll frame.
-                    let attempt = Box::pin(self.mm.run_deferred_job(
-                        job,
-                        envelope.commit_id,
-                        &envelope.slot_revisions,
-                    ));
-                    let attempt = async move {
-                        if let Some(log) = batch_log {
-                            crate::durable_flush::scope(log, attempt).await
-                        } else {
-                            attempt.await
-                        }
-                    };
-                    if counts_completion.is_some() {
-                        let (result, _, attempt_counts) =
-                            crate::request_phases::run_with_phases(attempt).await;
-                        counts.molecules_persisted = counts
-                            .molecules_persisted
-                            .saturating_add(attempt_counts.molecules_persisted);
-                        counts.molecule_store_commits = counts
-                            .molecule_store_commits
-                            .saturating_add(attempt_counts.molecule_store_commits);
-                        match result {
-                            Ok(()) => LaneStep::Done(counts_completion.take().map(|tx| {
-                                let counts = *counts;
-                                Box::new(move || {
-                                    let _ = tx.send(counts);
-                                }) as Box<dyn FnOnce() + Send>
-                            })),
-                            Err(error) => LaneStep::Failed(error),
-                        }
-                    } else {
-                        match attempt.await {
-                            Ok(()) => LaneStep::Done(None),
-                            Err(error) => LaneStep::Failed(error),
-                        }
-                    }
-                }
-                LanePersistJob::Purge { job, .. } => {
-                    match self.mm.run_purge_job(job, &envelope.slot_revisions).await {
-                        Ok(()) => LaneStep::Done(purge_release_hook(job)),
-                        Err(error) => LaneStep::Failed(error),
-                    }
-                }
-                LanePersistJob::StorageSlotPurge { job, .. } => {
-                    match self.mm.run_storage_slot_purge_job(job).await {
-                        Ok(()) => LaneStep::Done(storage_slot_release_hook(job)),
-                        Err(error) => LaneStep::Failed(error),
-                    }
-                }
-            };
+            let step = self.run_envelope(&mut envelope).await;
             match step {
                 LaneStep::Done(hook) => {
                     envelope.after_release = hook;
@@ -250,5 +158,109 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
         // waiter gets an error, never a false durable receipt.
         drop(envelope);
         Ok(())
+    }
+}
+
+impl DeferredLaneWriter {
+    /// Wait for the author-clock barrier and the resident persist turn.
+    /// Returns the retry error text when either wait fails.
+    async fn wait_for_envelope_turn(
+        &self,
+        envelope: &mut crate::resident::PersistEnvelope<LanePersistJob>,
+    ) -> Result<(), String> {
+        let author_clock_barrier = match &envelope.payload {
+            LanePersistJob::Write { job, .. } => job.author_clock_barrier.as_ref(),
+            LanePersistJob::Purge { job, .. } => job.author_clock_barrier.as_ref(),
+            LanePersistJob::StorageSlotPurge { .. } => None,
+        };
+        if let Some(barrier) = author_clock_barrier {
+            barrier
+                .wait()
+                .await
+                .map_err(|error| format!("author clock durability wait failed: {error}"))?;
+        }
+        let owns_resident_turn = matches!(
+            &envelope.payload,
+            LanePersistJob::Write { .. } | LanePersistJob::Purge { .. }
+        );
+        if owns_resident_turn {
+            self.mm
+                .db_ops
+                .resident()
+                .wait_for_persist_turn(&envelope.slot_revisions)
+                .await
+                .map_err(|error| format!("resident persist turn wait failed: {error}"))?;
+        }
+        Ok(())
+    }
+
+    /// Run one envelope through the persist surface.
+    // Waiters stay on the envelope. The lane runs them after it drops
+    // the byte charge. A send here races the next reserve on a 1-byte
+    // lane (`LASTDB_RESIDENT_MAX_DEFERRED_BYTES=0`).
+    async fn run_envelope(
+        &self,
+        envelope: &mut crate::resident::PersistEnvelope<LanePersistJob>,
+    ) -> LaneStep {
+        match &mut envelope.payload {
+            LanePersistJob::Write {
+                job,
+                counts,
+                counts_completion,
+                ..
+            } => {
+                let batch_log = job.batch_log.clone();
+                // Flush and phase scopes must not copy the full durable
+                // write future into each worker poll frame.
+                let attempt = Box::pin(self.mm.run_deferred_job(
+                    job,
+                    envelope.commit_id,
+                    &envelope.slot_revisions,
+                ));
+                let attempt = async move {
+                    if let Some(log) = batch_log {
+                        crate::durable_flush::scope(log, attempt).await
+                    } else {
+                        attempt.await
+                    }
+                };
+                if counts_completion.is_some() {
+                    let (result, _, attempt_counts) =
+                        crate::request_phases::run_with_phases(attempt).await;
+                    counts.molecules_persisted = counts
+                        .molecules_persisted
+                        .saturating_add(attempt_counts.molecules_persisted);
+                    counts.molecule_store_commits = counts
+                        .molecule_store_commits
+                        .saturating_add(attempt_counts.molecule_store_commits);
+                    match result {
+                        Ok(()) => LaneStep::Done(counts_completion.take().map(|tx| {
+                            let counts = *counts;
+                            Box::new(move || {
+                                let _ = tx.send(counts);
+                            }) as Box<dyn FnOnce() + Send>
+                        })),
+                        Err(error) => LaneStep::Failed(error),
+                    }
+                } else {
+                    match attempt.await {
+                        Ok(()) => LaneStep::Done(None),
+                        Err(error) => LaneStep::Failed(error),
+                    }
+                }
+            }
+            LanePersistJob::Purge { job, .. } => {
+                match self.mm.run_purge_job(job, &envelope.slot_revisions).await {
+                    Ok(()) => LaneStep::Done(purge_release_hook(job)),
+                    Err(error) => LaneStep::Failed(error),
+                }
+            }
+            LanePersistJob::StorageSlotPurge { job, .. } => {
+                match self.mm.run_storage_slot_purge_job(job).await {
+                    Ok(()) => LaneStep::Done(storage_slot_release_hook(job)),
+                    Err(error) => LaneStep::Failed(error),
+                }
+            }
+        }
     }
 }

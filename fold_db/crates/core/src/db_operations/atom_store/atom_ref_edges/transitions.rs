@@ -90,13 +90,61 @@ impl AtomStore {
             })
     }
 
-    // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub(in super::super) async fn atom_live_ref_count_mutations(
         &self,
         active_edges: &HashMap<Vec<u8>, AtomRefEdge>,
         inactive_edges: &HashMap<Vec<u8>, AtomRefEdge>,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<KvMutation>, SchemaError> {
+        let molecule_weights = self
+            .tip_molecule_weights(active_edges, inactive_edges, storage_prefix)
+            .await?;
+        let deltas = self
+            .tip_transition_deltas(active_edges, inactive_edges, &molecule_weights)
+            .await?;
+
+        let mut atoms: Vec<_> = deltas.into_iter().collect();
+        atoms.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let count_keys: Vec<String> = atoms
+            .iter()
+            .map(|(atom_uuid, _)| atom_live_ref_count_key(atom_uuid, storage_prefix))
+            .collect();
+        let stored_counts = self
+            .main_store
+            .get_items::<AtomLiveRefCount>(&count_keys)
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "load atom live reference counts before transition: {error}"
+                ))
+            })?;
+        let mut mutations = Vec::with_capacity(atoms.len());
+        for (((atom_uuid, delta), key), stored) in
+            atoms.into_iter().zip(count_keys).zip(stored_counts)
+        {
+            if delta == 0 {
+                continue;
+            }
+            self.apply_live_ref_delta(
+                &mut mutations,
+                &atom_uuid,
+                delta,
+                key,
+                stored,
+                storage_prefix,
+            )
+            .await?;
+        }
+        Ok(mutations)
+    }
+
+    /// Weight of each tip molecule: one, plus its catalog refs when present.
+    async fn tip_molecule_weights(
+        &self,
+        active_edges: &HashMap<Vec<u8>, AtomRefEdge>,
+        inactive_edges: &HashMap<Vec<u8>, AtomRefEdge>,
+        storage_prefix: Option<&str>,
+    ) -> Result<HashMap<String, u64>, SchemaError> {
         let mut molecule_weights = HashMap::new();
         let mut molecules: BTreeSet<String> = BTreeSet::new();
         molecules.extend(
@@ -118,6 +166,16 @@ impl AtomStore {
         } else {
             molecule_weights.extend(molecules.into_iter().map(|molecule| (molecule, 1)));
         }
+        Ok(molecule_weights)
+    }
+
+    /// Net live-ref change per atom for the tip edges whose existence flips.
+    async fn tip_transition_deltas(
+        &self,
+        active_edges: &HashMap<Vec<u8>, AtomRefEdge>,
+        inactive_edges: &HashMap<Vec<u8>, AtomRefEdge>,
+        molecule_weights: &HashMap<String, u64>,
+    ) -> Result<HashMap<String, i128>, SchemaError> {
         let mut deltas: HashMap<String, i128> = HashMap::new();
         let probes: Vec<(bool, &AtomRefEdge, Vec<u8>)> = active_edges
             .iter()
@@ -155,138 +213,89 @@ impl AtomStore {
             };
             *deltas.entry(edge.atom_uuid.clone()).or_default() += delta;
         }
+        Ok(deltas)
+    }
 
-        let mut atoms: Vec<_> = deltas.into_iter().collect();
-        atoms.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-        let count_keys: Vec<String> = atoms
-            .iter()
-            .map(|(atom_uuid, _)| atom_live_ref_count_key(atom_uuid, storage_prefix))
-            .collect();
-        let stored_counts = self
-            .main_store
-            .get_items::<AtomLiveRefCount>(&count_keys)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "load atom live reference counts before transition: {error}"
-                ))
-            })?;
-        let mut mutations = Vec::with_capacity(atoms.len());
-        for (((atom_uuid, delta), key), stored) in
-            atoms.into_iter().zip(count_keys).zip(stored_counts)
+    /// Append the count and GC-candidate mutations for one atom's delta.
+    async fn apply_live_ref_delta(
+        &self,
+        mutations: &mut Vec<KvMutation>,
+        atom_uuid: &str,
+        delta: i128,
+        key: String,
+        stored: Option<AtomLiveRefCount>,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        if stored.is_none()
+            && (delta.is_negative() || self.has_active_atom_refs(atom_uuid, storage_prefix).await?)
         {
-            if delta == 0 {
-                continue;
-            }
-            if stored.is_none()
-                && self
-                    .has_active_atom_refs(&atom_uuid, storage_prefix)
-                    .await?
-            {
-                let value = serde_json::to_vec(&AtomLiveRefCount {
-                    live_refs: 0,
-                    exact: false,
-                })
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "serialize legacy atom live reference count: {error}"
-                    ))
-                })?;
-                mutations.push(KvMutation::put(key.into_bytes(), value));
-                mutations.extend(
-                    self.atom_gc_candidate_mutations_for_count(
-                        &atom_uuid,
-                        u64::MAX,
-                        storage_prefix,
-                    )
-                    .await?,
-                );
-                continue;
-            }
-            if stored.is_none() && delta.is_negative() {
-                // A legacy tip can lack a counter. Retain its atom until a
-                // complete count rebuild; absence must not mean zero.
-                let value = serde_json::to_vec(&AtomLiveRefCount {
-                    live_refs: 0,
-                    exact: false,
-                })
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "serialize legacy atom live reference count: {error}"
-                    ))
-                })?;
-                mutations.push(KvMutation::put(key.into_bytes(), value));
-                mutations.extend(
-                    self.atom_gc_candidate_mutations_for_count(
-                        &atom_uuid,
-                        u64::MAX,
-                        storage_prefix,
-                    )
-                    .await?,
-                );
-                continue;
-            }
-            let stored = stored.unwrap_or_default();
-            if !stored.exact {
-                mutations.extend(
-                    self.atom_gc_candidate_mutations_for_count(
-                        &atom_uuid,
-                        u64::MAX,
-                        storage_prefix,
-                    )
-                    .await?,
-                );
-                continue;
-            }
-            let before = stored.live_refs;
-            let after = i128::from(before) + delta;
-            if !(0..=i128::from(u64::MAX)).contains(&after) {
-                // An old atom can have a seeded zero counter and uncounted
-                // tips. An underflow makes its count unknown, never zero.
-                if after.is_negative() {
-                    let value = serde_json::to_vec(&AtomLiveRefCount {
-                        live_refs: 0,
-                        exact: false,
-                    })
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "serialize legacy atom live reference count: {error}"
-                        ))
-                    })?;
-                    mutations.push(KvMutation::put(key.into_bytes(), value));
-                    mutations.extend(
-                        self.atom_gc_candidate_mutations_for_count(
-                            &atom_uuid,
-                            u64::MAX,
-                            storage_prefix,
-                        )
-                        .await?,
-                    );
-                    continue;
-                }
-                return Err(SchemaError::InvalidData(format!(
-                    "atom live reference count transition is out of range for {atom_uuid}: {before} {delta:+}"
-                )));
-            }
-            let value = serde_json::to_vec(&AtomLiveRefCount {
-                live_refs: after as u64,
-                exact: true,
-            })
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "serialize atom live reference count transition: {error}"
-                ))
-            })?;
-            mutations.push(KvMutation::put(key.into_bytes(), value));
-            mutations.extend(
-                self.atom_gc_candidate_mutations_for_count(
-                    &atom_uuid,
-                    after as u64,
-                    storage_prefix,
-                )
-                .await?,
-            );
+            // A legacy tip can lack a counter. Retain its atom until a
+            // complete count rebuild; absence must not mean zero.
+            return self
+                .mark_live_ref_count_unknown(mutations, atom_uuid, key, storage_prefix)
+                .await;
         }
-        Ok(mutations)
+        let stored = stored.unwrap_or_default();
+        if !stored.exact {
+            mutations.extend(
+                self.atom_gc_candidate_mutations_for_count(atom_uuid, u64::MAX, storage_prefix)
+                    .await?,
+            );
+            return Ok(());
+        }
+        let before = stored.live_refs;
+        let after = i128::from(before) + delta;
+        if !(0..=i128::from(u64::MAX)).contains(&after) {
+            // An old atom can have a seeded zero counter and uncounted
+            // tips. An underflow makes its count unknown, never zero.
+            if after.is_negative() {
+                return self
+                    .mark_live_ref_count_unknown(mutations, atom_uuid, key, storage_prefix)
+                    .await;
+            }
+            return Err(SchemaError::InvalidData(format!(
+                "atom live reference count transition is out of range for {atom_uuid}: {before} {delta:+}"
+            )));
+        }
+        let value = serde_json::to_vec(&AtomLiveRefCount {
+            live_refs: after as u64,
+            exact: true,
+        })
+        .map_err(|error| {
+            SchemaError::InvalidData(format!(
+                "serialize atom live reference count transition: {error}"
+            ))
+        })?;
+        mutations.push(KvMutation::put(key.into_bytes(), value));
+        mutations.extend(
+            self.atom_gc_candidate_mutations_for_count(atom_uuid, after as u64, storage_prefix)
+                .await?,
+        );
+        Ok(())
+    }
+
+    /// Store an inexact zero count and mark the atom as a GC candidate.
+    async fn mark_live_ref_count_unknown(
+        &self,
+        mutations: &mut Vec<KvMutation>,
+        atom_uuid: &str,
+        key: String,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        let value = serde_json::to_vec(&AtomLiveRefCount {
+            live_refs: 0,
+            exact: false,
+        })
+        .map_err(|error| {
+            SchemaError::InvalidData(format!(
+                "serialize legacy atom live reference count: {error}"
+            ))
+        })?;
+        mutations.push(KvMutation::put(key.into_bytes(), value));
+        mutations.extend(
+            self.atom_gc_candidate_mutations_for_count(atom_uuid, u64::MAX, storage_prefix)
+                .await?,
+        );
+        Ok(())
     }
 }

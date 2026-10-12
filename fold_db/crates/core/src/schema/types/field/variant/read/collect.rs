@@ -94,7 +94,6 @@ impl FieldVariant {
     /// dangling atom and report the skip. Aggregate repair cannot do that: an
     /// omitted row would certify an undercount. Resident overlays receive the
     /// same treatment, including a key whose resident tip is absent.
-    // lint:fn-size-ok moved verbatim from the original module; splitting it is a separate change
     pub(crate) async fn collect_authoritative_hash_partition(
         &mut self,
         db_ops: &Arc<DbOperations>,
@@ -113,29 +112,72 @@ impl FieldVariant {
         let storage_prefix = self.common().storage_prefix().map(ToString::to_string);
         let filter = HashRangeFilter::HashKey(hash.to_string());
 
+        let (resident_live, resident_tombstones) = self.capture_resident_hash_partition(
+            db_ops,
+            hash,
+            &molecule_uuid,
+            storage_prefix.as_deref(),
+        )?;
+
+        self.refresh_for_read(db_ops, &filter, false).await?;
+        let pending = self.authoritative_hash_partition_pending(
+            db_ops,
+            hash,
+            &molecule_uuid,
+            &filter,
+            &resident_live,
+            &resident_tombstones,
+        )?;
+
+        let returned_keys: HashSet<KeyValue> =
+            pending.iter().map(|(key, ..)| key.clone()).collect();
+        if resident_live.keys().any(|key| !returned_keys.contains(key)) {
+            return Err(SchemaError::InvalidData(
+                "authoritative field walk omitted a live resident key".into(),
+            ));
+        }
+
+        Self::hydrate_authoritative_matches(db_ops, pending, storage_prefix.as_deref()).await
+    }
+
+    /// Capture the active resident generation for one hash partition: each
+    /// live resident tip with its real convergence winner, and the tombstoned
+    /// keys. Both are empty when reads do not go through the resident set.
+    fn capture_resident_hash_partition(
+        &self,
+        db_ops: &Arc<DbOperations>,
+        hash: &str,
+        molecule_uuid: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<
+        (
+            HashMap<KeyValue, crate::resident::ResidentTip>,
+            HashSet<KeyValue>,
+        ),
+        SchemaError,
+    > {
         // Capture the active resident generation before hydration. The normal
         // overlay intentionally installs unsigned molecule entries, so repair
         // must retain each resident tip's real convergence winner separately.
         let mut resident_live: HashMap<KeyValue, crate::resident::ResidentTip> = HashMap::new();
         let mut resident_tombstones = HashSet::new();
-        if crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix.as_deref())
-        {
+        if crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix) {
             let start = crate::resident::ResidentMoleculeKey::new(hash.to_string(), String::new());
             let end = crate::resident::ResidentMoleculeKey::new(format!("{hash}\0"), String::new());
             let snapshot =
                 db_ops
                     .resident()
-                    .resident_key_set_range(&molecule_uuid, Some(&start), Some(&end));
+                    .resident_key_set_range(molecule_uuid, Some(&start), Some(&end));
             let resident_active = matches!(
                 snapshot.completeness,
                 ResidentKeySetCompleteness::Complete { .. }
-            ) || (db_ops.resident().molecule_has_dirty(&molecule_uuid)
+            ) || (db_ops.resident().molecule_has_dirty(molecule_uuid)
                 && (!snapshot.keys.is_empty() || !snapshot.tombstones.is_empty()));
             if resident_active {
                 for key in snapshot.keys {
                     let tip = db_ops
                         .resident()
-                        .resolve_tip(&molecule_uuid, &key.hash, &key.range)
+                        .resolve_tip(molecule_uuid, &key.hash, &key.range)
                         .ok_or_else(|| {
                             SchemaError::InvalidData(
                                 "authoritative field walk found a resident key without a tip"
@@ -159,14 +201,33 @@ impl FieldVariant {
                 ));
             }
         }
+        Ok((resident_live, resident_tombstones))
+    }
 
-        self.refresh_for_read(db_ops, &filter, false).await?;
-        let codec = db_ops.atoms().key_codec_for_molecule(&molecule_uuid);
+    /// Walk the refreshed hash partition into `(api key, tip entry, partition)`
+    /// rows, failing closed when the walk disagrees with the resident set.
+    fn authoritative_hash_partition_pending(
+        &mut self,
+        db_ops: &Arc<DbOperations>,
+        hash: &str,
+        molecule_uuid: &str,
+        filter: &HashRangeFilter,
+        resident_live: &HashMap<KeyValue, crate::resident::ResidentTip>,
+        resident_tombstones: &HashSet<KeyValue>,
+    ) -> Result<
+        Vec<(
+            KeyValue,
+            crate::atom::AtomEntry,
+            Option<crate::atom::AtomPartition>,
+        )>,
+        SchemaError,
+    > {
+        let codec = db_ops.atoms().key_codec_for_molecule(molecule_uuid);
         let expanded =
             crate::schema::types::field::filter_utils::expand_filter_range_bounds_for_apply(
-                &filter,
+                filter,
                 &codec,
-                &molecule_uuid,
+                molecule_uuid,
             )
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
         let mut raw_matches = HashMap::new();
@@ -238,15 +299,20 @@ impl FieldVariant {
             };
             pending.push((api_key, entry, self.partition_hint(&storage_key)));
         }
+        Ok(pending)
+    }
 
-        let returned_keys: HashSet<KeyValue> =
-            pending.iter().map(|(key, ..)| key.clone()).collect();
-        if resident_live.keys().any(|key| !returned_keys.contains(key)) {
-            return Err(SchemaError::InvalidData(
-                "authoritative field walk omitted a live resident key".into(),
-            ));
-        }
-
+    /// Resolve the atom body of every pending row and reject a missing body
+    /// or a tombstone at a live tip.
+    async fn hydrate_authoritative_matches(
+        db_ops: &Arc<DbOperations>,
+        pending: Vec<(
+            KeyValue,
+            crate::atom::AtomEntry,
+            Option<crate::atom::AtomPartition>,
+        )>,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<AuthoritativeFieldMatch>, SchemaError> {
         let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = pending
             .iter()
             .map(|(_, entry, partition)| (entry.atom_uuid.as_str(), partition.clone()))
@@ -254,7 +320,7 @@ impl FieldVariant {
         let atoms = crate::db_operations::resident_read::get_atoms_located_resident_first(
             db_ops,
             &slots,
-            storage_prefix.as_deref(),
+            storage_prefix,
         )
         .await?;
         let mut authoritative = Vec::with_capacity(pending.len());
