@@ -58,6 +58,7 @@ mod snapshot_memory;
 mod status_lines;
 mod status_snapshot;
 mod sync_health;
+mod sync_health_wire;
 mod sync_lines;
 mod sync_probe;
 mod write;

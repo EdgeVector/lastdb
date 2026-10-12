@@ -43,6 +43,7 @@ use serde_json::{json, Value};
 mod devkey;
 mod http;
 mod install;
+mod install_steps;
 mod manifest;
 mod publish;
 mod release;
