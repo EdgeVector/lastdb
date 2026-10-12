@@ -23,9 +23,11 @@
 
 use chrono::{DateTime, Utc};
 use fold_db::db_operations::MeterTrustState;
-use fold_db::db_operations::{KeepSmallSnapshot, LIVE_BUDGET_BYTES};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+
+mod report;
+pub use self::report::build_report_full;
 
 /// Metadata key for the durable reconciliation checkpoint. Point get/put.
 pub const RECONCILE_CHECKPOINT_KEY: &str = "keep_small:reconciliation";
@@ -274,34 +276,6 @@ pub struct AppStorageReport {
     pub owners: Vec<OwnerRow>,
 }
 
-#[derive(Default)]
-struct Bucket {
-    live_bytes: u64,
-    atom_count: u64,
-    schemas: Vec<String>,
-}
-
-impl Bucket {
-    fn add(&mut self, schema: &str, live_bytes: u64, atom_count: u64) {
-        self.live_bytes = self.live_bytes.saturating_add(live_bytes);
-        self.atom_count = self.atom_count.saturating_add(atom_count);
-        self.schemas.push(schema.to_string());
-    }
-
-    fn into_row(mut self, owner: String, kind: OwnerKind) -> OwnerRow {
-        self.schemas.sort_unstable();
-        self.schemas.dedup();
-        OwnerRow {
-            owner,
-            kind,
-            live_bytes: self.live_bytes,
-            atom_count: self.atom_count,
-            schema_count: self.schemas.len() as u64,
-            schemas: self.schemas,
-        }
-    }
-}
-
 /// Resolve `owner_app_id` from a catalog schema row.
 ///
 /// A present schema with an empty owner is a core plane (`system`). Absence
@@ -389,117 +363,4 @@ pub fn apply_page(
         None => None,
     };
     checkpoint
-}
-
-/// Same as [`build_report_with_lag`], and told whether the meters were
-/// hydrated. This is the form the live route uses; the two above default to
-/// [`MetersOrigin::Measured`] for callers that build a snapshot themselves.
-pub fn build_report_full(
-    snapshot: &KeepSmallSnapshot,
-    resolve_owner: &dyn Fn(&str) -> OwnerResolution,
-    checkpoint: &ReconciliationCheckpoint,
-    meters_origin: MetersOrigin,
-) -> AppStorageReport {
-    let mut apps: BTreeMap<String, Bucket> = BTreeMap::new();
-    let mut system = Bucket::default();
-    let mut unresolved = Bucket::default();
-
-    let live_total_bytes = snapshot.totals.live_total_bytes();
-    let atom_schema_bytes = snapshot
-        .schemas
-        .values()
-        .fold(0u64, |acc, meter| acc.saturating_add(meter.live_bytes));
-    // Everything the per-schema atom meters do not cover: tips, order log,
-    // headers, secondary-index rows, and any atom-total drift.
-    let plane_bytes = live_total_bytes.saturating_sub(atom_schema_bytes);
-    // The part of that remainder the write path could trace to an owning
-    // schema's molecules.
-    let claimed_plane_bytes = snapshot
-        .schemas
-        .values()
-        .fold(0u64, |acc, meter| acc.saturating_add(meter.plane_bytes()));
-    // A claim larger than the remainder means the per-schema counters and the
-    // global totals disagree — a home that hydrated per-schema plane bytes and
-    // then lost global ones, for instance. Attribute nothing rather than hand
-    // an app bytes the node cannot show it holds; the report stays exact and
-    // reads as less complete, which is the honest direction to fail.
-    let attribute_plane = claimed_plane_bytes <= plane_bytes;
-
-    for (schema_name, meter) in &snapshot.schemas {
-        let bytes = if attribute_plane {
-            meter.live_bytes.saturating_add(meter.plane_bytes())
-        } else {
-            meter.live_bytes
-        };
-        match resolve_owner(schema_name) {
-            OwnerResolution::App(owner) => {
-                apps.entry(owner)
-                    .or_default()
-                    .add(schema_name, bytes, meter.atom_count);
-            }
-            OwnerResolution::System => {
-                system.add(schema_name, bytes, meter.atom_count);
-            }
-            OwnerResolution::Unknown => {
-                unresolved.add(schema_name, bytes, meter.atom_count);
-            }
-        }
-    }
-
-    // Tips and bookkeeping the write path could not trace to a schema stay
-    // structural. Report the remainder instead of letting the row sum quietly
-    // fall short of the live total.
-    let unattributable_plane_bytes = if attribute_plane {
-        plane_bytes.saturating_sub(claimed_plane_bytes)
-    } else {
-        plane_bytes
-    };
-    let unresolved_schema_bytes = unresolved.live_bytes;
-    let unresolved_schema_count = unresolved.schemas.len() as u64;
-    let unattributed_bytes = unresolved_schema_bytes.saturating_add(unattributable_plane_bytes);
-
-    let mut owners: Vec<OwnerRow> = apps
-        .into_iter()
-        .map(|(owner, bucket)| bucket.into_row(owner, OwnerKind::App))
-        .collect();
-    owners.sort_by(|a, b| {
-        b.live_bytes
-            .cmp(&a.live_bytes)
-            .then_with(|| a.owner.cmp(&b.owner))
-    });
-    let attributed_bytes = owners.iter().map(|row| row.live_bytes).sum();
-
-    let system_bytes = system.live_bytes;
-    if system_bytes > 0 || !system.schemas.is_empty() {
-        owners.push(system.into_row(SYSTEM_OWNER.to_string(), OwnerKind::System));
-    }
-    if unattributed_bytes > 0 || !unresolved.schemas.is_empty() {
-        let mut row = unresolved.into_row(UNATTRIBUTED_OWNER.to_string(), OwnerKind::Unattributed);
-        // Plane bytes have no schema and no atom of their own; they only move
-        // the row's byte total.
-        row.live_bytes = unattributed_bytes;
-        owners.push(row);
-    }
-
-    AppStorageReport {
-        measured_at: Utc::now(),
-        heavy: false,
-        complete: unattributed_bytes == 0 && meters_origin.is_measured(),
-        meters_origin,
-        incomplete_reason: None,
-        budget_bytes: LIVE_BUDGET_BYTES,
-        live_total_bytes,
-        attributed_bytes,
-        system_bytes,
-        unattributed_bytes,
-        unattributable_plane_bytes,
-        unresolved_schema_bytes,
-        reconciliation_lag: ReconciliationLag {
-            unresolved_schema_count,
-            unresolved_schema_bytes,
-            last_pass_at: checkpoint.last_pass_at,
-            resume_after: checkpoint.resume_after.clone(),
-        },
-        owners,
-    }
 }

@@ -5,6 +5,29 @@ use super::*;
 mod apply_gate;
 mod prepare;
 
+/// Mutable state threaded through the phases of one batch write.
+struct BatchState {
+    force_durable: bool,
+    require_durable: bool,
+    timing_breakdown: std::collections::HashMap<&'static str, std::time::Duration>,
+    // Accumulated across schema groups; reported once as `LockWait` and
+    // excluded from the residual `apply` bucket. See the acquisition site.
+    molecule_lock_wait: std::time::Duration,
+    stages: ResidentCommitStages,
+}
+
+impl BatchState {
+    fn new(force_durable: bool, require_durable: bool) -> Self {
+        Self {
+            force_durable,
+            require_durable,
+            timing_breakdown: std::collections::HashMap::new(),
+            molecule_lock_wait: std::time::Duration::ZERO,
+            stages: ResidentCommitStages::default(),
+        }
+    }
+}
+
 impl MutationManager {
     pub(super) async fn write_create_update_batch_in_log(
         &self,
@@ -24,7 +47,6 @@ impl MutationManager {
                 .iter()
                 .any(|mutation| mutation.synchronous == Some(true));
         let operations = Self::count_requested_operations(&mutations);
-        let mut stages = ResidentCommitStages::default();
 
         self.reject_derived_and_blocked(&mutations)?;
 
@@ -45,50 +67,23 @@ impl MutationManager {
             lock_wait_start.elapsed(),
         );
 
-        let batch_len = mutations.len();
-        tracing::info!(
-            "write_mutations_batch_async: Starting batch of {} mutations",
-            batch_len
-        );
-        tracing::debug!(
-            "DEBUG: MutationManager::write_mutations_batch_async started for {} mutations",
-            batch_len
-        );
+        Self::log_batch_start(mutations.len());
 
         let start_time = std::time::Instant::now();
-        let mut timing_breakdown = std::collections::HashMap::new();
-        // Accumulated across schema groups; reported once as `LockWait` and
-        // excluded from the residual `apply` bucket. See the acquisition site.
-        let mut molecule_lock_wait = std::time::Duration::ZERO;
+        let mut state = BatchState::new(force_durable, require_durable);
 
-        // Phase 1: Filter out already-processed mutations BEFORE the CAS
-        // precondition check below. A byte-identical retry of an applied
-        // CAS-guarded mutation must be recognized as a safe no-op here — the
-        // CAS check compares against the head the first attempt already
-        // advanced, so running it before this filter rejects the retry as a
-        // conflict for exactly the write type ("same-node atomicity") whose
-        // contract depends on safe retries. This filter and the CAS check
-        // below both still run while `_cas_guards` is held, so the
-        // same-node atomicity invariant is unchanged for every mutation that
-        // survives the filter.
-        let idem_start = std::time::Instant::now();
         let (already_seen_ids, new_mutations, new_hashes) = self
-            .filter_idempotent_mutations(mutations, storage_prefix)
+            .filter_new_mutations(mutations, storage_prefix, &mut state)
             .await?;
-        Self::add_timing(
-            &mut timing_breakdown,
-            "idempotency_check",
-            idem_start.elapsed(),
-        );
 
         if new_mutations.is_empty() {
             return self
                 .finish_all_duplicate_batch(
                     already_seen_ids,
                     force_durable,
-                    &timing_breakdown,
+                    &state.timing_breakdown,
                     start_time,
-                    stages,
+                    state.stages,
                 )
                 .await;
         }
@@ -102,14 +97,85 @@ impl MutationManager {
             already_seen_ids.len()
         );
 
+        let mutation_ids = self
+            .commit_new_mutations(
+                new_mutations,
+                new_hashes,
+                storage_prefix,
+                author_clock_barrier,
+                &mut state,
+            )
+            .await?;
+
+        Ok(Self::build_commit_receipt(
+            already_seen_ids,
+            &mutation_ids,
+            operations,
+            start_time,
+            state,
+        ))
+    }
+
+    fn log_batch_start(batch_len: usize) {
+        tracing::info!(
+            "write_mutations_batch_async: Starting batch of {} mutations",
+            batch_len
+        );
+        tracing::debug!(
+            "DEBUG: MutationManager::write_mutations_batch_async started for {} mutations",
+            batch_len
+        );
+    }
+
+    /// Split off mutations already applied; returns
+    /// `(already_seen_ids, new_mutations, new_hashes)`.
+    async fn filter_new_mutations(
+        &self,
+        mutations: Vec<Mutation>,
+        storage_prefix: Option<&str>,
+        state: &mut BatchState,
+    ) -> Result<(Vec<String>, Vec<Mutation>, Vec<String>), SchemaError> {
+        // Phase 1: Filter out already-processed mutations BEFORE the CAS
+        // precondition check below. A byte-identical retry of an applied
+        // CAS-guarded mutation must be recognized as a safe no-op here — the
+        // CAS check compares against the head the first attempt already
+        // advanced, so running it before this filter rejects the retry as a
+        // conflict for exactly the write type ("same-node atomicity") whose
+        // contract depends on safe retries. This filter and the CAS check
+        // below both still run while `_cas_guards` is held, so the
+        // same-node atomicity invariant is unchanged for every mutation that
+        // survives the filter.
+        let idem_start = std::time::Instant::now();
+        let filtered = self
+            .filter_idempotent_mutations(mutations, storage_prefix)
+            .await?;
+        Self::add_timing(
+            &mut state.timing_breakdown,
+            "idempotency_check",
+            idem_start.elapsed(),
+        );
+        Ok(filtered)
+    }
+
+    /// Phases 2-8 for the mutations that survived the idempotency filter:
+    /// prepare per-schema deltas, apply them, wait for persistence, and run
+    /// the durability barrier. Returns the ids of the newly written mutations.
+    async fn commit_new_mutations(
+        &self,
+        new_mutations: Vec<Mutation>,
+        new_hashes: Vec<String>,
+        storage_prefix: Option<&str>,
+        author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
+        state: &mut BatchState,
+    ) -> Result<Vec<String>, SchemaError> {
         let mut prepared_deltas = self
             .prepare_grouped_deltas(
                 new_mutations,
                 new_hashes,
                 storage_prefix,
-                force_durable,
-                &mut timing_breakdown,
-                &mut stages,
+                state.force_durable,
+                &mut state.timing_breakdown,
+                &mut state.stages,
             )
             .await?;
 
@@ -117,11 +183,11 @@ impl MutationManager {
             .apply_prepared_deltas(
                 &mut prepared_deltas,
                 storage_prefix,
-                require_durable,
+                state.require_durable,
                 author_clock_barrier,
-                &mut timing_breakdown,
-                &mut molecule_lock_wait,
-                &mut stages,
+                &mut state.timing_breakdown,
+                &mut state.molecule_lock_wait,
+                &mut state.stages,
             )
             .await?;
 
@@ -135,19 +201,9 @@ impl MutationManager {
 
         // Phase 8: apply the optional caller durability barrier. A failed
         // barrier cannot produce a Durable receipt.
-        self.finalize_batch(&mut timing_breakdown, force_durable)
+        self.finalize_batch(&mut state.timing_breakdown, state.force_durable)
             .await?;
-
-        Ok(Self::build_commit_receipt(
-            already_seen_ids,
-            &mutation_ids,
-            operations,
-            stages,
-            force_durable,
-            &timing_breakdown,
-            start_time,
-            molecule_lock_wait,
-        ))
+        Ok(mutation_ids)
     }
 
     /// Phase -1: reject historical derived writes and blocked targets, then
@@ -178,17 +234,20 @@ impl MutationManager {
 
     /// Stamp the final stage timings, log the phase totals, and build the
     /// receipt that merges already-seen ids with the newly written ones.
-    #[allow(clippy::too_many_arguments)]
     fn build_commit_receipt(
         already_seen_ids: Vec<String>,
         mutation_ids: &[String],
         mut operations: ResidentCommitOperations,
-        mut stages: ResidentCommitStages,
-        force_durable: bool,
-        timing_breakdown: &std::collections::HashMap<&str, std::time::Duration>,
         start_time: std::time::Instant,
-        molecule_lock_wait: std::time::Duration,
+        state: BatchState,
     ) -> ResidentCommitReceipt {
+        let BatchState {
+            force_durable,
+            timing_breakdown,
+            molecule_lock_wait,
+            mut stages,
+            ..
+        } = state;
         let total_time = start_time.elapsed();
         stages.gate_wait_us = crate::request_phases::duration_us(molecule_lock_wait);
         stages.ack_us = crate::request_phases::duration_us(total_time);
@@ -209,8 +268,8 @@ impl MutationManager {
             total_time.as_millis()
         );
 
-        Self::log_timing_breakdown(timing_breakdown, total_time);
-        Self::report_phase_totals(timing_breakdown, total_time, molecule_lock_wait);
+        Self::log_timing_breakdown(&timing_breakdown, total_time);
+        Self::report_phase_totals(&timing_breakdown, total_time, molecule_lock_wait);
         Self::report_resident_commit_counts(&operations);
 
         ResidentCommitReceipt {

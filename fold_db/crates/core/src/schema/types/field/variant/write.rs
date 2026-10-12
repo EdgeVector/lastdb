@@ -8,104 +8,17 @@ impl FieldVariant {
     pub fn write_mutation(&mut self, key_value: &KeyValue, ctx: WriteContext) {
         self.ensure_molecule(&ctx.schema_name, &ctx.field_name);
 
-        let meta = crate::atom::KeyMetadata {
-            source_file_name: ctx.source_file_name,
-            metadata: ctx.metadata,
-            tombstoned: ctx.atom.is_tombstone(),
-        };
-
         match (&self.kind, &mut self.molecule) {
             // Unified keyed write path: every field kind uses HashRange.
-            // Single → ("",""); Hash → (h,""); Range → ("",r); HashRange → (h,r).
             (
                 FieldKind::Single | FieldKind::Hash | FieldKind::Range | FieldKind::HashRange,
                 Some(molecule),
             ) => {
-                let (hash_key, range_key) = match self.kind {
-                    FieldKind::Single => (String::new(), String::new()),
-                    FieldKind::Hash => match &key_value.hash {
-                        Some(h) => (h.clone(), String::new()),
-                        None => return,
-                    },
-                    FieldKind::Range => match &key_value.range {
-                        Some(r) => (String::new(), r.clone()),
-                        None => return,
-                    },
-                    FieldKind::HashRange => {
-                        if let (Some(h), Some(r)) = (&key_value.hash, &key_value.range) {
-                            (h.clone(), r.clone())
-                        } else {
-                            tracing::warn!(
-                                "HashRange write_mutation: atom {} not indexed — hash={:?}, range={:?}. \
-                                 Both hash and range keys are required for HashRange fields.",
-                                ctx.atom.uuid(),
-                                key_value.hash,
-                                key_value.range
-                            );
-                            return;
-                        }
-                    }
+                let Some((hash_key, range_key)) = Self::molecule_keys(&self.kind, key_value, &ctx)
+                else {
+                    return;
                 };
-                match ctx.writer_override {
-                    Some(crate::atom::provenance::Provenance::User {
-                        pubkey,
-                        signature,
-                        signature_version,
-                    }) => {
-                        let device_id = if ctx.author_clock_writer_id.is_empty() {
-                            pubkey.clone()
-                        } else {
-                            ctx.author_clock_writer_id.clone()
-                        };
-                        molecule.set_atom_uuid_from_values_imported_with_author(
-                            hash_key.clone(),
-                            range_key.clone(),
-                            ctx.atom.uuid().to_string(),
-                            device_id,
-                            pubkey,
-                            signature,
-                            signature_version,
-                            ctx.imported_written_at,
-                            ctx.logical_counter,
-                            ctx.mutation_uuid.clone(),
-                        );
-                    }
-                    _ if ctx.imported_written_at.is_some() => {
-                        // Mutation-log replay: keep origin written_at / writer
-                        // even when the envelope had no User provenance.
-                        let device_id = if ctx.author_clock_writer_id.is_empty() {
-                            ctx.pub_key.clone()
-                        } else {
-                            ctx.author_clock_writer_id.clone()
-                        };
-                        molecule.set_atom_uuid_from_values_imported_with_author(
-                            hash_key.clone(),
-                            range_key.clone(),
-                            ctx.atom.uuid().to_string(),
-                            device_id,
-                            // The author-clock writer lives in `device_id`.
-                            // Without signed per-tip provenance, keep the
-                            // legacy crypto payload empty and the tip thin.
-                            String::new(),
-                            String::new(),
-                            0,
-                            ctx.imported_written_at,
-                            ctx.logical_counter,
-                            ctx.mutation_uuid.clone(),
-                        );
-                    }
-                    _ => {
-                        molecule.set_atom_uuid_from_values_with_author(
-                            hash_key.clone(),
-                            range_key.clone(),
-                            ctx.atom.uuid().to_string(),
-                            &ctx.signer,
-                            ctx.logical_counter,
-                            ctx.mutation_uuid.clone(),
-                        );
-                    }
-                }
-                molecule.set_key_metadata(hash_key, range_key, meta);
+                Self::write_tip(molecule, ctx, hash_key, range_key);
             }
             _ => {
                 // kind/molecule mismatch should not happen after ensure_molecule
@@ -115,6 +28,109 @@ impl FieldVariant {
                 );
             }
         }
+    }
+
+    /// Map a field kind to its molecule `(hash, range)` key.
+    /// Single → ("",""); Hash → (h,""); Range → ("",r); HashRange → (h,r).
+    /// `None` means the key value lacks a part this kind requires.
+    fn molecule_keys(
+        kind: &FieldKind,
+        key_value: &KeyValue,
+        ctx: &WriteContext,
+    ) -> Option<(String, String)> {
+        match kind {
+            FieldKind::Single => Some((String::new(), String::new())),
+            FieldKind::Hash => key_value.hash.as_ref().map(|h| (h.clone(), String::new())),
+            FieldKind::Range => key_value.range.as_ref().map(|r| (String::new(), r.clone())),
+            FieldKind::HashRange => {
+                if let (Some(h), Some(r)) = (&key_value.hash, &key_value.range) {
+                    Some((h.clone(), r.clone()))
+                } else {
+                    tracing::warn!(
+                        "HashRange write_mutation: atom {} not indexed — hash={:?}, range={:?}. \
+                         Both hash and range keys are required for HashRange fields.",
+                        ctx.atom.uuid(),
+                        key_value.hash,
+                        key_value.range
+                    );
+                    None
+                }
+            }
+        }
+    }
+
+    /// Set the tip for one molecule key from the write context, then its metadata.
+    fn write_tip(
+        molecule: &mut crate::atom::MoleculeHashRange,
+        ctx: WriteContext,
+        hash_key: String,
+        range_key: String,
+    ) {
+        let meta = crate::atom::KeyMetadata {
+            source_file_name: ctx.source_file_name,
+            metadata: ctx.metadata,
+            tombstoned: ctx.atom.is_tombstone(),
+        };
+        match ctx.writer_override {
+            Some(crate::atom::provenance::Provenance::User {
+                pubkey,
+                signature,
+                signature_version,
+            }) => {
+                let device_id = if ctx.author_clock_writer_id.is_empty() {
+                    pubkey.clone()
+                } else {
+                    ctx.author_clock_writer_id.clone()
+                };
+                molecule.set_atom_uuid_from_values_imported_with_author(
+                    hash_key.clone(),
+                    range_key.clone(),
+                    ctx.atom.uuid().to_string(),
+                    device_id,
+                    pubkey,
+                    signature,
+                    signature_version,
+                    ctx.imported_written_at,
+                    ctx.logical_counter,
+                    ctx.mutation_uuid.clone(),
+                );
+            }
+            _ if ctx.imported_written_at.is_some() => {
+                // Mutation-log replay: keep origin written_at / writer
+                // even when the envelope had no User provenance.
+                let device_id = if ctx.author_clock_writer_id.is_empty() {
+                    ctx.pub_key.clone()
+                } else {
+                    ctx.author_clock_writer_id.clone()
+                };
+                molecule.set_atom_uuid_from_values_imported_with_author(
+                    hash_key.clone(),
+                    range_key.clone(),
+                    ctx.atom.uuid().to_string(),
+                    device_id,
+                    // The author-clock writer lives in `device_id`.
+                    // Without signed per-tip provenance, keep the
+                    // legacy crypto payload empty and the tip thin.
+                    String::new(),
+                    String::new(),
+                    0,
+                    ctx.imported_written_at,
+                    ctx.logical_counter,
+                    ctx.mutation_uuid.clone(),
+                );
+            }
+            _ => {
+                molecule.set_atom_uuid_from_values_with_author(
+                    hash_key.clone(),
+                    range_key.clone(),
+                    ctx.atom.uuid().to_string(),
+                    &ctx.signer,
+                    ctx.logical_counter,
+                    ctx.mutation_uuid.clone(),
+                );
+            }
+        }
+        molecule.set_key_metadata(hash_key, range_key, meta);
     }
 
     /// Materialize this field's in-memory molecule if it is not hydrated yet.

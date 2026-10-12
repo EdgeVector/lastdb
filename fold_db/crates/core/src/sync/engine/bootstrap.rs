@@ -14,6 +14,15 @@ use replay::BootstrapReplayState;
 use reporting::{legacy_log_seqs_after, log_bootstrap_complete, log_fresh_bootstrap};
 use snapshot::BootstrapSnapshotFetch;
 
+/// Outcome of the snapshot-restore half of `bootstrap_target`.
+struct BootstrapSnapshotPhase {
+    photograph_frontier: Option<crate::sync::snapshot_log::Frontier>,
+    snapshot_present: bool,
+    snapshot_last_seq: u64,
+    log_seqs: Vec<u64>,
+    legacy_personal_root: bool,
+}
+
 impl SyncEngine {
     // =========================================================================
 
@@ -47,67 +56,13 @@ impl SyncEngine {
             target.prefix
         );
 
-        let photograph_latest = self.photograph_latest_or_legacy(&target).await?;
-        let photograph_frontier = photograph_latest
-            .as_ref()
-            .map(|latest| latest.frontier.clone());
-        let BootstrapSnapshotFetch {
-            snapshot_data,
-            snapshot_download_ms,
+        let BootstrapSnapshotPhase {
+            photograph_frontier,
             snapshot_present,
-            log_objects,
-            legacy_personal_root,
-        } = self
-            .fetch_bootstrap_snapshot(
-                idx,
-                &target,
-                photograph_latest
-                    .as_ref()
-                    .map(|latest| latest.snapshot_id.as_str()),
-            )
-            .await?;
-
-        let snapshot_last_seq = match snapshot_data {
-            Some(data) => {
-                self.restore_bootstrap_snapshot(
-                    &target,
-                    &data,
-                    photograph_frontier.as_ref(),
-                    snapshot_download_ms,
-                )
-                .await?
-            }
-            None => 0,
-        };
-
-        let log_objects = match log_objects {
-            Some(log_objects) => log_objects,
-            None => self.auth.list_log_objects(&target).await?,
-        };
-
-        let log_seqs = legacy_log_seqs_after(
-            &log_objects,
             snapshot_last_seq,
-            photograph_frontier.is_some(),
-        );
-
-        // GUARD: a missing snapshot on a target whose log prefix already holds
-        // history would replay only the tail and restore a silently hollow
-        // store (the "missing snapshot" migration trap). Fail loudly with a
-        // structured error naming the gap unless the caller opted into a fresh
-        // start. A brand-new account (no snapshot, empty log prefix) passes
-        // through untouched. Guard on the full listing count (not the
-        // post-snapshot filter) so history is detected even at seq boundaries;
-        // when the snapshot is absent `snapshot_last_seq` is 0, so `log_seqs`
-        // already spans the whole prefix.
-        guard_missing_snapshot(
-            &target.label,
-            snapshot_present,
-            log_seqs.len(),
-            self.config.accept_fresh_bootstrap,
-        )?;
-
-        log_fresh_bootstrap(&target.label, snapshot_present, log_seqs.len());
+            log_seqs,
+            legacy_personal_root,
+        } = self.restore_snapshot_phase(idx, &target).await?;
 
         let mut state = BootstrapReplayState {
             schemas_replayed: false,
@@ -152,6 +107,102 @@ impl SyncEngine {
             schemas_replayed: state.schemas_replayed,
             embeddings_replayed: state.embeddings_replayed,
         })
+    }
+
+    /// Restore this target's snapshot (if any) and list the log seqs that
+    /// still need replay.
+    async fn restore_snapshot_phase(
+        &self,
+        idx: usize,
+        target: &SyncTarget,
+    ) -> SyncResult<BootstrapSnapshotPhase> {
+        let photograph_latest = self.photograph_latest_or_legacy(target).await?;
+        let photograph_frontier = photograph_latest
+            .as_ref()
+            .map(|latest| latest.frontier.clone());
+        let BootstrapSnapshotFetch {
+            snapshot_data,
+            snapshot_download_ms,
+            snapshot_present,
+            log_objects,
+            legacy_personal_root,
+        } = self
+            .fetch_bootstrap_snapshot(
+                idx,
+                target,
+                photograph_latest
+                    .as_ref()
+                    .map(|latest| latest.snapshot_id.as_str()),
+            )
+            .await?;
+
+        let snapshot_last_seq = match snapshot_data {
+            Some(data) => {
+                self.restore_bootstrap_snapshot(
+                    target,
+                    &data,
+                    photograph_frontier.as_ref(),
+                    snapshot_download_ms,
+                )
+                .await?
+            }
+            None => 0,
+        };
+
+        let log_seqs = self
+            .guarded_log_seqs_after_snapshot(
+                target,
+                log_objects,
+                snapshot_last_seq,
+                snapshot_present,
+                photograph_frontier.is_some(),
+            )
+            .await?;
+
+        Ok(BootstrapSnapshotPhase {
+            photograph_frontier,
+            snapshot_present,
+            snapshot_last_seq,
+            log_seqs,
+            legacy_personal_root,
+        })
+    }
+
+    /// List the log seqs above the snapshot and refuse a hollow restore.
+    async fn guarded_log_seqs_after_snapshot(
+        &self,
+        target: &SyncTarget,
+        log_objects: Option<Vec<crate::sync::auth::S3ObjectInfo>>,
+        snapshot_last_seq: u64,
+        snapshot_present: bool,
+        has_photograph: bool,
+    ) -> SyncResult<Vec<u64>> {
+        let log_objects = match log_objects {
+            Some(log_objects) => log_objects,
+            None => self.auth.list_log_objects(target).await?,
+        };
+
+        let log_seqs = legacy_log_seqs_after(&log_objects, snapshot_last_seq, has_photograph);
+
+        // GUARD: a missing snapshot on a target whose log prefix already holds
+        // history would replay only the tail and restore a silently hollow
+        // store (the "missing snapshot" migration trap). Fail loudly with a
+        // structured error naming the gap unless the caller opted into a fresh
+        // start. A brand-new account (no snapshot, empty log prefix) passes
+        // through untouched. Guard on the full listing count (not the
+        // post-snapshot filter) so history is detected even at seq boundaries;
+        // when the snapshot is absent `snapshot_last_seq` is 0, so `log_seqs`
+        // already spans the whole prefix.
+        guard_missing_snapshot(
+            &target.label,
+            snapshot_present,
+            log_seqs.len(),
+            self.config.accept_fresh_bootstrap,
+        )?;
+
+        log_fresh_bootstrap(&target.label, snapshot_present, log_seqs.len());
+
+        Ok(log_seqs)
     }
 
     async fn bootstrap_target_at(&self, idx: usize) -> SyncResult<SyncTarget> {

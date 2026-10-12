@@ -1,5 +1,8 @@
 use super::*;
 
+/// Best reuse candidate so far plus the closest rejected `(name, score, threshold)`.
+type ScanOutcome = (Option<BestReuseCandidate>, Option<(String, f32, f32)>);
+
 pub(super) fn normalize(s: Option<&str>) -> Option<&str> {
     s.filter(|x| !x.is_empty())
 }
@@ -155,6 +158,21 @@ impl SchemaServiceState {
         // against — leave it to register as new (it can't safely reuse).
         incoming.descriptive_name.as_deref()?;
 
+        let scan = self.build_reuse_scan(incoming)?;
+        let target_owner = normalize(incoming.owner_app_id.as_deref());
+        let (best, best_raw) = self.scan_reuse_candidates(&scan, target_owner, allow_same_name)?;
+
+        if best.is_none() {
+            log_reuse_near_miss(&scan, best_raw.as_ref());
+        }
+
+        let best = best?;
+        self.apply_field_fidelity_guard(incoming, best, scan.field_fidelity)
+    }
+
+    /// Read the live gate thresholds and embed the incoming side. `None` when
+    /// the embedder fails.
+    fn build_reuse_scan<'a>(&self, incoming: &'a Schema) -> Option<ReuseScan<'a>> {
         let purpose_threshold =
             reuse_threshold_override("SCHEMA_REUSE_PURPOSE_THRESHOLD", REUSE_PURPOSE_THRESHOLD);
         let struct_floor =
@@ -163,8 +181,6 @@ impl SchemaServiceState {
             "SCHEMA_REUSE_FIELD_FIDELITY_FLOOR",
             REUSE_FIELD_FIDELITY_FLOOR,
         );
-
-        let target_owner = normalize(incoming.owner_app_id.as_deref());
 
         // Embed the incoming side ONCE up front (its descriptive_name for the
         // struct signal, its `"{desc} — {purpose}"` blob for the purpose
@@ -182,6 +198,27 @@ impl SchemaServiceState {
         let inc_blob = format!("{inc_desc} — {inc_purpose}");
         let inc_desc_vec = self.embedder.embed_text(inc_desc).ok()?;
 
+        Some(ReuseScan {
+            incoming,
+            inc_desc,
+            inc_desc_vec,
+            inc_blob,
+            purpose_threshold,
+            struct_floor,
+            field_fidelity,
+        })
+    }
+
+    /// Walk the active schemas under the read locks and pick the best reuse
+    /// candidate that clears both gates, plus the best raw near-miss (gates
+    /// ignored) for the debug log. Returns `None` when a lock is poisoned.
+    fn scan_reuse_candidates(
+        &self,
+        scan: &ReuseScan<'_>,
+        target_owner: Option<&str>,
+        allow_same_name: bool,
+    ) -> Option<ScanOutcome> {
+        let incoming = scan.incoming;
         let schemas = read_lock(&self.schemas, "schemas").ok()?;
         // The struct signal reads the SAME pre-computed `descriptive_name`
         // embedding cache that `find_matching_descriptive_name` uses — keyed by
@@ -210,15 +247,6 @@ impl SchemaServiceState {
         // descriptive_name, the purpose score, and its field set + descriptions
         // (cloned so the guard can embed field names without re-taking the
         // schemas lock).
-        let scan = ReuseScan {
-            incoming,
-            inc_desc,
-            inc_desc_vec,
-            inc_blob,
-            purpose_threshold,
-            struct_floor,
-            field_fidelity,
-        };
         let mut best: Option<BestReuseCandidate> = None;
         let mut best_raw: Option<(String, f32, f32)> = None;
         for existing in schemas.values() {
@@ -226,7 +254,7 @@ impl SchemaServiceState {
                 continue;
             }
             let Some((candidate, struct_sim, accepted)) =
-                self.score_reuse_candidate(&scan, existing, &embeddings)
+                self.score_reuse_candidate(scan, existing, &embeddings)
             else {
                 continue;
             };
@@ -244,26 +272,7 @@ impl SchemaServiceState {
                 best = Some(candidate);
             }
         }
-        drop(embeddings);
-        drop(schemas);
-
-        if best.is_none() {
-            if let Some((desc, p, s)) = best_raw.as_ref() {
-                tracing::debug!(
-                    target: "schema_service::schema",
-                    incoming_desc = %incoming.descriptive_name.as_deref().unwrap_or(""),
-                    best_candidate = %desc,
-                    purpose_similarity = p,
-                    struct_similarity = s,
-                    purpose_threshold,
-                    struct_floor,
-                    "Reuse-before-NEW: best candidate fell short of the gates — registering new",
-                );
-            }
-        }
-
-        let best = best?;
-        self.apply_field_fidelity_guard(incoming, best, field_fidelity)
+        Some((best, best_raw))
     }
 
     /// Score one eligible reuse candidate against the scan inputs.
@@ -360,4 +369,21 @@ struct ReuseScan<'a> {
     purpose_threshold: f32,
     struct_floor: f32,
     field_fidelity: f32,
+}
+
+/// Debug-log the best raw candidate that fell short of the gates, so
+/// threshold tuning sees near-misses without lowering the live gates.
+fn log_reuse_near_miss(scan: &ReuseScan<'_>, best_raw: Option<&(String, f32, f32)>) {
+    if let Some((desc, p, s)) = best_raw {
+        tracing::debug!(
+            target: "schema_service::schema",
+            incoming_desc = %scan.incoming.descriptive_name.as_deref().unwrap_or(""),
+            best_candidate = %desc,
+            purpose_similarity = p,
+            struct_similarity = s,
+            purpose_threshold = scan.purpose_threshold,
+            struct_floor = scan.struct_floor,
+            "Reuse-before-NEW: best candidate fell short of the gates — registering new",
+        );
+    }
 }
