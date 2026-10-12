@@ -308,11 +308,16 @@ impl MutationManager {
         Ok(())
     }
 
-    // lint:fn-size-ok verbatim move from aggregate.rs; splitting this function is separate work
     pub(super) fn validate_enrolled_aggregate_schemas(
         &self,
         guard: &AggregateGuard,
     ) -> Result<(), SchemaError> {
+        self.validate_enrolled_source_schema(guard)?;
+        self.validate_enrolled_target_schema(guard)?;
+        self.validate_enrolled_member_schema(guard)
+    }
+
+    fn validate_enrolled_source_schema(&self, guard: &AggregateGuard) -> Result<(), SchemaError> {
         let source_schema = self
             .schema_manager
             .get_schema_metadata(&guard.source_schema_name)?
@@ -339,7 +344,10 @@ impl MutationManager {
                 guard.source_schema_name
             )));
         }
+        Ok(())
+    }
 
+    fn validate_enrolled_target_schema(&self, guard: &AggregateGuard) -> Result<(), SchemaError> {
         let target_schema = self
             .schema_manager
             .get_schema_metadata(&guard.target_schema_name)?
@@ -393,7 +401,10 @@ impl MutationManager {
                 )));
             }
         }
+        Ok(())
+    }
 
+    fn validate_enrolled_member_schema(&self, guard: &AggregateGuard) -> Result<(), SchemaError> {
         let member_schema = self
             .schema_manager
             .get_schema_metadata(&guard.member_schema_name)?

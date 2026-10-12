@@ -12,7 +12,35 @@ impl MutationManager {
         storage_prefix: Option<&str>,
         origin: WriteOrigin,
     ) -> Result<(), SchemaError> {
-        // lint:fn-size-ok moved verbatim from the original impl; splitting is a separate change
+        let mut invalidations = self
+            .build_guard_target_invalidations(guards, token, pub_key, storage_prefix)
+            .await?;
+        if invalidations.is_empty() {
+            return Ok(());
+        }
+        let clock = self.prepare_mutation_author_clocks(&mut invalidations)?;
+        if let Some((reservation, state)) = clock {
+            reservation.submit_and_wait(state).await?;
+        }
+        let result = self
+            .write_mutations_batch_inner(invalidations, storage_prefix, origin)
+            .await;
+        let receipt = Self::require_durable_receipt(result?, "invalidation")?;
+        let _ = receipt;
+        self.verify_guard_invalidation_markers(guards, token, storage_prefix)
+            .await?;
+        self.delete_guard_grants(guards, storage_prefix).await?;
+        Ok(())
+    }
+
+    /// Build one invalid-readiness mutation per distinct aggregate target.
+    async fn build_guard_target_invalidations(
+        &self,
+        guards: &[&AggregateGuard],
+        token: &str,
+        pub_key: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<Mutation>, SchemaError> {
         let mut targets: BTreeMap<(String, String), std::collections::BTreeSet<String>> =
             BTreeMap::new();
         for guard in guards {
@@ -84,18 +112,16 @@ impl MutationManager {
             invalidation.synchronous = Some(true);
             invalidations.push(invalidation);
         }
-        if invalidations.is_empty() {
-            return Ok(());
-        }
-        let clock = self.prepare_mutation_author_clocks(&mut invalidations)?;
-        if let Some((reservation, state)) = clock {
-            reservation.submit_and_wait(state).await?;
-        }
-        let result = self
-            .write_mutations_batch_inner(invalidations, storage_prefix, origin)
-            .await;
-        let receipt = Self::require_durable_receipt(result?, "invalidation")?;
-        let _ = receipt;
+        Ok(invalidations)
+    }
+
+    /// Read back each target and confirm the invalidation marker is current.
+    async fn verify_guard_invalidation_markers(
+        &self,
+        guards: &[&AggregateGuard],
+        token: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
         let mut verified_targets = std::collections::BTreeSet::new();
         for guard in guards {
             if !verified_targets
@@ -136,6 +162,15 @@ impl MutationManager {
                 ));
             }
         }
+        Ok(())
+    }
+
+    /// Delete the repair and finalized grants of every invalidated target.
+    async fn delete_guard_grants(
+        &self,
+        guards: &[&AggregateGuard],
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
         for guard in guards {
             let grant_key = Self::aggregate_repair_grant_key(
                 storage_prefix,

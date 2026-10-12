@@ -116,7 +116,47 @@ impl HashRangeQueryProcessor {
         as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        // lint:fn-size-ok verbatim move from hash_range_query.rs; splitting this function is separate work
+        let selected = Self::exact_key_selected_fields(schema, fields);
+        let mut result: HashMap<String, HashMap<KeyValue, FieldValue>> = selected
+            .iter()
+            .map(|field| (field.clone(), HashMap::new()))
+            .collect();
+        if selected.is_empty() || page_keys.is_empty() {
+            return Ok(result);
+        }
+
+        let pending = self
+            .collect_exact_key_pending(
+                schema,
+                &selected,
+                page_keys,
+                key_sources,
+                as_of,
+                include_tombstones,
+            )
+            .await?;
+        if pending.is_empty() {
+            return Ok(result);
+        }
+
+        let atoms = self
+            .resolve_pending_atoms(&pending)
+            .await
+            .map_err(|e| SchemaError::InvalidField(format!("exact-key atom batch: {e}")))?;
+
+        for (entry, atom) in pending.into_iter().zip(atoms) {
+            if let Some((fname, kv, fv)) =
+                self.exact_key_field_value(schema, entry, atom, include_tombstones)
+            {
+                result.entry(fname).or_default().insert(kv, fv);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Fields pass B hydrates: the projection, plus the key field for identity.
+    fn exact_key_selected_fields(schema: &Schema, fields: &[String]) -> Vec<String> {
         let mut selected: Vec<String> = if fields.is_empty() {
             crate::record_molecule::declared_runtime_field_names(schema)
         } else {
@@ -143,16 +183,21 @@ impl HashRangeQueryProcessor {
                 selected.push(key_field.clone());
             }
         }
-        let mut result: HashMap<String, HashMap<KeyValue, FieldValue>> = selected
-            .iter()
-            .map(|field| (field.clone(), HashMap::new()))
-            .collect();
-        if selected.is_empty() || page_keys.is_empty() {
-            return Ok(result);
-        }
+        selected
+    }
 
+    /// Find each selected field's slot for every page key, at head or `as_of`.
+    async fn collect_exact_key_pending(
+        &self,
+        schema: &mut Schema,
+        selected: &[String],
+        page_keys: &[KeyValue],
+        key_sources: &HashMap<KeyValue, KeySource>,
+        as_of: Option<DateTime<Utc>>,
+        include_tombstones: bool,
+    ) -> Result<Vec<SecondaryPending>, SchemaError> {
         let mut pending: Vec<SecondaryPending> = Vec::new();
-        for fname in &selected {
+        for fname in selected {
             if as_of.is_some() {
                 self.secondary_matches_as_of(
                     schema,
@@ -176,74 +221,70 @@ impl HashRangeQueryProcessor {
                 .await?;
             }
         }
+        Ok(pending)
+    }
 
-        if pending.is_empty() {
-            return Ok(result);
-        }
-
-        let atoms = self
-            .resolve_pending_atoms(&pending)
-            .await
-            .map_err(|e| SchemaError::InvalidField(format!("exact-key atom batch: {e}")))?;
-
-        for ((fname, kv, atom_uuid, key_meta, writer_pubkey, prefix, partition), atom) in
-            pending.into_iter().zip(atoms)
-        {
-            let Some(atom) = atom else {
-                if prefix.is_none() {
-                    self.db_ops.record_unresolved_atom_skip(
-                        &atom_uuid,
-                        &kv,
-                        crate::db_operations::core::UnresolvedAtomContext {
-                            molecule_uuid: schema
-                                .runtime_fields
-                                .get(&fname)
-                                .and_then(|field| field.common().molecule_uuid())
-                                .map(String::as_str),
-                            schema: Some(schema.name.as_str()),
-                            field: Some(fname.as_str()),
-                            atom_partition: partition.as_ref(),
-                            tip_storage_key: None,
-                        },
-                    );
-                }
-                continue;
-            };
-            if !include_tombstones && crate::atom::is_tombstone_value(atom.content()) {
-                continue;
+    /// Turn one resolved atom into a field value; `None` skips the key.
+    fn exact_key_field_value(
+        &self,
+        schema: &Schema,
+        entry: SecondaryPending,
+        atom: Option<crate::atom::Atom>,
+        include_tombstones: bool,
+    ) -> Option<(String, KeyValue, FieldValue)> {
+        let (fname, kv, atom_uuid, key_meta, writer_pubkey, prefix, partition) = entry;
+        let Some(atom) = atom else {
+            if prefix.is_none() {
+                self.db_ops.record_unresolved_atom_skip(
+                    &atom_uuid,
+                    &kv,
+                    crate::db_operations::core::UnresolvedAtomContext {
+                        molecule_uuid: schema
+                            .runtime_fields
+                            .get(&fname)
+                            .and_then(|field| field.common().molecule_uuid())
+                            .map(String::as_str),
+                        schema: Some(schema.name.as_str()),
+                        field: Some(fname.as_str()),
+                        atom_partition: partition.as_ref(),
+                        tip_storage_key: None,
+                    },
+                );
             }
-            let (source_file_name, metadata) = match key_meta {
-                Some(km) => (
-                    km.source_file_name
-                        .or_else(|| atom.source_file_name().cloned()),
-                    km.metadata.or_else(|| atom.metadata().cloned()),
-                ),
-                None => (atom.source_file_name().cloned(), atom.metadata().cloned()),
-            };
-            let written_at = atom
-                .created_at()
-                .timestamp_nanos_opt()
-                .and_then(|ns| u64::try_from(ns).ok());
-            let mut fv = FieldValue {
-                value: atom.content().clone(),
-                atom_uuid,
-                source_file_name,
-                metadata,
-                molecule_uuid: None,
-                molecule_version: None,
-                writer_pubkey: writer_pubkey.filter(|s| !s.is_empty()),
-                written_at,
-            };
-            if let Some(field) = schema.runtime_fields.get(&fname) {
-                fv.molecule_uuid = field.common().molecule_uuid().cloned();
-                fv.molecule_version = field.molecule_version();
-                if let Some(pk) = field.molecule_writer_pubkey() {
-                    fv.writer_pubkey = Some(pk);
-                }
-            }
-            result.entry(fname).or_default().insert(kv, fv);
+            return None;
+        };
+        if !include_tombstones && crate::atom::is_tombstone_value(atom.content()) {
+            return None;
         }
-
-        Ok(result)
+        let (source_file_name, metadata) = match key_meta {
+            Some(km) => (
+                km.source_file_name
+                    .or_else(|| atom.source_file_name().cloned()),
+                km.metadata.or_else(|| atom.metadata().cloned()),
+            ),
+            None => (atom.source_file_name().cloned(), atom.metadata().cloned()),
+        };
+        let written_at = atom
+            .created_at()
+            .timestamp_nanos_opt()
+            .and_then(|ns| u64::try_from(ns).ok());
+        let mut fv = FieldValue {
+            value: atom.content().clone(),
+            atom_uuid,
+            source_file_name,
+            metadata,
+            molecule_uuid: None,
+            molecule_version: None,
+            writer_pubkey: writer_pubkey.filter(|s| !s.is_empty()),
+            written_at,
+        };
+        if let Some(field) = schema.runtime_fields.get(&fname) {
+            fv.molecule_uuid = field.common().molecule_uuid().cloned();
+            fv.molecule_version = field.molecule_version();
+            if let Some(pk) = field.molecule_writer_pubkey() {
+                fv.writer_pubkey = Some(pk);
+            }
+        }
+        Some((fname, kv, fv))
     }
 }

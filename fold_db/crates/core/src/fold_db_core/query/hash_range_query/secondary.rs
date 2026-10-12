@@ -13,7 +13,6 @@ impl HashRangeQueryProcessor {
         include_tombstones: bool,
         pending: &mut Vec<SecondaryPending>,
     ) -> Result<(), SchemaError> {
-        // lint:fn-size-ok verbatim move from hash_range_query.rs; splitting this function is separate work
         let field = schema.runtime_fields.get(fname).ok_or_else(|| {
             SchemaError::InvalidField(format!(
                 "co-key secondary field '{fname}' missing from schema runtime"
@@ -31,134 +30,187 @@ impl HashRangeQueryProcessor {
         }
 
         for (prefix, keys) in by_prefix {
-            let mut slots = Vec::with_capacity(keys.len());
-            let mut kv_for_slots = Vec::with_capacity(keys.len());
-            for kv in &keys {
-                if let Some(slot) = field.disk_slot_for_key(kv) {
-                    slots.push(slot);
-                    kv_for_slots.push(kv.clone());
-                }
+            self.secondary_current_for_prefix(
+                field,
+                fname,
+                &mol_uuid,
+                prefix,
+                &keys,
+                include_tombstones,
+                pending,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Resolve one storage prefix's keys: resident tips first, then durable slots.
+    #[allow(clippy::too_many_arguments)]
+    async fn secondary_current_for_prefix(
+        &self,
+        field: &crate::schema::types::field::FieldVariant,
+        fname: &str,
+        mol_uuid: &str,
+        prefix: KeySource,
+        keys: &[KeyValue],
+        include_tombstones: bool,
+        pending: &mut Vec<SecondaryPending>,
+    ) -> Result<(), SchemaError> {
+        let mut slots = Vec::with_capacity(keys.len());
+        let mut kv_for_slots = Vec::with_capacity(keys.len());
+        for kv in keys {
+            if let Some(slot) = field.disk_slot_for_key(kv) {
+                slots.push(slot);
+                kv_for_slots.push(kv.clone());
             }
-            if slots.is_empty() {
-                continue;
-            }
-            // Resident tips are keyed in API form. Keep that as the invariant:
-            // `disk_slot_for_key` returns API-form `(hash, range)`, durable
-            // storage encodes on lookup, and resident probes use the same API
-            // slot. This avoids blinding an already-blinded co-key page key.
-            let use_resident_tips =
-                crate::db_operations::resident_read::tip_reads_resident_first(prefix.as_deref());
-            let mut storage_slots = Vec::with_capacity(slots.len());
-            let mut storage_kv_for_slots = Vec::with_capacity(kv_for_slots.len());
-            for ((h, r), kv) in slots.iter().zip(kv_for_slots.iter()) {
-                if use_resident_tips {
-                    if let Some(tip) = self.db_ops.resident().resolve_tip(&mol_uuid, h, r) {
-                        let tip = tip.value;
-                        if !include_tombstones
-                            && tip.key_metadata.as_ref().is_some_and(|m| m.tombstoned)
-                        {
-                            continue;
-                        }
-                        let tip_key = self
-                            .db_ops
-                            .atoms()
-                            .key_codec_for_molecule(&mol_uuid)
-                            .api_hash_range_record_key(&mol_uuid, h, r)
-                            .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                        let partition = crate::atom::AtomPartition::from_record_key(&tip_key);
-                        pending.push((
-                            fname.to_string(),
-                            kv.clone(),
-                            tip.atom_uuid,
-                            tip.key_metadata,
-                            (!tip.writer_pubkey.is_empty()).then_some(tip.writer_pubkey),
-                            prefix.clone(),
-                            partition,
-                        ));
+        }
+        if slots.is_empty() {
+            return Ok(());
+        }
+        // Resident tips are keyed in API form. Keep that as the invariant:
+        // `disk_slot_for_key` returns API-form `(hash, range)`, durable
+        // storage encodes on lookup, and resident probes use the same API
+        // slot. This avoids blinding an already-blinded co-key page key.
+        let use_resident_tips =
+            crate::db_operations::resident_read::tip_reads_resident_first(prefix.as_deref());
+        let mut storage_slots = Vec::with_capacity(slots.len());
+        let mut storage_kv_for_slots = Vec::with_capacity(kv_for_slots.len());
+        for ((h, r), kv) in slots.iter().zip(kv_for_slots.iter()) {
+            if use_resident_tips {
+                if let Some(tip) = self.db_ops.resident().resolve_tip(mol_uuid, h, r) {
+                    let tip = tip.value;
+                    if !include_tombstones
+                        && tip.key_metadata.as_ref().is_some_and(|m| m.tombstoned)
+                    {
                         continue;
                     }
+                    let tip_key = self
+                        .db_ops
+                        .atoms()
+                        .key_codec_for_molecule(mol_uuid)
+                        .api_hash_range_record_key(mol_uuid, h, r)
+                        .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+                    let partition = crate::atom::AtomPartition::from_record_key(&tip_key);
+                    pending.push((
+                        fname.to_string(),
+                        kv.clone(),
+                        tip.atom_uuid,
+                        tip.key_metadata,
+                        (!tip.writer_pubkey.is_empty()).then_some(tip.writer_pubkey),
+                        prefix.clone(),
+                        partition,
+                    ));
+                    continue;
                 }
-                storage_slots.push((h.clone(), r.clone()));
-                storage_kv_for_slots.push(kv.clone());
             }
-            if storage_slots.is_empty() {
+            storage_slots.push((h.clone(), r.clone()));
+            storage_kv_for_slots.push(kv.clone());
+        }
+        if storage_slots.is_empty() {
+            return Ok(());
+        }
+        self.secondary_current_load_slots(
+            field,
+            fname,
+            mol_uuid,
+            &prefix,
+            use_resident_tips,
+            include_tombstones,
+            &storage_slots,
+            &storage_kv_for_slots,
+            pending,
+        )
+        .await
+    }
+
+    /// Batch-load durable records for the slots the resident set did not answer.
+    #[allow(clippy::too_many_arguments)]
+    async fn secondary_current_load_slots(
+        &self,
+        field: &crate::schema::types::field::FieldVariant,
+        fname: &str,
+        mol_uuid: &str,
+        prefix: &KeySource,
+        use_resident_tips: bool,
+        include_tombstones: bool,
+        storage_slots: &[(String, String)],
+        storage_kv_for_slots: &[KeyValue],
+        pending: &mut Vec<SecondaryPending>,
+    ) -> Result<(), SchemaError> {
+        let observed: HashMap<_, _> = storage_slots
+            .iter()
+            .map(|(h, r)| {
+                let control = self.db_ops.resident().observe_slot(mol_uuid, h, r);
+                ((h.clone(), r.clone()), control)
+            })
+            .collect();
+        let records = self
+            .db_ops
+            .atoms()
+            .load_per_key_records_for_slots(mol_uuid, prefix.as_deref(), storage_slots)
+            .await?;
+        let mut by_slot = HashMap::with_capacity(records.len());
+        for (h, r, rec) in records {
+            by_slot.insert((h, r), rec);
+        }
+        for kv in storage_kv_for_slots {
+            let Some((h, r)) = field.disk_slot_for_key(kv) else {
+                continue;
+            };
+            let Some(rec) = by_slot.get(&(h.clone(), r.clone())) else {
+                continue;
+            };
+            if !include_tombstones && rec.meta.as_ref().is_some_and(|m| m.tombstoned) {
                 continue;
             }
-            let observed: HashMap<_, _> = storage_slots
-                .iter()
-                .map(|(h, r)| {
-                    let control = self.db_ops.resident().observe_slot(&mol_uuid, h, r);
-                    ((h.clone(), r.clone()), control)
-                })
-                .collect();
-            let records = self
+            if use_resident_tips {
+                self.db_ops.resident().rehydrate_tip_at(
+                    crate::resident::ResidentTip {
+                        molecule_uuid: mol_uuid.to_string(),
+                        hash: h.clone(),
+                        range: r.clone(),
+                        atom_uuid: rec.entry.atom_uuid.clone(),
+                        written_at: rec.entry.written_at,
+                        logical_counter: rec.entry.logical_counter,
+                        device_id: rec.entry.lww_device().to_string(),
+                        mutation_uuid: rec.entry.mutation_uuid.clone(),
+                        key_metadata: rec.meta.clone(),
+                        writer_pubkey: rec.entry.writer_pubkey.clone(),
+                    },
+                    observed
+                        .get(&(h.clone(), r.clone()))
+                        .map(crate::resident::SlotRead::revisions),
+                );
+            }
+            let writer = {
+                let pk = rec.entry.writer_pubkey.clone();
+                if pk.is_empty() {
+                    None
+                } else {
+                    Some(pk)
+                }
+            };
+            // `(h, r)` is the API-form slot — the form `load_per_key_records_for_slots`
+            // takes, because it encodes on the way in. The body partition
+            // must be byte-identical to the one the TIP is filed under, so
+            // encode here too: deriving it from the API hash on a blinded
+            // home names a partition that does not exist.
+            let tip_key = self
                 .db_ops
                 .atoms()
-                .load_per_key_records_for_slots(&mol_uuid, prefix.as_deref(), &storage_slots)
-                .await?;
-            let mut by_slot = HashMap::with_capacity(records.len());
-            for (h, r, rec) in records {
-                by_slot.insert((h, r), rec);
-            }
-            for kv in &storage_kv_for_slots {
-                let Some((h, r)) = field.disk_slot_for_key(kv) else {
-                    continue;
-                };
-                let Some(rec) = by_slot.get(&(h.clone(), r.clone())) else {
-                    continue;
-                };
-                if !include_tombstones && rec.meta.as_ref().is_some_and(|m| m.tombstoned) {
-                    continue;
-                }
-                if use_resident_tips {
-                    self.db_ops.resident().rehydrate_tip_at(
-                        crate::resident::ResidentTip {
-                            molecule_uuid: mol_uuid.clone(),
-                            hash: h.clone(),
-                            range: r.clone(),
-                            atom_uuid: rec.entry.atom_uuid.clone(),
-                            written_at: rec.entry.written_at,
-                            logical_counter: rec.entry.logical_counter,
-                            device_id: rec.entry.lww_device().to_string(),
-                            mutation_uuid: rec.entry.mutation_uuid.clone(),
-                            key_metadata: rec.meta.clone(),
-                            writer_pubkey: rec.entry.writer_pubkey.clone(),
-                        },
-                        observed
-                            .get(&(h.clone(), r.clone()))
-                            .map(crate::resident::SlotRead::revisions),
-                    );
-                }
-                let writer = {
-                    let pk = rec.entry.writer_pubkey.clone();
-                    if pk.is_empty() {
-                        None
-                    } else {
-                        Some(pk)
-                    }
-                };
-                // `(h, r)` is the API-form slot — the form `load_per_key_records_for_slots`
-                // takes, because it encodes on the way in. The body partition
-                // must be byte-identical to the one the TIP is filed under, so
-                // encode here too: deriving it from the API hash on a blinded
-                // home names a partition that does not exist.
-                let tip_key = self
-                    .db_ops
-                    .atoms()
-                    .key_codec_for_molecule(&mol_uuid)
-                    .api_hash_range_record_key(&mol_uuid, &h, &r)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                let partition = crate::atom::AtomPartition::from_record_key(&tip_key);
-                pending.push((
-                    fname.to_string(),
-                    kv.clone(),
-                    rec.entry.atom_uuid.clone(),
-                    rec.meta.clone(),
-                    writer,
-                    prefix.clone(),
-                    partition,
-                ));
-            }
+                .key_codec_for_molecule(mol_uuid)
+                .api_hash_range_record_key(mol_uuid, &h, &r)
+                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+            let partition = crate::atom::AtomPartition::from_record_key(&tip_key);
+            pending.push((
+                fname.to_string(),
+                kv.clone(),
+                rec.entry.atom_uuid.clone(),
+                rec.meta.clone(),
+                writer,
+                prefix.clone(),
+                partition,
+            ));
         }
         Ok(())
     }

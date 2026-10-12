@@ -2,6 +2,14 @@
 
 use super::*;
 
+struct InvalidationCandidate {
+    mutation_index: usize,
+    guard_key: String,
+    source_hash: String,
+}
+
+type InvalidationTarget = (AggregateGuard, AggregateWinner, String, String);
+
 impl MutationManager {
     /// Single-route sibling that can secure a durable aggregate delete intent.
     pub async fn write_aggregate_set_with_access_receipt_cloud(
@@ -73,7 +81,6 @@ impl MutationManager {
     }
 
     /// Add an atomic invalidation for every enrolled ordinary source write.
-    // lint:fn-size-ok verbatim move from aggregate.rs; splitting this function is separate work
     pub(in crate::fold_db_core::mutation_manager) async fn write_with_aggregate_invalidations(
         &self,
         mutations: Vec<Mutation>,
@@ -81,12 +88,42 @@ impl MutationManager {
         origin: WriteOrigin,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        struct Candidate {
-            mutation_index: usize,
-            guard_key: String,
-            source_hash: String,
-        }
+        let candidates = self.collect_invalidation_candidates(&mutations, storage_prefix)?;
+        let _guard_locks = self
+            .acquire_aggregate_named_locks(
+                candidates
+                    .iter()
+                    .map(|candidate| format!("aggregate_guard_lock\u{1f}{}", candidate.guard_key))
+                    .collect(),
+            )
+            .await;
 
+        let by_target = self
+            .resolve_invalidation_targets(candidates, &mutations, storage_prefix)
+            .await?;
+        let _target_locks = self
+            .acquire_aggregate_named_locks(by_target.keys().cloned().collect())
+            .await;
+
+        let (invalidations, invalidated_guards) = self.build_invalidations(by_target)?;
+        self.apply_invalidations(invalidations, invalidated_guards, storage_prefix)
+            .await?;
+
+        self.write_mutations_batch_inner_with_clock(
+            mutations,
+            storage_prefix,
+            origin,
+            author_clock_barrier,
+        )
+        .await
+    }
+
+    /// Ordinary hash-keyed source mutations that may be enrolled in an aggregate.
+    fn collect_invalidation_candidates(
+        &self,
+        mutations: &[Mutation],
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<InvalidationCandidate>, SchemaError> {
         let mut candidates = Vec::new();
         for (mutation_index, mutation) in mutations.iter().enumerate() {
             if mutation.aggregate_set.is_some() {
@@ -108,23 +145,23 @@ impl MutationManager {
             let Some(source_hash) = key.hash.clone() else {
                 continue;
             };
-            candidates.push(Candidate {
+            candidates.push(InvalidationCandidate {
                 mutation_index,
                 guard_key: aggregate_guard_key(storage_prefix, &mutation.schema_name, &source_hash),
                 source_hash,
             });
         }
-        let _guard_locks = self
-            .acquire_aggregate_named_locks(
-                candidates
-                    .iter()
-                    .map(|candidate| format!("aggregate_guard_lock\u{1f}{}", candidate.guard_key))
-                    .collect(),
-            )
-            .await;
+        Ok(candidates)
+    }
 
-        let mut by_target: BTreeMap<String, (AggregateGuard, AggregateWinner, String, String)> =
-            BTreeMap::new();
+    /// Read each candidate's guard and keep the newest source per aggregate target.
+    async fn resolve_invalidation_targets(
+        &self,
+        candidates: Vec<InvalidationCandidate>,
+        mutations: &[Mutation],
+        storage_prefix: Option<&str>,
+    ) -> Result<BTreeMap<String, InvalidationTarget>, SchemaError> {
+        let mut by_target: BTreeMap<String, InvalidationTarget> = BTreeMap::new();
         for candidate in candidates {
             let Some(guard) = self
                 .read_reconciled_aggregate_guard(&candidate.guard_key, storage_prefix)
@@ -134,32 +171,7 @@ impl MutationManager {
             };
             guard.validate().map_err(SchemaError::InvalidData)?;
             let source = &mutations[candidate.mutation_index];
-            if guard.source_schema_name != source.schema_name
-                || guard.source_partition_hash != candidate.source_hash
-            {
-                return Err(SchemaError::InvalidData(
-                    "aggregate guard identity does not match its storage key".into(),
-                ));
-            }
-            if matches!(
-                source.mutation_type,
-                MutationType::Delete | MutationType::Purge
-            ) {
-                return Err(SchemaError::InvalidData(
-                    "enrolled aggregate sources reject Delete and Purge; write a live logical removal value with an explicit zero AggregateSet"
-                        .into(),
-                ));
-            }
-            if source
-                .fields_and_values
-                .values()
-                .any(crate::atom::is_tombstone_value)
-            {
-                return Err(SchemaError::InvalidData(
-                    "enrolled aggregate sources reject field tombstones; write a live logical removal value with an explicit zero AggregateSet"
-                        .into(),
-                ));
-            }
+            Self::check_enrolled_source(&guard, source, &candidate.source_hash)?;
             let winner = AggregateWinner {
                 logical_counter: source.logical_counter,
                 written_at: source.imported_written_at.unwrap_or(0),
@@ -182,10 +194,49 @@ impl MutationManager {
                 }
             }
         }
-        let _target_locks = self
-            .acquire_aggregate_named_locks(by_target.keys().cloned().collect())
-            .await;
+        Ok(by_target)
+    }
 
+    /// Reject a source write that an enrolled aggregate guard cannot accept.
+    fn check_enrolled_source(
+        guard: &AggregateGuard,
+        source: &Mutation,
+        source_hash: &str,
+    ) -> Result<(), SchemaError> {
+        if guard.source_schema_name != source.schema_name
+            || guard.source_partition_hash != source_hash
+        {
+            return Err(SchemaError::InvalidData(
+                "aggregate guard identity does not match its storage key".into(),
+            ));
+        }
+        if matches!(
+            source.mutation_type,
+            MutationType::Delete | MutationType::Purge
+        ) {
+            return Err(SchemaError::InvalidData(
+                "enrolled aggregate sources reject Delete and Purge; write a live logical removal value with an explicit zero AggregateSet"
+                    .into(),
+            ));
+        }
+        if source
+            .fields_and_values
+            .values()
+            .any(crate::atom::is_tombstone_value)
+        {
+            return Err(SchemaError::InvalidData(
+                "enrolled aggregate sources reject field tombstones; write a live logical removal value with an explicit zero AggregateSet"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Build one `valid=0` invalidation mutation per resolved aggregate target.
+    fn build_invalidations(
+        &self,
+        by_target: BTreeMap<String, InvalidationTarget>,
+    ) -> Result<(Vec<Mutation>, Vec<AggregateGuard>), SchemaError> {
         let mut invalidations = Vec::with_capacity(by_target.len());
         let mut invalidated_guards = Vec::with_capacity(by_target.len());
         for (_, (guard, _, token, pub_key)) in by_target {
@@ -231,43 +282,47 @@ impl MutationManager {
             invalidations.push(invalidation);
             invalidated_guards.push(guard);
         }
-        if !invalidations.is_empty() {
-            let invalidation_clock = self.prepare_mutation_author_clocks(&mut invalidations)?;
-            if let Some((reservation, state)) = invalidation_clock {
-                reservation.submit_and_wait(state).await?;
-            }
-            let result = self
-                .write_mutations_batch_inner(invalidations, storage_prefix, WriteOrigin::Replay)
-                .await;
-            Self::require_durable_receipt(result?, "ordinary source invalidation")?;
-            for guard in &invalidated_guards {
-                let grant_key = Self::aggregate_repair_grant_key(
-                    storage_prefix,
-                    &guard.target_schema_name,
-                    &guard.target_key,
-                );
-                self.db_ops
-                    .metadata()
-                    .delete_typed_durable(&grant_key)
-                    .await?;
-                let finalized_key = Self::aggregate_finalized_grant_key(
-                    storage_prefix,
-                    &guard.target_schema_name,
-                    &guard.target_key,
-                );
-                self.db_ops
-                    .metadata()
-                    .delete_typed_durable(&finalized_key)
-                    .await?;
-            }
-        }
+        Ok((invalidations, invalidated_guards))
+    }
 
-        self.write_mutations_batch_inner_with_clock(
-            mutations,
-            storage_prefix,
-            origin,
-            author_clock_barrier,
-        )
-        .await
+    /// Write the invalidations durably, then drop the repair and finalized grants.
+    async fn apply_invalidations(
+        &self,
+        mut invalidations: Vec<Mutation>,
+        invalidated_guards: Vec<AggregateGuard>,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        if invalidations.is_empty() {
+            return Ok(());
+        }
+        let invalidation_clock = self.prepare_mutation_author_clocks(&mut invalidations)?;
+        if let Some((reservation, state)) = invalidation_clock {
+            reservation.submit_and_wait(state).await?;
+        }
+        let result = self
+            .write_mutations_batch_inner(invalidations, storage_prefix, WriteOrigin::Replay)
+            .await;
+        Self::require_durable_receipt(result?, "ordinary source invalidation")?;
+        for guard in &invalidated_guards {
+            let grant_key = Self::aggregate_repair_grant_key(
+                storage_prefix,
+                &guard.target_schema_name,
+                &guard.target_key,
+            );
+            self.db_ops
+                .metadata()
+                .delete_typed_durable(&grant_key)
+                .await?;
+            let finalized_key = Self::aggregate_finalized_grant_key(
+                storage_prefix,
+                &guard.target_schema_name,
+                &guard.target_key,
+            );
+            self.db_ops
+                .metadata()
+                .delete_typed_durable(&finalized_key)
+                .await?;
+        }
+        Ok(())
     }
 }
