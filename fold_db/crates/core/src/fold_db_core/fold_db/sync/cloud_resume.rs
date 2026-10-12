@@ -18,6 +18,12 @@ impl FoldDB {
         if !engine.is_backup_only_mode() {
             return Err("primary resume requires backup-only mode".into());
         }
+        if fresh_from_local {
+            engine
+                .register_fresh_primary_resume_owner()
+                .await
+                .map_err(|error| error.to_string())?;
+        }
         let before = engine
             .inspect_primary_resume_logs()
             .await
