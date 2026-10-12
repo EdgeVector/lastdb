@@ -33,6 +33,9 @@ pub struct SchemaCounterBootstrapReport {
     pub structure_bytes: u64,
 }
 
+mod snapshot;
+use snapshot::{build_repaired_snapshot, MeasuredMolecules};
+
 impl DbOperations {
     /// Rebuild `mref:v1` and `bref:v1` from canonical rows on an isolated copy.
     /// Completeness markers land last. A read or decode failure leaves the
@@ -105,43 +108,18 @@ impl DbOperations {
         for row in &breakdown.per_schema {
             schema_rows.insert(row.schema_name.clone(), (row.bytes, row.atom_count));
         }
-        let tip_totals = aggregate_tip_totals(&counters, &molecule_schema);
-        let (schema_meters, schema_trust) =
-            build_schema_meters(&schemas, &schema_rows, &tip_totals.schema_tips);
-        let trust = MeterTrustPayload {
-            version: crate::db_operations::KEEP_SMALL_TRUST_VERSION,
-            global: MeterDomainTrust {
-                state: MeterTrustState::Reconciled,
-                cause: None,
+        let candidate = build_repaired_snapshot(
+            &schemas,
+            &schema_rows,
+            breakdown.total_logical_bytes,
+            MeasuredMolecules {
+                counters,
+                tip_sources,
+                key_bytes,
+                molecule_schema,
             },
-            schemas: schema_trust,
-            molecules: MeterDomainTrust {
-                state: MeterTrustState::Reconciled,
-                cause: None,
-            },
-        };
-        let candidate = KeepSmallSnapshot {
-            totals: LiveBudgetTotals {
-                atom_bytes: breakdown.total_logical_bytes,
-                tip_bytes: tip_totals.tip_bytes,
-                bookkeeping_bytes: tip_totals.bookkeeping_bytes,
-                atom_count: schema_rows.values().map(|(_, count)| *count).sum(),
-                tip_count: tip_totals.tip_count,
-            },
-            schemas: schema_meters,
-            molecules: counters,
-            molecule_counters_complete: true,
-            molecule_counter_sources_complete: true,
-            molecule_tip_sources: tip_sources,
-            molecule_key_bytes: key_bytes,
-            molecule_schema: molecule_schema.clone(),
-            pending_protein_folds: self.atoms().keep_small().pending_protein_folds(),
-            clean_stop: None,
-            trust,
-            hard_erase_totals: crate::db_operations::KeepSmallHardEraseTotals::default(),
-            hard_erase_journal_checkpoint_seq: 0,
-            sharded: false,
-        };
+            self.atoms().keep_small().pending_protein_folds(),
+        );
         // Trust becomes visible only after the complete candidate reaches the
         // durable meter plane. The commit holds the persist lock across put,
         // flush, and install, so no dirty flush can land the old projection

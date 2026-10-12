@@ -170,6 +170,15 @@ pub(crate) fn db_probe_locator_only(
         );
         return Ok(());
     }
+    print_probe_counts(&report);
+    print_probe_rates(&report);
+    print_probe_completion(&report);
+    println!();
+    println!("Cached for `lastdb status` until the next probe or process restart.");
+    Ok(())
+}
+
+fn print_probe_counts(report: &serde_json::Value) {
     println!("Locator-only tip population probe (read-only stratified sample)");
     for key in [
         "tips_sampled",
@@ -191,6 +200,9 @@ pub(crate) fn db_probe_locator_only(
                 .unwrap_or(0)
         );
     }
+}
+
+fn print_probe_rates(report: &serde_json::Value) {
     if let Some(rate) = report
         .get("locator_only_per_mille")
         .and_then(serde_json::Value::as_u64)
@@ -222,6 +234,9 @@ pub(crate) fn db_probe_locator_only(
     {
         println!("  dangling_recurrence     {rate}  (new dangling tips per hour)");
     }
+}
+
+fn print_probe_completion(report: &serde_json::Value) {
     println!(
         "  completed                {}",
         report
@@ -255,7 +270,4 @@ pub(crate) fn db_probe_locator_only(
         );
         println!("Raise --max-tips to refine it.");
     }
-    println!();
-    println!("Cached for `lastdb status` until the next probe or process restart.");
-    Ok(())
 }

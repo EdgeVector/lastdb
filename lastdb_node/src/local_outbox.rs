@@ -164,54 +164,27 @@ impl LocalOutbox {
         range_start: Option<&str>,
         range_end: Option<&str>,
     ) -> LocalWatchPoll {
+        let filter = WatchFilter {
+            schemas,
+            hash,
+            range_start,
+            range_end,
+        };
         let deadline = Instant::now() + timeout;
         let mut guard = self.inner.lock().expect("local outbox mutex");
         loop {
-            let now = Instant::now();
-            Self::prune_locked(&mut guard, now);
+            Self::prune_locked(&mut guard, Instant::now());
+            let poll = Self::snapshot_locked(&guard, after_seq, &filter);
 
-            let oldest = guard.events.front().map(|e| e.seq);
-            let tip = guard.next_seq.saturating_sub(1);
-            // after_seq=0 means "give me retained history" — never a gap.
-            // Gap only when the client cursor is strictly behind the oldest retained seq.
-            let gap = after_seq > 0
-                && match oldest {
-                    Some(o) => o > after_seq + 1,
-                    None => tip > after_seq,
-                };
-
-            let events: Vec<LocalWatchEvent> = guard
-                .events
-                .iter()
-                .filter(|e| e.seq > after_seq)
-                .filter(|e| match schemas {
-                    Some(schemas) => schemas.contains(&e.schema),
-                    None => true,
-                })
-                .filter(|e| hash.is_none_or(|wanted| e.hash.as_deref() == Some(wanted)))
-                .filter(|e| {
-                    range_start.is_none_or(|start| e.range.as_deref().is_some_and(|r| r >= start))
-                })
-                .filter(|e| range_end.is_none_or(|end| e.range.as_deref().is_some_and(|r| r < end)))
-                .cloned()
-                .collect();
-
-            if !events.is_empty() || timeout.is_zero() || Instant::now() >= deadline {
-                return LocalWatchPoll {
-                    after_seq,
-                    tip_seq: tip,
-                    gap,
-                    events,
-                };
+            if !poll.events.is_empty() || timeout.is_zero() || Instant::now() >= deadline {
+                return poll;
             }
 
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return LocalWatchPoll {
-                    after_seq,
-                    tip_seq: tip,
-                    gap,
                     events: vec![],
+                    ..poll
                 };
             }
             let (g, wait_res) = self
@@ -220,41 +193,59 @@ impl LocalOutbox {
                 .expect("local outbox condvar");
             guard = g;
             if wait_res.timed_out() {
-                let now = Instant::now();
-                Self::prune_locked(&mut guard, now);
-                let oldest = guard.events.front().map(|e| e.seq);
-                let tip = guard.next_seq.saturating_sub(1);
-                let gap = after_seq > 0
-                    && match oldest {
-                        Some(o) => o > after_seq + 1,
-                        None => tip > after_seq,
-                    };
-                let events: Vec<LocalWatchEvent> = guard
-                    .events
-                    .iter()
-                    .filter(|e| e.seq > after_seq)
-                    .filter(|e| match schemas {
-                        Some(schemas) => schemas.contains(&e.schema),
-                        None => true,
-                    })
-                    .filter(|e| hash.is_none_or(|wanted| e.hash.as_deref() == Some(wanted)))
-                    .filter(|e| {
-                        range_start
-                            .is_none_or(|start| e.range.as_deref().is_some_and(|r| r >= start))
-                    })
-                    .filter(|e| {
-                        range_end.is_none_or(|end| e.range.as_deref().is_some_and(|r| r < end))
-                    })
-                    .cloned()
-                    .collect();
-                return LocalWatchPoll {
-                    after_seq,
-                    tip_seq: tip,
-                    gap,
-                    events,
-                };
+                Self::prune_locked(&mut guard, Instant::now());
+                return Self::snapshot_locked(&guard, after_seq, &filter);
             }
         }
+    }
+
+    /// Build the poll response for `after_seq` from the retained events.
+    fn snapshot_locked(inner: &Inner, after_seq: u64, filter: &WatchFilter<'_>) -> LocalWatchPoll {
+        let oldest = inner.events.front().map(|e| e.seq);
+        let tip = inner.next_seq.saturating_sub(1);
+        // after_seq=0 means "give me retained history" — never a gap.
+        // Gap only when the client cursor is strictly behind the oldest retained seq.
+        let gap = after_seq > 0
+            && match oldest {
+                Some(o) => o > after_seq + 1,
+                None => tip > after_seq,
+            };
+        let events = inner
+            .events
+            .iter()
+            .filter(|e| e.seq > after_seq && filter.matches(e))
+            .cloned()
+            .collect();
+        LocalWatchPoll {
+            after_seq,
+            tip_seq: tip,
+            gap,
+            events,
+        }
+    }
+}
+
+/// Event filters for one poll: schema set, one HashRange hash, and a half-open range.
+struct WatchFilter<'a> {
+    schemas: Option<&'a HashSet<String>>,
+    hash: Option<&'a str>,
+    range_start: Option<&'a str>,
+    range_end: Option<&'a str>,
+}
+
+impl WatchFilter<'_> {
+    fn matches(&self, e: &LocalWatchEvent) -> bool {
+        self.schemas
+            .is_none_or(|schemas| schemas.contains(&e.schema))
+            && self
+                .hash
+                .is_none_or(|wanted| e.hash.as_deref() == Some(wanted))
+            && self
+                .range_start
+                .is_none_or(|start| e.range.as_deref().is_some_and(|r| r >= start))
+            && self
+                .range_end
+                .is_none_or(|end| e.range.as_deref().is_some_and(|r| r < end))
     }
 }
 

@@ -41,9 +41,25 @@ impl SyncEngine {
 
         let mut outcome = PurgeOutcome::default();
 
-        // 1) Delete every log object: list → presign DELETE in chunks of
-        //    1000 (Lambda cap) → DELETE each presigned URL.
-        let log_objects = self.auth.list_log_objects(&personal).await?;
+        self.purge_log_objects(&personal, &mut outcome).await?;
+        self.purge_snapshot_objects(&personal, &mut outcome).await?;
+
+        tracing::info!(
+            "purge_personal_log: deleted {} log objects, {} snapshots",
+            outcome.deleted_log_objects,
+            outcome.deleted_snapshots,
+        );
+        Ok(outcome)
+    }
+
+    /// Delete every log object: list → presign DELETE in chunks → DELETE each presigned URL.
+    async fn purge_log_objects(
+        &self,
+        personal: &SyncTarget,
+        outcome: &mut PurgeOutcome,
+    ) -> SyncResult<()> {
+        // List, then presign DELETE in chunks of 1000 (Lambda cap).
+        let log_objects = self.auth.list_log_objects(personal).await?;
         // Fail loud on unparseable log keys (mirrors the snapshot loop below).
         // Silently dropping them via `filter_map` could leave objects behind
         // after a "purge", letting the next bootstrap replay stale data back in.
@@ -67,7 +83,7 @@ impl SyncEngine {
             let keys: Vec<String> = chunk.iter().map(|(_, key)| key.clone()).collect();
             let urls = self
                 .auth
-                .presign_log_delete_object_keys(&personal, &seqs, &keys)
+                .presign_log_delete_object_keys(personal, &seqs, &keys)
                 .await?;
             for url in &urls {
                 self.s3.delete(url).await?;
@@ -77,18 +93,26 @@ impl SyncEngine {
             // daily storage audit heals a missed debit).
             if let Err(e) = self
                 .auth
-                .confirm_log_delete_object_keys(&personal, &seqs, &keys)
+                .confirm_log_delete_object_keys(personal, &seqs, &keys)
                 .await
             {
                 tracing::warn!(error = %e, "purge_personal_log: log delete metering confirm failed");
             }
         }
+        Ok(())
+    }
 
-        // 2) Delete every snapshot under `snapshots/`. Includes
+    /// Delete every snapshot under `snapshots/`.
+    async fn purge_snapshot_objects(
+        &self,
+        personal: &SyncTarget,
+        outcome: &mut PurgeOutcome,
+    ) -> SyncResult<()> {
+        // Includes
         //    `latest.enc` plus any compacted `{seq}.enc` left behind by
         //    prior compactions. Listing first (rather than only attempting
         //    `latest.enc`) ensures the prefix is fully empty after reset.
-        let snapshot_objects = self.auth.list_snapshot_objects(&personal).await?;
+        let snapshot_objects = self.auth.list_snapshot_objects(personal).await?;
         for obj in snapshot_objects {
             // The Lambda strips the scope prefix on list responses, so
             // keys come back as `snapshots/{name}` — we want the bare
@@ -111,7 +135,7 @@ impl SyncEngine {
             outcome.deleted_snapshots += 1;
             if let Err(e) = self
                 .auth
-                .confirm_snapshot_delete_for_target(&personal, name)
+                .confirm_snapshot_delete_for_target(personal, name)
                 .await
             {
                 tracing::warn!(
@@ -121,16 +145,6 @@ impl SyncEngine {
                 );
             }
         }
-
-        tracing::info!(
-            "purge_personal_log: deleted {} log objects, {} snapshots",
-            outcome.deleted_log_objects,
-            outcome.deleted_snapshots,
-        );
-        Ok(outcome)
+        Ok(())
     }
-
-    // =========================================================================
-    // Non-personal sync configuration (cross-user shares)
-    // =========================================================================
 }
