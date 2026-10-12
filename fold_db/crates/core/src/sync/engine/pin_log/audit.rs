@@ -165,33 +165,16 @@ pub async fn audit_pin_log_plane(
                 continue;
             }
 
-            match serde_json::from_slice::<PinLogRecord>(&value) {
-                Ok(record) => {
-                    audit_classify_record(
-                        store,
-                        &record,
-                        value.len() as u64,
-                        &mut published_maps,
-                        &mut report,
-                        &mut writers,
-                    )
-                    .await?;
-                }
-                Err(e) if final_page && idx == last_idx => {
-                    tracing::warn!(
-                        target: "fold_db::sync::pin_log",
-                        key = %key_str,
-                        error = %e,
-                        "ignoring corrupt trailing pin-log entry during operator walk"
-                    );
-                    report.unreadable_rows += 1;
-                }
-                Err(e) => {
-                    return Err(crate::schema::SchemaError::InvalidData(format!(
-                        "decode pin-log entry {key_str}: {e}"
-                    )));
-                }
-            }
+            audit_entry_row(
+                store,
+                &key_str,
+                &value,
+                final_page && idx == last_idx,
+                &mut published_maps,
+                &mut report,
+                &mut writers,
+            )
+            .await?;
 
             if report.keys_scanned as usize >= max_keys {
                 more_remaining = true;
@@ -214,10 +197,58 @@ pub async fn audit_pin_log_plane(
         }
     }
 
-    let mut target_ids: BTreeSet<String> = BTreeSet::new();
-    for (tid, _) in writers.keys() {
-        target_ids.insert(tid.clone());
+    audit_finish_writers(&mut report, writers);
+    report.more_remaining = more_remaining;
+    report.next_after_key = next_after;
+
+    Ok(report)
+}
+
+/// Decode and classify one entry row. A corrupt row is tolerated only as the
+/// trailing row of the final page (a torn write); anywhere else it is an error.
+async fn audit_entry_row(
+    store: &dyn crate::storage::traits::KvStore,
+    key_str: &str,
+    value: &[u8],
+    trailing: bool,
+    published_maps: &mut BTreeMap<String, BTreeMap<String, u64>>,
+    report: &mut PinLogPlaneReport,
+    writers: &mut BTreeMap<(String, String), PinLogWriterStat>,
+) -> Result<(), crate::schema::SchemaError> {
+    match serde_json::from_slice::<PinLogRecord>(value) {
+        Ok(record) => {
+            audit_classify_record(
+                store,
+                &record,
+                value.len() as u64,
+                published_maps,
+                report,
+                writers,
+            )
+            .await
+        }
+        Err(e) if trailing => {
+            tracing::warn!(
+                target: "fold_db::sync::pin_log",
+                key = %key_str,
+                error = %e,
+                "ignoring corrupt trailing pin-log entry during operator walk"
+            );
+            report.unreadable_rows += 1;
+            Ok(())
+        }
+        Err(e) => Err(crate::schema::SchemaError::InvalidData(format!(
+            "decode pin-log entry {key_str}: {e}"
+        ))),
     }
+}
+
+/// Move the per-writer stats into the report in stable target, writer order.
+fn audit_finish_writers(
+    report: &mut PinLogPlaneReport,
+    writers: BTreeMap<(String, String), PinLogWriterStat>,
+) {
+    let target_ids: BTreeSet<&String> = writers.keys().map(|(tid, _)| tid).collect();
     report.targets_seen = target_ids.len() as u64;
     report.writers = writers.into_values().collect();
     report.writers.sort_by(|a, b| {
@@ -225,10 +256,6 @@ pub async fn audit_pin_log_plane(
             .cmp(&b.target_id)
             .then_with(|| a.writer_id.cmp(&b.writer_id))
     });
-    report.more_remaining = more_remaining;
-    report.next_after_key = next_after;
-
-    Ok(report)
 }
 
 /// Compute the scan end bound and the starting cursor for the plane audit.

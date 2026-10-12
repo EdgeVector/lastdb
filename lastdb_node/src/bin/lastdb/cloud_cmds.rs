@@ -40,26 +40,11 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
             execute,
             json,
         } => runtime.block_on(backup_atom_rewrite::run(&home, &plan, execute, json)),
-        CloudCommand::SetupPaid {
-            env,
-            api_url,
-            force,
-        } => billing::setup_paid(&home, &runtime, env.as_deref(), api_url, force),
-        CloudCommand::Upgrade { env, api_url } => {
-            billing::upgrade(&home, &runtime, env.as_deref(), api_url)
-        }
-        CloudCommand::FixBilling { env, api_url } => {
-            billing::fix_billing(&home, &runtime, env.as_deref(), api_url)
-        }
-        CloudCommand::Account {
-            env,
-            api_url,
-            json,
-            no_open,
-        } => billing::account(&home, &runtime, env.as_deref(), api_url, json, no_open),
-        CloudCommand::Status { env, api_url } => {
-            billing::status(&home, &runtime, env.as_deref(), api_url)
-        }
+        action @ (CloudCommand::SetupPaid { .. }
+        | CloudCommand::Upgrade { .. }
+        | CloudCommand::FixBilling { .. }
+        | CloudCommand::Account { .. }
+        | CloudCommand::Status { .. }) => cloud_billing_command(&home, &runtime, action),
         CloudCommand::HealStaging { json } => {
             // Drop the tokio runtime — heal talks to the running daemon over UDS.
             drop(runtime);
@@ -136,6 +121,38 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
             out,
             json,
         } => cloud_cut_manifest(&home, previous, out.as_deref(), json),
+    }
+}
+
+/// Billing subcommands of `lastdb cloud`: setup-paid, upgrade, fix-billing,
+/// account and status.
+fn cloud_billing_command(
+    home: &Path,
+    runtime: &tokio::runtime::Runtime,
+    action: CloudCommand,
+) -> Result<(), String> {
+    match action {
+        CloudCommand::SetupPaid {
+            env,
+            api_url,
+            force,
+        } => billing::setup_paid(home, runtime, env.as_deref(), api_url, force),
+        CloudCommand::Upgrade { env, api_url } => {
+            billing::upgrade(home, runtime, env.as_deref(), api_url)
+        }
+        CloudCommand::FixBilling { env, api_url } => {
+            billing::fix_billing(home, runtime, env.as_deref(), api_url)
+        }
+        CloudCommand::Account {
+            env,
+            api_url,
+            json,
+            no_open,
+        } => billing::account(home, runtime, env.as_deref(), api_url, json, no_open),
+        CloudCommand::Status { env, api_url } => {
+            billing::status(home, runtime, env.as_deref(), api_url)
+        }
+        _ => unreachable!("cloud_command routes only billing subcommands here"),
     }
 }
 

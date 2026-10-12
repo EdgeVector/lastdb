@@ -53,6 +53,61 @@ impl FoldDB {
                 "schema and api_hash are required for HashRange key-field repair".to_string(),
             ));
         }
+        let (schema, hash_field, range_field) = self.load_hashrange_repair_schema(schema_name)?;
+
+        let before = self
+            .hashrange_partition_key_sets(&schema, &hash_field, &range_field, api_hash)
+            .await?;
+        let mut planned: Vec<KeyValue> = before
+            .members
+            .iter()
+            .filter(|member| {
+                !before.hash_keys.contains(*member) || !before.range_keys.contains(*member)
+            })
+            .cloned()
+            .collect();
+        planned.sort_unstable_by(KeyValue::cmp_page_order);
+
+        let rows_planned = planned.len() as u64;
+        let rows_written = if execute {
+            self.write_key_field_repair_rows(schema_name, &planned)
+                .await?
+        } else {
+            0
+        };
+
+        let after = if execute {
+            self.hashrange_partition_key_sets(&schema, &hash_field, &range_field, api_hash)
+                .await?
+        } else {
+            PartitionKeySets {
+                members: before.members.clone(),
+                hash_keys: before.hash_keys.clone(),
+                range_keys: before.range_keys.clone(),
+            }
+        };
+        Ok(HashRangeKeyFieldRepairReport {
+            schema: schema_name.to_string(),
+            api_hash: api_hash.to_string(),
+            hash_field,
+            range_field,
+            dry_run: !execute,
+            member_rows_before: before.members.len() as u64,
+            hash_rows_before: before.hash_keys.len() as u64,
+            range_rows_before: before.range_keys.len() as u64,
+            rows_planned,
+            rows_written,
+            member_rows_after: after.members.len() as u64,
+            hash_rows_after: after.hash_keys.len() as u64,
+            range_rows_after: after.range_keys.len() as u64,
+        })
+    }
+
+    /// Load the HashRange schema and its declared hash and range field names.
+    fn load_hashrange_repair_schema(
+        &self,
+        schema_name: &str,
+    ) -> Result<(crate::schema::types::Schema, String, String), SchemaError> {
         let mut schema = self
             .schema_manager
             .get_schema_metadata(schema_name)?
@@ -80,70 +135,38 @@ impl FoldDB {
                 "HashRange schema '{schema_name}' has no declared range field"
             ))
         })?;
+        Ok((schema, hash_field, range_field))
+    }
 
-        let before = self
-            .hashrange_partition_key_sets(&schema, &hash_field, &range_field, api_hash)
-            .await?;
-        let mut planned: Vec<KeyValue> = before
-            .members
-            .iter()
-            .filter(|member| {
-                !before.hash_keys.contains(*member) || !before.range_keys.contains(*member)
-            })
-            .cloned()
-            .collect();
-        planned.sort_unstable_by(KeyValue::cmp_page_order);
-
-        let rows_planned = planned.len() as u64;
+    /// Route each planned member through the normal mutation path, one page at
+    /// a time. Returns the rows written.
+    async fn write_key_field_repair_rows(
+        &self,
+        schema_name: &str,
+        planned: &[KeyValue],
+    ) -> Result<u64, SchemaError> {
         let mut rows_written = 0_u64;
-        if execute {
-            for page in planned.chunks(REPAIR_BATCH_ROWS) {
-                let mutations: Vec<Mutation> = page
-                    .iter()
-                    .map(|key_value| {
-                        let mut mutation = Mutation::new(
-                            schema_name.to_string(),
-                            HashMap::new(),
-                            key_value.clone(),
-                            "lastdb-hashrange-key-field-repair".to_string(),
-                            MutationType::Update,
-                        );
-                        mutation.synchronous = Some(true);
-                        mutation
-                    })
-                    .collect();
-                self.mutation_manager
-                    .write_mutations_batch_with_receipt(mutations, None)
-                    .await?;
-                rows_written = rows_written.saturating_add(page.len() as u64);
-            }
+        for page in planned.chunks(REPAIR_BATCH_ROWS) {
+            let mutations: Vec<Mutation> = page
+                .iter()
+                .map(|key_value| {
+                    let mut mutation = Mutation::new(
+                        schema_name.to_string(),
+                        HashMap::new(),
+                        key_value.clone(),
+                        "lastdb-hashrange-key-field-repair".to_string(),
+                        MutationType::Update,
+                    );
+                    mutation.synchronous = Some(true);
+                    mutation
+                })
+                .collect();
+            self.mutation_manager
+                .write_mutations_batch_with_receipt(mutations, None)
+                .await?;
+            rows_written = rows_written.saturating_add(page.len() as u64);
         }
-
-        let after = if execute {
-            self.hashrange_partition_key_sets(&schema, &hash_field, &range_field, api_hash)
-                .await?
-        } else {
-            PartitionKeySets {
-                members: before.members.clone(),
-                hash_keys: before.hash_keys.clone(),
-                range_keys: before.range_keys.clone(),
-            }
-        };
-        Ok(HashRangeKeyFieldRepairReport {
-            schema: schema_name.to_string(),
-            api_hash: api_hash.to_string(),
-            hash_field,
-            range_field,
-            dry_run: !execute,
-            member_rows_before: before.members.len() as u64,
-            hash_rows_before: before.hash_keys.len() as u64,
-            range_rows_before: before.range_keys.len() as u64,
-            rows_planned,
-            rows_written,
-            member_rows_after: after.members.len() as u64,
-            hash_rows_after: after.hash_keys.len() as u64,
-            range_rows_after: after.range_keys.len() as u64,
-        })
+        Ok(rows_written)
     }
 
     async fn hashrange_partition_key_sets(

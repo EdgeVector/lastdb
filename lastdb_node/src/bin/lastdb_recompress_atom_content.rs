@@ -120,81 +120,80 @@ async fn run() -> Result<(), String> {
     if args.max_atoms == 0 {
         return Err("--max-atoms must be at least 1".into());
     }
-    let after_key = resolve_after_key(args.after_key, args.after_key_hex)?;
+    let after_key = resolve_after_key(args.after_key.clone(), args.after_key_hex.clone())?;
 
     std::env::remove_var("LASTDB_ATOM_CONTENT_STRICT");
     std::env::set_var("LASTDB_ATOM_CONTENT_DUAL_READ", "1");
     std::env::set_var("LASTDB_ENGINE", "laststore");
     std::env::set_var("FOLD_DISABLE_NATIVE_INDEX", "1");
 
-    let (e2e, keypair) = load_e2e_keys(&args.data_dir)?;
-    let data_path = args.data_dir.join("data");
-    if !data_path.is_dir() {
-        return Err(format!("missing data dir {}", data_path.display()));
-    }
-    let db = create_fold_db(
-        &DatabaseConfig {
-            path: data_path,
-            engine: StorageEngine::Laststore,
-            cloud_sync: None,
-        },
-        &e2e,
-        keypair,
-    )
-    .await
-    .map_err(|e| format!("create_fold_db: {e}"))?;
+    let db = open_db(&args).await?;
 
     if args.binary {
-        let page = db
-            .db_ops()
-            .atoms()
-            .repack_atom_content_binary_page(after_key.as_deref(), args.max_atoms)
-            .await
-            .map_err(|e| format!("binary atom repack: {e}"))?;
-        let inner_percent_saved = percent_saved(page.inner_bytes_before, page.inner_bytes_saved);
-        let row_percent_saved = percent_saved(page.row_bytes_before, page.row_bytes_saved);
-        let next_after_key_hex = page.next_after_key.as_deref().map(hex::encode);
-        let report = BinaryReport {
-            ok: page.errors == 0,
-            mode: "binary-atom-content",
-            data_dir: args.data_dir.display().to_string(),
-            scanned: page.scanned,
-            repacked: page.repacked,
-            already_binary: page.already_binary,
-            errors: page.errors,
-            inner_bytes_before: page.inner_bytes_before,
-            inner_bytes_after: page.inner_bytes_after,
-            inner_bytes_saved: page.inner_bytes_saved,
-            inner_percent_saved,
-            row_bytes_before: page.row_bytes_before,
-            row_bytes_after: page.row_bytes_after,
-            row_bytes_saved: page.row_bytes_saved,
-            row_percent_saved,
-            // This pass changes the nested atom container only. The outer KV
-            // seam has its own writer switch and measurement.
-            outer_kv_bytes_saved: 0,
-            more_remaining: page.more_remaining,
-            next_after_key: page.next_after_key,
-            next_after_key_hex,
-            notes: vec![
-                "inner_bytes measure the stored atom content value/container".into(),
-                "row_bytes measure plaintext bytes presented to the outer KV seam".into(),
-                "outer_kv_bytes_saved is zero here; measure LASTDB_KV_AT_REST_RAW separately"
-                    .into(),
-                "Run on an encrypted CoW copy first; primary execution remains a human gate".into(),
-            ],
-        };
-        println!("{}", serde_json::to_string_pretty(&report).unwrap());
-        if !report.ok {
-            return Err(format!("{} binary atom repack errors", report.errors));
-        }
-        return Ok(());
+        return run_binary(&db, &args, after_key.as_deref()).await;
     }
+    run_recompress(&db, &args, after_key.as_deref()).await
+}
 
+async fn run_binary(
+    db: &fold_db::fold_db_core::FoldDB,
+    args: &Args,
+    after_key: Option<&str>,
+) -> Result<(), String> {
     let page = db
         .db_ops()
         .atoms()
-        .recompress_atom_content_page(after_key.as_deref(), args.max_atoms)
+        .repack_atom_content_binary_page(after_key, args.max_atoms)
+        .await
+        .map_err(|e| format!("binary atom repack: {e}"))?;
+    let inner_percent_saved = percent_saved(page.inner_bytes_before, page.inner_bytes_saved);
+    let row_percent_saved = percent_saved(page.row_bytes_before, page.row_bytes_saved);
+    let next_after_key_hex = page.next_after_key.as_deref().map(hex::encode);
+    let report = BinaryReport {
+        ok: page.errors == 0,
+        mode: "binary-atom-content",
+        data_dir: args.data_dir.display().to_string(),
+        scanned: page.scanned,
+        repacked: page.repacked,
+        already_binary: page.already_binary,
+        errors: page.errors,
+        inner_bytes_before: page.inner_bytes_before,
+        inner_bytes_after: page.inner_bytes_after,
+        inner_bytes_saved: page.inner_bytes_saved,
+        inner_percent_saved,
+        row_bytes_before: page.row_bytes_before,
+        row_bytes_after: page.row_bytes_after,
+        row_bytes_saved: page.row_bytes_saved,
+        row_percent_saved,
+        // This pass changes the nested atom container only. The outer KV
+        // seam has its own writer switch and measurement.
+        outer_kv_bytes_saved: 0,
+        more_remaining: page.more_remaining,
+        next_after_key: page.next_after_key,
+        next_after_key_hex,
+        notes: vec![
+            "inner_bytes measure the stored atom content value/container".into(),
+            "row_bytes measure plaintext bytes presented to the outer KV seam".into(),
+            "outer_kv_bytes_saved is zero here; measure LASTDB_KV_AT_REST_RAW separately".into(),
+            "Run on an encrypted CoW copy first; primary execution remains a human gate".into(),
+        ],
+    };
+    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    if !report.ok {
+        return Err(format!("{} binary atom repack errors", report.errors));
+    }
+    Ok(())
+}
+
+async fn run_recompress(
+    db: &fold_db::fold_db_core::FoldDB,
+    args: &Args,
+    after_key: Option<&str>,
+) -> Result<(), String> {
+    let page = db
+        .db_ops()
+        .atoms()
+        .recompress_atom_content_page(after_key, args.max_atoms)
         .await
         .map_err(|e| format!("recompress: {e}"))?;
     let percent_saved = if page.sealed_bytes_before == 0 {
@@ -231,6 +230,25 @@ async fn run() -> Result<(), String> {
         return Err(format!("{} recompress errors", report.errors));
     }
     Ok(())
+}
+
+async fn open_db(args: &Args) -> Result<std::sync::Arc<fold_db::fold_db_core::FoldDB>, String> {
+    let (e2e, keypair) = load_e2e_keys(&args.data_dir)?;
+    let data_path = args.data_dir.join("data");
+    if !data_path.is_dir() {
+        return Err(format!("missing data dir {}", data_path.display()));
+    }
+    create_fold_db(
+        &DatabaseConfig {
+            path: data_path,
+            engine: StorageEngine::Laststore,
+            cloud_sync: None,
+        },
+        &e2e,
+        keypair,
+    )
+    .await
+    .map_err(|e| format!("create_fold_db: {e}"))
 }
 
 fn percent_saved(before: u64, saved: u64) -> f64 {
