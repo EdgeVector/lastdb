@@ -27,6 +27,7 @@ use lastdb_node::cloud;
 use lastdb_node::host::{self, Host};
 
 use lastdbd::cli::{Cli, Command};
+use lastdbd::node_run::{build_runtime, NodeRun};
 use lastdbd::serve::{Server, Surface};
 use lastdbd::{conflict_fold, footprint_proof, session, shutdown, tracing_init};
 
@@ -198,86 +199,18 @@ fn spawn_full_surface_accept(
     })
 }
 
-fn main() -> Result<(), String> {
-    let allocator_tuning = lastdb_node::allocator::configure();
-    lastdb_node::log_rotation::spawn_stdio_log_rotators();
-
-    // Keep launchd-captured stderr logging, and add the DSN-gated ERROR-only
-    // Sentry layer without switching Mini to the full node observability file
-    // pipeline. The guard also keeps crash/unclean-exit telemetry flushable.
-    let _sentry_guard = tracing_init::init_tracing();
-
-    // `GET /api/version` reports the same baked build string as `--version`,
-    // Sentry, and the boot ledger. The transport crate cannot see this crate's
-    // `build.rs` stamp, so the binary installs it before any socket serves.
-    uds_router::set_build_version(lastdb_node::crash_attribution::build_version());
-
-    log_allocator_tuning(&allocator_tuning);
-
-    let cli = Cli::parse();
-
-    let command = cli.command;
-    let socket_path = cli.socket_path;
-    let full_socket_path = cli.full_socket_path;
-    if let Some(Command::ServiceHome { action }) = &command {
-        println!("{}", lastdbd::cli::run_service_home(action)?);
-        return Ok(());
-    }
-
-    let home = host::resolve_home(cli.data_dir)?;
-    let data_dir = home.join("data");
-    let _footprint_proof_pin = footprint_proof::footprint_proof_pin_from_env()?;
-    init_resident_key_cap()?;
-
-    // Refuse an unservable data dir before ANY boot work: the socket-path length
-    // check is pure arithmetic, but both binds happen after `Host::boot` and
-    // after the session ledger records a start. Failing there burns a full boot
-    // and leaves no clean-shutdown record, so the next start misreports a static
-    // configuration error as an unclean crash. Cheap check, earliest point.
-    if socket_path.is_none() && full_socket_path.is_none() {
-        lastdb_uds::uds::preflight_data_dir(&data_dir)
-            .map_err(|e| format!("cannot serve from {}: {e}", home.display()))?;
-    }
-
-    // Multi-thread runtime: the accept loop itself runs on the main thread;
-    // each connection's handler blocks on async core calls via this runtime.
-    // Tokio workers collect on park. A UDS worker never parks on this
-    // runtime; it collects at request end via `collect_finished_request_heap`.
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .on_thread_park(lastdb_node::allocator::collect_thread_heap_if_requested)
-        .build()
-        .map_err(|e| format!("tokio runtime construction failed: {e}"))?;
-
-    if let Some(Command::Connect {
-        env,
-        api_url,
-        invite_code,
-        force,
-    }) = command
-    {
-        let url = lastdbd::cli::connect_api_url(api_url, env.as_deref())?;
-        return runtime.block_on(cloud::connect(&home, &url, invite_code.as_deref(), force));
-    }
-
-    // Schema resolve/register must go to the same environment the home syncs
-    // to (papercut-lastdbd-connect-env-dev-still-uses-prod-schema-service).
-    cloud::pin_schema_service_environment_from_home(&home);
-    runtime.block_on(lastdb_node::cloud_purge_adoption::before_boot(&home))?;
-
-    // A Rust panic => a durable local crash report. Under `panic = "abort"` the
-    // hook is the last code to run, so the report lands before the process dies.
-    lastdb_node::crash_attribution::install_crash_hook(&home);
-    // Heartbeat every ~60s so the NEXT boot can compute downtime even if this
-    // session dies uncleanly.
-    let pid = std::process::id();
-    let session_ledger = session::record_start(&home, pid);
-    let session_heartbeat = session_ledger.as_ref().and_then(|ledger| {
-        ledger
-            .spawn_heartbeat(std::time::Duration::from_secs(60))
-            .ok()
-    });
-
+/// Boot the host, bind both sockets, serve until shutdown, then drain.
+fn serve_node(run: NodeRun) -> Result<(), String> {
+    let NodeRun {
+        runtime,
+        home,
+        data_dir,
+        pid,
+        session_ledger,
+        session_heartbeat,
+        socket_path,
+        full_socket_path,
+    } = run;
     let note_fatal =
         |err: String| -> String { session::note_fatal(session_ledger.is_some(), &home, pid, err) };
 
@@ -355,4 +288,92 @@ fn main() -> Result<(), String> {
 
     println!("lastdbd: shutdown signal received, exiting");
     Ok(())
+}
+
+fn main() -> Result<(), String> {
+    let allocator_tuning = lastdb_node::allocator::configure();
+    lastdb_node::log_rotation::spawn_stdio_log_rotators();
+
+    // Keep launchd-captured stderr logging, and add the DSN-gated ERROR-only
+    // Sentry layer without switching Mini to the full node observability file
+    // pipeline. The guard also keeps crash/unclean-exit telemetry flushable.
+    let _sentry_guard = tracing_init::init_tracing();
+
+    // `GET /api/version` reports the same baked build string as `--version`,
+    // Sentry, and the boot ledger. The transport crate cannot see this crate's
+    // `build.rs` stamp, so the binary installs it before any socket serves.
+    uds_router::set_build_version(lastdb_node::crash_attribution::build_version());
+
+    log_allocator_tuning(&allocator_tuning);
+
+    let cli = Cli::parse();
+
+    let command = cli.command;
+    let socket_path = cli.socket_path;
+    let full_socket_path = cli.full_socket_path;
+    if let Some(Command::ServiceHome { action }) = &command {
+        println!("{}", lastdbd::cli::run_service_home(action)?);
+        return Ok(());
+    }
+
+    let home = host::resolve_home(cli.data_dir)?;
+    let data_dir = home.join("data");
+    let _footprint_proof_pin = footprint_proof::footprint_proof_pin_from_env()?;
+    init_resident_key_cap()?;
+
+    // Refuse an unservable data dir before ANY boot work: the socket-path length
+    // check is pure arithmetic, but both binds happen after `Host::boot` and
+    // after the session ledger records a start. Failing there burns a full boot
+    // and leaves no clean-shutdown record, so the next start misreports a static
+    // configuration error as an unclean crash. Cheap check, earliest point.
+    if socket_path.is_none() && full_socket_path.is_none() {
+        lastdb_uds::uds::preflight_data_dir(&data_dir)
+            .map_err(|e| format!("cannot serve from {}: {e}", home.display()))?;
+    }
+
+    // Multi-thread runtime: the accept loop itself runs on the main thread;
+    // each connection's handler blocks on async core calls via this runtime.
+    // Tokio workers collect on park. A UDS worker never parks on this
+    // runtime; it collects at request end via `collect_finished_request_heap`.
+    let runtime = build_runtime()?;
+
+    if let Some(Command::Connect {
+        env,
+        api_url,
+        invite_code,
+        force,
+    }) = command
+    {
+        let url = lastdbd::cli::connect_api_url(api_url, env.as_deref())?;
+        return runtime.block_on(cloud::connect(&home, &url, invite_code.as_deref(), force));
+    }
+
+    // Schema resolve/register must go to the same environment the home syncs
+    // to (papercut-lastdbd-connect-env-dev-still-uses-prod-schema-service).
+    cloud::pin_schema_service_environment_from_home(&home);
+    runtime.block_on(lastdb_node::cloud_purge_adoption::before_boot(&home))?;
+
+    // A Rust panic => a durable local crash report. Under `panic = "abort"` the
+    // hook is the last code to run, so the report lands before the process dies.
+    lastdb_node::crash_attribution::install_crash_hook(&home);
+    // Heartbeat every ~60s so the NEXT boot can compute downtime even if this
+    // session dies uncleanly.
+    let pid = std::process::id();
+    let session_ledger = session::record_start(&home, pid);
+    let session_heartbeat = session_ledger.as_ref().and_then(|ledger| {
+        ledger
+            .spawn_heartbeat(std::time::Duration::from_secs(60))
+            .ok()
+    });
+
+    serve_node(NodeRun {
+        runtime,
+        home,
+        data_dir,
+        pid,
+        session_ledger,
+        session_heartbeat,
+        socket_path,
+        full_socket_path,
+    })
 }

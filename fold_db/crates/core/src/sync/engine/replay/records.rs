@@ -33,16 +33,7 @@ impl SyncEngine {
         let incoming: PerKeyRecord =
             Self::decode_incoming(namespace, crypto, self.enc_key.as_ref(), value_bytes).await?;
 
-        let atom_store = self.automatic_gc_atom_store.lock().await.clone();
-        let _tip_guards =
-            if let (Some(atoms), Ok(key)) = (atom_store, std::str::from_utf8(key_bytes)) {
-                let keys = [key.to_string()];
-                let durable = atoms.lock_tip_commits(&keys).await;
-                let publication = atoms.lock_tip_publications(&keys).await;
-                Some((durable, publication))
-            } else {
-                None
-            };
+        let _tip_guards = self.lock_replay_tip_guards(key_bytes).await;
 
         // A deleted tip has no local `mk:` row to compare against. Keep the
         // delete's origin order in a separate durable row so a delayed older
@@ -74,6 +65,58 @@ impl SyncEngine {
         )
         .await?;
 
+        let accepted_incoming = self
+            .merge_per_key_lww(
+                &kv,
+                namespace,
+                key_bytes,
+                value_bytes,
+                mol_uuid,
+                crypto,
+                &incoming,
+                local,
+            )
+            .await?;
+        if accepted_incoming {
+            Self::invalidate_hash_range_page_index_if_needed(&kv, key_bytes, mol_uuid).await?;
+        }
+        // C4: absorb only when remote actually applied (local-win stays dirty).
+        self.absorb_put_or_warn(
+            namespace,
+            key_bytes,
+            value_bytes,
+            accepted_incoming,
+            "per-key record",
+        )
+        .await;
+        Ok(())
+    }
+
+    /// Hold the tip commit and publication locks for one replayed key, when
+    /// the automatic-GC atom store is installed and the key is valid UTF-8.
+    async fn lock_replay_tip_guards(&self, key_bytes: &[u8]) -> Option<(impl Sized, impl Sized)> {
+        let atoms = self.automatic_gc_atom_store.lock().await.clone()?;
+        let key = std::str::from_utf8(key_bytes).ok()?;
+        let keys = [key.to_string()];
+        let durable = atoms.lock_tip_commits(&keys).await;
+        let publication = atoms.lock_tip_publications(&keys).await;
+        Some((durable, publication))
+    }
+
+    /// Apply the LWW decision for one per-key record. Returns whether the
+    /// incoming value was written.
+    #[allow(clippy::too_many_arguments)]
+    async fn merge_per_key_lww(
+        &self,
+        kv: &Arc<dyn crate::storage::traits::KvStore>,
+        namespace: &str,
+        key_bytes: &[u8],
+        value_bytes: &[u8],
+        mol_uuid: &str,
+        crypto: &dyn CryptoProvider,
+        incoming: &crate::db_operations::atom_store::PerKeyRecord,
+        local: Option<crate::db_operations::atom_store::PerKeyRecord>,
+    ) -> SyncResult<bool> {
         let mut accepted_incoming = false;
         match local {
             None => {
@@ -121,23 +164,11 @@ impl SyncEngine {
                     let storage_prefix = std::str::from_utf8(key_bytes)
                         .ok()
                         .and_then(|key| storage_scope_for_key_marker(key, "mk:"));
-                    Self::store_merge_conflicts(&kv, mol_uuid, storage_prefix, &[conflict]).await?;
+                    Self::store_merge_conflicts(kv, mol_uuid, storage_prefix, &[conflict]).await?;
                 }
             }
         }
-        if accepted_incoming {
-            Self::invalidate_hash_range_page_index_if_needed(&kv, key_bytes, mol_uuid).await?;
-        }
-        // C4: absorb only when remote actually applied (local-win stays dirty).
-        self.absorb_put_or_warn(
-            namespace,
-            key_bytes,
-            value_bytes,
-            accepted_incoming,
-            "per-key record",
-        )
-        .await;
-        Ok(())
+        Ok(accepted_incoming)
     }
 
     /// Merge an incoming molecule header (`mh:{M}`) field-wise: `version = max`,

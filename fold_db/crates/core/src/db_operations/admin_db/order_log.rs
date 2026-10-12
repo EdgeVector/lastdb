@@ -3,6 +3,7 @@
 use super::*;
 
 mod audit;
+mod audit_walk;
 mod bloat_audit;
 mod bloat_decide;
 mod compact;

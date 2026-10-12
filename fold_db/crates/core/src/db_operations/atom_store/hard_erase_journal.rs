@@ -6,6 +6,8 @@
 //! Rows hold aggregate amounts and a hash of a random ledger operation ID.
 //! They never hold a subject key, atom UUID, tip key, or deleted content.
 
+mod commit;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -258,108 +260,12 @@ impl AtomStore {
         let delta = &plan.delta;
         let key = journal_key(operation_id)?;
         let _guard = self.keep_small_persist_lock.lock().await;
-        if self
-            .keep_small_hard_erase_orphaned
-            .lock()
-            .map_err(|_| SchemaError::InvalidData("orphaned intent lock poisoned".to_string()))?
-            .contains(&key)
-        {
-            self.keep_small
-                .mark_incomplete("hard_erase_orphaned_intent_reused");
-            return Err(SchemaError::InvalidData(
-                "hard-erase meter intent predates this process; replan the delete".to_string(),
-            ));
-        }
+        self.refuse_orphaned_intent(&key)?;
         if let Some(store) = self.keep_small_persist.as_ref() {
-            let mut row = store
-                .get_item::<HardEraseJournalRow>(&key)
-                .await
-                .map_err(|error| {
-                    self.keep_small
-                        .mark_incomplete("hard_erase_commit_read_failed");
-                    SchemaError::InvalidData(format!("read hard-erase meter intent: {error}"))
-                })?
-                .ok_or_else(|| {
-                    self.keep_small.mark_incomplete("hard_erase_intent_missing");
-                    SchemaError::InvalidData("hard-erase meter intent is missing".to_string())
-                })?;
-            if row.version != 1 || row.debit != *delta {
-                self.keep_small
-                    .mark_incomplete("hard_erase_commit_mismatch");
-                return Err(SchemaError::InvalidData(
-                    "hard-erase meter intent changed before commit".to_string(),
-                ));
-            }
-            if row.reconciled {
-                self.keep_small
-                    .mark_incomplete("hard_erase_intent_reconciled");
-                return Err(SchemaError::InvalidData(
-                    "hard-erase meter intent was reconciled by a repair".to_string(),
-                ));
-            }
-            if self
-                .keep_small_hard_erase_fenced
-                .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                return Err(SchemaError::InvalidData(
-                    "hard-erase meter journal requires repair after a failed commit".to_string(),
-                ));
-            }
-            if row.committed {
+            let Some(row) = self.load_commit_candidate(store, &key, delta).await? else {
                 return Ok(());
-            }
-            let next_seq = self
-                .keep_small_hard_erase_next_seq
-                .load(std::sync::atomic::Ordering::Relaxed)
-                .checked_add(1)
-                .ok_or_else(|| {
-                    self.keep_small
-                        .mark_incomplete("hard_erase_sequence_overflow");
-                    SchemaError::InvalidData("hard-erase journal sequence overflow".to_string())
-                })?;
-            self.keep_small_hard_erase_next_seq
-                .store(next_seq, std::sync::atomic::Ordering::Relaxed);
-            let mut apply_guard = IncompleteUnlessApplied {
-                meters: &self.keep_small,
-                fenced: &self.keep_small_hard_erase_fenced,
-                cause: "hard_erase_commit_not_applied",
-                applied: false,
             };
-            row.committed = true;
-            row.sequence = Some(next_seq);
-            store.put_item(&key, &row).await.map_err(|error| {
-                self.keep_small
-                    .mark_incomplete("hard_erase_commit_put_failed");
-                self.keep_small_hard_erase_fenced
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                SchemaError::InvalidData(format!("commit hard-erase meter debit: {error}"))
-            })?;
-            store.inner().flush().await.map_err(|error| {
-                self.keep_small
-                    .mark_incomplete("hard_erase_commit_flush_failed");
-                self.keep_small_hard_erase_fenced
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                SchemaError::InvalidData(format!("flush hard-erase meter debit: {error}"))
-            })?;
-            self.apply_keep_small_hard_erase(plan);
-            if self
-                .keep_small_hard_erase_replay_skipped
-                .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                // The live projection is a hint until a full store repair.
-                // Keep the old checkpoint so a clean stop cannot prune rows
-                // that this process did not replay from its dirty snapshot.
-                self.keep_small
-                    .mark_incomplete("hard_erase_journal_requires_repair");
-            } else {
-                self.keep_small_hard_erase_applied_seq
-                    .store(next_seq, std::sync::atomic::Ordering::Relaxed);
-            }
-            self.keep_small_hard_erase_pending
-                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-            self.keep_small_hard_erase_mutation_epoch
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            apply_guard.applied = true;
+            self.commit_intent_row(store, &key, row, plan).await?;
         } else {
             self.apply_keep_small_hard_erase(plan);
         }
