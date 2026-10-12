@@ -444,6 +444,51 @@ impl SchemaServiceState {
         &self,
         envelope: SnapshotEnvelope,
     ) -> FoldDbResult<SnapshotImportReport> {
+        self.check_snapshot_compatibility(&envelope)?;
+        self.persist_snapshot_to_backend(&envelope)?;
+
+        let SnapshotEnvelope {
+            captured_at,
+            embedder_version,
+            schemas: schemas_vec,
+            apps: apps_vec,
+            canonical_fields: canonical_fields_map,
+            embeddings,
+            ..
+        } = envelope;
+
+        let counts = SnapshotImportReport {
+            schemas: schemas_vec.len(),
+            canonical_fields: canonical_fields_map.len(),
+            embeddings: embeddings.descriptive_names.len()
+                + embeddings.fields.len()
+                + embeddings.canonical_fields.len(),
+            captured_at,
+            embedder_version,
+        };
+
+        self.replace_registry_caches(schemas_vec, canonical_fields_map, apps_vec, embeddings)?;
+        self.rebuild_descriptive_name_index();
+
+        // An import wholesale replaces the registry — clients absolutely
+        // need to see the version advance.
+        self.bump_state_version();
+
+        tracing::info!(
+            target: "schema_service::snapshot",
+            schemas = counts.schemas,
+            canonical_fields = counts.canonical_fields,
+            embeddings = counts.embeddings,
+            captured_at = %counts.captured_at,
+            embedder_version = %counts.embedder_version,
+            "Imported snapshot into local Sled storage"
+        );
+
+        Ok(counts)
+    }
+
+    /// Reject an envelope this binary cannot import. No state is touched.
+    fn check_snapshot_compatibility(&self, envelope: &SnapshotEnvelope) -> FoldDbResult<()> {
         if envelope.format_version != SNAPSHOT_FORMAT_VERSION {
             return Err(FoldDbError::Config(format!(
                 "snapshot format_version {} not supported (this binary supports {})",
@@ -459,7 +504,11 @@ impl SchemaServiceState {
                 envelope.embedder_version, local_embedder_id
             )));
         }
+        Ok(())
+    }
 
+    /// Durably wipe and rewrite the registry through the storage backend.
+    fn persist_snapshot_to_backend(&self, envelope: &SnapshotEnvelope) -> FoldDbResult<()> {
         // Durable wipe + rewrite via the storage backend (Last Store locally;
         // S3 backends typically return "unsupported" and the caller should
         // hydrate cloud via normal write paths instead).
@@ -500,27 +549,17 @@ impl SchemaServiceState {
         rx.recv().map_err(|_| {
             FoldDbError::Config("snapshot import thread ended without a result".to_string())
         })??;
+        Ok(())
+    }
 
-        let SnapshotEnvelope {
-            captured_at,
-            embedder_version,
-            schemas: schemas_vec,
-            apps: apps_vec,
-            canonical_fields: canonical_fields_map,
-            embeddings,
-            ..
-        } = envelope;
-
-        let counts = SnapshotImportReport {
-            schemas: schemas_vec.len(),
-            canonical_fields: canonical_fields_map.len(),
-            embeddings: embeddings.descriptive_names.len()
-                + embeddings.fields.len()
-                + embeddings.canonical_fields.len(),
-            captured_at,
-            embedder_version,
-        };
-
+    /// Swap the in-memory registry caches to the imported contents.
+    fn replace_registry_caches(
+        &self,
+        schemas_vec: Vec<Schema>,
+        canonical_fields_map: HashMap<String, CanonicalField>,
+        apps_vec: Vec<AppRecord>,
+        embeddings: SnapshotEmbeddings,
+    ) -> FoldDbResult<()> {
         {
             let mut schemas = write_lock(&self.schemas, "schemas")?;
             schemas.clear();
@@ -561,24 +600,7 @@ impl SchemaServiceState {
             e.clear();
             e.extend(embeddings.canonical_fields);
         }
-
-        self.rebuild_descriptive_name_index();
-
-        // An import wholesale replaces the registry — clients absolutely
-        // need to see the version advance.
-        self.bump_state_version();
-
-        tracing::info!(
-            target: "schema_service::snapshot",
-            schemas = counts.schemas,
-            canonical_fields = counts.canonical_fields,
-            embeddings = counts.embeddings,
-            captured_at = %counts.captured_at,
-            embedder_version = %counts.embedder_version,
-            "Imported snapshot into local Sled storage"
-        );
-
-        Ok(counts)
+        Ok(())
     }
 }
 
