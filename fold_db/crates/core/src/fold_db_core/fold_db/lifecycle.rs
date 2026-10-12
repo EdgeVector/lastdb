@@ -47,6 +47,57 @@ impl FoldDB {
             .await
     }
 
+    /// Wait for accepted persist-lane work. Returns the failure message when a
+    /// lane stays busy past `task_drain_timeout`; shutdown then goes on to the barrier.
+    async fn drain_persist_lanes_at_shutdown(
+        &self,
+        task_drain_timeout: std::time::Duration,
+    ) -> Option<String> {
+        if self
+            .mutation_manager
+            .persist_lanes()
+            .wait_for_drain(task_drain_timeout)
+            .await
+        {
+            None
+        } else {
+            let message = format!(
+                "shutdown: schema persist lanes did not drain within {task_drain_timeout:?}"
+            );
+            tracing::error!(
+                target: "fold_node::database",
+                error = %message,
+                lanes = %self.busy_persist_lane_summary(),
+                "shutdown: continuing to the final durability barrier"
+            );
+            Some(message)
+        }
+    }
+
+    /// Wait for background tasks. Returns the failure message on timeout.
+    async fn drain_pending_tasks_at_shutdown(
+        &self,
+        task_drain_timeout: std::time::Duration,
+    ) -> Option<String> {
+        if self
+            .pending_tasks
+            .wait_for_completion(task_drain_timeout)
+            .await
+        {
+            None
+        } else {
+            let message =
+                format!("shutdown: background tasks did not drain within {task_drain_timeout:?}");
+            tracing::error!(
+                target: "fold_node::database",
+                remaining = self.pending_tasks.count(),
+                error = %message,
+                "shutdown: continuing to the final durability barrier"
+            );
+            Some(message)
+        }
+    }
+
     async fn shutdown_with_task_drain_timeout(
         &self,
         task_drain_timeout: std::time::Duration,
@@ -82,42 +133,12 @@ impl FoldDB {
         // The final sync can apply remote mutations. Stop lane admission only
         // after that sync finishes, then drain each accepted envelope.
         self.mutation_manager.persist_lanes().stop();
-        let persist_lane_timeout = if self
-            .mutation_manager
-            .persist_lanes()
-            .wait_for_drain(task_drain_timeout)
-            .await
-        {
-            None
-        } else {
-            let message = format!(
-                "shutdown: schema persist lanes did not drain within {task_drain_timeout:?}"
-            );
-            tracing::error!(
-                target: "fold_node::database",
-                error = %message,
-                lanes = %self.busy_persist_lane_summary(),
-                "shutdown: continuing to the final durability barrier"
-            );
-            Some(message)
-        };
-        let pending_task_timeout = if self
-            .pending_tasks
-            .wait_for_completion(task_drain_timeout)
-            .await
-        {
-            None
-        } else {
-            let message =
-                format!("shutdown: background tasks did not drain within {task_drain_timeout:?}");
-            tracing::error!(
-                target: "fold_node::database",
-                remaining = self.pending_tasks.count(),
-                error = %message,
-                "shutdown: continuing to the final durability barrier"
-            );
-            Some(message)
-        };
+        let persist_lane_timeout = self
+            .drain_persist_lanes_at_shutdown(task_drain_timeout)
+            .await;
+        let pending_task_timeout = self
+            .drain_pending_tasks_at_shutdown(task_drain_timeout)
+            .await;
         // The keep-small projection is written on a debounce, so the last
         // interval of meter updates is still in memory. Land it here, after
         // the persist-lane drain has stopped moving the numbers and before

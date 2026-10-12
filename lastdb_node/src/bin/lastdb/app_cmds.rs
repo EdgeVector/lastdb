@@ -65,6 +65,29 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
         } => app_promote(
             &home, &manifest, env, schema_url, api_url, key_file, api_key,
         ),
+        action @ (AppCommand::List { .. }
+        | AppCommand::Resolve { .. }
+        | AppCommand::Index(_)
+        | AppCommand::Storage { .. }
+        | AppCommand::Info { .. }
+        | AppCommand::Install { .. }
+        | AppCommand::Upgrade { .. }) => app_catalog_command(&home, action),
+        action @ (AppCommand::ReleasePublish { .. }
+        | AppCommand::ReleaseChannel { .. }
+        | AppCommand::ReleaseRevoke { .. }
+        | AppCommand::ReleaseInstall { .. }
+        | AppCommand::ReleaseStatus { .. }
+        | AppCommand::ReleaseCheck { .. }
+        | AppCommand::DevStatus { .. }
+        | AppCommand::ReleaseObserve { .. }) => app_release_command(&home, action),
+        AppCommand::Run { app_id, dir, args } => app_run(&home, app_id, dir, args),
+    }
+}
+
+/// Catalog subcommands of `lastdb app`: list, resolve, index, storage, info,
+/// install and upgrade.
+fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
+    match action {
         AppCommand::List {
             env,
             schema_url,
@@ -72,7 +95,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             index,
             trust_key,
             json,
-        } => app_list(&home, env, schema_url, channel, index, trust_key, json),
+        } => app_list(home, env, schema_url, channel, index, trust_key, json),
         AppCommand::Resolve {
             app_id,
             channel,
@@ -81,7 +104,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             lastdb_version,
             json,
         } => app_resolve(
-            &home,
+            home,
             &app_id,
             channel.as_deref(),
             index.as_deref(),
@@ -89,7 +112,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             lastdb_version.as_deref(),
             json,
         ),
-        AppCommand::Index(cmd) => app_index_command(&home, cmd),
+        AppCommand::Index(cmd) => app_index_command(home, cmd),
         AppCommand::Storage {
             json,
             reconcile,
@@ -119,7 +142,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             force,
             json,
         } => app_install(
-            &home,
+            home,
             app_ids,
             env,
             schema_url,
@@ -144,7 +167,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             allow_sandbox,
             json,
         } => app_upgrade(
-            &home,
+            home,
             app_ids,
             env,
             schema_url,
@@ -156,14 +179,6 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             allow_sandbox,
             json,
         ),
-        action @ (AppCommand::ReleasePublish { .. }
-        | AppCommand::ReleaseChannel { .. }
-        | AppCommand::ReleaseRevoke { .. }
-        | AppCommand::ReleaseInstall { .. }
-        | AppCommand::ReleaseStatus { .. }
-        | AppCommand::ReleaseCheck { .. }
-        | AppCommand::DevStatus { .. }
-        | AppCommand::ReleaseObserve { .. }) => app_release_command(&home, action),
-        AppCommand::Run { app_id, dir, args } => app_run(&home, app_id, dir, args),
+        _ => unreachable!("app_command routes only catalog subcommands here"),
     }
 }

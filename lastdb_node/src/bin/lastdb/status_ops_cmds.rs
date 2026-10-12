@@ -49,84 +49,20 @@ pub(super) fn status(
         .as_ref()
         .expect("text status always loads the offline plane inventory");
 
+    let view = StatusView {
+        home: &home,
+        socket: &socket,
+        store_root: &store_root,
+        breakdown,
+        session_live: running || daemon_pid_alive,
+    };
+
     if let Err(e) = &health {
-        println!("{}", status_unreachable_line(e));
-        println!("Home:   {}", home.display());
-        println!("Socket: {}", socket.display());
-        // File-only plane / session report stays after line 1 so operators
-        // still see the home without treating the command as a live probe.
-        for line in lastdb_node::crash_attribution::status_lines(&home, running || daemon_pid_alive)
-        {
-            println!("{line}");
-        }
-        for line in layout_status_lines(&store_root) {
-            println!("{line}");
-        }
-        for line in fold_db::mini_cutover::plane_status_lines(breakdown) {
-            println!("{line}");
-        }
-        for line in plane_sot_spotlight_lines(breakdown) {
-            println!("{line}");
-        }
+        view.print_unreachable(e);
         return Ok(StatusRun::Unreachable);
     }
 
-    println!(
-        "lastdbd: {}",
-        lastdb_node::crash_attribution::daemon_status_line_with_health_error(
-            &home, running, health_err
-        )
-    );
-    println!("Home:   {}", home.display());
-    println!("Socket: {}", socket.display());
-    // Uptime + "why did it last die?" — read straight from the session ledger
-    // the daemon maintains under `home`, so one `lastdb status` answers both.
-    for line in lastdb_node::crash_attribution::status_lines(&home, running || daemon_pid_alive) {
-        println!("{line}");
-    }
-    // Physical placement, read from the descriptor without opening the home.
-    // A home left on full-key placement pays a full-collection sweep on every
-    // HashRange partition read, and nothing else in `status` would show it.
-    for line in layout_status_lines(&store_root) {
-        println!("{line}");
-    }
-    // Offline plane attribution (SOT / indexes / history / cold / ops / aside).
-    // Walks collection dirs under the store root — no node required; does not
-    // open LastStore. Aside reclaim is Tom-gated (never auto-delete).
-    for line in fold_db::mini_cutover::plane_status_lines(breakdown) {
-        println!("{line}");
-    }
-    // Named SOT homes (tips/proteins/…) so residue cards do not re-du the tree.
-    for line in plane_sot_spotlight_lines(breakdown) {
-        println!("{line}");
-    }
-    match probe_status(&socket, probe_timeout) {
-        Ok(snapshot) => {
-            // Everything from here down is the daemon's own account of
-            // itself. Name the binary giving it first: the lines above are
-            // this CLI reading the store offline and are attributable to
-            // the CLI, but these are not, and the installed file is not
-            // evidence of which build produced them.
-            for line in lastdb_node::self_metrics::build_identity_lines(&snapshot.build) {
-                println!("{line}");
-            }
-            for line in lastdb_node::self_metrics::status_lines(&snapshot) {
-                println!("{line}");
-            }
-            // Compact offender summary so `lastdb status` alone surfaces
-            // the top clients without a second probe.
-            for line in lastdb_node::self_metrics::phase_vocabulary_skew_lines(&snapshot.build) {
-                println!("{line}");
-            }
-            for line in lastdb_node::self_metrics::request_ops_lines(&snapshot)
-                .into_iter()
-                .take(6)
-            {
-                println!("{line}");
-            }
-        }
-        Err(e) => println!("Sampler: unavailable ({e})"),
-    }
+    view.print_serving(running, health_err, probe_timeout);
     Ok(StatusRun::Serving)
 }
 
@@ -411,4 +347,7 @@ mod ops_rollup_merge;
 pub(crate) use ops_rollup::*;
 #[path = "status_ops_cmds/probes.rs"]
 mod probes;
+#[path = "status_ops_cmds/status_view.rs"]
+mod status_view;
 pub(crate) use probes::*;
+use status_view::StatusView;
