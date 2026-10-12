@@ -179,21 +179,23 @@ pub(crate) fn app_info(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn app_install(
     home: &Path,
     app_ids: Vec<String>,
-    env: Option<String>,
-    schema_url: Option<String>,
-    channel: Option<String>,
-    index: Option<String>,
-    trust_key: Option<String>,
-    lastdb_version: Option<String>,
+    source: RegistrySource,
     dir: Option<PathBuf>,
     allow_sandbox: bool,
     force: bool,
     json: bool,
 ) -> Result<(), String> {
+    let RegistrySource {
+        env,
+        schema_url,
+        channel,
+        index,
+        trust_key,
+        lastdb_version,
+    } = source;
     check_dir_matches_app_count(&dir, &app_ids)?;
     if env.is_none() && schema_url.is_none() {
         let socket = lastdb_uds::uds::socket_path(&home.join("data"));
@@ -257,20 +259,22 @@ pub(crate) fn app_install(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn app_upgrade(
     home: &Path,
     app_ids: Vec<String>,
-    env: Option<String>,
-    schema_url: Option<String>,
-    channel: Option<String>,
-    index: Option<String>,
-    trust_key: Option<String>,
-    lastdb_version: Option<String>,
+    source: RegistrySource,
     dir: Option<PathBuf>,
     allow_sandbox: bool,
     json: bool,
 ) -> Result<(), String> {
+    let RegistrySource {
+        env,
+        schema_url,
+        channel,
+        index,
+        trust_key,
+        lastdb_version,
+    } = source;
     check_dir_matches_app_count(&dir, &app_ids)?;
     if env.is_none() && schema_url.is_none() {
         let socket = lastdb_uds::uds::socket_path(&home.join("data"));

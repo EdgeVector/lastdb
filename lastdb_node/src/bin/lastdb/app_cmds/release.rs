@@ -195,7 +195,6 @@ pub(crate) fn app_release_status(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn app_release_check(
     app_id: &str,
     channel: &str,
@@ -203,11 +202,14 @@ pub(crate) fn app_release_check(
     schema_url: Option<String>,
     desired: Option<String>,
     host_track_root: Option<PathBuf>,
-    json: bool,
-    watch: bool,
-    interval_secs: Option<u64>,
-    cycles: Option<u64>,
+    run_opts: CheckRun,
 ) -> Result<(), String> {
+    let CheckRun {
+        watch,
+        interval_secs,
+        cycles,
+        json,
+    } = run_opts;
     let host = host_track_for(app_id, host_track_root);
     let interval = lastdb_node::app_release_host::check_interval(interval_secs);
     // Without `--watch` this is one cycle, which is what it always

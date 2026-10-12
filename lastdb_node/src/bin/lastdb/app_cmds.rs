@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "app_cmds/arg_groups.rs"]
+mod arg_groups;
+pub(crate) use self::arg_groups::*;
 #[path = "app_cmds/check.rs"]
 mod check;
 pub(crate) use self::check::*;
@@ -144,12 +147,14 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
         } => app_install(
             home,
             app_ids,
-            env,
-            schema_url,
-            channel,
-            index,
-            trust_key,
-            lastdb_version,
+            RegistrySource {
+                env,
+                schema_url,
+                channel,
+                index,
+                trust_key,
+                lastdb_version,
+            },
             dir,
             allow_sandbox,
             force,
@@ -169,12 +174,14 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
         } => app_upgrade(
             home,
             app_ids,
-            env,
-            schema_url,
-            channel,
-            index,
-            trust_key,
-            lastdb_version,
+            RegistrySource {
+                env,
+                schema_url,
+                channel,
+                index,
+                trust_key,
+                lastdb_version,
+            },
             dir,
             allow_sandbox,
             json,
