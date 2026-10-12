@@ -45,6 +45,8 @@ pub(super) struct GuardedRemovalInputs<'a> {
     pub(super) tip_version_keys: &'a [String],
     pub(super) atom_ref_edge_keys: &'a [String],
     pub(super) atom_ref_v2_edge_keys: &'a [String],
+    pub(super) history_referenced_by_retained: &'a HashSet<String>,
+    pub(super) target_slot_ids: &'a HashSet<StorageSlotIdentity>,
     pub(super) reachability: PurgeReachability,
 }
 
@@ -71,14 +73,12 @@ pub(super) struct GuardedRemoval {
 /// The per-field path still paid one durable delete + one header put per
 /// field (x24 on BoardCards) under the exclusive purge barrier. Batch them
 /// into a single store round-trip pair via `remove_molecules_keys_batch`.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn remove_slots_and_persist(
     db_ops: &Arc<DbOperations>,
     schema: &mut crate::schema::types::Schema,
     schema_name: &str,
     storage_slots: &[PlannedStorageSlot],
     inputs: &GuardedRemovalInputs<'_>,
-    history_referenced_by_retained: &HashSet<String>,
     chain_referenced_by_retained: &HashSet<String>,
     acct: &mut PurgeCommitAccounting,
 ) -> Result<GuardedRemoval, SchemaError> {
@@ -90,7 +90,7 @@ pub(super) async fn remove_slots_and_persist(
                 db_ops,
                 schema,
                 inputs.candidate_atoms,
-                history_referenced_by_retained,
+                inputs.history_referenced_by_retained,
                 chain_referenced_by_retained,
                 acct,
             )
@@ -109,17 +109,7 @@ pub(super) async fn remove_slots_and_persist(
         .atoms()
         .tip_version_backref_delete_keys_for_tv_keys(inputs.tip_version_keys)
         .await?;
-    persist_molecule_removals(
-        db_ops,
-        &owned_for_batch,
-        inputs.reachability,
-        inputs.atom_ref_edge_keys,
-        inputs.atom_ref_v2_edge_keys,
-        inputs.history_keys,
-        inputs.tip_version_keys,
-        &tip_version_backref_keys,
-    )
-    .await?;
+    persist_molecule_removals(db_ops, &owned_for_batch, inputs, &tip_version_backref_keys).await?;
     acct.record(
         crate::request_phases::RequestPhase::PurgeDelete,
         remove_keys_start.elapsed(),
@@ -143,28 +133,27 @@ pub(super) struct GuardedErasure {
 }
 
 /// Collect every storage key the final batch delete removes.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn collect_keys_to_delete(
     db_ops: &Arc<DbOperations>,
     schema_name: &str,
-    reachability: PurgeReachability,
-    history_keys: &[String],
-    tip_version_keys: &[String],
+    inputs: &GuardedRemovalInputs<'_>,
     tip_version_backref_keys: Vec<Vec<u8>>,
     atoms_to_delete: &[String],
     acct: &mut PurgeCommitAccounting,
 ) -> Result<Vec<Vec<u8>>, SchemaError> {
-    let mut keys_to_delete: Vec<Vec<u8>> = if reachability == PurgeReachability::GuardedComplement {
-        let mut keys: Vec<Vec<u8>> = history_keys
-            .iter()
-            .chain(tip_version_keys)
-            .map(|key| key.as_bytes().to_vec())
-            .collect();
-        keys.extend(tip_version_backref_keys);
-        keys
-    } else {
-        Vec::new()
-    };
+    let mut keys_to_delete: Vec<Vec<u8>> =
+        if inputs.reachability == PurgeReachability::GuardedComplement {
+            let mut keys: Vec<Vec<u8>> = inputs
+                .history_keys
+                .iter()
+                .chain(inputs.tip_version_keys)
+                .map(|key| key.as_bytes().to_vec())
+                .collect();
+            keys.extend(tip_version_backref_keys);
+            keys
+        } else {
+            Vec::new()
+        };
     let key_set_start = std::time::Instant::now();
     push_atom_storage_keys(db_ops, schema_name, atoms_to_delete, &mut keys_to_delete).await?;
     acct.record(
@@ -176,24 +165,25 @@ pub(super) async fn collect_keys_to_delete(
 
 /// Resolve the targets and remove the molecule rows. Nothing after this point
 /// deletes by reachability: the atoms and keys it returns are final.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn prepare_guarded_erasure(
-    db_ops: &Arc<DbOperations>,
+    scope: PurgeScope<'_>,
     schema: &mut crate::schema::types::Schema,
-    schema_name: &str,
     storage_slots: &[PlannedStorageSlot],
-    target_slot_ids: &HashSet<StorageSlotIdentity>,
     inputs: &GuardedRemovalInputs<'_>,
-    history_referenced_by_retained: &HashSet<String>,
     records_purged: usize,
     precomputed_retained: Option<HashSet<String>>,
     acct: &mut PurgeCommitAccounting,
 ) -> Result<GuardedErasure, SchemaError> {
+    let PurgeScope {
+        db_ops,
+        schema_name,
+        ..
+    } = scope;
     let chain_referenced_by_retained = retained_chain_atoms(
         db_ops,
         schema,
         inputs.candidate_atoms,
-        target_slot_ids,
+        inputs.target_slot_ids,
         inputs.reachability,
         precomputed_retained,
         acct,
@@ -210,7 +200,6 @@ pub(super) async fn prepare_guarded_erasure(
         schema_name,
         storage_slots,
         inputs,
-        history_referenced_by_retained,
         &chain_referenced_by_retained,
         acct,
     )
@@ -231,9 +220,7 @@ pub(super) async fn prepare_guarded_erasure(
     let keys_to_delete = collect_keys_to_delete(
         db_ops,
         schema_name,
-        inputs.reachability,
-        inputs.history_keys,
-        inputs.tip_version_keys,
+        inputs,
         tip_version_backref_keys,
         &atoms_to_delete,
         acct,

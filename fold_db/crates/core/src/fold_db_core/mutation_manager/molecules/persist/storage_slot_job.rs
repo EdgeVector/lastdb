@@ -89,9 +89,11 @@ impl MutationManager {
                 let held_from = std::time::Instant::now();
                 let mut acct = crate::fold_db_core::purge::PurgeCommitAccounting::default();
                 let result = match crate::fold_db_core::purge::purge_storage_slots_bulk(
-                    &self.db_ops,
-                    &self.schema_manager,
-                    &job.schema_name,
+                    crate::fold_db_core::purge::PurgeScope {
+                        db_ops: &self.db_ops,
+                        schema_manager: &self.schema_manager,
+                        schema_name: &job.schema_name,
+                    },
                     chunk,
                     crate::fold_db_core::purge::PurgeMissingPolicy::Skip,
                     &prep,

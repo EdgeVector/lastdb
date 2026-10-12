@@ -69,19 +69,20 @@ use super::*;
 /// Callers select the reachability proof explicitly. The guarded complement
 /// mode requires the schema purge barrier. The exact-edge mode runs in the
 /// persist lane after its molecule manifests report replay-complete.
-#[allow(clippy::too_many_arguments)]
 pub(in crate::fold_db_core) async fn purge_records_bulk(
-    db_ops: &Arc<DbOperations>,
-    schema_manager: &Arc<SchemaCore>,
-    schema_name: &str,
+    scope: PurgeScope<'_>,
     keys: &[KeyValue],
     missing: PurgeMissingPolicy,
     verb: HardEraseVerb,
     acct: &mut PurgeCommitAccounting,
-    evict_resident: bool,
-    reachability: PurgeReachability,
-    precomputed_retained: Option<HashSet<String>>,
+    mode: PurgeMode,
 ) -> Result<BulkPurgeReport, SchemaError> {
+    let PurgeScope {
+        db_ops,
+        schema_manager,
+        schema_name,
+    } = scope;
+    let reachability = mode.reachability;
     if keys.is_empty() {
         return Ok(BulkPurgeReport::empty());
     }
@@ -145,25 +146,24 @@ pub(in crate::fold_db_core) async fn purge_records_bulk(
     };
     let storage_slots = plan_storage_slots(db_ops, &schema, keys)?;
 
-    execute_guarded_purge(
-        db_ops,
-        schema_manager,
-        schema_name,
-        schema,
-        &storage_slots,
+    let purge = GuardedPurge {
         candidate_atoms,
         history_keys,
         tip_version_keys,
         atom_ref_edge_keys,
         atom_ref_v2_edge_keys,
         history_referenced_by_retained,
-        keys.len(),
+        records_purged: keys.len(),
+        mode,
+    };
+    execute_guarded_purge(
+        scope,
+        schema,
+        &storage_slots,
+        purge,
         &described_key,
         verb,
         acct,
-        evict_resident,
-        reachability,
-        precomputed_retained,
     )
     .await
 }

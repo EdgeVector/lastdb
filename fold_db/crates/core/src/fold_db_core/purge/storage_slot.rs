@@ -222,18 +222,19 @@ pub(in crate::fold_db_core) async fn prepare_storage_slot_purge(
 /// content-addressed, so every field of one tombstoned record shares a single
 /// atom, and purging the first field's slot strips the atom the same record's
 /// other queued slots still point at. Refusing there aborted whole drains.
-// These arguments keep the shared purge core explicit at its only call site.
-#[allow(clippy::too_many_arguments)]
 pub(in crate::fold_db_core) async fn purge_storage_slots_bulk(
-    db_ops: &Arc<DbOperations>,
-    schema_manager: &Arc<SchemaCore>,
-    schema_name: &str,
+    scope: PurgeScope<'_>,
     targets: &[StorageSlotPurgeTarget],
     missing: PurgeMissingPolicy,
     prep: &StorageSlotPurgePrep,
     acct: &mut PurgeCommitAccounting,
     evidence_checkpoint: &mut Vec<StorageSlotPurgeEvidence>,
 ) -> Result<StorageSlotBulkPurgeResult, SchemaError> {
+    let PurgeScope {
+        db_ops,
+        schema_name,
+        ..
+    } = scope;
     if targets.is_empty() {
         return Ok(StorageSlotBulkPurgeResult {
             report: BulkPurgeReport::empty(),
@@ -255,25 +256,28 @@ pub(in crate::fold_db_core) async fn purge_storage_slots_bulk(
     let history_referenced_by_retained = prep.history_referenced_by_retained.clone();
     checkpoint_slot_evidence(&plan.planned, evidence_checkpoint);
     let ledger_descriptor = slot_ledger_descriptor(&plan.planned);
+    let purge = GuardedPurge {
+        candidate_atoms: plan.candidate_atoms,
+        history_keys: Vec::new(),
+        tip_version_keys: plan.tip_version_keys,
+        atom_ref_edge_keys: Vec::new(),
+        atom_ref_v2_edge_keys: plan.atom_ref_v2_edge_keys,
+        history_referenced_by_retained,
+        records_purged: plan.planned.len(),
+        mode: PurgeMode {
+            evict_resident: true,
+            reachability: PurgeReachability::GuardedComplement,
+            precomputed_retained: None,
+        },
+    };
     let report = execute_guarded_purge(
-        db_ops,
-        schema_manager,
-        schema_name,
+        scope,
         schema.clone(),
         &plan.planned,
-        plan.candidate_atoms,
-        Vec::new(),
-        plan.tip_version_keys,
-        Vec::new(),
-        plan.atom_ref_v2_edge_keys,
-        history_referenced_by_retained,
-        plan.planned.len(),
+        purge,
         &ledger_descriptor,
         HardEraseVerb::Purge,
         acct,
-        true,
-        PurgeReachability::GuardedComplement,
-        None,
     )
     .await?;
     Ok(StorageSlotBulkPurgeResult { report })

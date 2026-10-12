@@ -8,27 +8,21 @@ use super::guarded_steps::*;
 /// The single destructive implementation shared by logical API-key purge and
 /// exact storage-slot purge. Everything above this boundary is target planning;
 /// everything below it is reachability-guarded erasure.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_guarded_purge(
-    db_ops: &Arc<DbOperations>,
-    schema_manager: &Arc<SchemaCore>,
-    schema_name: &str,
+    scope: PurgeScope<'_>,
     mut schema: crate::schema::types::Schema,
     storage_slots: &[PlannedStorageSlot],
-    candidate_atoms: HashSet<String>,
-    history_keys: Vec<String>,
-    tip_version_keys: Vec<String>,
-    atom_ref_edge_keys: Vec<String>,
-    atom_ref_v2_edge_keys: Vec<String>,
-    history_referenced_by_retained: HashSet<String>,
-    records_purged: usize,
+    mut purge: GuardedPurge,
     ledger_descriptor: &str,
     verb: HardEraseVerb,
     acct: &mut PurgeCommitAccounting,
-    evict_resident: bool,
-    reachability: PurgeReachability,
-    precomputed_retained: Option<HashSet<String>>,
 ) -> Result<BulkPurgeReport, SchemaError> {
+    let PurgeScope {
+        db_ops,
+        schema_manager,
+        schema_name,
+    } = scope;
+    let precomputed_retained = purge.mode.precomputed_retained.take();
     let target_slot_ids: HashSet<StorageSlotIdentity> = storage_slots
         .iter()
         .map(PlannedStorageSlot::identity)
@@ -37,12 +31,14 @@ pub(super) async fn execute_guarded_purge(
     // failure must refuse the purge while every durable row is still intact.
     let resident_api_keys = resident_api_keys_for_storage_slots(db_ops.as_ref(), &target_slot_ids)?;
     let inputs = GuardedRemovalInputs {
-        candidate_atoms: &candidate_atoms,
-        history_keys: &history_keys,
-        tip_version_keys: &tip_version_keys,
-        atom_ref_edge_keys: &atom_ref_edge_keys,
-        atom_ref_v2_edge_keys: &atom_ref_v2_edge_keys,
-        reachability,
+        candidate_atoms: &purge.candidate_atoms,
+        history_keys: &purge.history_keys,
+        tip_version_keys: &purge.tip_version_keys,
+        atom_ref_edge_keys: &purge.atom_ref_edge_keys,
+        atom_ref_v2_edge_keys: &purge.atom_ref_v2_edge_keys,
+        history_referenced_by_retained: &purge.history_referenced_by_retained,
+        target_slot_ids: &target_slot_ids,
+        reachability: purge.mode.reachability,
     };
     let GuardedErasure {
         report,
@@ -52,14 +48,11 @@ pub(super) async fn execute_guarded_purge(
         live_head_debits,
         file_pointer_atoms_purged,
     } = prepare_guarded_erasure(
-        db_ops,
+        scope,
         &mut schema,
-        schema_name,
         storage_slots,
-        &target_slot_ids,
         &inputs,
-        &history_referenced_by_retained,
-        records_purged,
+        purge.records_purged,
         precomputed_retained,
         acct,
     )
@@ -88,7 +81,7 @@ pub(super) async fn execute_guarded_purge(
         .await?;
 
     batch_delete_keys(db_ops, keys_to_delete, acct).await?;
-    if evict_resident {
+    if purge.mode.evict_resident {
         evict_resident_state(db_ops, storage_slots, &resident_api_keys, &atoms_to_delete);
     }
     finalize_schema_after_purge(db_ops, schema_manager, schema_name, schema, acct).await?;

@@ -204,16 +204,20 @@ impl MutationManager {
         let started = std::time::Instant::now();
         let mut acct = super::super::super::purge::PurgeCommitAccounting::default();
         let report = super::super::super::purge::purge_records_bulk(
-            &self.db_ops,
-            &self.schema_manager,
-            schema_name,
+            super::super::super::purge::PurgeScope {
+                db_ops: &self.db_ops,
+                schema_manager: &self.schema_manager,
+                schema_name,
+            },
             keys,
             options.missing,
             options.verb,
             &mut acct,
-            options.evict_resident,
-            super::super::super::purge::PurgeReachability::AtomRefEdges,
-            None,
+            super::super::super::purge::PurgeMode {
+                evict_resident: options.evict_resident,
+                reachability: super::super::super::purge::PurgeReachability::AtomRefEdges,
+                precomputed_retained: None,
+            },
         )
         .await;
         let elapsed = started.elapsed();
@@ -250,16 +254,20 @@ impl MutationManager {
         let held_from = std::time::Instant::now();
         let mut acct = super::super::super::purge::PurgeCommitAccounting::default();
         let report = super::super::super::purge::purge_records_bulk(
-            &self.db_ops,
-            &self.schema_manager,
-            schema_name,
+            super::super::super::purge::PurgeScope {
+                db_ops: &self.db_ops,
+                schema_manager: &self.schema_manager,
+                schema_name,
+            },
             keys,
             options.missing,
             options.verb,
             &mut acct,
-            options.evict_resident,
-            super::super::super::purge::PurgeReachability::GuardedComplement,
-            options.precomputed_retained.clone(),
+            super::super::super::purge::PurgeMode {
+                evict_resident: options.evict_resident,
+                reachability: super::super::super::purge::PurgeReachability::GuardedComplement,
+                precomputed_retained: options.precomputed_retained.clone(),
+            },
         )
         .await;
         let held = held_from.elapsed();
