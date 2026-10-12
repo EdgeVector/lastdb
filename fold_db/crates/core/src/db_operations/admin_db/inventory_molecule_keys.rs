@@ -13,7 +13,6 @@ impl AtomStore {
     /// This is the diagnostic that separates H1 (two logical keys, one order
     /// entry) from H2 (one logical key stored as two encodings) for the
     /// order-log shortfall investigation.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn list_molecule_keys(
         &self,
         molecule: &str,
@@ -54,20 +53,7 @@ impl AtomStore {
                     more = true;
                     break;
                 }
-                let decoded = molecule_key_codec::decode_hash_range(&key, molecule).or_else(|| {
-                    // Storage-prefix form: strip outer prefix then decode bare mk: key.
-                    let bare = key
-                        .rsplit_once(":mk:")
-                        .map_or_else(|| key.clone(), |(_, rest)| format!("mk:{rest}"));
-                    molecule_key_codec::decode_hash_range(&bare, molecule)
-                });
-                let (hash, range, collision) = if let Some((h, r)) = decoded {
-                    let n = seen.entry((h.clone(), r.clone())).or_insert(0);
-                    *n += 1;
-                    (Some(h), Some(r), *n > 1)
-                } else {
-                    (None, None, false)
-                };
+                let (hash, range, collision) = decode_molecule_key_row(&key, molecule, &mut seen);
                 rows_out.push(MoleculeKeyRow {
                     storage_key: key,
                     hash,
@@ -84,38 +70,7 @@ impl AtomStore {
             skip_head = Some(page_start.clone());
         }
 
-        // Second pass: mark every row that participates in a multi-row logical
-        // identity, not only the second+ sightings (first occurrence also
-        // collides when n>1 after the walk).
-        let multi: HashSet<(String, String)> = seen
-            .into_iter()
-            .filter(|(_, n)| *n > 1)
-            .map(|(k, _)| k)
-            .collect();
-        for row in &mut rows_out {
-            if let (Some(h), Some(r)) = (&row.hash, &row.range) {
-                row.collision = multi.contains(&(h.clone(), r.clone()));
-            }
-        }
-        let collisions = rows_out.iter().filter(|r| r.collision).count() as u64;
-        let unique = rows_out
-            .iter()
-            .filter_map(|r| match (&r.hash, &r.range) {
-                (Some(h), Some(r)) => Some((h.as_str(), r.as_str())),
-                _ => None,
-            })
-            .collect::<HashSet<_>>()
-            .len() as u64;
-        let undecodable = rows_out.iter().filter(|r| r.hash.is_none()).count() as u64;
-
-        Ok(MoleculeKeysReport {
-            molecule: molecule.to_string(),
-            keys: rows_out.len() as u64,
-            unique_keys: unique + undecodable,
-            collision_rows: collisions,
-            more_remaining: more,
-            rows: rows_out,
-        })
+        Ok(summarize_molecule_keys(molecule, rows_out, seen, more))
     }
 
     /// Dump one molecule's raw `mk:` rows under one API HashKey.
@@ -263,5 +218,70 @@ impl AtomStore {
             }
         }
         Ok(distinct.into_iter().take(want).collect())
+    }
+}
+
+/// Decode one `mk:` storage key to its (hash, range) pair and note it in `seen`.
+///
+/// The returned flag is true on the second and later sightings of a pair.
+fn decode_molecule_key_row(
+    key: &str,
+    molecule: &str,
+    seen: &mut HashMap<(String, String), usize>,
+) -> (Option<String>, Option<String>, bool) {
+    let decoded = molecule_key_codec::decode_hash_range(key, molecule).or_else(|| {
+        // Storage-prefix form: strip outer prefix then decode bare mk: key.
+        let bare = key
+            .rsplit_once(":mk:")
+            .map_or_else(|| key.to_string(), |(_, rest)| format!("mk:{rest}"));
+        molecule_key_codec::decode_hash_range(&bare, molecule)
+    });
+    match decoded {
+        Some((h, r)) => {
+            let n = seen.entry((h.clone(), r.clone())).or_insert(0);
+            *n += 1;
+            (Some(h), Some(r), *n > 1)
+        }
+        None => (None, None, false),
+    }
+}
+
+/// Second pass: mark every row that participates in a multi-row logical
+/// identity, not only the second+ sightings (the first occurrence also
+/// collides when n>1 after the walk), then total the report.
+fn summarize_molecule_keys(
+    molecule: &str,
+    mut rows_out: Vec<MoleculeKeyRow>,
+    seen: HashMap<(String, String), usize>,
+    more: bool,
+) -> MoleculeKeysReport {
+    let multi: HashSet<(String, String)> = seen
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(k, _)| k)
+        .collect();
+    for row in &mut rows_out {
+        if let (Some(h), Some(r)) = (&row.hash, &row.range) {
+            row.collision = multi.contains(&(h.clone(), r.clone()));
+        }
+    }
+    let collisions = rows_out.iter().filter(|r| r.collision).count() as u64;
+    let unique = rows_out
+        .iter()
+        .filter_map(|r| match (&r.hash, &r.range) {
+            (Some(h), Some(r)) => Some((h.as_str(), r.as_str())),
+            _ => None,
+        })
+        .collect::<HashSet<_>>()
+        .len() as u64;
+    let undecodable = rows_out.iter().filter(|r| r.hash.is_none()).count() as u64;
+
+    MoleculeKeysReport {
+        molecule: molecule.to_string(),
+        keys: rows_out.len() as u64,
+        unique_keys: unique + undecodable,
+        collision_rows: collisions,
+        more_remaining: more,
+        rows: rows_out,
     }
 }
