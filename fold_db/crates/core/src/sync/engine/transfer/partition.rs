@@ -65,95 +65,34 @@ impl SyncEngine {
                 Ok(vec![(idx, entry.clone())])
             }
             LogOp::BatchPut { namespace, items } => {
-                let mut by_target: std::collections::BTreeMap<usize, Vec<(String, String)>> =
-                    std::collections::BTreeMap::new();
-                for (k, v) in items {
-                    let dest = p.partition_catalog_or_key(namespace, k, Some(v));
-                    let idx = Self::destination_to_target_idx(&dest, targets)?;
-                    by_target
-                        .entry(idx)
-                        .or_default()
-                        .push((k.clone(), v.clone()));
-                }
-                if by_target.len() == 1 {
-                    // Homogeneous: return the original batch intact, no clone of items.
-                    let idx = *by_target.keys().next().expect("len == 1");
-                    return Ok(vec![(idx, entry.clone())]);
-                }
-                Ok(by_target
-                    .into_iter()
-                    .map(|(idx, sub_items)| {
-                        let sub_entry = LogEntry {
-                            seq: entry.seq,
-                            timestamp_ms: entry.timestamp_ms,
-                            device_id: entry.device_id.clone(),
-                            op: LogOp::BatchPut {
-                                namespace: namespace.clone(),
-                                items: sub_items,
-                            },
-                        };
-                        (idx, sub_entry)
-                    })
-                    .collect())
+                let by_target = Self::group_by_target(items, targets, |(k, v)| {
+                    p.partition_catalog_or_key(namespace, k, Some(v))
+                })?;
+                Ok(split_entry(entry, by_target, |sub_items| LogOp::BatchPut {
+                    namespace: namespace.clone(),
+                    items: sub_items,
+                }))
             }
             LogOp::BatchDelete { namespace, keys } => {
-                let mut by_target: std::collections::BTreeMap<usize, Vec<String>> =
-                    std::collections::BTreeMap::new();
-                for k in keys {
-                    let dest = p.partition_catalog_or_key(namespace, k, None);
-                    let idx = Self::destination_to_target_idx(&dest, targets)?;
-                    by_target.entry(idx).or_default().push(k.clone());
-                }
-                if by_target.len() == 1 {
-                    let idx = *by_target.keys().next().expect("len == 1");
-                    return Ok(vec![(idx, entry.clone())]);
-                }
-                Ok(by_target
-                    .into_iter()
-                    .map(|(idx, sub_keys)| {
-                        let sub_entry = LogEntry {
-                            seq: entry.seq,
-                            timestamp_ms: entry.timestamp_ms,
-                            device_id: entry.device_id.clone(),
-                            op: LogOp::BatchDelete {
-                                namespace: namespace.clone(),
-                                keys: sub_keys,
-                            },
-                        };
-                        (idx, sub_entry)
-                    })
-                    .collect())
+                let by_target = Self::group_by_target(keys, targets, |k| {
+                    p.partition_catalog_or_key(namespace, k, None)
+                })?;
+                Ok(split_entry(entry, by_target, |sub_keys| {
+                    LogOp::BatchDelete {
+                        namespace: namespace.clone(),
+                        keys: sub_keys,
+                    }
+                }))
             }
             LogOp::PhysicalDigest { namespace, items } => {
-                let mut by_target: std::collections::BTreeMap<usize, Vec<(String, String)>> =
-                    std::collections::BTreeMap::new();
-                for (k, digest) in items {
-                    let dest = p.partition_log_key(k);
-                    let idx = Self::destination_to_target_idx(&dest, targets)?;
-                    by_target
-                        .entry(idx)
-                        .or_default()
-                        .push((k.clone(), digest.clone()));
-                }
-                if by_target.len() == 1 {
-                    let idx = *by_target.keys().next().expect("len == 1");
-                    return Ok(vec![(idx, entry.clone())]);
-                }
-                Ok(by_target
-                    .into_iter()
-                    .map(|(idx, sub_items)| {
-                        let sub_entry = LogEntry {
-                            seq: entry.seq,
-                            timestamp_ms: entry.timestamp_ms,
-                            device_id: entry.device_id.clone(),
-                            op: LogOp::PhysicalDigest {
-                                namespace: namespace.clone(),
-                                items: sub_items,
-                            },
-                        };
-                        (idx, sub_entry)
-                    })
-                    .collect())
+                let by_target =
+                    Self::group_by_target(items, targets, |(k, _)| p.partition_log_key(k))?;
+                Ok(split_entry(entry, by_target, |sub_items| {
+                    LogOp::PhysicalDigest {
+                        namespace: namespace.clone(),
+                        items: sub_items,
+                    }
+                }))
             }
             LogOp::Unknown { .. } => {
                 // No keys to split. Keep the original record on personal.
@@ -182,34 +121,54 @@ impl SyncEngine {
                 Ok(vec![(idx, entry.clone())])
             }
             LogOp::LogicalCommit { changes } => {
-                let mut by_target: std::collections::BTreeMap<
-                    usize,
-                    Vec<crate::sync::log::LogicalChange>,
-                > = std::collections::BTreeMap::new();
-                for change in changes {
-                    let dest = p.partition_log_key(&change.key);
-                    let idx = Self::destination_to_target_idx(&dest, targets)?;
-                    by_target.entry(idx).or_default().push(change.clone());
-                }
-                if by_target.len() == 1 {
-                    let idx = *by_target.keys().next().expect("len == 1");
-                    return Ok(vec![(idx, entry.clone())]);
-                }
-                Ok(by_target
-                    .into_iter()
-                    .map(|(idx, changes)| {
-                        (
-                            idx,
-                            LogEntry {
-                                seq: entry.seq,
-                                timestamp_ms: entry.timestamp_ms,
-                                device_id: entry.device_id.clone(),
-                                op: LogOp::LogicalCommit { changes },
-                            },
-                        )
-                    })
-                    .collect())
+                let by_target = Self::group_by_target(changes, targets, |change| {
+                    p.partition_log_key(&change.key)
+                })?;
+                Ok(split_entry(entry, by_target, |changes| {
+                    LogOp::LogicalCommit { changes }
+                }))
             }
         }
     }
+
+    /// Group `items` by the target index of each item's destination, keeping item order per target.
+    fn group_by_target<T: Clone>(
+        items: &[T],
+        targets: &[SyncTarget],
+        destination: impl Fn(&T) -> SyncDestination,
+    ) -> SyncResult<std::collections::BTreeMap<usize, Vec<T>>> {
+        let mut by_target: std::collections::BTreeMap<usize, Vec<T>> =
+            std::collections::BTreeMap::new();
+        for item in items {
+            let idx = Self::destination_to_target_idx(&destination(item), targets)?;
+            by_target.entry(idx).or_default().push(item.clone());
+        }
+        Ok(by_target)
+    }
+}
+
+/// Turn per-target item groups into entries. A homogeneous group returns the
+/// original entry intact; a mixed one yields a sub-entry per target that keeps the
+/// original `seq`, `timestamp_ms`, and `device_id`.
+fn split_entry<T>(
+    entry: &LogEntry,
+    by_target: std::collections::BTreeMap<usize, Vec<T>>,
+    rebuild: impl Fn(Vec<T>) -> LogOp,
+) -> Vec<(usize, LogEntry)> {
+    if by_target.len() == 1 {
+        let idx = *by_target.keys().next().expect("len == 1");
+        return vec![(idx, entry.clone())];
+    }
+    by_target
+        .into_iter()
+        .map(|(idx, sub_items)| {
+            let sub_entry = LogEntry {
+                seq: entry.seq,
+                timestamp_ms: entry.timestamp_ms,
+                device_id: entry.device_id.clone(),
+                op: rebuild(sub_items),
+            };
+            (idx, sub_entry)
+        })
+        .collect()
 }

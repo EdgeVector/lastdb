@@ -19,6 +19,83 @@ pub(super) async fn execute_org_sync_register_admitted_route(
         })
 }
 
+/// 403 unless the node policy file lets this node register org sync targets.
+fn reject_unless_registration_allowed(ctx: &AccessContext, host: &Host) -> Option<UdsResponse> {
+    match crate::host::org_sync_registration_allowed(&host.home) {
+        Ok(true) => None,
+        Ok(false) => Some(error_response(
+            403,
+            "org sync registration is disabled on this node; DEV must opt in with org_sync_registration.json",
+            ctx,
+        )),
+        Err(e) => {
+            tracing::warn!(error = %e, "org sync registration policy denied request");
+            Some(error_response(
+                403,
+                "org sync registration policy is invalid",
+                ctx,
+            ))
+        }
+    }
+}
+
+/// Claim the cloud head owner so org_hash-scoped presigns work for this user, then
+/// bootstrap the target from its photograph when sync is on. Returns
+/// `(registry_note, bootstrap_note)`; failures are reported as notes, not errors.
+async fn claim_cloud_head_and_bootstrap(
+    host: &Host,
+    org_hash: &str,
+    sync_enabled: bool,
+) -> (Option<String>, Option<String>) {
+    let Some(engine) = host.db.sync_engine() else {
+        return (None, None);
+    };
+    match engine.register_cloud_head_owner(org_hash).await {
+        Ok(reg) => {
+            let registry_note = format!(
+                "cloud registry: principal {} role={}",
+                reg.principal_hash, reg.role
+            );
+            let bootstrap_note = if sync_enabled {
+                Some(match engine.bootstrap_target_by_prefix(org_hash).await {
+                    Ok(Some(outcome)) => format!(
+                        "org photograph bootstrap complete: last_seq={} entries_replayed={}",
+                        outcome.last_seq, outcome.entries_replayed
+                    ),
+                    Ok(None) => {
+                        "org photograph bootstrap skipped: target is not active in the sync engine"
+                            .to_string()
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            org_hash = %org_hash,
+                            "org sync armed and owner claimed, but photograph bootstrap failed"
+                        );
+                        format!("org photograph bootstrap failed; sync will retry: {e}")
+                    }
+                })
+            } else {
+                None
+            };
+            (Some(registry_note), bootstrap_note)
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                org_hash = %org_hash,
+                "org sync armed locally but cloud head owner claim failed"
+            );
+            (
+                Some(format!(
+                    "cloud registry owner claim failed (kick/grant unavailable until this succeeds): {e}"
+                )),
+                None,
+            )
+        }
+    }
+}
+
 /// `POST /api/org/sync/register` — arm cloud sync for an org database.
 ///
 /// Body: `{ "org_hash": "<64 hex>", "e2e_key_b64": "<base64 32 bytes>", "slug"?: "..." }`.
@@ -30,19 +107,8 @@ pub(super) async fn execute_org_sync_register_route(
     host: &Host,
 ) -> UdsResponse {
     // Check before the registry upsert and before the cloud owner claim.
-    match crate::host::org_sync_registration_allowed(&host.home) {
-        Ok(true) => {}
-        Ok(false) => {
-            return error_response(
-                403,
-                "org sync registration is disabled on this node; DEV must opt in with org_sync_registration.json",
-                ctx,
-            );
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "org sync registration policy denied request");
-            return error_response(403, "org sync registration policy is invalid", ctx);
-        }
+    if let Some(response) = reject_unless_registration_allowed(ctx, host) {
+        return response;
     }
     #[derive(Deserialize)]
     struct Body {
@@ -85,56 +151,8 @@ pub(super) async fn execute_org_sync_register_route(
             } else {
                 vec![]
             };
-            // Principal membership on the cloud head: claim ownership so
-            // org_hash-scoped presigns are allowed for this user.
-            let mut registry_note: Option<String> = None;
-            let mut bootstrap_note: Option<String> = None;
-            if let Some(engine) = host.db.sync_engine() {
-                match engine.register_cloud_head_owner(&body.org_hash).await {
-                    Ok(reg) => {
-                        registry_note = Some(format!(
-                            "cloud registry: principal {} role={}",
-                            reg.principal_hash, reg.role
-                        ));
-                        if sync_enabled {
-                            match engine.bootstrap_target_by_prefix(&body.org_hash).await {
-                                Ok(Some(outcome)) => {
-                                    bootstrap_note = Some(format!(
-                                        "org photograph bootstrap complete: last_seq={} entries_replayed={}",
-                                        outcome.last_seq, outcome.entries_replayed
-                                    ));
-                                }
-                                Ok(None) => {
-                                    bootstrap_note = Some(
-                                        "org photograph bootstrap skipped: target is not active in the sync engine"
-                                            .to_string(),
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        error = %e,
-                                        org_hash = %body.org_hash,
-                                        "org sync armed and owner claimed, but photograph bootstrap failed"
-                                    );
-                                    bootstrap_note = Some(format!(
-                                        "org photograph bootstrap failed; sync will retry: {e}"
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            org_hash = %body.org_hash,
-                            "org sync armed locally but cloud head owner claim failed"
-                        );
-                        registry_note = Some(format!(
-                            "cloud registry owner claim failed (kick/grant unavailable until this succeeds): {e}"
-                        ));
-                    }
-                }
-            }
+            let (registry_note, bootstrap_note) =
+                claim_cloud_head_and_bootstrap(host, &body.org_hash, sync_enabled).await;
             json_ok(&envelope(
                 &serde_json::json!({
                     "ok": true,
