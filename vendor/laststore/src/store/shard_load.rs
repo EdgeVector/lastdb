@@ -102,30 +102,10 @@ pub(super) fn reject_incomplete_sorted_restore(directory: &Path) -> Result<()> {
     Ok(())
 }
 
-// lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
-pub(super) fn load_shard(
-    dir: PathBuf,
-    collection: String,
-    shard: u16,
-    data_key: Option<[u8; 32]>,
-    policy: CollectionPolicy,
-    sorted_mode: bool,
-) -> Result<Shard> {
-    let mut sh = Shard {
-        dir,
-        collection,
-        shard,
-        data_key,
-        policy,
-        sorted_mode,
-        ..Default::default()
-    };
-    reject_incomplete_sorted_restore(&sh.dir)?;
-    if !sh.dir.exists() {
-        return Ok(sh);
-    }
+/// Sequence numbers of the `NNNNNNNNNN.seg` files in `dir`, unsorted.
+fn numbered_segment_sequences(dir: &Path) -> Result<Vec<u64>> {
     let mut seqs = Vec::new();
-    for e in fs::read_dir(&sh.dir)? {
+    for e in fs::read_dir(dir)? {
         let p = e?.path();
         if p.extension().and_then(|x| x.to_str()) != Some("seg") {
             continue;
@@ -136,8 +116,13 @@ pub(super) fn load_shard(
             }
         }
     }
-    seqs.sort_unstable();
-    sh.plain_high_seq = seqs.last().copied().unwrap_or(0);
+    Ok(seqs)
+}
+
+/// Open the sorted segments found in `seqs`, newest first, and adopt them into
+/// `sh`. Returns the numbered files that are not sorted segments and are newer
+/// than the newest segment.
+fn adopt_sorted_segments(sh: &mut Shard, seqs: Vec<u64>) -> Result<Vec<u64>> {
     let mut sealed = Vec::new();
     let mut legacy = Vec::new();
     // A complete snapshot is authoritative. Inspect newest files first and
@@ -189,46 +174,18 @@ pub(super) fn load_shard(
             ));
         }
     }
-    if sh.data_key.is_some() {
-        if !sh.sorted_segments.is_empty() {
-            if !legacy.is_empty() {
-                return Err(Error::Corrupt(
-                    "encrypted sorted group has a raw numbered tail".into(),
-                ));
-            }
-            return load_sorted_encrypted_tail(sh);
-        }
-        let has_sorted_tail = sh.dir.join("sorted-tail").exists();
-        let has_legacy = !encrypted_files(&encrypted_chunks_dir(&sh))?.is_empty()
-            || !encrypted_files(&encrypted_tail_dir_for(&sh.dir))?.is_empty();
-        if has_legacy {
-            if has_sorted_tail {
-                return Err(Error::Corrupt(
-                    "encrypted group mixes legacy and sorted tails without a snapshot".into(),
-                ));
-            }
-            // Legacy replay needs the legacy path and caches. The first sorted
-            // append converts it before a new generation-scoped tail can exist.
-            sh.sorted_mode = false;
-            let mut loaded = load_encrypted_shard(sh)?;
-            loaded.sorted_mode = sorted_mode;
-            loaded.sorted_legacy_encrypted = sorted_mode;
-            return Ok(loaded);
-        }
-        sh.sorted_mode |= has_sorted_tail;
-        return if sh.uses_sorted_index() {
-            load_sorted_encrypted_tail(sh)
-        } else {
-            load_encrypted_shard(sh)
-        };
-    }
-    let seqs = legacy;
+    Ok(legacy)
+}
+
+/// Replay the plain segment files in order. Only the last may end in a torn
+/// record; it becomes the open segment.
+fn replay_plain_segments(sh: &mut Shard, seqs: &[u64]) -> Result<()> {
     for (i, &seq) in seqs.iter().enumerate() {
         let last = i + 1 == seqs.len();
         let path = sh.dir.join(format!("{seq:010}.seg"));
         let disk_data = fs::read(&path)?;
         let (data, clean_disk_len, chunk_uuid, next_frame_counter) =
-            decode_segment_payload(&sh, seq, &disk_data, last)?;
+            decode_segment_payload(sh, seq, &disk_data, last)?;
         let mut off = 0usize;
         let mut clean = 0usize;
         while off < data.len() {
@@ -286,6 +243,68 @@ pub(super) fn load_shard(
             sh.seg_bytes.insert(seq, data);
         }
     }
-    sh.segments = seqs;
+    Ok(())
+}
+
+pub(super) fn load_shard(
+    dir: PathBuf,
+    collection: String,
+    shard: u16,
+    data_key: Option<[u8; 32]>,
+    policy: CollectionPolicy,
+    sorted_mode: bool,
+) -> Result<Shard> {
+    let mut sh = Shard {
+        dir,
+        collection,
+        shard,
+        data_key,
+        policy,
+        sorted_mode,
+        ..Default::default()
+    };
+    reject_incomplete_sorted_restore(&sh.dir)?;
+    if !sh.dir.exists() {
+        return Ok(sh);
+    }
+    let mut seqs = numbered_segment_sequences(&sh.dir)?;
+    seqs.sort_unstable();
+    sh.plain_high_seq = seqs.last().copied().unwrap_or(0);
+    let legacy = adopt_sorted_segments(&mut sh, seqs)?;
+    if sh.data_key.is_some() {
+        if !sh.sorted_segments.is_empty() {
+            if !legacy.is_empty() {
+                return Err(Error::Corrupt(
+                    "encrypted sorted group has a raw numbered tail".into(),
+                ));
+            }
+            return load_sorted_encrypted_tail(sh);
+        }
+        let has_sorted_tail = sh.dir.join("sorted-tail").exists();
+        let has_legacy = !encrypted_files(&encrypted_chunks_dir(&sh))?.is_empty()
+            || !encrypted_files(&encrypted_tail_dir_for(&sh.dir))?.is_empty();
+        if has_legacy {
+            if has_sorted_tail {
+                return Err(Error::Corrupt(
+                    "encrypted group mixes legacy and sorted tails without a snapshot".into(),
+                ));
+            }
+            // Legacy replay needs the legacy path and caches. The first sorted
+            // append converts it before a new generation-scoped tail can exist.
+            sh.sorted_mode = false;
+            let mut loaded = load_encrypted_shard(sh)?;
+            loaded.sorted_mode = sorted_mode;
+            loaded.sorted_legacy_encrypted = sorted_mode;
+            return Ok(loaded);
+        }
+        sh.sorted_mode |= has_sorted_tail;
+        return if sh.uses_sorted_index() {
+            load_sorted_encrypted_tail(sh)
+        } else {
+            load_encrypted_shard(sh)
+        };
+    }
+    replay_plain_segments(&mut sh, &legacy)?;
+    sh.segments = legacy;
     Ok(sh)
 }

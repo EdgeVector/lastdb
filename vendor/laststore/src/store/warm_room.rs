@@ -1,5 +1,14 @@
 use super::*;
 
+/// What the budget gate does next for a resident group that grew.
+enum RechargeStep {
+    MakeRoom(Option<u64>),
+    /// This Arc is no longer the resident handle. Spill before it drops.
+    Spill,
+    /// Leave the warm set only after the open buffer is durable.
+    Unpublish,
+}
+
 impl LastStore {
     /// Bring resident bytes to `limit` or below: read caches first, then
     /// unpinned groups in LRU order (scan entries before point entries).
@@ -27,7 +36,6 @@ impl LastStore {
     ///
     /// No-op when `handle` is no longer the resident authority for `key`, or,
     /// for a scan, when a point operation promoted the group meanwhile.
-    // lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
     pub(super) fn recharge_within_budget(
         &self,
         key: &ShardKey,
@@ -37,13 +45,6 @@ impl LastStore {
     ) -> Result<()> {
         let mut room = WarmRoom::default();
         loop {
-            enum Step {
-                MakeRoom(Option<u64>),
-                /// This Arc is no longer the resident handle. Spill before it drops.
-                Spill,
-                /// Leave the warm set only after the open buffer is durable.
-                Unpublish,
-            }
             let step = {
                 let mut warm = self.shards.lock().expect("poison");
                 let current = warm
@@ -52,7 +53,7 @@ impl LastStore {
                     .is_some_and(|resident| Arc::ptr_eq(resident, handle));
                 let scan_entry = warm.scan_keys.contains(key);
                 if !current {
-                    Step::Spill
+                    RechargeStep::Spill
                 } else if admission == WarmAdmission::Scan && !scan_entry {
                     return Ok(());
                 } else {
@@ -77,55 +78,26 @@ impl LastStore {
                             // while the drain holds. The previous charge stays.
                             return Ok(());
                         } else if background_tip {
-                            Step::Unpublish
+                            RechargeStep::Unpublish
                         } else {
                             self.note_index_over_budget_publish();
                             warm.recharge(key, residency);
                             return Ok(());
                         }
                     } else {
-                        Step::MakeRoom(index_budget.checked_sub(warm.growth(key, residency.total)))
+                        RechargeStep::MakeRoom(
+                            index_budget.checked_sub(warm.growth(key, residency.total)),
+                        )
                     }
                 }
             };
             match step {
-                Step::Spill => {
+                RechargeStep::Spill => {
                     let mut shard = handle.lock().expect("poison");
                     return Self::sync_open(&mut shard);
                 }
-                Step::Unpublish => {
-                    // Hold the shard lock across the remove so an append cannot
-                    // land after the spill. An admit can mark this group
-                    // interactive or atom during the spill. Remove would clear
-                    // that stamp, so re-check before leaving the warm set.
-                    let mut shard = handle.lock().expect("poison");
-                    Self::sync_open(&mut shard)?;
-                    let residency_now = estimate_shard_residency_locked(&shard);
-                    let mut warm = self.shards.lock().expect("poison");
-                    let still = warm
-                        .handles
-                        .get(key)
-                        .is_some_and(|resident| Arc::ptr_eq(resident, handle));
-                    if still {
-                        let background_tip = warm.owner_class.get(key).copied()
-                            == Some(AdmitClass::Background)
-                            && !warm.atom_plane.contains(key);
-                        let (index_budget, body_budget) = self.index_and_body_budget();
-                        if background_tip
-                            && !warm.fits(key, residency_now, index_budget, body_budget)
-                        {
-                            warm.remove(key);
-                            warm.leased.insert(key.clone(), Arc::downgrade(handle));
-                        } else if warm.fits(key, residency_now, index_budget, body_budget) {
-                            warm.recharge(key, residency_now);
-                        } else {
-                            self.note_index_over_budget_publish();
-                            warm.recharge(key, residency_now);
-                        }
-                    }
-                    return Ok(());
-                }
-                Step::MakeRoom(limit) => {
+                RechargeStep::Unpublish => return self.unpublish_background_tip(key, handle),
+                RechargeStep::MakeRoom(limit) => {
                     if let Some(trimmed) = room.trim_own_caches(handle, residency) {
                         residency = trimmed;
                         continue;
@@ -134,6 +106,38 @@ impl LastStore {
                 }
             }
         }
+    }
+
+    /// Leave the warm set after the open buffer is durable, if the group is
+    /// still a background tip that does not fit.
+    ///
+    /// Holds the shard lock across the remove so an append cannot land after
+    /// the spill. An admit can mark this group interactive or atom during the
+    /// spill. Remove would clear that stamp, so re-check before leaving.
+    fn unpublish_background_tip(&self, key: &ShardKey, handle: &ShardHandle) -> Result<()> {
+        let mut shard = handle.lock().expect("poison");
+        Self::sync_open(&mut shard)?;
+        let residency_now = estimate_shard_residency_locked(&shard);
+        let mut warm = self.shards.lock().expect("poison");
+        let still = warm
+            .handles
+            .get(key)
+            .is_some_and(|resident| Arc::ptr_eq(resident, handle));
+        if still {
+            let background_tip = warm.owner_class.get(key).copied() == Some(AdmitClass::Background)
+                && !warm.atom_plane.contains(key);
+            let (index_budget, body_budget) = self.index_and_body_budget();
+            if background_tip && !warm.fits(key, residency_now, index_budget, body_budget) {
+                warm.remove(key);
+                warm.leased.insert(key.clone(), Arc::downgrade(handle));
+            } else if warm.fits(key, residency_now, index_budget, body_budget) {
+                warm.recharge(key, residency_now);
+            } else {
+                self.note_index_over_budget_publish();
+                warm.recharge(key, residency_now);
+            }
+        }
+        Ok(())
     }
 
     /// One room-making step of the budget gate, after the charged group's own

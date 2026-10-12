@@ -1,5 +1,14 @@
 use super::*;
 
+/// What one step of the eviction walk found.
+enum EvictionPick {
+    /// The set is within budget, or only pinned groups remain.
+    Done,
+    /// Nothing evictable at this entry; look at the next one.
+    Retry,
+    Candidate(ShardKey, ShardHandle),
+}
+
 impl LastStore {
     pub(super) fn evict_hash_group_warm_set(&self) -> Result<()> {
         self.evict_hash_group_warm_set_inner(false, None, None)
@@ -13,7 +22,6 @@ impl LastStore {
     /// it considers a point-read entry. This preserves the point working set
     /// without the fixed sub-limit that forced hot scans to reload groups even
     /// when the shared budget still had space.
-    // lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
     pub(super) fn evict_hash_group_warm_set_inner(
         &self,
         scan_only: bool,
@@ -57,99 +65,128 @@ impl LastStore {
         // displace the point working set.
         let mut scan_entries_done = false;
         loop {
-            let candidate = {
-                let mut warm = self.shards.lock().expect("poison");
-                let total_over = match resident_limit {
-                    Some(limit) => warm.resident_bytes > limit,
-                    None => !self.hash_group_warm_set_within_budgets(&warm),
-                };
-                if !total_over {
-                    return Ok(groups_evicted);
-                }
-                let from_scan_order = scan_only || !scan_entries_done && !warm.scan_keys.is_empty();
-                let key = if scan_only {
-                    // Reject the just-read group when its admission would
-                    // overflow the shared budget. A sequential cold scan then
-                    // preserves the scan entries that already fit instead of
-                    // rotating every entry out in order. Point entries remain
-                    // protected because this branch selects scan entries only.
-                    reject_scan_candidate
-                        .filter(|key| warm.scan_keys.contains(*key))
-                        .and_then(|key| warm.take_from_order(key))
-                        .or_else(|| warm.pop_scan_lru())
-                } else if from_scan_order {
-                    match warm.pop_scan_lru() {
-                        Some(key) => Some(key),
-                        None => {
-                            scan_entries_done = true;
-                            continue;
-                        }
-                    }
-                } else {
-                    warm.pop_lru()
-                };
-                let Some(key) = key else {
-                    return Ok(groups_evicted);
-                };
-                if !skipped.insert(key.clone()) {
-                    warm.touch(&key);
-                    if from_scan_order && !scan_only {
-                        // Every scan entry left is pinned; try point entries.
-                        scan_entries_done = true;
-                        continue;
-                    }
-                    // Cycled through the remaining order; every leftover group
-                    // is pinned. Restore recency and leave the overshoot until
-                    // a caller drops its handle.
-                    return Ok(groups_evicted);
-                }
-                let Some(handle) = warm.handles.get(&key).cloned() else {
-                    continue;
-                };
-                if key.2.is_none()
-                    || Arc::strong_count(&handle) > 2
-                    || warm.eviction_protected(&key, pressure_high, shed_interactive, now_ms)
-                {
-                    warm.touch(&key);
-                    continue;
-                }
-                Some((key, handle))
+            let (key, handle) = match self.pick_eviction_candidate(
+                scan_only,
+                reject_scan_candidate,
+                resident_limit,
+                (pressure_high, shed_interactive, now_ms),
+                &mut skipped,
+                &mut scan_entries_done,
+            ) {
+                EvictionPick::Done => return Ok(groups_evicted),
+                EvictionPick::Retry => continue,
+                EvictionPick::Candidate(key, handle) => (key, handle),
             };
-
-            let Some((key, handle)) = candidate else {
-                continue;
-            };
-            let mut sh = handle.lock().expect("poison");
-            let ids = self.snapshot_group_ids_locked(&mut sh, true)?;
-            let (evicted, pin_gen) = {
-                let mut warm = self.shards.lock().expect("poison");
-                let current = warm
-                    .handles
-                    .get(&key)
-                    .is_some_and(|h| Arc::ptr_eq(h, &handle));
-                if Arc::strong_count(&handle) > 2 || !current {
-                    warm.touch(&key);
-                    continue;
-                }
-                let evicted = warm.remove(&key).is_some();
-                // Sample while this lock still owns the remove. A pin can
-                // load, flush, and reap after we release, and that bumps
-                // `pin_gen`; retain then sees a mismatch and skips the
-                // pre-pin snapshot. Lock order: shards then key_index.
-                let pin_gen = if evicted {
-                    self.key_index.lock().expect("poison").pin_gen(&key)
-                } else {
-                    0
-                };
-                (evicted, pin_gen)
-            };
-            drop(sh);
-            if evicted {
+            if self.evict_group(key, &handle)? {
                 groups_evicted = groups_evicted.saturating_add(1);
-                self.eviction_events.fetch_add(1, Ordering::Relaxed);
-                self.retain_group_ids(key, ids, pin_gen);
             }
         }
+    }
+
+    /// Choose the next group to evict, or say why none can be chosen now.
+    ///
+    /// `pass` is `(pressure_high, shed_interactive, now_ms)` for this pass.
+    fn pick_eviction_candidate(
+        &self,
+        scan_only: bool,
+        reject_scan_candidate: Option<&ShardKey>,
+        resident_limit: Option<u64>,
+        pass: (bool, bool, u64),
+        skipped: &mut HashSet<ShardKey>,
+        scan_entries_done: &mut bool,
+    ) -> EvictionPick {
+        let (pressure_high, shed_interactive, now_ms) = pass;
+        let mut warm = self.shards.lock().expect("poison");
+        let total_over = match resident_limit {
+            Some(limit) => warm.resident_bytes > limit,
+            None => !self.hash_group_warm_set_within_budgets(&warm),
+        };
+        if !total_over {
+            return EvictionPick::Done;
+        }
+        let from_scan_order = scan_only || !*scan_entries_done && !warm.scan_keys.is_empty();
+        let key = if scan_only {
+            // Reject the just-read group when its admission would
+            // overflow the shared budget. A sequential cold scan then
+            // preserves the scan entries that already fit instead of
+            // rotating every entry out in order. Point entries remain
+            // protected because this branch selects scan entries only.
+            reject_scan_candidate
+                .filter(|key| warm.scan_keys.contains(*key))
+                .and_then(|key| warm.take_from_order(key))
+                .or_else(|| warm.pop_scan_lru())
+        } else if from_scan_order {
+            match warm.pop_scan_lru() {
+                Some(key) => Some(key),
+                None => {
+                    *scan_entries_done = true;
+                    return EvictionPick::Retry;
+                }
+            }
+        } else {
+            warm.pop_lru()
+        };
+        let Some(key) = key else {
+            return EvictionPick::Done;
+        };
+        if !skipped.insert(key.clone()) {
+            warm.touch(&key);
+            if from_scan_order && !scan_only {
+                // Every scan entry left is pinned; try point entries.
+                *scan_entries_done = true;
+                return EvictionPick::Retry;
+            }
+            // Cycled through the remaining order; every leftover group
+            // is pinned. Restore recency and leave the overshoot until
+            // a caller drops its handle.
+            return EvictionPick::Done;
+        }
+        let Some(handle) = warm.handles.get(&key).cloned() else {
+            return EvictionPick::Retry;
+        };
+        if key.2.is_none()
+            || Arc::strong_count(&handle) > 2
+            || warm.eviction_protected(&key, pressure_high, shed_interactive, now_ms)
+        {
+            warm.touch(&key);
+            return EvictionPick::Retry;
+        }
+        EvictionPick::Candidate(key, handle)
+    }
+
+    /// Remove one chosen group from the warm set, keeping its ids. Returns
+    /// `false` when a concurrent caller took the handle first.
+    fn evict_group(&self, key: ShardKey, handle: &ShardHandle) -> Result<bool> {
+        let mut sh = handle.lock().expect("poison");
+        let ids = self.snapshot_group_ids_locked(&mut sh, true)?;
+        let (evicted, pin_gen) = {
+            let mut warm = self.shards.lock().expect("poison");
+            let current = warm
+                .handles
+                .get(&key)
+                .is_some_and(|h| Arc::ptr_eq(h, handle));
+            if Arc::strong_count(handle) > 2 || !current {
+                warm.touch(&key);
+                return Ok(false);
+            }
+            let evicted = warm.remove(&key).is_some();
+            // Sample while this lock still owns the remove. A pin can
+            // load, flush, and reap after we release, and that bumps
+            // `pin_gen`; retain then sees a mismatch and skips the
+            // pre-pin snapshot. Lock order: shards then key_index.
+            let pin_gen = if evicted {
+                self.key_index.lock().expect("poison").pin_gen(&key)
+            } else {
+                0
+            };
+            (evicted, pin_gen)
+        };
+        drop(sh);
+        if evicted {
+            self.eviction_events.fetch_add(1, Ordering::Relaxed);
+            self.retain_group_ids(key, ids, pin_gen);
+        }
+        Ok(evicted)
     }
 
     /// Snapshot a group's ids while the caller holds the handle lock.

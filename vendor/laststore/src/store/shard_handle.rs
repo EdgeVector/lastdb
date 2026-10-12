@@ -1,7 +1,6 @@
 use super::*;
 
 impl LastStore {
-    // lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
     pub(super) fn shard_handle_at(
         &self,
         collection: &str,
@@ -29,6 +28,20 @@ impl LastStore {
         if let Some(handle) = self.warm_or_leased_handle(&key, admission, touch)? {
             return Ok(handle);
         }
+        self.cold_load_handle(collection, shard, group, &key, admission, touch)
+    }
+
+    /// Load the group from disk and publish it. The caller holds the cold-load
+    /// gate for `key` and has rechecked the pin table and warm set.
+    fn cold_load_handle(
+        &self,
+        collection: &str,
+        shard: u16,
+        group: Option<u32>,
+        key: &ShardKey,
+        admission: WarmAdmission,
+        touch: WarmTouch,
+    ) -> Result<ShardHandle> {
         self.shard_loads.fetch_add(1, Ordering::Relaxed);
         let dir = self.handle_dir(collection, shard, group);
         let estimate = estimate_group_on_disk_bytes(&dir);
@@ -62,6 +75,38 @@ impl LastStore {
             self.opts.collection_policy(collection),
             self.opts.sorted_segments,
         )?;
+        self.configure_loaded_shard(&mut loaded, group);
+        let handle = Arc::new(Mutex::new(loaded));
+        let mut touch = touch;
+        // Compaction and snapshot have no id. One index scan on the cold load
+        // marks an atoms group that actually holds the shared plane. The hot
+        // hit path above does not scan.
+        if !touch.atom && collection == "atoms" {
+            let shard = handle.lock().expect("poison");
+            if shard.index.keys().any(|id| is_atom_plane_id(id)) {
+                touch.atom = true;
+            }
+        }
+        // This handle is about to become the authority for the group, and it is
+        // the only way to reach a mutation. Any id snapshot taken when it was
+        // last evicted is now superseded — drop it before publishing the
+        // handle, so no walk can read a snapshot that a writer has moved past.
+        self.key_index.lock().expect("poison").forget(key);
+        let handle = self.publish_warm_handle(key, handle, admission, touch)?;
+        if admission == WarmAdmission::Point {
+            // Room was made before the charge was published. This pass still
+            // reclaims append descriptors, and it catches a point charge that
+            // had to be published over budget because everything else was
+            // pinned.
+            self.evict_hash_group_warm_set()?;
+        }
+        Ok(handle)
+    }
+
+    /// Size the open tail, carry the group's recorded sidecar stamps, and join
+    /// the store's descriptor and compression gauges before the handle is
+    /// reachable.
+    fn configure_loaded_shard(&self, loaded: &mut Shard, group: Option<u32>) {
         loaded.max_sorted_tail_bytes = self
             .opts
             .max_open_tail_bytes
@@ -89,31 +134,6 @@ impl LastStore {
             let mut meta = self.meta.lock().expect("poison");
             meta.next_csn = meta.next_csn.max(loaded.max_csn.saturating_add(1));
         }
-        let handle = Arc::new(Mutex::new(loaded));
-        let mut touch = touch;
-        // Compaction and snapshot have no id. One index scan on the cold load
-        // marks an atoms group that actually holds the shared plane. The hot
-        // hit path above does not scan.
-        if !touch.atom && collection == "atoms" {
-            let shard = handle.lock().expect("poison");
-            if shard.index.keys().any(|id| is_atom_plane_id(id)) {
-                touch.atom = true;
-            }
-        }
-        // This handle is about to become the authority for the group, and it is
-        // the only way to reach a mutation. Any id snapshot taken when it was
-        // last evicted is now superseded — drop it before publishing the
-        // handle, so no walk can read a snapshot that a writer has moved past.
-        self.key_index.lock().expect("poison").forget(&key);
-        let handle = self.publish_warm_handle(&key, handle, admission, touch)?;
-        if admission == WarmAdmission::Point {
-            // Room was made before the charge was published. This pass still
-            // reclaims append descriptors, and it catches a point charge that
-            // had to be published over budget because everything else was
-            // pinned.
-            self.evict_hash_group_warm_set()?;
-        }
-        Ok(handle)
     }
 
     /// Publish a handle for `key` into the warm set without crossing the byte
