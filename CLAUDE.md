@@ -127,6 +127,12 @@ is not checked until you touch it.
 - Override only for generated code or a data table: put
   `lint:file-size-ok <reason>` (file) or `lint:fn-size-ok <reason>` (function)
   in the code. Do not use an override to avoid a split.
+- A split must not trade one kind of debt for another. Do not add
+  `#[allow(clippy::too_many_arguments)]` (or any other new `#[allow]`) to make
+  extracted helpers compile. Group the values the helpers share into a small
+  context struct and pass that, or pick a split point with fewer inputs. The
+  workspace already carries dozens of these allows from earlier splits; do not
+  add to them, and remove the ones in code you touch.
 - Check before you push: `python3 scripts/lints/lint-diff-file-size.py --base origin/main`
   and `python3 scripts/lints/lint-diff-fn-size.py --base origin/main` (the second
   needs `pip install tree-sitter==0.23.2 tree-sitter-rust==0.23.2`).
