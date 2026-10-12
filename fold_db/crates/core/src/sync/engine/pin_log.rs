@@ -44,6 +44,7 @@ mod pin_mode;
 mod replay;
 mod replay_scope;
 mod restore;
+mod restore_download;
 mod schema_replay;
 mod seal;
 mod state;

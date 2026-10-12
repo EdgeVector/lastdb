@@ -554,19 +554,31 @@ impl S3Client {
         Ok(Some(bytes.to_vec()))
     }
 
-    /// Like [`Self::download`], but refuse objects larger than `max_bytes`
-    /// (when `Some`) without buffering more than `max_bytes` into process RSS.
-    ///
-    /// - When `Content-Length` is present and exceeds the cap, the response is
-    ///   dropped **before** any body bytes are read.
-    /// - When `Content-Length` is missing/zero, the body is read **chunk by
-    ///   chunk** and aborted as soon as the accumulated size would exceed the
-    ///   cap — a poison multi-GB object that omits/strips `Content-Length`
-    ///   cannot pin process RSS at the full object size.
+    /// Optional header and streaming cap; retain the cap-based timeout estimate.
     pub async fn download_limited(
         &self,
         presigned: &PresignedUrl,
         max_bytes: Option<usize>,
+    ) -> SyncResult<Option<Vec<u8>>> {
+        self.download_bounded(presigned, max_bytes, max_bytes.unwrap_or(512 * 1024 * 1024))
+            .await
+    }
+
+    /// Bound a listed immutable object without changing the uncapped timeout.
+    pub(crate) async fn download_listed(
+        &self,
+        presigned: &PresignedUrl,
+        listed_bytes: usize,
+    ) -> SyncResult<Option<Vec<u8>>> {
+        self.download_bounded(presigned, Some(listed_bytes), 512 * 1024 * 1024)
+            .await
+    }
+
+    async fn download_bounded(
+        &self,
+        presigned: &PresignedUrl,
+        max_bytes: Option<usize>,
+        unknown_length_bytes: usize,
     ) -> SyncResult<Option<Vec<u8>>> {
         let response = self
             .with_timeout(
@@ -596,10 +608,8 @@ impl S3Client {
         let body_timeout = if content_len > 0 {
             self.snapshot_transfer_timeout(content_len, presigned.expires_in_secs)
         } else {
-            // Unknown size: still allow large transfers (presigned expiry cap),
-            // but if a max is set, prefer a tighter wall-clock budget so we
-            // don't stream multi-GB into RAM for minutes.
-            let assumed = max_bytes.unwrap_or(512 * 1024 * 1024).max(1);
+            // Keep the caller's unknown-length timeout estimate independent of the cap.
+            let assumed = unknown_length_bytes.max(1);
             self.snapshot_transfer_timeout(assumed, presigned.expires_in_secs)
         };
 
