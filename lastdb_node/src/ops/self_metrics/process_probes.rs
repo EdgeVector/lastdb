@@ -1,52 +1,8 @@
 use super::*;
 
-#[derive(Debug, Default)]
-pub(super) struct CpuProbe {
-    pub(super) last_wall: Option<Instant>,
-    pub(super) last_cpu_secs: Option<f64>,
-}
-
-impl CpuProbe {
-    pub(super) fn sample_percent(&mut self) -> Option<f64> {
-        let wall = Instant::now();
-        let cpu = process_cpu_secs()?;
-        let out = match (self.last_wall, self.last_cpu_secs) {
-            (Some(prev_wall), Some(prev_cpu)) => {
-                let wall_delta = wall.duration_since(prev_wall).as_secs_f64();
-                let cpu_delta = cpu - prev_cpu;
-                if wall_delta > 0.0 && cpu_delta >= 0.0 {
-                    Some(((cpu_delta / wall_delta) * 100.0 * 100.0).round() / 100.0)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        self.last_wall = Some(wall);
-        self.last_cpu_secs = Some(cpu);
-        out
-    }
-}
-
 pub(super) fn sample_id(sampled_at: u64) -> String {
     let nanos = fold_db::clock::unix_nanos() % 1_000_000_000;
     format!("{sampled_at:020}-{nanos:09}-{}", std::process::id())
-}
-
-pub(super) fn process_cpu_secs() -> Option<f64> {
-    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-    // SAFETY: getrusage initializes the provided rusage struct on success.
-    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-    if rc != 0 {
-        return None;
-    }
-    // SAFETY: rc == 0 means getrusage initialized `usage`.
-    let usage = unsafe { usage.assume_init() };
-    Some(timeval_secs(usage.ru_utime) + timeval_secs(usage.ru_stime))
-}
-
-pub(super) fn timeval_secs(tv: libc::timeval) -> f64 {
-    tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0)
 }
 
 #[cfg(target_os = "linux")]

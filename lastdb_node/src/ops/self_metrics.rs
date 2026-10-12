@@ -10,6 +10,7 @@
 //! failures never fail the sample once the log line is written.
 
 use fold_db::clock::unix_secs;
+use fold_db::process_cpu::CpuProbe;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};

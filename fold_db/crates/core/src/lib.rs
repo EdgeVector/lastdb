@@ -56,12 +56,15 @@ pub mod error;
 pub mod error_context;
 pub mod fold_db_core;
 pub mod hex;
+pub mod json_order;
 pub mod kind_partition;
 /// One accounted process memory budget — warm set + key cache + resident graph
 /// projected to RSS, with the deferred-write window derived from what is left
 /// under the node's RSS guard.
 pub mod memory_budget;
 pub mod mini_cutover;
+#[cfg(unix)]
+pub mod process_cpu;
 pub mod request_phases;
 pub mod schema;
 pub mod security;
