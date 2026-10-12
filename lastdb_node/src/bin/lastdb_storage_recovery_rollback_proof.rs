@@ -424,6 +424,31 @@ async fn scenario_negative_acked_write_loss(
     Ok(result)
 }
 
+/// Push a scenario outcome, turning a scenario error into an `error` result.
+fn record_scenario(
+    scenarios: &mut Vec<ScenarioResult>,
+    name: &str,
+    outcome: Result<ScenarioResult, Box<dyn std::error::Error>>,
+) {
+    match outcome {
+        Ok(result) => scenarios.push(result),
+        Err(e) => {
+            eprintln!("Scenario {name} failed: {e}");
+            scenarios.push(ScenarioResult {
+                name: name.to_string(),
+                status: "error".to_string(),
+                passed: false,
+                notes: vec![e.to_string()],
+                writes_acknowledged: 0,
+                writes_verified: 0,
+                range_reads_verified: 0,
+                point_reads_verified: 0,
+                ref_audit_items: 0,
+            });
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -438,154 +463,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&args.home)?;
 
     let mut scenarios: Vec<ScenarioResult> = Vec::new();
-    let mut passed = 0;
 
-    // Run all scenarios
-    let store1 = open_synthetic_home(&args.home);
-    match scenario_basic_write_read(Arc::clone(&store1)).await {
-        Ok(result) => {
-            if result.passed {
-                passed += 1;
-            }
-            scenarios.push(result);
-        }
-        Err(e) => {
-            eprintln!("Scenario basic_write_read failed: {e}");
-            scenarios.push(ScenarioResult {
-                name: "basic_write_read".to_string(),
-                status: "error".to_string(),
-                passed: false,
-                notes: vec![e.to_string()],
-                writes_acknowledged: 0,
-                writes_verified: 0,
-                range_reads_verified: 0,
-                point_reads_verified: 0,
-                ref_audit_items: 0,
-            });
-        }
-    }
-
-    let store2 = open_synthetic_home(&args.home.join("range"));
-    match scenario_range_read(Arc::clone(&store2)).await {
-        Ok(result) => {
-            if result.passed {
-                passed += 1;
-            }
-            scenarios.push(result);
-        }
-        Err(e) => {
-            eprintln!("Scenario range_read failed: {e}");
-            scenarios.push(ScenarioResult {
-                name: "range_read".to_string(),
-                status: "error".to_string(),
-                passed: false,
-                notes: vec![e.to_string()],
-                writes_acknowledged: 0,
-                writes_verified: 0,
-                range_reads_verified: 0,
-                point_reads_verified: 0,
-                ref_audit_items: 0,
-            });
-        }
-    }
-
-    let store3 = open_synthetic_home(&args.home.join("multiversion"));
-    match scenario_multiversion_mixed(Arc::clone(&store3)).await {
-        Ok(result) => {
-            if result.passed {
-                passed += 1;
-            }
-            scenarios.push(result);
-        }
-        Err(e) => {
-            eprintln!("Scenario multiversion_mixed failed: {e}");
-            scenarios.push(ScenarioResult {
-                name: "multiversion_mixed".to_string(),
-                status: "error".to_string(),
-                passed: false,
-                notes: vec![e.to_string()],
-                writes_acknowledged: 0,
-                writes_verified: 0,
-                range_reads_verified: 0,
-                point_reads_verified: 0,
-                ref_audit_items: 0,
-            });
-        }
-    }
-
-    let store4 = open_synthetic_home(&args.home.join("refaudit"));
-    match scenario_reference_audit(Arc::clone(&store4)).await {
-        Ok(result) => {
-            if result.passed {
-                passed += 1;
-            }
-            scenarios.push(result);
-        }
-        Err(e) => {
-            eprintln!("Scenario reference_audit failed: {e}");
-            scenarios.push(ScenarioResult {
-                name: "reference_audit".to_string(),
-                status: "error".to_string(),
-                passed: false,
-                notes: vec![e.to_string()],
-                writes_acknowledged: 0,
-                writes_verified: 0,
-                range_reads_verified: 0,
-                point_reads_verified: 0,
-                ref_audit_items: 0,
-            });
-        }
-    }
-
-    let store5 = open_synthetic_home(&args.home.join("rollback"));
-    match scenario_rollback_after_crash(Arc::clone(&store5)).await {
-        Ok(result) => {
-            if result.passed {
-                passed += 1;
-            }
-            scenarios.push(result);
-        }
-        Err(e) => {
-            eprintln!("Scenario rollback_after_crash failed: {e}");
-            scenarios.push(ScenarioResult {
-                name: "rollback_after_crash".to_string(),
-                status: "error".to_string(),
-                passed: false,
-                notes: vec![e.to_string()],
-                writes_acknowledged: 0,
-                writes_verified: 0,
-                range_reads_verified: 0,
-                point_reads_verified: 0,
-                ref_audit_items: 0,
-            });
-        }
-    }
-
+    let store = open_synthetic_home(&args.home);
+    record_scenario(
+        &mut scenarios,
+        "basic_write_read",
+        scenario_basic_write_read(store).await,
+    );
+    let store = open_synthetic_home(&args.home.join("range"));
+    record_scenario(
+        &mut scenarios,
+        "range_read",
+        scenario_range_read(store).await,
+    );
+    let store = open_synthetic_home(&args.home.join("multiversion"));
+    record_scenario(
+        &mut scenarios,
+        "multiversion_mixed",
+        scenario_multiversion_mixed(store).await,
+    );
+    let store = open_synthetic_home(&args.home.join("refaudit"));
+    record_scenario(
+        &mut scenarios,
+        "reference_audit",
+        scenario_reference_audit(store).await,
+    );
+    let store = open_synthetic_home(&args.home.join("rollback"));
+    record_scenario(
+        &mut scenarios,
+        "rollback_after_crash",
+        scenario_rollback_after_crash(store).await,
+    );
     if !args.skip_negative_cases {
-        let store6 = open_synthetic_home(&args.home.join("negative"));
-        match scenario_negative_acked_write_loss(Arc::clone(&store6)).await {
-            Ok(result) => {
-                if result.passed {
-                    passed += 1;
-                }
-                scenarios.push(result);
-            }
-            Err(e) => {
-                eprintln!("Scenario negative_acked_write_loss failed: {e}");
-                scenarios.push(ScenarioResult {
-                    name: "negative_acked_write_loss".to_string(),
-                    status: "error".to_string(),
-                    passed: false,
-                    notes: vec![e.to_string()],
-                    writes_acknowledged: 0,
-                    writes_verified: 0,
-                    range_reads_verified: 0,
-                    point_reads_verified: 0,
-                    ref_audit_items: 0,
-                });
-            }
-        }
+        let store = open_synthetic_home(&args.home.join("negative"));
+        record_scenario(
+            &mut scenarios,
+            "negative_acked_write_loss",
+            scenario_negative_acked_write_loss(store).await,
+        );
     }
+    let passed = scenarios.iter().filter(|s| s.passed).count();
 
     let elapsed = start.elapsed();
     let total = scenarios.len();
