@@ -94,6 +94,53 @@ receipt also comes from the primary.
    counters, now that no cache shares their lock.
 6. Delete the graph's maps, ledger and the remaining env vars.
 
+## Baseline (step 2), 2026-10-12
+
+Measured by the owner on a copy-on-write copy of the real data, with a release
+`lastdbd` built from `main` at 817b7d55. Bars: point p50 at most 50 ms, write
+p50 at most 10 ms. Every run was RED.
+
+| Mode | Point p50 | Point p95 | Write p50 | Write p95 |
+|---|---|---|---|---|
+| off | 30 ms | 55 ms | 641 ms | 1248 ms |
+| read | 28 ms | 61 ms | 688 ms | 1254 ms |
+| write | 30 ms | 60 ms | 46 ms | 111 ms |
+
+What this means:
+
+- Point reads pass in all three modes. The always-on logical set already serves
+  them, so the graph's resident-first read branch buys nothing measurable. Step 4
+  should not cost read latency.
+- `read` mode is indistinguishable from `off`.
+- `write` mode is the only mode that matters, and it matters for writes only:
+  about 14 times faster at p50. It still misses the 10 ms bar, so these numbers
+  are the figures to hold, not a target already met. A step must not move the
+  write p50 above 46 ms or the point p50 above 30 ms.
+
+Read-after-ack, `write` mode, 20 reps per cell: create by point-get and update
+by point-get pass. Create by page, update by page and create by count-signal are
+stale in all 20 reps. The defer window reported `NOT_OPEN`.
+
+These results are not yet interpreted, for three reasons found by reading
+`scripts/lastdbd/read-after-ack-bar.sh`:
+
+- The run had no `off` baseline, so a write-mode gap cannot be told from a bar
+  problem. The script now takes `--mode`.
+- The count-signal cell only checks that the response has `.ok`, `.total_count`
+  or `.data`. It cannot detect stale data.
+- A freshness race would fail some reps. Failing every rep, while the point-get
+  on the same key passes, points to something deterministic: either the page
+  query does not surface the `default` key within its first 500 rows, or page
+  reads do not overlay acknowledged but unflushed tips in `write` mode. The
+  second would be a real defect and step 3 must not make it worse.
+- `NOT_OPEN` was read from real metrics, not a failed lookup. `persist_enqueued`
+  counts newly dirty keys and every rep writes one key, so it can stay flat while
+  deferral works. The raw before and after values decide it.
+- Delete cells are not implemented, so Skip-Delete read-after-ack is untested.
+
+To settle it, run the same cells with `--mode off`, and look at the raw
+`sample_response` lines the script now prints for each stale cell.
+
 ## Open questions to verify before step 3
 
 - Does a lane persist job report durability back so that the logical set can
@@ -102,8 +149,8 @@ receipt also comes from the primary.
 - Which readers still need a resident answer for a key the logical set evicted?
   The graph's coverage tracking answers "is this key set complete" for range
   reads. The logical set has only a negative barrier cache.
-- What the live node's `write` mode buys. Step 2 answers this. The
-  acknowledgment rule above holds whatever the answer is.
+- Whether the page and count-signal stale reads are a write-mode defect or a bar
+  problem. See the baseline section.
 
 ## Review hazards
 
