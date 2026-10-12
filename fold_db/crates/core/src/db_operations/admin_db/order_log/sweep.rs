@@ -1,5 +1,12 @@
 use super::*;
 
+/// When a bloat-audit pass started and how long it may run.
+#[derive(Clone, Copy)]
+pub(in super::super) struct PassClock {
+    pub(in super::super) started: std::time::Instant,
+    pub(in super::super) budget: std::time::Duration,
+}
+
 impl AtomStore {
     /// One bounded page of the zero-live sweep — phase B of the bloat audit.
     ///
@@ -28,17 +35,19 @@ impl AtomStore {
     ///
     /// Returning `more_remaining` with a `moc:`-namespace cursor is what banks
     /// progress: the caller commits this page before asking for the next one.
-    #[allow(clippy::too_many_arguments)]
     pub(in super::super) async fn sweep_zero_live_page(
         &self,
         mut report: OrderLogBloatAudit,
         cursor: &str,
         moc_prefix: &str,
         max_keys: Option<usize>,
-        pass_started: std::time::Instant,
-        pass_budget: std::time::Duration,
+        clock: PassClock,
         storage_prefix: Option<&str>,
     ) -> Result<OrderLogBloatAudit, SchemaError> {
+        let PassClock {
+            started: pass_started,
+            budget: pass_budget,
+        } = clock;
         const SCAN_PAGE: usize = 2048;
         /// Molecules one call may hand to the delete phase. Sized so a page's
         /// deletes stay well inside any client deadline; the cursor makes the

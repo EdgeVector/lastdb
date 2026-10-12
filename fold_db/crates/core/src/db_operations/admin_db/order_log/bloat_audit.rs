@@ -49,8 +49,10 @@ impl AtomStore {
                     cursor,
                     &moc_colon,
                     max_keys,
-                    pass_started,
-                    PASS_TIME_BUDGET,
+                    PassClock {
+                        started: pass_started,
+                        budget: PASS_TIME_BUDGET,
+                    },
                     storage_prefix,
                 )
                 .await;
@@ -92,8 +94,10 @@ impl AtomStore {
             &moc_start,
             &moc_colon,
             remaining,
-            pass_started,
-            PASS_TIME_BUDGET,
+            PassClock {
+                started: pass_started,
+                budget: PASS_TIME_BUDGET,
+            },
             storage_prefix,
         )
         .await
