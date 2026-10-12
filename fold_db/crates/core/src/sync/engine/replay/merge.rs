@@ -11,6 +11,14 @@ use crate::SyncConflict;
 use chrono::Utc;
 use std::sync::Arc;
 
+/// When one conflict was detected: wall time and the unique nanosecond stamp
+/// its history and conflict-index keys share.
+#[derive(Clone, Copy)]
+struct ConflictStamp {
+    now: chrono::DateTime<Utc>,
+    ts_nanos: i64,
+}
+
 impl SyncEngine {
     /// Store merge conflicts as MutationEvent entries in the atoms namespace
     /// and as dedicated conflict records for efficient scanning.
@@ -37,8 +45,7 @@ impl SyncEngine {
             let record_id = Self::push_conflict_writes(
                 mol_uuid,
                 storage_prefix,
-                now,
-                ts_nanos,
+                ConflictStamp { now, ts_nanos },
                 conflict,
                 &mut writes,
                 &mut event_keys,
@@ -72,16 +79,15 @@ impl SyncEngine {
 
     /// Append the history row, its edges and the conflict-index record for one
     /// conflict. Returns the conflict record id for the `mcc:{M}` cache.
-    #[allow(clippy::too_many_arguments)]
     fn push_conflict_writes(
         mol_uuid: &str,
         storage_prefix: Option<&str>,
-        now: chrono::DateTime<Utc>,
-        ts_nanos: i64,
+        stamp: ConflictStamp,
         conflict: &MergeConflict,
         writes: &mut Vec<(Vec<u8>, Vec<u8>)>,
         event_keys: &mut Vec<String>,
     ) -> SyncResult<String> {
+        let ConflictStamp { now, ts_nanos } = stamp;
         // Read the typed FieldKey directly from the conflict. The prior
         // path reconstructed it from `conflict.key` by `split_once(':')`,
         // which is lossy: it mangled hash and range for HashRange
