@@ -25,8 +25,10 @@ pub struct SchemaDropReceipt {
 mod catalog_keys;
 mod claims_retention;
 mod replay_catalog;
+mod replay_probe;
 mod retired_replay;
 
+pub use replay_probe::ReplayAuthorityProbe;
 pub(crate) use retired_replay::RetiredReplayProof;
 
 use catalog_keys::*;
