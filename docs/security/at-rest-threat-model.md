@@ -53,8 +53,8 @@ cache must not store plaintext blob bytes when a DEK is available. Packaging of
 atom hash groups remains structural plaintext — body secrecy is content seal +
 file-KDK, not frame AEAD alone.
 
-**Terminal product bar:** `scripts/operation-trinity-cow-bar.sh` on a CoW of a
-real home: Father encoding log + Board Option I + mk: storage scan; Son reseal
+**Terminal product bar:** `scripts/operation-trinity-cow-bar.sh` on a fresh
+empty home with synthetic data (the script is not in this tree): Father encoding log + Board Option I + mk: storage scan; Son reseal
 coverage + `ENC:` at-rest samples + unit plain-open-fail under STRICT; Ghost
 `blob_cas` unit tests.
 
@@ -299,8 +299,9 @@ layer**, and their device-local protection is the host filesystem's
   `lastdb-cloud-backup-ships-cleartext-schema-chunks-20260803`.
 - Full-disk encryption covers powered-off theft, and stops helping exactly
   where §5.3 says it does — "protects nothing once the volume is mounted".
-  That case is not hypothetical: the agent fleet routinely `cp -cR` clones the
-  data dir (`lastdb-smoke-test`, `lastdb-safe-upgrade` ephemeral probes) and
+  That case is not hypothetical: the agent fleet used to `cp -cR` clone the
+  data dir (`lastdb-smoke-test`, `lastdb-safe-upgrade` ephemeral probes; stopped
+  2026-10-12) and
   `lastdb backup` / restore moves homes around. It also applies to any host
   without full-disk encryption.
 - What leaks is **schema shape and descriptive names**, plus derived

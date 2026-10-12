@@ -125,7 +125,8 @@ scripts/release/validate-no-ai-install.sh
 
 Never restart Tom's primary `lastdbd` / brain from agent work. Never use
 the live `~/.lastdb` home as the first place a candidate binary is proven —
-use CoW/ephemeral homes (`lastdb-safe-upgrade` / smoke helpers).
+use a fresh empty home with synthetic data (`lastdb-safe-upgrade --probe-only` /
+smoke helpers). Never copy `~/.lastdb`.
 
 ### schema_service dev server
 

@@ -66,13 +66,17 @@ on-disk dirs present under ~/.lastdb/data/data/: field_tip_headers, field_tip_ve
 ```
 
 **Live dual-read is already off.** Reclaim is explicit offline
-`lastdb_local_maintain drain-tip-residue` (CoW first), never first-pass on
-primary. Procedure: `fold_db/docs/field-tip-headers-residue-compact.md`.
+`lastdb_local_maintain drain-tip-residue` (dry run first, which is the
+default), never first-pass on primary. Procedure: `fold_db/docs/field-tip-headers-residue-compact.md`.
 Primary exclusive open still requires `--i-know-this-is-primary` (Tom-gated).
 
 ### CoW proof — RUN 2026-08-07
 
-Harness: `scripts/ideal-storage-plane-residue-cow-proof.sh`, run id
+> **Historical record.** Tom, 2026-10-12: nothing copies the primary home, and
+> nothing boots a node on a copy of it. The harness below is deleted and this
+> run is not repeatable. The numbers stay as the evidence for the sunset.
+
+Harness: `scripts/ideal-storage-plane-residue-cow-proof.sh` (deleted), run id
 `tipdrain-dryrun-20260807`, against an APFS clone of the real primary.
 Proof JSON: `~/.lastdb-test-copies/proofs/plane-residue-cow-tipdrain-dryrun-20260807.json`
 (`failed_gates: []`, `primary_mutated: false`).
@@ -139,20 +143,22 @@ forever.
 The primary's own `field_tip_headers` / `field_tip_versions` (12.3 MiB) are
 still present. `drain-tip-residue` needs an exclusive offline open, so
 dropping them requires stopping `lastdbd` — a restart, which is Tom's call or
-a `lastdb-safe-upgrade` window, never an agent's. The CoW run above proves the
-drop is safe and lossless when that window comes. Nothing depends on it: the
+a `lastdb-safe-upgrade` window, never an agent's. The 2026-08-07 run above
+showed the drop is safe and lossless when that window comes. Nothing depends on it: the
 collections are unreachable by the product read path, so this is disk reclaim,
 not correctness.
 
 ## If a future home still has cold tip residue
 
 1. Do **not** re-enable dual-read.
-2. Run CoW `drain-tip-residue --collection headers|versions` per
-   `field-tip-headers-residue-compact.md`.
+2. Run the dry run of `drain-tip-residue --collection headers|versions` per
+   `field-tip-headers-residue-compact.md`. Do not copy the home to do it.
 3. Only then drop empty collections on that home.
 4. Primary apply: same CLI with Tom-gated `--i-know-this-is-primary`.
 
-## CoW proof
+## CoW proof (historical)
+
+> Deleted procedure. Do not copy the primary home to repeat it.
 
 **When:** 2026-08-07T01:50Z approx (pickup run `2026-08-07T01-11-26-579Z`)  
 **Binary:** worktree-built `lastdb_local_maintain` (release) from fold @ card branch  

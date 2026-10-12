@@ -55,7 +55,7 @@ Set `secondary_concurrency: 4` on one query to opt in without a daemon reload.
 Set `secondary_concurrency: 1` for its serial control. Omit the field to use the daemon default.
 The daemon-wide flag remains available through `LASTDB_QUERY_SECONDARY_CONCURRENCY=4` in its supervised environment.
 Unset the variable or set it to `1` to keep serial reads. A change to that environment needs a supervised daemon reload.
-The `lastdb-safe-upgrade` path must test a merged release binary on a copy of the real database before any live binary change.
+The `lastdb-safe-upgrade` path must prove a merged release binary on synthetic data in a fresh empty home before any live binary change.
 
 For a short live trial, time the same 20-row BoardCards query after the supervised cutover.
 Alternate requests with per-query values of one and four on the same daemon.

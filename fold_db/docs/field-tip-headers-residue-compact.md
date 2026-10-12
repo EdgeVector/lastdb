@@ -1,4 +1,4 @@
-# field_tip_headers tip-residue compact (CoW first)
+# field_tip_headers tip-residue compact (dry run first)
 
 | Field | Value |
 |-------|--------|
@@ -25,13 +25,13 @@ lastdb status
 #   Dual-read: … legacy_hits=… (… headers=0 …)
 ```
 
-Zero `headers=` legacy hits is the green light for a CoW drain. Non-zero hits
+Zero `headers=` legacy hits is the green light for a drain. Non-zero hits
 mean dual-read still serves residue — drain only after soak + product OK.
 
 ## Invariants
 
-1. **Never** use live `~/.lastdb` as the first proof surface. Always APFS CoW
-   (or another offline copy) first.
+1. **Never** copy `~/.lastdb` (Tom, 2026-10-12), and never boot a node on a
+   copy of it. Run the dry run first.
 2. Default CLI mode is **dry-run**. Pass `--execute` only after the dry-run
    report looks right.
 3. Primary exclusive open requires `--i-know-this-is-primary` (still Tom-gated;
@@ -41,36 +41,29 @@ mean dual-read still serves residue — drain only after soak + product OK.
    `field_tip_headers` collection after drain is not an aside dump delete.
 5. Do **not** restart primary `lastdbd` for this work.
 
-## Operator checklist (CoW)
+## Operator checklist
 
 ```bash
 # 1) Binary (host-track / Mini current install)
 MAINTAIN="${LASTDB_CURRENT:-$HOME/.lastdb/current}/lastdb_local_maintain"
 test -x "$MAINTAIN"
 
-# 2) APFS CoW of the real home (same volume as ~/.lastdb)
-COW_HOME="${COW_HOME:-$HOME/.cache/lastdb-cow-field-tip-headers-residue}"
-rm -rf "$COW_HOME"
-mkdir -p "$COW_HOME"
-# identity (if present) + data plane
-for f in identity.key config.json; do
-  [ -e "$HOME/.lastdb/$f" ] && cp -c -R "$HOME/.lastdb/$f" "$COW_HOME/$f" || true
-done
-cp -c -R "$HOME/.lastdb/data" "$COW_HOME/data"
+# 2) The home to drain. It must be stopped (the drain opens it exclusively).
+#    A rehearsal uses a fresh synthetic home that you own. The primary needs a
+#    Tom-cleared window and --i-know-this-is-primary. Never copy the primary.
+DRAIN_HOME=/path/to/stopped/home
 
 # 3) Dry-run one page (default collection = headers)
-"$MAINTAIN" --home "$COW_HOME" drain-tip-residue \
+"$MAINTAIN" --home "$DRAIN_HOME" drain-tip-residue \
   --collection headers --json
 
 # 4) Execute pages until done=true, then drop empty collection
 #    Repeat with --after / --after-hex from the previous report when needed.
-"$MAINTAIN" --home "$COW_HOME" drain-tip-residue \
+"$MAINTAIN" --home "$DRAIN_HOME" drain-tip-residue \
   --collection headers --execute --drop-empty-collection --json --limit 5000
 
-# 5) Confirm residue gone on the CoW tree
-du -sh "$COW_HOME/data/data/field_tip_headers" 2>/dev/null || echo "field_tip_headers absent (expected after drop)"
-# Optional: boot an ephemeral lastdbd against COW_HOME and re-check dual-read
-# tip-residue headers path / metrics stay zero under a short smoke query load.
+# 5) Confirm residue gone
+du -sh "$DRAIN_HOME/data/data/field_tip_headers" 2>/dev/null || echo "field_tip_headers absent (expected after drop)"
 ```
 
 Report fields that matter:
@@ -96,10 +89,11 @@ Per key under `--execute`:
 ## VERIFY (this card)
 
 - Unit: `cargo test -p fold_db --lib drain_tip_residue_copies_deletes_and_drops_empty_collection`
-- CoW: dry-run + execute + `collection_dropped=true` (or already-empty drop).
+- Rehearsal on a stopped synthetic home: dry-run + execute +
+  `collection_dropped=true` (or already-empty drop).
 - Primary untouched: no exclusive open of `~/.lastdb` without Tom clearance.
 - Dual-read on primary already reporting `headers=0` is the soak precondition,
-  not a substitute for CoW execute proof.
+  not a substitute for the dry run.
 
 ## Related
 

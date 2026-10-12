@@ -23,8 +23,8 @@ live write path. Status attributes them under plane `aside`.
 1. **No agent or maintain job deletes aside automatically.** Classification and
    status are read-only attribution.
 2. Reclaim is **Tom-gated one-shot** after a backup receipt exists for the home.
-3. Prefer CoW / offline copy for any destructive dry-run; never use live
-   `~/.lastdb` as the first proof surface for a delete script.
+3. Never copy `~/.lastdb` (Tom, 2026-10-12). A delete script starts with its
+   dry run, and the dry run is the default.
 4. Phase-1 cold plane stays under the **same** LastStore data root (K13). Aside
    is directory-level quarantine, not a second LastStore root.
 
@@ -49,6 +49,6 @@ live write path. Status attributes them under plane `aside`.
 ## Related: tip-residue compact (not aside)
 
 Empty `field_tip_headers` / `field_tip_versions` after copy-verify drain use
-`lastdb_local_maintain drain-tip-residue` (CoW first). See
+`lastdb_local_maintain drain-tip-residue` (dry run first). See
 `field-tip-headers-residue-compact.md`. That path drops an empty collection
 after drain; it is not the same as deleting a `.aside-*` quarantine dump.

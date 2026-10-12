@@ -98,7 +98,7 @@ receipt also comes from the primary.
 
 1. Remove dead code that sits on the same locks. Done for `rehydrate_flights`.
 2. Measure. Run both bars with `LASTDB_RESIDENT_MODE` set to `off`, `read` and
-   `write` on a copy of real data, and keep the numbers.
+   `write` on a fresh empty home with synthetic data, and keep the numbers.
 3. Teach the logical set the missing behavior: range coverage, the Skip-Delete
    overlay, and acked-but-unflushed tips that survive purge until the persist
    lane reports them durable. Keep the graph in place and verify the logical set
