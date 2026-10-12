@@ -169,7 +169,6 @@ impl PinLog {
         targets: &[SyncTarget],
         partitioner: &Option<SyncPartitioner>,
     ) -> Result<Vec<Vec<u8>>, String> {
-        // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         if markers.is_empty() {
             return Ok(Vec::new());
         }
@@ -212,66 +211,24 @@ impl PinLog {
         {
             let op_sha256 = capture_marker_op_sha256(&entry.op)?;
             if let Some(raw) = raw {
-                let receipt: CaptureMarkerAppendReceipt = serde_json::from_slice(&raw)
-                    .map_err(|error| format!("decode capture marker receipt: {error}"))?;
-                validate_capture_marker_receipt(&receipt, marker_key, &op_sha256)?;
-                let expected = SyncEngine::partition_entry(partitioner, entry, targets)
-                    .map_err(|error| format!("recheck capture marker destination: {error}"))?;
-                let [(target_idx, _)] = expected.as_slice() else {
-                    return Err("capture marker receipt has no unique current destination".into());
-                };
-                let target = targets.get(*target_idx).ok_or_else(|| {
-                    format!("capture marker target index {target_idx} is out of range")
-                })?;
-                if receipt.records[0].target_id != target_id_for_prefix(&target.prefix)
-                    || receipt.records[0].target_prefix != target.prefix
-                {
-                    return Err("capture marker receipt destination changed".into());
-                }
-                existing.push(receipt);
+                existing.push(check_existing_capture_marker_receipt(
+                    &raw,
+                    marker_key,
+                    entry,
+                    &op_sha256,
+                    targets,
+                    partitioner,
+                )?);
                 continue;
             }
 
-            let partitioned = SyncEngine::partition_entry(partitioner, entry, targets)
-                .map_err(|error| format!("partition capture marker: {error}"))?;
-            let mut marker_records = Vec::new();
-            for (target_idx, sub_entry) in partitioned {
-                let target = targets.get(target_idx).ok_or_else(|| {
-                    format!("capture marker target index {target_idx} is out of range")
-                })?;
-                let target_id = target_id_for_prefix(&target.prefix);
-                if !active_ids.contains(&target_id) {
-                    return Err(format!(
-                        "capture marker target '{}' has no active mutation-log runtime",
-                        target.label
-                    ));
-                }
-                let record = PinLogRecord {
-                    model_version: PIN_LOG_MODEL_VERSION,
-                    target_id,
-                    target_label: target.label.clone(),
-                    target_prefix: target.prefix.clone(),
-                    writer_id: sub_entry.device_id.clone(),
-                    frontier_after: sub_entry.seq,
-                    timestamp_ms: sub_entry.timestamp_ms,
-                    entry: sub_entry,
-                };
-                row_bytes = row_bytes.saturating_add(
-                    pin_log_entry_key(&record.target_id, record.frontier_after).len()
-                        + serde_json::to_vec(&record)
-                            .map_err(|error| format!("encode capture marker target row: {error}"))?
-                            .len(),
-                );
-                if row_bytes > CAPTURE_MARKER_BATCH_MAX_ROW_BYTES {
-                    return Err(format!(
-                        "capture marker batch exceeds {CAPTURE_MARKER_BATCH_MAX_ROW_BYTES} serialized target-row bytes"
-                    ));
-                }
-                marker_records.push(record);
-            }
-            if marker_records.is_empty() {
-                return Err("capture marker reached no required mutation-log target".into());
-            }
+            let marker_records = build_capture_marker_records(
+                entry,
+                targets,
+                partitioner,
+                &active_ids,
+                &mut row_bytes,
+            )?;
             let receipt = CaptureMarkerAppendReceipt {
                 version: CAPTURE_MARKER_RECEIPT_VERSION,
                 marker_key: marker_key.clone(),
@@ -290,9 +247,37 @@ impl PinLog {
             records.extend(marker_records);
         }
 
-        // An earlier flush may have left the marker in the re-export plane.
-        // A published row can be absent because confirmed rows are truncated.
-        // A missing, unpublished row is repaired from its durable receipt.
+        self.repair_existing_capture_receipts(&store, existing, &mut records, &mut row_bytes)
+            .await?;
+        let floor_bytes = if records.is_empty() {
+            0
+        } else {
+            PIN_LOG_APPENDED_F_KEY.len() + 8
+        };
+        if row_bytes
+            .saturating_add(receipt_bytes)
+            .saturating_add(floor_bytes)
+            > CAPTURE_MARKER_BATCH_MAX_DURABLE_BYTES
+        {
+            return Err(format!(
+                "capture marker batch exceeds {CAPTURE_MARKER_BATCH_MAX_DURABLE_BYTES} durable bytes"
+            ));
+        }
+        self.persist_pin_log_records_with_receipts(&records, receipt_puts)
+            .await?;
+        Ok(markers.iter().map(|(key, _)| key.clone()).collect())
+    }
+
+    /// An earlier flush may have left the marker in the re-export plane.
+    /// A published row can be absent because confirmed rows are truncated.
+    /// A missing, unpublished row is repaired from its durable receipt.
+    async fn repair_existing_capture_receipts(
+        &self,
+        store: &std::sync::Arc<dyn crate::storage::traits::KvStore>,
+        existing: Vec<CaptureMarkerAppendReceipt>,
+        records: &mut Vec<PinLogRecord>,
+        row_bytes: &mut usize,
+    ) -> Result<(), String> {
         for receipt in existing {
             let keys = receipt
                 .records
@@ -319,7 +304,7 @@ impl PinLog {
                 }
                 let published = self.read_published_f_strict(&record.target_id).await?;
                 if published.get(&record.writer_id).copied().unwrap_or(0) < record.frontier_after {
-                    row_bytes = row_bytes.saturating_add(
+                    *row_bytes = (*row_bytes).saturating_add(
                         pin_log_entry_key(&record.target_id, record.frontier_after).len()
                             + serde_json::to_vec(&record)
                                 .map_err(|error| {
@@ -327,7 +312,7 @@ impl PinLog {
                                 })?
                                 .len(),
                     );
-                    if row_bytes > CAPTURE_MARKER_BATCH_MAX_ROW_BYTES {
+                    if *row_bytes > CAPTURE_MARKER_BATCH_MAX_ROW_BYTES {
                         return Err(format!(
                             "capture marker batch exceeds {CAPTURE_MARKER_BATCH_MAX_ROW_BYTES} serialized target-row bytes"
                         ));
@@ -336,22 +321,6 @@ impl PinLog {
                 }
             }
         }
-        let floor_bytes = if records.is_empty() {
-            0
-        } else {
-            PIN_LOG_APPENDED_F_KEY.len() + 8
-        };
-        if row_bytes
-            .saturating_add(receipt_bytes)
-            .saturating_add(floor_bytes)
-            > CAPTURE_MARKER_BATCH_MAX_DURABLE_BYTES
-        {
-            return Err(format!(
-                "capture marker batch exceeds {CAPTURE_MARKER_BATCH_MAX_DURABLE_BYTES} durable bytes"
-            ));
-        }
-        self.persist_pin_log_records_with_receipts(&records, receipt_puts)
-            .await?;
-        Ok(markers.iter().map(|(key, _)| key.clone()).collect())
+        Ok(())
     }
 }

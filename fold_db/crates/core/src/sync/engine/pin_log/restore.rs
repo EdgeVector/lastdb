@@ -151,8 +151,54 @@ impl SyncEngine {
         progress: Option<&RestoreProgress>,
         skip_writer: Option<&str>,
     ) -> SyncResult<Vec<MutationLogSegment>> {
-        // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         progress::phase(progress, RestorePhase::TailDownload);
+        let candidates = self
+            .list_mutation_log_download_candidates(
+                target,
+                incorporated_frontier,
+                progress,
+                skip_writer,
+            )
+            .await?;
+        let candidate_count = candidates.len();
+        let download_started = std::time::Instant::now();
+        let (mut segments, downloaded) = self
+            .download_mutation_log_candidate_batches(
+                target,
+                &candidates,
+                incorporated_frontier,
+                progress,
+            )
+            .await?;
+        if skip_writer.is_some() {
+            tracing::info!(
+                target: "fold_db::sync::mutation_log",
+                target_label = %target.label,
+                candidates = candidate_count,
+                downloaded,
+                kept = segments.len(),
+                download_ms = download_started.elapsed().as_millis() as u64,
+                "peer-apply log download"
+            );
+        }
+        segments.sort_by(|a, b| {
+            a.segment
+                .writer_id
+                .cmp(&b.segment.writer_id)
+                .then(a.segment.through_id.cmp(&b.segment.through_id))
+        });
+        Ok(segments)
+    }
+
+    /// List the log objects for a restore download and build the
+    /// per-segment candidates that the frontier does not already cover.
+    async fn list_mutation_log_download_candidates(
+        &self,
+        target: &SyncTarget,
+        incorporated_frontier: &Frontier,
+        progress: Option<&RestoreProgress>,
+        skip_writer: Option<&str>,
+    ) -> SyncResult<Vec<(String, String, MutationLogSegmentId)>> {
         let list_started = std::time::Instant::now();
         let objects = match skip_writer {
             Some(writer) => {
@@ -205,8 +251,18 @@ impl SyncEngine {
             .collect::<Result<Vec<_>, String>>()
             .map_err(SyncError::Storage)?;
         progress::update(progress, |p| p.tail_objects_total = Some(candidates.len()));
-        let candidate_count = candidates.len();
-        let download_started = std::time::Instant::now();
+        Ok(candidates)
+    }
+
+    /// Presign and download the candidate segments in typed and legacy
+    /// batches. Return the kept segments and the count of downloaded objects.
+    async fn download_mutation_log_candidate_batches(
+        &self,
+        target: &SyncTarget,
+        candidates: &[(String, String, MutationLogSegmentId)],
+        incorporated_frontier: &Frontier,
+        progress: Option<&RestoreProgress>,
+    ) -> SyncResult<(Vec<MutationLogSegment>, usize)> {
         let mut downloaded = 0usize;
         let mut segments = Vec::with_capacity(candidates.len());
         // Reuse the ordinary presign batch size so restore does not invent a
@@ -282,24 +338,7 @@ impl SyncEngine {
                 }
             }
         }
-        if skip_writer.is_some() {
-            tracing::info!(
-                target: "fold_db::sync::mutation_log",
-                target_label = %target.label,
-                candidates = candidate_count,
-                downloaded,
-                kept = segments.len(),
-                download_ms = download_started.elapsed().as_millis() as u64,
-                "peer-apply log download"
-            );
-        }
-        segments.sort_by(|a, b| {
-            a.segment
-                .writer_id
-                .cmp(&b.segment.writer_id)
-                .then(a.segment.through_id.cmp(&b.segment.through_id))
-        });
-        Ok(segments)
+        Ok((segments, downloaded))
     }
 
     /// Production restore phase 2: after LastStore S0 is installed on this

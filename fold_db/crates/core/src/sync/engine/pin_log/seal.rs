@@ -134,7 +134,6 @@ pub(super) async fn seal_transaction_group(
     record: &PinLogRecord,
     crypto: &Arc<dyn CryptoProvider>,
 ) -> Result<Vec<MutationLogSegment>, String> {
-    // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
     let LogOp::MutationIntent { mutations } = &record.entry.op else {
         return Err("transaction group requires a MutationIntent".to_string());
     };
@@ -157,18 +156,7 @@ pub(super) async fn seal_transaction_group(
     } else {
         record.writer_id.as_str()
     };
-    let mut by_schema: BTreeMap<String, Vec<TransactionGroupIndexedMutation>> = BTreeMap::new();
-    for (index, mutation) in mutations.iter().cloned().enumerate() {
-        let original_index = u32::try_from(index)
-            .map_err(|_| "transaction group operation index exceeds u32".to_string())?;
-        by_schema
-            .entry(mutation.schema_name.trim().to_string())
-            .or_default()
-            .push(TransactionGroupIndexedMutation {
-                original_index,
-                mutation,
-            });
-    }
+    let by_schema = group_transaction_mutations_by_schema(mutations)?;
 
     let mut objects = Vec::with_capacity(by_schema.len() + 1);
     let mut shard_refs = Vec::with_capacity(by_schema.len());
@@ -244,6 +232,26 @@ pub(super) async fn seal_transaction_group(
         payload: manifest_payload,
     });
     Ok(objects)
+}
+
+/// Group a transaction's mutations by trimmed schema name, keeping each
+/// mutation's original index.
+fn group_transaction_mutations_by_schema(
+    mutations: &[crate::sync::log::MutationEnvelope],
+) -> Result<BTreeMap<String, Vec<TransactionGroupIndexedMutation>>, String> {
+    let mut by_schema: BTreeMap<String, Vec<TransactionGroupIndexedMutation>> = BTreeMap::new();
+    for (index, mutation) in mutations.iter().cloned().enumerate() {
+        let original_index = u32::try_from(index)
+            .map_err(|_| "transaction group operation index exceeds u32".to_string())?;
+        by_schema
+            .entry(mutation.schema_name.trim().to_string())
+            .or_default()
+            .push(TransactionGroupIndexedMutation {
+                original_index,
+                mutation,
+            });
+    }
+    Ok(by_schema)
 }
 
 /// Group one cycle's sealed publish units into as few cloud upload calls as
