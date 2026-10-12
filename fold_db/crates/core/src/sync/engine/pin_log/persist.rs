@@ -14,50 +14,13 @@ impl PinLog {
         records: &[PinLogRecord],
         receipts: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> Result<(), String> {
-        // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         if records.is_empty() && receipts.is_empty() {
             return Ok(());
         }
         let _append = self.append_lock.lock().await;
         let store = self.pin_log_store().await?;
-        let mut allocation_floor = None;
-        if let Some(mut frontier) = records.iter().map(|record| record.frontier_after).max() {
-            if let Some(raw) = store
-                .get(PIN_LOG_APPENDED_F_KEY)
-                .await
-                .map_err(|e| format!("read durable pin-log allocation floor: {e}"))?
-            {
-                let bytes: [u8; 8] = raw.try_into().map_err(|raw: Vec<u8>| {
-                    format!(
-                        "decode durable pin-log allocation floor: expected 8 bytes, got {}",
-                        raw.len()
-                    )
-                })?;
-                frontier = frontier.max(u64::from_be_bytes(bytes));
-            }
-            allocation_floor = Some((
-                PIN_LOG_APPENDED_F_KEY.to_vec(),
-                frontier.to_be_bytes().to_vec(),
-            ));
-        }
-        let mut row_items = Vec::with_capacity(records.len());
-        let mut stats = Vec::with_capacity(records.len());
-        for record in records {
-            let bytes = serde_json::to_vec(record)
-                .map_err(|e| format!("encode durable pin log entry: {e}"))?;
-            stats.push((
-                record.target_id.clone(),
-                record.target_label.clone(),
-                record.target_prefix.clone(),
-                record.frontier_after,
-                record.timestamp_ms,
-                bytes.len() as u64,
-            ));
-            row_items.push((
-                pin_log_entry_key(&record.target_id, record.frontier_after),
-                bytes,
-            ));
-        }
+        let allocation_floor = Self::next_allocation_floor(&store, records).await?;
+        let (row_items, row_bytes) = Self::encode_pin_log_rows(records)?;
         if receipts.is_empty() {
             // The ordinary append and receipt-repair path retains one group
             // flush. Any repaired receipt already has a durable floor.
@@ -75,59 +38,120 @@ impl PinLog {
                 .await
                 .map_err(|e| format!("flush durable pin log group: {e}"))?;
         } else {
-            // LastStore has no cross-group WAL crash atomicity. Confirm the
-            // allocation floor before a receipt can survive a crash; confirm
-            // every receipt before any target row can survive a crash. A
-            // retry repairs a missing row from the receipt. Three flushes
-            // cover the whole batch, regardless of its marker count.
             let floor = allocation_floor
                 .ok_or_else(|| "capture marker receipts have no allocation floor".to_string())?;
-            store
-                .put(&floor.0, floor.1)
-                .await
-                .map_err(|e| format!("reserve capture marker allocation floor: {e}"))?;
-            store
-                .flush()
-                .await
-                .map_err(|e| format!("flush capture marker allocation floor: {e}"))?;
-            store
-                .batch_put(receipts)
-                .await
-                .map_err(|e| format!("persist capture marker receipts: {e}"))?;
-            store
-                .flush()
-                .await
-                .map_err(|e| format!("flush capture marker receipts: {e}"))?;
-            store
-                .batch_put(row_items)
-                .await
-                .map_err(|e| format!("persist capture marker target rows: {e}"))?;
-            store
-                .flush()
-                .await
-                .map_err(|e| format!("flush capture marker target rows: {e}"))?;
+            Self::persist_receipt_batch(&store, floor, receipts, row_items).await?;
         }
+        self.record_durable_runtime_stats(records, &row_bytes).await;
+        Ok(())
+    }
 
+    /// The highest frontier ever allocated, as a `(key, value)` write. `None`
+    /// when `records` is empty.
+    async fn next_allocation_floor(
+        store: &std::sync::Arc<dyn crate::storage::traits::KvStore>,
+        records: &[PinLogRecord],
+    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, String> {
+        let Some(mut frontier) = records.iter().map(|record| record.frontier_after).max() else {
+            return Ok(None);
+        };
+        if let Some(raw) = store
+            .get(PIN_LOG_APPENDED_F_KEY)
+            .await
+            .map_err(|e| format!("read durable pin-log allocation floor: {e}"))?
+        {
+            let bytes: [u8; 8] = raw.try_into().map_err(|raw: Vec<u8>| {
+                format!(
+                    "decode durable pin-log allocation floor: expected 8 bytes, got {}",
+                    raw.len()
+                )
+            })?;
+            frontier = frontier.max(u64::from_be_bytes(bytes));
+        }
+        Ok(Some((
+            PIN_LOG_APPENDED_F_KEY.to_vec(),
+            frontier.to_be_bytes().to_vec(),
+        )))
+    }
+
+    /// Encode each record to its `(key, bytes)` row and its byte length.
+    #[allow(clippy::type_complexity)]
+    fn encode_pin_log_rows(
+        records: &[PinLogRecord],
+    ) -> Result<(Vec<(Vec<u8>, Vec<u8>)>, Vec<u64>), String> {
+        let mut row_items = Vec::with_capacity(records.len());
+        let mut row_bytes = Vec::with_capacity(records.len());
+        for record in records {
+            let bytes = serde_json::to_vec(record)
+                .map_err(|e| format!("encode durable pin log entry: {e}"))?;
+            row_bytes.push(bytes.len() as u64);
+            row_items.push((
+                pin_log_entry_key(&record.target_id, record.frontier_after),
+                bytes,
+            ));
+        }
+        Ok((row_items, row_bytes))
+    }
+
+    /// LastStore has no cross-group WAL crash atomicity. Confirm the
+    /// allocation floor before a receipt can survive a crash; confirm
+    /// every receipt before any target row can survive a crash. A
+    /// retry repairs a missing row from the receipt. Three flushes
+    /// cover the whole batch, regardless of its marker count.
+    async fn persist_receipt_batch(
+        store: &std::sync::Arc<dyn crate::storage::traits::KvStore>,
+        floor: (Vec<u8>, Vec<u8>),
+        receipts: Vec<(Vec<u8>, Vec<u8>)>,
+        row_items: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<(), String> {
+        store
+            .put(&floor.0, floor.1)
+            .await
+            .map_err(|e| format!("reserve capture marker allocation floor: {e}"))?;
+        store
+            .flush()
+            .await
+            .map_err(|e| format!("flush capture marker allocation floor: {e}"))?;
+        store
+            .batch_put(receipts)
+            .await
+            .map_err(|e| format!("persist capture marker receipts: {e}"))?;
+        store
+            .flush()
+            .await
+            .map_err(|e| format!("flush capture marker receipts: {e}"))?;
+        store
+            .batch_put(row_items)
+            .await
+            .map_err(|e| format!("persist capture marker target rows: {e}"))?;
+        store
+            .flush()
+            .await
+            .map_err(|e| format!("flush capture marker target rows: {e}"))
+    }
+
+    /// Fold the freshly durable records into the per-target runtime counters.
+    async fn record_durable_runtime_stats(&self, records: &[PinLogRecord], row_bytes: &[u64]) {
         let mut state = self.state.lock().await;
-        for (target_id, target_label, target_prefix, frontier, ts, bytes) in stats {
-            let runtime = state.entry(target_id.clone()).or_insert_with(|| {
+        for (record, bytes) in records.iter().zip(row_bytes) {
+            let runtime = state.entry(record.target_id.clone()).or_insert_with(|| {
                 PinLogRuntime::new(
-                    target_id,
-                    target_label.clone(),
-                    target_prefix.clone(),
+                    record.target_id.clone(),
+                    record.target_label.clone(),
+                    record.target_prefix.clone(),
                     0,
                     0,
                     false,
                 )
             });
-            runtime.target_label = target_label;
-            runtime.target_prefix = target_prefix;
-            runtime.last_durable_frontier = runtime.last_durable_frontier.max(frontier);
+            runtime.target_label = record.target_label.clone();
+            runtime.target_prefix = record.target_prefix.clone();
+            runtime.last_durable_frontier =
+                runtime.last_durable_frontier.max(record.frontier_after);
             runtime.entry_count += 1;
             runtime.byte_count += bytes;
-            runtime.last_durable_at_ms = Some(ts);
+            runtime.last_durable_at_ms = Some(record.timestamp_ms);
         }
-        Ok(())
     }
 
     /// Read **at most `want`** pending pin-log records for `target`, paging the
@@ -173,7 +197,6 @@ impl PinLog {
         pending_byte_budget: usize,
         row_budget: usize,
     ) -> Result<PendingPinLogPage, String> {
-        // lint:fn-size-ok moved verbatim from pin_log.rs; splitting this function is separate work.
         let target_id = target_id_for_prefix(&target.prefix);
         let prefix = pin_log_target_prefix(&target_id).into_bytes();
         let end = prefix_upper_bound(&prefix).ok_or_else(|| {
@@ -214,40 +237,19 @@ impl PinLog {
             for (idx, (key, value)) in rows.into_iter().enumerate() {
                 page.rows_scanned += 1;
                 next_cursor = Some(key_after(&key));
-                match serde_json::from_slice::<PinLogRecord>(&value) {
-                    Ok(record) => {
-                        if is_pending(&record) {
-                            if pending_byte_budget > 0
-                                && pending_bytes > 0
-                                && pending_bytes.saturating_add(value.len()) > pending_byte_budget
-                            {
-                                page.scan_complete = false;
-                                return Ok(page);
-                            }
-                            pending_bytes = pending_bytes.saturating_add(value.len());
-                            page.records.push(record);
-                            if page.records.len() >= want {
-                                page.scan_complete = false;
-                                return Ok(page);
-                            }
-                        } else {
-                            page.not_pending_frontiers.push(record.frontier_after);
-                        }
-                    }
-                    Err(e) if final_page && idx == last_idx => {
-                        tracing::warn!(
-                            target: "fold_db::sync::pin_log",
-                            key = %String::from_utf8_lossy(&key),
-                            error = %e,
-                            "ignoring corrupt trailing durable pin log record"
-                        );
-                    }
-                    Err(e) => {
-                        return Err(format!(
-                            "decode durable pin log record {}: {e}",
-                            String::from_utf8_lossy(&key)
-                        ));
-                    }
+                let tolerate_corrupt = final_page && idx == last_idx;
+                let stop = Self::absorb_pending_row(
+                    &mut page,
+                    &mut pending_bytes,
+                    is_pending,
+                    want,
+                    pending_byte_budget,
+                    &key,
+                    &value,
+                    tolerate_corrupt,
+                )?;
+                if stop {
+                    return Ok(page);
                 }
                 if page.rows_scanned >= row_budget {
                     page.scan_complete = false;
@@ -266,6 +268,56 @@ impl PinLog {
                 // ordering contract from spinning forever on the same page.
                 None => return Ok(page),
             }
+        }
+    }
+
+    /// Classify one scanned row into `page`. Returns `true` when the scan must
+    /// stop because the batch or byte budget is full (`scan_complete` cleared).
+    #[allow(clippy::too_many_arguments)]
+    fn absorb_pending_row(
+        page: &mut PendingPinLogPage,
+        pending_bytes: &mut usize,
+        is_pending: &(dyn Fn(&PinLogRecord) -> bool + Sync),
+        want: usize,
+        pending_byte_budget: usize,
+        key: &[u8],
+        value: &[u8],
+        tolerate_corrupt: bool,
+    ) -> Result<bool, String> {
+        match serde_json::from_slice::<PinLogRecord>(value) {
+            Ok(record) => {
+                if !is_pending(&record) {
+                    page.not_pending_frontiers.push(record.frontier_after);
+                    return Ok(false);
+                }
+                if pending_byte_budget > 0
+                    && *pending_bytes > 0
+                    && pending_bytes.saturating_add(value.len()) > pending_byte_budget
+                {
+                    page.scan_complete = false;
+                    return Ok(true);
+                }
+                *pending_bytes = pending_bytes.saturating_add(value.len());
+                page.records.push(record);
+                if page.records.len() >= want {
+                    page.scan_complete = false;
+                    return Ok(true);
+                }
+                Ok(false)
+            }
+            Err(e) if tolerate_corrupt => {
+                tracing::warn!(
+                    target: "fold_db::sync::pin_log",
+                    key = %String::from_utf8_lossy(key),
+                    error = %e,
+                    "ignoring corrupt trailing durable pin log record"
+                );
+                Ok(false)
+            }
+            Err(e) => Err(format!(
+                "decode durable pin log record {}: {e}",
+                String::from_utf8_lossy(key)
+            )),
         }
     }
 

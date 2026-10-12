@@ -1,7 +1,6 @@
 //! Public write entry points, batch pipeline orchestration, timing, finalize.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use crate::schema::types::Mutation;
 use crate::schema::{SchemaError, SchemaState};

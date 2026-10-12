@@ -12,6 +12,6 @@ pub(in crate::fold_db_core::mutation_manager) use apply_gate::{
     ApplyGateOutcome, PreparedSchemaDelta,
 };
 pub(in crate::fold_db_core::mutation_manager) use persist::{
-    DeferredLaneWriter, DeferredPersistJob, LanePersistJob, PurgeEnvelope, ResidentPurgeSlot,
-    StorageSlotPurgeEnvelope,
+    DeferredLaneWriter, DeferredPersistJob, LanePersistJob, MoleculeGateGuard, PurgeCompletion,
+    PurgeEnvelope, ResidentPurgeSlot, StorageSlotPurgeEnvelope,
 };

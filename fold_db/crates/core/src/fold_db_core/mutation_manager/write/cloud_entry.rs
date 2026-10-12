@@ -45,7 +45,6 @@ impl MutationManager {
         .await
     }
 
-    // lint:fn-size-ok verbatim move from write.rs; splitting this function is separate work
     pub(super) async fn write_mutations_batch_with_receipt_cloud_admitted(
         &self,
         mut mutations: Vec<Mutation>,
@@ -98,31 +97,7 @@ impl MutationManager {
         }
         let result = {
             {
-                // `sync_capture` contains only envelope encode and bounded queue
-                // admission. Marker and log storage run after acknowledgment.
-                let encode_started = std::time::Instant::now();
-                let mut envelopes =
-                    crate::sync::mutation_intent::encode_mutations(&mutations, storage_prefix);
-                // An atom id in the envelope is what authorizes
-                // `strip_sot_field_values` to drop the inline body, so an id for a
-                // field this pipeline will never store is a value the log throws
-                // away and the seal can never read back. Keep only the fields
-                // `prepare_atoms_and_key_values` will actually create an atom for.
-                crate::sync::mutation_intent::retain_persisted_field_atom_uuids(
-                    &mut envelopes,
-                    &mutations,
-                    |schema_name| {
-                        self.schema_manager
-                            .get_schema_metadata(schema_name)
-                            .ok()
-                            .flatten()
-                            .map(|schema| schema.runtime_fields.keys().cloned().collect())
-                    },
-                );
-                crate::request_phases::add_phase(
-                    crate::request_phases::RequestPhase::SyncCapture,
-                    encode_started.elapsed(),
-                );
+                let envelopes = self.encode_capture_envelopes(&mutations, storage_prefix);
                 crate::sync::capture::capture_logical_commit_with_policy_and_author_clock(
                     self.capture_router(),
                     envelopes,
@@ -147,5 +122,39 @@ impl MutationManager {
         receipt.revision = revision;
         receipt.cloud = cloud;
         Ok(receipt)
+    }
+
+    /// Encode the capture envelopes for one logical commit.
+    fn encode_capture_envelopes(
+        &self,
+        mutations: &[Mutation],
+        storage_prefix: Option<&str>,
+    ) -> Vec<crate::sync::log::MutationEnvelope> {
+        // `sync_capture` contains only envelope encode and bounded queue
+        // admission. Marker and log storage run after acknowledgment.
+        let encode_started = std::time::Instant::now();
+        let mut envelopes =
+            crate::sync::mutation_intent::encode_mutations(mutations, storage_prefix);
+        // An atom id in the envelope is what authorizes
+        // `strip_sot_field_values` to drop the inline body, so an id for a
+        // field this pipeline will never store is a value the log throws
+        // away and the seal can never read back. Keep only the fields
+        // `prepare_atoms_and_key_values` will actually create an atom for.
+        crate::sync::mutation_intent::retain_persisted_field_atom_uuids(
+            &mut envelopes,
+            mutations,
+            |schema_name| {
+                self.schema_manager
+                    .get_schema_metadata(schema_name)
+                    .ok()
+                    .flatten()
+                    .map(|schema| schema.runtime_fields.keys().cloned().collect())
+            },
+        );
+        crate::request_phases::add_phase(
+            crate::request_phases::RequestPhase::SyncCapture,
+            encode_started.elapsed(),
+        );
+        envelopes
     }
 }
