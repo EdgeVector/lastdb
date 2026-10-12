@@ -2,6 +2,28 @@
 //!
 //! Product law: `concepts-lastdb-rehydrate`, `docs/lastdb-rehydrate.md`.
 //!
+//! ## Load-bearing: do not remove, merge, or "clean up" as unused
+//!
+//! This module holds three live systems. `LASTDB_RESIDENT_MODE=off` (the env
+//! default) does **not** mean the code is dead or experimental: the live node
+//! has run `write` mode (see `lastdb_node` restore `replay_tail`, which forces
+//! `off` only because a one-shot CLI has no persist worker).
+//!
+//! - [`ResidentGraph`] (`graph*`, `coverage`, `types`) is built by every
+//!   `DbOperations`, in every mode. Its per-slot revisions are the mutation
+//!   concurrency gate (`mutation_manager/molecules/apply_gate.rs`), and
+//!   protein sibling rebase reads tips from it. The mode only decides whether
+//!   reads go resident-first (`read`, `write`) and whether a mutation is
+//!   acknowledged on resident apply (`write`).
+//! - The persist lane (`lane*`, `ledger`) owns mutation persistence in every
+//!   mode.
+//! - [`logical_set::LogicalResidentSet`] is the always-on hot cache for tips
+//!   and atoms inside LastStore (`storage/laststore/logical_path/`). It is
+//!   **not** gated by the mode and is a separate cache from `ResidentGraph`.
+//!
+//! A third, byte-budgeted cache (`LASTDB_HASH_GROUP_WARM_BYTES`) covers the
+//! non-logical collections. Merging these is a design change, not cleanup.
+//!
 //! ## Fidelity
 //!
 //! What is in resident memory is **exactly** what will be written later.

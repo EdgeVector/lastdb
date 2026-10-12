@@ -132,6 +132,19 @@ is not checked until you touch it.
   needs `pip install tree-sitter==0.23.2 tree-sitter-rust==0.23.2`).
 - Brain: `preference-fold-code-size-limits`.
 
+## Not dead code: do not remove without the owner
+
+An env var that defaults to off does not mean the code is unused or
+experimental. Check what the live node runs before calling anything dead.
+
+- `fold_db/crates/core/src/resident/` (ResidentGraph, persist lane,
+  LogicalResidentSet) is production code. The live node has run
+  `LASTDB_RESIDENT_MODE=write`, and the graph is the mutation concurrency gate
+  in every mode. Read the module doc in `resident/mod.rs` and
+  `docs/lastdb-rehydrate.md` first.
+- Dead-code passes use a compiler cascade and a zero-reference scan. Nothing
+  else counts as proof.
+
 ## Ask the brain for anything project-specific
 
 CLAUDE.md holds commands only. For architecture, security model, build and CI
