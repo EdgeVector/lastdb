@@ -119,31 +119,6 @@ impl AuthClient {
         Ok(())
     }
 
-    /// Request an inbox or bulletin upload for an already staged binding.
-    /// The frozen record survives retries and never contains a private token.
-    pub async fn presign_recipient_delivery(
-        &self,
-        binding: &RecipientDeliveryBinding,
-    ) -> SyncResult<crate::sync::s3::PresignedUrl> {
-        if matches!(binding.target, RecipientDeliveryTarget::Messaging { .. }) {
-            return Err(held(
-                "messaging deliveries use the node messaging transport",
-            ));
-        }
-        let mut body = binding.target.request();
-        body["cloud_delivery_binding"] = serde_json::to_value(binding)?;
-        let value = self.post("/api/sync/presign", body).await?;
-        let response: super::PresignedResponse = serde_json::from_value(value)?;
-        if !response.ok {
-            return Err(held("the recipient delivery upload was refused"));
-        }
-        response
-            .urls
-            .into_iter()
-            .next()
-            .ok_or_else(|| held("the recipient upload grant is absent"))
-    }
-
     /// Call when the user creates a new explicit delivery, before its durable
     /// queue record. A ready recipient is fenced but never locally adopted.
     pub async fn prepare_recipient_delivery(
@@ -170,17 +145,6 @@ impl AuthClient {
             delivery_nonce: delivery_nonce.into(),
             target,
         })
-    }
-
-    /// The node's direct messaging transport also uses this admission just
-    /// before each request. Only sender adoption can change this local home.
-    pub async fn guard_recipient_delivery(
-        &self,
-        binding: &RecipientDeliveryBinding,
-        body: &mut Value,
-    ) -> SyncResult<()> {
-        body["cloud_delivery_binding"] = serde_json::to_value(binding)?;
-        self.guard_recipient_delivery_request(body).await
     }
 
     pub(super) async fn guard_recipient_delivery_request(

@@ -218,18 +218,6 @@ impl AuthClient {
         Ok(serde_json::from_value(value)?)
     }
 
-    /// Startup/reconnect admission runs before any upload preparation or peer
-    /// replay. Independent publishers also pass the request guard above.
-    pub async fn cloud_peer_preflight(&self, share_prefix: Option<&str>) -> SyncResult<()> {
-        let mut body = serde_json::json!({"action":"list_objects"});
-        if let Some(prefix) = share_prefix {
-            body["share_prefix"] = prefix.into();
-        } else {
-            self.apply_default_db_hash(&mut body);
-        }
-        self.cloud_scope_preflight(body).await.map(|_| ())
-    }
-
     pub(crate) async fn cloud_target_preflight(
         &self,
         target: &crate::sync::SyncTarget,
