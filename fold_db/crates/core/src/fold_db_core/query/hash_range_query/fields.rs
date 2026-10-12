@@ -1,6 +1,7 @@
 //! Field scans, predicate key matching, key ordering and exact-key queries.
 
 use super::*;
+use crate::json_order::compare_json_values;
 
 impl HashRangeQueryProcessor {
     pub(super) fn scan_fields(

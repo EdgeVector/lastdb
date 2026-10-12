@@ -49,7 +49,6 @@ use super::upload_policy_calc::{auto_budget, auto_concurrency, fixed_upload_poli
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
 
 /// Default RSS limit matching `lastdbd-memory-guard` (`LASTDBD_RSS_LIMIT_MB=6144`).
 pub const DEFAULT_RSS_LIMIT_MB: u64 = 6144;
@@ -443,53 +442,12 @@ pub fn sample_process_cpu_percent() -> Option<f64> {
 
 #[cfg(unix)]
 fn sample_process_cpu_percent_unix() -> Option<f64> {
-    struct Probe {
-        last_wall: Instant,
-        last_cpu_secs: f64,
-    }
-    static PROBE: OnceLock<Mutex<Option<Probe>>> = OnceLock::new();
-    let state = PROBE.get_or_init(|| Mutex::new(None));
-    let Ok(mut guard) = state.lock() else {
+    static PROBE: OnceLock<Mutex<crate::process_cpu::CpuProbe>> = OnceLock::new();
+    let probe = PROBE.get_or_init(|| Mutex::new(crate::process_cpu::CpuProbe::default()));
+    let Ok(mut guard) = probe.lock() else {
         return None;
     };
-    let wall = Instant::now();
-    let cpu = process_cpu_secs()?;
-    let out = match guard.as_ref() {
-        Some(prev) => {
-            let wall_delta = wall.duration_since(prev.last_wall).as_secs_f64();
-            let cpu_delta = cpu - prev.last_cpu_secs;
-            if wall_delta > 0.0 && cpu_delta >= 0.0 {
-                // Round to hundredths so status JSON stays stable.
-                Some(((cpu_delta / wall_delta) * 100.0 * 100.0).round() / 100.0)
-            } else {
-                None
-            }
-        }
-        None => None,
-    };
-    *guard = Some(Probe {
-        last_wall: wall,
-        last_cpu_secs: cpu,
-    });
-    out
-}
-
-#[cfg(unix)]
-fn process_cpu_secs() -> Option<f64> {
-    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-    // SAFETY: getrusage initializes the provided rusage struct on success.
-    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-    if rc != 0 {
-        return None;
-    }
-    // SAFETY: rc == 0 means getrusage initialized `usage`.
-    let usage = unsafe { usage.assume_init() };
-    Some(timeval_secs(usage.ru_utime) + timeval_secs(usage.ru_stime))
-}
-
-#[cfg(unix)]
-fn timeval_secs(tv: libc::timeval) -> f64 {
-    tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0)
+    guard.sample_percent()
 }
 
 /// Best-effort process RSS in bytes (macOS / Linux). `None` if unavailable.
