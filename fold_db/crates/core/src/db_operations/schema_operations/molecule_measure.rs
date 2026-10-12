@@ -7,7 +7,99 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use std::collections::{HashMap, HashSet};
 
-// lint:fn-size-ok verbatim move from schema_operations.rs; splitting this function is separate work
+/// Bytes of one tip row plus its atom and blob reference.
+struct MeasuredTip {
+    tip_key: String,
+    tip_bytes: u64,
+    atom_bytes: u64,
+    blob_bytes: u64,
+}
+
+async fn measure_tip(
+    atoms: &AtomStore,
+    molecule_uuid: &str,
+    storage_prefix: Option<&str>,
+    hash: &str,
+    range: &str,
+    record: &PerKeyRecord,
+) -> Result<MeasuredTip, SchemaError> {
+    let entry = &record.entry;
+    let tip_key = build_storage_key(
+        storage_prefix,
+        &molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range),
+    );
+    let tip_bytes =
+        crate::db_operations::keep_small::molecule_counter_row_bytes(&record).map_err(|error| {
+            SchemaError::InvalidData(format!(
+                "serialize storage counter tip {molecule_uuid}: {error}"
+            ))
+        })?;
+    let atom = atoms
+        .get_atom_by_uuid(&entry.atom_uuid, storage_prefix)
+        .await?
+        .ok_or_else(|| {
+            SchemaError::InvalidData(format!(
+                "storage counter bootstrap found missing atom {} for molecule {molecule_uuid}",
+                entry.atom_uuid
+            ))
+        })?;
+    let atom_bytes = serde_json::to_vec(&atom)
+        .map_err(|error| {
+            SchemaError::InvalidData(format!(
+                "serialize storage counter atom {}: {error}",
+                entry.atom_uuid
+            ))
+        })?
+        .len() as u64;
+    let blob_bytes =
+        crate::atom::file_pointer::blob_logical_bytes_of_atom(atom.content(), atom.metadata())
+            .ok_or_else(|| {
+                SchemaError::InvalidData(format!(
+            "storage counter bootstrap found blob reference without a logical size in atom {}",
+            entry.atom_uuid
+        ))
+            })?;
+    Ok(MeasuredTip {
+        tip_key,
+        tip_bytes,
+        atom_bytes,
+        blob_bytes,
+    })
+}
+
+async fn measure_structural_rows(
+    atoms: &AtomStore,
+    molecule_uuid: &str,
+    storage_prefix: Option<&str>,
+    counter: &mut MoleculeStorageCounter,
+    key_bytes: &mut HashMap<String, u64>,
+) -> Result<(), SchemaError> {
+    let structural_keys = vec![
+        build_storage_key(
+            storage_prefix,
+            &molecule_key_codec::header_key(molecule_uuid),
+        ),
+        build_storage_key(
+            storage_prefix,
+            &molecule_key_codec::order_count_key(molecule_uuid),
+        ),
+    ];
+    for key in structural_keys {
+        if let Some(value) = atoms
+            .raw()
+            .get_item::<serde_json::Value>(&key)
+            .await
+            .map_err(|e| SchemaError::InvalidData(format!("read storage counter row {key}: {e}")))?
+        {
+            let bytes =
+                crate::db_operations::keep_small::molecule_counter_row_bytes(&value).unwrap_or(0);
+            counter.molecule_metadata_bytes = counter.molecule_metadata_bytes.saturating_add(bytes);
+            key_bytes.insert(key, bytes);
+        }
+    }
+    Ok(())
+}
+
 pub(super) async fn measure_molecule_counter(
     atoms: &AtomStore,
     molecule_uuid: &str,
@@ -39,41 +131,12 @@ pub(super) async fn measure_molecule_counter(
             entry: entry.clone(),
             meta,
         };
-        let tip_key = build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::hash_range_record_key(molecule_uuid, &hash, &range),
-        );
-        let tip_bytes = crate::db_operations::keep_small::molecule_counter_row_bytes(&record)
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "serialize storage counter tip {molecule_uuid}: {error}"
-                ))
-            })?;
-        let atom = atoms
-            .get_atom_by_uuid(&entry.atom_uuid, storage_prefix)
-            .await?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "storage counter bootstrap found missing atom {} for molecule {molecule_uuid}",
-                    entry.atom_uuid
-                ))
-            })?;
-        let atom_bytes = serde_json::to_vec(&atom)
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "serialize storage counter atom {}: {error}",
-                    entry.atom_uuid
-                ))
-            })?
-            .len() as u64;
-        let blob_bytes =
-            crate::atom::file_pointer::blob_logical_bytes_of_atom(atom.content(), atom.metadata())
-                .ok_or_else(|| {
-                    SchemaError::InvalidData(format!(
-                "storage counter bootstrap found blob reference without a logical size in atom {}",
-                entry.atom_uuid
-            ))
-                })?;
+        let MeasuredTip {
+            tip_key,
+            tip_bytes,
+            atom_bytes,
+            blob_bytes,
+        } = measure_tip(atoms, molecule_uuid, storage_prefix, &hash, &range, &record).await?;
         counter.active_slot_count = counter.active_slot_count.saturating_add(1);
         counter.active_atom_value_bytes =
             counter.active_atom_value_bytes.saturating_add(atom_bytes);
@@ -92,29 +155,14 @@ pub(super) async fn measure_molecule_counter(
         );
     }
 
-    let structural_keys = vec![
-        build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::header_key(molecule_uuid),
-        ),
-        build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::order_count_key(molecule_uuid),
-        ),
-    ];
-    for key in structural_keys {
-        if let Some(value) = atoms
-            .raw()
-            .get_item::<serde_json::Value>(&key)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("read storage counter row {key}: {e}")))?
-        {
-            let bytes =
-                crate::db_operations::keep_small::molecule_counter_row_bytes(&value).unwrap_or(0);
-            counter.molecule_metadata_bytes = counter.molecule_metadata_bytes.saturating_add(bytes);
-            key_bytes.insert(key, bytes);
-        }
-    }
+    measure_structural_rows(
+        atoms,
+        molecule_uuid,
+        storage_prefix,
+        &mut counter,
+        &mut key_bytes,
+    )
+    .await?;
     measure_molecule_scoped_rows(
         atoms,
         molecule_uuid,

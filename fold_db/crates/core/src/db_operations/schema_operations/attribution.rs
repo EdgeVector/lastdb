@@ -30,7 +30,6 @@ impl DbOperations {
     /// this only as the first layer of a resumable attribution walk; it must
     /// still classify all descendant and unrooted physical objects before it
     /// can complete the epoch.
-    // lint:fn-size-ok verbatim move from schema_operations.rs; splitting this function is separate work
     pub async fn attribute_schema_root_molecules(
         &self,
         epoch_id: &str,
@@ -42,6 +41,42 @@ impl DbOperations {
             ));
         }
         let schemas = self.get_all_schemas().await?;
+        let paths_by_molecule = Self::schema_root_paths_by_molecule(&schemas);
+
+        let ledger = self.attribution();
+        let meters = self.atoms().keep_small();
+        let pending_protein_folds = meters.pending_protein_folds();
+        let mut report = SchemaRootAttributionReport {
+            schemas_read: schemas.len() as u64,
+            molecule_roots: 0,
+            root_paths_written: 0,
+            size_complete: meters.all_counter_domains_complete() && pending_protein_folds == 0,
+            missing_molecule_counters: 0,
+            pending_protein_folds,
+            logical_value_bytes: 0,
+            structure_bytes: 0,
+            retained_history_bytes: 0,
+        };
+        for (molecule_id, paths) in paths_by_molecule {
+            self.attribute_molecule_root(
+                epoch_id,
+                source_sequence,
+                &molecule_id,
+                paths,
+                meters,
+                &mut report,
+            )
+            .await?;
+        }
+        // A completed page must survive before its epoch cursor advances.
+        ledger.flush().await?;
+        Ok(report)
+    }
+
+    /// Group the catalog's schema-to-molecule edges by molecule, tagged with the root kind.
+    fn schema_root_paths_by_molecule(
+        schemas: &std::collections::HashMap<String, crate::schema::Schema>,
+    ) -> BTreeMap<String, Vec<(AttributionRootKind, String, String)>> {
         // A schema the catalog does not mark `User` is a system-owned seed
         // (`SystemSeed`/`StarterSeed`): its molecules are reachable only
         // because the service itself depends on or ships them, not because a
@@ -49,7 +84,7 @@ impl DbOperations {
         // than `Schema`.
         let mut paths_by_molecule: BTreeMap<String, Vec<(AttributionRootKind, String, String)>> =
             BTreeMap::new();
-        for (schema_name, schema) in &schemas {
+        for (schema_name, schema) in schemas {
             let root_kind = if schema.source == SchemaSource::User {
                 AttributionRootKind::Schema
             } else {
@@ -68,81 +103,75 @@ impl DbOperations {
                     .push((root_kind, root_id, edge_path_digest));
             }
         }
+        paths_by_molecule
+    }
 
+    /// Write one molecule's root paths and its attribution record.
+    async fn attribute_molecule_root(
+        &self,
+        epoch_id: &str,
+        source_sequence: u64,
+        molecule_id: &str,
+        mut paths: Vec<(AttributionRootKind, String, String)>,
+        meters: &crate::db_operations::keep_small::KeepSmallMeters,
+        report: &mut SchemaRootAttributionReport,
+    ) -> Result<(), SchemaError> {
         let ledger = self.attribution();
-        let meters = self.atoms().keep_small();
-        let pending_protein_folds = meters.pending_protein_folds();
-        let mut report = SchemaRootAttributionReport {
-            schemas_read: schemas.len() as u64,
-            molecule_roots: 0,
-            root_paths_written: 0,
-            size_complete: meters.all_counter_domains_complete() && pending_protein_folds == 0,
-            missing_molecule_counters: 0,
-            pending_protein_folds,
-            logical_value_bytes: 0,
-            structure_bytes: 0,
-            retained_history_bytes: 0,
-        };
-        for (molecule_id, paths) in paths_by_molecule {
-            let mut paths = paths;
-            paths.sort();
-            paths.dedup();
-            for (root_kind, root_id, edge_path_digest) in &paths {
-                ledger
-                    .put_attribution_path(&AttributionPath::new(
-                        epoch_id,
-                        AttributionObjectKind::Molecule,
-                        &molecule_id,
-                        *root_kind,
-                        root_id,
-                        edge_path_digest,
-                    ))
-                    .await?;
-                report.root_paths_written = report.root_paths_written.saturating_add(1);
-            }
-            let path_set_digest =
-                attribution_digest(paths.iter().map(|(root_kind, root_id, digest)| {
-                    format!("{root_kind:?}\0{root_id}\0{digest}")
-                }));
-            let classification = classification_for_roots(paths.iter().map(|(kind, _, _)| kind));
-            let size = meters.molecule_counter(&molecule_id).map(|counter| {
-                let size = AttributionSize {
-                    logical_value_bytes: counter.logical_value_bytes(),
-                    structure_bytes: counter.structure_bytes(),
-                    retained_history_bytes: counter.retained_history_bytes,
-                };
-                report.logical_value_bytes = report
-                    .logical_value_bytes
-                    .saturating_add(size.logical_value_bytes);
-                report.structure_bytes =
-                    report.structure_bytes.saturating_add(size.structure_bytes);
-                report.retained_history_bytes = report
-                    .retained_history_bytes
-                    .saturating_add(size.retained_history_bytes);
-                size
-            });
-            let mut record = AttributionRecord::attributed(
-                epoch_id,
-                AttributionObjectKind::Molecule,
-                &molecule_id,
-                classification,
-                paths.len() as u64,
-                path_set_digest,
-                source_sequence,
-            );
-            if let Some(size) = size {
-                record.size = Some(size);
-            } else {
-                report.size_complete = false;
-                report.missing_molecule_counters =
-                    report.missing_molecule_counters.saturating_add(1);
-            }
-            ledger.put_attribution_record(&record).await?;
-            report.molecule_roots = report.molecule_roots.saturating_add(1);
+        paths.sort();
+        paths.dedup();
+        for (root_kind, root_id, edge_path_digest) in &paths {
+            ledger
+                .put_attribution_path(&AttributionPath::new(
+                    epoch_id,
+                    AttributionObjectKind::Molecule,
+                    molecule_id,
+                    *root_kind,
+                    root_id,
+                    edge_path_digest,
+                ))
+                .await?;
+            report.root_paths_written = report.root_paths_written.saturating_add(1);
         }
-        // A completed page must survive before its epoch cursor advances.
-        ledger.flush().await?;
-        Ok(report)
+        let path_set_digest = attribution_digest(
+            paths
+                .iter()
+                .map(|(root_kind, root_id, digest)| format!("{root_kind:?}\0{root_id}\0{digest}")),
+        );
+        let classification = classification_for_roots(paths.iter().map(|(kind, _, _)| kind));
+        let size = meters.molecule_counter(molecule_id).map(|counter| {
+            let size = AttributionSize {
+                logical_value_bytes: counter.logical_value_bytes(),
+                structure_bytes: counter.structure_bytes(),
+                retained_history_bytes: counter.retained_history_bytes,
+            };
+            report.logical_value_bytes = report
+                .logical_value_bytes
+                .saturating_add(size.logical_value_bytes);
+            report.structure_bytes = report.structure_bytes.saturating_add(size.structure_bytes);
+            report.retained_history_bytes = report
+                .retained_history_bytes
+                .saturating_add(size.retained_history_bytes);
+            size
+        });
+        let mut record = AttributionRecord::attributed(
+            epoch_id,
+            AttributionObjectKind::Molecule,
+            molecule_id,
+            classification,
+            paths.len() as u64,
+            path_set_digest,
+            source_sequence,
+        );
+        if let Some(size) = size {
+            record.size = Some(size);
+        } else {
+            report.size_complete = false;
+            report.missing_molecule_counters = report.missing_molecule_counters.saturating_add(1);
+        }
+        ledger.put_attribution_record(&record).await?;
+        report.molecule_roots = report.molecule_roots.saturating_add(1);
+
+        Ok(())
     }
 
     /// Attribute the node-local retention registry's own bookkeeping rows as
