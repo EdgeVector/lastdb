@@ -10,8 +10,8 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-type FileIdentity = (u32, u32, u64, u64, u64, u64, i64, i64, i64, i64);
-type DirectoryIdentity = (u32, u32, u64, u64);
+pub(super) type FileIdentity = (u32, u32, u64, u64, u64, u64, i64, i64, i64, i64);
+pub(super) type DirectoryIdentity = (u32, u32, u64, u64);
 
 fn file_identity(meta: &Metadata) -> FileIdentity {
     (
@@ -51,7 +51,7 @@ fn require_absent(path: &Path) -> Result<(), String> {
     }
 }
 
-fn guard_home(home: &Path) -> Result<Vec<DirectoryIdentity>, String> {
+pub(super) fn guard_home(home: &Path) -> Result<Vec<DirectoryIdentity>, String> {
     let temp = std::env::temp_dir()
         .canonicalize()
         .map_err(|_| "TEMP_ROOT_UNAVAILABLE")?;
@@ -97,7 +97,7 @@ fn schema_name() -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "SCHEMA_INPUT_NOT_UTF8".into())
 }
 
-fn identity_key(home: &Path) -> Result<(File, FileIdentity, E2eKeys), String> {
+pub(super) fn identity_key(home: &Path) -> Result<(File, FileIdentity, E2eKeys), String> {
     let path = home.join("identity.key");
     let before = std::fs::symlink_metadata(&path).map_err(|_| "IDENTITY_UNAVAILABLE")?;
     if !before.is_file()
@@ -129,7 +129,11 @@ fn identity_key(home: &Path) -> Result<(File, FileIdentity, E2eKeys), String> {
     result
 }
 
-fn identity_unchanged(home: &Path, file: &File, expected: FileIdentity) -> Result<(), String> {
+pub(super) fn identity_unchanged(
+    home: &Path,
+    file: &File,
+    expected: FileIdentity,
+) -> Result<(), String> {
     if file_identity(&file.metadata().map_err(|_| "IDENTITY_METADATA_FAILED")?) != expected
         || file_identity(
             &std::fs::symlink_metadata(home.join("identity.key"))

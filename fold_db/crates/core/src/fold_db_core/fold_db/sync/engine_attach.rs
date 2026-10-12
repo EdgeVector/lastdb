@@ -75,6 +75,13 @@ impl FoldDB {
             })
         });
         engine.set_photograph_restore_barrier(restore_barrier).await;
+        if self.preserve_retired_restore_intents {
+            engine
+                .set_retired_intent_preserver(
+                    self.retired_intent_preserver(Arc::clone(&materializer)),
+                )
+                .await;
+        }
         engine
             .set_mutation_intent_applier(self.mutation_intent_replay_applier(materializer))
             .await;

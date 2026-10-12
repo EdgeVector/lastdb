@@ -147,6 +147,7 @@ impl SyncEngine {
             schema_reloader: Arc::new(Mutex::new(None)),
             schema_replay_reloader: Arc::new(Mutex::new(None)),
             mutation_intent_applier: Arc::new(Mutex::new(None)),
+            retired_intent_preserver: Arc::new(Mutex::new(None)),
             mutation_intent_materializer: Arc::new(Mutex::new(None)),
             automatic_gc_atom_store: Arc::new(Mutex::new(None)),
             automatic_gc_pin_log_barrier: Arc::new(Mutex::new(())),

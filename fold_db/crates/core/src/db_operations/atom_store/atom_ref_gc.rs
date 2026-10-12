@@ -130,6 +130,9 @@ impl Default for AtomGcReapOptions {
 pub struct AtomGcReapReport {
     pub dry_run: bool,
     pub candidates_examined: u64,
+    /// Permanent references from an encrypted retired-intent outcome.
+    #[serde(default)]
+    pub retained_retired_intent_reference: u64,
     pub eligible: u64,
     pub atoms_deleted: u64,
     pub storage_keys_deleted: u64,
@@ -248,8 +251,12 @@ impl AtomStore {
             truncated: page.truncated,
             ..AtomGcReapReport::default()
         };
+        let retired_roots = self.retired_gc_page(&page, storage_prefix).await?;
         for queued in page.candidates {
             report.candidates_examined = report.candidates_examined.saturating_add(1);
+            if retired_roots.retains(&queued.atom_uuid, &mut report) {
+                continue;
+            }
             if options.now_unix_nanos < queued.eligible_at_unix_nanos(options.grace_window) {
                 report.retained_before_grace = report.retained_before_grace.saturating_add(1);
                 continue;

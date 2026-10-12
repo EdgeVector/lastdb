@@ -170,6 +170,13 @@ impl SyncEngine {
         *self.mutation_intent_materializer.lock().await = Some(materializer);
     }
 
+    pub(crate) async fn set_retired_intent_preserver(
+        &self,
+        preserver: crate::sync::engine::types::RetiredIntentPreserver,
+    ) {
+        *self.retired_intent_preserver.lock().await = Some(preserver);
+    }
+
     /// Register the serving atom store for automatic-GC pin protection.
     pub async fn set_automatic_gc_atom_store(&self, atoms: crate::db_operations::AtomStore) {
         *self.automatic_gc_atom_store.lock().await = Some(atoms);

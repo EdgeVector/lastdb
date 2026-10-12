@@ -89,9 +89,11 @@ pub use primary_resume::{
 };
 pub(crate) use status_disk_cache::{StatusDiskUsageCache, DEFAULT_TTL as STATUS_DISK_USAGE_TTL};
 pub use types::CaptureMode;
+pub(crate) use types::RetiredIntentPreserver;
 
 pub use crate::SyncConflict;
 pub use file_blob::{FileBlobRef, FileThumbnailUpload};
+pub use pin_log::verify_retired_replay_source;
 pub use pin_log::{
     audit_pin_log_plane, prepare_offline_s0_restore_marker, replay_mutation_log_segments,
     require_offline_s0_restore_marker, restore_mutation_log_after_s0,
@@ -100,6 +102,7 @@ pub use pin_log::{
     PinLogPlaneReport, PinLogRecord, PinLogTargetStatus, PinLogWriterStat, SealedBaseMember,
     PIN_LOG_NAMESPACE, PIN_LOG_OPERATOR_KEYS_PER_CALL,
 };
+pub use pin_log::{AuthenticatedReplayObject, RetiredReplaySource};
 pub(crate) use pin_log::{MutationLogAppendReceipt, MutationPublicationWait};
 pub use types::{
     AutomaticCompactionStatus, BackupUploadConcurrencyStatus, BootstrapOutcome,
@@ -310,6 +313,8 @@ pub struct SyncEngine {
     /// Apply [`crate::sync::log::LogOp::MutationIntent`] on the serving
     /// mutation path with capture suppressed.
     mutation_intent_applier: Arc<Mutex<Option<crate::sync::engine::types::MutationIntentApplier>>>,
+    retired_intent_preserver:
+        Arc<Mutex<Option<crate::sync::engine::types::RetiredIntentPreserver>>>,
     mutation_intent_materializer:
         Arc<Mutex<Option<crate::sync::engine::types::MutationIntentMaterializer>>>,
     /// Serving atom store used only to protect legacy reference-only pin rows

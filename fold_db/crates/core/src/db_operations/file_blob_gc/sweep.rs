@@ -144,6 +144,12 @@ pub(super) async fn classify_candidates(
     reclaim_before: DateTime<Utc>,
     report: &mut FileBlobGcReport,
 ) -> Result<(Vec<BlobCandidate>, Vec<BlobCandidate>), SchemaError> {
+    let _retired_reclaim = db_ops.atoms().retired_intent_reclaim_guard().await;
+    let blob_ids: Vec<String> = candidates
+        .iter()
+        .map(|candidate| candidate.blob_ref.clone())
+        .collect();
+    let retired_roots = db_ops.atoms().retired_intent_blob_roots(&blob_ids).await?;
     let mut to_delete: Vec<BlobCandidate> = Vec::new();
     let mut to_stamp: Vec<BlobCandidate> = Vec::new();
     for candidate in candidates {
@@ -151,6 +157,11 @@ pub(super) async fn classify_candidates(
             .atoms()
             .lock_liveness_blobs(std::slice::from_ref(&candidate.blob_ref))
             .await;
+        if retired_roots.contains(&candidate.blob_ref) {
+            report.file_blobs_referenced += 1;
+            report.blob_refs_referenced += 1;
+            continue;
+        }
         if !db_ops.atoms().blob_ref_edges_complete(None).await? {
             report.file_blobs_retained_incomplete =
                 report.file_blobs_retained_incomplete.saturating_add(1);
@@ -234,13 +245,20 @@ pub(super) async fn delete_candidates(
     reclaim_before: DateTime<Utc>,
     report: &mut FileBlobGcReport,
 ) -> Result<(), SchemaError> {
+    let _retired_reclaim = db_ops.atoms().retired_intent_reclaim_guard().await;
+    let blob_ids: Vec<String> = to_delete
+        .iter()
+        .map(|candidate| candidate.blob_ref.clone())
+        .collect();
+    let retired_roots = db_ops.atoms().retired_intent_blob_roots(&blob_ids).await?;
     let mut main_store_deletes: Vec<String> = Vec::new();
     for candidate in to_delete {
         let _target_gate = db_ops
             .atoms()
             .lock_liveness_blobs(std::slice::from_ref(&candidate.blob_ref))
             .await;
-        if !db_ops.atoms().blob_ref_edges_complete(None).await?
+        if retired_roots.contains(&candidate.blob_ref)
+            || !db_ops.atoms().blob_ref_edges_complete(None).await?
             || db_ops
                 .atoms()
                 .has_active_blob_refs(&candidate.blob_ref, None)

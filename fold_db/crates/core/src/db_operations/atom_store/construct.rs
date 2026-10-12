@@ -61,6 +61,7 @@ impl AtomStore {
             main_store,
             schema_index_store,
             namespaced_store: None,
+            retired_intent_retention_gate: Arc::default(),
             resident_graph: None,
             content_key,
             atom_content_binary: crate::atom::atom_content_binary_enabled(),

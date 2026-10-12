@@ -29,6 +29,20 @@ pub type MutationIntentApplier = std::sync::Arc<
         + Sync,
 >;
 
+/// Installed only by `FoldDB::for_restore`; never a live-peer policy.
+pub(crate) type RetiredIntentPreserver = Arc<
+    dyn Fn(
+            crate::sync::engine::RetiredReplaySource,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<Option<usize>, crate::sync::MutationIntentReplayError>,
+                    > + Send,
+            >,
+        > + Send
+        + Sync,
+>;
+
 /// Resolve ref-only mutation envelopes from the serving atom plane before
 /// replay or before sealing an off-box payload.
 pub type MutationIntentMaterializer = std::sync::Arc<

@@ -176,7 +176,7 @@ impl FoldDB {
             })?;
         let restore_inbox =
             crate::db_operations::search_index::search_inbox_dir_for_home(restore_home);
-        Self::initialize_from_init(FoldDbInit {
+        let mut db = Self::initialize_from_init(FoldDbInit {
             db_ops,
             db_path: db_path.to_string(),
             signer,
@@ -184,7 +184,9 @@ impl FoldDB {
             mutation_log_capture: None,
             packing_slots: None,
         })
-        .await
+        .await?;
+        db.preserve_retired_restore_intents = true;
+        Ok(db)
     }
 
     /// Production / factory initializer.
@@ -264,6 +266,7 @@ impl FoldDB {
             background_atom_reclaim_janitor,
             sync_coordinator,
             mutation_log_capture,
+            preserve_retired_restore_intents: false,
             config_store: std::sync::RwLock::new(None),
             signer,
         })

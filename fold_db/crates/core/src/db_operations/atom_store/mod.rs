@@ -38,6 +38,7 @@ mod key_encoding;
 mod locks;
 mod molecule_ref_edges;
 mod molecules;
+mod retired_intent_retention;
 mod tip_version_backrefs;
 mod types;
 
@@ -67,6 +68,9 @@ pub use molecule_ref_edges::{
 /// Full `mk:` prefix-scan counter (test/ops surface for zero-yield purge plan cost).
 pub use molecules::mk_full_scans;
 pub(crate) use molecules::MoleculeKeyDomain;
+pub(crate) use retired_intent_retention::{
+    RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
+};
 pub use tip_version_backrefs::{
     TipVersionBackref, TipVersionBackrefLookup, TipVersionBackrefReindexReport,
     TipVersionBackrefReindexStatus,
@@ -141,6 +145,9 @@ pub struct AtomStore {
     /// Legacy constructors leave this unset. Production construction and the
     /// drain tests attach it explicitly.
     namespaced_store: Option<Arc<dyn NamespacedStore>>,
+    /// Retired outcome roots commit exclusively; reclaim retains a shared fence
+    /// through its final deletion. Every clone shares the same fence.
+    retired_intent_retention_gate: Arc<tokio::sync::RwLock<()>>,
     resident_graph: Option<Arc<crate::resident::ResidentGraph>>,
     /// When set (plain packaging homes), atom `content` is sealed at rest
     /// while metadata stays plaintext. `None` leaves content unsealed (tests

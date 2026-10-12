@@ -258,6 +258,7 @@ pub(super) struct MutationLogReplayUnit {
     pub(super) segment: MutationLogSegmentId,
     pub(super) records: Vec<PinLogRecord>,
     pub(super) transaction_group: bool,
+    pub(super) source_object_keys: Vec<String>,
 }
 
 #[derive(Debug)]

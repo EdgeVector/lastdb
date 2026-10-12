@@ -140,6 +140,12 @@ pub(crate) fn render_report(
             "  mutation-log: considered={} applied={} records={}",
             ml.segments_considered, ml.segments_applied, ml.records_applied
         );
+        println!(
+            "  retired-authority preserved: segments={} records={} mutations={}",
+            ml.segments_retired_authority_preserved,
+            ml.records_retired_authority_preserved,
+            ml.mutations_retired_authority_preserved
+        );
     }
     Ok(())
 }

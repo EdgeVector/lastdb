@@ -2,6 +2,8 @@
 
 use super::super::SyncEngine;
 use crate::sync::capture::{with_capture_suppressed, with_mutation_admission};
+use crate::sync::engine::pin_log::ReplayEntryOutcome;
+use crate::sync::engine::RetiredReplaySource;
 use crate::sync::error::{SyncError, SyncResult};
 use crate::sync::log::LogEntry;
 use crate::sync::org_sync::SyncTarget;
@@ -24,8 +26,9 @@ impl SyncEngine {
         entry: &LogEntry,
         target: Option<&SyncTarget>,
     ) -> SyncResult<()> {
-        self.replay_entry_with_schema_refresh(entry, target, false)
+        self.replay_entry_with_schema_refresh(entry, target, false, None)
             .await
+            .map(|_| ())
     }
 
     pub(crate) async fn replay_entry_with_schema_refresh(
@@ -33,7 +36,8 @@ impl SyncEngine {
         entry: &LogEntry,
         target: Option<&SyncTarget>,
         refresh_schemas: bool,
-    ) -> SyncResult<()> {
+        source: Option<RetiredReplaySource>,
+    ) -> SyncResult<ReplayEntryOutcome> {
         if self.backup_only_mode.load(Ordering::SeqCst) {
             return Err(SyncError::Storage(
                 "paused-home backup blocks peer replay".into(),
@@ -46,7 +50,23 @@ impl SyncEngine {
                 if refresh_schemas {
                     self.reload_replayed_schemas().await?;
                 }
-                self.replay_entry_inner(entry, target).await
+                if target.is_none() {
+                    let preserver = self.retired_intent_preserver.lock().await.clone();
+                    if let (Some(preserver), Some(source)) = (preserver, source) {
+                        if let Some(mutations) = preserver(source).await.map_err(|error| {
+                            SyncError::ReplayApplyFailed {
+                                target: "mutation_intent".into(),
+                                seq: entry.seq,
+                                reason: error.reason,
+                                diagnosis: error.diagnosis,
+                            }
+                        })? {
+                            return Ok(ReplayEntryOutcome::RetiredAuthorityPreserved { mutations });
+                        }
+                    }
+                }
+                self.replay_entry_inner(entry, target).await?;
+                Ok(ReplayEntryOutcome::Applied)
             }),
         )
         .await

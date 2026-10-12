@@ -12,6 +12,7 @@ mod status;
 
 mod inbound_targets;
 mod replay_applier;
+mod retired_applier;
 mod runtime_activation;
 mod schema_reload;
 

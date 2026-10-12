@@ -72,6 +72,8 @@ pub struct FoldDB {
     /// Post-commit mutation-log capture engine slot. Present on factory-built
     /// stores even while Cloud Sync is off so live enable can start capture.
     mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
+    /// Exclusive one-shot restore policy; never enabled by a serving factory.
+    preserve_retired_restore_intents: bool,
     /// Optional configuration store for runtime node config.
     /// Uses RwLock for interior mutability so FoldDB doesn't need &mut self.
     config_store: std::sync::RwLock<Option<crate::storage::NodeConfigStore>>,
