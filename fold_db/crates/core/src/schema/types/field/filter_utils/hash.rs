@@ -10,6 +10,16 @@ fn insert_hash(m: &mut HashMap<KeyValue, String>, key: String, uuid: String) {
     m.insert(KeyValue::new(Some(key), None), uuid);
 }
 
+fn insert_hash_lookup(
+    m: &mut HashMap<KeyValue, String>,
+    molecule: &crate::atom::MoleculeHashRange,
+    hash: String,
+) {
+    if let Some(uuid) = molecule.get_atom_uuid(&hash, "").cloned() {
+        insert_hash(m, hash, uuid);
+    }
+}
+
 fn extend_hash<I: IntoIterator<Item = (String, String)>>(
     m: &mut HashMap<KeyValue, String>,
     iter: I,
@@ -69,22 +79,10 @@ pub fn apply_hash_filter(
                     .take(limit),
             );
         }
-        HashRangeFilter::HashKey(key) => {
-            if let Some(uuid) = molecule.get_atom_uuid(&key, "").cloned() {
-                insert_hash(&mut matches, key, uuid);
-            }
-        }
-        // `HashRange { start, end }` is documented as "for hash values"
-        // — the same dimension a Hash field stores. PR #381 closed this
-        // for `MoleculeHashRange`; the analogue on `MoleculeHash` used
-        // to fall through to the catch-all and return every atom, which
-        // silently widened `HashRange { "a", "c" }` into a full scan
-        // for any caller (LLM-built query, dev UI, …) routing a hash
-        // range over a pure-Hash field. Filter on the hash dimension
-        // here. `start > end` is treated as an empty range — same
-        // pattern as `range_atoms_in_range` / `hash_range_atoms_in_range`
-        // — so a malformed bound from user-controllable query input
-        // yields zero matches without falling through to "all".
+        HashRangeFilter::HashKey(key) => insert_hash_lookup(&mut matches, molecule, key),
+        // `HashRange { start, end }` filters on the hash dimension. `start > end`
+        // is an empty range (as in `range_atoms_in_range`), so a malformed bound
+        // from query input yields zero matches instead of falling through to "all".
         HashRangeFilter::HashRange { start, end } => {
             if start <= end {
                 extend_hash(
@@ -95,123 +93,30 @@ pub fn apply_hash_filter(
                 );
             }
         }
-        // `HashRangeKey { hash, range }` and `HashRangeKeys([(hash, range), …])`
-        // each carry a real `hash` component — the dimension a Hash field
-        // stores. The previous catch-all dropped both into "_ => return
-        // every atom", so an LLM-built query routing a hash-range key
-        // onto a pure-Hash schema (the LLM doesn't always know which
-        // variant the schema declares) silently widened the result to a
-        // full scan instead of looking up the requested key. Look up by
-        // the hash dimension here; the unused `range` is ignored, mirror
-        // of how `apply_range_filter` drops the unused `hash` on its own
-        // HashRangeKey/HashRangeKeys arms (filter_utils.rs:303-309).
-        // `HashRangeKey { hash, range }` and `HashRangeKeys([(hash, range), …])`
-        // each carry a real `hash` component — the dimension a Hash field
-        // stores. The previous catch-all dropped both into "_ => return
-        // every atom", so an LLM-built query routing a hash-range key
-        // onto a pure-Hash schema (the LLM doesn't always know which
-        // variant the schema declares) silently widened the result to a
-        // full scan instead of looking up the requested key. Look up by
-        // the hash dimension here; the unused `range` is ignored, mirror
-        // of how `apply_range_filter` drops the unused `hash` on its own
-        // HashRangeKey/HashRangeKeys arms (filter_utils.rs:303-309).
-        HashRangeFilter::HashRangeKey { hash, .. } => {
-            if let Some(uuid) = molecule.get_atom_uuid(&hash, "").cloned() {
-                insert_hash(&mut matches, hash, uuid);
-            }
+        // Variants that carry a real `hash` component narrow to that hash lookup.
+        // The range part (`range`, `prefix`, `start..end`) is meaningless on a
+        // Hash field and is dropped, as `apply_range_filter` drops the unused
+        // `hash`. A query routed at the wrong schema variant must not widen to
+        // a full molecule scan.
+        HashRangeFilter::HashRangeKey { hash, .. }
+        | HashRangeFilter::HashRangePrefix { hash, .. }
+        | HashRangeFilter::HashRangeRange { hash, .. } => {
+            insert_hash_lookup(&mut matches, molecule, hash);
         }
         HashRangeFilter::HashRangeKeys(keys) => {
             for (hash, _range) in keys {
-                if let Some(uuid) = molecule.get_atom_uuid(&hash, "").cloned() {
-                    insert_hash(&mut matches, hash, uuid);
-                }
+                insert_hash_lookup(&mut matches, molecule, hash);
             }
         }
-        // `HashRangePrefix { hash, prefix }` carries a real `hash`
-        // component — the dimension a Hash field stores — so it must
-        // narrow to that single hash rather than falling through to the
-        // catch-all. Same shape as PR #478's `HashRangeKey`/`HashRangeKeys`
-        // arms: the LLM prompt advertises `HashRangePrefix` for HashRange
-        // schemas but LLM-built queries don't always classify the schema
-        // correctly and will route it at a Hash schema. The `prefix` is
-        // meaningless on the hash dimension (a Hash field has no range to
-        // prefix-match), so drop it — mirror of how `apply_range_filter`'s
-        // `HashRangePrefix` arm drops the unused `hash`. Before this arm
-        // the catch-all silently widened every such query to a full
-        // molecule scan.
-        HashRangeFilter::HashRangePrefix { hash, .. } => {
-            if let Some(uuid) = molecule.get_atom_uuid(&hash, "").cloned() {
-                insert_hash(&mut matches, hash, uuid);
-            }
-        }
-        // `HashPattern(_)` is the LLM-advertised glob filter for Hash
-        // schemas (historical LLM query-planner filter). Glob matching against
-        // hash keys is not implemented — the sibling dispatchers
-        // `apply_range_filter` and `apply_hash_range_filter` both treat
-        // it as "pattern matching not supported → empty". Without this
-        // arm the filter fell into the catch-all "return everything" and
-        // an LLM-built query like "authors named Liu" with pattern
-        // `*Liu*` silently widened to a full molecule scan, returning
-        // every record instead of the unsupported-empty signal.
-        HashRangeFilter::HashPattern(_) => {}
-        // `RangePattern(_)` is the LLM-advertised glob filter for Range
-        // schemas. Both sibling dispatchers (`apply_range_filter` and
-        // `apply_hash_range_filter`) already treat it as "pattern matching
-        // not supported → empty"; the Hash-field path was the outlier and
-        // fell through to the catch-all "return everything" arm. The LLM
-        // prompt restricts `RangePattern` to Range schemas but LLM-built
-        // queries don't always classify the schema correctly and will
-        // route a `RangePattern` at a Hash schema — before this arm such
-        // a query (e.g. "tags matching `*foo*`" against a Hash-keyed
-        // schema) silently widened to a full molecule scan. Direct
-        // sibling of PR #482 (`HashPattern`).
-        HashRangeFilter::RangePattern(_) => {}
-        // `HashRangePattern { hash, pattern }` is the LLM-advertised glob
-        // filter for HashRange schemas. The sibling dispatcher
-        // `apply_hash_range_filter` treats it as "pattern matching not
-        // supported → empty"; `apply_range_filter` does the same. The
-        // Hash-field path was the last outlier — without this arm it fell
-        // through to the catch-all "return every atom" arm, so an
-        // LLM-built `HashRangePattern { hash: "user1", pattern: "*foo*" }`
-        // misrouted at a Hash-keyed schema silently widened to a full
-        // molecule scan instead of producing the unsupported-empty signal.
-        // Same shape as PR #482 (`HashPattern`) and the sibling
-        // `RangePattern` arm above; closes the last pattern-variant gap in
-        // `apply_hash_filter`.
-        HashRangeFilter::HashRangePattern { .. } => {}
-        // `HashRangeRange { hash, start, end }` carries a real `hash`
-        // component — the dimension a Hash field stores — so it must
-        // narrow to that single hash rather than falling through to the
-        // catch-all "return every atom" arm. Same shape as
-        // `HashRangeKey { hash, .. }` (PR #478) and
-        // `HashRangePrefix { hash, .. }` (PR #481): the LLM prompt
-        // advertises `HashRangeRange` for HashRange schemas but LLM-built
-        // queries don't always classify the schema correctly and will
-        // route a `HashRangeRange` at a Hash schema. The `start..end`
-        // bounds are meaningless on the hash dimension (a Hash field has
-        // no inner range to filter), so drop them — mirror of how
-        // `apply_range_filter`'s `HashRangeRange` arm drops the unused
-        // `hash`. Before this arm the catch-all silently widened every
-        // such query to a full molecule scan.
-        HashRangeFilter::HashRangeRange { hash, .. } => {
-            if let Some(uuid) = molecule.get_atom_uuid(&hash, "").cloned() {
-                insert_hash(&mut matches, hash, uuid);
-            }
-        }
-        // The pure range-dimension filters (`RangeKey`, `RangePrefix`,
-        // `RangeRange`) carry only a range-key payload — no hash component
-        // to narrow to — and a Hash field has no range dimension to match
-        // against. The sibling pattern arms (`HashPattern`,
-        // `RangePattern`, `HashRangePattern`) already treat this same kind
-        // of structural misroute as "unsupported → empty" (PR #482 / #519);
-        // before these arms, the catch-all `_ => extend_hash(hash_all_atoms)`
-        // silently widened every such query to a full molecule scan.
-        // LLM-built queries don't always classify the schema variant
-        // ahead of time and can route `RangeKey("user@x.com")` /
-        // `RangePrefix("2025-")` / `RangeRange { "2025-01-01", "2025-12-31" }`
-        // at a Hash schema — closing this gap makes the misroute surface as
-        // "no results" instead of "every result", mirroring the pattern arms.
-        HashRangeFilter::RangeKey(_)
+        // Glob patterns and pure range-dimension filters are unsupported on a
+        // Hash field: the sibling dispatchers `apply_range_filter` and
+        // `apply_hash_range_filter` return empty, and so does this one. Falling
+        // through to "return everything" would silently widen a misrouted
+        // query (e.g. `*Liu*` or `RangePrefix("2025-")`) into a full scan.
+        HashRangeFilter::HashPattern(_)
+        | HashRangeFilter::RangePattern(_)
+        | HashRangeFilter::HashRangePattern { .. }
+        | HashRangeFilter::RangeKey(_)
         | HashRangeFilter::RangePrefix(_)
         | HashRangeFilter::RangeRange { .. } => {}
     }

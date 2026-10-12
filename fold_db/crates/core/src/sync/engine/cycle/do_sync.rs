@@ -95,96 +95,17 @@ impl SyncEngine {
         }
         phases.mark("peer_apply");
 
-        // Upload pending entries, partitioned across targets. Cap what this
-        // cycle will seal/PUT so a multi-thousand outbox cannot monopolise RAM
-        // (re-enable thrash 2026-07-14: download=0, pending≈3757, swap 3→26GB).
-        //
-        // Size is measured once here and reused for stats/logs — never call
-        // `serialized_len()` again on the selected batch (full JSON re-encode
-        // of a multi-MB BatchPut was enough to stall the cycle under swap).
-        let (entries, bytes_selected) = self
-            .select_and_record_upload_batch(backup_blocked.is_some(), &upload_caps)
-            .await;
-
-        // Download before upload for key safety — but **personal first**, then at
-        // most one scoped (org/share) target per cycle.
-        //
-        // F1: default sync/bootstrap/device-join transfer only log and snapshot
-        // objects. Content-addressed file blobs (`cas/sha256/*`) are opened by
-        // explicit file-blob APIs, never by ordinary replay of DB pointers.
-        //
-        // Re-enable thrash 2026-07-14 (root cause, after upload caps):
-        // `target_count=22` (personal + ~20 distinct org_hash rows all labeled
-        // `org:edgevector` + upgrade-probe). do_sync downloaded every target
-        // before any upload; the first org:edgevector download alone pushed
-        // RSS 4→10 GiB, and a ready 8 KiB personal upload never ran. Scoped
-        // downloads must not monopolise the cycle or block personal catch-up.
-        //
-        // Prefixes for which this download cycle succeeded: personal (empty
-        // prefix) always decrypts `log_index.enc` or runs list+prove before
-        // returning Ok — so Ok alone is a positive key proof even when 0 new
-        // entries are replayed. Org targets only mark proven when at least one
-        // entry was replayed; otherwise the pre-upload proof runs (lean path).
-        // Personal-first split is the thrash fix (helpers are unit-tested):
-        // never walk scoped targets before personal upload.
-        let (personal_idxs, scoped_idxs) =
-            split_personal_and_scoped_indices(&targets, |t| t.prefix.is_empty());
-        let scoped_total = scoped_idxs.len();
-
-        self.download_personal_targets(&targets, &personal_idxs, &mut state)
-            .await;
-        phases.mark("personal_download");
-
-        // Personal download failure blocks the whole cycle (key-safety gate).
-        if let Some(e) = state.first_transfer_error.take() {
-            return Err(e);
-        }
-
-        let scoped_downloads_ran_before_upload = personal_idxs.is_empty();
-        if scoped_downloads_ran_before_upload {
-            // No personal target: scoped downloads are the key-safety gate for
-            // this cycle, so failures must block upload (propagate_errors=true).
-            self.run_scoped_download_pass(&targets, &scoped_idxs, scoped_total, true, &mut state)
-                .await?;
-            phases.mark("scoped_download");
-        }
-
-        tracing::info!(
-            target: "fold_db::sync::memory",
-            target_count = targets.len(),
-            scoped_total,
-            downloaded = state.downloaded,
-            selected = entries.len(),
-            bytes_selected,
-            "personal download complete; evaluating upload before scoped downloads"
-        );
-
-        if !entries.is_empty() {
-            self.upload_partitioned_entries(
-                &entries,
-                bytes_selected,
+        let scoped_idxs = self
+            .download_upload_download_phases(
+                backup_blocked.is_some(),
+                &upload_caps,
                 &targets,
                 &partitioner,
-                &personal_idxs,
                 &mut state,
+                &mut phases,
             )
             .await?;
-        }
-        phases.mark("legacy_upload");
-
-        // Phase: scoped downloads AFTER personal upload so org catch-up cannot
-        // starve personal outbox drain (re-enable thrash: 21 org targets before
-        // any upload). Cap via [`scoped_downloads_per_cycle`] (at most 1 per
-        // cycle, any nonzero count — round-robin below still rotates through
-        // every registered target over successive cycles instead of
-        // disabling downloads once the registry passes 4).
-        // Failures are non-fatal here (propagate_errors=false): personal upload
-        // already ran, so org catch-up must not reverse personal progress.
-        if !scoped_downloads_ran_before_upload {
-            self.run_scoped_download_pass(&targets, &scoped_idxs, scoped_total, false, &mut state)
-                .await?;
-            phases.mark("scoped_download");
-        }
+        let scoped_total = scoped_idxs.len();
 
         self.compact_scoped_targets(&targets, &scoped_idxs, scoped_total, &state.proven_prefixes)
             .await;
@@ -221,6 +142,110 @@ impl SyncEngine {
             overflow_after,
             overflow_healed,
         )
+    }
+
+    /// Select the upload batch, then run personal download, legacy upload and
+    /// scoped downloads in key-safe order. Returns the scoped target indices
+    /// so the caller can compact them afterwards.
+    async fn download_upload_download_phases(
+        &self,
+        backup_blocked: bool,
+        upload_caps: &UploadPolicySnapshot,
+        targets: &[SyncTarget],
+        partitioner: &Option<SyncPartitioner>,
+        state: &mut CycleState,
+        phases: &mut SyncPhaseTimer,
+    ) -> SyncResult<Vec<usize>> {
+        // Upload pending entries, partitioned across targets. Cap what this
+        // cycle will seal/PUT so a multi-thousand outbox cannot monopolise RAM
+        // (re-enable thrash 2026-07-14: download=0, pending≈3757, swap 3→26GB).
+        //
+        // Size is measured once here and reused for stats/logs — never call
+        // `serialized_len()` again on the selected batch (full JSON re-encode
+        // of a multi-MB BatchPut was enough to stall the cycle under swap).
+        let (entries, bytes_selected) = self
+            .select_and_record_upload_batch(backup_blocked, upload_caps)
+            .await;
+
+        // Download before upload for key safety — but **personal first**, then at
+        // most one scoped (org/share) target per cycle.
+        //
+        // F1: default sync/bootstrap/device-join transfer only log and snapshot
+        // objects. Content-addressed file blobs (`cas/sha256/*`) are opened by
+        // explicit file-blob APIs, never by ordinary replay of DB pointers.
+        //
+        // Re-enable thrash 2026-07-14 (root cause, after upload caps):
+        // `target_count=22` (personal + ~20 distinct org_hash rows all labeled
+        // `org:edgevector` + upgrade-probe). do_sync downloaded every target
+        // before any upload; the first org:edgevector download alone pushed
+        // RSS 4→10 GiB, and a ready 8 KiB personal upload never ran. Scoped
+        // downloads must not monopolise the cycle or block personal catch-up.
+        //
+        // Prefixes for which this download cycle succeeded: personal (empty
+        // prefix) always decrypts `log_index.enc` or runs list+prove before
+        // returning Ok — so Ok alone is a positive key proof even when 0 new
+        // entries are replayed. Org targets only mark proven when at least one
+        // entry was replayed; otherwise the pre-upload proof runs (lean path).
+        // Personal-first split is the thrash fix (helpers are unit-tested):
+        // never walk scoped targets before personal upload.
+        let (personal_idxs, scoped_idxs) =
+            split_personal_and_scoped_indices(targets, |t| t.prefix.is_empty());
+        let scoped_total = scoped_idxs.len();
+
+        self.download_personal_targets(targets, &personal_idxs, state)
+            .await;
+        phases.mark("personal_download");
+
+        // Personal download failure blocks the whole cycle (key-safety gate).
+        if let Some(e) = state.first_transfer_error.take() {
+            return Err(e);
+        }
+
+        let scoped_downloads_ran_before_upload = personal_idxs.is_empty();
+        if scoped_downloads_ran_before_upload {
+            // No personal target: scoped downloads are the key-safety gate for
+            // this cycle, so failures must block upload (propagate_errors=true).
+            self.run_scoped_download_pass(targets, &scoped_idxs, scoped_total, true, state)
+                .await?;
+            phases.mark("scoped_download");
+        }
+
+        log_personal_download_complete(
+            targets.len(),
+            scoped_total,
+            state.downloaded,
+            entries.len(),
+            bytes_selected,
+        );
+
+        if !entries.is_empty() {
+            self.upload_partitioned_entries(
+                &entries,
+                bytes_selected,
+                targets,
+                partitioner,
+                &personal_idxs,
+                state,
+            )
+            .await?;
+        }
+        phases.mark("legacy_upload");
+
+        // Phase: scoped downloads AFTER personal upload so org catch-up cannot
+        // starve personal outbox drain (re-enable thrash: 21 org targets before
+        // any upload). Cap via [`scoped_downloads_per_cycle`] (at most 1 per
+        // cycle, any nonzero count — round-robin below still rotates through
+        // every registered target over successive cycles instead of
+        // disabling downloads once the registry passes 4).
+        // Failures are non-fatal here (propagate_errors=false): personal upload
+        // already ran, so org catch-up must not reverse personal progress.
+        if !scoped_downloads_ran_before_upload {
+            self.run_scoped_download_pass(targets, &scoped_idxs, scoped_total, false, state)
+                .await?;
+            phases.mark("scoped_download");
+        }
+
+        Ok(scoped_idxs)
     }
 
     /// Refresh upload caps and run the local compaction passes before staging uploads.
@@ -289,6 +314,24 @@ fn log_backup_blocked(blocker: &SyncBackupBlocker) {
 }
 
 /// Turn the finished cycle state into the cycle result, surfacing any block or transfer error.
+fn log_personal_download_complete(
+    target_count: usize,
+    scoped_total: usize,
+    downloaded: u64,
+    selected: usize,
+    bytes_selected: u64,
+) {
+    tracing::info!(
+        target: "fold_db::sync::memory",
+        target_count,
+        scoped_total,
+        downloaded,
+        selected,
+        bytes_selected,
+        "personal download complete; evaluating upload before scoped downloads"
+    );
+}
+
 fn finish_cycle(
     mut state: CycleState,
     backup_blocked: Option<&SyncBackupBlocker>,

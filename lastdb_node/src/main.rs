@@ -142,6 +142,62 @@ fn drain_and_prove_shutdown(
     shutdown::complete_shutdown_proof(home, pid, start_ts, &shutdown_errors)
 }
 
+fn log_allocator_tuning(tuning: &lastdb_node::allocator::AllocatorTuning) {
+    tracing::info!(
+        target: "lastdbd::allocator",
+        allocator = tuning.name,
+        purge_delay_ms = ?tuning.purge_delay_ms,
+        purge_delay_from_env = tuning.purge_delay_from_env,
+        "configured process allocator"
+    );
+}
+
+fn init_resident_key_cap() -> Result<(), String> {
+    let resident_key_cap = fold_db::resident::init_resident_key_cap_from_env()?;
+    if resident_key_cap != fold_db::resident::RESIDENT_KEY_CAP {
+        eprintln!(
+            "lastdbd: {}={resident_key_cap} (test cap; default {})",
+            fold_db::resident::RESIDENT_KEY_CAP_ENV,
+            fold_db::resident::RESIDENT_KEY_CAP
+        );
+    }
+    Ok(())
+}
+
+/// Start the self-metrics sampler and the home conflict fold on the runtime.
+fn spawn_background_tasks(
+    runtime: &tokio::runtime::Runtime,
+    host: &Arc<Host>,
+    shutdown_flag: &Arc<AtomicBool>,
+) -> (tokio::task::JoinHandle<()>, tokio::task::JoinHandle<()>) {
+    let sample_interval = lastdb_node::self_metrics::sample_interval_from_env();
+    let _runtime_guard = runtime.enter();
+    (
+        lastdb_node::self_metrics::spawn_sampler(
+            Arc::clone(host),
+            sample_interval,
+            Arc::clone(shutdown_flag),
+        ),
+        conflict_fold::spawn_home_conflict_fold(Arc::clone(host), Arc::clone(shutdown_flag)),
+    )
+}
+
+/// Serve the full-surface setup socket on its own accept thread.
+fn spawn_full_surface_accept(
+    server: &Server,
+    full_socket: UdsSocket,
+    owner_uid: u32,
+    shutdown_flag: &Arc<AtomicBool>,
+) -> std::thread::JoinHandle<Result<(), String>> {
+    let server = server.clone();
+    let shutdown_flag = Arc::clone(shutdown_flag);
+    std::thread::spawn(move || {
+        server
+            .serve(Surface::Full, &full_socket, owner_uid, &shutdown_flag)
+            .map_err(|error| format!("full-surface accept loop failed: {error}"))
+    })
+}
+
 fn main() -> Result<(), String> {
     let allocator_tuning = lastdb_node::allocator::configure();
     lastdb_node::log_rotation::spawn_stdio_log_rotators();
@@ -156,13 +212,7 @@ fn main() -> Result<(), String> {
     // `build.rs` stamp, so the binary installs it before any socket serves.
     uds_router::set_build_version(lastdb_node::crash_attribution::build_version());
 
-    tracing::info!(
-        target: "lastdbd::allocator",
-        allocator = allocator_tuning.name,
-        purge_delay_ms = ?allocator_tuning.purge_delay_ms,
-        purge_delay_from_env = allocator_tuning.purge_delay_from_env,
-        "configured process allocator"
-    );
+    log_allocator_tuning(&allocator_tuning);
 
     let cli = Cli::parse();
 
@@ -177,14 +227,7 @@ fn main() -> Result<(), String> {
     let home = host::resolve_home(cli.data_dir)?;
     let data_dir = home.join("data");
     let _footprint_proof_pin = footprint_proof::footprint_proof_pin_from_env()?;
-    let resident_key_cap = fold_db::resident::init_resident_key_cap_from_env()?;
-    if resident_key_cap != fold_db::resident::RESIDENT_KEY_CAP {
-        eprintln!(
-            "lastdbd: {}={resident_key_cap} (test cap; default {})",
-            fold_db::resident::RESIDENT_KEY_CAP_ENV,
-            fold_db::resident::RESIDENT_KEY_CAP
-        );
-    }
+    init_resident_key_cap()?;
 
     // Refuse an unservable data dir before ANY boot work: the socket-path length
     // check is pure arithmetic, but both binds happen after `Host::boot` and
@@ -254,18 +297,7 @@ fn main() -> Result<(), String> {
             Arc::clone(&shutdown_flag),
         ))
         .map_err(&note_fatal)?;
-    let sample_interval = lastdb_node::self_metrics::sample_interval_from_env();
-    let (sampler_task, home_fold_task) = {
-        let _runtime_guard = runtime.enter();
-        (
-            lastdb_node::self_metrics::spawn_sampler(
-                Arc::clone(&host),
-                sample_interval,
-                Arc::clone(&shutdown_flag),
-            ),
-            conflict_fold::spawn_home_conflict_fold(Arc::clone(&host), Arc::clone(&shutdown_flag)),
-        )
-    };
+    let (sampler_task, home_fold_task) = spawn_background_tasks(&runtime, &host, &shutdown_flag);
 
     let socket = UdsSocket::bind_at(
         socket_path.unwrap_or_else(|| data_dir.join(lastdb_uds::uds::SOCKET_FILE_NAME)),
@@ -300,15 +332,7 @@ fn main() -> Result<(), String> {
     let full_socket =
         UdsSocket::bind_at(full_socket_path.unwrap_or_else(|| data_dir.join("folddb-full.sock")))
             .map_err(|e| note_fatal(format!("failed to bind full-surface socket: {e}")))?;
-    let full_accept = {
-        let server = server.clone();
-        let shutdown_flag = Arc::clone(&shutdown_flag);
-        std::thread::spawn(move || {
-            server
-                .serve(Surface::Full, &full_socket, owner_uid, &shutdown_flag)
-                .map_err(|error| format!("full-surface accept loop failed: {error}"))
-        })
-    };
+    let full_accept = spawn_full_surface_accept(&server, full_socket, owner_uid, &shutdown_flag);
 
     let accept_result = server.serve(Surface::Owner, &socket, owner_uid, &shutdown_flag);
     shutdown_flag.store(true, Ordering::Release);

@@ -217,6 +217,51 @@ impl SyncEngine {
             max_contiguous_seq: cursor,
             ..DownloadProgress::default()
         };
+        let truncated_by_byte_cap = self
+            .replay_download_chunks(target, &new_seqs, byte_budget, &mut progress)
+            .await?;
+
+        if progress.schemas_replayed {
+            self.invoke_reloader(&self.schema_reloader, "schema", &target.label)
+                .await;
+        }
+        if progress.embeddings_replayed {
+            self.invoke_reloader(&self.embedding_reloader, "embedding", &target.label)
+                .await;
+        }
+
+        let entries_deferred = entries_deferred_from_cap
+            + if truncated_by_byte_cap {
+                new_seqs
+                    .iter()
+                    .filter(|s| **s > progress.max_contiguous_seq)
+                    .count()
+            } else {
+                0
+            };
+        let stats = progress.into_cycle_stats(
+            target,
+            entries_listed,
+            entries_deferred,
+            truncated_by_entry_cap,
+            truncated_by_byte_cap,
+        );
+        let total_replayed = stats.entries_replayed;
+        stats.log_cycle_complete();
+        *self.last_download_stats.lock().await = Some(stats);
+
+        Ok(total_replayed)
+    }
+
+    /// Presign, fetch and replay `new_seqs` chunk by chunk, strictly in seq
+    /// order. Returns true when the per-cycle byte budget cut the walk short.
+    async fn replay_download_chunks(
+        &self,
+        target: &SyncTarget,
+        new_seqs: &[u64],
+        byte_budget: usize,
+        progress: &mut DownloadProgress,
+    ) -> SyncResult<bool> {
         let mut truncated_by_byte_cap = false;
 
         // Chunk the presign call at MAX_PRESIGN_BATCH — storage_service caps
@@ -265,9 +310,7 @@ impl SyncEngine {
             // immediately.
             while let Some(res) = fetch_stream.next().await {
                 let fetched = res?;
-                if self
-                    .apply_fetched_entry(target, fetched, &mut progress)
-                    .await?
+                if self.apply_fetched_entry(target, fetched, progress).await?
                     && byte_budget > 0
                     && progress.bytes_downloaded as usize >= byte_budget
                 {
@@ -285,36 +328,6 @@ impl SyncEngine {
                 }
             }
         }
-
-        if progress.schemas_replayed {
-            self.invoke_reloader(&self.schema_reloader, "schema", &target.label)
-                .await;
-        }
-        if progress.embeddings_replayed {
-            self.invoke_reloader(&self.embedding_reloader, "embedding", &target.label)
-                .await;
-        }
-
-        let entries_deferred = entries_deferred_from_cap
-            + if truncated_by_byte_cap {
-                new_seqs
-                    .iter()
-                    .filter(|s| **s > progress.max_contiguous_seq)
-                    .count()
-            } else {
-                0
-            };
-        let stats = progress.into_cycle_stats(
-            target,
-            entries_listed,
-            entries_deferred,
-            truncated_by_entry_cap,
-            truncated_by_byte_cap,
-        );
-        let total_replayed = stats.entries_replayed;
-        stats.log_cycle_complete();
-        *self.last_download_stats.lock().await = Some(stats);
-
-        Ok(total_replayed)
+        Ok(truncated_by_byte_cap)
     }
 }

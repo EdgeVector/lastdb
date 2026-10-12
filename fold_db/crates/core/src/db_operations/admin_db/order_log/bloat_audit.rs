@@ -60,6 +60,57 @@ impl AtomStore {
             .snapshot_order_counts_with_bytes(&mut report, &moc_start, &moc_end)
             .await?;
 
+        if self
+            .walk_bloat_molecules(
+                &mut report,
+                &order_counts,
+                after_key,
+                max_keys,
+                pass_started,
+                storage_prefix,
+            )
+            .await?
+        {
+            return Ok(report);
+        }
+        // The `mk:` walk is finished. Zero-live classification used to happen
+        // right here, over the whole-store `order_counts` map, and
+        // `compact_order_log_zero_live` would then delete every molecule it
+        // named in this same request. `max_keys` bounded the walk and nothing
+        // bounded that commit, so on a real store the terminal pass held one
+        // synchronous request open for ~1.07 M deletes and never returned —
+        // three attempts, ~2h35m of node time, zero bytes reclaimed.
+        //
+        // Continue into the bounded sweep instead, with whatever budget this
+        // pass has left. A small store still finishes in one call; a large one
+        // stops at the first bound and returns a `moc:`-namespace cursor,
+        // which routes the next call straight back into phase B.
+        let spent = usize::try_from(report.keys_scanned).unwrap_or(usize::MAX);
+        let remaining = max_keys.map(|max| max.saturating_sub(spent));
+        self.sweep_zero_live_page(
+            report,
+            &moc_start,
+            &moc_colon,
+            remaining,
+            pass_started,
+            PASS_TIME_BUDGET,
+            storage_prefix,
+        )
+        .await
+    }
+
+    /// Phase A: walk the live `mk:` keys and decide each molecule at its
+    /// boundary. Returns true when the key or time budget stopped the walk at
+    /// a molecule boundary, so the caller returns the report as is.
+    async fn walk_bloat_molecules(
+        &self,
+        report: &mut OrderLogBloatAudit,
+        order_counts: &HashMap<String, (u64, u64)>,
+        after_key: Option<&str>,
+        max_keys: Option<usize>,
+        pass_started: std::time::Instant,
+        storage_prefix: Option<&str>,
+    ) -> Result<bool, SchemaError> {
         // 2. Walk live keys, decide each molecule at its boundary.
         let mk_prefix = build_storage_key(storage_prefix, molecule_key_codec::MK_PREFIX);
         let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
@@ -110,8 +161,8 @@ impl AtomStore {
                     _ => {
                         if let Some(done) = open.take() {
                             self.decide_open_bloat_molecule(
-                                &mut report,
-                                &order_counts,
+                                report,
+                                order_counts,
                                 done,
                                 storage_prefix,
                             )
@@ -120,8 +171,8 @@ impl AtomStore {
                         }
                         if stop_at_boundary {
                             report.more_remaining = true;
-                            Self::sort_order_log_bloat(&mut report);
-                            return Ok(report);
+                            Self::sort_order_log_bloat(report);
+                            return Ok(true);
                         }
                         let mut unique = HashSet::new();
                         unique.insert(logical);
@@ -146,33 +197,10 @@ impl AtomStore {
         }
 
         if let Some(done) = open.take() {
-            self.decide_open_bloat_molecule(&mut report, &order_counts, done, storage_prefix)
+            self.decide_open_bloat_molecule(report, order_counts, done, storage_prefix)
                 .await?;
         }
-        // The `mk:` walk is finished. Zero-live classification used to happen
-        // right here, over the whole-store `order_counts` map, and
-        // `compact_order_log_zero_live` would then delete every molecule it
-        // named in this same request. `max_keys` bounded the walk and nothing
-        // bounded that commit, so on a real store the terminal pass held one
-        // synchronous request open for ~1.07 M deletes and never returned —
-        // three attempts, ~2h35m of node time, zero bytes reclaimed.
-        //
-        // Continue into the bounded sweep instead, with whatever budget this
-        // pass has left. A small store still finishes in one call; a large one
-        // stops at the first bound and returns a `moc:`-namespace cursor,
-        // which routes the next call straight back into phase B.
-        let spent = usize::try_from(report.keys_scanned).unwrap_or(usize::MAX);
-        let remaining = max_keys.map(|max| max.saturating_sub(spent));
-        self.sweep_zero_live_page(
-            report,
-            &moc_start,
-            &moc_colon,
-            remaining,
-            pass_started,
-            PASS_TIME_BUDGET,
-            storage_prefix,
-        )
-        .await
+        Ok(false)
     }
 
     /// Snapshot every order count and the count record's exact bytes.

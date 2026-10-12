@@ -103,31 +103,10 @@ pub(in crate::exec) async fn execute_db_repair_schema_molecule_map_route(
         Ok(None) => return error_response(404, "schema not found", ctx),
         Err(error) => return render(Err(error), ctx),
     };
-    let manager = host.db.schema_manager();
-    let Some(mut schema) = (match manager.get_schema_metadata(&canonical) {
-        Ok(schema) => schema,
-        Err(error) => return error_response(500, &format!("schema lookup failed: {error}"), ctx),
-    }) else {
-        return error_response(404, "schema not found", ctx);
+    let (schema, declared) = match load_declared_schema(host, ctx, &canonical, requested_map) {
+        Ok(loaded) => loaded,
+        Err(response) => return response,
     };
-    if schema.runtime_fields.is_empty() {
-        if let Err(error) = schema.populate_runtime_fields() {
-            return error_response(500, &format!("schema field load failed: {error}"), ctx);
-        }
-    }
-    let mut declared: Vec<_> = schema.runtime_fields.keys().cloned().collect();
-    declared.sort();
-    if let Some(map) = requested_map {
-        let mut proposed: Vec<_> = map.keys().cloned().collect();
-        proposed.sort();
-        if proposed != declared {
-            return error_response(
-                400,
-                "field_molecule_uuids must contain every runtime field and no unknown fields",
-                ctx,
-            );
-        }
-    }
 
     let current_map = schema.field_molecule_uuids.clone().unwrap_or_default();
     let current_fingerprint =
@@ -155,30 +134,11 @@ pub(in crate::exec) async fn execute_db_repair_schema_molecule_map_route(
     let current_key_molecule = key_molecule_of(&current_map);
     let proposed_key_molecule = requested_map.and_then(key_molecule_of);
 
-    let mut probes: HashMap<String, bool> = HashMap::new();
-    let probe_targets: Vec<String> = current_map
-        .values()
-        .take(MOLECULE_MAP_PROBE_LIMIT)
-        .cloned()
-        .chain(proposed_key_molecule.clone())
-        .collect();
-    for molecule in probe_targets {
-        if probes.contains_key(&molecule) {
-            continue;
-        }
-        match molecule_has_live_rows(host, &molecule).await {
-            Ok(live) => {
-                probes.insert(molecule, live);
-            }
-            Err(error) => {
-                return error_response(
-                    500,
-                    &format!("molecule live-row probe failed: {error}"),
-                    ctx,
-                )
-            }
-        }
-    }
+    let mut probes =
+        match probe_live_rows(host, ctx, &current_map, proposed_key_molecule.clone()).await {
+            Ok(probes) => probes,
+            Err(response) => return response,
+        };
     let current_key_has_live_rows = current_key_molecule
         .as_ref()
         .and_then(|molecule| probes.get(molecule).copied());
@@ -255,6 +215,87 @@ pub(in crate::exec) async fn execute_db_repair_schema_molecule_map_route(
         }),
         ctx.user_id.as_str(),
     ))
+}
+
+/// Load the installed schema with its runtime fields, and return the sorted
+/// declared field names. A proposed map must name exactly those fields.
+fn load_declared_schema(
+    host: &Host,
+    ctx: &AccessContext,
+    canonical: &str,
+    requested_map: Option<&HashMap<String, String>>,
+) -> Result<(fold_db::schema::types::Schema, Vec<String>), UdsResponse> {
+    let manager = host.db.schema_manager();
+    let Some(mut schema) = (match manager.get_schema_metadata(canonical) {
+        Ok(schema) => schema,
+        Err(error) => {
+            return Err(error_response(
+                500,
+                &format!("schema lookup failed: {error}"),
+                ctx,
+            ))
+        }
+    }) else {
+        return Err(error_response(404, "schema not found", ctx));
+    };
+    if schema.runtime_fields.is_empty() {
+        if let Err(error) = schema.populate_runtime_fields() {
+            return Err(error_response(
+                500,
+                &format!("schema field load failed: {error}"),
+                ctx,
+            ));
+        }
+    }
+    let mut declared: Vec<_> = schema.runtime_fields.keys().cloned().collect();
+    declared.sort();
+    if let Some(map) = requested_map {
+        let mut proposed: Vec<_> = map.keys().cloned().collect();
+        proposed.sort();
+        if proposed != declared {
+            return Err(error_response(
+                400,
+                "field_molecule_uuids must contain every runtime field and no unknown fields",
+                ctx,
+            ));
+        }
+    }
+    Ok((schema, declared))
+}
+
+/// Probe the current map's molecules (up to the limit) plus the proposed key
+/// molecule for live rows.
+async fn probe_live_rows(
+    host: &Host,
+    ctx: &AccessContext,
+    current_map: &HashMap<String, String>,
+    proposed_key_molecule: Option<String>,
+) -> Result<HashMap<String, bool>, UdsResponse> {
+    let mut probes: HashMap<String, bool> = HashMap::new();
+    let probe_targets: Vec<String> = current_map
+        .values()
+        .take(MOLECULE_MAP_PROBE_LIMIT)
+        .cloned()
+        .chain(proposed_key_molecule)
+        .collect();
+    for molecule in probe_targets {
+        if probes.contains_key(&molecule) {
+            continue;
+        }
+        match molecule_has_live_rows(host, &molecule).await {
+            Ok(live) => {
+                probes.insert(molecule, live);
+            }
+            Err(error) => {
+                return Err(error_response(
+                    500,
+                    &format!("molecule live-row probe failed: {error}"),
+                    ctx,
+                ))
+            }
+        }
+    }
+    Ok(probes)
 }
 
 /// Check the fingerprint guard and write the replacement molecule map.

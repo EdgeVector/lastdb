@@ -11,6 +11,9 @@ use crate::schema::SchemaError;
 
 use super::super::MutationManager;
 
+/// Field name, molecule uuid, storage prefix and the changed keys to hydrate.
+type FieldLoadPlan = (String, String, Option<String>, HashSet<ChangedKey>);
+
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn restore_missing_molecules(
         &self,
@@ -37,6 +40,28 @@ impl MutationManager {
         // concurrently. BoardCards touches ~24 field molecules per mutation;
         // sequential restore under the molecule gate was a multi-second hold
         // (status: mean molecule_gate hold ~3.1 s on primary 2026-08-17).
+        self.overlay_resident_changed_keys(schema, changed_keys);
+        let plans = Self::plan_cold_field_loads(schema, changed_keys);
+        let need_store = self.seed_fields_from_resident(schema, plans)?;
+        if need_store.is_empty() {
+            return Ok(());
+        }
+
+        let need_full = self.load_fields_for_write(schema, need_store).await?;
+        if need_full.is_empty() {
+            return Ok(());
+        }
+
+        self.load_fields_full(schema, need_full).await?;
+        Ok(())
+    }
+
+    /// Copy acknowledged resident tips onto fields that already hold a molecule.
+    fn overlay_resident_changed_keys(
+        &self,
+        schema: &mut Schema,
+        changed_keys: &HashMap<String, HashSet<ChangedKey>>,
+    ) {
         if self.acks_on_resident() {
             let overlay: Vec<(String, String, HashSet<ChangedKey>)> = schema
                 .runtime_fields
@@ -59,8 +84,15 @@ impl MutationManager {
                 }
             }
         }
+    }
 
-        let mut plans: Vec<(String, String, Option<String>, HashSet<ChangedKey>)> = Vec::new();
+    /// Plan a cold load for each field that has a molecule uuid but no loaded
+    /// molecule and is touched by this batch.
+    fn plan_cold_field_loads(
+        schema: &Schema,
+        changed_keys: &HashMap<String, HashSet<ChangedKey>>,
+    ) -> Vec<FieldLoadPlan> {
+        let mut plans: Vec<FieldLoadPlan> = Vec::new();
         for (name, field) in &schema.runtime_fields {
             if field.common().molecule_uuid().is_none()
                 || field.has_molecule()
@@ -80,10 +112,17 @@ impl MutationManager {
             }
             plans.push((name.clone(), uuid, storage_prefix, keys.clone()));
         }
+        plans
+    }
 
-        // Resident-seed can short-circuit without IO; do it first and drop
-        // those fields from the concurrent store load.
-        let mut need_store: Vec<(String, String, Option<String>, HashSet<ChangedKey>)> = Vec::new();
+    /// Seed fields from the resident set without IO; returns the plans that
+    /// still need a store load.
+    fn seed_fields_from_resident(
+        &self,
+        schema: &mut Schema,
+        plans: Vec<FieldLoadPlan>,
+    ) -> Result<Vec<FieldLoadPlan>, SchemaError> {
+        let mut need_store: Vec<FieldLoadPlan> = Vec::new();
         for (field_name, uuid, storage_prefix, keys) in plans {
             if self.acks_on_resident() {
                 if let Some(data) = self.try_seed_molecule_from_resident(&uuid, &keys) {
@@ -95,11 +134,16 @@ impl MutationManager {
             }
             need_store.push((field_name, uuid, storage_prefix, keys));
         }
+        Ok(need_store)
+    }
 
-        if need_store.is_empty() {
-            return Ok(());
-        }
-
+    /// Load the per-key molecule headers for write concurrently; returns the
+    /// fields with no per-key header, which need the full load.
+    async fn load_fields_for_write(
+        &self,
+        schema: &mut Schema,
+        need_store: Vec<FieldLoadPlan>,
+    ) -> Result<Vec<String>, SchemaError> {
         let store_loads = futures::future::try_join_all(need_store.iter().map(
             |(field_name, uuid, storage_prefix, keys)| {
                 let db_ops = self.db_ops.clone();
@@ -130,10 +174,15 @@ impl MutationManager {
             }
         }
 
-        if need_full.is_empty() {
-            return Ok(());
-        }
+        Ok(need_full)
+    }
 
+    /// Full-load the fields that have no per-key header and set their molecules.
+    async fn load_fields_full(
+        &self,
+        schema: &mut Schema,
+        need_full: Vec<String>,
+    ) -> Result<(), SchemaError> {
         let full_loads = futures::future::try_join_all(need_full.iter().map(|field_name| {
             let db_ops = self.db_ops.clone();
             let field_name = field_name.clone();
