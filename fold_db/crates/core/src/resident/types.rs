@@ -260,7 +260,6 @@ impl ResidentTip {
 pub enum ResidentSlotState {
     #[default]
     Absent,
-    RehydrateFlight,
     Ready,
 }
 
