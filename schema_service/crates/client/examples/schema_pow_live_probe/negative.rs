@@ -107,6 +107,16 @@ fn first_unsatisfying_counter(
     Ok(candidate)
 }
 
+fn build_bounded_http_client(args: &ProbeArgs) -> Result<reqwest::Client, String> {
+    let request_timeout = Duration::from_secs(args.request_timeout_secs);
+    reqwest::Client::builder()
+        .timeout(request_timeout)
+        .connect_timeout(SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT.min(request_timeout))
+        .no_proxy()
+        .build()
+        .map_err(|_| "failed to build bounded HTTP client".to_string())
+}
+
 pub(super) async fn run_negative_probe(
     args: &ProbeArgs,
     schema: &Schema,
@@ -121,13 +131,7 @@ pub(super) async fn run_negative_probe(
         .map_err(|_| "failed to serialize negative proof schema".to_string())?;
     let schema_hash = schema_payload_hash(&schema_payload)
         .map_err(|_| "failed to hash negative proof schema".to_string())?;
-    let request_timeout = Duration::from_secs(args.request_timeout_secs);
-    let http = reqwest::Client::builder()
-        .timeout(request_timeout)
-        .connect_timeout(SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT.min(request_timeout))
-        .no_proxy()
-        .build()
-        .map_err(|_| "failed to build bounded HTTP client".to_string())?;
+    let http = build_bounded_http_client(args)?;
     let request = AddSchemaRequest {
         schema: schema.clone(),
         mutation_mappers: HashMap::new(),
