@@ -4,6 +4,25 @@ Resident mode is the T0 memory plane for LastDB Mini. It keeps the same ladder
 objects the durable store owns, then drains dirty entries to disk on the T1
 persist path. T2 cloud sync remains downstream of durable storage.
 
+## Status: production code, not an experiment
+
+`LASTDB_RESIDENT_MODE` defaults to `off`, but that is a rollout default, not a
+sign the subsystem is unused. The live node has run `write` mode, and the
+restore CLI forces `off` only because a one-shot process has no persist worker.
+In every mode the ResidentGraph is the mutation concurrency gate (per-slot
+revisions) and the persist lane owns mutation persistence. Only resident-first
+reads and acknowledge-on-apply depend on the mode.
+
+Three caches exist and are not duplicates:
+
+- ResidentGraph: mutation ordering, dirty tracking, deferred acknowledgment.
+- LogicalResidentSet: always-on read cache for tips and atoms inside LastStore,
+  capped by `RESIDENT_KEY_CAP`.
+- Hash-group warm set: byte-budgeted cache for non-logical collections.
+
+Do not delete, merge, or simplify any of them as cleanup. Changing this is a
+design decision for the owner.
+
 ## Planes
 
 T0 holds the local schema catalog, molecule tips, atoms, and protein metadata.
