@@ -18,6 +18,7 @@ mod collect;
 mod partition_window;
 mod refresh;
 mod resolve;
+mod resolve_scan;
 
 /// One live field slot from an authoritative, hydrated hash-partition walk.
 ///

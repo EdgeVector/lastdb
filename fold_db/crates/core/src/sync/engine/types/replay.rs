@@ -1,4 +1,4 @@
-use super::status::SyncReplayBlocker;
+use super::status_blockers::SyncReplayBlocker;
 use crate::sync::error::{redact_sync_error_text, SyncError};
 
 /// Which kind of replay operation a key rewrite is being computed for.
