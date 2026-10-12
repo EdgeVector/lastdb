@@ -400,84 +400,83 @@ impl Serialize for BackupProgressHealth {
     }
 }
 
-impl<'de> Deserialize<'de> for BackupProgressHealth {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        // lint:fn-size-ok moved verbatim from self_metrics.rs; splitting this function is separate work.
-        #[derive(Deserialize)]
-        struct Raw {
-            #[serde(default)]
-            enabled: bool,
-            #[serde(default)]
-            complete: bool,
-            #[serde(default)]
-            show_progress: bool,
-            #[serde(default)]
-            percent: Option<f64>,
-            #[serde(default)]
-            chunks_total: Option<u64>,
-            #[serde(default)]
-            chunks_present: Option<u64>,
-            #[serde(default)]
-            chunks_remaining: Option<u64>,
-            #[serde(default)]
-            bytes_remaining: Option<u64>,
-            #[serde(default)]
-            elapsed_secs: Option<u64>,
-            #[serde(default)]
-            eta_secs: Option<u64>,
-            #[serde(default)]
-            ewma_upload_bps: Option<f64>,
-            #[serde(default)]
-            ewma_link_bps: Option<f64>,
-            #[serde(default)]
-            ewma_overhead_secs: Option<f64>,
-            #[serde(default)]
-            last_cycle_uploaded: Option<u64>,
-            #[serde(default)]
-            last_cycle_already_present: Option<u64>,
-            #[serde(default)]
-            last_cycle_bytes_uploaded: Option<u64>,
-            #[serde(default)]
-            last_cycle_failed: Option<u64>,
-            #[serde(default)]
-            chunks_source_missing: Option<u64>,
-            #[serde(default)]
-            chunks_unbackable_manifest: Option<u64>,
-            #[serde(default)]
-            cas_counter: Option<u64>,
-            #[serde(default)]
-            phase: Option<String>,
-            #[serde(default)]
-            last_success_unix: Option<u64>,
-            #[serde(default)]
-            last_success_age_secs: Option<u64>,
-            #[serde(default)]
-            consecutive_failures: Option<u64>,
-            #[serde(default)]
-            last_error: Option<String>,
-            #[serde(default)]
-            chunks_gained: Option<u64>,
-            #[serde(default)]
-            chunks_erased: Option<u64>,
-            #[serde(default)]
-            net_progressing: bool,
-            #[serde(default)]
-            recent_gained: Option<u64>,
-            #[serde(default)]
-            recent_erased: Option<u64>,
-            #[serde(default)]
-            net_progress_window_cycles: Option<u64>,
-            #[serde(default)]
-            cycles_since_net_gain: Option<u64>,
-            #[serde(default)]
-            target_generation: Option<u64>,
-            #[serde(default)]
-            last_publish_unix: Option<u64>,
-            #[serde(default)]
-            last_publish_age_secs: Option<u64>,
-        }
-        let raw = Raw::deserialize(deserializer)?;
-        Ok(Self {
+#[derive(Deserialize)]
+struct BackupProgressHealthRaw {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    complete: bool,
+    #[serde(default)]
+    show_progress: bool,
+    #[serde(default)]
+    percent: Option<f64>,
+    #[serde(default)]
+    chunks_total: Option<u64>,
+    #[serde(default)]
+    chunks_present: Option<u64>,
+    #[serde(default)]
+    chunks_remaining: Option<u64>,
+    #[serde(default)]
+    bytes_remaining: Option<u64>,
+    #[serde(default)]
+    elapsed_secs: Option<u64>,
+    #[serde(default)]
+    eta_secs: Option<u64>,
+    #[serde(default)]
+    ewma_upload_bps: Option<f64>,
+    #[serde(default)]
+    ewma_link_bps: Option<f64>,
+    #[serde(default)]
+    ewma_overhead_secs: Option<f64>,
+    #[serde(default)]
+    last_cycle_uploaded: Option<u64>,
+    #[serde(default)]
+    last_cycle_already_present: Option<u64>,
+    #[serde(default)]
+    last_cycle_bytes_uploaded: Option<u64>,
+    #[serde(default)]
+    last_cycle_failed: Option<u64>,
+    #[serde(default)]
+    chunks_source_missing: Option<u64>,
+    #[serde(default)]
+    chunks_unbackable_manifest: Option<u64>,
+    #[serde(default)]
+    cas_counter: Option<u64>,
+    #[serde(default)]
+    phase: Option<String>,
+    #[serde(default)]
+    last_success_unix: Option<u64>,
+    #[serde(default)]
+    last_success_age_secs: Option<u64>,
+    #[serde(default)]
+    consecutive_failures: Option<u64>,
+    #[serde(default)]
+    last_error: Option<String>,
+    #[serde(default)]
+    chunks_gained: Option<u64>,
+    #[serde(default)]
+    chunks_erased: Option<u64>,
+    #[serde(default)]
+    net_progressing: bool,
+    #[serde(default)]
+    recent_gained: Option<u64>,
+    #[serde(default)]
+    recent_erased: Option<u64>,
+    #[serde(default)]
+    net_progress_window_cycles: Option<u64>,
+    #[serde(default)]
+    cycles_since_net_gain: Option<u64>,
+    #[serde(default)]
+    target_generation: Option<u64>,
+    #[serde(default)]
+    last_publish_unix: Option<u64>,
+    #[serde(default)]
+    last_publish_age_secs: Option<u64>,
+}
+
+impl From<BackupProgressHealthRaw> for BackupProgressHealth {
+    fn from(raw: BackupProgressHealthRaw) -> Self {
+        Self {
             enabled: raw.enabled,
             complete: raw.complete,
             show_progress: raw.show_progress,
@@ -525,7 +524,13 @@ impl<'de> Deserialize<'de> for BackupProgressHealth {
             target_generation: g_instant_wire(raw.target_generation, Unit::Named("manifest")),
             last_publish_unix: g_instant_wire(raw.last_publish_unix, Unit::Named("unix_s")),
             last_publish_age_secs: g_instant_wire(raw.last_publish_age_secs, Unit::Named("sec(s)")),
-        })
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for BackupProgressHealth {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        BackupProgressHealthRaw::deserialize(deserializer).map(Self::from)
     }
 }
 

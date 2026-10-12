@@ -109,124 +109,102 @@ pub(super) fn sync_snapshot_complete(sync: &SyncHealth) -> bool {
     sync.snapshot_unavailable_reason.is_none()
 }
 
+/// Project one engine status snapshot onto the wire-shaped health record.
+fn sync_health_from_status(host: &Host, status: fold_db::sync::SyncStatus) -> SyncHealth {
+    let ml = status.mutation_log.as_ref();
+    SyncHealth {
+        // Honest Off: engine may still exist, but intentional pause means
+        // the cloud plane is not enabled for upload. Do not report
+        // enabled=true merely because a SyncEngine was constructed.
+        enabled: status.cloud_sync_disabled_at.is_none() && cloud_sync_intent_is_on(host),
+        snapshot_unavailable_reason: None,
+        local_writable: Some(status.local_writable),
+        sync_degraded: Some(status.sync_degraded),
+        state: Some(
+            if status.cloud_sync_disabled_at.is_some() || !cloud_sync_intent_is_on(host) {
+                "Paused".to_string()
+            } else {
+                format!("{:?}", status.state)
+            },
+        ),
+        last_success_ts: g_instant_wire(status.last_sync_at, Unit::Named("unix_s")),
+        pending_count: g_instant(status.pending_count as u64, Unit::Named("entry(ies)")),
+        durable_outbox_count: g_instant(
+            status.durable_outbox_count as u64,
+            Unit::Named("entry(ies)"),
+        ),
+        upload_queue_count: g_instant(status.upload_queue_count as u64, Unit::Named("entry(ies)")),
+        upload_queue_max: g_instant(status.upload_queue_max as u64, Unit::Named("entry(ies)")),
+        durable_outbox_max: g_instant(status.durable_outbox_max as u64, Unit::Named("entry(ies)")),
+        last_error: status.last_error,
+        last_error_at: g_instant_wire(status.last_error_at, Unit::Named("unix_s")),
+        consecutive_sync_failures: g_lifetime(status.consecutive_sync_failures, Unit::Events),
+        failing_since: g_instant_wire(status.failing_since, Unit::Named("unix_s")),
+        degraded_reasons: Some(status.degraded_reasons),
+        replay_blocker: status
+            .replay_blocker
+            .and_then(|blocker| serde_json::to_value(blocker).ok()),
+        last_download: status
+            .last_download
+            .and_then(|stats| serde_json::to_value(stats).ok()),
+        upload_policy: status
+            .upload_policy
+            .and_then(|p| serde_json::to_value(p).ok()),
+        backup_upload_concurrency: serde_json::to_value(status.backup_upload_concurrency).ok(),
+        recording_local_changes: Some(status.recording_local_changes),
+        sync_off_grace_expired: Some(status.sync_off_grace_expired),
+        reenable_strategy: status.reenable_strategy,
+        cloud_sync_disabled_at: g_instant_wire(
+            status.cloud_sync_disabled_at,
+            Unit::Named("unix_s"),
+        ),
+        sync_off_grace_secs: g_instant(status.sync_off_grace_secs, Unit::Named("sec(s)")),
+        mutation_log_active: ml.map(|m| m.active),
+        mutation_log_writer_id: ml.map(|m| m.writer_id.clone()),
+        mutation_log_frontier_f: g_instant_wire(ml.map(|m| m.frontier_f), Unit::Named("seq")),
+        mutation_log_published_through: g_instant_wire(
+            ml.map(|m| m.published_through),
+            Unit::Named("seq"),
+        ),
+        mutation_log_last_durable_frontier: g_instant_wire(
+            status
+                .mutation_log
+                .as_ref()
+                .map(|m| m.last_durable_frontier),
+            Unit::Named("seq"),
+        ),
+        mutation_log_recovery_point_age_secs: g_instant_wire(
+            status
+                .mutation_log
+                .as_ref()
+                .and_then(|m| m.recovery_point_age_secs),
+            Unit::Named("sec(s)"),
+        ),
+        mutation_log_lag: g_instant_wire(ml.map(|m| m.log_lag), Unit::Named("seq")),
+        mutation_log_segments_uploaded: g_lifetime_wire(
+            ml.map(|m| m.segments_uploaded),
+            Unit::Named("segment(s)"),
+        ),
+        mutation_log_lag_degraded: ml.map(|m| m.lag_degraded),
+        mutation_log_capture_registered: ml.map(|m| m.capture_registered),
+        capture_reexport_pending_count_estimate: g_instant(
+            status.capture_reexport_pending_count,
+            Unit::Named("entry(ies)"),
+        ),
+        capture_reexport_pending_known_nonempty: status.capture_reexport_pending_known_nonempty,
+        mutation_log_peer_segments_applied: ml.map(|m| m.peer_segments_applied),
+        mutation_log_peer_records_applied: ml.map(|m| m.peer_records_applied),
+        mutation_log_records_quarantined: ml.map(|m| m.records_quarantined),
+        mutation_log_last_quarantine_reason: ml.and_then(|m| m.last_quarantine_reason.clone()),
+        capture: serde_json::to_value(status.capture).ok(),
+    }
+}
+
 pub(super) async fn sync_health(host: &Host) -> SyncHealth {
-    // lint:fn-size-ok moved verbatim from self_metrics.rs; splitting this function is separate work.
     let status = tokio::time::timeout(SAMPLER_SYNC_SNAPSHOT_BUDGET, host.db.sync_status()).await;
     let mut health = match status {
         Err(_) => sync_health_on_probe_timeout(host),
-        Ok(Some(status)) => SyncHealth {
-            // Honest Off: engine may still exist, but intentional pause means
-            // the cloud plane is not enabled for upload. Do not report
-            // enabled=true merely because a SyncEngine was constructed.
-            enabled: status.cloud_sync_disabled_at.is_none() && cloud_sync_intent_is_on(host),
-            snapshot_unavailable_reason: None,
-            local_writable: Some(status.local_writable),
-            sync_degraded: Some(status.sync_degraded),
-            state: Some(
-                if status.cloud_sync_disabled_at.is_some() || !cloud_sync_intent_is_on(host) {
-                    "Paused".to_string()
-                } else {
-                    format!("{:?}", status.state)
-                },
-            ),
-            last_success_ts: g_instant_wire(status.last_sync_at, Unit::Named("unix_s")),
-            pending_count: g_instant(status.pending_count as u64, Unit::Named("entry(ies)")),
-            durable_outbox_count: g_instant(
-                status.durable_outbox_count as u64,
-                Unit::Named("entry(ies)"),
-            ),
-            upload_queue_count: g_instant(
-                status.upload_queue_count as u64,
-                Unit::Named("entry(ies)"),
-            ),
-            upload_queue_max: g_instant(status.upload_queue_max as u64, Unit::Named("entry(ies)")),
-            durable_outbox_max: g_instant(
-                status.durable_outbox_max as u64,
-                Unit::Named("entry(ies)"),
-            ),
-            last_error: status.last_error,
-            last_error_at: g_instant_wire(status.last_error_at, Unit::Named("unix_s")),
-            consecutive_sync_failures: g_lifetime(status.consecutive_sync_failures, Unit::Events),
-            failing_since: g_instant_wire(status.failing_since, Unit::Named("unix_s")),
-            degraded_reasons: Some(status.degraded_reasons),
-            replay_blocker: status
-                .replay_blocker
-                .and_then(|blocker| serde_json::to_value(blocker).ok()),
-            last_download: status
-                .last_download
-                .and_then(|stats| serde_json::to_value(stats).ok()),
-            upload_policy: status
-                .upload_policy
-                .and_then(|p| serde_json::to_value(p).ok()),
-            backup_upload_concurrency: serde_json::to_value(status.backup_upload_concurrency).ok(),
-            recording_local_changes: Some(status.recording_local_changes),
-            sync_off_grace_expired: Some(status.sync_off_grace_expired),
-            reenable_strategy: status.reenable_strategy,
-            cloud_sync_disabled_at: g_instant_wire(
-                status.cloud_sync_disabled_at,
-                Unit::Named("unix_s"),
-            ),
-            sync_off_grace_secs: g_instant(status.sync_off_grace_secs, Unit::Named("sec(s)")),
-            mutation_log_active: status.mutation_log.as_ref().map(|m| m.active),
-            mutation_log_writer_id: status.mutation_log.as_ref().map(|m| m.writer_id.clone()),
-            mutation_log_frontier_f: g_instant_wire(
-                status.mutation_log.as_ref().map(|m| m.frontier_f),
-                Unit::Named("seq"),
-            ),
-            mutation_log_published_through: g_instant_wire(
-                status.mutation_log.as_ref().map(|m| m.published_through),
-                Unit::Named("seq"),
-            ),
-            mutation_log_last_durable_frontier: g_instant_wire(
-                status
-                    .mutation_log
-                    .as_ref()
-                    .map(|m| m.last_durable_frontier),
-                Unit::Named("seq"),
-            ),
-            mutation_log_recovery_point_age_secs: g_instant_wire(
-                status
-                    .mutation_log
-                    .as_ref()
-                    .and_then(|m| m.recovery_point_age_secs),
-                Unit::Named("sec(s)"),
-            ),
-            mutation_log_lag: g_instant_wire(
-                status.mutation_log.as_ref().map(|m| m.log_lag),
-                Unit::Named("seq"),
-            ),
-            mutation_log_segments_uploaded: g_lifetime_wire(
-                status.mutation_log.as_ref().map(|m| m.segments_uploaded),
-                Unit::Named("segment(s)"),
-            ),
-            mutation_log_lag_degraded: status.mutation_log.as_ref().map(|m| m.lag_degraded),
-            mutation_log_capture_registered: status
-                .mutation_log
-                .as_ref()
-                .map(|m| m.capture_registered),
-            capture_reexport_pending_count_estimate: g_instant(
-                status.capture_reexport_pending_count,
-                Unit::Named("entry(ies)"),
-            ),
-            capture_reexport_pending_known_nonempty: status.capture_reexport_pending_known_nonempty,
-            mutation_log_peer_segments_applied: status
-                .mutation_log
-                .as_ref()
-                .map(|m| m.peer_segments_applied),
-            mutation_log_peer_records_applied: status
-                .mutation_log
-                .as_ref()
-                .map(|m| m.peer_records_applied),
-            mutation_log_records_quarantined: status
-                .mutation_log
-                .as_ref()
-                .map(|m| m.records_quarantined),
-            mutation_log_last_quarantine_reason: status
-                .mutation_log
-                .as_ref()
-                .and_then(|m| m.last_quarantine_reason.clone()),
-            capture: serde_json::to_value(status.capture).ok(),
-        },
+        Ok(Some(status)) => sync_health_from_status(host, status),
         Ok(None) => SyncHealth {
             enabled: false,
             snapshot_unavailable_reason: None,

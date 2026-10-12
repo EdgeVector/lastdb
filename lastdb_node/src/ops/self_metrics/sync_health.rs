@@ -237,98 +237,97 @@ impl Serialize for SyncHealth {
     }
 }
 
-impl<'de> Deserialize<'de> for SyncHealth {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        // lint:fn-size-ok moved verbatim from self_metrics.rs; splitting this function is separate work.
-        #[derive(Deserialize)]
-        struct Raw {
-            #[serde(default)]
-            enabled: bool,
-            #[serde(default)]
-            snapshot_unavailable_reason: Option<String>,
-            #[serde(default)]
-            local_writable: Option<bool>,
-            #[serde(default)]
-            sync_degraded: Option<bool>,
-            #[serde(default)]
-            state: Option<String>,
-            #[serde(default)]
-            last_success_ts: Option<u64>,
-            #[serde(default)]
-            pending_count: Option<u64>,
-            #[serde(default)]
-            durable_outbox_count: Option<u64>,
-            #[serde(default)]
-            upload_queue_count: Option<u64>,
-            #[serde(default)]
-            upload_queue_max: Option<u64>,
-            #[serde(default)]
-            durable_outbox_max: Option<u64>,
-            #[serde(default)]
-            last_error: Option<String>,
-            #[serde(default)]
-            last_error_at: Option<u64>,
-            #[serde(default)]
-            consecutive_sync_failures: Option<u64>,
-            #[serde(default)]
-            failing_since: Option<u64>,
-            #[serde(default)]
-            degraded_reasons: Option<Vec<String>>,
-            #[serde(default)]
-            replay_blocker: Option<Value>,
-            #[serde(default)]
-            last_download: Option<Value>,
-            #[serde(default)]
-            upload_policy: Option<Value>,
-            #[serde(default)]
-            backup_upload_concurrency: Option<Value>,
-            #[serde(default)]
-            recording_local_changes: Option<bool>,
-            #[serde(default)]
-            sync_off_grace_expired: Option<bool>,
-            #[serde(default)]
-            reenable_strategy: Option<String>,
-            #[serde(default)]
-            cloud_sync_disabled_at: Option<u64>,
-            #[serde(default)]
-            sync_off_grace_secs: Option<u64>,
-            #[serde(default)]
-            mutation_log_active: Option<bool>,
-            #[serde(default)]
-            mutation_log_writer_id: Option<String>,
-            #[serde(default)]
-            mutation_log_frontier_f: Option<u64>,
-            #[serde(default)]
-            mutation_log_published_through: Option<u64>,
-            #[serde(default)]
-            mutation_log_last_durable_frontier: Option<u64>,
-            #[serde(default)]
-            mutation_log_recovery_point_age_secs: Option<u64>,
-            #[serde(default)]
-            mutation_log_lag: Option<u64>,
-            #[serde(default)]
-            mutation_log_segments_uploaded: Option<u64>,
-            #[serde(default)]
-            mutation_log_lag_degraded: Option<bool>,
-            #[serde(default)]
-            mutation_log_capture_registered: Option<bool>,
-            #[serde(default)]
-            capture_reexport_pending_count_estimate: Option<u64>,
-            #[serde(default)]
-            capture_reexport_pending_known_nonempty: Option<bool>,
-            #[serde(default)]
-            mutation_log_peer_segments_applied: Option<u64>,
-            #[serde(default)]
-            mutation_log_peer_records_applied: Option<u64>,
-            #[serde(default)]
-            mutation_log_records_quarantined: Option<u64>,
-            #[serde(default)]
-            mutation_log_last_quarantine_reason: Option<String>,
-            #[serde(default)]
-            capture: Option<Value>,
-        }
-        let raw = Raw::deserialize(deserializer)?;
-        Ok(Self {
+#[derive(Deserialize)]
+struct SyncHealthRaw {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    snapshot_unavailable_reason: Option<String>,
+    #[serde(default)]
+    local_writable: Option<bool>,
+    #[serde(default)]
+    sync_degraded: Option<bool>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    last_success_ts: Option<u64>,
+    #[serde(default)]
+    pending_count: Option<u64>,
+    #[serde(default)]
+    durable_outbox_count: Option<u64>,
+    #[serde(default)]
+    upload_queue_count: Option<u64>,
+    #[serde(default)]
+    upload_queue_max: Option<u64>,
+    #[serde(default)]
+    durable_outbox_max: Option<u64>,
+    #[serde(default)]
+    last_error: Option<String>,
+    #[serde(default)]
+    last_error_at: Option<u64>,
+    #[serde(default)]
+    consecutive_sync_failures: Option<u64>,
+    #[serde(default)]
+    failing_since: Option<u64>,
+    #[serde(default)]
+    degraded_reasons: Option<Vec<String>>,
+    #[serde(default)]
+    replay_blocker: Option<Value>,
+    #[serde(default)]
+    last_download: Option<Value>,
+    #[serde(default)]
+    upload_policy: Option<Value>,
+    #[serde(default)]
+    backup_upload_concurrency: Option<Value>,
+    #[serde(default)]
+    recording_local_changes: Option<bool>,
+    #[serde(default)]
+    sync_off_grace_expired: Option<bool>,
+    #[serde(default)]
+    reenable_strategy: Option<String>,
+    #[serde(default)]
+    cloud_sync_disabled_at: Option<u64>,
+    #[serde(default)]
+    sync_off_grace_secs: Option<u64>,
+    #[serde(default)]
+    mutation_log_active: Option<bool>,
+    #[serde(default)]
+    mutation_log_writer_id: Option<String>,
+    #[serde(default)]
+    mutation_log_frontier_f: Option<u64>,
+    #[serde(default)]
+    mutation_log_published_through: Option<u64>,
+    #[serde(default)]
+    mutation_log_last_durable_frontier: Option<u64>,
+    #[serde(default)]
+    mutation_log_recovery_point_age_secs: Option<u64>,
+    #[serde(default)]
+    mutation_log_lag: Option<u64>,
+    #[serde(default)]
+    mutation_log_segments_uploaded: Option<u64>,
+    #[serde(default)]
+    mutation_log_lag_degraded: Option<bool>,
+    #[serde(default)]
+    mutation_log_capture_registered: Option<bool>,
+    #[serde(default)]
+    capture_reexport_pending_count_estimate: Option<u64>,
+    #[serde(default)]
+    capture_reexport_pending_known_nonempty: Option<bool>,
+    #[serde(default)]
+    mutation_log_peer_segments_applied: Option<u64>,
+    #[serde(default)]
+    mutation_log_peer_records_applied: Option<u64>,
+    #[serde(default)]
+    mutation_log_records_quarantined: Option<u64>,
+    #[serde(default)]
+    mutation_log_last_quarantine_reason: Option<String>,
+    #[serde(default)]
+    capture: Option<Value>,
+}
+
+impl From<SyncHealthRaw> for SyncHealth {
+    fn from(raw: SyncHealthRaw) -> Self {
+        Self {
             enabled: raw.enabled,
             snapshot_unavailable_reason: raw.snapshot_unavailable_reason,
             local_writable: raw.local_writable,
@@ -395,6 +394,12 @@ impl<'de> Deserialize<'de> for SyncHealth {
             mutation_log_records_quarantined: raw.mutation_log_records_quarantined,
             mutation_log_last_quarantine_reason: raw.mutation_log_last_quarantine_reason,
             capture: raw.capture,
-        })
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SyncHealth {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        SyncHealthRaw::deserialize(deserializer).map(Self::from)
     }
 }
