@@ -2,7 +2,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use serde_json::Value;
 use uuid::Uuid;
 
 use crate::atom::AtomEntry;
@@ -10,12 +9,8 @@ use crate::db_operations::atom_store::{AtomStore, ChangedKey, MoleculeData, Mole
 use crate::schema::SchemaError;
 use crate::security::Ed25519KeyPair;
 
-use super::keys::{
-    member_backref_key, protein_fold_job_key, protein_record_key, PROTEIN_FOLD_JOB_PREFIX,
-};
-use super::types::{
-    Protein, ProteinFoldJob, ProteinMember, ProteinWriteOutcome, PROTEIN_SCHEMA_MARKER,
-};
+use super::keys::{member_backref_key, protein_record_key, PROTEIN_FOLD_JOB_PREFIX};
+use super::types::{Protein, ProteinFoldJob, ProteinMember};
 
 mod batch;
 mod tip;
@@ -125,118 +120,6 @@ impl AtomStore {
                 SchemaError::InvalidData(format!("write molprot {}: {e}", member.molecule_uuid))
             })?;
         Ok(protein)
-    }
-
-    /// Write a shared atom tip on the **entry** member and enqueue fold jobs so
-    /// sibling members converge on the same atom under their own key layouts.
-    ///
-    /// Returns immediately after the entry tip + atom are durable. Call
-    /// [`Self::protein_process_folds`] (or let a background worker) to apply
-    /// sibling tip repoints.
-    pub async fn protein_write_via_member(
-        &self,
-        entry_molecule_uuid: &str,
-        fields: &HashMap<String, String>,
-        content: Value,
-        keypair: &Ed25519KeyPair,
-    ) -> Result<ProteinWriteOutcome, SchemaError> {
-        let protein_uuid = self
-            .protein_of_molecule(entry_molecule_uuid)
-            .await?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "molecule {entry_molecule_uuid} is not a protein member"
-                ))
-            })?;
-        let protein = self
-            .protein_get(&protein_uuid)
-            .await?
-            .ok_or_else(|| SchemaError::InvalidData(format!("protein {protein_uuid} not found")))?;
-        let entry_member = protein
-            .member_for_molecule(entry_molecule_uuid)
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "protein {protein_uuid} missing member {entry_molecule_uuid}"
-                ))
-            })?
-            .clone();
-
-        let (hash, range) = entry_member.tip_coords_from_fields(fields).ok_or_else(|| {
-            SchemaError::InvalidData(format!(
-                "entry member {} missing key fields in write map (need hash_field={})",
-                entry_molecule_uuid, entry_member.hash_field
-            ))
-        })?;
-
-        // Create + store shared atom (content-addressed).
-        let atom = Self::create_atom(PROTEIN_SCHEMA_MARKER, content, None, None)
-            .map_err(|e| SchemaError::InvalidData(format!("create protein atom: {e}")))?;
-        let atom_uuid = atom.uuid().to_string();
-        self.batch_store_atoms(vec![atom], None)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("store protein atom: {e}")))?;
-
-        let written_at = crate::clock::unix_nanos();
-        let device_id = keypair.public_key_base64();
-        let tip = AtomEntry::thin(atom_uuid.clone(), written_at, device_id.clone());
-
-        self.protein_set_member_tip(entry_molecule_uuid, &hash, &range, &tip, keypair)
-            .await?;
-
-        // Enqueue fold for every sibling member that can derive tip coords.
-        let mut fold_jobs = 0usize;
-        for sibling in &protein.members {
-            if sibling.molecule_uuid == entry_molecule_uuid {
-                continue;
-            }
-            if sibling.tip_coords_from_fields(fields).is_none() {
-                continue;
-            }
-            let job = ProteinFoldJob {
-                job_id: Uuid::new_v4().to_string(),
-                protein_uuid: protein_uuid.clone(),
-                entry_molecule_uuid: entry_molecule_uuid.to_string(),
-                atom_uuid: atom_uuid.clone(),
-                written_at,
-                device_id: device_id.clone(),
-                fields: fields.clone(),
-                schema: PROTEIN_SCHEMA_MARKER.to_string(),
-            };
-            let pending_source = format!("protein-fold:{}", job.job_id);
-            let pending_item = Self::pending_atom_ref_item(&job.atom_uuid, &pending_source, None)?;
-            self.raw()
-                .batch_put_items(vec![
-                    (
-                        protein_fold_job_key(&job.job_id),
-                        serde_json::to_value(&job).map_err(|e| {
-                            SchemaError::InvalidData(format!(
-                                "serialize protein fold {}: {e}",
-                                job.job_id
-                            ))
-                        })?,
-                    ),
-                    pending_item,
-                ])
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!("enqueue protein fold {}: {e}", job.job_id))
-                })?;
-            fold_jobs += 1;
-        }
-        self.keep_small()
-            .add_pending_protein_folds(fold_jobs as u64);
-        // Debounced persist only. The pending-fold gauge is not correctness
-        // state; a per-write flush here was one of the 2026-09-21 flush-storm
-        // sites (whole counter map per protein write into one `metadata` group).
-        let _ = self.persist_keep_small().await;
-
-        Ok(ProteinWriteOutcome {
-            protein_uuid,
-            atom_uuid,
-            entry_molecule_uuid: entry_molecule_uuid.to_string(),
-            fold_jobs_enqueued: fold_jobs,
-            used_protein_path: true,
-        })
     }
 
     /// Process up to `max_jobs` pending fold jobs. Returns how many were applied.

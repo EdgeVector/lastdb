@@ -153,17 +153,6 @@ impl CloudPurgePeer {
         Ok(plan)
     }
 
-    pub fn pending_adoption(&self, account: &CloudAccount) -> SyncResult<Option<AdoptionPlan>> {
-        let Some(control) = self.known_control(account)? else {
-            return Ok(None);
-        };
-        if !control.permits_local_adoption() {
-            return Ok(None);
-        }
-        let plan = self.prepare_adoption(&control)?;
-        Ok(self.adoption_receipt(&plan)?.is_none().then_some(plan))
-    }
-
     /// Serialize adoption across independent publishers. A process restart
     /// repeats only the cloud acknowledgement after the local receipt commits.
     pub async fn ensure_adopted(

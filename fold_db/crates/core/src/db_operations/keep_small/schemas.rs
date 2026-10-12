@@ -7,11 +7,6 @@ impl KeepSmallMeters {
         self.pending_protein_folds.store(count, Ordering::Relaxed);
     }
 
-    pub fn add_pending_protein_folds(&self, count: u64) {
-        self.pending_protein_folds
-            .fetch_add(count, Ordering::Relaxed);
-    }
-
     pub fn complete_pending_protein_fold(&self) {
         let current = self.pending_protein_folds.load(Ordering::Relaxed);
         if current > 0 {

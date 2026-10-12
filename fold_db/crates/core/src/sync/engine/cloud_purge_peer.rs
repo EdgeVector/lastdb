@@ -1,7 +1,7 @@
 //! Host-facing peer adoption wiring and cycle admission.
 
 use super::*;
-use crate::sync::cloud_purge_peer::{AdoptionHandler, CloudPurgePeer, PeerAccountStatus};
+use crate::sync::cloud_purge_peer::{AdoptionHandler, CloudPurgePeer};
 
 impl SyncEngine {
     /// A stopped candidate's maintenance engine never starts a publisher.
@@ -20,11 +20,6 @@ impl SyncEngine {
                 SyncError::CloudPurgeHeld("cloud peer has no durable receipt directory".into())
             })?
             .set_adoption_handler(handler)
-    }
-
-    pub fn cloud_purge_peer_status(&self) -> SyncResult<Vec<PeerAccountStatus>> {
-        self.cloud_purge_peer()
-            .map_or_else(|| Ok(Vec::new()), |peer| peer.statuses())
     }
 
     /// Independent reads are concurrent. No upload staging or peer replay

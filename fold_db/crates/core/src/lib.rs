@@ -28,9 +28,7 @@ pub mod atom;
 pub mod protein;
 /// One molecule per keyed record (envelope compact / dual-read / dual-write).
 pub mod record_molecule;
-pub use protein::{
-    Protein, ProteinFoldJob, ProteinMember, ProteinWriteOutcome, PROTEIN_SCHEMA_MARKER,
-};
+pub use protein::{Protein, ProteinFoldJob, ProteinMember, PROTEIN_SCHEMA_MARKER};
 /// Resident graph — T0 primary working set (resolve / rehydrate / apply).
 /// Product law: memory → disk → cloud; full ladder fidelity
 /// (`concepts-lastdb-rehydrate`).

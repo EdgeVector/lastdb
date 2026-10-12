@@ -16,11 +16,5 @@ pub fn member_backref_key(molecule_uuid: &str) -> String {
     format!("{MEMBER_BACKREF_PREFIX}{molecule_uuid}")
 }
 
-/// Enqueued fold job: `pfq:{job_id}` → [`super::ProteinFoldJob`].
-#[must_use]
-pub fn protein_fold_job_key(job_id: &str) -> String {
-    format!("pfq:{job_id}")
-}
-
 /// Prefix scan for pending fold jobs.
 pub const PROTEIN_FOLD_JOB_PREFIX: &str = "pfq:";

@@ -12,8 +12,6 @@ mod keys;
 mod ops;
 mod types;
 
-pub use keys::{member_backref_key, protein_fold_job_key, protein_record_key};
+pub use keys::{member_backref_key, protein_record_key};
 pub(crate) use keys::{MEMBER_BACKREF_PREFIX, PROTEIN_FOLD_JOB_PREFIX, PROTEIN_RECORD_PREFIX};
-pub use types::{
-    Protein, ProteinFoldJob, ProteinMember, ProteinWriteOutcome, PROTEIN_SCHEMA_MARKER,
-};
+pub use types::{Protein, ProteinFoldJob, ProteinMember, PROTEIN_SCHEMA_MARKER};

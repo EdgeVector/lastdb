@@ -129,15 +129,3 @@ pub struct ProteinFoldJob {
 fn default_schema_marker() -> String {
     PROTEIN_SCHEMA_MARKER.to_string()
 }
-
-/// Result of a protein-aware write through the entry member.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProteinWriteOutcome {
-    pub protein_uuid: String,
-    pub atom_uuid: String,
-    pub entry_molecule_uuid: String,
-    /// Fold jobs enqueued for sibling members (0 when sole member).
-    pub fold_jobs_enqueued: usize,
-    /// True when the entry tip was written on the protein path.
-    pub used_protein_path: bool,
-}
