@@ -1,5 +1,14 @@
 use super::*;
 
+/// What a GC delete batch re-checks against: the live manifests, the keep
+/// proof and the publication state captured when the plan was made.
+#[derive(Clone, Copy)]
+pub(super) struct GcKeep<'a> {
+    pub(super) live_manifests: &'a [BackupManifest],
+    pub(super) keep_proof: BackupGcKeepProof,
+    pub(super) publication_state: &'a BackupGcPublicationState,
+}
+
 impl SyncEngine {
     pub(super) fn gc_orphan_object_sizes(
         listed: &[crate::sync::auth::S3ObjectInfo],
@@ -22,17 +31,19 @@ impl SyncEngine {
     }
 
     /// Delete orphans batch by batch, re-checking publication state per batch.
-    #[allow(clippy::too_many_arguments)]
     pub(super) async fn gc_delete_orphan_batches(
         &self,
         job_id: &str,
         orphans: &[String],
         sizes: &std::collections::HashMap<&str, u64>,
-        live_manifests: &[BackupManifest],
-        keep_proof: BackupGcKeepProof,
-        publication_state: &BackupGcPublicationState,
+        keep: GcKeep<'_>,
         report: &mut BackupOrphanGcReport,
     ) -> SyncResult<()> {
+        let GcKeep {
+            live_manifests,
+            keep_proof,
+            publication_state,
+        } = keep;
         for batch in orphans.chunks(BACKUP_GC_DELETE_BATCH) {
             // Re-check once per batch. Hold the turn across every DELETE in
             // the batch so this process cannot publish a new reference to

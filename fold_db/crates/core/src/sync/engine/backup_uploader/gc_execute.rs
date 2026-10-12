@@ -1,3 +1,4 @@
+use super::gc_execute_batches::GcKeep;
 use super::*;
 
 impl SyncEngine {
@@ -70,9 +71,11 @@ impl SyncEngine {
             job_id,
             &orphans,
             &sizes,
-            live_manifests,
-            keep_proof,
-            &publication_state,
+            GcKeep {
+                live_manifests,
+                keep_proof,
+                publication_state: &publication_state,
+            },
             &mut report,
         )
         .await?;

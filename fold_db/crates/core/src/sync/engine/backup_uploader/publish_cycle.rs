@@ -1,5 +1,14 @@
 use super::*;
 
+/// Which stages of a publish cycle the caller allows (see
+/// [`SyncEngine::run_snapshot_log_publish_cycle`]).
+#[derive(Clone, Copy)]
+struct CyclePermits {
+    allow_cas: bool,
+    allow_drain_puts: bool,
+    allow_new_cut: bool,
+}
+
 impl SyncEngine {
     /// One continuous publisher cycle: drain sealed chunks, then optionally CAS snapshot+F.
     ///
@@ -26,9 +35,11 @@ impl SyncEngine {
             .run_snapshot_log_publish_cycle_inner(
                 previous_manifest,
                 last_publish,
-                allow_cas,
-                allow_drain_puts,
-                allow_new_cut,
+                CyclePermits {
+                    allow_cas,
+                    allow_drain_puts,
+                    allow_new_cut,
+                },
                 &mut report,
                 &mut drain_elapsed,
             )
@@ -55,17 +66,19 @@ impl SyncEngine {
     /// `drain_elapsed` is set only once the drain has run; a cycle that returns
     /// early (upload gate closed, cut rate-limited) produced no drain and must
     /// not manufacture a sample.
-    #[allow(clippy::too_many_arguments)] // report + drain_elapsed out-params; keep call site readable
-    pub(super) async fn run_snapshot_log_publish_cycle_inner(
+    async fn run_snapshot_log_publish_cycle_inner(
         &self,
         previous_manifest: Option<&BackupManifest>,
         last_publish: &mut Instant,
-        allow_cas: bool,
-        allow_drain_puts: bool,
-        allow_new_cut: bool,
+        permits: CyclePermits,
         report: &mut SnapshotLogPublishCycleReport,
         drain_elapsed: &mut Option<Duration>,
     ) -> SyncResult<()> {
+        let CyclePermits {
+            allow_cas,
+            allow_drain_puts,
+            allow_new_cut,
+        } = permits;
         // Fail-closed upload gate (defense in depth; forever-loop also checks).
         if !self.cloud_plane_allows_upload().await {
             report.publish_phase = "idle".into();
