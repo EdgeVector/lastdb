@@ -22,6 +22,9 @@ pub(in crate::exec) async fn molecule_has_live_rows(
         .map_err(|error| error.to_string())
 }
 
+mod inspect;
+use self::inspect::{inspect_candidates, inspect_schema};
+
 /// Request body of the schema molecule-map repair route.
 #[derive(Deserialize)]
 struct Body {
@@ -103,82 +106,16 @@ pub(in crate::exec) async fn execute_db_repair_schema_molecule_map_route(
         Ok(None) => return error_response(404, "schema not found", ctx),
         Err(error) => return render(Err(error), ctx),
     };
-    let (schema, declared) = match load_declared_schema(host, ctx, &canonical, requested_map) {
-        Ok(loaded) => loaded,
+    let mut inspection = match inspect_schema(host, ctx, &canonical, requested_map).await {
+        Ok(inspection) => inspection,
         Err(response) => return response,
     };
 
-    let current_map = schema.field_molecule_uuids.clone().unwrap_or_default();
-    let current_fingerprint =
-        fold_db::schema::SchemaCore::field_molecule_map_fingerprint(&current_map);
-    let proposed_fingerprint =
-        requested_map.map(fold_db::schema::SchemaCore::field_molecule_map_fingerprint);
-    let mut changed_fields: Vec<String> = match requested_map {
-        Some(map) => declared
-            .iter()
-            .filter(|field| current_map.get(*field) != map.get(*field))
-            .cloned()
-            .collect(),
-        None => Vec::new(),
-    };
-    changed_fields.sort();
-
-    let key_field = schema
-        .key
-        .as_ref()
-        .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
-        .cloned();
-    let key_molecule_of = |map: &HashMap<String, String>| {
-        key_field.as_ref().and_then(|field| map.get(field)).cloned()
-    };
-    let current_key_molecule = key_molecule_of(&current_map);
-    let proposed_key_molecule = requested_map.and_then(key_molecule_of);
-
-    let mut probes =
-        match probe_live_rows(host, ctx, &current_map, proposed_key_molecule.clone()).await {
-            Ok(probes) => probes,
+    let (candidates, suggested_map) =
+        match inspect_candidates(host, ctx, &canonical, &mut inspection, requested_map).await {
+            Ok(report) => report,
             Err(response) => return response,
         };
-    let current_key_has_live_rows = current_key_molecule
-        .as_ref()
-        .and_then(|molecule| probes.get(molecule).copied());
-    let proposed_key_has_live_rows = proposed_key_molecule
-        .as_ref()
-        .and_then(|molecule| probes.get(molecule).copied());
-
-    let fields_report: Vec<_> = declared
-        .iter()
-        .map(|field| {
-            let molecule = current_map.get(field);
-            serde_json::json!({
-                "field": field,
-                "molecule": molecule,
-                "has_live_rows": molecule.and_then(|molecule| probes.get(molecule).copied()),
-            })
-        })
-        .collect();
-
-    // Inspect mode also reports where the rows actually live. Without it an
-    // operator cannot write the repair map, because the repair demands one
-    // molecule UUID per runtime field and nothing else exposes them.
-    let mut candidates = Vec::new();
-    let mut suggested_map: Option<HashMap<String, String>> = None;
-    if requested_map.is_none() {
-        let search = CandidateSearch {
-            canonical: &canonical,
-            declared: &declared,
-            current_fingerprint: &current_fingerprint,
-            current_key_has_live_rows,
-            key_field: key_field.as_deref(),
-        };
-        match collect_candidates(host, ctx, &search, &mut probes).await {
-            Ok((found, suggested)) => {
-                candidates = found;
-                suggested_map = suggested;
-            }
-            Err(response) => return response,
-        }
-    }
 
     if body.execute {
         if let Err(response) = execute_repair(
@@ -187,7 +124,7 @@ pub(in crate::exec) async fn execute_db_repair_schema_molecule_map_route(
             &body,
             requested_map,
             &canonical,
-            &current_fingerprint,
+            &inspection.current_fingerprint,
         )
         .await
         {
@@ -200,102 +137,21 @@ pub(in crate::exec) async fn execute_db_repair_schema_molecule_map_route(
             "schema": canonical,
             "executed": body.execute,
             "inspect_only": requested_map.is_none(),
-            "changed": !changed_fields.is_empty(),
-            "changed_fields": changed_fields,
-            "current_fingerprint": current_fingerprint,
-            "proposed_fingerprint": proposed_fingerprint,
-            "key_field": key_field,
-            "current_key_molecule": current_key_molecule,
-            "current_key_has_live_rows": current_key_has_live_rows,
-            "proposed_key_has_live_rows": proposed_key_has_live_rows,
-            "current_field_molecule_uuids": current_map,
-            "fields": fields_report,
+            "changed": !inspection.changed_fields.is_empty(),
+            "changed_fields": inspection.changed_fields,
+            "current_fingerprint": inspection.current_fingerprint,
+            "proposed_fingerprint": inspection.proposed_fingerprint,
+            "key_field": inspection.key_field,
+            "current_key_molecule": inspection.current_key_molecule,
+            "current_key_has_live_rows": inspection.current_key_has_live_rows,
+            "proposed_key_has_live_rows": inspection.proposed_key_has_live_rows,
+            "current_field_molecule_uuids": inspection.current_map,
+            "fields": inspection.fields_report,
             "candidates": candidates,
             "suggested_field_molecule_uuids": suggested_map,
         }),
         ctx.user_id.as_str(),
     ))
-}
-
-/// Load the installed schema with its runtime fields, and return the sorted
-/// declared field names. A proposed map must name exactly those fields.
-fn load_declared_schema(
-    host: &Host,
-    ctx: &AccessContext,
-    canonical: &str,
-    requested_map: Option<&HashMap<String, String>>,
-) -> Result<(fold_db::schema::types::Schema, Vec<String>), UdsResponse> {
-    let manager = host.db.schema_manager();
-    let Some(mut schema) = (match manager.get_schema_metadata(canonical) {
-        Ok(schema) => schema,
-        Err(error) => {
-            return Err(error_response(
-                500,
-                &format!("schema lookup failed: {error}"),
-                ctx,
-            ))
-        }
-    }) else {
-        return Err(error_response(404, "schema not found", ctx));
-    };
-    if schema.runtime_fields.is_empty() {
-        if let Err(error) = schema.populate_runtime_fields() {
-            return Err(error_response(
-                500,
-                &format!("schema field load failed: {error}"),
-                ctx,
-            ));
-        }
-    }
-    let mut declared: Vec<_> = schema.runtime_fields.keys().cloned().collect();
-    declared.sort();
-    if let Some(map) = requested_map {
-        let mut proposed: Vec<_> = map.keys().cloned().collect();
-        proposed.sort();
-        if proposed != declared {
-            return Err(error_response(
-                400,
-                "field_molecule_uuids must contain every runtime field and no unknown fields",
-                ctx,
-            ));
-        }
-    }
-    Ok((schema, declared))
-}
-
-/// Probe the current map's molecules (up to the limit) plus the proposed key
-/// molecule for live rows.
-async fn probe_live_rows(
-    host: &Host,
-    ctx: &AccessContext,
-    current_map: &HashMap<String, String>,
-    proposed_key_molecule: Option<String>,
-) -> Result<HashMap<String, bool>, UdsResponse> {
-    let mut probes: HashMap<String, bool> = HashMap::new();
-    let probe_targets: Vec<String> = current_map
-        .values()
-        .take(MOLECULE_MAP_PROBE_LIMIT)
-        .cloned()
-        .chain(proposed_key_molecule)
-        .collect();
-    for molecule in probe_targets {
-        if probes.contains_key(&molecule) {
-            continue;
-        }
-        match molecule_has_live_rows(host, &molecule).await {
-            Ok(live) => {
-                probes.insert(molecule, live);
-            }
-            Err(error) => {
-                return Err(error_response(
-                    500,
-                    &format!("molecule live-row probe failed: {error}"),
-                    ctx,
-                ))
-            }
-        }
-    }
-    Ok(probes)
 }
 
 /// Check the fingerprint guard and write the replacement molecule map.

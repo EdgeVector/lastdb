@@ -56,95 +56,130 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
         matches.into_iter().zip(atoms)
     {
         if let Some(atom) = atom {
-            // Prefer molecule per-key metadata, fall back to atom metadata
-            let (source_file_name, metadata) = match key_meta {
-                Some(km) => (
-                    km.source_file_name
-                        .or_else(|| atom.source_file_name().cloned()),
-                    km.metadata.or_else(|| atom.metadata().cloned()),
-                ),
-                None => (atom.source_file_name().cloned(), atom.metadata().cloned()),
-            };
-            // Populate `written_at` from the atom's creation timestamp
-            // so downstream view compute-as-mutations can build canonical
-            // MoleculeRef leaves. `timestamp_nanos_opt` returns `None` for
-            // timestamps outside the representable range (±292y from
-            // epoch) — we skip `written_at` in that case rather than
-            // falling back to a lossy u64 cast. Nanos are cast to `u64`
-            // for dates after 1970; pre-1970 would be negative and also
-            // skipped via the `try_into` guard.
-            let written_at = atom
-                .created_at()
-                .timestamp_nanos_opt()
-                .and_then(|ns| u64::try_from(ns).ok());
-            resolved_values.insert(
-                key,
-                FieldValue {
-                    value: atom.content().clone(),
-                    atom_uuid: atom_uuid.clone(),
-                    source_file_name,
-                    metadata,
-                    molecule_uuid: None,
-                    molecule_version: None,
-                    // Per-key writer_pubkey looked up from the molecule's
-                    // AtomEntry. For Hash/Range/HashRange variants this is
-                    // the only place writer_pubkey gets surfaced (the
-                    // molecule has no molecule-level signing key); for
-                    // Single this path will be `None` here and overwritten
-                    // by `FieldVariant::resolve_value` with the
-                    // molecule-level pubkey.
-                    writer_pubkey: writer_pubkey.filter(|s| !s.is_empty()),
-                    written_at,
-                },
-            );
+            let value = field_value_from_atom(&atom, atom_uuid, key_meta, writer_pubkey);
+            resolved_values.insert(key, value);
         } else {
-            let key_str = key.to_string();
-            if storage_prefix.is_some() {
-                // Intentional filter (not a bug-skip): the function-level
-                // doc comment above explains that org-scoped reads must
-                // tolerate orphan molecule refs whose pre-tag atoms never
-                // replayed through the org log, otherwise every
-                // unfiltered query on a shared schema is unusable. Deliberately
-                // NOT counted as an unresolved skip — `unresolved_rows` is the
-                // integrity signal for a genuinely dangling tip -> atom edge,
-                // and counting the expected org-scope filtering here would keep
-                // it permanently non-zero on shared schemas.
-                tracing::warn!(
-                    "Filtering orphan atom ref from org-scoped read — pre-tag \
-                     molecule ref has no atom data, intentionally skipped per \
-                     alpha BLOCKER 4b171 design (see fetch_atoms_with_key_metadata_async_with_prefix docs)"
-                );
-                continue;
-            }
-            // A genuinely dangling tip -> atom edge. The edge is already broken
-            // on disk; erroring here amplified one bad row into an unreadable
-            // partition, so skip the row and let the caller report the count.
-            db_ops.record_unresolved_atom_skip(
-                &atom_uuid,
-                &key,
-                crate::db_operations::core::UnresolvedAtomContext {
-                    molecule_uuid,
-                    schema,
-                    field,
-                    atom_partition: partition.as_ref(),
-                    tip_storage_key: None,
-                },
-            );
-            if key_str.is_empty() {
-                tracing::warn!(
-                    atom_uuid = %atom_uuid,
-                    "Skipping unresolved atom ref from query result"
-                );
-                continue;
-            }
-            tracing::warn!(
-                atom_uuid = %atom_uuid,
-                key = %key,
-                "Skipping unresolved atom ref from query result"
-            );
-            continue;
+            let miss = UnresolvedMatch {
+                key: &key,
+                atom_uuid: &atom_uuid,
+                partition: partition.as_ref(),
+            };
+            handle_unresolved_atom(db_ops, storage_prefix, molecule_uuid, schema, field, &miss);
         }
     }
 
     Ok(resolved_values)
+}
+
+/// Build the `FieldValue` for a resolved atom.
+fn field_value_from_atom(
+    atom: &crate::atom::Atom,
+    atom_uuid: String,
+    key_meta: Option<crate::atom::KeyMetadata>,
+    writer_pubkey: Option<String>,
+) -> FieldValue {
+    // Prefer molecule per-key metadata, fall back to atom metadata
+    let (source_file_name, metadata) = match key_meta {
+        Some(km) => (
+            km.source_file_name
+                .or_else(|| atom.source_file_name().cloned()),
+            km.metadata.or_else(|| atom.metadata().cloned()),
+        ),
+        None => (atom.source_file_name().cloned(), atom.metadata().cloned()),
+    };
+    // Populate `written_at` from the atom's creation timestamp
+    // so downstream view compute-as-mutations can build canonical
+    // MoleculeRef leaves. `timestamp_nanos_opt` returns `None` for
+    // timestamps outside the representable range (±292y from
+    // epoch) — we skip `written_at` in that case rather than
+    // falling back to a lossy u64 cast. Nanos are cast to `u64`
+    // for dates after 1970; pre-1970 would be negative and also
+    // skipped via the `try_into` guard.
+    let written_at = atom
+        .created_at()
+        .timestamp_nanos_opt()
+        .and_then(|ns| u64::try_from(ns).ok());
+    FieldValue {
+        value: atom.content().clone(),
+        atom_uuid,
+        source_file_name,
+        metadata,
+        molecule_uuid: None,
+        molecule_version: None,
+        // Per-key writer_pubkey looked up from the molecule's
+        // AtomEntry. For Hash/Range/HashRange variants this is
+        // the only place writer_pubkey gets surfaced (the
+        // molecule has no molecule-level signing key); for
+        // Single this path will be `None` here and overwritten
+        // by `FieldVariant::resolve_value` with the
+        // molecule-level pubkey.
+        writer_pubkey: writer_pubkey.filter(|s| !s.is_empty()),
+        written_at,
+    }
+}
+
+/// One match whose atom body was not found.
+struct UnresolvedMatch<'a> {
+    key: &'a KeyValue,
+    atom_uuid: &'a str,
+    partition: Option<&'a crate::atom::AtomPartition>,
+}
+
+/// Skip a match whose atom body is missing (the caller drops the row).
+fn handle_unresolved_atom(
+    db_ops: &Arc<DbOperations>,
+    storage_prefix: Option<&str>,
+    molecule_uuid: Option<&str>,
+    schema: Option<&str>,
+    field: Option<&str>,
+    miss: &UnresolvedMatch<'_>,
+) {
+    let UnresolvedMatch {
+        key,
+        atom_uuid,
+        partition,
+    } = miss;
+    if storage_prefix.is_some() {
+        // Intentional filter (not a bug-skip): the function-level
+        // doc comment on the fetch function explains that org-scoped reads must
+        // tolerate orphan molecule refs whose pre-tag atoms never
+        // replayed through the org log, otherwise every
+        // unfiltered query on a shared schema is unusable. Deliberately
+        // NOT counted as an unresolved skip — `unresolved_rows` is the
+        // integrity signal for a genuinely dangling tip -> atom edge,
+        // and counting the expected org-scope filtering here would keep
+        // it permanently non-zero on shared schemas.
+        tracing::warn!(
+            "Filtering orphan atom ref from org-scoped read — pre-tag \
+             molecule ref has no atom data, intentionally skipped per \
+             alpha BLOCKER 4b171 design (see fetch_atoms_with_key_metadata_async_with_prefix docs)"
+        );
+        return;
+    }
+    // A genuinely dangling tip -> atom edge. The edge is already broken
+    // on disk; erroring here amplified one bad row into an unreadable
+    // partition, so skip the row and let the caller report the count.
+    db_ops.record_unresolved_atom_skip(
+        atom_uuid,
+        key,
+        crate::db_operations::core::UnresolvedAtomContext {
+            molecule_uuid,
+            schema,
+            field,
+            atom_partition: *partition,
+            tip_storage_key: None,
+        },
+    );
+    if key.to_string().is_empty() {
+        tracing::warn!(
+            atom_uuid = %atom_uuid,
+            "Skipping unresolved atom ref from query result"
+        );
+        return;
+    }
+    tracing::warn!(
+        atom_uuid = %atom_uuid,
+        key = %key,
+        "Skipping unresolved atom ref from query result"
+    );
 }

@@ -158,6 +158,79 @@ impl SyncEngine {
         }
     }
 
+    async fn create_passthrough_snapshot(&self, current_seq: u64) -> SyncResult<Snapshot> {
+        // Ciphertext pass-through (Tom 2026-07-18 same-key rule): scan the
+        // **raw** store (`cursor_store`) so we never decrypt every personal
+        // row into logical plaintext before re-sealing under E2E. Values ride
+        // as on-disk `ENC:…` envelopes; outer cloud seal still uses content key.
+        // Fall back to logical create_reporting only if raw path is unavailable
+        // (tests that never call set_cursor_store share store==cursor_store).
+        let snapshot = Snapshot::create_at_rest_passthrough(
+            self.cursor_store.as_ref(),
+            &self.device_id,
+            current_seq,
+        )
+        .await?;
+        tracing::info!(
+            target: "fold_db::sync",
+            device = %self.device_id,
+            value_encoding = "at_rest_enc",
+            namespaces = snapshot.namespaces.len(),
+            "backup_snapshot: ciphertext pass-through checkpoint (no decrypt-all)"
+        );
+        Ok(snapshot)
+    }
+
+    /// Seal `snapshot` to a temp file and return its path. The file is
+    /// removed here if sealing fails; the caller removes it after upload.
+    async fn seal_snapshot_to_temp_file(
+        &self,
+        snapshot: &Snapshot,
+        current_seq: u64,
+    ) -> SyncResult<std::path::PathBuf> {
+        // Stream seal to disk: dual-upload from file so peak is O(one ciphertext
+        // buffer) not O(ciphertext × 2) from sealed.clone().
+        let sealed_dir = std::env::temp_dir().join("lastdb-snapshot-seal");
+        let sealed_path = sealed_dir.join(format!(
+            "{}-{}-{}.enc",
+            self.device_id,
+            current_seq,
+            std::process::id()
+        ));
+        let sealed_bytes = snapshot
+            .seal_to_path(&self.crypto, &sealed_path)
+            .await
+            .inspect_err(|_| {
+                let _ = std::fs::remove_file(&sealed_path);
+            })?;
+        tracing::info!(
+            target: "fold_db::sync::memory",
+            path = %sealed_path.display(),
+            sealed_bytes,
+            "backup_snapshot: sealed checkpoint to temp file"
+        );
+        Ok(sealed_path)
+    }
+
+    /// Record a clean scrub status and clear the capture watermark after a
+    /// successful snapshot upload.
+    async fn record_snapshot_completion(&self, snapshot: &Snapshot) {
+        // Pass-through capture does not decrypt rows; scrub report is clean
+        // (poison rows, if any, ride as opaque ENC: bytes under content key).
+        let scrub = super::super::snapshot::SnapshotScrubReport::default();
+        *self.last_snapshot_completion.lock().await = SnapshotCompletionStatus::from(&scrub);
+
+        // C3: successful snapshot clears retired export-baseline capture pending to the
+        // sealed snapshot payload. Re-reading the live store here can
+        // incorrectly baseline writes that raced after snapshot enumeration.
+        if let Err(e) = self.capture_reset_watermark_from_snapshot(snapshot).await {
+            tracing::warn!(
+                error = %e,
+                "capture pending clear after backup_snapshot failed (non-fatal)"
+            );
+        }
+    }
+
     pub(crate) async fn backup_snapshot_once(&self) -> SyncResult<u64> {
         // Defense in depth: same hard interlock as `backup_snapshot` so any
         // future direct caller cannot skip the Off gate.
@@ -194,49 +267,13 @@ impl SyncEngine {
             self.device_id,
         );
 
-        // Ciphertext pass-through (Tom 2026-07-18 same-key rule): scan the
-        // **raw** store (`cursor_store`) so we never decrypt every personal
-        // row into logical plaintext before re-sealing under E2E. Values ride
-        // as on-disk `ENC:…` envelopes; outer cloud seal still uses content key.
-        // Fall back to logical create_reporting only if raw path is unavailable
-        // (tests that never call set_cursor_store share store==cursor_store).
-        let snapshot = Snapshot::create_at_rest_passthrough(
-            self.cursor_store.as_ref(),
-            &self.device_id,
-            current_seq,
-        )
-        .await?;
-        tracing::info!(
-            target: "fold_db::sync",
-            device = %self.device_id,
-            value_encoding = "at_rest_enc",
-            namespaces = snapshot.namespaces.len(),
-            "backup_snapshot: ciphertext pass-through checkpoint (no decrypt-all)"
-        );
+        let snapshot = self.create_passthrough_snapshot(current_seq).await?;
         let namespace_count = snapshot.namespaces.len();
         let seq_name = format!("{current_seq}.enc");
 
-        // Stream seal to disk: dual-upload from file so peak is O(one ciphertext
-        // buffer) not O(ciphertext × 2) from sealed.clone().
-        let sealed_dir = std::env::temp_dir().join("lastdb-snapshot-seal");
-        let sealed_path = sealed_dir.join(format!(
-            "{}-{}-{}.enc",
-            self.device_id,
-            current_seq,
-            std::process::id()
-        ));
-        let sealed_bytes = snapshot
-            .seal_to_path(&self.crypto, &sealed_path)
-            .await
-            .inspect_err(|_| {
-                let _ = std::fs::remove_file(&sealed_path);
-            })?;
-        tracing::info!(
-            target: "fold_db::sync::memory",
-            path = %sealed_path.display(),
-            sealed_bytes,
-            "backup_snapshot: sealed checkpoint to temp file"
-        );
+        let sealed_path = self
+            .seal_snapshot_to_temp_file(&snapshot, current_seq)
+            .await?;
 
         // Thumb pack needs the in-memory snapshot; run before drop. at_rest_enc
         // thumbs often no-op (values are ENC: envelopes) — non-fatal either way.
@@ -247,20 +284,7 @@ impl SyncEngine {
             .await;
         let _ = tokio::fs::remove_file(&sealed_path).await;
         upload_result?;
-        // Pass-through capture does not decrypt rows; scrub report is clean
-        // (poison rows, if any, ride as opaque ENC: bytes under content key).
-        let scrub = super::super::snapshot::SnapshotScrubReport::default();
-        *self.last_snapshot_completion.lock().await = SnapshotCompletionStatus::from(&scrub);
-
-        // C3: successful snapshot clears retired export-baseline capture pending to the
-        // sealed snapshot payload. Re-reading the live store here can
-        // incorrectly baseline writes that raced after snapshot enumeration.
-        if let Err(e) = self.capture_reset_watermark_from_snapshot(&snapshot).await {
-            tracing::warn!(
-                error = %e,
-                "capture pending clear after backup_snapshot failed (non-fatal)"
-            );
-        }
+        self.record_snapshot_completion(&snapshot).await;
         drop(snapshot);
 
         tracing::info!(

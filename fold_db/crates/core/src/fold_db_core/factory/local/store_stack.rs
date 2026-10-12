@@ -30,15 +30,17 @@ pub(super) async fn build_store_stack(
     defer_cloud_workers: bool,
 ) -> FoldDbResult<StoreStack> {
     if let Some(setup) = sync_setup {
+        let seam = SeamInputs {
+            e2e_keys,
+            at_rest_keyring,
+            wrap_at_rest_seam,
+        };
         return build_syncing_store_stack(
             base_store,
             laststore_backup_source,
             setup,
-            e2e_keys,
+            seam,
             signer,
-            at_rest_keyring,
-            wrap_at_rest_seam,
-            storage_engine,
             defer_cloud_workers,
         )
         .await;
@@ -121,18 +123,37 @@ fn build_local_store_stack(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn build_syncing_store_stack(
-    base_store: Arc<dyn NamespacedStore>,
-    laststore_backup_source: Option<Arc<LastStoreNamespacedStore>>,
-    setup: LocalSyncSetup,
-    e2e_keys: &E2eKeys,
-    signer: Arc<Ed25519KeyPair>,
-    at_rest_keyring: Option<&Arc<Keyring>>,
+/// Inputs that decide how the at-rest seam is built.
+struct SeamInputs<'a> {
+    e2e_keys: &'a E2eKeys,
+    at_rest_keyring: Option<&'a Arc<Keyring>>,
     wrap_at_rest_seam: bool,
-    _storage_engine: StorageEngine,
-    defer_cloud_workers: bool,
-) -> FoldDbResult<StoreStack> {
+}
+
+/// `LASTDB_CAPTURE_MODE=off` disables continuous capture. Anything else
+/// (unset, "mutation_log", unrecognised) keeps the product default, so this
+/// can only ever be used deliberately.
+fn capture_mode_from_env() -> crate::sync::engine::CaptureMode {
+    match std::env::var("LASTDB_CAPTURE_MODE")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "off" => {
+            tracing::warn!(
+                target: "fold_db::sync",
+                "LASTDB_CAPTURE_MODE=off — continuous mutation-log capture DISABLED; \
+                 cloud durability falls back to sealed snapshots only"
+            );
+            crate::sync::engine::CaptureMode::Off
+        }
+        _ => crate::sync::engine::CaptureMode::MutationLog,
+    }
+}
+
+/// Start from the caller's sync config and apply the product capture policy.
+fn product_sync_config(setup: &LocalSyncSetup) -> crate::sync::SyncConfig {
     let mut sync_config = setup.config.clone().unwrap_or_default();
     // Last Store: never dual-write the legacy `{user_hash}/log/{seq}` personal
     // export objects (those conflict with sealed-chunk / mutation-log planes).
@@ -150,26 +171,7 @@ async fn build_syncing_store_stack(
     // log for zero durability. A product mode with no off switch is a defect in
     // its own right; an operator must be able to disable a misbehaving
     // continuous path without shipping a binary.
-    //
-    // `LASTDB_CAPTURE_MODE=off` disables continuous capture. Anything else
-    // (unset, "mutation_log", unrecognised) keeps the product default, so this
-    // can only ever be used deliberately.
-    sync_config.capture_mode = match std::env::var("LASTDB_CAPTURE_MODE")
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "off" => {
-            tracing::warn!(
-                target: "fold_db::sync",
-                "LASTDB_CAPTURE_MODE=off — continuous mutation-log capture DISABLED; \
-                 cloud durability falls back to sealed snapshots only"
-            );
-            crate::sync::engine::CaptureMode::Off
-        }
-        _ => crate::sync::engine::CaptureMode::MutationLog,
-    };
+    sync_config.capture_mode = capture_mode_from_env();
     // Hold uploads so one write does not seal its own file. `0` on either
     // env var disables that knob. Unset or unparseable keeps the product
     // default. SyncConfig::default stays 0 (no coalescing).
@@ -191,14 +193,25 @@ async fn build_syncing_store_stack(
         max_hold_ms = sync_config.mutation_log_coalesce_max_ms,
         "mutation-log coalesce windows"
     );
+    sync_config
+}
+
+async fn build_syncing_store_stack(
+    base_store: Arc<dyn NamespacedStore>,
+    laststore_backup_source: Option<Arc<LastStoreNamespacedStore>>,
+    setup: LocalSyncSetup,
+    seam: SeamInputs<'_>,
+    signer: Arc<Ed25519KeyPair>,
+    defer_cloud_workers: bool,
+) -> FoldDbResult<StoreStack> {
+    let sync_config = product_sync_config(&setup);
     let interval_ms = sync_config.sync_interval_ms;
-    let enc_store = wrap_at_rest_seam.then(|| {
-        let plaintext_namespaces = LASTSTORE_PLAINTEXT_NAMESPACES;
+    let enc_store = seam.wrap_at_rest_seam.then(|| {
         build_encrypting_store(
             Arc::clone(&base_store),
-            e2e_keys,
-            at_rest_keyring,
-            plaintext_namespaces,
+            seam.e2e_keys,
+            seam.at_rest_keyring,
+            LASTSTORE_PLAINTEXT_NAMESPACES,
         )
     });
     let engine_store = enc_store.as_ref().map_or_else(
@@ -208,7 +221,7 @@ async fn build_syncing_store_stack(
     let engine = build_sync_engine(
         setup,
         sync_config,
-        e2e_keys,
+        seam.e2e_keys,
         signer,
         Arc::clone(&base_store),
         Arc::clone(&engine_store),

@@ -224,97 +224,71 @@ pub(super) async fn audit_and_reap_zero_ref_candidates(
         .await
 }
 
-pub(super) async fn advance_automatic_gc_atoms<F, Fut, G>(
-    runtime: AutomaticGcAtomsRuntime<'_>,
-    last_step: &AtomicU64,
+/// Run one probe step. `Err` carries the finished step when the lap is not
+/// complete yet (probe failed or only progressed).
+async fn run_probe_stage(
+    runtime: &AutomaticGcAtomsRuntime<'_>,
     restart_lap_at: &AtomicU64,
-    settings: AutomaticGcAtomsSettings,
+    restart_completed: bool,
+    deadline: tokio::time::Instant,
+) -> Result<AutomaticGcAtomsProbeResult, AutomaticGcAtomsStep> {
+    match advance_gc_atoms_probe(runtime, restart_lap_at, restart_completed, deadline).await {
+        ProbeStepOutcome::Failed => Err(AutomaticGcAtomsStep::Failed),
+        ProbeStepOutcome::Progressed {
+            generation,
+            phase,
+            rows_scanned,
+        } => {
+            info!(
+                target: "fold_db::gc_atoms",
+                generation,
+                phase = ?phase,
+                rows_scanned,
+                "automatic gc-atoms probe progressed"
+            );
+            Err(AutomaticGcAtomsStep::ProbeAdvanced)
+        }
+        ProbeStepOutcome::LapComplete(lap) => Ok(lap),
+    }
+}
+
+/// The lap measured less than the byte cap: schedule the next measurement.
+fn step_below_cap(
+    lap: &AutomaticGcAtomsProbeResult,
+    settings: &AutomaticGcAtomsSettings,
+    restart_lap_at: &AtomicU64,
+    now: u64,
+) -> AutomaticGcAtomsStep {
+    info!(
+        target: "fold_db::gc_atoms",
+        generation = lap.generation,
+        unreferenced_bytes = lap.unreferenced_bytes_approx,
+        threshold_bytes = settings.max_unreferenced_bytes,
+        "automatic gc-atoms below cap"
+    );
+    restart_lap_at.store(
+        now.saturating_add(settings.relap_interval_secs).max(1),
+        Ordering::Relaxed,
+    );
+    AutomaticGcAtomsStep::BelowThreshold {
+        unreferenced_bytes: lap.unreferenced_bytes_approx,
+    }
+}
+
+/// Run the delete batches under the packing lock the caller already holds.
+async fn delete_pass_step(
+    atoms: &AtomStore,
+    lap: &AutomaticGcAtomsProbeResult,
+    settings: &AutomaticGcAtomsSettings,
+    restart_lap_at: &AtomicU64,
     now: u64,
     deadline: tokio::time::Instant,
-    lock_backup_cut: F,
-) -> AutomaticGcAtomsStep
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Option<G>>,
-{
-    let atoms = runtime.atoms;
-    if !settings.enabled() || !claim_automatic_gc_atoms_slot(last_step, &settings, now) {
-        return AutomaticGcAtomsStep::Skipped;
-    }
-
-    // A terminal lap stays terminal until a lap interval elapses. Without this
-    // the trigger would either re-walk the whole plane every step or never
-    // refresh a measurement it already took.
-    let scheduled_restart = restart_lap_at.load(Ordering::Relaxed);
-    let restart_completed = scheduled_restart != 0 && now >= scheduled_restart;
-
-    let lap =
-        match advance_gc_atoms_probe(&runtime, restart_lap_at, restart_completed, deadline).await {
-            ProbeStepOutcome::Failed => return AutomaticGcAtomsStep::Failed,
-            ProbeStepOutcome::Progressed {
-                generation,
-                phase,
-                rows_scanned,
-            } => {
-                info!(
-                    target: "fold_db::gc_atoms",
-                    generation,
-                    phase = ?phase,
-                    rows_scanned,
-                    "automatic gc-atoms probe progressed"
-                );
-                return AutomaticGcAtomsStep::ProbeAdvanced;
-            }
-            ProbeStepOutcome::LapComplete(lap) => lap,
-        };
-
-    if !reap_lap_zero_ref_candidates(atoms, &lap, &settings, now).await {
-        return AutomaticGcAtomsStep::Failed;
-    }
-
-    // Ask the byte cap before taking any lock. A lap under the cap must not
-    // stall a backup cut just to find out it has nothing to delete.
-    if !automatic_gc_atoms_delete_armed(
-        lap.unreferenced_bytes_approx,
-        settings.max_unreferenced_bytes,
-        false,
-    ) {
-        info!(
-            target: "fold_db::gc_atoms",
-            generation = lap.generation,
-            unreferenced_bytes = lap.unreferenced_bytes_approx,
-            threshold_bytes = settings.max_unreferenced_bytes,
-            "automatic gc-atoms below cap"
-        );
-        restart_lap_at.store(
-            now.saturating_add(settings.relap_interval_secs).max(1),
-            Ordering::Relaxed,
-        );
-        return AutomaticGcAtomsStep::BelowThreshold {
-            unreferenced_bytes: lap.unreferenced_bytes_approx,
-        };
-    }
-
-    // Packing lock held from here through every delete batch in this step.
-    let cut_guard = lock_backup_cut().await;
-    if !automatic_gc_atoms_delete_armed(
-        lap.unreferenced_bytes_approx,
-        settings.max_unreferenced_bytes,
-        cut_guard.is_none(),
-    ) {
-        info!(
-            target: "fold_db::gc_atoms",
-            "automatic gc-atoms cut held"
-        );
-        return AutomaticGcAtomsStep::CutHeld;
-    }
-    let _cut_guard = cut_guard;
-
+) -> AutomaticGcAtomsStep {
     let Some(DeletePassOutcome {
         atoms_deleted,
         bytes_freed_approx,
         drained,
-    }) = run_gc_atoms_delete_pass(atoms, &settings, deadline).await
+    }) = run_gc_atoms_delete_pass(atoms, settings, deadline).await
     else {
         return AutomaticGcAtomsStep::Failed;
     };
@@ -341,4 +315,65 @@ where
         bytes_freed_approx,
         drained,
     }
+}
+
+pub(super) async fn advance_automatic_gc_atoms<F, Fut, G>(
+    runtime: AutomaticGcAtomsRuntime<'_>,
+    last_step: &AtomicU64,
+    restart_lap_at: &AtomicU64,
+    settings: AutomaticGcAtomsSettings,
+    now: u64,
+    deadline: tokio::time::Instant,
+    lock_backup_cut: F,
+) -> AutomaticGcAtomsStep
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Option<G>>,
+{
+    let atoms = runtime.atoms;
+    if !settings.enabled() || !claim_automatic_gc_atoms_slot(last_step, &settings, now) {
+        return AutomaticGcAtomsStep::Skipped;
+    }
+
+    // A terminal lap stays terminal until a lap interval elapses. Without this
+    // the trigger would either re-walk the whole plane every step or never
+    // refresh a measurement it already took.
+    let scheduled_restart = restart_lap_at.load(Ordering::Relaxed);
+    let restart_completed = scheduled_restart != 0 && now >= scheduled_restart;
+
+    let lap = match run_probe_stage(&runtime, restart_lap_at, restart_completed, deadline).await {
+        Ok(lap) => lap,
+        Err(step) => return step,
+    };
+
+    if !reap_lap_zero_ref_candidates(atoms, &lap, &settings, now).await {
+        return AutomaticGcAtomsStep::Failed;
+    }
+
+    // Ask the byte cap before taking any lock. A lap under the cap must not
+    // stall a backup cut just to find out it has nothing to delete.
+    if !automatic_gc_atoms_delete_armed(
+        lap.unreferenced_bytes_approx,
+        settings.max_unreferenced_bytes,
+        false,
+    ) {
+        return step_below_cap(&lap, &settings, restart_lap_at, now);
+    }
+
+    // Packing lock held from here through every delete batch in this step.
+    let cut_guard = lock_backup_cut().await;
+    if !automatic_gc_atoms_delete_armed(
+        lap.unreferenced_bytes_approx,
+        settings.max_unreferenced_bytes,
+        cut_guard.is_none(),
+    ) {
+        info!(
+            target: "fold_db::gc_atoms",
+            "automatic gc-atoms cut held"
+        );
+        return AutomaticGcAtomsStep::CutHeld;
+    }
+    let _cut_guard = cut_guard;
+
+    delete_pass_step(atoms, &lap, &settings, restart_lap_at, now, deadline).await
 }
