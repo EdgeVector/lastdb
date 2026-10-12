@@ -28,6 +28,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 mod append;
+mod append_marker_records;
+use append_marker_records::{build_capture_marker_records, check_existing_capture_marker_receipt};
 mod audit;
 mod cloud_generation;
 mod compaction;
