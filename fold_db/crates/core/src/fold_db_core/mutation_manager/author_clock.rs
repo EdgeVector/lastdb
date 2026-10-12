@@ -138,6 +138,21 @@ struct AuthorClockPersistJob {
     mutation_admission: Option<crate::sync::capture::MutationAdmission>,
 }
 
+async fn persist_author_clock(
+    db_ops: &DbOperations,
+    state_key: &str,
+    state: &MutationAuthorClockState,
+) -> Result<(), SchemaError> {
+    if let Some(group) = db_ops.namespace_row_group("metadata", state_key) {
+        db_ops.metadata().put_typed(state_key, state).await?;
+        // Preserve the namespaced durability and allocation high-water barrier
+        // without flushing unrelated groups or advancing their durable token.
+        db_ops.flush_dirty_scope(&[group]).await
+    } else {
+        db_ops.metadata().put_typed_durable(state_key, state).await
+    }
+}
+
 async fn run_author_clock_persist_queue(
     mut receiver: tokio::sync::mpsc::Receiver<AuthorClockPersistJob>,
     db_ops: Arc<DbOperations>,
@@ -167,7 +182,7 @@ async fn run_author_clock_persist_queue(
         let mut attempt = 1_u64;
         let mutation_admission = jobs.iter().find_map(|job| job.mutation_admission.clone());
         loop {
-            let persist = db_ops.metadata().put_typed_durable(&state_key, &high_water);
+            let persist = persist_author_clock(&db_ops, &state_key, &high_water);
             let persist = crate::sync::capture::with_existing_mutation_admission(
                 mutation_admission.clone(),
                 persist,
