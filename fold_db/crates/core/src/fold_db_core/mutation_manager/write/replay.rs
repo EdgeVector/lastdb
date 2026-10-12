@@ -155,11 +155,6 @@ impl MutationManager {
         winning_delete: &crate::atom::delete_barrier::DeleteBarrier,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
-        // lint:fn-size-ok moved verbatim from write.rs; one sequential preserve-then-flush step
-        use crate::atom::{
-            FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,
-        };
-
         if mutation.fields_and_values.is_empty() {
             // HashRange normalization can synthesize key-field atoms. Those
             // are not retained source field bodies from this replay envelope.
@@ -197,6 +192,46 @@ impl MutationManager {
             ));
         }
 
+        let events = Self::suppressed_put_events(
+            mutation,
+            winning_delete,
+            &schema,
+            &keys,
+            atoms,
+            storage_prefix,
+        )?;
+
+        // The source log carries full field bodies. Write them before the
+        // history references; a failed write leaves the replay cursor in place.
+        self.db_ops
+            .atoms()
+            .batch_store_atoms_located_borrowed(&located, storage_prefix)
+            .await?;
+        self.db_ops
+            .atoms()
+            .batch_store_suppressed_put_events(events, storage_prefix)
+            .await?;
+        // The download cursor can advance when this callback returns. Flush
+        // the atom bodies, history rows, and reference edges first, including
+        // when LastStore defers ordinary batch flushes.
+        self.db_ops.atoms().flush().await.map_err(|error| {
+            SchemaError::InvalidData(format!("flush suppressed Put history: {error}"))
+        })
+    }
+
+    /// Build the `SuppressedPut` history rows, one per source atom.
+    fn suppressed_put_events(
+        mutation: &Mutation,
+        winning_delete: &crate::atom::delete_barrier::DeleteBarrier,
+        schema: &crate::schema::Schema,
+        keys: &[crate::schema::types::KeyValue],
+        atoms: Vec<(usize, String, crate::atom::Atom)>,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<(String, crate::atom::MutationEvent)>, SchemaError> {
+        use crate::atom::{
+            FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,
+        };
+
         let written_at = mutation.imported_written_at.ok_or_else(|| {
             SchemaError::InvalidData("suppressed Put lacks the original device write time".into())
         })?;
@@ -226,29 +261,19 @@ impl MutationManager {
                     "suppressed Put field '{field_name}' has no molecule"
                 ))
             })?;
-            let mut identity = Sha256::new();
-            for part in [
-                source_writer,
-                source_uuid,
-                field_name.as_str(),
-                atom.uuid(),
-                keys[0].hash.as_deref().unwrap_or(""),
-                keys[0].range.as_deref().unwrap_or(""),
-            ] {
-                identity.update((part.len() as u64).to_be_bytes());
-                identity.update(part.as_bytes());
-            }
-            identity.update(mutation.logical_counter.to_be_bytes());
-            let key = crate::schema::types::field::build_storage_key(
+            let key = suppressed_put_event_key(
                 storage_prefix,
-                &format!(
-                    "{}:suppressed:{:x}",
-                    crate::atom::molecule_key_codec::history_event_key(
-                        molecule_uuid,
-                        timestamp_nanos,
-                    ),
-                    identity.finalize()
-                ),
+                molecule_uuid,
+                timestamp_nanos,
+                [
+                    source_writer,
+                    source_uuid,
+                    field_name.as_str(),
+                    atom.uuid(),
+                    keys[0].hash.as_deref().unwrap_or(""),
+                    keys[0].range.as_deref().unwrap_or(""),
+                ],
+                mutation.logical_counter,
             );
             let event = MutationEvent {
                 molecule_uuid: molecule_uuid.clone(),
@@ -279,22 +304,31 @@ impl MutationManager {
             };
             events.push((key, event));
         }
-
-        // The source log carries full field bodies. Write them before the
-        // history references; a failed write leaves the replay cursor in place.
-        self.db_ops
-            .atoms()
-            .batch_store_atoms_located_borrowed(&located, storage_prefix)
-            .await?;
-        self.db_ops
-            .atoms()
-            .batch_store_suppressed_put_events(events, storage_prefix)
-            .await?;
-        // The download cursor can advance when this callback returns. Flush
-        // the atom bodies, history rows, and reference edges first, including
-        // when LastStore defers ordinary batch flushes.
-        self.db_ops.atoms().flush().await.map_err(|error| {
-            SchemaError::InvalidData(format!("flush suppressed Put history: {error}"))
-        })
+        Ok(events)
     }
+}
+
+/// Storage key of one suppressed-Put history row. The digest covers the
+/// source identity, so a replay of the same source mutation hits the same row.
+fn suppressed_put_event_key(
+    storage_prefix: Option<&str>,
+    molecule_uuid: &str,
+    timestamp_nanos: i64,
+    parts: [&str; 6],
+    logical_counter: u64,
+) -> String {
+    let mut identity = Sha256::new();
+    for part in parts {
+        identity.update((part.len() as u64).to_be_bytes());
+        identity.update(part.as_bytes());
+    }
+    identity.update(logical_counter.to_be_bytes());
+    crate::schema::types::field::build_storage_key(
+        storage_prefix,
+        &format!(
+            "{}:suppressed:{:x}",
+            crate::atom::molecule_key_codec::history_event_key(molecule_uuid, timestamp_nanos),
+            identity.finalize()
+        ),
+    )
 }

@@ -9,7 +9,6 @@ impl AtomStore {
     /// This keyed range adds edges for legacy `history:{molecule}:` rows. The
     /// live history writer dual-maintains new rows, so reaching the range end
     /// makes the v2 manifest authoritative without a schema or global scan.
-    // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub async fn upgrade_atom_ref_molecule_history_page(
         &self,
         molecule_uuid: &str,
@@ -46,6 +45,45 @@ impl AtomStore {
             return Ok(progress);
         }
 
+        let (mut writes, walked, edges_written, range_exhausted) = self
+            .walk_history_upgrade_page(molecule_uuid, storage_prefix, page, &mut progress)
+            .await?;
+        progress.rows_walked = progress.rows_walked.saturating_add(walked);
+        progress.edges_written = progress.edges_written.saturating_add(edges_written);
+        if range_exhausted {
+            progress.complete = true;
+            push_manifest_item_with_version(
+                &mut writes,
+                molecule_uuid,
+                manifest.mutation_watermark_nanos,
+                true,
+                ATOM_REF_MANIFEST_VERSION_HISTORY,
+                storage_prefix,
+            )?;
+        }
+        writes.push((
+            progress_key,
+            serde_json::to_value(&progress).map_err(|e| {
+                SchemaError::InvalidData(format!("serialize atom history upgrade: {e}"))
+            })?,
+        ));
+        self.main_store.batch_put_items(writes).await.map_err(|e| {
+            SchemaError::InvalidData(format!("write atom history upgrade page: {e}"))
+        })?;
+        Ok(progress)
+    }
+
+    /// Read one history page and build its edge writes.
+    ///
+    /// Returns the writes, the rows walked, the edges written and whether the
+    /// range ended. It advances `progress.after_history_key` past each row.
+    async fn walk_history_upgrade_page(
+        &self,
+        molecule_uuid: &str,
+        storage_prefix: Option<&str>,
+        page: usize,
+        progress: &mut AtomRefHistoryUpgrade,
+    ) -> Result<(Vec<(String, serde_json::Value)>, u64, u64, bool), SchemaError> {
         let prefix = build_storage_key(
             storage_prefix,
             &molecule_key_codec::history_molecule_prefix(molecule_uuid),
@@ -90,28 +128,6 @@ impl AtomStore {
             progress.after_history_key = Some(event_key);
             walked = walked.saturating_add(1);
         }
-        progress.rows_walked = progress.rows_walked.saturating_add(walked);
-        progress.edges_written = progress.edges_written.saturating_add(edges_written);
-        if range_exhausted {
-            progress.complete = true;
-            push_manifest_item_with_version(
-                &mut writes,
-                molecule_uuid,
-                manifest.mutation_watermark_nanos,
-                true,
-                ATOM_REF_MANIFEST_VERSION_HISTORY,
-                storage_prefix,
-            )?;
-        }
-        writes.push((
-            progress_key,
-            serde_json::to_value(&progress).map_err(|e| {
-                SchemaError::InvalidData(format!("serialize atom history upgrade: {e}"))
-            })?,
-        ));
-        self.main_store.batch_put_items(writes).await.map_err(|e| {
-            SchemaError::InvalidData(format!("write atom history upgrade page: {e}"))
-        })?;
-        Ok(progress)
+        Ok((writes, walked, edges_written, range_exhausted))
     }
 }

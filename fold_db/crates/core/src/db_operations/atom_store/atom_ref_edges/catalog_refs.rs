@@ -154,7 +154,6 @@ impl AtomStore {
         self.commit_catalog_atom_ref_plan(plan, false).await
     }
 
-    // lint:fn-size-ok moved verbatim from the parent module; splitting is separate work.
     pub(super) async fn commit_catalog_atom_ref_plan(
         &self,
         plan: CatalogAtomRefPlan,
@@ -168,6 +167,7 @@ impl AtomStore {
             pending_keys,
             transition_id,
         } = plan;
+        let storage_prefix = storage_prefix.as_deref();
         let mut transition_registry = self.catalog_atom_ref_transition_registry().await?;
         transition_registry.transitions.remove(&transition_id);
         let has_molecule_edges = !molecule_edges.is_empty();
@@ -186,7 +186,7 @@ impl AtomStore {
         let _count_guards = self.lock_atom_ref_counts(&atoms).await;
         let count_keys: Vec<String> = atoms
             .iter()
-            .map(|atom_uuid| atom_live_ref_count_key(atom_uuid, storage_prefix.as_deref()))
+            .map(|atom_uuid| atom_live_ref_count_key(atom_uuid, storage_prefix))
             .collect();
         let stored_counts = self
             .main_store
@@ -201,148 +201,23 @@ impl AtomStore {
         for (((atom_uuid, delta), key), stored) in
             atom_deltas.into_iter().zip(count_keys).zip(stored_counts)
         {
-            if stored.is_none()
-                && self
-                    .has_active_atom_refs(&atom_uuid, storage_prefix.as_deref())
-                    .await?
-            {
-                mutations.push(KvMutation::put(
-                    key.into_bytes(),
-                    serde_json::to_vec(&AtomLiveRefCount {
-                        live_refs: 0,
-                        exact: false,
-                    })
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "serialize legacy database-catalog atom count: {error}"
-                        ))
-                    })?,
-                ));
-                mutations.extend(
-                    self.atom_gc_candidate_mutations_for_count(
-                        &atom_uuid,
-                        u64::MAX,
-                        storage_prefix.as_deref(),
-                    )
-                    .await?,
-                );
-                continue;
-            }
-            let stored = stored.unwrap_or_default();
-            if !stored.exact {
-                mutations.extend(
-                    self.atom_gc_candidate_mutations_for_count(
-                        &atom_uuid,
-                        u64::MAX,
-                        storage_prefix.as_deref(),
-                    )
-                    .await?,
-                );
-                continue;
-            }
-            let before = stored.live_refs;
-            let after = if add {
-                before.checked_add(delta)
-            } else {
-                before.checked_sub(delta)
-            };
-            let Some(after) = after else {
-                // A legacy counter may omit older references. Keep the atom
-                // and clear any zero-count GC candidate.
-                mutations.push(KvMutation::put(
-                    key.into_bytes(),
-                    serde_json::to_vec(&AtomLiveRefCount {
-                        live_refs: 0,
-                        exact: false,
-                    })
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "serialize database-catalog atom reference count: {error}"
-                        ))
-                    })?,
-                ));
-                mutations.extend(
-                    self.atom_gc_candidate_mutations_for_count(
-                        &atom_uuid,
-                        u64::MAX,
-                        storage_prefix.as_deref(),
-                    )
-                    .await?,
-                );
-                continue;
-            };
-            mutations.push(KvMutation::put(
-                key.into_bytes(),
-                serde_json::to_vec(&AtomLiveRefCount {
-                    live_refs: after,
-                    exact: true,
-                })
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "serialize database-catalog atom reference count: {error}"
-                    ))
-                })?,
-            ));
-            mutations.extend(
-                self.atom_gc_candidate_mutations_for_count(
-                    &atom_uuid,
-                    after,
-                    storage_prefix.as_deref(),
-                )
-                .await?,
-            );
-        }
-        let mut molecules: Vec<(String, u64)> = molecule_deltas.into_iter().collect();
-        molecules.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-        let molecule_ids: Vec<String> = molecules
-            .iter()
-            .map(|(molecule_uuid, _)| molecule_uuid.clone())
-            .collect();
-        let molecule_counts = self
-            .database_catalog_ref_counts_for_molecules(&molecule_ids, storage_prefix.as_deref())
+            self.catalog_atom_count_mutations(
+                &mut mutations,
+                &atom_uuid,
+                delta,
+                key,
+                stored,
+                add,
+                storage_prefix,
+            )
             .await?;
-        for (molecule_uuid, delta) in molecules {
-            let before = molecule_counts.get(&molecule_uuid).copied().unwrap_or(0);
-            let after = if add {
-                before.checked_add(delta)
-            } else {
-                before.checked_sub(delta)
-            }
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "database-catalog molecule reference count is out of range for {molecule_uuid}"
-                ))
-            })?;
-            mutations.push(KvMutation::put(
-                molecule_catalog_ref_count_key(&molecule_uuid, storage_prefix.as_deref())
-                    .into_bytes(),
-                serde_json::to_vec(&MoleculeCatalogRefCount { live_refs: after }).map_err(
-                    |error| {
-                        SchemaError::InvalidData(format!(
-                            "serialize database-catalog molecule reference count: {error}"
-                        ))
-                    },
-                )?,
-            ));
         }
-        for edge in molecule_edges {
-            let key = edge.storage_key(storage_prefix.as_deref()).into_bytes();
-            if add {
-                mutations.push(KvMutation::put(
-                    key,
-                    serde_json::to_vec(&edge).map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "serialize database-catalog molecule reference: {error}"
-                        ))
-                    })?,
-                ));
-            } else {
-                mutations.push(KvMutation::delete(key));
-            }
-        }
+        self.catalog_molecule_count_mutations(&mut mutations, molecule_deltas, add, storage_prefix)
+            .await?;
+        Self::catalog_molecule_edge_mutations(&mut mutations, molecule_edges, add, storage_prefix)?;
         if add && has_molecule_edges {
             mutations.push(KvMutation::put(
-                Self::database_catalog_ref_present_key(storage_prefix.as_deref()).into_bytes(),
+                Self::database_catalog_ref_present_key(storage_prefix).into_bytes(),
                 ATOM_REF_V2_ACTIVE_MARKER,
             ));
         }
@@ -366,6 +241,167 @@ impl AtomStore {
                     "commit database-catalog atom reference transition: {error}"
                 ))
             })
+    }
+
+    /// Append the count and GC-candidate mutations for one atom's catalog delta.
+    #[allow(clippy::too_many_arguments)]
+    async fn catalog_atom_count_mutations(
+        &self,
+        mutations: &mut Vec<KvMutation>,
+        atom_uuid: &str,
+        delta: u64,
+        key: String,
+        stored: Option<AtomLiveRefCount>,
+        add: bool,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        if stored.is_none() && self.has_active_atom_refs(atom_uuid, storage_prefix).await? {
+            return self
+                .catalog_atom_count_unknown(
+                    mutations,
+                    atom_uuid,
+                    key,
+                    "serialize legacy database-catalog atom count",
+                    storage_prefix,
+                )
+                .await;
+        }
+        let stored = stored.unwrap_or_default();
+        if !stored.exact {
+            mutations.extend(
+                self.atom_gc_candidate_mutations_for_count(atom_uuid, u64::MAX, storage_prefix)
+                    .await?,
+            );
+            return Ok(());
+        }
+        let before = stored.live_refs;
+        let after = if add {
+            before.checked_add(delta)
+        } else {
+            before.checked_sub(delta)
+        };
+        let Some(after) = after else {
+            // A legacy counter may omit older references. Keep the atom
+            // and clear any zero-count GC candidate.
+            return self
+                .catalog_atom_count_unknown(
+                    mutations,
+                    atom_uuid,
+                    key,
+                    "serialize database-catalog atom reference count",
+                    storage_prefix,
+                )
+                .await;
+        };
+        mutations.push(KvMutation::put(
+            key.into_bytes(),
+            serde_json::to_vec(&AtomLiveRefCount {
+                live_refs: after,
+                exact: true,
+            })
+            .map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "serialize database-catalog atom reference count: {error}"
+                ))
+            })?,
+        ));
+        mutations.extend(
+            self.atom_gc_candidate_mutations_for_count(atom_uuid, after, storage_prefix)
+                .await?,
+        );
+        Ok(())
+    }
+
+    /// Store an inexact zero count and mark the atom as a GC candidate.
+    async fn catalog_atom_count_unknown(
+        &self,
+        mutations: &mut Vec<KvMutation>,
+        atom_uuid: &str,
+        key: String,
+        serialize_context: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        mutations.push(KvMutation::put(
+            key.into_bytes(),
+            serde_json::to_vec(&AtomLiveRefCount {
+                live_refs: 0,
+                exact: false,
+            })
+            .map_err(|error| SchemaError::InvalidData(format!("{serialize_context}: {error}")))?,
+        ));
+        mutations.extend(
+            self.atom_gc_candidate_mutations_for_count(atom_uuid, u64::MAX, storage_prefix)
+                .await?,
+        );
+        Ok(())
+    }
+
+    /// Append the per-molecule catalog reference count mutations.
+    async fn catalog_molecule_count_mutations(
+        &self,
+        mutations: &mut Vec<KvMutation>,
+        molecule_deltas: HashMap<String, u64>,
+        add: bool,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        let mut molecules: Vec<(String, u64)> = molecule_deltas.into_iter().collect();
+        molecules.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let molecule_ids: Vec<String> = molecules
+            .iter()
+            .map(|(molecule_uuid, _)| molecule_uuid.clone())
+            .collect();
+        let molecule_counts = self
+            .database_catalog_ref_counts_for_molecules(&molecule_ids, storage_prefix)
+            .await?;
+        for (molecule_uuid, delta) in molecules {
+            let before = molecule_counts.get(&molecule_uuid).copied().unwrap_or(0);
+            let after = if add {
+                before.checked_add(delta)
+            } else {
+                before.checked_sub(delta)
+            }
+            .ok_or_else(|| {
+                SchemaError::InvalidData(format!(
+                    "database-catalog molecule reference count is out of range for {molecule_uuid}"
+                ))
+            })?;
+            mutations.push(KvMutation::put(
+                molecule_catalog_ref_count_key(&molecule_uuid, storage_prefix).into_bytes(),
+                serde_json::to_vec(&MoleculeCatalogRefCount { live_refs: after }).map_err(
+                    |error| {
+                        SchemaError::InvalidData(format!(
+                            "serialize database-catalog molecule reference count: {error}"
+                        ))
+                    },
+                )?,
+            ));
+        }
+        Ok(())
+    }
+
+    /// Put (add) or delete (remove) each molecule reference edge row.
+    fn catalog_molecule_edge_mutations(
+        mutations: &mut Vec<KvMutation>,
+        molecule_edges: Vec<crate::db_operations::atom_store::MoleculeRefEdge>,
+        add: bool,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        for edge in molecule_edges {
+            let key = edge.storage_key(storage_prefix).into_bytes();
+            if add {
+                mutations.push(KvMutation::put(
+                    key,
+                    serde_json::to_vec(&edge).map_err(|error| {
+                        SchemaError::InvalidData(format!(
+                            "serialize database-catalog molecule reference: {error}"
+                        ))
+                    })?,
+                ));
+            } else {
+                mutations.push(KvMutation::delete(key));
+            }
+        }
+        Ok(())
     }
 
     pub(crate) async fn abort_catalog_atom_refs(
