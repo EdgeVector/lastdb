@@ -38,11 +38,6 @@ pub(super) fn put_job(path: &Path, job: &mut GcJobReceipt) -> SyncResult<()> {
     put(path, job)
 }
 
-pub(super) fn put_object(path: &Path, object: &mut GcObjectReceipt) -> SyncResult<()> {
-    object.version = object.format_version();
-    put(path, object)
-}
-
 pub(super) fn put(path: &Path, value: &impl Serialize) -> SyncResult<()> {
     put_file(path, value)?;
     sync_parent(path)

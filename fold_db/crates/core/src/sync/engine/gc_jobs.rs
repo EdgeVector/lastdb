@@ -22,6 +22,10 @@ mod receipts;
 pub use self::receipts::*;
 mod persist;
 pub(super) use self::persist::*;
+mod compact;
+mod packed;
+mod storage;
+pub use compact::{compact_terminal_receipts, GcCompactReport};
 
 /// Newest receipt format this build writes. A receipt with no version 2
 /// field still serializes as version 1, byte-for-byte as P1 wrote it.
@@ -287,11 +291,10 @@ impl GcJobManager {
                     for pending in job.in_flight_objects() {
                         // Outcome is written before the summary. Reconcile the
                         // exact key if the process died between those writes.
-                        let mut object: GcObjectReceipt =
-                            read(&self.object_path(id, pending.sequence)?)?;
+                        let mut object = self.read_object(id, pending.sequence)?;
                         if object.outcome == GcObjectOutcome::Intent {
                             object.outcome = GcObjectOutcome::Unknown;
-                            put_object(&self.object_path(id, object.sequence)?, &mut object)?;
+                            self.put_objects(id, std::slice::from_ref(&object))?;
                         }
                         Self::apply_outcome(&mut job, &object)?;
                     }

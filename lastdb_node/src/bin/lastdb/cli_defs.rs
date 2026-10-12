@@ -5,6 +5,8 @@ use super::*;
 
 #[path = "cli_defs/app.rs"]
 mod app;
+#[path = "cli_defs/backup_gc_compact.rs"]
+mod backup_gc_compact;
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
 #[path = "cli_defs/cloud_purge.rs"]
@@ -15,6 +17,7 @@ mod db;
 mod schema;
 
 pub(super) use app::*;
+pub(super) use backup_gc_compact::*;
 pub(super) use cloud::*;
 pub(super) use cloud_purge::*;
 pub(super) use db::*;
@@ -348,6 +351,8 @@ pub(super) enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Pack one exact terminal backup job through local files while Mini stays online.
+    BackupGcCompact(BackupGcCompactArgs),
     /// Cloud sync: paid signup, upgrade checkout, or subscription status.
     Cloud {
         #[command(subcommand)]

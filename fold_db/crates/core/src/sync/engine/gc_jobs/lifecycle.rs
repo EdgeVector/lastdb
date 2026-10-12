@@ -111,9 +111,10 @@ impl GcJobManager {
     ) -> SyncResult<Vec<GcObjectReceipt>> {
         let job = self.get(Some(id))?.ok_or_else(|| io_error("job missing"))?;
         let end = job.objects_reconciled + job.in_flight_len();
-        (after.saturating_add(1)..=end.min(after.saturating_add(limit.min(256) as u64)))
-            .map(|sequence| read(&self.object_path(id, sequence)?))
-            .collect()
+        let sequences: Vec<u64> = (after.saturating_add(1)
+            ..=end.min(after.saturating_add(limit.min(256) as u64)))
+            .collect();
+        self.read_objects(id, &sequences)
     }
 
     pub(crate) fn update(

@@ -12,6 +12,9 @@ A changed manifest can stop a job. The job retains its result.
 - Use `--job UUID --wait` to attach after disconnect.
 - Use `--status` to read the latest job without cloud work.
 - Use `--request-id UUID` to retry acceptance after a lost response.
+- Use `lastdb backup-gc-compact --job-id UUID` to create or verify one local terminal receipt pack.
+- Add `--remove-sources` to remove byte-verified old receipt sources after review.
+- See [Local backup receipt packs](backup-gc-receipt-packs.md) for the exact format and retained unresolved receipts.
 
 The CLI prints the request ID before submission. The daemon binds that ID to the trigger and preview mode.
 An ID with different parameters fails. A repeat ID never starts a second executor.
@@ -39,6 +42,8 @@ No schema persist lane or global LastStore transaction changes.
 - `index.json`: a format version, at most 16 active IDs, one latest ID, and two archive capacity counters.
 - `<job-id>/summary.json`: version, trigger, mode, state, phase, timestamps, proof identities, counts, bytes, stop reason, and the version 2 fields below.
 - `<job-id>/<sequence>.json`: one exact object key, listed size, intent or outcome, and the version 2 fields below.
+- `<job-id>/objects-v1-<first-sequence>.pack`: a bounded block of exact receipt JSON bytes.
+- `<job-id>/objects-v1.pack`: the complete terminal receipt archive after explicit local compaction.
 
 Each file replacement uses a temporary file, file sync, rename, and directory sync.
 Admission syncs the summary and index before it returns the ID. The cached index changes only after disk persistence succeeds.
@@ -53,9 +58,6 @@ It reconciles an outcome that reached disk before its summary. It applies the by
 An intent without an outcome becomes `unknown`. Every unfinished job becomes `interrupted`.
 Recovery never submits a DELETE or reuses a persisted keep set.
 
-The process-kill test kills a separate test process at admission, dispatch intent, and outcome-before-summary boundaries.
-It reopens the receipts twice and checks identity, state, counts, and bytes.
-Separate engine and owner-route tests cover the product admission and executor path.
 
 ## Engine lifetime
 
@@ -70,7 +72,6 @@ While engine instances overlap, GC refuses selection and stops before the next D
 After the old engine drops, a new job needs fresh validation under the replacement engine.
 Cloud-off retains its existing proof revocation and publication-turn barrier. Cloud-on does not restore that old proof.
 The last engine's removal invalidates runtime liveness. A later read reconciles unfinished work without a DELETE.
-The replacement tests pause presign, replace the coordinator engine, and query both status paths before the old task exits.
 
 ## Receipt versions
 
@@ -127,8 +128,9 @@ The report's billed and reclaimable sizes describe the selection inventory, not 
 
 ## Bounded metadata lifecycle
 
-P1 retains terminal receipts. It has no automatic expiry, prune, or ID reuse.
-This protects unknown dispatch evidence and keeps a terminal ID retrievable.
+The local archive retains terminal receipt evidence. It has no automatic expiry or ID reuse.
+Explicit local compaction packs the exact original bytes and can remove only byte-verified old source files.
+Loose unresolved receipts remain. The complete archive preserves every receipt identity and outcome.
 
 The archive reserves at most 4096 job slots and 1,048,576 object receipt slots.
 Admission reserves a job slot before it writes the summary. Failed and unindexed admissions consume capacity too.
@@ -146,4 +148,4 @@ P5 can replace this conservative local archive only after it preserves exact IDs
 
 This protocol protects the local daemon across engine replacement. It does not fence another device or a late provider DELETE.
 The cloud protocol must add durable object-instance intents before it replaces the local executor.
-No production cloud call, primary restart, upgrade, or deployment forms part of this repair's tests.
+Validation uses source review, format, lint, build, and exact receipt byte checks without cloud calls or a primary restart.
