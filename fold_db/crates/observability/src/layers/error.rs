@@ -4,7 +4,7 @@
 //! per-layer filter ([`FilterFn`]) so Sentry only ever sees ERROR-level
 //! events, regardless of how loose the global RELOAD filter is.
 //! Each captured Sentry event is enriched with the W3C `trace_id` and
-//! `span_id` lifted off the parent span's [`OtelData`] extension (set by
+//! `span_id` lifted off the parent span's `OtelData` extension (set by
 //! `tracing-opentelemetry`) so an alert page can be cross-referenced against
 //! local logs filtered by the same trace id.
 //!
@@ -40,14 +40,15 @@ use std::{env, time::Duration};
 use sentry_tracing::EventMapping;
 #[cfg(feature = "sentry")]
 use tracing::{Level, Metadata, Subscriber};
-#[cfg(all(feature = "sentry", feature = "otel"))]
-use tracing_opentelemetry::OtelData;
 #[cfg(feature = "sentry")]
 use tracing_subscriber::filter::{filter_fn, FilterFn, Filtered};
 #[cfg(feature = "sentry")]
 use tracing_subscriber::layer::Layer;
 #[cfg(feature = "sentry")]
 use tracing_subscriber::registry::LookupSpan;
+
+#[cfg(all(feature = "sentry", feature = "otel"))]
+mod trace_tags;
 
 /// Environment variable that gates Sentry initialization. When unset (or
 /// empty), [`build_error_layer`] returns `None` and the rest of the pipeline
@@ -230,7 +231,7 @@ pub fn parse_obs_sentry_dsn(raw: &str) -> Option<sentry::types::Dsn> {
 ///    stable, anonymous install. The returned [`sentry::ClientInitGuard`] is
 ///    wrapped in [`SentryGuard`] for lifetime management.
 /// 2. Builds a [`sentry_tracing::SentryLayer`] with a custom `event_mapper`
-///    that lifts `trace_id` / `span_id` from the parent span's [`OtelData`]
+///    that lifts `trace_id` / `span_id` from the parent span's `OtelData`
 ///    extension and attaches them to the outgoing event as Sentry tags.
 /// 3. Wraps the layer in [`Layer::with_filter`] using
 ///    [`error_only_event_filter`] so only `tracing::error!` events ever
@@ -310,7 +311,7 @@ pub fn build_error_layer<S>() -> Option<(ErrorLayer<S>, SentryGuard)> {
 /// Every ERROR event is mapped to a [`sentry::protocol::Event`] (via the
 /// crate's own [`sentry_tracing::event_from_event`] helper, which preserves
 /// the standard message / target / fields layout). We then walk up to the
-/// parent span via the `Context`, look up the [`OtelData`] extension that
+/// parent span via the `Context`, look up the `OtelData` extension that
 /// `tracing-opentelemetry` attaches in `on_new_span`, and copy the W3C
 /// `trace_id` / `span_id` onto the Sentry event as tags. When the span has
 /// no `OtelData` (no OTel layer wired, or no parent span at all) we emit the
@@ -339,38 +340,9 @@ where
     }
 
     #[cfg(feature = "otel")]
-    let sentry_event = tag_with_trace_context(sentry_event, event, &ctx);
+    let sentry_event = trace_tags::tag_with_trace_context(sentry_event, event, &ctx);
 
     EventMapping::Event(sentry_event)
-}
-
-/// Copy the W3C `trace_id` / `span_id` of the event's span onto the Sentry
-/// event as tags. A span without `OtelData` leaves the event untouched.
-#[cfg(all(feature = "sentry", feature = "otel"))]
-fn tag_with_trace_context<'a, S>(
-    mut sentry_event: sentry::protocol::Event<'a>,
-    event: &tracing::Event<'_>,
-    ctx: &tracing_subscriber::layer::Context<'_, S>,
-) -> sentry::protocol::Event<'a>
-where
-    S: Subscriber + for<'b> LookupSpan<'b>,
-{
-    if let Some(span_ref) = ctx.event_span(event) {
-        let exts = span_ref.extensions();
-        if let Some(otel_data) = exts.get::<OtelData>() {
-            if let Some(trace_id) = otel_data.builder.trace_id {
-                sentry_event
-                    .tags
-                    .insert("trace_id".to_string(), format!("{trace_id:032x}"));
-            }
-            if let Some(span_id) = otel_data.builder.span_id {
-                sentry_event
-                    .tags
-                    .insert("span_id".to_string(), format!("{span_id:016x}"));
-            }
-        }
-    }
-    sentry_event
 }
 
 #[cfg(feature = "sentry")]
