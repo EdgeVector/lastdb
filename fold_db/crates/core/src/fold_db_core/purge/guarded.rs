@@ -12,7 +12,7 @@ pub(super) async fn execute_guarded_purge(
     scope: PurgeScope<'_>,
     mut schema: crate::schema::types::Schema,
     storage_slots: &[PlannedStorageSlot],
-    purge: GuardedPurge,
+    mut purge: GuardedPurge,
     ledger_descriptor: &str,
     verb: HardEraseVerb,
     acct: &mut PurgeCommitAccounting,
@@ -22,21 +22,7 @@ pub(super) async fn execute_guarded_purge(
         schema_manager,
         schema_name,
     } = scope;
-    let GuardedPurge {
-        candidate_atoms,
-        history_keys,
-        tip_version_keys,
-        atom_ref_edge_keys,
-        atom_ref_v2_edge_keys,
-        history_referenced_by_retained,
-        records_purged,
-        mode:
-            PurgeMode {
-                evict_resident,
-                reachability,
-                precomputed_retained,
-            },
-    } = purge;
+    let precomputed_retained = purge.mode.precomputed_retained.take();
     let target_slot_ids: HashSet<StorageSlotIdentity> = storage_slots
         .iter()
         .map(PlannedStorageSlot::identity)
@@ -45,14 +31,14 @@ pub(super) async fn execute_guarded_purge(
     // failure must refuse the purge while every durable row is still intact.
     let resident_api_keys = resident_api_keys_for_storage_slots(db_ops.as_ref(), &target_slot_ids)?;
     let inputs = GuardedRemovalInputs {
-        candidate_atoms: &candidate_atoms,
-        history_keys: &history_keys,
-        tip_version_keys: &tip_version_keys,
-        atom_ref_edge_keys: &atom_ref_edge_keys,
-        atom_ref_v2_edge_keys: &atom_ref_v2_edge_keys,
-        history_referenced_by_retained: &history_referenced_by_retained,
+        candidate_atoms: &purge.candidate_atoms,
+        history_keys: &purge.history_keys,
+        tip_version_keys: &purge.tip_version_keys,
+        atom_ref_edge_keys: &purge.atom_ref_edge_keys,
+        atom_ref_v2_edge_keys: &purge.atom_ref_v2_edge_keys,
+        history_referenced_by_retained: &purge.history_referenced_by_retained,
         target_slot_ids: &target_slot_ids,
-        reachability,
+        reachability: purge.mode.reachability,
     };
     let GuardedErasure {
         report,
@@ -66,7 +52,7 @@ pub(super) async fn execute_guarded_purge(
         &mut schema,
         storage_slots,
         &inputs,
-        records_purged,
+        purge.records_purged,
         precomputed_retained,
         acct,
     )
@@ -95,7 +81,7 @@ pub(super) async fn execute_guarded_purge(
         .await?;
 
     batch_delete_keys(db_ops, keys_to_delete, acct).await?;
-    if evict_resident {
+    if purge.mode.evict_resident {
         evict_resident_state(db_ops, storage_slots, &resident_api_keys, &atoms_to_delete);
     }
     finalize_schema_after_purge(db_ops, schema_manager, schema_name, schema, acct).await?;
