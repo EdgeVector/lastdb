@@ -110,7 +110,6 @@ impl SchemaServiceClient {
         }
     }
 
-    // lint:fn-size-ok moved verbatim from its original module
     pub(super) async fn add_schema_typed_inner(
         &self,
         schema: &Schema,
@@ -156,17 +155,7 @@ impl SchemaServiceClient {
             let status = response.status();
 
             if status == StatusCode::CREATED || status == StatusCode::OK {
-                return response
-                    .json::<AddSchemaResponse>()
-                    .await
-                    .map(|r| AddSchemaOutcome::Accepted(Box::new(r)))
-                    .map_err(|error| {
-                        // Deserialization of a 2xx body is a permanent failure —
-                        // retrying won't change the server's response shape.
-                        RetryError::Permanent(FoldDbError::Config(format!(
-                            "Failed to parse schema response: {error}"
-                        )))
-                    });
+                return parse_accepted(response, "Failed to parse schema response").await;
             }
 
             if status == StatusCode::CONFLICT {
@@ -176,83 +165,23 @@ impl SchemaServiceClient {
                 // `DescriptiveNameConflict` — we hand it back to the caller
                 // so the UI can prompt rename vs reuse. Permanent — retrying
                 // the same proposal will hit the same conflict.
-                let body = response_body_text(response).await;
-                let conflict: DescriptiveNameConflict = serde_json::from_str(&body).map_err(|e| {
-                    RetryError::Permanent(FoldDbError::Config(format!(
-                        "Schema service returned CONFLICT (409) with unparseable body: {body} ({e})"
-                    )))
-                })?;
-                return Ok(AddSchemaOutcome::Conflict(conflict));
+                return parse_conflict(response, "").await;
             }
 
             let body = response_body_text(response).await;
-            if status == StatusCode::UNAUTHORIZED && schema_pow_can_solve(error_reason(&body).as_deref()) {
-                let Some(identity) = self.node_identity.as_ref() else {
-                    return Err(RetryError::Permanent(FoldDbError::Config(format!(
-                        "Schema service requires node-key proof-of-work for schema mutation, but this client has no node identity configured: {body}"
-                    ))));
-                };
-                let headers = self
-                    .solve_schema_pow(identity, &schema_payload, schema.owner_app_id.as_deref())
-                    .await
-                    .map_err(RetryError::Permanent)?;
-                let mut retry_builder = self
-                    .client
-                    .post(&url)
-                    .header(HEADER_NODE_PUBLIC_KEY, &identity.public_key_b64)
-                    .header(HEADER_NODE_SIGNATURE, &headers.signature_b64)
-                    .header(HEADER_POW_CHALLENGE, &headers.challenge_id)
-                    .header(HEADER_POW_NONCE, &headers.nonce)
-                    .header(HEADER_POW_CHALLENGE_MAC, &headers.challenge_mac)
-                    .header(
-                        HEADER_POW_DIFFICULTY_BITS,
-                        headers.difficulty_bits.to_string(),
+            if status == StatusCode::UNAUTHORIZED
+                && schema_pow_can_solve(error_reason(&body).as_deref())
+            {
+                return self
+                    .retry_add_schema_with_pow(
+                        &url,
+                        &request,
+                        &schema_payload,
+                        schema.owner_app_id.as_deref(),
+                        &options.schema_claim_auth,
+                        &body,
                     )
-                    .header(HEADER_POW_EXPIRES_AT, headers.expires_at_unix_secs.to_string())
-                    .header(HEADER_POW_COUNTER, headers.counter.to_string());
-                if let Some(auth) = &options.schema_claim_auth {
-                    retry_builder = retry_builder
-                        .header("X-Exemem-Dev-Cert", &auth.cert_b64)
-                        .header("X-Signature", &auth.signature_b64);
-                }
-                let retry = observability::propagation::inject_w3c(retry_builder.json(&request))
-                .send()
-                .await
-                .map_err(|error| {
-                    let retryable = reqwest_error_is_retryable(&error);
-                    let wrapped = FoldDbError::Config(format!(
-                        "Failed to submit schema PoW retry to schema service at {url}: {error}"
-                    ));
-                    RetryError::classify(retryable, wrapped)
-                })?;
-                let retry_status = retry.status();
-                if retry_status == StatusCode::CREATED || retry_status == StatusCode::OK {
-                    return retry
-                        .json::<AddSchemaResponse>()
-                        .await
-                        .map(|r| AddSchemaOutcome::Accepted(Box::new(r)))
-                        .map_err(|error| {
-                            RetryError::Permanent(FoldDbError::Config(format!(
-                                "Failed to parse schema response after PoW retry: {error}"
-                            )))
-                        });
-                }
-                if retry_status == StatusCode::CONFLICT {
-                    let body = response_body_text(retry).await;
-                    let conflict: DescriptiveNameConflict =
-                        serde_json::from_str(&body).map_err(|e| {
-                            RetryError::Permanent(FoldDbError::Config(format!(
-                                "Schema service returned CONFLICT (409) with unparseable body after PoW retry: {body} ({e})"
-                            )))
-                        })?;
-                    return Ok(AddSchemaOutcome::Conflict(conflict));
-                }
-                let retryable = status_is_retryable(retry_status);
-                let body = response_body_text(retry).await;
-                return Err(RetryError::classify(
-                    retryable,
-                    schema_add_error(&url, retry_status, &body),
-                ));
+                    .await;
             }
 
             let retryable = status_is_retryable(status);
@@ -263,4 +192,98 @@ impl SchemaServiceClient {
         })
         .await
     }
+
+    /// Solve the node-key proof-of-work the service demanded and resubmit once.
+    async fn retry_add_schema_with_pow(
+        &self,
+        url: &str,
+        request: &AddSchemaRequest,
+        schema_payload: &serde_json::Value,
+        owner_app_id: Option<&str>,
+        claim_auth: &Option<SchemaClaimAuth>,
+        first_body: &str,
+    ) -> Result<AddSchemaOutcome, RetryError> {
+        let Some(identity) = self.node_identity.as_ref() else {
+            return Err(RetryError::Permanent(FoldDbError::Config(format!(
+                "Schema service requires node-key proof-of-work for schema mutation, but this client has no node identity configured: {first_body}"
+            ))));
+        };
+        let headers = self
+            .solve_schema_pow(identity, schema_payload, owner_app_id)
+            .await
+            .map_err(RetryError::Permanent)?;
+        let mut retry_builder = self
+            .client
+            .post(url)
+            .header(HEADER_NODE_PUBLIC_KEY, &identity.public_key_b64)
+            .header(HEADER_NODE_SIGNATURE, &headers.signature_b64)
+            .header(HEADER_POW_CHALLENGE, &headers.challenge_id)
+            .header(HEADER_POW_NONCE, &headers.nonce)
+            .header(HEADER_POW_CHALLENGE_MAC, &headers.challenge_mac)
+            .header(
+                HEADER_POW_DIFFICULTY_BITS,
+                headers.difficulty_bits.to_string(),
+            )
+            .header(
+                HEADER_POW_EXPIRES_AT,
+                headers.expires_at_unix_secs.to_string(),
+            )
+            .header(HEADER_POW_COUNTER, headers.counter.to_string());
+        if let Some(auth) = claim_auth {
+            retry_builder = retry_builder
+                .header("X-Exemem-Dev-Cert", &auth.cert_b64)
+                .header("X-Signature", &auth.signature_b64);
+        }
+        let retry = observability::propagation::inject_w3c(retry_builder.json(request))
+            .send()
+            .await
+            .map_err(|error| {
+                let retryable = reqwest_error_is_retryable(&error);
+                let wrapped = FoldDbError::Config(format!(
+                    "Failed to submit schema PoW retry to schema service at {url}: {error}"
+                ));
+                RetryError::classify(retryable, wrapped)
+            })?;
+        let retry_status = retry.status();
+        if retry_status == StatusCode::CREATED || retry_status == StatusCode::OK {
+            return parse_accepted(retry, "Failed to parse schema response after PoW retry").await;
+        }
+        if retry_status == StatusCode::CONFLICT {
+            return parse_conflict(retry, " after PoW retry").await;
+        }
+        let retryable = status_is_retryable(retry_status);
+        let body = response_body_text(retry).await;
+        Err(RetryError::classify(
+            retryable,
+            schema_add_error(url, retry_status, &body),
+        ))
+    }
+}
+
+/// Deserialization of a 2xx body is a permanent failure — retrying won't
+/// change the server's response shape.
+async fn parse_accepted(
+    response: reqwest::Response,
+    failure_context: &str,
+) -> Result<AddSchemaOutcome, RetryError> {
+    response
+        .json::<AddSchemaResponse>()
+        .await
+        .map(|r| AddSchemaOutcome::Accepted(Box::new(r)))
+        .map_err(|error| {
+            RetryError::Permanent(FoldDbError::Config(format!("{failure_context}: {error}")))
+        })
+}
+
+async fn parse_conflict(
+    response: reqwest::Response,
+    context_suffix: &str,
+) -> Result<AddSchemaOutcome, RetryError> {
+    let body = response_body_text(response).await;
+    let conflict: DescriptiveNameConflict = serde_json::from_str(&body).map_err(|e| {
+        RetryError::Permanent(FoldDbError::Config(format!(
+            "Schema service returned CONFLICT (409) with unparseable body{context_suffix}: {body} ({e})"
+        )))
+    })?;
+    Ok(AddSchemaOutcome::Conflict(conflict))
 }

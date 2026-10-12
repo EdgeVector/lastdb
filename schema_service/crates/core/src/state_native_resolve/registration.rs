@@ -1,6 +1,7 @@
 //! Registration-time component cover.
 
 use super::*;
+use schema_core_resolver::ResolverOutput;
 
 impl SchemaServiceState {
     /// Evaluate registration-time component cover for an incoming add-schema
@@ -10,7 +11,6 @@ impl SchemaServiceState {
     /// Unlike `POST /v1/schemas/resolve`, this helper surfaces partial-cover
     /// residue so the mutation path can register only the uncovered fields and
     /// avoid minting a fat whole-schema identity.
-    // lint:fn-size-ok verbatim move from state_native_resolve.rs; splitting this function is separate work
     pub fn try_native_component_cover_registration(
         &self,
         schema: &Schema,
@@ -49,20 +49,7 @@ impl SchemaServiceState {
                 return Ok(None);
             }
         };
-        built.input.config.scoring.coverage.min_fields = built
-            .input
-            .config
-            .scoring
-            .coverage
-            .min_fields
-            .min(REGISTRATION_COMPONENT_COVER_MIN_FIELDS);
-        built.input.config.scoring.coverage.min_required_fields = built
-            .input
-            .config
-            .scoring
-            .coverage
-            .min_required_fields
-            .min(REGISTRATION_COMPONENT_COVER_MIN_FIELDS);
+        lower_registration_coverage_thresholds(&mut built.input.config);
         let output = match evaluate_native(&built.input) {
             Ok(output) => output,
             Err(e) => {
@@ -83,43 +70,7 @@ impl SchemaServiceState {
             .map(|(i, field)| (proposal_field_id(i, field), field.clone()))
             .collect::<HashMap<_, _>>();
 
-        match output.decision {
-            ResolverDecision::UseExisting => {
-                let Some(use_existing) = output.use_existing else {
-                    return Ok(None);
-                };
-                Ok(Some(SchemaRegistrationComposition {
-                    matched_shared_schema_hash: Some(use_existing.schema_id),
-                    covered_components: Vec::new(),
-                    residue_fields: Vec::new(),
-                    field_coverage: output.evidence.field_coverage,
-                    confidence: Some(output.confidence),
-                }))
-            }
-            ResolverDecision::UseComponents | ResolverDecision::NeedsLiveSchemaService => {
-                if output.use_components.is_empty() {
-                    return Ok(None);
-                }
-                let residue_fields = output
-                    .evidence
-                    .residue_fields
-                    .iter()
-                    .filter_map(|r| field_by_id.get(&r.proposal_field_id).cloned())
-                    .collect::<Vec<_>>();
-                let covered_components =
-                    registration_components_from_resolutions(&output.use_components, &field_by_id);
-                Ok(Some(SchemaRegistrationComposition {
-                    matched_shared_schema_hash: None,
-                    covered_components,
-                    residue_fields,
-                    field_coverage: output.evidence.field_coverage,
-                    confidence: Some(output.confidence),
-                }))
-            }
-            ResolverDecision::ExpandExistingIfAllowed
-            | ResolverDecision::Ambiguous
-            | ResolverDecision::Reject => Ok(None),
-        }
+        Ok(registration_composition_from_output(output, &field_by_id))
     }
 
     pub(super) fn try_starter_template_cover_registration(
@@ -270,5 +221,56 @@ impl SchemaServiceState {
             .clone()
             .unwrap_or_else(|| "Residual Schema".to_string());
         Some(residual)
+    }
+}
+
+fn lower_registration_coverage_thresholds(config: &mut ResolverConfig) {
+    let coverage = &mut config.scoring.coverage;
+    coverage.min_fields = coverage
+        .min_fields
+        .min(REGISTRATION_COMPONENT_COVER_MIN_FIELDS);
+    coverage.min_required_fields = coverage
+        .min_required_fields
+        .min(REGISTRATION_COMPONENT_COVER_MIN_FIELDS);
+}
+
+fn registration_composition_from_output(
+    output: ResolverOutput,
+    field_by_id: &HashMap<String, String>,
+) -> Option<SchemaRegistrationComposition> {
+    match output.decision {
+        ResolverDecision::UseExisting => {
+            let use_existing = output.use_existing?;
+            Some(SchemaRegistrationComposition {
+                matched_shared_schema_hash: Some(use_existing.schema_id),
+                covered_components: Vec::new(),
+                residue_fields: Vec::new(),
+                field_coverage: output.evidence.field_coverage,
+                confidence: Some(output.confidence),
+            })
+        }
+        ResolverDecision::UseComponents | ResolverDecision::NeedsLiveSchemaService => {
+            if output.use_components.is_empty() {
+                return None;
+            }
+            let residue_fields = output
+                .evidence
+                .residue_fields
+                .iter()
+                .filter_map(|r| field_by_id.get(&r.proposal_field_id).cloned())
+                .collect::<Vec<_>>();
+            let covered_components =
+                registration_components_from_resolutions(&output.use_components, field_by_id);
+            Some(SchemaRegistrationComposition {
+                matched_shared_schema_hash: None,
+                covered_components,
+                residue_fields,
+                field_coverage: output.evidence.field_coverage,
+                confidence: Some(output.confidence),
+            })
+        }
+        ResolverDecision::ExpandExistingIfAllowed
+        | ResolverDecision::Ambiguous
+        | ResolverDecision::Reject => None,
     }
 }

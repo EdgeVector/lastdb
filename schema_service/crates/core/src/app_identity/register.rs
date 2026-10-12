@@ -119,99 +119,8 @@ impl SchemaServiceState {
         &self,
         record: AppRecord,
     ) -> Result<AppRegisterOutcome, AppRegisterError> {
-        // lint:fn-size-ok verbatim move from app_identity.rs; splitting this function is separate work
-        enum CommitPlan {
-            Created(Box<AppRecord>),
-            Updated {
-                updated: Box<AppRecord>,
-                previous: Box<AppRecord>,
-            },
-        }
-
-        let plan = 'commit: {
-            let mut apps = self
-                .apps
-                .write()
-                .map_err(|_| AppRegisterError::Internal("apps write lock poisoned".to_string()))?;
-            if let Some(existing) = apps.get(&record.app_id) {
-                if existing.owner_dev_pubkey == record.owner_dev_pubkey {
-                    let version_is_greater =
-                        app_version_is_greater(&record.version, &existing.version)
-                            .map_err(AppRegisterError::InvalidVersion)?;
-                    if !version_is_greater {
-                        return Err(AppRegisterError::NonMonotonicVersion {
-                            current_version: existing.version.clone(),
-                            requested_version: record.version.clone(),
-                        });
-                    }
-                    let updated = AppRecord {
-                        app_id: existing.app_id.clone(),
-                        owner_dev_pubkey: existing.owner_dev_pubkey.clone(),
-                        metadata: record.metadata,
-                        version: record.version,
-                        registered_at: existing.registered_at.clone(),
-                        // First publish starts sandbox. A later version publish
-                        // updates the latest row and preserves visibility, so
-                        // already-live apps stay discoverable for upgrade.
-                        tier: existing.tier,
-                        code_signature: record
-                            .code_signature
-                            .or_else(|| existing.code_signature.clone()),
-                        source: record.source.or_else(|| existing.source.clone()),
-                        artifact: record.artifact.or_else(|| existing.artifact.clone()),
-                        uses: if record.uses.is_empty() {
-                            existing.uses.clone()
-                        } else {
-                            record.uses
-                        },
-                    };
-                    let previous = existing.clone();
-                    apps.insert(updated.app_id.clone(), updated.clone());
-                    break 'commit CommitPlan::Updated {
-                        updated: Box::new(updated),
-                        previous: Box::new(previous),
-                    };
-                }
-                // Idempotent only when the re-post matches what's stored.
-                // `code_signature` follows the update path's "absent = no
-                // claim" semantics: a re-post WITHOUT the field matches any
-                // stored signing identity (so a legacy client's re-push stays
-                // a 200 no-op), while a re-post with a DIFFERENT one is a 409
-                // — the owner's add/rotate path is `PUT /v1/apps/{app_id}`,
-                // which clients fall back to off that 409.
-                let code_signature_matches = record.code_signature.is_none()
-                    || existing.code_signature == record.code_signature;
-                let source_matches = record.source.is_none() || existing.source == record.source;
-                let artifact_matches =
-                    record.artifact.is_none() || existing.artifact == record.artifact;
-                if existing.owner_dev_pubkey == record.owner_dev_pubkey
-                    && existing.metadata == record.metadata
-                    && code_signature_matches
-                    && source_matches
-                    && artifact_matches
-                {
-                    return Ok(AppRegisterOutcome::Idempotent(existing.clone()));
-                }
-                return Err(AppRegisterError::Conflict {
-                    current_owner_dev_pubkey: existing.owner_dev_pubkey.clone(),
-                });
-            }
-            // Per-developer quota (checked only on a genuinely NEW app_id:
-            // the idempotent-re-post and conflict arms above return first,
-            // and `PUT /v1/apps/{app_id}` never reaches this commit path —
-            // so an at-cap developer can keep updating their existing apps).
-            let owned_by_dev = apps
-                .values()
-                .filter(|r| r.owner_dev_pubkey == record.owner_dev_pubkey)
-                .count();
-            if owned_by_dev >= MAX_APPS_PER_DEVELOPER {
-                return Err(AppRegisterError::QuotaExceeded);
-            }
-            apps.insert(record.app_id.clone(), record.clone());
-            CommitPlan::Created(Box::new(record))
-        };
-
-        match plan {
+        match self.plan_commit(record)? {
+            CommitPlan::Idempotent(existing) => Ok(AppRegisterOutcome::Idempotent(*existing)),
             CommitPlan::Created(record) => {
                 let record = *record;
                 if let Err(e) = self.persist_app(&record).await {
@@ -239,4 +148,110 @@ impl SchemaServiceState {
             }
         }
     }
+
+    /// Decide the commit under one write lock and apply it in memory.
+    fn plan_commit(&self, record: AppRecord) -> Result<CommitPlan, AppRegisterError> {
+        let mut apps = self
+            .apps
+            .write()
+            .map_err(|_| AppRegisterError::Internal("apps write lock poisoned".to_string()))?;
+        if let Some(existing) = apps.get(&record.app_id) {
+            if existing.owner_dev_pubkey == record.owner_dev_pubkey {
+                let updated = next_version_record(existing, record)?;
+                let previous = existing.clone();
+                apps.insert(updated.app_id.clone(), updated.clone());
+                return Ok(CommitPlan::Updated {
+                    updated: Box::new(updated),
+                    previous: Box::new(previous),
+                });
+            }
+            return reject_or_idempotent(existing, &record);
+        }
+        // Per-developer quota (checked only on a genuinely NEW app_id:
+        // the idempotent-re-post and conflict arms above return first,
+        // and `PUT /v1/apps/{app_id}` never reaches this commit path —
+        // so an at-cap developer can keep updating their existing apps).
+        let owned_by_dev = apps
+            .values()
+            .filter(|r| r.owner_dev_pubkey == record.owner_dev_pubkey)
+            .count();
+        if owned_by_dev >= MAX_APPS_PER_DEVELOPER {
+            return Err(AppRegisterError::QuotaExceeded);
+        }
+        apps.insert(record.app_id.clone(), record.clone());
+        Ok(CommitPlan::Created(Box::new(record)))
+    }
+}
+
+enum CommitPlan {
+    Created(Box<AppRecord>),
+    Updated {
+        updated: Box<AppRecord>,
+        previous: Box<AppRecord>,
+    },
+    Idempotent(Box<AppRecord>),
+}
+
+/// Build the record for a higher version published by the same owner.
+fn next_version_record(
+    existing: &AppRecord,
+    record: AppRecord,
+) -> Result<AppRecord, AppRegisterError> {
+    let version_is_greater = app_version_is_greater(&record.version, &existing.version)
+        .map_err(AppRegisterError::InvalidVersion)?;
+    if !version_is_greater {
+        return Err(AppRegisterError::NonMonotonicVersion {
+            current_version: existing.version.clone(),
+            requested_version: record.version,
+        });
+    }
+    Ok(AppRecord {
+        app_id: existing.app_id.clone(),
+        owner_dev_pubkey: existing.owner_dev_pubkey.clone(),
+        metadata: record.metadata,
+        version: record.version,
+        registered_at: existing.registered_at.clone(),
+        // First publish starts sandbox. A later version publish
+        // updates the latest row and preserves visibility, so
+        // already-live apps stay discoverable for upgrade.
+        tier: existing.tier,
+        code_signature: record
+            .code_signature
+            .or_else(|| existing.code_signature.clone()),
+        source: record.source.or_else(|| existing.source.clone()),
+        artifact: record.artifact.or_else(|| existing.artifact.clone()),
+        uses: if record.uses.is_empty() {
+            existing.uses.clone()
+        } else {
+            record.uses
+        },
+    })
+}
+
+/// Idempotent only when the re-post matches what's stored.
+/// `code_signature` follows the update path's "absent = no
+/// claim" semantics: a re-post WITHOUT the field matches any
+/// stored signing identity (so a legacy client's re-push stays
+/// a 200 no-op), while a re-post with a DIFFERENT one is a 409
+/// — the owner's add/rotate path is `PUT /v1/apps/{app_id}`,
+/// which clients fall back to off that 409.
+fn reject_or_idempotent(
+    existing: &AppRecord,
+    record: &AppRecord,
+) -> Result<CommitPlan, AppRegisterError> {
+    let code_signature_matches =
+        record.code_signature.is_none() || existing.code_signature == record.code_signature;
+    let source_matches = record.source.is_none() || existing.source == record.source;
+    let artifact_matches = record.artifact.is_none() || existing.artifact == record.artifact;
+    if existing.owner_dev_pubkey == record.owner_dev_pubkey
+        && existing.metadata == record.metadata
+        && code_signature_matches
+        && source_matches
+        && artifact_matches
+    {
+        return Ok(CommitPlan::Idempotent(Box::new(existing.clone())));
+    }
+    Err(AppRegisterError::Conflict {
+        current_owner_dev_pubkey: existing.owner_dev_pubkey.clone(),
+    })
 }

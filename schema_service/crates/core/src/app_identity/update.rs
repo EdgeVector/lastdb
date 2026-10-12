@@ -48,50 +48,12 @@ impl SchemaServiceState {
         sig_header: &str,
         body: &Value,
     ) -> Result<AppUpdateOutcome, AppUpdateError> {
-        // lint:fn-size-ok verbatim move from app_identity.rs; splitting this function is separate work
         if !is_valid_app_id(app_id) {
             return Err(AppUpdateError::InvalidAppId);
         }
 
-        // Parse + validate the metadata blob before any crypto work.
-        let request: AppUpdateRequest = serde_json::from_value(body.clone())
-            .map_err(|e| AppUpdateError::InvalidMetadata(format!("malformed body: {e}")))?;
-        validate_metadata(&request.metadata).map_err(AppUpdateError::InvalidMetadata)?;
-        if let Some(cs) = &request.code_signature {
-            validate_code_signature(cs).map_err(AppUpdateError::InvalidCodeSignature)?;
-        }
-        if let Some(source) = &request.source {
-            validate_app_source(source).map_err(AppUpdateError::InvalidMetadata)?;
-        }
-        if let Some(artifact) = &request.artifact {
-            validate_app_artifact(artifact).map_err(AppUpdateError::InvalidMetadata)?;
-        }
-        validate_uses(&request.uses).map_err(AppUpdateError::InvalidUses)?;
-
-        // The signed payload is `{ app_id, metadata }` — the same shape the
-        // register path signs. Folding the path's app_id in here means the
-        // signature binds to the target namespace; a signature for app A
-        // cannot be replayed against app B. `code_signature` and `uses` each
-        // join the signed payload ONLY when present/non-empty so an old
-        // client's signature (which never saw the field) still verifies
-        // byte-for-byte.
-        let mut signed_payload = json!({ "app_id": app_id, "metadata": request.metadata });
-        if let Some(cs) = &request.code_signature {
-            signed_payload["code_signature"] =
-                serde_json::to_value(cs).map_err(|e| AppUpdateError::Internal(e.to_string()))?;
-        }
-        if let Some(source) = &request.source {
-            signed_payload["source"] = serde_json::to_value(source)
-                .map_err(|e| AppUpdateError::Internal(e.to_string()))?;
-        }
-        if let Some(artifact) = &request.artifact {
-            signed_payload["artifact"] = serde_json::to_value(artifact)
-                .map_err(|e| AppUpdateError::Internal(e.to_string()))?;
-        }
-        if !request.uses.is_empty() {
-            signed_payload["uses"] = serde_json::to_value(&request.uses)
-                .map_err(|e| AppUpdateError::Internal(e.to_string()))?;
-        }
+        let request = parse_update_request(body)?;
+        let signed_payload = update_signed_payload(app_id, &request)?;
 
         let verified = verify_cert_and_signature(
             config,
@@ -106,81 +68,11 @@ impl SchemaServiceState {
             AuthFailure::CertInvalid | AuthFailure::DevRevoked => AppUpdateError::CertInvalid,
         })?;
 
-        let (previous_record, updated_record) = {
-            let mut apps = self
-                .apps
-                .write()
-                .map_err(|_| AppUpdateError::Internal("apps write lock poisoned".to_string()))?;
-            let existing = apps
-                .get(app_id)
-                .ok_or(AppUpdateError::AppNotRegistered)?
-                .clone();
-
-            // Owner check: the signer's pubkey MUST equal the registered
-            // owner. A valid DevCert alone is not sufficient — a different
-            // developer holding their own cert cannot mutate this app's
-            // metadata.
-            if existing.owner_dev_pubkey != verified.dev_pubkey {
-                return Err(AppUpdateError::NotOwner);
-            }
-
-            // display_name is set at registration and immutable. Other
-            // fields (description / homepage_url / icon_url) can change.
-            if existing.metadata.display_name != request.metadata.display_name {
-                return Err(AppUpdateError::DisplayNameImmutable {
-                    current_display_name: existing.metadata.display_name,
-                });
-            }
-
-            // `code_signature`: absent = leave as-is; present = set/replace
-            // (the owner's add/rotate path). See [`AppUpdateRequest`].
-            let next_code_signature = request
-                .code_signature
-                .clone()
-                .or_else(|| existing.code_signature.clone());
-            let next_source = request.source.clone().or_else(|| existing.source.clone());
-            let next_artifact = request
-                .artifact
-                .clone()
-                .or_else(|| existing.artifact.clone());
-
-            // `uses`: same "absent = leave as-is, present = replace" rule.
-            // An update body that omits the field (empty after `serde(default)`)
-            // keeps the registered declaration; a non-empty list replaces it
-            // wholesale (a re-publish re-asserts the whole intent set). This
-            // mirrors how a manifest `[uses]` change flows through `push`.
-            let next_uses = if request.uses.is_empty() {
-                existing.uses.clone()
-            } else {
-                request.uses.clone()
+        let (previous_record, updated_record) =
+            match self.swap_updated_record(app_id, request, &verified.dev_pubkey)? {
+                UpdateSwap::NoChange(existing) => return Ok(AppUpdateOutcome::NoChange(*existing)),
+                UpdateSwap::Changed { previous, updated } => (*previous, *updated),
             };
-
-            if existing.metadata == request.metadata
-                && existing.code_signature == next_code_signature
-                && existing.source == next_source
-                && existing.artifact == next_artifact
-                && existing.uses == next_uses
-            {
-                return Ok(AppUpdateOutcome::NoChange(existing));
-            }
-
-            let updated = AppRecord {
-                app_id: existing.app_id.clone(),
-                owner_dev_pubkey: existing.owner_dev_pubkey.clone(),
-                metadata: request.metadata,
-                version: existing.version.clone(),
-                registered_at: existing.registered_at.clone(),
-                // Metadata update preserves the lifecycle tier; only
-                // `promote_app` changes it.
-                tier: existing.tier,
-                code_signature: next_code_signature,
-                source: next_source,
-                artifact: next_artifact,
-                uses: next_uses,
-            };
-            apps.insert(updated.app_id.clone(), updated.clone());
-            (existing, updated)
-        };
 
         if let Err(e) = self.persist_app_update(&updated_record).await {
             // Roll the in-memory swap back to the previous record so a
@@ -196,4 +88,143 @@ impl SchemaServiceState {
         self.bump_state_version();
         Ok(AppUpdateOutcome::Updated(updated_record))
     }
+
+    /// Check ownership under the write lock and swap in the updated record.
+    fn swap_updated_record(
+        &self,
+        app_id: &str,
+        request: AppUpdateRequest,
+        signer_pubkey: &str,
+    ) -> Result<UpdateSwap, AppUpdateError> {
+        let mut apps = self
+            .apps
+            .write()
+            .map_err(|_| AppUpdateError::Internal("apps write lock poisoned".to_string()))?;
+        let existing = apps
+            .get(app_id)
+            .ok_or(AppUpdateError::AppNotRegistered)?
+            .clone();
+
+        // Owner check: the signer's pubkey MUST equal the registered
+        // owner. A valid DevCert alone is not sufficient — a different
+        // developer holding their own cert cannot mutate this app's
+        // metadata.
+        if existing.owner_dev_pubkey != signer_pubkey {
+            return Err(AppUpdateError::NotOwner);
+        }
+
+        // display_name is set at registration and immutable. Other
+        // fields (description / homepage_url / icon_url) can change.
+        if existing.metadata.display_name != request.metadata.display_name {
+            return Err(AppUpdateError::DisplayNameImmutable {
+                current_display_name: existing.metadata.display_name,
+            });
+        }
+
+        // `code_signature`: absent = leave as-is; present = set/replace
+        // (the owner's add/rotate path). See [`AppUpdateRequest`].
+        let next_code_signature = request
+            .code_signature
+            .clone()
+            .or_else(|| existing.code_signature.clone());
+        let next_source = request.source.clone().or_else(|| existing.source.clone());
+        let next_artifact = request
+            .artifact
+            .clone()
+            .or_else(|| existing.artifact.clone());
+
+        // `uses`: same "absent = leave as-is, present = replace" rule.
+        // An update body that omits the field (empty after `serde(default)`)
+        // keeps the registered declaration; a non-empty list replaces it
+        // wholesale (a re-publish re-asserts the whole intent set). This
+        // mirrors how a manifest `[uses]` change flows through `push`.
+        let next_uses = if request.uses.is_empty() {
+            existing.uses.clone()
+        } else {
+            request.uses.clone()
+        };
+
+        if existing.metadata == request.metadata
+            && existing.code_signature == next_code_signature
+            && existing.source == next_source
+            && existing.artifact == next_artifact
+            && existing.uses == next_uses
+        {
+            return Ok(UpdateSwap::NoChange(Box::new(existing)));
+        }
+
+        let updated = AppRecord {
+            app_id: existing.app_id.clone(),
+            owner_dev_pubkey: existing.owner_dev_pubkey.clone(),
+            metadata: request.metadata,
+            version: existing.version.clone(),
+            registered_at: existing.registered_at.clone(),
+            // Metadata update preserves the lifecycle tier; only
+            // `promote_app` changes it.
+            tier: existing.tier,
+            code_signature: next_code_signature,
+            source: next_source,
+            artifact: next_artifact,
+            uses: next_uses,
+        };
+        apps.insert(updated.app_id.clone(), updated.clone());
+        Ok(UpdateSwap::Changed {
+            previous: Box::new(existing),
+            updated: Box::new(updated),
+        })
+    }
+}
+
+enum UpdateSwap {
+    NoChange(Box<AppRecord>),
+    Changed {
+        previous: Box<AppRecord>,
+        updated: Box<AppRecord>,
+    },
+}
+
+/// Parse + validate the metadata blob before any crypto work.
+fn parse_update_request(body: &Value) -> Result<AppUpdateRequest, AppUpdateError> {
+    let request: AppUpdateRequest = serde_json::from_value(body.clone())
+        .map_err(|e| AppUpdateError::InvalidMetadata(format!("malformed body: {e}")))?;
+    validate_metadata(&request.metadata).map_err(AppUpdateError::InvalidMetadata)?;
+    if let Some(cs) = &request.code_signature {
+        validate_code_signature(cs).map_err(AppUpdateError::InvalidCodeSignature)?;
+    }
+    if let Some(source) = &request.source {
+        validate_app_source(source).map_err(AppUpdateError::InvalidMetadata)?;
+    }
+    if let Some(artifact) = &request.artifact {
+        validate_app_artifact(artifact).map_err(AppUpdateError::InvalidMetadata)?;
+    }
+    validate_uses(&request.uses).map_err(AppUpdateError::InvalidUses)?;
+    Ok(request)
+}
+
+/// The signed payload is `{ app_id, metadata }` — the same shape the
+/// register path signs. Folding the path's app_id in here means the
+/// signature binds to the target namespace; a signature for app A
+/// cannot be replayed against app B. `code_signature` and `uses` each
+/// join the signed payload ONLY when present/non-empty so an old
+/// client's signature (which never saw the field) still verifies
+/// byte-for-byte.
+fn update_signed_payload(
+    app_id: &str,
+    request: &AppUpdateRequest,
+) -> Result<Value, AppUpdateError> {
+    let internal = |e: serde_json::Error| AppUpdateError::Internal(e.to_string());
+    let mut signed_payload = json!({ "app_id": app_id, "metadata": request.metadata });
+    if let Some(cs) = &request.code_signature {
+        signed_payload["code_signature"] = serde_json::to_value(cs).map_err(internal)?;
+    }
+    if let Some(source) = &request.source {
+        signed_payload["source"] = serde_json::to_value(source).map_err(internal)?;
+    }
+    if let Some(artifact) = &request.artifact {
+        signed_payload["artifact"] = serde_json::to_value(artifact).map_err(internal)?;
+    }
+    if !request.uses.is_empty() {
+        signed_payload["uses"] = serde_json::to_value(&request.uses).map_err(internal)?;
+    }
+    Ok(signed_payload)
 }

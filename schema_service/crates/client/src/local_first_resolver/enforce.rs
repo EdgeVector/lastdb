@@ -8,7 +8,6 @@ where
     E: Embedder + Send + Sync + 'static,
     L: LiveSchemaGateway,
 {
-    // lint:fn-size-ok moved verbatim from its original module
     pub(super) async fn resolve_enforce(
         &self,
         proposals: Vec<FacadeProposal>,
@@ -21,112 +20,54 @@ where
             )
         });
 
-        // Preserve input order: slot is either a finished local item or a
-        // pending live fallback (index into `fallback`).
-        enum Slot {
-            Local {
-                proposal_id: String,
-                result: Box<SchemaResolveResult>,
-                decision: ResolverDecision,
-            },
-            PendingLive {
-                fallback_idx: usize,
-            },
-        }
+        let plan = self.plan_enforce(proposals, active);
+        let live_map = if plan.fallback.is_empty() {
+            None
+        } else {
+            Some(self.call_live(&plan.fallback).await?)
+        };
+        Ok(assemble_enforce_items(
+            plan,
+            live_map.as_ref(),
+            pack_versions,
+        ))
+    }
 
-        let mut slots: Vec<Slot> = Vec::with_capacity(proposals.len());
-        let mut fallback: Vec<FacadeProposal> = Vec::new();
-        let mut fallback_reasons: HashMap<String, &'static str> = HashMap::new();
-
+    /// Evaluate each proposal locally; queue the ones that need a live call.
+    fn plan_enforce(
+        &self,
+        proposals: Vec<FacadeProposal>,
+        active: Option<&NativeResolverState>,
+    ) -> EnforcePlan {
+        let mut plan = EnforcePlan {
+            slots: Vec::with_capacity(proposals.len()),
+            fallback: Vec::new(),
+            fallback_reasons: HashMap::new(),
+        };
         for p in proposals {
             let Some(state) = active else {
-                fallback_reasons.insert(p.proposal_id.clone(), "no_active_pack");
-                let idx = fallback.len();
-                fallback.push(p);
-                slots.push(Slot::PendingLive { fallback_idx: idx });
+                plan.push_fallback(p, "no_active_pack");
                 continue;
             };
-            if let Ok(outcome) = evaluate_local_proposal(
+            let Ok(outcome) = evaluate_local_proposal(
                 &state.pack,
                 self.embedder.as_ref(),
                 &p.proposal_id,
                 &p.proposal,
-            ) {
-                if let Some(result) = outcome.resolve_result {
-                    slots.push(Slot::Local {
-                        proposal_id: p.proposal_id,
-                        result: Box::new(result),
-                        decision: outcome.output.decision,
-                    });
-                } else {
-                    fallback_reasons.insert(
-                        p.proposal_id.clone(),
-                        outcome.fallback_reason.unwrap_or("local_fallback"),
-                    );
-                    let idx = fallback.len();
-                    fallback.push(p);
-                    slots.push(Slot::PendingLive { fallback_idx: idx });
-                }
-            } else {
-                fallback_reasons.insert(p.proposal_id.clone(), "local_eval_error");
-                let idx = fallback.len();
-                fallback.push(p);
-                slots.push(Slot::PendingLive { fallback_idx: idx });
+            ) else {
+                plan.push_fallback(p, "local_eval_error");
+                continue;
+            };
+            match outcome.resolve_result {
+                Some(result) => plan.slots.push(EnforceSlot::Local {
+                    proposal_id: p.proposal_id,
+                    result: Box::new(result),
+                    decision: outcome.output.decision,
+                }),
+                None => plan.push_fallback(p, outcome.fallback_reason.unwrap_or("local_fallback")),
             }
         }
-
-        let live_map = if fallback.is_empty() {
-            None
-        } else {
-            Some(self.call_live(&fallback).await?)
-        };
-
-        let mut claimed = HashSet::new();
-        let mut out = Vec::with_capacity(slots.len());
-        for slot in slots {
-            match slot {
-                Slot::Local {
-                    proposal_id,
-                    result,
-                    decision,
-                } => {
-                    out.push(FacadeResolveItem {
-                        proposal_id,
-                        result: *result,
-                        path: FacadePath::Local,
-                        local_decision: Some(decision),
-                        fallback_reason: None,
-                        pack_format_version: pack_versions.map(|v| v.0),
-                        config_format_version: pack_versions.map(|v| v.1),
-                    });
-                }
-                Slot::PendingLive { fallback_idx } => {
-                    let p = &fallback[fallback_idx];
-                    let live = live_map
-                        .as_ref()
-                        .and_then(|m| {
-                            match_live_result(
-                                m,
-                                &p.proposal_id,
-                                &p.proposal.descriptive_name,
-                                &mut claimed,
-                            )
-                        })
-                        .cloned()
-                        .unwrap_or_else(novel_result);
-                    out.push(FacadeResolveItem {
-                        proposal_id: p.proposal_id.clone(),
-                        result: live,
-                        path: FacadePath::Live,
-                        local_decision: None,
-                        fallback_reason: fallback_reasons.get(&p.proposal_id).copied(),
-                        pack_format_version: pack_versions.map(|v| v.0),
-                        config_format_version: pack_versions.map(|v| v.1),
-                    });
-                }
-            }
-        }
-        Ok(out)
+        plan
     }
 
     pub(super) async fn call_live(
@@ -140,4 +81,88 @@ where
             .fetch_add(wire.len() as u64, Ordering::SeqCst);
         self.live.resolve_schemas(None, wire).await
     }
+}
+
+/// Preserve input order: a slot is either a finished local item or a
+/// pending live fallback (index into `EnforcePlan::fallback`).
+enum EnforceSlot {
+    Local {
+        proposal_id: String,
+        result: Box<SchemaResolveResult>,
+        decision: ResolverDecision,
+    },
+    PendingLive {
+        fallback_idx: usize,
+    },
+}
+
+struct EnforcePlan {
+    slots: Vec<EnforceSlot>,
+    fallback: Vec<FacadeProposal>,
+    fallback_reasons: HashMap<String, &'static str>,
+}
+
+impl EnforcePlan {
+    fn push_fallback(&mut self, p: FacadeProposal, reason: &'static str) {
+        self.fallback_reasons.insert(p.proposal_id.clone(), reason);
+        let idx = self.fallback.len();
+        self.fallback.push(p);
+        self.slots
+            .push(EnforceSlot::PendingLive { fallback_idx: idx });
+    }
+}
+
+fn assemble_enforce_items(
+    plan: EnforcePlan,
+    live_map: Option<&SchemaResolveResponse>,
+    pack_versions: Option<(u32, u32)>,
+) -> Vec<FacadeResolveItem> {
+    let EnforcePlan {
+        slots,
+        fallback,
+        fallback_reasons,
+    } = plan;
+    let mut claimed = HashSet::new();
+    let mut out = Vec::with_capacity(slots.len());
+    for slot in slots {
+        match slot {
+            EnforceSlot::Local {
+                proposal_id,
+                result,
+                decision,
+            } => out.push(FacadeResolveItem {
+                proposal_id,
+                result: *result,
+                path: FacadePath::Local,
+                local_decision: Some(decision),
+                fallback_reason: None,
+                pack_format_version: pack_versions.map(|v| v.0),
+                config_format_version: pack_versions.map(|v| v.1),
+            }),
+            EnforceSlot::PendingLive { fallback_idx } => {
+                let p = &fallback[fallback_idx];
+                let live = live_map
+                    .and_then(|m| {
+                        match_live_result(
+                            m,
+                            &p.proposal_id,
+                            &p.proposal.descriptive_name,
+                            &mut claimed,
+                        )
+                    })
+                    .cloned()
+                    .unwrap_or_else(novel_result);
+                out.push(FacadeResolveItem {
+                    proposal_id: p.proposal_id.clone(),
+                    result: live,
+                    path: FacadePath::Live,
+                    local_decision: None,
+                    fallback_reason: fallback_reasons.get(&p.proposal_id).copied(),
+                    pack_format_version: pack_versions.map(|v| v.0),
+                    config_format_version: pack_versions.map(|v| v.1),
+                });
+            }
+        }
+    }
+    out
 }

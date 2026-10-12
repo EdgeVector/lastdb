@@ -1,9 +1,9 @@
 //! Gate enforcement and proof-of-work verification on the service state.
 
 use super::*;
+use app_identity_crypto::VerifyingKey;
 
 impl SchemaServiceState {
-    // lint:fn-size-ok moved verbatim from its original module
     pub fn enforce_schema_mutation_gate(
         &self,
         observation: &SchemaMutationGateObservation,
@@ -24,72 +24,26 @@ impl SchemaServiceState {
 
         let schema_hash = schema_payload_hash(schema_payload)
             .map_err(|e| SchemaMutationGateError::Internal(e.to_string()))?;
-        let node_public_key = headers
-            .node_public_key
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or(SchemaMutationGateError::NodeKeyRequired)?;
-        let verifying_key = verifying_key_from_base64(node_public_key)
-            .map_err(|_| SchemaMutationGateError::NodeKeyInvalid)?;
-        let node_public_key_hash = key_id(&verifying_key);
-        let signature = headers
-            .node_signature
-            .as_deref()
-            .ok_or(SchemaMutationGateError::NodeSignatureRequired)?;
-        let challenge_id = headers
-            .challenge_id
-            .as_deref()
-            .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?;
-        let nonce = headers
-            .nonce
-            .as_deref()
-            .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?;
-        let challenge_mac = headers
-            .challenge_mac
-            .as_deref()
-            .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?;
-        let difficulty_bits = headers
-            .difficulty_bits
-            .as_deref()
-            .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?
-            .parse::<u8>()
-            .map_err(|_| SchemaMutationGateError::ProofOfWorkInvalid)?;
-        let expires_at_unix_secs = headers
-            .expires_at_unix_secs
-            .as_deref()
-            .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?
-            .parse::<u64>()
-            .map_err(|_| SchemaMutationGateError::ProofOfWorkInvalid)?;
-        let counter = headers
-            .counter
-            .as_deref()
-            .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?
-            .parse::<u64>()
-            .map_err(|_| SchemaMutationGateError::ProofOfWorkInvalid)?;
-
-        let envelope: SignatureEnvelope = decode_b64_json(signature)
-            .map_err(|_| SchemaMutationGateError::NodeSignatureInvalid)?;
-        let signature_payload = node_signature_payload(
-            &schema_hash,
-            &node_public_key_hash,
-            challenge_id,
-            nonce,
-            counter,
+        let proof = parse_gate_headers(headers)?;
+        let node_public_key_hash = proof.node_public_key_hash.clone();
+        let verifying_key = &proof.verifying_key;
+        let (challenge_id, nonce, counter) = (proof.challenge_id, proof.nonce, proof.counter);
+        let (challenge_mac, difficulty_bits, expires_at_unix_secs) = (
+            proof.challenge_mac,
+            proof.difficulty_bits,
+            proof.expires_at_unix_secs,
         );
-        verify_envelope(&verifying_key, &envelope)
-            .map_err(|_| SchemaMutationGateError::NodeSignatureInvalid)?;
-        if envelope.purpose != Purpose::SchemaClaim {
-            return Err(SchemaMutationGateError::NodeSignatureInvalid);
-        }
-        if envelope.env != self.app_identity_config().deployment_env {
-            return Err(SchemaMutationGateError::NodeSignatureInvalid);
-        }
-        let expected_payload_hash = compute_payload_hash(&signature_payload)
-            .map_err(|_| SchemaMutationGateError::NodeSignatureInvalid)?;
-        if envelope.payload_hash != expected_payload_hash {
-            return Err(SchemaMutationGateError::NodeSignatureInvalid);
-        }
+        self.verify_node_signature(
+            verifying_key,
+            proof.signature,
+            &NodeSignatureBinding {
+                schema_hash: &schema_hash,
+                node_public_key_hash: &node_public_key_hash,
+                challenge_id,
+                nonce,
+                counter,
+            },
+        )?;
 
         self.verify_pow_challenge(&PowChallengeProof {
             nonce,
@@ -122,6 +76,37 @@ impl SchemaServiceState {
         Ok(())
     }
 
+    fn verify_node_signature(
+        &self,
+        verifying_key: &VerifyingKey,
+        signature: &str,
+        binding: &NodeSignatureBinding<'_>,
+    ) -> Result<(), SchemaMutationGateError> {
+        let envelope: SignatureEnvelope = decode_b64_json(signature)
+            .map_err(|_| SchemaMutationGateError::NodeSignatureInvalid)?;
+        let signature_payload = node_signature_payload(
+            binding.schema_hash,
+            binding.node_public_key_hash,
+            binding.challenge_id,
+            binding.nonce,
+            binding.counter,
+        );
+        verify_envelope(verifying_key, &envelope)
+            .map_err(|_| SchemaMutationGateError::NodeSignatureInvalid)?;
+        if envelope.purpose != Purpose::SchemaClaim {
+            return Err(SchemaMutationGateError::NodeSignatureInvalid);
+        }
+        if envelope.env != self.app_identity_config().deployment_env {
+            return Err(SchemaMutationGateError::NodeSignatureInvalid);
+        }
+        let expected_payload_hash = compute_payload_hash(&signature_payload)
+            .map_err(|_| SchemaMutationGateError::NodeSignatureInvalid)?;
+        if envelope.payload_hash != expected_payload_hash {
+            return Err(SchemaMutationGateError::NodeSignatureInvalid);
+        }
+        Ok(())
+    }
+
     pub(super) fn verify_pow_challenge(
         &self,
         proof: &PowChallengeProof<'_>,
@@ -151,4 +136,86 @@ impl SchemaServiceState {
         }
         Ok(())
     }
+}
+
+struct NodeSignatureBinding<'a> {
+    schema_hash: &'a str,
+    node_public_key_hash: &'a str,
+    challenge_id: &'a str,
+    nonce: &'a str,
+    counter: u64,
+}
+
+/// Node-key and proof-of-work values read from the request headers.
+struct GateHeaderProof<'a> {
+    verifying_key: VerifyingKey,
+    node_public_key_hash: String,
+    signature: &'a str,
+    challenge_id: &'a str,
+    nonce: &'a str,
+    challenge_mac: &'a str,
+    difficulty_bits: u8,
+    expires_at_unix_secs: u64,
+    counter: u64,
+}
+
+/// Parse in the order the gate reports errors: node key, signature, then
+/// each proof-of-work header.
+fn parse_gate_headers(
+    headers: &SchemaMutationGateHeaders,
+) -> Result<GateHeaderProof<'_>, SchemaMutationGateError> {
+    let node_public_key = headers
+        .node_public_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or(SchemaMutationGateError::NodeKeyRequired)?;
+    let verifying_key = verifying_key_from_base64(node_public_key)
+        .map_err(|_| SchemaMutationGateError::NodeKeyInvalid)?;
+    let node_public_key_hash = key_id(&verifying_key);
+    let signature = headers
+        .node_signature
+        .as_deref()
+        .ok_or(SchemaMutationGateError::NodeSignatureRequired)?;
+    let challenge_id = headers
+        .challenge_id
+        .as_deref()
+        .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?;
+    let nonce = headers
+        .nonce
+        .as_deref()
+        .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?;
+    let challenge_mac = headers
+        .challenge_mac
+        .as_deref()
+        .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?;
+    let difficulty_bits = headers
+        .difficulty_bits
+        .as_deref()
+        .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?
+        .parse::<u8>()
+        .map_err(|_| SchemaMutationGateError::ProofOfWorkInvalid)?;
+    let expires_at_unix_secs = headers
+        .expires_at_unix_secs
+        .as_deref()
+        .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?
+        .parse::<u64>()
+        .map_err(|_| SchemaMutationGateError::ProofOfWorkInvalid)?;
+    let counter = headers
+        .counter
+        .as_deref()
+        .ok_or(SchemaMutationGateError::ProofOfWorkRequired)?
+        .parse::<u64>()
+        .map_err(|_| SchemaMutationGateError::ProofOfWorkInvalid)?;
+    Ok(GateHeaderProof {
+        verifying_key,
+        node_public_key_hash,
+        signature,
+        challenge_id,
+        nonce,
+        challenge_mac,
+        difficulty_bits,
+        expires_at_unix_secs,
+        counter,
+    })
 }
