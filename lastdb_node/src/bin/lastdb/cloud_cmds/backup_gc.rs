@@ -4,7 +4,6 @@ use super::*;
 
 /// Accept or attach to a durable job. Every socket operation is short; the
 /// optional wait polls one exact ID and never holds the original connection.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn cloud_backup_gc(
     home: &Path,
     execute: bool,
