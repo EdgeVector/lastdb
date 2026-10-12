@@ -19,6 +19,7 @@ mod conflict_metadata;
 mod file_blobs;
 mod hashrange_key_repair;
 mod init;
+mod init_boot;
 mod lifecycle;
 mod local_file_blobs;
 mod maintenance_admission;

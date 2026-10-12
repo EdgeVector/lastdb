@@ -18,13 +18,15 @@ use crate::atom::{atom_key_codec, atom_locator_codec, AtomKeyEncoding};
 use crate::clock::unix_nanos;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
-use crate::storage::laststore::{CollectionCompactOptions, CollectionCompactReport};
+use crate::storage::laststore::CollectionCompactReport;
 use crate::storage::KvMutation;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
+
+mod reap;
 
 const ATOM_GC_CANDIDATE_PREFIX: &str = "aref:gc:v1:c:";
 const ATOM_GC_QUEUE_PREFIX: &str = "aref:gc:v1:q:";
@@ -258,139 +260,6 @@ impl AtomStore {
         self.flush_and_compact_after_atom_gc(&options, &mut report)
             .await?;
         Ok(report)
-    }
-
-    /// Revalidate one queued candidate under the body and count locks, then
-    /// delete its body when the audit allows it.
-    async fn reap_audited_atom_gc_candidate(
-        &self,
-        queued: &AtomGcCandidate,
-        storage_prefix: Option<&str>,
-        options: &AtomGcReapOptions,
-        report: &mut AtomGcReapReport,
-    ) -> Result<(), SchemaError> {
-        let atom_uuid = queued.atom_uuid.clone();
-        // Body writers take these locks in this order.
-        let _body_guards = self
-            .lock_automatic_gc_atoms(std::slice::from_ref(&atom_uuid))
-            .await;
-        let _count_guards = self
-            .lock_atom_ref_counts(std::slice::from_ref(&atom_uuid))
-            .await;
-        let Some(candidate) = self
-            .load_atom_gc_candidate(&atom_uuid, storage_prefix)
-            .await?
-        else {
-            if !options.dry_run {
-                self.delete_stale_atom_gc_queue_row(&queued.queue_key)
-                    .await?;
-                report.stale_queue_rows_deleted = report.stale_queue_rows_deleted.saturating_add(1);
-            }
-            return Ok(());
-        };
-        if candidate.zero_since_unix_nanos != queued.zero_since_unix_nanos
-            || candidate.queue_key != queued.queue_key
-        {
-            if !options.dry_run {
-                self.delete_stale_atom_gc_queue_row(&queued.queue_key)
-                    .await?;
-                report.stale_queue_rows_deleted = report.stale_queue_rows_deleted.saturating_add(1);
-            }
-            return Ok(());
-        }
-        if self.atom_live_ref_count(&atom_uuid, storage_prefix).await? != 0 {
-            report.cancelled_positive_count = report.cancelled_positive_count.saturating_add(1);
-            if !options.dry_run {
-                self.delete_atom_gc_candidate(&candidate, storage_prefix)
-                    .await?;
-            }
-            return Ok(());
-        }
-        // A pre-count atom can have a false zero. Verify the authoritative
-        // reverse-edge partition while both writer locks are held.
-        if self
-            .has_active_atom_refs(&atom_uuid, storage_prefix)
-            .await?
-        {
-            report.cancelled_positive_count = report.cancelled_positive_count.saturating_add(1);
-            if !options.dry_run {
-                self.delete_atom_gc_candidate(&candidate, storage_prefix)
-                    .await?;
-            }
-            return Ok(());
-        }
-        if self
-            .has_any_pending_atom_refs(&atom_uuid, storage_prefix)
-            .await?
-        {
-            report.retained_pending_reference = report.retained_pending_reference.saturating_add(1);
-            return Ok(());
-        }
-        match candidate.audit.as_ref() {
-            None => {
-                report.retained_without_audit = report.retained_without_audit.saturating_add(1);
-                return Ok(());
-            }
-            Some(audit) if audit.reachable => {
-                report.retained_audit_reachable = report.retained_audit_reachable.saturating_add(1);
-                return Ok(());
-            }
-            Some(_) if !candidate.audit_clears_delete() => {
-                report.retained_without_audit = report.retained_without_audit.saturating_add(1);
-                return Ok(());
-            }
-            Some(_) => {}
-        }
-        report.eligible = report.eligible.saturating_add(1);
-        if options.dry_run {
-            return Ok(());
-        }
-        let deleted = self
-            .delete_atom_gc_candidate_body(&candidate, storage_prefix)
-            .await?;
-        report.atoms_deleted = report.atoms_deleted.saturating_add(u64::from(deleted.atom));
-        report.storage_keys_deleted = report
-            .storage_keys_deleted
-            .saturating_add(deleted.storage_keys);
-        report.bytes_deleted_approx = report
-            .bytes_deleted_approx
-            .saturating_add(deleted.bytes_approx);
-        Ok(())
-    }
-
-    /// Flush the deletes and optionally compact the atom plane.
-    async fn flush_and_compact_after_atom_gc(
-        &self,
-        options: &AtomGcReapOptions,
-        report: &mut AtomGcReapReport,
-    ) -> Result<(), SchemaError> {
-        if !options.dry_run && report.atoms_deleted > 0 {
-            self.main_store.inner().flush().await.map_err(|error| {
-                SchemaError::InvalidData(format!("flush atom GC deletes: {error}"))
-            })?;
-            if options.compact_after_delete {
-                let namespaced = self.namespaced_store.as_ref().ok_or_else(|| {
-                    SchemaError::InvalidData(
-                        "atom GC physical delete requires a namespaced store".to_string(),
-                    )
-                })?;
-                report.compaction = Some(
-                    namespaced
-                        .compact_collection(CollectionCompactOptions {
-                            collection: "atoms".to_string(),
-                            dry_run: false,
-                            seed_committed_history: false,
-                        })
-                        .await
-                        .map_err(|error| {
-                            SchemaError::InvalidData(format!(
-                                "compact atom segments after audited GC: {error}"
-                            ))
-                        })?,
-                );
-            }
-        }
-        Ok(())
     }
 
     pub(super) async fn atom_gc_candidate_mutations_for_count(
