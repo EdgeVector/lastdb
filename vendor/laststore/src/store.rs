@@ -344,6 +344,7 @@ pub(crate) fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 mod chunk_lookup;
+mod compact_parts;
 mod encrypted_compact;
 mod encrypted_load;
 mod footer_frames;
@@ -351,6 +352,7 @@ mod records;
 mod residency;
 mod shard_load;
 use chunk_lookup::*;
+use compact_parts::*;
 use encrypted_compact::*;
 use encrypted_load::*;
 use footer_frames::*;
