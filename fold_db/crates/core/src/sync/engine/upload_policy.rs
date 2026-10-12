@@ -371,36 +371,9 @@ pub fn policy_inputs_from_env_and_config(
 /// Pure policy: map resources → cycle caps.
 pub fn compute_upload_policy(inputs: &UploadPolicyInputs) -> UploadPolicySnapshot {
     if inputs.mode == UploadPolicyMode::Fixed {
-        // Same global S3 concurrency safety ceiling as Auto — Fixed mode is
-        // not a license to open unbounded concurrent PUTs.
-        let concurrency = inputs
-            .config_concurrency
-            .clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
-        let reason = Some("fixed".into());
-        return UploadPolicySnapshot {
-            mode: UploadPolicyMode::Fixed,
-            max_pending: inputs.config_max_pending,
-            max_upload_entries: inputs.config_max_upload_entries,
-            max_upload_bytes: inputs.config_max_upload_bytes,
-            concurrency,
-            budget_bytes: inputs.config_max_upload_bytes,
-            headroom_rss_bytes: inputs.rss_bytes.map(|r| {
-                inputs
-                    .rss_limit_bytes
-                    .saturating_sub(r)
-                    .saturating_sub(inputs.reserved_bytes)
-            }),
-            rss_bytes: inputs.rss_bytes,
-            rss_limit_bytes: inputs.rss_limit_bytes,
-            ewma_upload_bps: inputs.ewma_upload_bps,
-            cpu_percent: inputs.cpu_percent,
-            foreground_pressure: inputs.foreground_pressure.clone(),
-            throttle_source: UploadThrottleSource::from_reason(reason.as_deref()),
-            throttle_reason: reason,
-        };
+        return fixed_upload_policy(inputs);
     }
 
-    let mut reason: Option<String> = None;
     let rss = inputs.rss_bytes.unwrap_or(0);
     // Absolute free space under the memory-guard kill line (for status).
     let free_under_limit = inputs.rss_limit_bytes.saturating_sub(rss);
@@ -413,6 +386,79 @@ pub fn compute_upload_policy(inputs: &UploadPolicyInputs) -> UploadPolicySnapsho
     };
     let headroom = free_under_limit.saturating_sub(effective_reserve);
 
+    let (budget, reason) = auto_budget(inputs, rss, headroom);
+
+    let concurrency = auto_concurrency(inputs, rss);
+
+    // Entry ceiling: derive from budget assuming ~4 KiB typical sealed entry,
+    // clamp to DEFAULT_ENTRY_CEILING; never below config when config is higher
+    // emergency minimum for drain (use at least 8).
+    let typical = 4 * 1024u64;
+    let derived_entries = ((budget / typical) as usize).clamp(8, DEFAULT_ENTRY_CEILING);
+    // Prefer derived over the old static 8. Config/env entry count is a floor
+    // in auto mode when explicitly raised; the byte budget remains the primary
+    // RAM guard for fat entries.
+    let max_entries = derived_entries
+        .max(inputs.config_max_upload_entries)
+        .clamp(8, DEFAULT_ENTRY_CEILING);
+
+    // In-memory queue matches per-cycle selection so we don't deserialize
+    // more than we'll upload (re-enable thrash lesson).
+    let max_pending = max_entries;
+
+    let throttle_source = UploadThrottleSource::from_reason(reason.as_deref());
+    UploadPolicySnapshot {
+        mode: UploadPolicyMode::Auto,
+        max_pending,
+        max_upload_entries: max_entries,
+        max_upload_bytes: budget as usize,
+        concurrency,
+        budget_bytes: budget as usize,
+        headroom_rss_bytes: Some(headroom),
+        rss_bytes: inputs.rss_bytes,
+        rss_limit_bytes: inputs.rss_limit_bytes,
+        ewma_upload_bps: inputs.ewma_upload_bps,
+        cpu_percent: inputs.cpu_percent,
+        foreground_pressure: inputs.foreground_pressure.clone(),
+        throttle_reason: reason,
+        throttle_source,
+    }
+}
+
+/// Fixed-mode caps: config/env values pass through, concurrency stays clamped.
+fn fixed_upload_policy(inputs: &UploadPolicyInputs) -> UploadPolicySnapshot {
+    // Same global S3 concurrency safety ceiling as Auto — Fixed mode is
+    // not a license to open unbounded concurrent PUTs.
+    let concurrency = inputs
+        .config_concurrency
+        .clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
+    let reason = Some("fixed".into());
+    UploadPolicySnapshot {
+        mode: UploadPolicyMode::Fixed,
+        max_pending: inputs.config_max_pending,
+        max_upload_entries: inputs.config_max_upload_entries,
+        max_upload_bytes: inputs.config_max_upload_bytes,
+        concurrency,
+        budget_bytes: inputs.config_max_upload_bytes,
+        headroom_rss_bytes: inputs.rss_bytes.map(|r| {
+            inputs
+                .rss_limit_bytes
+                .saturating_sub(r)
+                .saturating_sub(inputs.reserved_bytes)
+        }),
+        rss_bytes: inputs.rss_bytes,
+        rss_limit_bytes: inputs.rss_limit_bytes,
+        ewma_upload_bps: inputs.ewma_upload_bps,
+        cpu_percent: inputs.cpu_percent,
+        foreground_pressure: inputs.foreground_pressure.clone(),
+        throttle_source: UploadThrottleSource::from_reason(reason.as_deref()),
+        throttle_reason: reason,
+    }
+}
+
+/// Auto-mode byte budget and the throttle reason that shaped it.
+fn auto_budget(inputs: &UploadPolicyInputs, rss: u64, headroom: u64) -> (u64, Option<String>) {
+    let mut reason: Option<String> = None;
     // Usage-ratio throttle (primary control):
     //   < 85% of RSS limit → full budget_max (upload is not the risk)
     //   85% → 98%         → linear scale budget_max → budget_min
@@ -473,8 +519,11 @@ pub fn compute_upload_policy(inputs: &UploadPolicyInputs) -> UploadPolicySnapsho
     }
 
     budget = budget.clamp(inputs.budget_min_bytes, inputs.budget_max_bytes);
+    (budget, reason)
+}
 
-    // Concurrency: CPU-shaped, reduced under pressure.
+/// Auto-mode upload concurrency: CPU-shaped, reduced under pressure.
+fn auto_concurrency(inputs: &UploadPolicyInputs, rss: u64) -> usize {
     let mut concurrency = inputs
         .available_parallelism
         .clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
@@ -496,41 +545,7 @@ pub fn compute_upload_policy(inputs: &UploadPolicyInputs) -> UploadPolicySnapsho
             concurrency = concurrency.min(4);
         }
     }
-    concurrency = concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
-
-    // Entry ceiling: derive from budget assuming ~4 KiB typical sealed entry,
-    // clamp to DEFAULT_ENTRY_CEILING; never below config when config is higher
-    // emergency minimum for drain (use at least 8).
-    let typical = 4 * 1024u64;
-    let derived_entries = ((budget / typical) as usize).clamp(8, DEFAULT_ENTRY_CEILING);
-    // Prefer derived over the old static 8. Config/env entry count is a floor
-    // in auto mode when explicitly raised; the byte budget remains the primary
-    // RAM guard for fat entries.
-    let max_entries = derived_entries
-        .max(inputs.config_max_upload_entries)
-        .clamp(8, DEFAULT_ENTRY_CEILING);
-
-    // In-memory queue matches per-cycle selection so we don't deserialize
-    // more than we'll upload (re-enable thrash lesson).
-    let max_pending = max_entries;
-
-    let throttle_source = UploadThrottleSource::from_reason(reason.as_deref());
-    UploadPolicySnapshot {
-        mode: UploadPolicyMode::Auto,
-        max_pending,
-        max_upload_entries: max_entries,
-        max_upload_bytes: budget as usize,
-        concurrency,
-        budget_bytes: budget as usize,
-        headroom_rss_bytes: Some(headroom),
-        rss_bytes: inputs.rss_bytes,
-        rss_limit_bytes: inputs.rss_limit_bytes,
-        ewma_upload_bps: inputs.ewma_upload_bps,
-        cpu_percent: inputs.cpu_percent,
-        foreground_pressure: inputs.foreground_pressure.clone(),
-        throttle_reason: reason,
-        throttle_source,
-    }
+    concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY)
 }
 
 /// Best-effort process CPU percent since the previous sample (0..=N×100).

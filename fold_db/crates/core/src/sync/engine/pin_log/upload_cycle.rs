@@ -1,5 +1,17 @@
 use super::*;
 
+/// Output of the scan and materialize phase of one upload cycle.
+struct ScannedPage {
+    /// `(rows_scanned, scan_complete, row_budget_exhausted)` from the scan.
+    scan_stats: (usize, bool, bool),
+    batch: Vec<PinLogRecord>,
+    records_quarantined: usize,
+    last_quarantine_reason: Option<String>,
+    retried_truncations: usize,
+    scan_ms: u128,
+    materialize_ms: u128,
+}
+
 impl PinLog {
     /// Seal durable pin-log records above **per-writer** published F into
     /// segments under `log/{writer_id}/{seq}.enc`, put them on `plane`, and
@@ -15,21 +27,7 @@ impl PinLog {
         plane: &mut MutationLogLocalCloud,
         max_segments: usize,
     ) -> Result<MutationLogUploadReport, String> {
-        if !matches!(self.config.capture_mode, CaptureMode::MutationLog) {
-            return Ok(MutationLogUploadReport::default());
-        }
-        if !engine.cloud_plane_allows_upload().await {
-            return Ok(MutationLogUploadReport::default());
-        }
-        if self.continuous_sealed_home_backup_demoted()
-            && !engine
-                .mutation_log_snapshot_base_committed()
-                .map_err(|err| err.to_string())?
-        {
-            tracing::info!(
-                target: "fold_db::sync::mutation_log",
-                "mutation-log publish deferred until durable snapshot base S0 commits"
-            );
+        if !self.mutation_log_upload_allowed(engine).await? {
             return Ok(MutationLogUploadReport::default());
         }
         let target = self.sync_target_by_prefix(target_prefix).await?;
@@ -38,45 +36,18 @@ impl PinLog {
             let state = self.state.lock().await;
             state.get(&target_id).map_or(0, |r| r.published_frontier)
         };
-        // Only the flushed durable map may classify a row as confirmed and
-        // authorize its deletion; volatile process state cannot.
-        let durable_per_writer_before = self.read_published_f(&target_id).await;
-        let scan_started = std::time::Instant::now();
-        let page = self
-            .scan_pending_records_for_upload(
-                &target,
-                &target_id,
-                &durable_per_writer_before,
-                max_segments,
-            )
+        let ScannedPage {
+            scan_stats,
+            batch,
+            records_quarantined,
+            last_quarantine_reason,
+            retried_truncations,
+            scan_ms,
+            materialize_ms,
+        } = self
+            .scan_and_materialize_page(engine, &target, &target_id, target_prefix, max_segments)
             .await?;
-        // A prior cloud publish can succeed while its best-effort local delete
-        // fails. Those rows are no longer pending, so retry their exact deletes
-        // while the bounded scan has them in hand. Without this retry they stay
-        // at the front of the log forever and every cycle pays to skip them.
-        let retry_confirmed = page.not_pending_frontiers.clone();
-        // Quarantine drops are deliberately NOT added here. `records_truncated`
-        // is documented as "records deleted this cycle because cloud confirmed
-        // them", and a quarantined record is the one thing cloud never saw.
-        // Its count is `records_quarantined`.
-        let retried_truncations = self
-            .truncate_confirmed_pin_log_records(&target_id, &retry_confirmed)
-            .await;
-        let scan_ms = scan_started.elapsed().as_millis();
-        let materialize_started = std::time::Instant::now();
-        let (batch, quarantined, last_quarantine_reason) =
-            Self::materialize_pending_records(engine, target_prefix, page.records).await?;
-        let materialize_ms = materialize_started.elapsed().as_millis();
-        let records_quarantined = quarantined.len();
         let page_record_count = batch.len();
-        self.record_and_drop_quarantined(
-            engine,
-            &target_id,
-            target_prefix,
-            &quarantined,
-            last_quarantine_reason.as_ref(),
-        )
-        .await;
 
         // Group this page by kind of data, then seal each kind into files of
         // at most 1,000 records or 4 MiB of plaintext. Scan order alternates
@@ -84,34 +55,21 @@ impl PinLog {
         // file. A single oversized record is still emitted alone so it cannot
         // wedge the frontier. `max_segments` keeps a frontier-ordered prefix:
         // a higher frontier is never published while a lower one is dropped.
-        let segment_byte_target = if self.config.max_upload_bytes_per_cycle == 0 {
-            MUTATION_LOG_SEGMENT_TARGET_BYTES
-        } else {
-            MUTATION_LOG_SEGMENT_TARGET_BYTES.min(self.config.max_upload_bytes_per_cycle)
-        };
+        let segment_byte_target = self.segment_byte_target();
         let record_batches =
             plan_mutation_log_record_batches(batch, max_segments, segment_byte_target)?;
         let records_selected: usize = record_batches.iter().map(Vec::len).sum();
 
-        let mut report = MutationLogUploadReport {
-            target_id: target_id.clone(),
-            writer_id: String::new(),
-            records_considered: records_selected,
-            segments_uploaded: 0,
-            bytes_uploaded: 0,
-            published_frontier_before: published_before_max,
-            published_frontier_after: published_before_max,
-            upload_backlog_after: 0,
-            object_keys: Vec::new(),
-            records_truncated: retried_truncations,
+        let mut report = Self::new_upload_report(
+            &target_id,
+            published_before_max,
+            retried_truncations,
             records_quarantined,
-            last_quarantine_reason: last_quarantine_reason.clone(),
-            put_concurrency: 0,
-            rows_scanned: page.rows_scanned,
-            records_considered_is_lower_bound: !page.scan_complete
-                || records_selected < page_record_count,
-            scan_row_budget_exhausted: page.row_budget_exhausted,
-        };
+            last_quarantine_reason.as_ref(),
+            scan_stats,
+            records_selected,
+            page_record_count,
+        );
         self.mark_upload_scan_pending(target_prefix, &report).await;
 
         let seal_started = std::time::Instant::now();
@@ -135,29 +93,178 @@ impl PinLog {
         self.refresh_report_from_runtime(&target_id, &advanced, &mut report)
             .await;
         if report.segments_uploaded > 0 {
-            // Vector F geometry is recorded on plane/runtime maps; status still
-            // surfaces scalar max. Log writer count so multi-writer cycles are
-            // visible without constructing an unused Frontier value.
-            tracing::info!(
-                target: "fold_db::sync::mutation_log",
-                target_id = %target_id,
-                writer_id = %report.writer_id,
-                writers = advanced.len(),
-                records = report.records_considered,
-                segments = report.segments_uploaded,
-                bytes = report.bytes_uploaded,
-                published_f = report.published_frontier_after,
-                backlog = report.upload_backlog_after,
-                put_concurrency = report.put_concurrency,
+            Self::log_upload_cycle(
+                &target_id,
+                &report,
+                advanced.len(),
                 scan_ms,
                 materialize_ms,
                 seal_ms,
-                upload_ms = upload_started.elapsed().as_millis(),
-                "continuous mutation-log segment upload cycle"
+                upload_started.elapsed().as_millis(),
             );
         }
         self.clear_upload_scan_pending(target_prefix, &report).await;
         Ok(report)
+    }
+
+    /// Scan the durable log, retry confirmed truncations, materialize the
+    /// pending records, and drop quarantined rows.
+    async fn scan_and_materialize_page(
+        &self,
+        engine: &SyncEngine,
+        target: &SyncTarget,
+        target_id: &str,
+        target_prefix: &str,
+        max_segments: usize,
+    ) -> Result<ScannedPage, String> {
+        // Only the flushed durable map may classify a row as confirmed and
+        // authorize its deletion; volatile process state cannot.
+        let durable_per_writer_before = self.read_published_f(target_id).await;
+        let scan_started = std::time::Instant::now();
+        let page = self
+            .scan_pending_records_for_upload(
+                target,
+                target_id,
+                &durable_per_writer_before,
+                max_segments,
+            )
+            .await?;
+        // A prior cloud publish can succeed while its best-effort local delete
+        // fails. Those rows are no longer pending, so retry their exact deletes
+        // while the bounded scan has them in hand. Without this retry they stay
+        // at the front of the log forever and every cycle pays to skip them.
+        let retry_confirmed = page.not_pending_frontiers.clone();
+        // Quarantine drops are deliberately NOT added here. `records_truncated`
+        // is documented as "records deleted this cycle because cloud confirmed
+        // them", and a quarantined record is the one thing cloud never saw.
+        // Its count is `records_quarantined`.
+        let retried_truncations = self
+            .truncate_confirmed_pin_log_records(target_id, &retry_confirmed)
+            .await;
+        let scan_ms = scan_started.elapsed().as_millis();
+        let materialize_started = std::time::Instant::now();
+        let page_rows_scanned = page.rows_scanned;
+        let page_scan_complete = page.scan_complete;
+        let page_row_budget_exhausted = page.row_budget_exhausted;
+        let (batch, quarantined, last_quarantine_reason) =
+            Self::materialize_pending_records(engine, target_prefix, page.records).await?;
+        let materialize_ms = materialize_started.elapsed().as_millis();
+        let records_quarantined = quarantined.len();
+        self.record_and_drop_quarantined(
+            engine,
+            target_id,
+            target_prefix,
+            &quarantined,
+            last_quarantine_reason.as_ref(),
+        )
+        .await;
+        Ok(ScannedPage {
+            scan_stats: (
+                page_rows_scanned,
+                page_scan_complete,
+                page_row_budget_exhausted,
+            ),
+            batch,
+            records_quarantined,
+            last_quarantine_reason,
+            retried_truncations,
+            scan_ms,
+            materialize_ms,
+        })
+    }
+
+    /// Gate for the upload cycle: capture mode, cloud plane, and S0 deferral.
+    async fn mutation_log_upload_allowed(&self, engine: &SyncEngine) -> Result<bool, String> {
+        if !matches!(self.config.capture_mode, CaptureMode::MutationLog) {
+            return Ok(false);
+        }
+        if !engine.cloud_plane_allows_upload().await {
+            return Ok(false);
+        }
+        if self.continuous_sealed_home_backup_demoted()
+            && !engine
+                .mutation_log_snapshot_base_committed()
+                .map_err(|err| err.to_string())?
+        {
+            tracing::info!(
+                target: "fold_db::sync::mutation_log",
+                "mutation-log publish deferred until durable snapshot base S0 commits"
+            );
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    fn segment_byte_target(&self) -> usize {
+        if self.config.max_upload_bytes_per_cycle == 0 {
+            MUTATION_LOG_SEGMENT_TARGET_BYTES
+        } else {
+            MUTATION_LOG_SEGMENT_TARGET_BYTES.min(self.config.max_upload_bytes_per_cycle)
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_upload_report(
+        target_id: &str,
+        published_before_max: u64,
+        retried_truncations: usize,
+        records_quarantined: usize,
+        last_quarantine_reason: Option<&String>,
+        (rows_scanned, scan_complete, row_budget_exhausted): (usize, bool, bool),
+        records_selected: usize,
+        page_record_count: usize,
+    ) -> MutationLogUploadReport {
+        MutationLogUploadReport {
+            target_id: target_id.to_string(),
+            writer_id: String::new(),
+            records_considered: records_selected,
+            segments_uploaded: 0,
+            bytes_uploaded: 0,
+            published_frontier_before: published_before_max,
+            published_frontier_after: published_before_max,
+            upload_backlog_after: 0,
+            object_keys: Vec::new(),
+            records_truncated: retried_truncations,
+            records_quarantined,
+            last_quarantine_reason: last_quarantine_reason.cloned(),
+            put_concurrency: 0,
+            rows_scanned,
+            records_considered_is_lower_bound: !scan_complete
+                || records_selected < page_record_count,
+            scan_row_budget_exhausted: row_budget_exhausted,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn log_upload_cycle(
+        target_id: &str,
+        report: &MutationLogUploadReport,
+        writers: usize,
+        scan_ms: u128,
+        materialize_ms: u128,
+        seal_ms: u128,
+        upload_ms: u128,
+    ) {
+        // Vector F geometry is recorded on plane/runtime maps; status still
+        // surfaces scalar max. Log writer count so multi-writer cycles are
+        // visible without constructing an unused Frontier value.
+        tracing::info!(
+            target: "fold_db::sync::mutation_log",
+            target_id = %target_id,
+            writer_id = %report.writer_id,
+            writers,
+            records = report.records_considered,
+            segments = report.segments_uploaded,
+            bytes = report.bytes_uploaded,
+            published_f = report.published_frontier_after,
+            backlog = report.upload_backlog_after,
+            put_concurrency = report.put_concurrency,
+            scan_ms,
+            materialize_ms,
+            seal_ms,
+            upload_ms,
+            "continuous mutation-log segment upload cycle"
+        );
     }
 
     /// Bounded durable scan for records above each writer's published HWM.

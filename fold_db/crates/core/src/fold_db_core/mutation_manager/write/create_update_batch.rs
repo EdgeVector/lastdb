@@ -23,29 +23,10 @@ impl MutationManager {
             || mutations
                 .iter()
                 .any(|mutation| mutation.synchronous == Some(true));
-        let mut operations = Self::count_requested_operations(&mutations);
+        let operations = Self::count_requested_operations(&mutations);
         let mut stages = ResidentCommitStages::default();
 
-        // Phase -1: Reject historical derived writes before anything else
-        // touches them. No live writer is allowed to mint
-        // `Provenance::Derived`; keeping the check here prevents forged or
-        // stale derived writes from polluting atoms. User mutations
-        // (`Provenance::User` or `None`) are untouched.
-        for mutation in &mutations {
-            validate_derived_provenance(mutation, &self.schema_manager)?;
-        }
-
-        self.reject_blocked_mutation_targets(&mutations)?;
-
-        // Create/update do not wait on the schema-wide purge barrier. Janitor
-        // purge is later (mixed batches enqueue; this path never runs
-        // process_hard_erasures). Last writer wins. Compliance Purge keeps
-        // exclusive on its own request. Recording the phase as ~0 keeps
-        // request-ops comparable.
-        crate::request_phases::add_phase(
-            crate::request_phases::RequestPhase::PurgeBarrier,
-            std::time::Duration::ZERO,
-        );
+        self.reject_derived_and_blocked(&mutations)?;
 
         // Phase 0.5a: Compare-and-set lock acquisition (same-node atomicity).
         //
@@ -157,6 +138,57 @@ impl MutationManager {
         self.finalize_batch(&mut timing_breakdown, force_durable)
             .await?;
 
+        Ok(Self::build_commit_receipt(
+            already_seen_ids,
+            &mutation_ids,
+            operations,
+            stages,
+            force_durable,
+            &timing_breakdown,
+            start_time,
+            molecule_lock_wait,
+        ))
+    }
+
+    /// Phase -1: reject historical derived writes and blocked targets, then
+    /// record the purge-barrier phase as zero.
+    fn reject_derived_and_blocked(&self, mutations: &[Mutation]) -> Result<(), SchemaError> {
+        // Phase -1: Reject historical derived writes before anything else
+        // touches them. No live writer is allowed to mint
+        // `Provenance::Derived`; keeping the check here prevents forged or
+        // stale derived writes from polluting atoms. User mutations
+        // (`Provenance::User` or `None`) are untouched.
+        for mutation in mutations {
+            validate_derived_provenance(mutation, &self.schema_manager)?;
+        }
+
+        self.reject_blocked_mutation_targets(mutations)?;
+
+        // Create/update do not wait on the schema-wide purge barrier. Janitor
+        // purge is later (mixed batches enqueue; this path never runs
+        // process_hard_erasures). Last writer wins. Compliance Purge keeps
+        // exclusive on its own request. Recording the phase as ~0 keeps
+        // request-ops comparable.
+        crate::request_phases::add_phase(
+            crate::request_phases::RequestPhase::PurgeBarrier,
+            std::time::Duration::ZERO,
+        );
+        Ok(())
+    }
+
+    /// Stamp the final stage timings, log the phase totals, and build the
+    /// receipt that merges already-seen ids with the newly written ones.
+    #[allow(clippy::too_many_arguments)]
+    fn build_commit_receipt(
+        already_seen_ids: Vec<String>,
+        mutation_ids: &[String],
+        mut operations: ResidentCommitOperations,
+        mut stages: ResidentCommitStages,
+        force_durable: bool,
+        timing_breakdown: &std::collections::HashMap<&str, std::time::Duration>,
+        start_time: std::time::Instant,
+        molecule_lock_wait: std::time::Duration,
+    ) -> ResidentCommitReceipt {
         let total_time = start_time.elapsed();
         stages.gate_wait_us = crate::request_phases::duration_us(molecule_lock_wait);
         stages.ack_us = crate::request_phases::duration_us(total_time);
@@ -177,11 +209,11 @@ impl MutationManager {
             total_time.as_millis()
         );
 
-        Self::log_timing_breakdown(&timing_breakdown, total_time);
-        Self::report_phase_totals(&timing_breakdown, total_time, molecule_lock_wait);
+        Self::log_timing_breakdown(timing_breakdown, total_time);
+        Self::report_phase_totals(timing_breakdown, total_time, molecule_lock_wait);
         Self::report_resident_commit_counts(&operations);
 
-        Ok(ResidentCommitReceipt {
+        ResidentCommitReceipt {
             mutation_ids: all_ids,
             // Stamped by the caller batch entry point, which is the only
             // scope that knows this pipeline run is one logical operation —
@@ -197,7 +229,7 @@ impl MutationManager {
             cloud: None,
             stages,
             touched_group_ids: crate::durable_flush::current_touched_groups(),
-        })
+        }
     }
 
     fn commit_durability(force_durable: bool) -> ResidentDurability {

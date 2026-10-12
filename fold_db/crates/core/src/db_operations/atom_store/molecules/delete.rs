@@ -16,6 +16,17 @@ type MoleculeKeyRemoval<'a> = (
     Option<&'a str>,
 );
 
+/// Keys, header writes, and tip edges gathered while planning a slot removal.
+#[derive(Default)]
+struct SlotRemovalPlan {
+    keys: Vec<Vec<u8>>,
+    headers: Vec<(String, serde_json::Value)>,
+    trailing_keys: Vec<Vec<u8>>,
+    removed_tip_edges: Vec<(Option<String>, super::super::AtomRefEdge)>,
+    molecule_count: usize,
+    slot_count: usize,
+}
+
 impl AtomStore {
     /// Remove EXACTLY the named slots from a per-key molecule, leaving every
     /// other slot's row untouched.
@@ -122,7 +133,7 @@ impl AtomStore {
         &self,
         removals: &[MoleculeKeyRemoval<'_>],
         mut extra_keys: Vec<Vec<u8>>,
-        mut trailing_keys: Vec<Vec<u8>>,
+        trailing_keys: Vec<Vec<u8>>,
     ) -> Result<(), SchemaError> {
         let _coverage = self.invalidate_coverage_during(
             removals
@@ -131,90 +142,22 @@ impl AtomStore {
                 .map(|(uuid, _, _, _)| *uuid),
             None,
         );
-        let mut keys: Vec<Vec<u8>> = Vec::new();
-        let mut headers: Vec<(String, serde_json::Value)> = Vec::new();
-        let mut removed_tip_edges: Vec<(Option<String>, super::super::AtomRefEdge)> = Vec::new();
-        let mut molecule_count = 0usize;
-        let mut slot_count = 0usize;
+        let mut plan = SlotRemovalPlan {
+            trailing_keys,
+            ..SlotRemovalPlan::default()
+        };
 
-        for (molecule_uuid, data, removed_slots, storage_prefix) in removals {
-            if removed_slots.is_empty() {
-                continue;
-            }
-            molecule_count += 1;
-            slot_count += removed_slots.len();
-            keys.reserve(removed_slots.len() * 3);
-            for (hash, range) in *removed_slots {
-                let base_key =
-                    molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range);
-                if let Some((_, current)) = self
-                    .get_per_key_unfiltered(&base_key, *storage_prefix)
-                    .await?
-                {
-                    let edge = Self::live_tip_ref_edge(molecule_uuid, hash, range, &current.entry);
-                    if let Ok(edge_key) = edge.storage_key_v2(*storage_prefix) {
-                        trailing_keys.push(edge_key.into_bytes());
-                        removed_tip_edges.push((storage_prefix.map(str::to_string), edge));
-                    }
-                    let marker = super::super::MoleculeGenerationDelete {
-                        shadow: current.entry,
-                    };
-                    headers.push((
-                        build_storage_key(
-                            *storage_prefix,
-                            &molecule_key_codec::molecule_generation_delete_key(
-                                molecule_uuid,
-                                hash,
-                                range,
-                            ),
-                        ),
-                        serde_json::to_value(marker).map_err(|error| {
-                            SchemaError::InvalidData(format!(
-                                "serialize generation delete marker: {error}"
-                            ))
-                        })?,
-                    ));
-                }
-                keys.push(build_storage_key(*storage_prefix, &base_key).into_bytes());
-                // Derived markers for this slot. Both features are retired
-                // (`HASH_RANGE_PAGE_INDEX_ENABLED` / `HASH_RANGE_HASH_KEY_LOOKUP_ENABLED`
-                // are `false`), so nothing co-writes them any more — but a store
-                // written before they were retired still carries rows, and the
-                // whole-molecule delete this replaces reaped them. Deleting a
-                // marker can only cost a reader the derived shortcut and send it to
-                // the authoritative `mk:` scan, which is already the missing-marker
-                // fallback; KEEPING one would leave a row that names a purged
-                // record. For a compliance verb that trade is one-sided.
-                keys.push(
-                    build_storage_key(
-                        *storage_prefix,
-                        &molecule_key_codec::hash_range_page_index_key(molecule_uuid, hash, range),
-                    )
-                    .into_bytes(),
-                );
-                keys.push(
-                    build_storage_key(
-                        *storage_prefix,
-                        &molecule_key_codec::hash_key_lookup_key(molecule_uuid, hash),
-                    )
-                    .into_bytes(),
-                );
-            }
-
-            let header = MoleculeHeader {
-                version: data.version(),
-                updated_at: data.updated_at(),
-            };
-            let header_value = serde_json::to_value(&header)
-                .map_err(|e| SchemaError::InvalidData(format!("serialize molecule header: {e}")))?;
-            headers.push((
-                build_storage_key(
-                    *storage_prefix,
-                    &molecule_key_codec::header_key(molecule_uuid),
-                ),
-                header_value,
-            ));
+        for removal in removals {
+            self.plan_molecule_removal(removal, &mut plan).await?;
         }
+        let SlotRemovalPlan {
+            mut keys,
+            headers,
+            mut trailing_keys,
+            removed_tip_edges,
+            molecule_count,
+            slot_count,
+        } = plan;
 
         keys.append(&mut extra_keys);
         keys.sort_unstable();
@@ -234,19 +177,9 @@ impl AtomStore {
         ref_atoms.sort_unstable();
         ref_atoms.dedup();
         let _count_guards = self.lock_atom_ref_counts(&ref_atoms).await;
-        let mut count_mutations = Vec::new();
-        let mut by_prefix: HashMap<Option<String>, HashMap<Vec<u8>, super::super::AtomRefEdge>> =
-            HashMap::new();
-        for (prefix, edge) in removed_tip_edges {
-            let key = edge.storage_key_v2(prefix.as_deref())?.into_bytes();
-            by_prefix.entry(prefix).or_default().insert(key, edge);
-        }
-        for (prefix, inactive) in by_prefix {
-            count_mutations.extend(
-                self.atom_live_ref_count_mutations(&HashMap::new(), &inactive, prefix.as_deref())
-                    .await?,
-            );
-        }
+        let count_mutations = self
+            .removed_tip_edge_count_mutations(removed_tip_edges)
+            .await?;
 
         let result = if trailing_keys.is_empty() && count_mutations.is_empty() {
             self.main_store.inner().batch_delete(keys).await
@@ -269,5 +202,122 @@ impl AtomStore {
                 "Failed to bump headers after removing slots from {molecule_count} molecule(s): {e}"
             ))
         })
+    }
+
+    /// Live-ref-count mutations for the tip edges that the removal retires.
+    async fn removed_tip_edge_count_mutations(
+        &self,
+        removed_tip_edges: Vec<(Option<String>, super::super::AtomRefEdge)>,
+    ) -> Result<Vec<KvMutation>, SchemaError> {
+        let mut count_mutations = Vec::new();
+        let mut by_prefix: HashMap<Option<String>, HashMap<Vec<u8>, super::super::AtomRefEdge>> =
+            HashMap::new();
+        for (prefix, edge) in removed_tip_edges {
+            let key = edge.storage_key_v2(prefix.as_deref())?.into_bytes();
+            by_prefix.entry(prefix).or_default().insert(key, edge);
+        }
+        for (prefix, inactive) in by_prefix {
+            count_mutations.extend(
+                self.atom_live_ref_count_mutations(&HashMap::new(), &inactive, prefix.as_deref())
+                    .await?,
+            );
+        }
+        Ok(count_mutations)
+    }
+
+    /// Plan the key deletes and header bump for one molecule's removed slots.
+    async fn plan_molecule_removal(
+        &self,
+        removal: &MoleculeKeyRemoval<'_>,
+        plan: &mut SlotRemovalPlan,
+    ) -> Result<(), SchemaError> {
+        let (molecule_uuid, data, removed_slots, storage_prefix) = removal;
+        if removed_slots.is_empty() {
+            return Ok(());
+        }
+        plan.molecule_count += 1;
+        plan.slot_count += removed_slots.len();
+        plan.keys.reserve(removed_slots.len() * 3);
+        for (hash, range) in *removed_slots {
+            self.plan_slot_removal(molecule_uuid, hash, range, *storage_prefix, plan)
+                .await?;
+        }
+
+        let header = MoleculeHeader {
+            version: data.version(),
+            updated_at: data.updated_at(),
+        };
+        let header_value = serde_json::to_value(&header)
+            .map_err(|e| SchemaError::InvalidData(format!("serialize molecule header: {e}")))?;
+        plan.headers.push((
+            build_storage_key(
+                *storage_prefix,
+                &molecule_key_codec::header_key(molecule_uuid),
+            ),
+            header_value,
+        ));
+        Ok(())
+    }
+
+    /// Plan the deletes for one removed slot: its row, its generation-delete
+    /// marker, its live tip edge, and its derived markers.
+    async fn plan_slot_removal(
+        &self,
+        molecule_uuid: &str,
+        hash: &str,
+        range: &str,
+        storage_prefix: Option<&str>,
+        plan: &mut SlotRemovalPlan,
+    ) -> Result<(), SchemaError> {
+        let base_key = molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range);
+        if let Some((_, current)) = self
+            .get_per_key_unfiltered(&base_key, storage_prefix)
+            .await?
+        {
+            let edge = Self::live_tip_ref_edge(molecule_uuid, hash, range, &current.entry);
+            if let Ok(edge_key) = edge.storage_key_v2(storage_prefix) {
+                plan.trailing_keys.push(edge_key.into_bytes());
+                plan.removed_tip_edges
+                    .push((storage_prefix.map(str::to_string), edge));
+            }
+            let marker = super::super::MoleculeGenerationDelete {
+                shadow: current.entry,
+            };
+            plan.headers.push((
+                build_storage_key(
+                    storage_prefix,
+                    &molecule_key_codec::molecule_generation_delete_key(molecule_uuid, hash, range),
+                ),
+                serde_json::to_value(marker).map_err(|error| {
+                    SchemaError::InvalidData(format!("serialize generation delete marker: {error}"))
+                })?,
+            ));
+        }
+        plan.keys
+            .push(build_storage_key(storage_prefix, &base_key).into_bytes());
+        // Derived markers for this slot. Both features are retired
+        // (`HASH_RANGE_PAGE_INDEX_ENABLED` / `HASH_RANGE_HASH_KEY_LOOKUP_ENABLED`
+        // are `false`), so nothing co-writes them any more — but a store
+        // written before they were retired still carries rows, and the
+        // whole-molecule delete this replaces reaped them. Deleting a
+        // marker can only cost a reader the derived shortcut and send it to
+        // the authoritative `mk:` scan, which is already the missing-marker
+        // fallback; KEEPING one would leave a row that names a purged
+        // record. For a compliance verb that trade is one-sided.
+        plan.keys.push(
+            build_storage_key(
+                storage_prefix,
+                &molecule_key_codec::hash_range_page_index_key(molecule_uuid, hash, range),
+            )
+            .into_bytes(),
+        );
+        plan.keys.push(
+            build_storage_key(
+                storage_prefix,
+                &molecule_key_codec::hash_key_lookup_key(molecule_uuid, hash),
+            )
+            .into_bytes(),
+        );
+        Ok(())
     }
 }

@@ -60,17 +60,7 @@ impl MutationManager {
                 SchemaError::InvalidData("aggregate source partition is not enrolled".into())
             })?;
         guard.validate().map_err(SchemaError::InvalidData)?;
-        if guard.source_schema_name != finalize.source_schema_name
-            || guard.source_partition_hash != source_hash
-            || guard.target_schema_name != finalize.target_schema_name
-            || guard.target_key != target_key.to_storage_key()
-            || guard.member_schema_name != finalize.member_schema_name
-            || !guard.committed
-        {
-            return Err(SchemaError::InvalidData(
-                "aggregate finalize association does not match the enrolled guard".into(),
-            ));
-        }
+        Self::check_finalize_guard_association(&guard, &finalize, source_hash, &target_key)?;
         self.validate_enrolled_aggregate_schemas(&guard)?;
 
         let target_lock_key = Self::aggregate_target_lock_key(
@@ -84,13 +74,47 @@ impl MutationManager {
             .await;
         self.check_finalize_target_owner(&guard, storage_prefix.as_deref())
             .await?;
+        self.finalize_with_repair_grant(finalize, target_key, &guard, storage_prefix.as_deref())
+            .await
+    }
+
+    /// The enrolled guard must describe exactly the association being finalized.
+    fn check_finalize_guard_association(
+        guard: &AggregateGuard,
+        finalize: &AggregateFinalize,
+        source_hash: &str,
+        target_key: &KeyValue,
+    ) -> Result<(), SchemaError> {
+        if guard.source_schema_name != finalize.source_schema_name
+            || guard.source_partition_hash != source_hash
+            || guard.target_schema_name != finalize.target_schema_name
+            || guard.target_key != target_key.to_storage_key()
+            || guard.member_schema_name != finalize.member_schema_name
+            || !guard.committed
+        {
+            return Err(SchemaError::InvalidData(
+                "aggregate finalize association does not match the enrolled guard".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Check the durable repair grant against the summary, then mark the
+    /// summary valid (or accept an already finalized one) and retire the grant.
+    async fn finalize_with_repair_grant(
+        &self,
+        finalize: AggregateFinalize,
+        target_key: KeyValue,
+        guard: &AggregateGuard,
+        storage_prefix: Option<&str>,
+    ) -> Result<ResidentCommitReceipt, SchemaError> {
         let grant_key = Self::aggregate_repair_grant_key(
-            storage_prefix.as_deref(),
+            storage_prefix,
             &guard.target_schema_name,
             &guard.target_key,
         );
         let finalized_key = Self::aggregate_finalized_grant_key(
-            storage_prefix.as_deref(),
+            storage_prefix,
             &guard.target_schema_name,
             &guard.target_key,
         );
@@ -113,13 +137,7 @@ impl MutationManager {
                 )
             })?;
         let valid = self
-            .read_finalize_summary_state(
-                &finalize,
-                &target_key,
-                &guard,
-                grant,
-                storage_prefix.as_deref(),
-            )
+            .read_finalize_summary_state(&finalize, &target_key, guard, grant, storage_prefix)
             .await?;
         if valid == 1 {
             if active_grant.is_some() {
@@ -143,7 +161,7 @@ impl MutationManager {
         }
 
         let receipt = self
-            .write_finalize_marker(finalize, target_key, storage_prefix.as_deref())
+            .write_finalize_marker(finalize, target_key, storage_prefix)
             .await?;
         self.db_ops
             .metadata()

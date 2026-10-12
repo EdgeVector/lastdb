@@ -140,63 +140,10 @@ impl SyncEngine {
 
         let is_scoped = !target.prefix.is_empty();
 
-        let (sealed, urls): (
-            Vec<(u64, crate::sync::log::SealedLogEntry)>,
-            Vec<crate::sync::s3::PresignedUrl>,
-        ) = if is_scoped {
-            let pairs = self
-                .auth
-                .presign_upload_alloc(target, entries.len() as u32)
-                .await?;
-            if pairs.len() != entries.len() {
-                return Err(SyncError::Auth(format!(
-                    "expected {} server-assigned seqs for '{}', got {}",
-                    entries.len(),
-                    target.label,
-                    pairs.len(),
-                )));
-            }
-            let mut sealed = Vec::with_capacity(entries.len());
-            let mut urls = Vec::with_capacity(entries.len());
-            for (entry, (server_seq, url)) in entries.iter().zip(pairs) {
-                let mut rewritten = entry.clone();
-                rewritten.seq = server_seq;
-                let s = rewritten.seal(&target.crypto).await?;
-                sealed.push((server_seq, s));
-                urls.push(url);
-            }
-            (sealed, urls)
+        let (sealed, urls) = if is_scoped {
+            self.seal_scoped_entries(target, entries).await?
         } else {
-            let mut sealed = Vec::with_capacity(entries.len());
-            for entry in entries {
-                let s = entry.seal(&target.crypto).await?;
-                sealed.push((entry.seq, s));
-            }
-            let seq_numbers: Vec<u64> = sealed.iter().map(|(seq, _)| *seq).collect();
-            // Per-entry ciphertext size for the server quota pre-check.
-            // Without this the storage service assumes 1 MiB/entry, so a
-            // 1000-entry chunk is billed as ~1 GiB and free-tier (1 GiB)
-            // accounts falsely fail with "quota exceeded" while only
-            // holding tens of MiB of real objects.
-            let max_sealed = sealed
-                .iter()
-                .map(|(_, s)| s.bytes.len() as u64)
-                .max()
-                .unwrap_or(1024)
-                .max(1);
-            let urls = self
-                .auth
-                .presign_upload(target, &seq_numbers, Some(max_sealed))
-                .await?;
-            if urls.len() != sealed.len() {
-                return Err(SyncError::Auth(format!(
-                    "expected {} presigned URLs for '{}', got {}",
-                    sealed.len(),
-                    target.label,
-                    urls.len()
-                )));
-            }
-            (sealed, urls)
+            self.seal_personal_entries(target, entries).await?
         };
 
         let max_seq_uploaded = sealed.iter().map(|(seq, _)| *seq).max();
@@ -206,6 +153,120 @@ impl SyncEngine {
             .map(|(_, s)| s.bytes.len() as u64)
             .sum::<u64>();
 
+        let (uploaded_count, transfer_elapsed_secs) = self
+            .put_sealed_entries(target, sealed, urls, is_scoped)
+            .await?;
+
+        // Metering P0: credit actual sizes after PUT (HEAD on server). Best-effort —
+        // failures do not roll back the upload; absolute reconcile heals drift.
+        if uploaded_count == all_seqs.len() && !all_seqs.is_empty() {
+            if let Err(e) = self
+                .auth
+                .confirm_log_upload_for_target(target, &all_seqs)
+                .await
+            {
+                tracing::warn!(
+                    target: "fold_db::sync",
+                    error = %e,
+                    count = all_seqs.len(),
+                    "confirm_log_upload metering failed (non-fatal; reconcile will heal)"
+                );
+            }
+        }
+
+        Ok(UploadOutcome {
+            entries_uploaded: uploaded_count,
+            max_seq_uploaded,
+            partial_error: None,
+            transfer_bytes_uploaded,
+            transfer_elapsed_secs,
+        })
+    }
+
+    /// Scoped (org/share) targets: allocate server seqs, rewrite each entry's
+    /// seq, then seal.
+    async fn seal_scoped_entries(
+        &self,
+        target: &SyncTarget,
+        entries: &[LogEntry],
+    ) -> SyncResult<(
+        Vec<(u64, crate::sync::log::SealedLogEntry)>,
+        Vec<crate::sync::s3::PresignedUrl>,
+    )> {
+        let pairs = self
+            .auth
+            .presign_upload_alloc(target, entries.len() as u32)
+            .await?;
+        if pairs.len() != entries.len() {
+            return Err(SyncError::Auth(format!(
+                "expected {} server-assigned seqs for '{}', got {}",
+                entries.len(),
+                target.label,
+                pairs.len(),
+            )));
+        }
+        let mut sealed = Vec::with_capacity(entries.len());
+        let mut urls = Vec::with_capacity(entries.len());
+        for (entry, (server_seq, url)) in entries.iter().zip(pairs) {
+            let mut rewritten = entry.clone();
+            rewritten.seq = server_seq;
+            let s = rewritten.seal(&target.crypto).await?;
+            sealed.push((server_seq, s));
+            urls.push(url);
+        }
+        Ok((sealed, urls))
+    }
+
+    /// Personal targets: seal under client-assigned seqs, then presign.
+    async fn seal_personal_entries(
+        &self,
+        target: &SyncTarget,
+        entries: &[LogEntry],
+    ) -> SyncResult<(
+        Vec<(u64, crate::sync::log::SealedLogEntry)>,
+        Vec<crate::sync::s3::PresignedUrl>,
+    )> {
+        let mut sealed = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let s = entry.seal(&target.crypto).await?;
+            sealed.push((entry.seq, s));
+        }
+        let seq_numbers: Vec<u64> = sealed.iter().map(|(seq, _)| *seq).collect();
+        // Per-entry ciphertext size for the server quota pre-check.
+        // Without this the storage service assumes 1 MiB/entry, so a
+        // 1000-entry chunk is billed as ~1 GiB and free-tier (1 GiB)
+        // accounts falsely fail with "quota exceeded" while only
+        // holding tens of MiB of real objects.
+        let max_sealed = sealed
+            .iter()
+            .map(|(_, s)| s.bytes.len() as u64)
+            .max()
+            .unwrap_or(1024)
+            .max(1);
+        let urls = self
+            .auth
+            .presign_upload(target, &seq_numbers, Some(max_sealed))
+            .await?;
+        if urls.len() != sealed.len() {
+            return Err(SyncError::Auth(format!(
+                "expected {} presigned URLs for '{}', got {}",
+                sealed.len(),
+                target.label,
+                urls.len()
+            )));
+        }
+        Ok((sealed, urls))
+    }
+
+    /// PUT sealed entries to their presigned URLs with bounded concurrency.
+    /// Returns the uploaded count and the S3 transfer time in seconds.
+    async fn put_sealed_entries(
+        &self,
+        target: &SyncTarget,
+        sealed: Vec<(u64, crate::sync::log::SealedLogEntry)>,
+        urls: Vec<crate::sync::s3::PresignedUrl>,
+        is_scoped: bool,
+    ) -> SyncResult<(usize, f64)> {
         // Fan the S3 PUTs out with a bounded concurrency cap. Each PUT targets
         // a distinct `{prefix}/log/{seq}.enc` key, so ordering between them is
         // irrelevant for personal targets (client-assigned seqs overwrite
@@ -269,31 +330,7 @@ impl SyncEngine {
             return Err(e);
         }
         let transfer_elapsed_secs = transfer_started.elapsed().as_secs_f64().max(0.001);
-
-        // Metering P0: credit actual sizes after PUT (HEAD on server). Best-effort —
-        // failures do not roll back the upload; absolute reconcile heals drift.
-        if uploaded_count == all_seqs.len() && !all_seqs.is_empty() {
-            if let Err(e) = self
-                .auth
-                .confirm_log_upload_for_target(target, &all_seqs)
-                .await
-            {
-                tracing::warn!(
-                    target: "fold_db::sync",
-                    error = %e,
-                    count = all_seqs.len(),
-                    "confirm_log_upload metering failed (non-fatal; reconcile will heal)"
-                );
-            }
-        }
-
-        Ok(UploadOutcome {
-            entries_uploaded: uploaded_count,
-            max_seq_uploaded,
-            partial_error: None,
-            transfer_bytes_uploaded,
-            transfer_elapsed_secs,
-        })
+        Ok((uploaded_count, transfer_elapsed_secs))
     }
 
     /// [`Self::upload_mutation_log_segments`] with an explicit PUT fan-out.
