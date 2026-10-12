@@ -1,9 +1,17 @@
 # Resident set convergence: one cache, one ordering gate, one persist path
 
-Status: design notes. Nothing here is implemented except the removal of the
-never-populated `rehydrate_flights` map. Written from reading the code in
-`fold_db/crates/core/src/resident/`, `storage/laststore/logical_path/` and
-`fold_db_core/mutation_manager/`. It has not been run against real data.
+Status (2026-10-12): steps 1 and 2 are done. Step 2b (investigation and bar
+fixes) is done in its PR. Steps 3 to 6 are not started. Each later step adds a
+dated line to the "Status log" at the end of this file.
+
+Read this first. On the live configuration `write` mode does defer the persist.
+The 2026-10-12 owner run read `persist_enqueued` as 0 because `/api/status`
+resident counters come from a sampler that publishes once per 60 seconds, and
+that run was shorter than the interval. See "Step 2b findings". Acknowledge
+before durable is the contract and it is what runs.
+
+Written from reading the code in `fold_db/crates/core/src/resident/`,
+`storage/laststore/logical_path/` and `fold_db_core/mutation_manager/`.
 
 ## Goal
 
@@ -21,8 +29,13 @@ change.
 - A purge never drops a record whose write has not been persisted.
 - No tests are added. The proof is the two operational bars,
   `scripts/lastdbd/resident-latency-bar.sh` and
-  `scripts/lastdbd/read-after-ack-bar.sh`, run on a copy of real data, and then
-  on the primary. A cloud sandbox cannot run them.
+  `scripts/lastdbd/read-after-ack-bar.sh`. A cloud sandbox cannot run them.
+- The bars never copy `~/.lastdb` (Tom, 2026-10-12: the copy costs disk the
+  machine does not have). Each bar boots `lastdbd` on a fresh empty home under
+  `/private/tmp` and loads synthetic data: the schema
+  `validation/MiniFreshInstall`, HashRange(bucket, id). Numbers measured on
+  synthetic data are not comparable with the owner run on real data below. The
+  baseline for steps 3 to 6 is the synthetic baseline in "Step 2b findings".
 
 ## Today
 
@@ -94,9 +107,11 @@ receipt also comes from the primary.
    counters, now that no cache shares their lock.
 6. Delete the graph's maps, ledger and the remaining env vars.
 
-## Baseline (step 2), 2026-10-12
+## Owner baseline on a copy of real data (step 2), 2026-10-12
 
-Measured by the owner on a copy-on-write copy of the real data, with a release
+This section is history. The bars no longer copy the primary's home, and the
+read-after-ack cells below were wrong. See "Step 2b findings". Measured by the
+owner on a copy-on-write copy of the real data, with a release
 `lastdbd` built from `main` at 817b7d55. Bars: point p50 at most 50 ms, write
 p50 at most 10 ms. Every run was RED.
 
@@ -156,6 +171,107 @@ Interpretation:
   live configuration must be established before step 3, because the design
   assumes acknowledge-before-durable is what runs.
 
+## Step 2b findings (2026-10-12)
+
+Measured with a release `lastdbd` built from `main` at f86da329, on fresh
+empty homes with synthetic data (rule above). The live LaunchAgent environment
+is mirrored. `LASTDB_RESIDENT_MODE=write` is set in the plist. The plist does
+not set `LASTDB_MUTATION_SYNC_FLUSH` or `LASTDB_DEFER_WRITE_THROUGH_BYTES`.
+
+### Why persist_enqueued read 0 in write mode
+
+It was a measurement error, not a missing deferral.
+
+- `/api/status` serves the resident counters from the self-metrics sampler.
+  The sampler publishes once per `LASTDB_SELF_METRICS_SAMPLE_SECS` (default 60).
+  A write-mode bar run ends in a few seconds, so the counters had not moved. An
+  `off` run lasts over a minute, so they had.
+- With the sampler set to 1 s and one wait after the run, write mode reports
+  `persist_enqueued` 2123 to 2159 and `deferred_persist_failed` 0 for 20 reps
+  of 8 cells. `off` reports 3120 for the same work. Write mode counts fewer
+  because it re-dirties a key that is already dirty without counting it again.
+- The bar now sets the sampler to 1 s and waits for a fresh sample.
+
+One env change on a write-mode node, six updates each:
+
+| Change | Ack (resident_stages_us.ack) | Defers |
+|---|---|---|
+| none | 6 to 9 ms (first call 144 ms) | yes |
+| `LASTDB_MUTATION_SYNC_FLUSH=1` | 580 to 670 ms | no |
+| `LASTDB_DEFER_WRITE_THROUGH_BYTES=1` | 440 to 600 ms, `deferred_write_throughs` 6 | no |
+
+Code path: `reserve_persist_capacity` sets `acks_resident` only for
+`write` mode with no storage prefix and no durable request. Then it takes
+`write_through` when the defer window is disabled or the batch is at least
+`LASTDB_DEFER_WRITE_THROUGH_BYTES`. With neither, it takes a defer reservation
+and `wait_for_persist_lane` is false, so the ack returns after the resident
+apply. The decision for this work is therefore: write mode defers on the live
+configuration, and the sequence goes on.
+
+### What produces the write p50
+
+An acknowledged write in `write` mode returns after the resident apply, 6 to 9
+ms in the node. The bar adds the curl and socket cost (the status floor is 12
+ms), so the bar reads about 38 ms. In `off` and `read` mode the ack waits for
+the persist lane envelope to be durable, which costs 440 to 670 ms in the node,
+so the bar reads about 300 ms. The 14 times gain from `write` mode is the
+deferral itself.
+
+### Why the page and count cells were stale in off mode
+
+The bar was wrong, not the product. A `Page` filter on a product schema is an
+unfiltered schema scan, and the node refuses it with
+`full_schema_scan_not_allowed` (HTTP body `ok: false`). The bar tested the
+error body for the new title, so every page cell failed in every mode. The
+count cell sent `include_total_count`, which is not in the request grammar. A
+keyed read also returns `total_count` as `null`.
+
+The bar now uses keyed reads only: a `HashRangeKey` point read, a `HashKey`
+range list on a HashRange schema, and `returned_count` of that range list
+before and after for the count cells. Every rep uses a fresh hash key. Delete
+cells exist: a `delete` mutation with the key in `key_value` and `{}` as the
+fields.
+
+### Synthetic baseline (median of 3 runs, release build of f86da329)
+
+Latency bar, 200 reads and 100 writes per run, milliseconds. The status floor
+is 12 ms in every run.
+
+| Mode | Point p50 | Point p95 | Write p50 | Write p95 |
+|---|---|---|---|---|
+| off | 14 | 46 | 312 | 788 |
+| read | 13 | 14 | 290 | 830 |
+| write | 15 | 54 | 38 | 83 |
+
+Read-after-ack, 20 reps per cell per run, 8 cells, 3 runs per mode:
+
+| Mode | Stale cells |
+|---|---|
+| off | none, every cell GREEN in all 3 runs |
+| read | none, every cell GREEN in all 3 runs |
+| write | `create x point-get` 20/20 and `update x point-get` 20/20 in all 3 runs; the other 6 cells GREEN |
+
+`deferred_persist_failed` stayed 0 in all 9 runs.
+
+### Product defect found: point read after ack misses in write mode
+
+In `write` mode a `HashRangeKey` point read that follows a create or an update
+acknowledgment returns no record. The same key shows up on the `HashKey` range
+list at the same moment, and the point read becomes correct after about 300 ms.
+`off` and `read` mode are correct at once. The old bar could not see this,
+because the Board schema is a Hash schema and its point read goes through
+another path. This breaks the second fixed constraint (a read after an
+acknowledgment sees the write) for HashRange point reads in the mode that
+runs on the primary. It is not fixed in step 2b. Step 4 changes the read path
+and must turn these two cells GREEN in `write` mode. Until then the write-mode
+baseline above is the number to hold: these two cells must not get worse, and
+the other six must stay GREEN.
+
+Leads for step 4: `query_executor` tries `hash_range_key_from_envelope` first
+and falls through to the field-tip read when the record envelope is absent. The
+range list path honors the resident dirty overlay (`molecule_has_dirty`) and
+the point path does not appear to.
+
 ## Open questions to verify before step 3
 
 - Does a lane persist job report durability back so that the logical set can
@@ -164,9 +280,6 @@ Interpretation:
 - Which readers still need a resident answer for a key the logical set evicted?
   The graph's coverage tracking answers "is this key set complete" for range
   reads. The logical set has only a negative barrier cache.
-- Why `write` mode left `persist_enqueued` at 0, and what produces its 46 ms
-  write p50. See the baseline section. Step 2b answers both.
-- Why the page cells are stale in `off`. Step 2b answers this too.
 
 ## Review hazards
 
@@ -175,3 +288,11 @@ Interpretation:
 - As written, the bars read and update one Board field. They do not appear to
   exercise protein sibling folds or Skip Deletes, so step 3 needs a manual check
   of those two paths.
+
+## Status log
+
+- 2026-10-12, step 1: removed the never-populated `rehydrate_flights` map (#100).
+- 2026-10-12, step 2: owner baseline on a copy of real data (#105).
+- 2026-10-12, step 2b: findings above; both bars run on synthetic data with a
+  driver, `scripts/lastdbd/resident-bars-matrix.sh`. Merged-build proof: run the bars on the
+  merged main build (see the rule on copies above); no primary upgrade yet.
