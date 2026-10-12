@@ -1,34 +1,14 @@
 use super::*;
 
 impl AtomStore {
-    pub(in super::super) async fn prepare_molecule_generation_activation(
+    /// Probe and delete the retired HashRange page-index completeness marker.
+    /// Returns whether the marker was present.
+    async fn clear_legacy_page_index_marker(
         &self,
         molecule_uuid: &str,
-        data: &MoleculeData,
         storage_prefix: Option<&str>,
-        domain: MoleculeKeyDomain,
-        generation_cut: super::super::PreparedMoleculeGeneration,
-    ) -> Result<super::super::PreparedMoleculeGenerationActivation, SchemaError> {
-        // lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
-        let records = self.per_key_storage_records(molecule_uuid, data, domain)?;
-        // A full rewrite requires the molecule's complete key set. A tail
-        // molecule holds only the keys this write touched.
-        if data.order_is_tail() {
-            return Err(SchemaError::InvalidData(format!(
-                "refusing full rewrite of molecule {molecule_uuid} from a write-only \
-                 (partial) molecule: it holds {} touched key(s) and an order tail, \
-                 not the molecule's complete state",
-                data.per_key_records().len()
-            )));
-        }
-        let header = MoleculeHeader {
-            version: data.version(),
-            updated_at: data.updated_at(),
-        };
-
-        // Page index (`mhr:`) is retired — see HASH_RANGE_PAGE_INDEX_ENABLED.
-        let include_hash_range_page_index =
-            super::super::super::helpers::HASH_RANGE_PAGE_INDEX_ENABLED;
+        include_hash_range_page_index: bool,
+    ) -> Result<bool, SchemaError> {
         let legacy_page_index_complete_key = build_storage_key(
             storage_prefix,
             &molecule_key_codec::legacy_hash_range_page_index_complete_key(molecule_uuid),
@@ -55,19 +35,15 @@ impl AtomStore {
                     ))
                 })?;
         }
-        let mut items: Vec<(String, Value)> = Vec::with_capacity(
-            records.len()
-                + if include_hash_range_page_index {
-                    records.len() * 2 + 3
-                } else {
-                    2
-                },
-        );
-        // The complete tips land in an immutable generation. Ordinary writers
-        // keep appending live `mk:` changes while that body is built; the final
-        // pointer and the structural rows below share one small activation
-        // batch.
-        // Archived tip versions for the tip-version chain (`tv:{id}`).
+        Ok(legacy_page_index_complete)
+    }
+
+    /// Archived tip versions for the tip-version chain (`tv:{id}`).
+    fn tip_version_items(
+        data: &MoleculeData,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<(String, Value)>, SchemaError> {
+        let mut items = Vec::new();
         for (version_id, entry) in data.pending_tip_versions() {
             let value = serde_json::to_value(entry).map_err(|e| {
                 SchemaError::InvalidData(format!("serialize tip version {version_id}: {e}"))
@@ -80,6 +56,56 @@ impl AtomStore {
                 value,
             ));
         }
+        Ok(items)
+    }
+
+    pub(in super::super) async fn prepare_molecule_generation_activation(
+        &self,
+        molecule_uuid: &str,
+        data: &MoleculeData,
+        storage_prefix: Option<&str>,
+        domain: MoleculeKeyDomain,
+        generation_cut: super::super::PreparedMoleculeGeneration,
+    ) -> Result<super::super::PreparedMoleculeGenerationActivation, SchemaError> {
+        let records = self.per_key_storage_records(molecule_uuid, data, domain)?;
+        // A full rewrite requires the molecule's complete key set. A tail
+        // molecule holds only the keys this write touched.
+        if data.order_is_tail() {
+            return Err(SchemaError::InvalidData(format!(
+                "refusing full rewrite of molecule {molecule_uuid} from a write-only \
+                 (partial) molecule: it holds {} touched key(s) and an order tail, \
+                 not the molecule's complete state",
+                data.per_key_records().len()
+            )));
+        }
+        let header = MoleculeHeader {
+            version: data.version(),
+            updated_at: data.updated_at(),
+        };
+
+        // Page index (`mhr:`) is retired — see HASH_RANGE_PAGE_INDEX_ENABLED.
+        let include_hash_range_page_index =
+            super::super::super::helpers::HASH_RANGE_PAGE_INDEX_ENABLED;
+        let legacy_page_index_complete = self
+            .clear_legacy_page_index_marker(
+                molecule_uuid,
+                storage_prefix,
+                include_hash_range_page_index,
+            )
+            .await?;
+        let mut items: Vec<(String, Value)> = Vec::with_capacity(
+            records.len()
+                + if include_hash_range_page_index {
+                    records.len() * 2 + 3
+                } else {
+                    2
+                },
+        );
+        // The complete tips land in an immutable generation. Ordinary writers
+        // keep appending live `mk:` changes while that body is built; the final
+        // pointer and the structural rows below share one small activation
+        // batch.
+        items.extend(Self::tip_version_items(data, storage_prefix)?);
         // Derived atom -> archived-tip access pattern. These rows land in the
         // same durable batch as their authoritative `tv:` nodes, including
         // replay/full-rewrite paths.

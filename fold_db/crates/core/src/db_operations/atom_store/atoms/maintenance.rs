@@ -1,5 +1,30 @@
 use super::*;
 
+const REF_BLOB_BLOCKED_SAMPLE_CAP: usize = 16;
+
+/// Running totals for [`AtomStore::purge_legacy_ref_blobs`].
+#[derive(Default)]
+struct RefBlobTally {
+    keys_found: u64,
+    bytes_found_approx: u64,
+    keys_safe: u64,
+    keys_blocked: u64,
+    bytes_safe_approx: u64,
+    bytes_blocked_approx: u64,
+    safe_to_delete: Vec<String>,
+    blocked_samples: Vec<String>,
+}
+
+impl RefBlobTally {
+    fn record_blocked(&mut self, key: String, row_bytes: u64) {
+        self.keys_blocked += 1;
+        self.bytes_blocked_approx += row_bytes;
+        if self.blocked_samples.len() < REF_BLOB_BLOCKED_SAMPLE_CAP {
+            self.blocked_samples.push(key);
+        }
+    }
+}
+
 impl AtomStore {
     /// Measure (and optionally delete) legacy `ref:{molecule_uuid}` whole-molecule
     /// blobs — the pre-per-key layout stored in the cold `legacy_blob_refs`
@@ -18,8 +43,6 @@ impl AtomStore {
         dry_run: bool,
         storage_prefix: Option<&str>,
     ) -> Result<crate::db_operations::admin_db::LegacyRefBlobPurgeReport, SchemaError> {
-        // lint:fn-size-ok verbatim move from atoms.rs; splitting this function is separate work
-        use crate::atom::molecule_key_codec;
         use crate::db_operations::admin_db::LegacyRefBlobPurgeReport;
 
         let prefix = build_storage_key(storage_prefix, "ref:");
@@ -30,73 +53,34 @@ impl AtomStore {
             .await
             .map_err(|e| SchemaError::InvalidData(format!("scan ref: {e}")))?;
 
-        let mut keys_found = 0u64;
-        let mut bytes_found_approx = 0u64;
-        let mut keys_safe = 0u64;
-        let mut keys_blocked = 0u64;
-        let mut bytes_safe_approx = 0u64;
-        let mut bytes_blocked_approx = 0u64;
-        let mut safe_to_delete: Vec<String> = Vec::new();
-        let mut blocked_samples: Vec<String> = Vec::new();
-        const SAMPLE_CAP: usize = 16;
-
+        let mut tally = RefBlobTally::default();
         for (k, v) in rows {
             let key = String::from_utf8_lossy(&k).into_owned();
             let row_bytes = k.len() as u64 + v.len() as u64;
-            keys_found += 1;
-            bytes_found_approx += row_bytes;
+            tally.keys_found += 1;
+            tally.bytes_found_approx += row_bytes;
 
-            let Some(mol_uuid) = Self::molecule_uuid_from_ref_key(&key) else {
-                keys_blocked += 1;
-                bytes_blocked_approx += row_bytes;
-                if blocked_samples.len() < SAMPLE_CAP {
-                    blocked_samples.push(key);
+            let covered = match Self::molecule_uuid_from_ref_key(&key) {
+                Some(mol_uuid) => {
+                    self.molecule_has_per_key_coverage(mol_uuid, storage_prefix)
+                        .await?
                 }
-                continue;
+                None => false,
             };
-
-            let header =
-                build_storage_key(storage_prefix, &molecule_key_codec::header_key(mol_uuid));
-            let mk_prefix = build_storage_key(
-                storage_prefix,
-                &molecule_key_codec::molecule_record_prefix(mol_uuid),
-            );
-
-            let has_header = self
-                .raw()
-                .exists_item(&header)
-                .await
-                .map_err(|e| SchemaError::InvalidData(format!("exists mh: {e}")))?;
-            let has_mk = if has_header {
-                true
+            if covered {
+                tally.keys_safe += 1;
+                tally.bytes_safe_approx += row_bytes;
+                tally.safe_to_delete.push(key);
             } else {
-                let mk_rows = self
-                    .raw()
-                    .inner()
-                    .scan_prefix_keys(mk_prefix.as_bytes())
-                    .await
-                    .map_err(|e| SchemaError::InvalidData(format!("scan mk: {e}")))?;
-                !mk_rows.is_empty()
-            };
-
-            if has_mk {
-                keys_safe += 1;
-                bytes_safe_approx += row_bytes;
-                safe_to_delete.push(key);
-            } else {
-                keys_blocked += 1;
-                bytes_blocked_approx += row_bytes;
-                if blocked_samples.len() < SAMPLE_CAP {
-                    blocked_samples.push(key);
-                }
+                tally.record_blocked(key, row_bytes);
             }
         }
 
         let mut keys_deleted = 0u64;
-        if !dry_run && !safe_to_delete.is_empty() {
-            keys_deleted = safe_to_delete.len() as u64;
+        if !dry_run && !tally.safe_to_delete.is_empty() {
+            keys_deleted = tally.safe_to_delete.len() as u64;
             self.raw()
-                .batch_delete_keys(safe_to_delete)
+                .batch_delete_keys(tally.safe_to_delete)
                 .await
                 .map_err(|e| SchemaError::InvalidData(format!("delete ref: {e}")))?;
             let _ = self.flush().await;
@@ -105,16 +89,47 @@ impl AtomStore {
         Ok(LegacyRefBlobPurgeReport {
             dry_run,
             collection: "legacy_blob_refs".to_string(),
-            keys_found,
-            bytes_found_approx,
-            keys_safe,
-            keys_blocked,
-            bytes_safe_approx,
-            bytes_blocked_approx,
+            keys_found: tally.keys_found,
+            bytes_found_approx: tally.bytes_found_approx,
+            keys_safe: tally.keys_safe,
+            keys_blocked: tally.keys_blocked,
+            bytes_safe_approx: tally.bytes_safe_approx,
+            bytes_blocked_approx: tally.bytes_blocked_approx,
             keys_deleted,
-            blocked_samples,
-            purge_complete: keys_blocked == 0 && (dry_run || keys_deleted == keys_safe),
+            blocked_samples: tally.blocked_samples,
+            purge_complete: tally.keys_blocked == 0 && (dry_run || keys_deleted == tally.keys_safe),
         })
+    }
+
+    /// True when the molecule is already stored as per-key data: `mh:{M}` or
+    /// any `mk:{M}:…` tip exists.
+    async fn molecule_has_per_key_coverage(
+        &self,
+        mol_uuid: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<bool, SchemaError> {
+        use crate::atom::molecule_key_codec;
+
+        let header = build_storage_key(storage_prefix, &molecule_key_codec::header_key(mol_uuid));
+        let has_header = self
+            .raw()
+            .exists_item(&header)
+            .await
+            .map_err(|e| SchemaError::InvalidData(format!("exists mh: {e}")))?;
+        if has_header {
+            return Ok(true);
+        }
+        let mk_prefix = build_storage_key(
+            storage_prefix,
+            &molecule_key_codec::molecule_record_prefix(mol_uuid),
+        );
+        let mk_rows = self
+            .raw()
+            .inner()
+            .scan_prefix_keys(mk_prefix.as_bytes())
+            .await
+            .map_err(|e| SchemaError::InvalidData(format!("scan mk: {e}")))?;
+        Ok(!mk_rows.is_empty())
     }
 
     /// Extract molecule uuid from a storage key of the form `ref:{M}` or

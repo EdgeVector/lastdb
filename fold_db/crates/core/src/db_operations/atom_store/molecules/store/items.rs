@@ -1,5 +1,8 @@
 use super::*;
 
+/// Ordinary rows plus the winning pending value for each `mk:` tip key.
+type CollapsedTips = (Vec<(String, Value)>, HashMap<String, PerKeyRecord>);
+
 impl AtomStore {
     /// Keep one maximum-version value per exact `mk:` key, then compare it
     /// with the durable value while the caller holds that key's tip lock.
@@ -7,35 +10,7 @@ impl AtomStore {
         &self,
         items: &mut Vec<(String, Value)>,
     ) -> Result<(), SchemaError> {
-        // lint:fn-size-ok verbatim move from store.rs; splitting this function is separate work
-        let mut ordinary = Vec::with_capacity(items.len());
-        let mut tips: HashMap<String, PerKeyRecord> = HashMap::new();
-        for (key, value) in items.drain(..) {
-            if !is_tip_item_key(&key) {
-                ordinary.push((key, value));
-                continue;
-            }
-            let incoming: PerKeyRecord = serde_json::from_value(value).map_err(|error| {
-                SchemaError::InvalidData(format!("parse pending durable tip {key}: {error}"))
-            })?;
-            match tips.entry(key) {
-                std::collections::hash_map::Entry::Vacant(slot) => {
-                    slot.insert(incoming);
-                }
-                std::collections::hash_map::Entry::Occupied(mut slot) => {
-                    let legacy_last_write = is_legacy_zero_clock(&incoming.entry)
-                        && is_legacy_zero_clock(&slot.get().entry);
-                    if legacy_last_write
-                        || crate::atom::incoming_wins_lww(
-                            incoming.entry.lww_key(),
-                            slot.get().entry.lww_key(),
-                        )
-                    {
-                        slot.insert(incoming);
-                    }
-                }
-            }
-        }
+        let (mut ordinary, mut tips) = Self::collapse_pending_tips(items)?;
         let tip_keys: Vec<String> = tips.keys().cloned().collect();
         let barriers = self.winning_delete_barriers(&tip_keys).await?;
         let eligible_keys: Vec<String> = tip_keys
@@ -89,7 +64,53 @@ impl AtomStore {
             }
             ordinary.push((key, value));
         }
-        // Tip-edge transitions are part of the same winner decision. A delayed
+        Self::retain_accepted_tip_edges(&mut ordinary, &accepted_slots, &accepted_tip_edges);
+        *items = ordinary;
+        Ok(())
+    }
+
+    /// Split pending items into ordinary rows and one LWW winner per `mk:` tip key.
+    fn collapse_pending_tips(
+        items: &mut Vec<(String, Value)>,
+    ) -> Result<CollapsedTips, SchemaError> {
+        let mut ordinary = Vec::with_capacity(items.len());
+        let mut tips: HashMap<String, PerKeyRecord> = HashMap::new();
+        for (key, value) in items.drain(..) {
+            if !is_tip_item_key(&key) {
+                ordinary.push((key, value));
+                continue;
+            }
+            let incoming: PerKeyRecord = serde_json::from_value(value).map_err(|error| {
+                SchemaError::InvalidData(format!("parse pending durable tip {key}: {error}"))
+            })?;
+            match tips.entry(key) {
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(incoming);
+                }
+                std::collections::hash_map::Entry::Occupied(mut slot) => {
+                    let legacy_last_write = is_legacy_zero_clock(&incoming.entry)
+                        && is_legacy_zero_clock(&slot.get().entry);
+                    if legacy_last_write
+                        || crate::atom::incoming_wins_lww(
+                            incoming.entry.lww_key(),
+                            slot.get().entry.lww_key(),
+                        )
+                    {
+                        slot.insert(incoming);
+                    }
+                }
+            }
+        }
+        Ok((ordinary, tips))
+    }
+
+    /// Tip-edge transitions are part of the same winner decision.
+    /// Keep only edges of accepted slots; an active edge must match an accepted winner.
+    fn retain_accepted_tip_edges(
+        ordinary: &mut Vec<(String, Value)>,
+        accepted_slots: &std::collections::HashSet<(String, String, String)>,
+        accepted_tip_edges: &std::collections::HashSet<(String, String, String, String, String)>,
+    ) {
         // losing flush must not publish an active loser edge or deactivate the
         // durable winner's edge. Tip-version edges remain valid history.
         ordinary.retain(|(_, value)| {
@@ -130,8 +151,6 @@ impl AtomStore {
                 version.to_string(),
             ))
         });
-        *items = ordinary;
-        Ok(())
     }
 
     /// Build one molecule's items for a changed-key write.
