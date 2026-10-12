@@ -210,14 +210,12 @@ impl SyncEngine {
             phases.mark("scoped_download");
         }
 
-        tracing::info!(
-            target: "fold_db::sync::memory",
-            target_count = targets.len(),
+        log_personal_download_complete(
+            targets.len(),
             scoped_total,
-            downloaded = state.downloaded,
-            selected = entries.len(),
+            state.downloaded,
+            entries.len(),
             bytes_selected,
-            "personal download complete; evaluating upload before scoped downloads"
         );
 
         if !entries.is_empty() {
@@ -316,6 +314,24 @@ fn log_backup_blocked(blocker: &SyncBackupBlocker) {
 }
 
 /// Turn the finished cycle state into the cycle result, surfacing any block or transfer error.
+fn log_personal_download_complete(
+    target_count: usize,
+    scoped_total: usize,
+    downloaded: u64,
+    selected: usize,
+    bytes_selected: u64,
+) {
+    tracing::info!(
+        target: "fold_db::sync::memory",
+        target_count,
+        scoped_total,
+        downloaded,
+        selected,
+        bytes_selected,
+        "personal download complete; evaluating upload before scoped downloads"
+    );
+}
+
 fn finish_cycle(
     mut state: CycleState,
     backup_blocked: Option<&SyncBackupBlocker>,

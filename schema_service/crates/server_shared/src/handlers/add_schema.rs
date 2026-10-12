@@ -271,6 +271,31 @@ pub async fn add_schema(
     )
 }
 
+/// Build the success body shared by every non-conflict add-schema outcome.
+fn add_schema_success_response(
+    state: &SchemaServiceState,
+    created: bool,
+    (schema, mutation_mappers): (Schema, std::collections::HashMap<String, String>),
+    replaced_schema: Option<String>,
+    composed: bool,
+    composition: Option<SchemaRegistrationComposition>,
+) -> HttpResponse {
+    let system = state.is_system_schema(&schema.name);
+    let body = AddSchemaResponse {
+        schema,
+        mutation_mappers,
+        replaced_schema,
+        system,
+        composed,
+        composition,
+    };
+    if created {
+        HttpResponse::Created().json(body)
+    } else {
+        HttpResponse::Ok().json(body)
+    }
+}
+
 /// Record the match telemetry and build the HTTP response for one add-schema result.
 fn add_schema_outcome_response(
     state: &SchemaServiceState,
@@ -291,15 +316,14 @@ fn add_schema_outcome_response(
                 telemetry_source,
                 telemetry_reason,
             );
-            let system = state.is_system_schema(&schema.name);
-            HttpResponse::Created().json(AddSchemaResponse {
-                schema,
-                mutation_mappers,
-                replaced_schema: None,
-                system,
-                composed: response_composition.is_some(),
-                composition: response_composition,
-            })
+            add_schema_success_response(
+                state,
+                true,
+                (schema, mutation_mappers),
+                None,
+                response_composition.is_some(),
+                response_composition,
+            )
         }
         Ok(SchemaAddOutcome::AlreadyExists(schema, mutation_mappers)) => {
             state.record_schema_match_outcome(
@@ -307,15 +331,14 @@ fn add_schema_outcome_response(
                 telemetry_source,
                 telemetry_reason,
             );
-            let system = state.is_system_schema(&schema.name);
-            HttpResponse::Ok().json(AddSchemaResponse {
-                schema,
-                mutation_mappers,
-                replaced_schema: None,
-                system,
-                composed: false,
-                composition: response_composition,
-            })
+            add_schema_success_response(
+                state,
+                false,
+                (schema, mutation_mappers),
+                None,
+                false,
+                response_composition,
+            )
         }
         Ok(SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers)) => {
             state.record_schema_match_outcome(
@@ -323,15 +346,14 @@ fn add_schema_outcome_response(
                 telemetry_source,
                 telemetry_reason,
             );
-            let system = state.is_system_schema(&schema.name);
-            HttpResponse::Created().json(AddSchemaResponse {
-                schema,
-                mutation_mappers,
-                replaced_schema: Some(old_name),
-                system,
-                composed: false,
-                composition: response_composition,
-            })
+            add_schema_success_response(
+                state,
+                true,
+                (schema, mutation_mappers),
+                Some(old_name),
+                false,
+                response_composition,
+            )
         }
         // A composed canonical is newly registered: the compositional apply
         // step rewrote one or more nested `ref_fields` to reuse an existing
@@ -348,15 +370,14 @@ fn add_schema_outcome_response(
                 telemetry_source,
                 telemetry_reason,
             );
-            let system = state.is_system_schema(&schema.name);
-            HttpResponse::Created().json(AddSchemaResponse {
-                schema,
-                mutation_mappers,
-                replaced_schema: None,
-                system,
-                composed: true,
-                composition: response_composition,
-            })
+            add_schema_success_response(
+                state,
+                true,
+                (schema, mutation_mappers),
+                None,
+                true,
+                response_composition,
+            )
         }
         Ok(SchemaAddOutcome::DescriptiveNameConflict(conflict)) => {
             state.record_schema_match_outcome("rejected", telemetry_source, telemetry_reason);
