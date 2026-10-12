@@ -336,13 +336,15 @@ impl MutationManager {
     }
 }
 
-mod jobs;
+mod deferred_job;
 mod lane_writer;
 mod locks;
+mod purge_job;
 mod purge_resident;
 mod purge_types;
 mod quarantine_records;
 mod resident_publish;
+mod storage_slot_job;
 pub(in crate::fold_db_core::mutation_manager) use lane_writer::*;
 pub(crate) use purge_types::*;
 pub(crate) use quarantine_records::*;
