@@ -518,6 +518,76 @@ fn sign_negative_claim(
     Ok(BASE64.encode(bytes))
 }
 
+/// Require a 401 whose rejection reason matches the mode's expected reason.
+async fn expect_unauthorized_rejection(
+    response: reqwest::Response,
+    mode: NegativeProof,
+    label: &str,
+) -> Result<(), String> {
+    if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+        return Err(format!("{label} did not return unauthorized"));
+    }
+    let body = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|_| format!("{label} rejection body was invalid"))?;
+    let reason = rejection_reason(&body);
+    if reason != mode.expected_reason() {
+        return Err(format!(
+            "{label} returned an unexpected rejection reason={reason}"
+        ));
+    }
+    Ok(())
+}
+
+/// Request a mutation challenge for the schema hash.
+async fn request_negative_challenge(
+    http: &reqwest::Client,
+    base_url: &str,
+    node_public_key: &str,
+    schema_hash: &str,
+    app_id: Option<&String>,
+) -> Result<SchemaMutationChallengeResponse, String> {
+    let challenge = http
+        .post(format!("{base_url}/v1/schemas/mutation-challenge"))
+        .json(&SchemaMutationChallengeRequest {
+            node_public_key: node_public_key.to_string(),
+            schema_hash: schema_hash.to_string(),
+            app_id: app_id.cloned(),
+        })
+        .send()
+        .await
+        .map_err(|_| "negative proof challenge request failed".to_string())?;
+    if challenge.status() != reqwest::StatusCode::CREATED {
+        return Err("negative proof challenge was not issued".to_string());
+    }
+    challenge
+        .json::<SchemaMutationChallengeResponse>()
+        .await
+        .map_err(|_| "negative proof challenge response was invalid".to_string())
+}
+
+/// First counter at or after the challenge start that does NOT satisfy the PoW.
+fn first_unsatisfying_counter(
+    challenge: &SchemaMutationChallengeResponse,
+    node_public_key_hash: &str,
+    schema_hash: &str,
+) -> Result<u64, String> {
+    let mut candidate = challenge.counter_start;
+    while pow_satisfies(
+        &challenge.nonce,
+        node_public_key_hash,
+        schema_hash,
+        candidate,
+        challenge.difficulty_bits,
+    ) {
+        candidate = candidate
+            .checked_add(1)
+            .ok_or_else(|| "negative proof counter overflow".to_string())?;
+    }
+    Ok(candidate)
+}
+
 async fn run_negative_probe(
     args: &ProbeArgs,
     schema: &Schema,
@@ -547,6 +617,7 @@ async fn run_negative_probe(
         offer_to_shared_discovery: false,
         shared_surface: None,
     };
+    let base_url = args.url.trim_end_matches('/');
     if mode == NegativeProof::Missing {
         emit_progress(
             environment_label,
@@ -555,25 +626,12 @@ async fn run_negative_probe(
             Some(mode),
         );
         let response = http
-            .post(format!("{}/v1/schemas", args.url.trim_end_matches('/')))
+            .post(format!("{base_url}/v1/schemas"))
             .json(&request)
             .send()
             .await
             .map_err(|_| "missing proof registration request failed".to_string())?;
-        if response.status() != reqwest::StatusCode::UNAUTHORIZED {
-            return Err("missing proof did not return unauthorized".to_string());
-        }
-        let body = response
-            .json::<serde_json::Value>()
-            .await
-            .map_err(|_| "missing proof rejection body was invalid".to_string())?;
-        let reason = rejection_reason(&body);
-        if reason != mode.expected_reason() {
-            return Err(format!(
-                "missing proof returned an unexpected rejection reason={reason}"
-            ));
-        }
-        return Ok(());
+        return expect_unauthorized_rejection(response, mode, "missing proof").await;
     }
     emit_progress(
         environment_label,
@@ -581,44 +639,20 @@ async fn run_negative_probe(
         "negative-proof-challenge",
         Some(mode),
     );
-    let challenge = http
-        .post(format!(
-            "{}/v1/schemas/mutation-challenge",
-            args.url.trim_end_matches('/')
-        ))
-        .json(&SchemaMutationChallengeRequest {
-            node_public_key: node_public_key.clone(),
-            schema_hash: schema_hash.clone(),
-            app_id: schema.owner_app_id.clone(),
-        })
-        .send()
-        .await
-        .map_err(|_| "negative proof challenge request failed".to_string())?;
-    if challenge.status() != reqwest::StatusCode::CREATED {
-        return Err("negative proof challenge was not issued".to_string());
-    }
-    let challenge = challenge
-        .json::<SchemaMutationChallengeResponse>()
-        .await
-        .map_err(|_| "negative proof challenge response was invalid".to_string())?;
+    let challenge = request_negative_challenge(
+        &http,
+        base_url,
+        &node_public_key,
+        &schema_hash,
+        schema.owner_app_id.as_ref(),
+    )
+    .await?;
 
     let counter = match mode {
         NegativeProof::Missing => unreachable!("missing proof returns before challenge"),
         NegativeProof::Expired => challenge.counter_start,
         NegativeProof::Invalid => {
-            let mut candidate = challenge.counter_start;
-            while pow_satisfies(
-                &challenge.nonce,
-                &node_public_key_hash,
-                &schema_hash,
-                candidate,
-                challenge.difficulty_bits,
-            ) {
-                candidate = candidate
-                    .checked_add(1)
-                    .ok_or_else(|| "negative proof counter overflow".to_string())?;
-            }
-            candidate
+            first_unsatisfying_counter(&challenge, &node_public_key_hash, &schema_hash)?
         }
     };
     let expires_at = match mode {
@@ -642,7 +676,7 @@ async fn run_negative_probe(
         Some(mode),
     );
     let response = http
-        .post(format!("{}/v1/schemas", args.url.trim_end_matches('/')))
+        .post(format!("{base_url}/v1/schemas"))
         .header(HEADER_NODE_PUBLIC_KEY, node_public_key)
         .header(HEADER_NODE_SIGNATURE, signature)
         .header(HEADER_POW_CHALLENGE, challenge.challenge_id)
@@ -658,20 +692,7 @@ async fn run_negative_probe(
         .send()
         .await
         .map_err(|_| "negative proof registration request failed".to_string())?;
-    if response.status() != reqwest::StatusCode::UNAUTHORIZED {
-        return Err("negative proof did not return unauthorized".to_string());
-    }
-    let body = response
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|_| "negative proof rejection body was invalid".to_string())?;
-    let reason = rejection_reason(&body);
-    if reason != mode.expected_reason() {
-        return Err(format!(
-            "negative proof returned an unexpected rejection reason={reason}"
-        ));
-    }
-    Ok(())
+    expect_unauthorized_rejection(response, mode, "negative proof").await
 }
 
 #[path = "schema_pow_live_probe/phases.rs"]
