@@ -182,6 +182,40 @@ impl FieldVariant {
                 .resident()
                 .resident_key_set_range(molecule_uuid, None, None)
         };
+        // The durable load of a HashRange field builds a molecule whose hash
+        // slots are API form for every filter. Its range slots are API form for
+        // a point or multi-get filter (the load remaps them, see
+        // `expand_filter_range_bounds_for_apply`) and storage form (OPE) for
+        // every other filter. A dirty overlay entry must use the same form as
+        // the molecule it joins, or the filter never matches it and a read after
+        // an ack misses the write.
+        let is_hash_range = matches!(kind, FieldKind::HashRange);
+        let api_range = is_hash_range
+            && matches!(
+                filter,
+                HashRangeFilter::HashRangeKey { .. } | HashRangeFilter::HashRangeKeys(_)
+            );
+        let molecule_key = |key: &crate::resident::ResidentMoleculeKey| {
+            let hash = if is_hash_range {
+                key.hash.clone()
+            } else {
+                db_ops
+                    .atoms()
+                    .key_codec()
+                    .storage_hash(molecule_uuid, &key.hash)
+                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?
+            };
+            let range = if api_range {
+                key.range.clone()
+            } else {
+                db_ops
+                    .atoms()
+                    .key_codec()
+                    .storage_range(molecule_uuid, &key.range)
+                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?
+            };
+            Ok::<_, SchemaError>((hash, range))
+        };
         let mut entries = Vec::with_capacity(snapshot.keys.len());
         for key in &snapshot.keys {
             let Some(tip) = db_ops
@@ -190,31 +224,12 @@ impl FieldVariant {
             else {
                 continue;
             };
-            let hash = db_ops
-                .atoms()
-                .key_codec()
-                .storage_hash(molecule_uuid, &key.hash)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-            let range = db_ops
-                .atoms()
-                .key_codec()
-                .storage_range(molecule_uuid, &key.range)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+            let (hash, range) = molecule_key(key)?;
             entries.push((hash, range, tip.value.atom_uuid));
         }
         let mut tombstones = Vec::with_capacity(snapshot.tombstones.len());
         for key in &snapshot.tombstones {
-            let hash = db_ops
-                .atoms()
-                .key_codec()
-                .storage_hash(molecule_uuid, &key.hash)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-            let range = db_ops
-                .atoms()
-                .key_codec()
-                .storage_range(molecule_uuid, &key.range)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-            tombstones.push((hash, range));
+            tombstones.push(molecule_key(key)?);
         }
         let authoritative = matches!(
             snapshot.completeness,
