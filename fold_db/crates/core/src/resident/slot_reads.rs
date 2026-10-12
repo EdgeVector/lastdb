@@ -37,16 +37,10 @@ impl Drop for SlotRead<'_> {
             return;
         }
         readers.remove(&self.key);
-        let flights = self
-            .graph
-            .rehydrate_flights
-            .lock()
-            .expect("resident rehydrate flight lock");
         let mut slots = self.graph.slots.write().expect("resident slot lock");
-        if !flights.contains_key(&self.key)
-            && slots
-                .get(&self.key)
-                .is_some_and(|slot| slot.state != ResidentSlotState::Ready)
+        if slots
+            .get(&self.key)
+            .is_some_and(|slot| slot.state != ResidentSlotState::Ready)
         {
             slots.remove(&self.key);
         }

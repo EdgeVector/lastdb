@@ -41,14 +41,10 @@ impl ResidentGraph {
             range: range.to_string(),
         };
         let k = tip_map_key(molecule_uuid, hash, range);
-        // Lock order: readers, rehydrate flights, slots, dirty, then tips. Keep the
+        // Lock order: readers, slots, dirty, then tips. Keep the
         // admission lock through removal so a new cold read cannot miss this
         // invalidation and install an old disk result.
         let readers = self.slot_readers.lock().expect("resident slot reader lock");
-        let flights = self
-            .rehydrate_flights
-            .lock()
-            .expect("resident rehydrate flight lock");
         let mut slots = self.slots.write().expect("resident slot lock");
         if let Some(completed) = completed_revision {
             if !slots.get(&k).is_some_and(|slot| {
@@ -58,7 +54,7 @@ impl ResidentGraph {
             }
         }
         self.invalidate_partition(molecule_uuid, hash);
-        if flights.contains_key(&k) || readers.contains_key(&k) {
+        if readers.contains_key(&k) {
             let control = slots.entry(k.clone()).or_default();
             let was_clean = control.resident_revision == control.durable_revision;
             control.resident_revision = control.resident_revision.saturating_add(1);
@@ -82,7 +78,6 @@ impl ResidentGraph {
         // Keep the revision guard through every keyed removal. A later apply
         // must not publish between the check and the index/marker cleanup.
         drop(slots);
-        drop(flights);
         drop(readers);
         removed
     }
@@ -125,10 +120,6 @@ impl ResidentGraph {
         };
         let k = tip_map_key(molecule_uuid, hash, range);
         let readers = self.slot_readers.lock().expect("resident slot reader lock");
-        let flights = self
-            .rehydrate_flights
-            .lock()
-            .expect("resident rehydrate flight lock");
         let mut slots = self.slots.write().expect("resident slot lock");
         if self.is_dirty(&key) {
             return Err("refuse to evict dirty tip until persist acks".into());
@@ -140,7 +131,7 @@ impl ResidentGraph {
             return Err("refuse to evict tip before its exact persist turn completes".into());
         }
         self.invalidate_partition(molecule_uuid, hash);
-        if flights.contains_key(&k) || readers.contains_key(&k) {
+        if readers.contains_key(&k) {
             let control = slots.entry(k.clone()).or_default();
             control.resident_revision = control.resident_revision.saturating_add(1);
             // This is a clean invalidation, with no outstanding persist turn.
@@ -153,7 +144,6 @@ impl ResidentGraph {
         let removed = self.tips.write().expect("tips lock").remove(&k).is_some();
         self.invalidate_partition(molecule_uuid, hash);
         drop(slots);
-        drop(flights);
         drop(readers);
         if removed {
             self.discharge(&key);

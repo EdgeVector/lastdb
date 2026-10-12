@@ -35,11 +35,6 @@ mod schemas;
 mod slots;
 mod tips;
 
-/// Marker for an in-flight cold rehydrate of one slot. Only its presence in
-/// `rehydrate_flights` matters to the slot-eviction and purge paths.
-#[derive(Debug)]
-pub(crate) struct RehydrateFlightCell;
-
 /// Loader used on schema rehydrate miss (typically SchemaCore / db_ops).
 pub trait SchemaLoader: Send + Sync {
     fn load_schema(&self, name: &str) -> Result<Option<Schema>, String>;
@@ -76,13 +71,10 @@ pub struct ResidentGraph {
     /// Byte budget; `0` means unbounded (tests / explicit opt-out).
     budget_bytes: u64,
     ledger: Mutex<ResidentLedger>,
-    /// Per-slot revision + Ready/RehydrateFlight flag. Missing == Absent.
+    /// Per-slot revision + Ready flag. Missing == Absent.
     slots: RwLock<HashMap<String, ResidentSlotControl>>,
     /// Wakes persist envelopes after an exact predecessor revision completes.
     persist_turn_changed: Notify,
-    /// Single-flight cells for cold rehydrate. The disk read does **not**
-    /// hold this map's mutex — waiters share the cell.
-    rehydrate_flights: Mutex<HashMap<String, Arc<RehydrateFlightCell>>>,
     slot_readers: Mutex<HashMap<String, usize>>,
 }
 
@@ -106,7 +98,6 @@ impl ResidentGraph {
             ledger: Mutex::new(ResidentLedger::default()),
             slots: RwLock::new(HashMap::new()),
             persist_turn_changed: Notify::new(),
-            rehydrate_flights: Mutex::new(HashMap::new()),
             slot_readers: Mutex::new(HashMap::new()),
         }
     }
