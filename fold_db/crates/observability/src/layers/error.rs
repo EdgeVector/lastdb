@@ -328,7 +328,7 @@ fn event_mapper_with_trace_context<S>(
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    let mut sentry_event = sentry_tracing::event_from_event(event, Some(&ctx));
+    let sentry_event = sentry_tracing::event_from_event(event, Some(&ctx));
     if is_disk_full_storage_event(&sentry_event) {
         let mut breadcrumb = sentry_tracing::breadcrumb_from_event(event, Some(&ctx));
         breadcrumb.data.insert(
@@ -339,6 +339,22 @@ where
     }
 
     #[cfg(feature = "otel")]
+    let sentry_event = tag_with_trace_context(sentry_event, event, &ctx);
+
+    EventMapping::Event(sentry_event)
+}
+
+/// Copy the W3C `trace_id` / `span_id` of the event's span onto the Sentry
+/// event as tags. A span without `OtelData` leaves the event untouched.
+#[cfg(all(feature = "sentry", feature = "otel"))]
+fn tag_with_trace_context<'a, S>(
+    mut sentry_event: sentry::protocol::Event<'a>,
+    event: &tracing::Event<'_>,
+    ctx: &tracing_subscriber::layer::Context<'_, S>,
+) -> sentry::protocol::Event<'a>
+where
+    S: Subscriber + for<'b> LookupSpan<'b>,
+{
     if let Some(span_ref) = ctx.event_span(event) {
         let exts = span_ref.extensions();
         if let Some(otel_data) = exts.get::<OtelData>() {
@@ -354,10 +370,7 @@ where
             }
         }
     }
-    #[cfg(not(feature = "otel"))]
-    let _ = (event, ctx);
-
-    EventMapping::Event(sentry_event)
+    sentry_event
 }
 
 #[cfg(feature = "sentry")]
