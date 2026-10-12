@@ -1,3 +1,4 @@
+use super::restore_download::{with_listed_sizes, MutationLogDownloadCandidate};
 use super::*;
 
 /// Read the same personal writer floor as the engine, without constructing a
@@ -198,7 +199,7 @@ impl SyncEngine {
         incorporated_frontier: &Frontier,
         progress: Option<&RestoreProgress>,
         skip_writer: Option<&str>,
-    ) -> SyncResult<Vec<(String, String, MutationLogSegmentId)>> {
+    ) -> SyncResult<Vec<MutationLogDownloadCandidate>> {
         let list_started = std::time::Instant::now();
         let objects = match skip_writer {
             Some(writer) => {
@@ -242,14 +243,7 @@ impl SyncEngine {
             );
         }
 
-        let candidates = candidates
-            .into_iter()
-            .map(|(writer, through_id, object_key)| {
-                let segment = mutation_log_segment_id_from_object_key(&object_key, through_id)?;
-                Ok((writer, object_key, segment))
-            })
-            .collect::<Result<Vec<_>, String>>()
-            .map_err(SyncError::Storage)?;
+        let candidates = with_listed_sizes(&objects, candidates)?;
         progress::update(progress, |p| p.tail_objects_total = Some(candidates.len()));
         Ok(candidates)
     }
@@ -259,7 +253,7 @@ impl SyncEngine {
     async fn download_mutation_log_candidate_batches(
         &self,
         target: &SyncTarget,
-        candidates: &[(String, String, MutationLogSegmentId)],
+        candidates: &[MutationLogDownloadCandidate],
         incorporated_frontier: &Frontier,
         progress: Option<&RestoreProgress>,
     ) -> SyncResult<(Vec<MutationLogSegment>, usize)> {
@@ -273,12 +267,12 @@ impl SyncEngine {
         for typed in [false, true] {
             let selected = candidates
                 .iter()
-                .filter(|(_, _, segment)| segment.schema_name.is_some() == typed)
+                .filter(|candidate| candidate.segment.schema_name.is_some() == typed)
                 .collect::<Vec<_>>();
             for chunk in selected.chunks(BATCH) {
                 let segment_ids = chunk
                     .iter()
-                    .map(|(_, _, segment)| segment.clone())
+                    .map(|candidate| candidate.segment.clone())
                     .collect::<Vec<_>>();
                 let urls = progress::measure(progress, TransferOperation::Authorization, async {
                     if typed {
@@ -307,35 +301,16 @@ impl SyncEngine {
                         urls.len()
                     )));
                 }
-                for (((writer_hint, object_key, _), segment_id), url) in
-                    chunk.iter().copied().zip(segment_ids).zip(urls)
-                {
-                    let Some(bytes) = progress::measure(
-                        progress,
-                        TransferOperation::Download,
-                        self.s3.download(&url),
-                    )
-                    .await?
-                    else {
-                        return Err(SyncError::Storage(format!(
-                            "mutation-log segment {object_key} missing during restore download"
-                        )));
-                    };
-                    downloaded = downloaded.saturating_add(1);
-                    progress::update(progress, |p| {
-                        p.response_body_bytes =
-                            p.response_body_bytes.saturating_add(bytes.len() as u64);
-                        p.tail_objects_downloaded += 1;
-                    });
-                    let writer = segment_id.writer_id.as_deref().unwrap_or(writer_hint);
-                    if incorporated_frontier.covers_log(Some(writer), segment_id.through_id) {
-                        continue;
-                    }
-                    segments.push(MutationLogSegment {
-                        segment: segment_id,
-                        payload: bytes,
-                    });
-                }
+                let (batch, count) = super::restore_download::download_batch(
+                    &self.s3,
+                    chunk,
+                    &urls,
+                    incorporated_frontier,
+                    progress,
+                )
+                .await?;
+                downloaded = downloaded.saturating_add(count);
+                segments.extend(batch);
             }
         }
         Ok((segments, downloaded))
