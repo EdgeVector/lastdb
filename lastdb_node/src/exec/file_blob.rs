@@ -1,6 +1,7 @@
 //! File-blob routes: put, fetch and fork, with the caller-supplied thumbnail and write-metadata wire types.
 
 use super::*;
+use fold_db::fold_db_core::fold_db::{PersonalFileBlobFork, PersonalFileBlobWrite};
 use std::borrow::Cow;
 
 /// Caller-supplied thumbnail derivative on a file-blob write.
@@ -77,104 +78,69 @@ pub(super) async fn execute_db_fork_file_blob_route(
             )
         }
     };
-    if body.schema.trim().is_empty() {
-        return error_response(400, "schema must not be empty", ctx);
+    let metadata = FileBlobWriteMetadata {
+        schema: body.schema,
+        field: body.field,
+        key: body.key,
+        thumbnail: body.thumbnail,
+        writer_pubkey: body.writer_pubkey,
+        mutation_type: body.mutation_type,
+        name: body.name,
+        media_type: body.media_type,
+        cache_local_plaintext: body.cache_local_plaintext,
+        additional_fields: body.additional_fields,
+    };
+    if let Some(response) = reject_blank_schema_field(&metadata, ctx) {
+        return response;
     }
-    if body.field.trim().is_empty() {
-        return error_response(400, "field must not be empty", ctx);
-    }
+    let Some(sync_engine) = host.db.sync_engine() else {
+        return error_response(409, "cloud sync is not configured on this node", ctx);
+    };
+    let write = match metadata.into_write(host) {
+        Ok(write) => write,
+        Err(e) => return error_response(400, &e, ctx),
+    };
+    let request = PersonalFileBlobFork {
+        source_pointer: body.pointer,
+        write,
+    };
 
+    let result = match crate::maintenance_write_gate::run(
+        host,
+        host.db
+            .fork_personal_file_blob(sync_engine.as_ref(), request),
+    )
+    .await
     {
-        use fold_db::fold_db_core::fold_db::{PersonalFileBlobFork, PersonalFileBlobWrite};
-        use fold_db::sharing::delivery_wire::file_blob_access_from_atom_value;
+        Some(Ok(result)) => result,
+        Some(Err(fold_db::error::FoldDbError::SecurityError(msg))) => {
+            return error_response(422, &format!("file blob verification failed: {msg}"), ctx)
+        }
+        Some(Err(fold_db::error::FoldDbError::QuotaExceeded(msg))) => {
+            return quota_exceeded_response("file blob fork failed", &msg, ctx)
+        }
+        Some(Err(e)) => return mapped_error_response("file blob fork failed", e, ctx),
+        None => return writes_paused_response(ctx),
+    };
+    let access = match file_blob_access(&result.pointer, "forked", ctx) {
+        Ok(access) => access,
+        Err(response) => return response,
+    };
 
-        let Some(sync_engine) = host.db.sync_engine() else {
-            return error_response(409, "cloud sync is not configured on this node", ctx);
-        };
-
-        let thumbnail = match body.thumbnail.map(ThumbnailBody::into_upload).transpose() {
-            Ok(t) => t,
-            Err(e) => return error_response(400, &e, ctx),
-        };
-
-        let request = PersonalFileBlobFork {
-            source_pointer: body.pointer,
-            write: PersonalFileBlobWrite {
-                schema_name: body.schema,
-                field_name: body.field,
-                key_value: body.key,
-                writer_pubkey: body.writer_pubkey.unwrap_or_else(|| host.public_key()),
-                mutation_type: body.mutation_type.unwrap_or(MutationType::Update),
-                name: body.name,
-                media_type: body.media_type,
-                thumbnail,
-                cache_local_plaintext: body.cache_local_plaintext,
-                additional_fields: body.additional_fields,
-            },
-        };
-
-        let result = match crate::maintenance_write_gate::run(
-            host,
-            host.db
-                .fork_personal_file_blob(sync_engine.as_ref(), request),
-        )
-        .await
-        {
-            Some(Ok(result)) => result,
-            Some(Err(fold_db::error::FoldDbError::SecurityError(msg))) => {
-                return error_response(422, &format!("file blob verification failed: {msg}"), ctx)
+    json_ok(&envelope(
+        &serde_json::json!({
+            "file_blob": {
+                "pointer": result.pointer,
+                "access": access,
+                "source_blob_ref": result.source_blob_ref,
+                "blob_ref": result.blob_ref,
+                "file_hash": result.file_hash,
+                "mutation_ids": result.mutation_ids,
+                "bytes": result.bytes,
             }
-            Some(Err(fold_db::error::FoldDbError::QuotaExceeded(msg))) => {
-                return error_response(
-                    429,
-                    &format!(
-                        "file blob fork failed: quota exceeded: {msg}; free space or run `lastdb cloud upgrade`, then `lastdb cloud status`"
-                    ),
-                    ctx,
-                )
-            }
-            Some(Err(e)) => return mapped_error_response("file blob fork failed", e, ctx),
-            None => {
-                return error_response(
-                    409,
-                    "local writes are paused for the selected cloud source",
-                    ctx,
-                )
-            }
-        };
-        let access = match file_blob_access_from_atom_value(&result.pointer) {
-            Ok(Some(access)) => access,
-            Ok(None) => {
-                return error_response(
-                    500,
-                    "forked file blob pointer is missing access metadata",
-                    ctx,
-                )
-            }
-            Err(e) => {
-                return error_response(
-                    500,
-                    &format!("forked file blob pointer has invalid access metadata: {e}"),
-                    ctx,
-                )
-            }
-        };
-
-        json_ok(&envelope(
-            &serde_json::json!({
-                "file_blob": {
-                    "pointer": result.pointer,
-                    "access": access,
-                    "source_blob_ref": result.source_blob_ref,
-                    "blob_ref": result.blob_ref,
-                    "file_hash": result.file_hash,
-                    "mutation_ids": result.mutation_ids,
-                    "bytes": result.bytes,
-                }
-            }),
-            ctx.user_id.as_str(),
-        ))
-    }
+        }),
+        ctx.user_id.as_str(),
+    ))
 }
 
 /// Metadata shared by the JSON and binary file-blob upload forms.
@@ -197,6 +163,80 @@ pub(super) struct FileBlobWriteMetadata {
     pub(super) cache_local_plaintext: bool,
     #[serde(default)]
     pub(super) additional_fields: HashMap<String, Value>,
+}
+
+impl FileBlobWriteMetadata {
+    /// Build the engine write request, filling the node's key and `Update` as defaults.
+    /// The error text is the client-facing 400 message for a bad thumbnail.
+    fn into_write(self, host: &Host) -> Result<PersonalFileBlobWrite, String> {
+        let thumbnail = self.thumbnail.map(ThumbnailBody::into_upload).transpose()?;
+        Ok(PersonalFileBlobWrite {
+            schema_name: self.schema,
+            field_name: self.field,
+            key_value: self.key,
+            writer_pubkey: self.writer_pubkey.unwrap_or_else(|| host.public_key()),
+            mutation_type: self.mutation_type.unwrap_or(MutationType::Update),
+            name: self.name,
+            media_type: self.media_type,
+            thumbnail,
+            cache_local_plaintext: self.cache_local_plaintext,
+            additional_fields: self.additional_fields,
+        })
+    }
+}
+
+/// 400 when the target schema or field name is blank.
+fn reject_blank_schema_field(
+    metadata: &FileBlobWriteMetadata,
+    ctx: &AccessContext,
+) -> Option<UdsResponse> {
+    if metadata.schema.trim().is_empty() {
+        return Some(error_response(400, "schema must not be empty", ctx));
+    }
+    if metadata.field.trim().is_empty() {
+        return Some(error_response(400, "field must not be empty", ctx));
+    }
+    None
+}
+
+/// 429 for a permanent cloud quota cap, so clients treat it as non-retryable.
+fn quota_exceeded_response(action: &str, msg: &str, ctx: &AccessContext) -> UdsResponse {
+    error_response(
+        429,
+        &format!(
+            "{action}: quota exceeded: {msg}; free space or run `lastdb cloud upgrade`, then `lastdb cloud status`"
+        ),
+        ctx,
+    )
+}
+
+fn writes_paused_response(ctx: &AccessContext) -> UdsResponse {
+    error_response(
+        409,
+        "local writes are paused for the selected cloud source",
+        ctx,
+    )
+}
+
+/// Read the access metadata off a freshly written pointer; `verb` names it in the 500 text.
+fn file_blob_access(
+    pointer: &Value,
+    verb: &str,
+    ctx: &AccessContext,
+) -> Result<fold_db::sharing::delivery_wire::FileBlobAccess, UdsResponse> {
+    match fold_db::sharing::delivery_wire::file_blob_access_from_atom_value(pointer) {
+        Ok(Some(access)) => Ok(access),
+        Ok(None) => Err(error_response(
+            500,
+            &format!("{verb} file blob pointer is missing access metadata"),
+            ctx,
+        )),
+        Err(e) => Err(error_response(
+            500,
+            &format!("{verb} file blob pointer has invalid access metadata: {e}"),
+            ctx,
+        )),
+    }
 }
 
 /// `application/octet-stream` metadata is a compact JSON object in this
@@ -303,93 +343,51 @@ pub(super) async fn execute_db_put_file_blob_route(
             Cow::Owned(plaintext),
         )
     };
-    if metadata.schema.trim().is_empty() {
-        return error_response(400, "schema must not be empty", ctx);
+    if let Some(response) = reject_blank_schema_field(&metadata, ctx) {
+        return response;
     }
-    if metadata.field.trim().is_empty() {
-        return error_response(400, "field must not be empty", ctx);
-    }
+    let Some(sync_engine) = host.db.sync_engine() else {
+        return error_response(409, "cloud sync is not configured on this node", ctx);
+    };
+    let request = match metadata.into_write(host) {
+        Ok(request) => request,
+        Err(e) => return error_response(400, &e, ctx),
+    };
 
+    let result = match crate::maintenance_write_gate::run(
+        host,
+        host.db
+            .put_personal_file_blob(sync_engine.as_ref(), request, &plaintext),
+    )
+    .await
     {
-        use fold_db::fold_db_core::fold_db::PersonalFileBlobWrite;
-        use fold_db::sharing::delivery_wire::file_blob_access_from_atom_value;
+        Some(Ok(result)) => result,
+        // Permanent cloud cap: HTTP 429 (not 500) so handlers skip ERROR
+        // telemetry storms and clients treat it as non-retryable.
+        Some(Err(fold_db::error::FoldDbError::QuotaExceeded(msg))) => {
+            return quota_exceeded_response("file blob upload failed", &msg, ctx)
+        }
+        Some(Err(e)) => return mapped_error_response("file blob upload failed", e, ctx),
+        None => return writes_paused_response(ctx),
+    };
+    let access = match file_blob_access(&result.pointer, "uploaded", ctx) {
+        Ok(access) => access,
+        Err(response) => return response,
+    };
 
-        let Some(sync_engine) = host.db.sync_engine() else {
-            return error_response(409, "cloud sync is not configured on this node", ctx);
-        };
-
-        let thumbnail = match metadata
-            .thumbnail
-            .map(ThumbnailBody::into_upload)
-            .transpose()
-        {
-            Ok(t) => t,
-            Err(e) => return error_response(400, &e, ctx),
-        };
-
-        let request = PersonalFileBlobWrite {
-            schema_name: metadata.schema,
-            field_name: metadata.field,
-            key_value: metadata.key,
-            writer_pubkey: metadata.writer_pubkey.unwrap_or_else(|| host.public_key()),
-            mutation_type: metadata.mutation_type.unwrap_or(MutationType::Update),
-            name: metadata.name,
-            media_type: metadata.media_type,
-            cache_local_plaintext: metadata.cache_local_plaintext,
-            additional_fields: metadata.additional_fields,
-            thumbnail,
-        };
-
-        let result = match crate::maintenance_write_gate::run(host, host.db
-            .put_personal_file_blob(sync_engine.as_ref(), request, &plaintext)).await
-        {
-            Some(Ok(result)) => result,
-            // Permanent cloud cap: HTTP 429 (not 500) so handlers skip ERROR
-            // telemetry storms and clients treat it as non-retryable.
-            Some(Err(fold_db::error::FoldDbError::QuotaExceeded(msg))) => {
-                return error_response(
-                    429,
-                    &format!(
-                        "file blob upload failed: quota exceeded: {msg}; free space or run `lastdb cloud upgrade`, then `lastdb cloud status`"
-                    ),
-                    ctx,
-                )
+    json_ok(&envelope(
+        &serde_json::json!({
+            "file_blob": {
+                "pointer": result.pointer,
+                "access": access,
+                "blob_ref": result.blob_ref,
+                "file_hash": result.file_hash,
+                "mutation_ids": result.mutation_ids,
+                "bytes": plaintext.len(),
             }
-            Some(Err(e)) => return mapped_error_response("file blob upload failed", e, ctx),
-            None => return error_response(409, "local writes are paused for the selected cloud source", ctx),
-        };
-        let access = match file_blob_access_from_atom_value(&result.pointer) {
-            Ok(Some(access)) => access,
-            Ok(None) => {
-                return error_response(
-                    500,
-                    "uploaded file blob pointer is missing access metadata",
-                    ctx,
-                )
-            }
-            Err(e) => {
-                return error_response(
-                    500,
-                    &format!("uploaded file blob pointer has invalid access metadata: {e}"),
-                    ctx,
-                )
-            }
-        };
-
-        json_ok(&envelope(
-            &serde_json::json!({
-                "file_blob": {
-                    "pointer": result.pointer,
-                    "access": access,
-                    "blob_ref": result.blob_ref,
-                    "file_hash": result.file_hash,
-                    "mutation_ids": result.mutation_ids,
-                    "bytes": plaintext.len(),
-                }
-            }),
-            ctx.user_id.as_str(),
-        ))
-    }
+        }),
+        ctx.user_id.as_str(),
+    ))
 }
 
 /// `POST /api/db/fetch-file-blob` — explicit single-pointer remote CAS fetch.

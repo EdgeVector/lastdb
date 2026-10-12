@@ -173,12 +173,8 @@ fn check_owner(home: &Path, plan: &Plan) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) async fn run(
-    home: &Path,
-    plan_path: &Path,
-    execute: bool,
-    json: bool,
-) -> Result<(), String> {
+/// Take the exclusive owner-rewrite lock. The returned file holds it until dropped.
+fn acquire_rewrite_lock(home: &Path) -> Result<fs::File, String> {
     let lock = OpenOptions::new()
         .read(true)
         .write(true)
@@ -189,11 +185,11 @@ pub(super) async fn run(
         .map_err(|_| "rewrite lock unavailable")?;
     lock.try_lock()
         .map_err(|_| "another owner rewrite holds the lock")?;
-    let plan_bytes = private_read(plan_path, 64 * 1024)?;
-    let plan: Plan =
-        serde_json::from_slice(&plan_bytes).map_err(|_| "invalid rewrite plan JSON")?;
-    validate_plan(&plan, now()?)?;
-    check_owner(home, &plan)?;
+    Ok(lock)
+}
+
+/// Build cloud clients scoped to the plan's source store from the paused cloud config.
+fn paused_cloud_clients(home: &Path, plan: &Plan) -> Result<(AuthClient, S3Client), String> {
     let config: serde_json::Value = serde_json::from_slice(&private_read(
         &home.join("cloud_sync.json.paused"),
         64 * 1024,
@@ -216,92 +212,138 @@ pub(super) async fn run(
     let auth = AuthClient::new(Arc::clone(&http), url, SyncAuth::ApiKey(key))
         .with_db_hash(Some(cloud_db_hash_for_store_uuid(&plan.source_store_uuid)))
         .without_db_auto_claim();
-    let s3 = S3Client::new(http);
-    let plan_sha = sha256_hex(&plan_bytes);
-    let journal_path = home.join(format!("laststore_atom_rewrite_{plan_sha}.json"));
-    let mut reconciled = false;
-    let (manifest, removed) = if journal_path.exists() {
-        let journal: Journal =
-            serde_json::from_slice(&private_read(&journal_path, 16 * 1024 * 1024)?)
-                .map_err(|_| "invalid rewrite journal")?;
-        if journal.version != 1
-            || journal.plan_sha256 != plan_sha
-            || journal.manifest.store_uuid != plan.source_store_uuid
-            || journal.manifest.previous_manifest_sha256.as_deref()
-                != Some(&plan.expected_manifest_sha256)
-        {
-            return Err("rewrite journal does not match the owner plan".into());
-        }
-        let latest = auth
-            .backup_latest_get()
-            .await
-            .map_err(|_| "cloud tip read failed; leave cloud Off")?;
-        let committed_sha =
-            manifest_sha256_hex(&journal.manifest).map_err(|_| "invalid journal manifest")?;
-        if latest.latest.manifest_sha256 == plan.expected_manifest_sha256 {
-            // No CAS landed. Rebuild the exact journaled successor with the
-            // original timestamp, verify its digest, then retry normal CAS.
-            let prepared = prepare_cloud_backup_atom_rewrite(
-                &auth,
-                &s3,
-                &plan.expected_manifest_sha256,
-                &plan.chunk_shas.iter().cloned().collect(),
-                &plan.atom_ids.iter().cloned().collect(),
-                journal.manifest.created_at_unix_secs,
-            )
-            .await
-            .map_err(|_| "journal revalidation failed; leave cloud Off")?;
-            if manifest_sha256_hex(prepared.manifest()).map_err(|_| "invalid prepared manifest")?
-                != committed_sha
-            {
-                return Err("journal differs from rederived rewrite; leave cloud Off".into());
-            }
-            if execute {
-                validate_plan(&plan, now()?)?;
-                check_owner(home, &plan)?;
-                publish_cloud_backup_atom_rewrite(&auth, &s3, &prepared)
-                    .await
-                    .map_err(|_| "journal CAS retry failed or uncertain; leave cloud Off")?;
-            }
-        } else if latest.latest.manifest_sha256 != committed_sha
-            || latest.latest.store_uuid != journal.manifest.store_uuid
-            || latest.latest.epoch != journal.manifest.epoch
-            || latest.latest.counter != journal.manifest.counter
-        {
-            return Err("prepared rewrite lacks its exact CAS receipt; leave cloud Off and inspect the journal".into());
-        }
-        reconciled = true;
-        (journal.manifest, None)
-    } else {
+    Ok((auth, S3Client::new(http)))
+}
+
+/// Resume an interrupted rewrite from its journal and return the journaled manifest.
+async fn reconcile_journal(
+    home: &Path,
+    plan: &Plan,
+    journal_path: &Path,
+    plan_sha: &str,
+    execute: bool,
+    auth: &AuthClient,
+    s3: &S3Client,
+) -> Result<BackupManifest, String> {
+    let journal: Journal = serde_json::from_slice(&private_read(journal_path, 16 * 1024 * 1024)?)
+        .map_err(|_| "invalid rewrite journal")?;
+    if journal.version != 1
+        || journal.plan_sha256 != plan_sha
+        || journal.manifest.store_uuid != plan.source_store_uuid
+        || journal.manifest.previous_manifest_sha256.as_deref()
+            != Some(&plan.expected_manifest_sha256)
+    {
+        return Err("rewrite journal does not match the owner plan".into());
+    }
+    let latest = auth
+        .backup_latest_get()
+        .await
+        .map_err(|_| "cloud tip read failed; leave cloud Off")?;
+    let committed_sha =
+        manifest_sha256_hex(&journal.manifest).map_err(|_| "invalid journal manifest")?;
+    if latest.latest.manifest_sha256 == plan.expected_manifest_sha256 {
+        // No CAS landed. Rebuild the exact journaled successor with the
+        // original timestamp, verify its digest, then retry normal CAS.
         let prepared = prepare_cloud_backup_atom_rewrite(
-            &auth,
-            &s3,
+            auth,
+            s3,
             &plan.expected_manifest_sha256,
             &plan.chunk_shas.iter().cloned().collect(),
             &plan.atom_ids.iter().cloned().collect(),
-            now()?,
+            journal.manifest.created_at_unix_secs,
         )
         .await
-        .map_err(|_| "cloud rewrite preparation failed; no CAS attempted")?;
-        let removed = Some(prepared.removed_records());
-        if execute {
-            validate_plan(&plan, now()?)?;
-            check_owner(home, &plan)?;
-            let journal = Journal {
-                version: 1,
-                plan_sha256: plan_sha,
-                manifest: prepared.manifest().clone(),
-            };
-            atomic_private_write(
-                &journal_path,
-                &serde_json::to_vec(&journal).map_err(|_| "journal encode failed")?,
-            )?;
-            let committed = publish_cloud_backup_atom_rewrite(&auth, &s3, &prepared).await
-                .map_err(|_| "cloud rewrite publication failed or uncertain; leave cloud Off and reconcile the journal")?;
-            (committed, removed)
-        } else {
-            (prepared.manifest().clone(), removed)
+        .map_err(|_| "journal revalidation failed; leave cloud Off")?;
+        if manifest_sha256_hex(prepared.manifest()).map_err(|_| "invalid prepared manifest")?
+            != committed_sha
+        {
+            return Err("journal differs from rederived rewrite; leave cloud Off".into());
         }
+        if execute {
+            validate_plan(plan, now()?)?;
+            check_owner(home, plan)?;
+            publish_cloud_backup_atom_rewrite(auth, s3, &prepared)
+                .await
+                .map_err(|_| "journal CAS retry failed or uncertain; leave cloud Off")?;
+        }
+    } else if latest.latest.manifest_sha256 != committed_sha
+        || latest.latest.store_uuid != journal.manifest.store_uuid
+        || latest.latest.epoch != journal.manifest.epoch
+        || latest.latest.counter != journal.manifest.counter
+    {
+        return Err(
+            "prepared rewrite lacks its exact CAS receipt; leave cloud Off and inspect the journal"
+                .into(),
+        );
+    }
+    Ok(journal.manifest)
+}
+
+/// Prepare a fresh rewrite; with `execute`, journal it and publish. Returns the
+/// manifest and the removed-record count.
+async fn prepare_and_publish(
+    home: &Path,
+    plan: &Plan,
+    journal_path: &Path,
+    plan_sha: String,
+    execute: bool,
+    auth: &AuthClient,
+    s3: &S3Client,
+) -> Result<(BackupManifest, usize), String> {
+    let prepared = prepare_cloud_backup_atom_rewrite(
+        auth,
+        s3,
+        &plan.expected_manifest_sha256,
+        &plan.chunk_shas.iter().cloned().collect(),
+        &plan.atom_ids.iter().cloned().collect(),
+        now()?,
+    )
+    .await
+    .map_err(|_| "cloud rewrite preparation failed; no CAS attempted")?;
+    let removed = prepared.removed_records();
+    if !execute {
+        return Ok((prepared.manifest().clone(), removed));
+    }
+    validate_plan(plan, now()?)?;
+    check_owner(home, plan)?;
+    let journal = Journal {
+        version: 1,
+        plan_sha256: plan_sha,
+        manifest: prepared.manifest().clone(),
+    };
+    atomic_private_write(
+        journal_path,
+        &serde_json::to_vec(&journal).map_err(|_| "journal encode failed")?,
+    )?;
+    let committed = publish_cloud_backup_atom_rewrite(auth, s3, &prepared).await
+        .map_err(|_| "cloud rewrite publication failed or uncertain; leave cloud Off and reconcile the journal")?;
+    Ok((committed, removed))
+}
+
+pub(super) async fn run(
+    home: &Path,
+    plan_path: &Path,
+    execute: bool,
+    json: bool,
+) -> Result<(), String> {
+    let _lock = acquire_rewrite_lock(home)?;
+    let plan_bytes = private_read(plan_path, 64 * 1024)?;
+    let plan: Plan =
+        serde_json::from_slice(&plan_bytes).map_err(|_| "invalid rewrite plan JSON")?;
+    validate_plan(&plan, now()?)?;
+    check_owner(home, &plan)?;
+    let (auth, s3) = paused_cloud_clients(home, &plan)?;
+    let plan_sha = sha256_hex(&plan_bytes);
+    let journal_path = home.join(format!("laststore_atom_rewrite_{plan_sha}.json"));
+    let reconciled = journal_path.exists();
+    let (manifest, removed) = if reconciled {
+        let manifest =
+            reconcile_journal(home, &plan, &journal_path, &plan_sha, execute, &auth, &s3).await?;
+        (manifest, None)
+    } else {
+        let (manifest, removed) =
+            prepare_and_publish(home, &plan, &journal_path, plan_sha, execute, &auth, &s3).await?;
+        (manifest, Some(removed))
     };
     if execute {
         check_owner(home, &plan)?;

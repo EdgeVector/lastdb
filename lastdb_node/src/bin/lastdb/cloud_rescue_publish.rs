@@ -144,52 +144,11 @@ impl RescuePlan {
     }
 }
 
-pub(super) async fn run(
-    home: &Path,
-    execute: bool,
-    wait: bool,
-    inspect: bool,
-    json: bool,
-) -> Result<(), String> {
-    if inspect && execute {
-        return Err("writer inspection cannot publish an S0 rescue".into());
-    }
-    if inspect
-        && std::fs::symlink_metadata(home.join(lastdb_node::host::CLOUD_SYNC_CONFIG_FILE)).is_ok()
-    {
-        return Err("writer inspection requires Cloud Sync Off".into());
-    }
-    let paused = home
-        .join(lastdb_node::host::CLOUD_SYNC_CONFIG_FILE)
-        .with_extension("json.paused");
-    if inspect {
-        read_small_regular(&paused, 65_536)?
-            .ok_or("writer inspection requires the paused cloud configuration")?;
-        let db_hash = fold_db::storage::laststore::read_cloud_db_hash(&home.join("data"))
-            .ok_or("writer inspection requires the local cloud database identity")?;
-        let (url, api_key) = super::load_cloud_creds_from_path(&paused, None, None)?;
-        let http = std::sync::Arc::new(
-            fold_db::sync::build_shared_http_client()
-                .map_err(|_| "cloud HTTPS transport unavailable")?,
-        );
-        let s3 = fold_db::sync::s3::S3Client::new(std::sync::Arc::clone(&http));
-        let auth = fold_db::sync::auth::AuthClient::new(
-            http,
-            url,
-            fold_db::sync::auth::SyncAuth::ApiKey(api_key),
-        )
-        .without_db_auto_claim();
-        let report = collect_writer_inventory(home, &db_hash, &auth, &s3).await?;
-        print_writer_inventory(&report, json);
-        return Ok(());
-    }
-    let (plan, candidates, key) = load_or_create_plan(home, execute).await?;
-    let pages = page_groups(&candidates)?;
-    if !execute {
-        print_report(&plan, candidates.len(), false, json);
-        return Ok(());
-    }
-    let (url, api_key) = super::load_cloud_creds_from_path(&paused, None, None)?;
+type CloudClients = (fold_db::sync::auth::AuthClient, fold_db::sync::s3::S3Client);
+
+/// Build the unscoped cloud clients from the paused cloud configuration.
+fn paused_cloud_clients(paused: &Path) -> Result<CloudClients, String> {
+    let (url, api_key) = super::load_cloud_creds_from_path(paused, None, None)?;
     let http = std::sync::Arc::new(
         fold_db::sync::build_shared_http_client()
             .map_err(|_| "cloud HTTPS transport unavailable")?,
@@ -201,44 +160,56 @@ pub(super) async fn run(
         fold_db::sync::auth::SyncAuth::ApiKey(api_key),
     )
     .without_db_auto_claim();
-    let identity = plan.identity();
-    if let Some(bytes) = read_small_regular(&home.join(COMMITTED_FILE), 16_384)? {
-        let recorded: RescueS0Pointer =
-            serde_json::from_slice(&bytes).map_err(|_| "invalid local S0 rescue commit receipt")?;
-        let current = auth
-            .rescue_s0_get(&identity.manifest_sha256)
-            .await
-            .map_err(|error| format!("read committed S0 rescue pointer: {error}"))?;
-        if current != recorded || current.store_uuid != plan.manifest.store_uuid {
-            return Err("local and cloud S0 rescue commit receipts disagree".into());
-        }
-        print_report(&plan, candidates.len(), true, json);
-        return Ok(());
-    }
+    Ok((auth, s3))
+}
 
-    let writer_report = collect_writer_inventory(home, &plan.db_hash, &auth, &s3).await?;
-    print_writer_inventory(&writer_report, json);
-    save_writer_inventory_proof(home, &plan, writer_report)?;
+/// Read-only writer inspection: report the cloud writer inventory and publish nothing.
+async fn inspect_writers(home: &Path, paused: &Path, json: bool) -> Result<(), String> {
+    read_small_regular(paused, 65_536)?
+        .ok_or("writer inspection requires the paused cloud configuration")?;
+    let db_hash = fold_db::storage::laststore::read_cloud_db_hash(&home.join("data"))
+        .ok_or("writer inspection requires the local cloud database identity")?;
+    let (auth, s3) = paused_cloud_clients(paused)?;
+    let report = collect_writer_inventory(home, &db_hash, &auth, &s3).await?;
+    print_writer_inventory(&report, json);
+    Ok(())
+}
 
-    let prepared = auth
-        .rescue_s0_prepare(&identity, &plan.manifest.store_uuid)
+/// Compare the local commit receipt with the cloud pointer. `Ok(true)` means
+/// the rescue is already committed and nothing remains to publish.
+async fn check_committed_receipt(
+    home: &Path,
+    plan: &RescuePlan,
+    identity: &RescueS0Identity,
+    auth: &fold_db::sync::auth::AuthClient,
+) -> Result<bool, String> {
+    let Some(bytes) = read_small_regular(&home.join(COMMITTED_FILE), 16_384)? else {
+        return Ok(false);
+    };
+    let recorded: RescueS0Pointer =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid local S0 rescue commit receipt")?;
+    let current = auth
+        .rescue_s0_get(&identity.manifest_sha256)
         .await
-        .map_err(|error| format!("prepare S0 rescue hold: {error}"))?;
-    wait_until(prepared.ready_after_unix_secs, wait, "hold drain").await?;
-
-    for (index, (prefix, chunks)) in pages.iter().enumerate() {
-        upload_page_chunks(home, &plan, prefix, chunks, &candidates, &auth, &s3)
-            .await
-            .map_err(|error| format!("S0 rescue page {prefix}: {error}"))?;
-        if (index + 1) % 16 == 0 || index + 1 == pages.len() {
-            eprintln!("S0 rescue pages: {}/{}", index + 1, pages.len());
-        }
+        .map_err(|error| format!("read committed S0 rescue pointer: {error}"))?;
+    if current != recorded || current.store_uuid != plan.manifest.store_uuid {
+        return Err("local and cloud S0 rescue commit receipts disagree".into());
     }
+    Ok(true)
+}
 
+/// Upload the rescue manifest (if the service lacks it) and store the encrypted descriptor.
+async fn upload_manifest_and_descriptor(
+    plan: &RescuePlan,
+    identity: &RescueS0Identity,
+    key: &[u8; 32],
+    auth: &fold_db::sync::auth::AuthClient,
+    s3: &fold_db::sync::s3::S3Client,
+) -> Result<(), String> {
     let manifest_bytes = plan.manifest_bytes()?;
     let manifest_presign = auth
         .rescue_s0_presign_manifest_upload(
-            &identity,
+            identity,
             &plan.manifest.store_uuid,
             manifest_bytes.len() as u64,
         )
@@ -252,14 +223,24 @@ pub(super) async fn run(
             .await
             .map_err(|error| format!("upload S0 rescue manifest: {error}"))?;
     }
-    auth.rescue_s0_descriptor_put(&identity, &plan.descriptor_bytes(&key)?)
+    auth.rescue_s0_descriptor_put(identity, &plan.descriptor_bytes(key)?)
         .await
-        .map_err(|error| format!("store encrypted S0 recovery descriptor: {error}"))?;
+        .map_err(|error| format!("store encrypted S0 recovery descriptor: {error}"))
+}
 
+/// Commit the immutable rescue pointer, waiting out upload-URL expiry when asked,
+/// then verify the cloud pointer and save the local receipt.
+async fn commit_rescue_pointer(
+    home: &Path,
+    plan: &RescuePlan,
+    identity: &RescueS0Identity,
+    auth: &fold_db::sync::auth::AuthClient,
+    wait: bool,
+) -> Result<(), String> {
     let committed = loop {
         match auth
             .rescue_s0_commit(
-                &identity,
+                identity,
                 &plan.manifest.store_uuid,
                 plan.manifest.epoch,
                 plan.manifest.counter,
@@ -283,7 +264,64 @@ pub(super) async fn run(
     }
     let receipt_bytes = serde_json::to_vec(&exact)
         .map_err(|error| format!("encode local S0 rescue receipt: {error}"))?;
-    save_once(&home.join(COMMITTED_FILE), &receipt_bytes)?;
+    save_once(&home.join(COMMITTED_FILE), &receipt_bytes)
+}
+
+pub(super) async fn run(
+    home: &Path,
+    execute: bool,
+    wait: bool,
+    inspect: bool,
+    json: bool,
+) -> Result<(), String> {
+    if inspect && execute {
+        return Err("writer inspection cannot publish an S0 rescue".into());
+    }
+    if inspect
+        && std::fs::symlink_metadata(home.join(lastdb_node::host::CLOUD_SYNC_CONFIG_FILE)).is_ok()
+    {
+        return Err("writer inspection requires Cloud Sync Off".into());
+    }
+    let paused = home
+        .join(lastdb_node::host::CLOUD_SYNC_CONFIG_FILE)
+        .with_extension("json.paused");
+    if inspect {
+        return inspect_writers(home, &paused, json).await;
+    }
+    let (plan, candidates, key) = load_or_create_plan(home, execute).await?;
+    let pages = page_groups(&candidates)?;
+    if !execute {
+        print_report(&plan, candidates.len(), false, json);
+        return Ok(());
+    }
+    let (auth, s3) = paused_cloud_clients(&paused)?;
+    let identity = plan.identity();
+    if check_committed_receipt(home, &plan, &identity, &auth).await? {
+        print_report(&plan, candidates.len(), true, json);
+        return Ok(());
+    }
+
+    let writer_report = collect_writer_inventory(home, &plan.db_hash, &auth, &s3).await?;
+    print_writer_inventory(&writer_report, json);
+    save_writer_inventory_proof(home, &plan, writer_report)?;
+
+    let prepared = auth
+        .rescue_s0_prepare(&identity, &plan.manifest.store_uuid)
+        .await
+        .map_err(|error| format!("prepare S0 rescue hold: {error}"))?;
+    wait_until(prepared.ready_after_unix_secs, wait, "hold drain").await?;
+
+    for (index, (prefix, chunks)) in pages.iter().enumerate() {
+        upload_page_chunks(home, &plan, prefix, chunks, &candidates, &auth, &s3)
+            .await
+            .map_err(|error| format!("S0 rescue page {prefix}: {error}"))?;
+        if (index + 1) % 16 == 0 || index + 1 == pages.len() {
+            eprintln!("S0 rescue pages: {}/{}", index + 1, pages.len());
+        }
+    }
+
+    upload_manifest_and_descriptor(&plan, &identity, &key, &auth, &s3).await?;
+    commit_rescue_pointer(home, &plan, &identity, &auth, wait).await?;
     print_report(&plan, candidates.len(), true, json);
     Ok(())
 }
