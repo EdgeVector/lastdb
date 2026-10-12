@@ -64,6 +64,7 @@ mod thumb_pack;
 mod transfer;
 mod types;
 pub(crate) mod upload_policy;
+mod upload_policy_calc;
 mod wiring;
 
 tokio::task_local! {

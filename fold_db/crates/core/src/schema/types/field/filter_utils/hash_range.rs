@@ -31,90 +31,81 @@ fn extend_hash_range<I: IntoIterator<Item = (String, String)>>(
     }
 }
 
-/// Apply a [`HashRangeFilter`] to a [`MoleculeHashRange`].
-pub fn apply_hash_range_filter(
-    molecule: &MoleculeHashRange,
-    optional_filter: Option<HashRangeFilter>,
-) -> HashRangeFilterResult {
-    // No filter ⇒ list the first page of records. This used to default to
-    // `SampleN(100)`, but SampleN is now a peek capped at SAMPLE_PEEK_CAP, so the
-    // bulk default has to be the real list primitive (`Page`). The node handler
-    // overrides this with the caller's offset/limit; this default only governs
-    // direct core callers, preserving the historical "up to 100 unfiltered" cap.
-    let filter = optional_filter.unwrap_or(HashRangeFilter::Page {
-        offset: 0,
-        limit: DEFAULT_UNFILTERED_PAGE_LIMIT,
-    });
-    let mut matches = HashMap::new();
+type HashRangeMatches = HashMap<KeyValue, String>;
 
+/// Every `(hash, range)` key of the molecule, sorted by `(range, hash)` — the
+/// same order the handler sorts results by (`sort_results_by_key`).
+fn sorted_keys_by_range_then_hash(molecule: &MoleculeHashRange) -> Vec<KeyValue> {
+    let mut all: Vec<KeyValue> = molecule
+        .iter_all_atoms()
+        .map(|(hash, range, _)| KeyValue::new(Some(hash.clone()), Some(range.clone())))
+        .collect();
+    all.sort_by(|a, b| {
+        a.range
+            .as_deref()
+            .unwrap_or("")
+            .cmp(b.range.as_deref().unwrap_or(""))
+            .then_with(|| {
+                a.hash
+                    .as_deref()
+                    .unwrap_or("")
+                    .cmp(b.hash.as_deref().unwrap_or(""))
+            })
+    });
+    all
+}
+
+/// Resolve each key to its atom uuid and collect the keys that exist.
+fn collect_existing_keys<I: IntoIterator<Item = KeyValue>>(
+    molecule: &MoleculeHashRange,
+    keys: I,
+) -> HashRangeMatches {
+    let mut matches = HashMap::new();
+    for key_value in keys {
+        if let (Some(hash), Some(range)) = (&key_value.hash, &key_value.range) {
+            if let Some(atom_uuid) = molecule.get_atom_uuid(hash, range).cloned() {
+                matches.insert(key_value, atom_uuid);
+            }
+        }
+    }
+    matches
+}
+
+/// Peek only — clamp to SAMPLE_PEEK_CAP so SampleN can't be a bulk loader.
+fn filter_sample_n(molecule: &MoleculeHashRange, n: usize) -> HashRangeMatches {
+    collect_existing_keys(molecule, molecule.sample(n.min(SAMPLE_PEEK_CAP)))
+}
+
+/// Bounded paginated fetch over the SAME (range, hash) order the
+/// handler sorts results by (`sort_results_by_key`) — NOT insertion
+/// order — so pages are contiguous (no overlap/drop) across requests.
+fn filter_page(molecule: &MoleculeHashRange, offset: usize, limit: usize) -> HashRangeMatches {
+    let all = sorted_keys_by_range_then_hash(molecule);
+    collect_existing_keys(molecule, all.into_iter().skip(offset).take(limit))
+}
+
+fn filter_page_after(
+    molecule: &MoleculeHashRange,
+    after: &KeyValue,
+    limit: usize,
+) -> HashRangeMatches {
+    let all = sorted_keys_by_range_then_hash(molecule);
+    collect_existing_keys(
+        molecule,
+        all.into_iter()
+            .filter(|kv| key_tuple_after(kv, after))
+            .take(limit),
+    )
+}
+
+/// Filters that address the keyed hash dimension and/or range dimension by
+/// value, prefix, range or explicit key list.
+fn filter_by_key_selector(
+    molecule: &MoleculeHashRange,
+    filter: HashRangeFilter,
+) -> HashRangeMatches {
+    let mut matches = HashMap::new();
     match filter {
-        HashRangeFilter::SampleN(n) => {
-            // Peek only — clamp to SAMPLE_PEEK_CAP so SampleN can't be a bulk loader.
-            for key_value in molecule.sample(n.min(SAMPLE_PEEK_CAP)) {
-                if let (Some(hash), Some(range)) = (&key_value.hash, &key_value.range) {
-                    if let Some(atom_uuid) = molecule.get_atom_uuid(hash, range).cloned() {
-                        matches.insert(key_value, atom_uuid);
-                    }
-                }
-            }
-        }
-        HashRangeFilter::Page { offset, limit } => {
-            // Bounded paginated fetch over the SAME (range, hash) order the
-            // handler sorts results by (`sort_results_by_key`) — NOT insertion
-            // order — so pages are contiguous (no overlap/drop) across requests.
-            let mut all: Vec<KeyValue> = molecule
-                .iter_all_atoms()
-                .map(|(hash, range, _)| KeyValue::new(Some(hash.clone()), Some(range.clone())))
-                .collect();
-            all.sort_by(|a, b| {
-                a.range
-                    .as_deref()
-                    .unwrap_or("")
-                    .cmp(b.range.as_deref().unwrap_or(""))
-                    .then_with(|| {
-                        a.hash
-                            .as_deref()
-                            .unwrap_or("")
-                            .cmp(b.hash.as_deref().unwrap_or(""))
-                    })
-            });
-            for key_value in all.into_iter().skip(offset).take(limit) {
-                if let (Some(hash), Some(range)) = (&key_value.hash, &key_value.range) {
-                    if let Some(atom_uuid) = molecule.get_atom_uuid(hash, range).cloned() {
-                        matches.insert(key_value, atom_uuid);
-                    }
-                }
-            }
-        }
-        HashRangeFilter::PageAfter { after, limit } => {
-            let mut all: Vec<KeyValue> = molecule
-                .iter_all_atoms()
-                .map(|(hash, range, _)| KeyValue::new(Some(hash.clone()), Some(range.clone())))
-                .collect();
-            all.sort_by(|a, b| {
-                a.range
-                    .as_deref()
-                    .unwrap_or("")
-                    .cmp(b.range.as_deref().unwrap_or(""))
-                    .then_with(|| {
-                        a.hash
-                            .as_deref()
-                            .unwrap_or("")
-                            .cmp(b.hash.as_deref().unwrap_or(""))
-                    })
-            });
-            for key_value in all
-                .into_iter()
-                .filter(|kv| key_tuple_after(kv, &after))
-                .take(limit)
-            {
-                if let (Some(hash), Some(range)) = (&key_value.hash, &key_value.range) {
-                    if let Some(atom_uuid) = molecule.get_atom_uuid(hash, range).cloned() {
-                        matches.insert(key_value, atom_uuid);
-                    }
-                }
-            }
-        }
         HashRangeFilter::HashRangeKey { hash, range } => {
             if let Some(uuid) = molecule.get_atom_uuid(&hash, &range).cloned() {
                 insert_hash_range(&mut matches, hash, range, uuid);
@@ -132,6 +123,25 @@ pub fn apply_hash_range_filter(
                 }
             }
         }
+        HashRangeFilter::HashRangeKeys(keys) => {
+            for (hash, range) in keys {
+                if let Some(uuid) = molecule.get_atom_uuid(&hash, &range).cloned() {
+                    insert_hash_range(&mut matches, hash, range, uuid);
+                }
+            }
+        }
+        _ => {}
+    }
+    matches
+}
+
+/// Prefix and range-bounded filters.
+fn filter_by_prefix_or_range(
+    molecule: &MoleculeHashRange,
+    filter: HashRangeFilter,
+) -> HashRangeMatches {
+    let mut matches = HashMap::new();
+    match filter {
         HashRangeFilter::HashRangePrefix { hash, prefix } => {
             extend_hash_range(
                 &mut matches,
@@ -164,25 +174,6 @@ pub fn apply_hash_range_filter(
                 );
             }
         }
-        HashRangeFilter::HashRangeKeys(keys) => {
-            for (hash, range) in keys {
-                if let Some(uuid) = molecule.get_atom_uuid(&hash, &range).cloned() {
-                    insert_hash_range(&mut matches, hash, range, uuid);
-                }
-            }
-        }
-        HashRangeFilter::HashRangePattern {
-            hash: _,
-            pattern: _pattern,
-        } => {
-            // Pattern matching not supported - return empty results
-        }
-        HashRangeFilter::RangePattern(_pattern) => {
-            // Pattern matching not supported - return empty results
-        }
-        HashRangeFilter::HashPattern(_pattern) => {
-            // Pattern matching not supported - return empty results
-        }
         HashRangeFilter::HashRange { start, end } => {
             for (hash_value, range_key, uuid) in
                 hash_range_atoms_in_hash_range(molecule, &start, &end)
@@ -190,7 +181,46 @@ pub fn apply_hash_range_filter(
                 insert_hash_range(&mut matches, hash_value, range_key, uuid);
             }
         }
+        _ => {}
     }
+    matches
+}
+
+/// Apply a [`HashRangeFilter`] to a [`MoleculeHashRange`].
+pub fn apply_hash_range_filter(
+    molecule: &MoleculeHashRange,
+    optional_filter: Option<HashRangeFilter>,
+) -> HashRangeFilterResult {
+    // No filter ⇒ list the first page of records. This used to default to
+    // `SampleN(100)`, but SampleN is now a peek capped at SAMPLE_PEEK_CAP, so the
+    // bulk default has to be the real list primitive (`Page`). The node handler
+    // overrides this with the caller's offset/limit; this default only governs
+    // direct core callers, preserving the historical "up to 100 unfiltered" cap.
+    let filter = optional_filter.unwrap_or(HashRangeFilter::Page {
+        offset: 0,
+        limit: DEFAULT_UNFILTERED_PAGE_LIMIT,
+    });
+
+    let matches = match filter {
+        HashRangeFilter::SampleN(n) => filter_sample_n(molecule, n),
+        HashRangeFilter::Page { offset, limit } => filter_page(molecule, offset, limit),
+        HashRangeFilter::PageAfter { after, limit } => filter_page_after(molecule, &after, limit),
+        filter @ (HashRangeFilter::HashRangeKey { .. }
+        | HashRangeFilter::HashKey(_)
+        | HashRangeFilter::RangeKey(_)
+        | HashRangeFilter::HashRangeKeys(_)) => filter_by_key_selector(molecule, filter),
+        filter @ (HashRangeFilter::HashRangePrefix { .. }
+        | HashRangeFilter::RangePrefix(_)
+        | HashRangeFilter::HashRangeRange { .. }
+        | HashRangeFilter::RangeRange { .. }
+        | HashRangeFilter::HashRange { .. }) => filter_by_prefix_or_range(molecule, filter),
+        HashRangeFilter::HashRangePattern { .. }
+        | HashRangeFilter::RangePattern(_)
+        | HashRangeFilter::HashPattern(_) => {
+            // Pattern matching not supported - return empty results
+            HashMap::new()
+        }
+    };
 
     HashRangeFilterResult::new(matches)
 }

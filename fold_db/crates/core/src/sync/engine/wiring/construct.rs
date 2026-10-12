@@ -2,6 +2,20 @@
 
 use super::*;
 
+/// Shared handles built once in [`SyncEngine::new_with_shared_packing`].
+struct ConstructSlots {
+    targets: Arc<Mutex<Vec<SyncTarget>>>,
+    pin_log: super::super::pin_log::PinLog,
+    backup_publish_target: crate::sync::capture::plane_compactor::BackupPublishTargetSlot,
+    cloud_sync_disabled_at: Arc<Mutex<Option<u64>>>,
+    compaction: Arc<crate::sync::capture::PlaneCompactor>,
+    mutation_log_plane: super::super::pin_log::MutationLogLocalCloud,
+    mutation_log_frontier: Arc<super::super::pin_log::MutationLogFrontierSnapshot>,
+    backup_gc_jobs: super::super::gc_jobs::GcJobManager,
+    backup_publish_turn: Arc<Mutex<()>>,
+    backup_orphan_gc_mutex: Arc<Mutex<()>>,
+}
+
 impl SyncEngine {
     pub fn new(
         device_id: String,
@@ -74,53 +88,26 @@ impl SyncEngine {
         let initial_caps = Self::initial_upload_caps(&config);
         let auth = Self::auth_with_purge_peer(auth, laststore_backup_source.as_ref(), &device_id);
         let backup_progress_enabled = laststore_backup_source.is_some();
-        // The progress tracker is process-local, but a committed LastStore
-        // manifest is not. Mutation-log mode deliberately stops cutting new
-        // full snapshots after that S0, so failing to restore this marker fact
-        // leaves every restarted daemon saying "no cycle has completed" even
-        // while the real snapshot base and log publisher are healthy.
-        let durable_backup = laststore_backup_source
-            .as_ref()
-            .and_then(|store| store.backup_durability().ok().flatten())
-            .filter(|durability| durability.backup_manifest_counter > 0);
-        // Hoisted so `PinLog` can share the same handles the engine keeps
-        // rather than owning a divergent copy. `SyncConfig` is `Clone` and is
-        // never mutated after construction.
-        let targets = Arc::new(Mutex::new(vec![SyncTarget {
-            label: "personal".to_string(),
-            prefix: String::new(),
-            crypto: Arc::clone(&crypto),
-            read_binding: None,
-        }]));
-        let backup_publish_target =
-            backup_publish_target.unwrap_or_else(|| Arc::new(Mutex::new(None)));
-        let pin_log = super::super::pin_log::PinLog::new_with_packing_lock(
-            Arc::clone(&store),
-            config.clone(),
-            Arc::clone(&targets),
-            Arc::clone(&backup_publish_target),
+        let durable_backup = Self::durable_backup_marker(laststore_backup_source.as_ref());
+        let ConstructSlots {
+            targets,
+            pin_log,
+            backup_publish_target,
+            cloud_sync_disabled_at,
+            compaction,
+            mutation_log_plane,
+            mutation_log_frontier,
+            backup_gc_jobs,
+            backup_publish_turn,
+            backup_orphan_gc_mutex,
+        } = Self::build_construct_slots(
+            &crypto,
+            &store,
+            &config,
+            laststore_backup_source.as_ref(),
+            backup_publish_target,
+            cloud_sync_disabled_at,
         );
-        // Hoisted so the plane compactor shares the engine's packing lock and
-        // cloud-pause slot rather than owning divergent copies. A rewrite that
-        // took a *different* mutex from the one a backup cut takes would not
-        // serialize against that cut at all. When the coordinator already
-        // started a local cadence, those slots are the same Arcs.
-        let cloud_sync_disabled_at =
-            cloud_sync_disabled_at.unwrap_or_else(|| Arc::new(Mutex::new(None)));
-        let compaction = Arc::new(crate::sync::capture::PlaneCompactor::new(
-            Arc::clone(&store),
-            Arc::clone(&backup_publish_target),
-            Arc::clone(&cloud_sync_disabled_at),
-        ));
-        let mutation_log_plane = super::super::pin_log::MutationLogLocalCloud::new();
-        let mutation_log_frontier = mutation_log_plane.frontier_snapshot();
-        let backup_gc_jobs = super::super::gc_jobs::GcJobManager::new(
-            laststore_backup_source
-                .as_ref()
-                .and_then(|source| source.durable_sidecar_dir()),
-        );
-        let backup_publish_turn = backup_gc_jobs.publication_lock();
-        let backup_orphan_gc_mutex = backup_gc_jobs.executor_lock();
         let engine = Self {
             state: Arc::new(Mutex::new(SyncState::Idle)),
             pending: Arc::new(Mutex::new(Vec::new())),
@@ -255,6 +242,82 @@ impl SyncEngine {
         // every freeze dir on disk is stale. Sweep unconditionally.
         engine.sweep_backup_freeze_dirs(None);
         engine
+    }
+
+    /// Restore the durable backup marker from a committed LastStore manifest.
+    fn durable_backup_marker(
+        laststore_backup_source: Option<&Arc<crate::storage::LastStoreNamespacedStore>>,
+    ) -> Option<crate::storage::laststore::BackupDurability> {
+        // The progress tracker is process-local, but a committed LastStore
+        // manifest is not. Mutation-log mode deliberately stops cutting new
+        // full snapshots after that S0, so failing to restore this marker fact
+        // leaves every restarted daemon saying "no cycle has completed" even
+        // while the real snapshot base and log publisher are healthy.
+        laststore_backup_source
+            .and_then(|store| store.backup_durability().ok().flatten())
+            .filter(|durability| durability.backup_manifest_counter > 0)
+    }
+
+    /// Build the handles the engine shares with `PinLog`, the plane
+    /// compactor, and the backup GC jobs.
+    fn build_construct_slots(
+        crypto: &Arc<dyn CryptoProvider>,
+        store: &Arc<dyn NamespacedStore>,
+        config: &SyncConfig,
+        laststore_backup_source: Option<&Arc<crate::storage::LastStoreNamespacedStore>>,
+        backup_publish_target: Option<
+            crate::sync::capture::plane_compactor::BackupPublishTargetSlot,
+        >,
+        cloud_sync_disabled_at: Option<Arc<Mutex<Option<u64>>>>,
+    ) -> ConstructSlots {
+        // Hoisted so `PinLog` can share the same handles the engine keeps
+        // rather than owning a divergent copy. `SyncConfig` is `Clone` and is
+        // never mutated after construction.
+        let targets = Arc::new(Mutex::new(vec![SyncTarget {
+            label: "personal".to_string(),
+            prefix: String::new(),
+            crypto: Arc::clone(crypto),
+            read_binding: None,
+        }]));
+        let backup_publish_target =
+            backup_publish_target.unwrap_or_else(|| Arc::new(Mutex::new(None)));
+        let pin_log = super::super::pin_log::PinLog::new_with_packing_lock(
+            Arc::clone(store),
+            config.clone(),
+            Arc::clone(&targets),
+            Arc::clone(&backup_publish_target),
+        );
+        // Hoisted so the plane compactor shares the engine's packing lock and
+        // cloud-pause slot rather than owning divergent copies. A rewrite that
+        // took a *different* mutex from the one a backup cut takes would not
+        // serialize against that cut at all. When the coordinator already
+        // started a local cadence, those slots are the same Arcs.
+        let cloud_sync_disabled_at =
+            cloud_sync_disabled_at.unwrap_or_else(|| Arc::new(Mutex::new(None)));
+        let compaction = Arc::new(crate::sync::capture::PlaneCompactor::new(
+            Arc::clone(store),
+            Arc::clone(&backup_publish_target),
+            Arc::clone(&cloud_sync_disabled_at),
+        ));
+        let mutation_log_plane = super::super::pin_log::MutationLogLocalCloud::new();
+        let mutation_log_frontier = mutation_log_plane.frontier_snapshot();
+        let backup_gc_jobs = super::super::gc_jobs::GcJobManager::new(
+            laststore_backup_source.and_then(|source| source.durable_sidecar_dir()),
+        );
+        let backup_publish_turn = backup_gc_jobs.publication_lock();
+        let backup_orphan_gc_mutex = backup_gc_jobs.executor_lock();
+        ConstructSlots {
+            targets,
+            pin_log,
+            backup_publish_target,
+            cloud_sync_disabled_at,
+            compaction,
+            mutation_log_plane,
+            mutation_log_frontier,
+            backup_gc_jobs,
+            backup_publish_turn,
+            backup_orphan_gc_mutex,
+        }
     }
 
     fn initial_upload_caps(

@@ -7,11 +7,14 @@
 
 use super::{AtomStore, MoleculeData, PerKeyRecord};
 use crate::atom::{molecule_key_codec, AtomEntry};
-use crate::schema::types::field::{build_storage_key, FilterUtils};
+use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+
+mod reindex;
+use reindex::decode_mk_slot;
 
 const MAX_TIP_CHAIN_WALK: usize = 1_000_000;
 const DEFAULT_REINDEX_SLOT_PAGE: usize = 256;
@@ -238,14 +241,6 @@ impl AtomStore {
         slot_page: Option<usize>,
     ) -> Result<TipVersionBackrefReindexReport, SchemaError> {
         let page = slot_page.unwrap_or(DEFAULT_REINDEX_SLOT_PAGE).max(1);
-        let checkpoint_key = build_storage_key(
-            storage_prefix,
-            molecule_key_codec::TIP_VERSION_BACKREF_REINDEX_CHECKPOINT_KEY,
-        );
-        let complete_key = build_storage_key(
-            storage_prefix,
-            molecule_key_codec::TIP_VERSION_BACKREF_COMPLETE_KEY,
-        );
         let mut status = self
             .tip_version_backref_reindex_status(storage_prefix)
             .await?;
@@ -258,20 +253,9 @@ impl AtomStore {
             });
         }
 
-        let mk_prefix = build_storage_key(storage_prefix, "mk:");
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
-        let start = status
-            .after_tip_key
-            .clone()
-            .unwrap_or_else(|| mk_prefix.clone());
-        let raw_limit = page + usize::from(status.after_tip_key.is_some());
-        let rows = self
-            .main_store
-            .inner()
-            .scan_range_paged(start.as_bytes(), mk_end.as_bytes(), raw_limit)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("reindex scan mk: {e}")))?;
-        let range_exhausted = rows.len() < raw_limit;
+        let (rows, range_exhausted) = self
+            .scan_reindex_page(storage_prefix, &status, page)
+            .await?;
 
         let mut walked = 0u64;
         let mut writes = Vec::new();
@@ -281,17 +265,7 @@ impl AtomStore {
             if status.after_tip_key.as_deref() == Some(full_key.as_str()) {
                 continue;
             }
-            let Some(base_key) = strip_storage_prefix(storage_prefix, &full_key) else {
-                continue;
-            };
-            let Some(rest) = base_key.strip_prefix("mk:") else {
-                continue;
-            };
-            let Some((molecule_uuid, _)) = rest.split_once(':') else {
-                continue;
-            };
-            let Some((hash, range)) =
-                molecule_key_codec::decode_hash_range(base_key, molecule_uuid)
+            let Some((molecule_uuid, hash, range)) = decode_mk_slot(storage_prefix, &full_key)
             else {
                 continue;
             };
@@ -315,57 +289,15 @@ impl AtomStore {
             walked += 1;
             last_key = Some(full_key.clone());
 
-            // Walk archived tip versions for this slot. Missing `tv:` ends the
-            // chain without error — same contract as purge's `walk_tip_chain`:
-            // legacy depth-1 heads may store an atom id as `prev_tip_id`, and
-            // GC / dangling history may prune mid-chain. Reverse refs only
-            // exist for rows that are still present; a hard-fail here blocked
-            // soft-delete heal pages (HTTP 400 `missing tv:… while rebuilding
-            // reverse references`) on otherwise healthy deletes.
-            let mut version_id = record.entry.prev_tip_id;
-            let mut seen = HashSet::new();
-            let mut chain_open = true;
-            for _ in 0..MAX_TIP_CHAIN_WALK {
-                if version_id.is_empty() {
-                    chain_open = false;
-                    break;
-                }
-                if !seen.insert(version_id.clone()) {
-                    return Err(SchemaError::InvalidData(format!(
-                        "tip-version cycle while reindexing molecule {molecule_uuid}"
-                    )));
-                }
-                let Some(entry) = self.get_tip_version(&version_id, storage_prefix).await? else {
-                    // Broken / legacy tail — stop this slot; continue the page.
-                    chain_open = false;
-                    break;
-                };
-                let row = TipVersionBackref {
-                    atom_uuid: entry.atom_uuid.clone(),
-                    version_id: version_id.clone(),
-                    molecule_uuid: molecule_uuid.to_string(),
-                    hash: hash.clone(),
-                    range: range.clone(),
-                };
-                writes.push((
-                    build_storage_key(
-                        storage_prefix,
-                        &molecule_key_codec::tip_version_backref_key(
-                            &row.atom_uuid,
-                            &row.version_id,
-                        ),
-                    ),
-                    row,
-                ));
-                version_id = entry.prev_tip_id;
-            }
-            // Only refuse when we hit the walk cap with a still-open chain.
-            // A non-empty version_id after a missing-tv break is intentional.
-            if chain_open && !version_id.is_empty() {
-                return Err(SchemaError::InvalidData(format!(
-                    "tip-version chain exceeded {MAX_TIP_CHAIN_WALK} nodes during reindex"
-                )));
-            }
+            self.collect_slot_backrefs(
+                storage_prefix,
+                record,
+                molecule_uuid,
+                &hash,
+                &range,
+                &mut writes,
+            )
+            .await?;
         }
 
         let written = writes.len() as u64;
@@ -378,22 +310,8 @@ impl AtomStore {
         status.slots_walked += walked;
         status.backrefs_written += written;
         status.completed = range_exhausted;
-        self.main_store
-            .put_item(&checkpoint_key, &status)
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!("persist tip-version reindex cursor: {e}"))
-            })?;
-        if status.completed {
-            self.main_store
-                .put_item(&complete_key, &true)
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!(
-                        "persist tip-version backref completeness: {e}"
-                    ))
-                })?;
-        }
+        self.persist_reindex_progress(storage_prefix, &status)
+            .await?;
         Ok(TipVersionBackrefReindexReport {
             slots_walked: walked,
             backrefs_written: written,
