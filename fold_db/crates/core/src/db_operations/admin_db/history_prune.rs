@@ -2,6 +2,58 @@
 
 use super::*;
 
+/// Approximate on-disk size of one history row: key plus serialized event.
+fn history_row_bytes(storage_key: &str, ev: &MutationEvent) -> u64 {
+    storage_key.len() as u64 + serde_json::to_vec(ev).map_or(0, |v| v.len() as u64)
+}
+
+/// Pick the history rows to delete for one molecule, with per-row byte sizes.
+///
+/// `keep == 0` selects every row; otherwise the newest `keep` events per
+/// field key survive.
+fn plan_history_deletes(
+    events_with_keys: &[(String, MutationEvent)],
+    keep: usize,
+) -> (Vec<String>, HashMap<String, u64>) {
+    let mut to_delete: Vec<String> = Vec::new();
+    let mut key_bytes: HashMap<String, u64> = HashMap::new();
+
+    if keep == 0 {
+        // Latest-only: purge every history row for this molecule.
+        for (storage_key, ev) in events_with_keys {
+            key_bytes.insert(storage_key.clone(), history_row_bytes(storage_key, ev));
+            to_delete.push(storage_key.clone());
+        }
+        return (to_delete, key_bytes);
+    }
+
+    // Group by field_key; keep newest `keep` events per key.
+    let mut by_key: HashMap<String, Vec<(String, i64)>> = HashMap::new();
+    for (storage_key, ev) in events_with_keys {
+        let fk = format!(
+            "{}|{}",
+            ev.field_key.hash.as_deref().unwrap_or(""),
+            ev.field_key.range.as_deref().unwrap_or("")
+        );
+        let ts = ev.timestamp.timestamp_nanos_opt().unwrap_or(0);
+        by_key
+            .entry(fk)
+            .or_default()
+            .push((storage_key.clone(), ts));
+        key_bytes.insert(storage_key.clone(), history_row_bytes(storage_key, ev));
+    }
+
+    for (_fk, mut rows) in by_key {
+        rows.sort_by_key(|b| std::cmp::Reverse(b.1)); // newest first
+        if rows.len() > keep {
+            for (k, _) in rows.into_iter().skip(keep) {
+                to_delete.push(k);
+            }
+        }
+    }
+    (to_delete, key_bytes)
+}
+
 impl AtomStore {
     /// Delete mutation-history rows, keeping the newest `keep_last_per_key`
     /// events per (molecule, field_key).
@@ -13,7 +65,6 @@ impl AtomStore {
     ///
     /// Does **not** delete current tips or atoms (safe; may leave orphan atoms
     /// until a later GC).
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn clear_mutation_history(
         &self,
         schema_field_molecules: &[(String, Vec<String>)],
@@ -44,45 +95,7 @@ impl AtomStore {
                     continue;
                 }
 
-                let mut to_delete: Vec<String> = Vec::new();
-                let mut key_bytes: HashMap<String, u64> = HashMap::new();
-
-                if keep == 0 {
-                    // Latest-only: purge every history row for this molecule.
-                    for (storage_key, ev) in &events_with_keys {
-                        let b = storage_key.len() as u64
-                            + serde_json::to_vec(ev).map_or(0, |v| v.len() as u64);
-                        key_bytes.insert(storage_key.clone(), b);
-                        to_delete.push(storage_key.clone());
-                    }
-                } else {
-                    // Group by field_key; keep newest `keep` events per key.
-                    let mut by_key: HashMap<String, Vec<(String, i64)>> = HashMap::new();
-                    for (storage_key, ev) in &events_with_keys {
-                        let fk = format!(
-                            "{}|{}",
-                            ev.field_key.hash.as_deref().unwrap_or(""),
-                            ev.field_key.range.as_deref().unwrap_or("")
-                        );
-                        let ts = ev.timestamp.timestamp_nanos_opt().unwrap_or(0);
-                        let b = storage_key.len() as u64
-                            + serde_json::to_vec(ev).map_or(0, |v| v.len() as u64);
-                        by_key
-                            .entry(fk)
-                            .or_default()
-                            .push((storage_key.clone(), ts));
-                        key_bytes.insert(storage_key.clone(), b);
-                    }
-
-                    for (_fk, mut rows) in by_key {
-                        rows.sort_by_key(|b| std::cmp::Reverse(b.1)); // newest first
-                        if rows.len() > keep {
-                            for (k, _) in rows.into_iter().skip(keep) {
-                                to_delete.push(k);
-                            }
-                        }
-                    }
-                }
+                let (to_delete, key_bytes) = plan_history_deletes(&events_with_keys, keep);
 
                 for k in &to_delete {
                     schema_deleted += 1;

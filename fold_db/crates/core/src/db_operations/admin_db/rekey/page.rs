@@ -16,7 +16,6 @@ impl AtomStore {
     /// Every slot in `page` is walked. The caller has already advanced its
     /// cursor to the page's last tip, so this must not skip a slot on any
     /// per-slot condition.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub(in crate::db_operations::admin_db) async fn rekey_page(
         &self,
         page: &[RekeySlot],
@@ -24,9 +23,6 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         report: &mut AtomPartitionRekeyReport,
     ) -> Result<(), SchemaError> {
-        use crate::atom::{atom_locator_codec, AtomPartition};
-        use std::collections::BTreeMap;
-
         report.tips_scanned += page.len() as u64;
         report.slots_considered += page.len() as u64;
 
@@ -91,38 +87,72 @@ impl AtomStore {
         }
 
         if options.dry_run {
-            // A plan counts remaining work under its own name; `dual_written`
-            // stays 0 so no reader can mistake this report for progress.
-            report.would_dual_write += writable.len() as u64;
-            if let Some(cap) = options.audit_unresolved {
-                // Counters count every flat-only tip; only detail rows are
-                // capped — same contract as the unresolved audit.
-                for (slot, _) in &writable {
-                    if report.would_dual_write_tips.len() < cap {
-                        report.would_dual_write_tips.push(WouldDualWriteTip {
-                            tip_key: page[*slot].tip_key.clone(),
-                            atom_uuid: page[*slot].uuid.clone(),
-                            derived_partition: page[*slot].partition.as_str().to_string(),
-                        });
-                    } else {
-                        report.would_dual_write_truncated = true;
-                    }
+            return self
+                .rekey_page_plan(page, options, &writable, &already, report)
+                .await;
+        }
+
+        let written = self
+            .rekey_page_write(page, writable, &already, report)
+            .await?;
+        self.rekey_page_verify(page, &written).await?;
+        self.rekey_page_remove_flat(page, options, &already, &written, report)
+            .await
+    }
+
+    /// Dry run: count what a real pass would write and delete, changing nothing.
+    async fn rekey_page_plan(
+        &self,
+        page: &[RekeySlot],
+        options: &AtomPartitionRekeyOptions,
+        writable: &[(usize, Value)],
+        already: &[usize],
+        report: &mut AtomPartitionRekeyReport,
+    ) -> Result<(), SchemaError> {
+        // A plan counts remaining work under its own name; `dual_written`
+        // stays 0 so no reader can mistake this report for progress.
+        report.would_dual_write += writable.len() as u64;
+        if let Some(cap) = options.audit_unresolved {
+            // Counters count every flat-only tip; only detail rows are
+            // capped — same contract as the unresolved audit.
+            for (slot, _) in writable {
+                if report.would_dual_write_tips.len() < cap {
+                    report.would_dual_write_tips.push(WouldDualWriteTip {
+                        tip_key: page[*slot].tip_key.clone(),
+                        atom_uuid: page[*slot].uuid.clone(),
+                        derived_partition: page[*slot].partition.as_str().to_string(),
+                    });
+                } else {
+                    report.would_dual_write_truncated = true;
                 }
             }
-            if options.remove_flat {
-                // What a real pass would delete: every body it would write (whose
-                // flat key it just read, so it is certainly there), plus the
-                // already-migrated slots that still carry one.
-                let already_flat: Vec<String> =
-                    already.iter().map(|&i| page[i].flat_key.clone()).collect();
-                let present = self
-                    .rekey_exists(&already_flat, "rekey exists flat")
-                    .await?;
-                report.flat_removed +=
-                    writable.len() as u64 + present.iter().filter(|&&p| p).count() as u64;
-            }
-            return Ok(());
         }
+        if options.remove_flat {
+            // What a real pass would delete: every body it would write (whose
+            // flat key it just read, so it is certainly there), plus the
+            // already-migrated slots that still carry one.
+            let already_flat: Vec<String> =
+                already.iter().map(|&i| page[i].flat_key.clone()).collect();
+            let present = self
+                .rekey_exists(&already_flat, "rekey exists flat")
+                .await?;
+            report.flat_removed +=
+                writable.len() as u64 + present.iter().filter(|&&p| p).count() as u64;
+        }
+        Ok(())
+    }
+
+    /// Phase (3) and the batched write: reconcile locators of already-migrated
+    /// slots, write the bodies and locators, and return the slots written.
+    async fn rekey_page_write(
+        &self,
+        page: &[RekeySlot],
+        writable: Vec<(usize, Value)>,
+        already: &[usize],
+        report: &mut AtomPartitionRekeyReport,
+    ) -> Result<Vec<usize>, SchemaError> {
+        use crate::atom::{atom_locator_codec, AtomPartition};
+        use std::collections::BTreeMap;
 
         // (3) Locator reconciliation for the already-migrated slots: a crash
         // between an older experimental body write and its locator would leave
@@ -169,6 +199,16 @@ impl AtomStore {
                 .map_err(|e| SchemaError::InvalidData(format!("rekey dual-write: {e}")))?;
         }
 
+        Ok(written)
+    }
+
+    /// Phase (4): prove every body the page wrote landed, before any flat key
+    /// can be deleted.
+    async fn rekey_page_verify(
+        &self,
+        page: &[RekeySlot],
+        written: &[usize],
+    ) -> Result<(), SchemaError> {
         // (4) Verify every body this page wrote, before anything can delete a
         // flat key. One probe for the page — and a probe rather than a re-read,
         // for the same reason phase (1) is: proving a page of bodies landed must
@@ -205,6 +245,18 @@ impl AtomStore {
             }
         }
 
+        Ok(())
+    }
+
+    /// Phase (5): delete flat keys whose prefixed copy is confirmed present.
+    async fn rekey_page_remove_flat(
+        &self,
+        page: &[RekeySlot],
+        options: &AtomPartitionRekeyOptions,
+        already: &[usize],
+        written: &[usize],
+        report: &mut AtomPartitionRekeyReport,
+    ) -> Result<(), SchemaError> {
         // (5) Only now may a flat key go: the bodies just verified, plus
         // already-migrated slots that still carry one. Deduped, because one uuid
         // can be both freshly written under one partition and already migrated

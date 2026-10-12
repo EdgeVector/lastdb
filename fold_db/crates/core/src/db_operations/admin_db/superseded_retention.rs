@@ -12,13 +12,11 @@ impl AtomStore {
     ///
     /// Undatable `tv:` nodes (`written_at == 0`) are kept. The first dated
     /// node older than the cutoff, and every node after it, is expired.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn retain_superseded_versions(
         &self,
         options: SupersededVersionRetentionOptions,
     ) -> Result<SupersededVersionRetentionReport, SchemaError> {
         use crate::atom::molecule_key_codec;
-        use crate::db_operations::atom_store::PerKeyRecord;
 
         const SCAN_PAGE: usize = 512;
         const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
@@ -90,75 +88,15 @@ impl AtomStore {
                 report.keys_scanned += 1;
                 report.next_after_key = Some(mk_key.clone());
 
-                let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(&raw_value) else {
-                    report.tips_skipped_unreadable += 1;
-                    continue;
-                };
-                if rec.meta.as_ref().is_some_and(|m| m.tombstoned) {
-                    report.tips_skipped_tombstoned += 1;
-                    continue;
-                }
-                if rec.entry.prev_tip_id.is_empty() {
-                    continue;
-                }
-                report.tips_with_chain += 1;
-
-                let mut vid = rec.entry.prev_tip_id.clone();
-                let mut guard = 0u32;
-                let mut nodes: Vec<(String, crate::atom::AtomEntry, u64)> = Vec::new();
-                while !vid.is_empty() && guard < 1_000_000 {
-                    guard += 1;
-                    let bare = molecule_key_codec::tip_version_key(&vid);
-                    let full_key = build_storage_key(storage_prefix, &bare);
-                    let Ok(Some(bytes)) = self.raw().inner().get(full_key.as_bytes()).await else {
-                        break;
-                    };
-                    let chain_bytes = full_key.len() as u64 + bytes.len() as u64;
-                    let Ok(entry) = serde_json::from_slice::<crate::atom::AtomEntry>(&bytes) else {
-                        break;
-                    };
-                    let next = entry.prev_tip_id.clone();
-                    nodes.push((full_key, entry, chain_bytes));
-                    vid = next;
-                }
-                if nodes.is_empty() {
-                    continue;
-                }
-
-                let Some(expired_at) = first_expired_tv_index(&nodes, cutoff_ns) else {
-                    continue;
-                };
-                let kept = &nodes[..expired_at];
-                let expired = &nodes[expired_at..];
-                let expired_keys: Vec<String> = expired.iter().map(|n| n.0.clone()).collect();
-                let expired_bytes: u64 = expired.iter().map(|n| n.2).sum();
-
-                if dry_run {
-                    report.tips_truncated += 1;
-                    report.tip_versions_pruned += expired.len() as u64;
-                    report.tip_versions_kept += kept.len() as u64;
-                    report.tip_version_bytes_approx += expired_bytes;
-                    continue;
-                }
-
-                let last_kept = kept.last();
-                let applied = self
-                    .apply_expired_chain_truncate(
-                        &mk_key,
-                        &rec,
-                        last_kept.map(|n| n.0.as_str()),
-                        last_kept.map(|n| &n.1),
-                        &expired_keys,
-                    )
-                    .await?;
-                if !applied {
-                    report.tips_skipped_changed += 1;
-                    continue;
-                }
-                report.tips_truncated += 1;
-                report.tip_versions_pruned += expired.len() as u64;
-                report.tip_versions_kept += kept.len() as u64;
-                report.tip_version_bytes_approx += expired_bytes;
+                self.retain_one_tip(
+                    &mut report,
+                    &mk_key,
+                    &raw_value,
+                    storage_prefix,
+                    cutoff_ns,
+                    dry_run,
+                )
+                .await?;
             }
 
             skip_head = Some(page_start.clone());
@@ -176,6 +114,99 @@ impl AtomStore {
         report.settled =
             !report.more_remaining && report.tips_truncated == 0 && report.tip_versions_pruned == 0;
         Ok(report)
+    }
+
+    /// Walk the `tv:` chain behind `prev_tip_id`, newest first.
+    ///
+    /// Each node carries its storage key, decoded entry and byte size.
+    async fn walk_tip_version_nodes(
+        &self,
+        prev_tip_id: &str,
+        storage_prefix: Option<&str>,
+    ) -> Vec<(String, crate::atom::AtomEntry, u64)> {
+        use crate::atom::molecule_key_codec;
+
+        let mut vid = prev_tip_id.to_string();
+        let mut guard = 0u32;
+        let mut nodes: Vec<(String, crate::atom::AtomEntry, u64)> = Vec::new();
+        while !vid.is_empty() && guard < 1_000_000 {
+            guard += 1;
+            let bare = molecule_key_codec::tip_version_key(&vid);
+            let full_key = build_storage_key(storage_prefix, &bare);
+            let Ok(Some(bytes)) = self.raw().inner().get(full_key.as_bytes()).await else {
+                break;
+            };
+            let chain_bytes = full_key.len() as u64 + bytes.len() as u64;
+            let Ok(entry) = serde_json::from_slice::<crate::atom::AtomEntry>(&bytes) else {
+                break;
+            };
+            let next = entry.prev_tip_id.clone();
+            nodes.push((full_key, entry, chain_bytes));
+            vid = next;
+        }
+        nodes
+    }
+
+    /// Apply retention to one `mk:` head and record the outcome in `report`.
+    async fn retain_one_tip(
+        &self,
+        report: &mut SupersededVersionRetentionReport,
+        mk_key: &str,
+        raw_value: &[u8],
+        storage_prefix: Option<&str>,
+        cutoff_ns: u64,
+        dry_run: bool,
+    ) -> Result<(), SchemaError> {
+        use crate::db_operations::atom_store::PerKeyRecord;
+
+        let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(raw_value) else {
+            report.tips_skipped_unreadable += 1;
+            return Ok(());
+        };
+        if rec.meta.as_ref().is_some_and(|m| m.tombstoned) {
+            report.tips_skipped_tombstoned += 1;
+            return Ok(());
+        }
+        if rec.entry.prev_tip_id.is_empty() {
+            return Ok(());
+        }
+        report.tips_with_chain += 1;
+
+        let nodes = self
+            .walk_tip_version_nodes(&rec.entry.prev_tip_id, storage_prefix)
+            .await;
+        if nodes.is_empty() {
+            return Ok(());
+        }
+        let Some(expired_at) = first_expired_tv_index(&nodes, cutoff_ns) else {
+            return Ok(());
+        };
+        let kept = &nodes[..expired_at];
+        let expired = &nodes[expired_at..];
+        let expired_keys: Vec<String> = expired.iter().map(|n| n.0.clone()).collect();
+        let expired_bytes: u64 = expired.iter().map(|n| n.2).sum();
+
+        if !dry_run {
+            let last_kept = kept.last();
+            let applied = self
+                .apply_expired_chain_truncate(
+                    mk_key,
+                    &rec,
+                    last_kept.map(|n| n.0.as_str()),
+                    last_kept.map(|n| &n.1),
+                    &expired_keys,
+                )
+                .await?;
+            if !applied {
+                report.tips_skipped_changed += 1;
+                return Ok(());
+            }
+        }
+        report.tips_truncated += 1;
+        report.tip_versions_pruned += expired.len() as u64;
+        report.tip_versions_kept += kept.len() as u64;
+        report.tip_version_bytes_approx += expired_bytes;
+        Ok(())
     }
 
     /// CAS-gated truncate: drop expired `tv:` nodes and clear `prev_tip_id` on

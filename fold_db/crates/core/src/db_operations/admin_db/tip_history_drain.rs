@@ -17,14 +17,10 @@ impl AtomStore {
     /// Does **not** delete orphan body atoms or compact any collection —
     /// only clears `prev_tip_id` and deletes the `tv:` nodes for heads that
     /// still match the planning observation.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub async fn drain_tip_history_chains(
         &self,
         options: TipHistoryDrainOptions,
     ) -> Result<TipHistoryDrainReport, SchemaError> {
-        use crate::atom::molecule_key_codec;
-        use crate::db_operations::atom_store::PerKeyRecord;
-
         const SCAN_PAGE: usize = 512;
         const PASS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
 
@@ -85,53 +81,8 @@ impl AtomStore {
                 report.keys_scanned += 1;
                 report.next_after_key = Some(mk_key.clone());
 
-                let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(&raw_value) else {
-                    report.tips_skipped_unreadable += 1;
-                    continue;
-                };
-                if rec.entry.prev_tip_id.is_empty() {
-                    continue;
-                }
-                report.tips_with_chain += 1;
-
-                // Walk the chain for bytes/keys (same walk as full-store prune).
-                let mut vid = rec.entry.prev_tip_id.clone();
-                let mut guard = 0u32;
-                let mut tv_keys: Vec<String> = Vec::new();
-                let mut chain_bytes = 0u64;
-                while !vid.is_empty() && guard < 1_000_000 {
-                    guard += 1;
-                    let bare = molecule_key_codec::tip_version_key(&vid);
-                    let full_key = build_storage_key(storage_prefix, &bare);
-                    let Ok(Some(bytes)) = self.raw().inner().get(full_key.as_bytes()).await else {
-                        break;
-                    };
-                    chain_bytes += full_key.len() as u64 + bytes.len() as u64;
-                    tv_keys.push(full_key);
-                    let Ok(entry) = serde_json::from_slice::<crate::atom::AtomEntry>(&bytes) else {
-                        break;
-                    };
-                    vid = entry.prev_tip_id;
-                }
-                if tv_keys.is_empty() {
-                    // Dangling prev_tip_id with no resolvable tv: nodes — still
-                    // clear the head link so the tip is history-free.
-                }
-
-                if dry_run {
-                    report.tips_chain_cleared += 1;
-                    report.tip_versions_pruned += tv_keys.len() as u64;
-                    report.tip_version_bytes_approx += chain_bytes;
-                    continue;
-                }
-
-                if !self.apply_tip_chain_prune(&mk_key, &rec, &tv_keys).await? {
-                    report.tips_skipped_changed += 1;
-                    continue;
-                }
-                report.tips_chain_cleared += 1;
-                report.tip_versions_pruned += tv_keys.len() as u64;
-                report.tip_version_bytes_approx += chain_bytes;
+                self.drain_one_tip(&mut report, &mk_key, &raw_value, storage_prefix, dry_run)
+                    .await?;
             }
 
             skip_head = Some(page_start.clone());
@@ -147,6 +98,72 @@ impl AtomStore {
             report.next_after_key = None;
         }
         Ok(report)
+    }
+
+    /// Walk the `tv:` chain behind `prev_tip_id`; return its node keys and bytes.
+    ///
+    /// Same walk as the full-store prune. A dangling link with no resolvable
+    /// nodes yields an empty key list; the caller still clears the head link.
+    pub(super) async fn walk_tip_version_chain(
+        &self,
+        prev_tip_id: &str,
+        storage_prefix: Option<&str>,
+    ) -> (Vec<String>, u64) {
+        use crate::atom::molecule_key_codec;
+
+        let mut vid = prev_tip_id.to_string();
+        let mut guard = 0u32;
+        let mut tv_keys: Vec<String> = Vec::new();
+        let mut chain_bytes = 0u64;
+        while !vid.is_empty() && guard < 1_000_000 {
+            guard += 1;
+            let bare = molecule_key_codec::tip_version_key(&vid);
+            let full_key = build_storage_key(storage_prefix, &bare);
+            let Ok(Some(bytes)) = self.raw().inner().get(full_key.as_bytes()).await else {
+                break;
+            };
+            chain_bytes += full_key.len() as u64 + bytes.len() as u64;
+            tv_keys.push(full_key);
+            let Ok(entry) = serde_json::from_slice::<crate::atom::AtomEntry>(&bytes) else {
+                break;
+            };
+            vid = entry.prev_tip_id;
+        }
+        (tv_keys, chain_bytes)
+    }
+
+    /// Drain the tip-version chain of one `mk:` row and record it in `report`.
+    async fn drain_one_tip(
+        &self,
+        report: &mut TipHistoryDrainReport,
+        mk_key: &str,
+        raw_value: &[u8],
+        storage_prefix: Option<&str>,
+        dry_run: bool,
+    ) -> Result<(), SchemaError> {
+        use crate::db_operations::atom_store::PerKeyRecord;
+
+        let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(raw_value) else {
+            report.tips_skipped_unreadable += 1;
+            return Ok(());
+        };
+        if rec.entry.prev_tip_id.is_empty() {
+            return Ok(());
+        }
+        report.tips_with_chain += 1;
+
+        let (tv_keys, chain_bytes) = self
+            .walk_tip_version_chain(&rec.entry.prev_tip_id, storage_prefix)
+            .await;
+
+        if !dry_run && !self.apply_tip_chain_prune(mk_key, &rec, &tv_keys).await? {
+            report.tips_skipped_changed += 1;
+            return Ok(());
+        }
+        report.tips_chain_cleared += 1;
+        report.tip_versions_pruned += tv_keys.len() as u64;
+        report.tip_version_bytes_approx += chain_bytes;
+        Ok(())
     }
 
     /// Load the durable tip-history drain checkpoint (empty if absent).

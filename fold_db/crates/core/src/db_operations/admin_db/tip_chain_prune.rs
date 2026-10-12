@@ -39,7 +39,6 @@ impl AtomStore {
     /// function used to do were still pointless work; the plane figure was
     /// simply never the evidence for it. Attribute reclaim with the delete
     /// ledger row and `bytes_freed_approx`, which name the verb that acted.
-    // lint:fn-size-ok verbatim move from admin_db.rs; splitting this function is separate work
     pub(super) async fn prune_tip_version_chains(
         &self,
         dry_run: bool,
@@ -48,9 +47,6 @@ impl AtomStore {
         resume_at: Option<&PhysicalScanCursor>,
         max_keys: usize,
     ) -> Result<TipVersionPrunePlan, SchemaError> {
-        use crate::atom::molecule_key_codec;
-        use crate::db_operations::atom_store::PerKeyRecord;
-
         let mut plan = TipVersionPrunePlan::default();
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
         let pass_started = std::time::Instant::now();
@@ -105,65 +101,16 @@ impl AtomStore {
             plan.keys_scanned += 1;
             progress.walked(1);
             plan.next_after_key = Some(mk_key.clone());
-            let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(&v) else {
-                continue;
-            };
-            let tombstoned = rec.meta.as_ref().is_some_and(|m| m.tombstoned);
-            // Default: tombstoned tips only. With include_live: any tip that
-            // still carries a history chain.
-            let eligible = if include_live {
-                !rec.entry.prev_tip_id.is_empty()
-            } else {
-                tombstoned && !rec.entry.prev_tip_id.is_empty()
-            };
-            if !eligible {
-                continue;
-            }
-
-            let mut vid = rec.entry.prev_tip_id.clone();
-            let mut guard = 0u32;
-            let mut tv_keys: Vec<String> = Vec::new();
-            let mut chain_bytes = 0u64;
-            while !vid.is_empty() && guard < 1_000_000 {
-                guard += 1;
-                let bare = molecule_key_codec::tip_version_key(&vid);
-                let full_key = build_storage_key(storage_prefix, &bare);
-                let Ok(Some(bytes)) = self.raw().inner().get(full_key.as_bytes()).await else {
-                    break;
-                };
-                chain_bytes += full_key.len() as u64 + bytes.len() as u64;
-                tv_keys.push(full_key);
-                let Ok(entry) = serde_json::from_slice::<crate::atom::AtomEntry>(&bytes) else {
-                    break;
-                };
-                vid = entry.prev_tip_id;
-            }
-
-            if dry_run {
-                plan.tips_chain_cleared += 1;
-                plan.tip_versions_pruned += tv_keys.len() as u64;
-                plan.tip_version_bytes_approx += chain_bytes;
-                tv_keys_skip.extend(tv_keys);
-                continue;
-            }
-
-            // Applied HERE, one key at a time, instead of from a plan
-            // vector after the scan. Two reasons, and the first is the one
-            // that made this verb useless: a pass that runs out of deadline
-            // now keeps every chain it already pruned, so successive passes
-            // converge instead of each replanning the plane from zero. The
-            // second is the race guard in `apply_tip_chain_prune` — it
-            // re-reads the head and refuses if a writer moved it, and
-            // deciding a key immediately after reading it narrows that
-            // window from the length of a full `mk:` scan to one row.
-            // A chain skipped here is still prunable on a later pass.
-            if !self.apply_tip_chain_prune(&mk_key, &rec, &tv_keys).await? {
-                plan.tips_skipped_changed += 1;
-                continue;
-            }
-            plan.tips_chain_cleared += 1;
-            plan.tip_versions_pruned += tv_keys.len() as u64;
-            plan.tip_version_bytes_approx += chain_bytes;
+            self.prune_one_tip_chain(
+                &mut plan,
+                &mut tv_keys_skip,
+                &mk_key,
+                &v,
+                storage_prefix,
+                include_live,
+                dry_run,
+            )
+            .await?;
         }
 
         if !dry_run && plan.tips_chain_cleared > 0 {
@@ -190,6 +137,64 @@ impl AtomStore {
         }
         plan.tv_keys_skip = tv_keys_skip;
         Ok(plan)
+    }
+
+    /// Decide one `mk:` head: if eligible, walk its `tv:` chain and prune it.
+    ///
+    /// Applied per key, not from a plan vector after the scan. A pass that runs
+    /// out of deadline keeps every chain it already pruned, so successive
+    /// passes converge. `apply_tip_chain_prune` re-reads the head and refuses
+    /// if a writer moved it; deciding a key right after reading it narrows that
+    /// window from a full `mk:` scan to one row. A skipped chain is still
+    /// prunable on a later pass.
+    #[allow(clippy::too_many_arguments)]
+    async fn prune_one_tip_chain(
+        &self,
+        plan: &mut TipVersionPrunePlan,
+        tv_keys_skip: &mut HashSet<String>,
+        mk_key: &str,
+        raw_value: &[u8],
+        storage_prefix: Option<&str>,
+        include_live: bool,
+        dry_run: bool,
+    ) -> Result<(), SchemaError> {
+        use crate::db_operations::atom_store::PerKeyRecord;
+
+        let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(raw_value) else {
+            return Ok(());
+        };
+        let tombstoned = rec.meta.as_ref().is_some_and(|m| m.tombstoned);
+        // Default: tombstoned tips only. With include_live: any tip that
+        // still carries a history chain.
+        let eligible = if include_live {
+            !rec.entry.prev_tip_id.is_empty()
+        } else {
+            tombstoned && !rec.entry.prev_tip_id.is_empty()
+        };
+        if !eligible {
+            return Ok(());
+        }
+
+        let (tv_keys, chain_bytes) = self
+            .walk_tip_version_chain(&rec.entry.prev_tip_id, storage_prefix)
+            .await;
+
+        if dry_run {
+            plan.tips_chain_cleared += 1;
+            plan.tip_versions_pruned += tv_keys.len() as u64;
+            plan.tip_version_bytes_approx += chain_bytes;
+            tv_keys_skip.extend(tv_keys);
+            return Ok(());
+        }
+
+        if !self.apply_tip_chain_prune(mk_key, &rec, &tv_keys).await? {
+            plan.tips_skipped_changed += 1;
+            return Ok(());
+        }
+        plan.tips_chain_cleared += 1;
+        plan.tip_versions_pruned += tv_keys.len() as u64;
+        plan.tip_version_bytes_approx += chain_bytes;
+        Ok(())
     }
 
     /// `mk:` tips one prologue pass will look at before yielding.
