@@ -2,6 +2,13 @@
 
 use super::*;
 
+/// Which CAS conflicts the caller lets this cut recover from.
+#[derive(Clone, Copy)]
+pub(super) struct CasRetry {
+    pub(super) allow_rebind_retry: bool,
+    pub(super) allow_retirement: bool,
+}
+
 impl SyncEngine {
     /// Validate, hash, upload and confirm the final manifest bytes. Returns
     /// (manifest_sha256, manifest_key).
@@ -109,17 +116,19 @@ impl SyncEngine {
 
     /// Map the latest-CAS result to the landed latest key, or to a recut
     /// result (`Ok(Err(..))`) after an epoch rebind or counter bump.
-    #[allow(clippy::too_many_arguments)]
     pub(super) async fn cas_resolve_latest_outcome(
         &self,
         cas: SyncResult<crate::sync::auth::ops::BackupLatestCasResponse>,
         store: &crate::storage::LastStoreNamespacedStore,
-        allow_rebind_retry: bool,
-        allow_retirement: bool,
+        retry: CasRetry,
         previous_manifest: Option<&BackupManifest>,
         manifest: &BackupManifest,
         manifest_sha256: &str,
     ) -> SyncResult<Result<String, (BackupManifest, LastStoreCloudSnapshotReport)>> {
+        let CasRetry {
+            allow_rebind_retry,
+            allow_retirement,
+        } = retry;
         match cas {
             Ok(latest) => Ok(Ok(latest.key)),
             Err(err) if allow_rebind_retry && is_store_uuid_mismatch_error(&err) => {

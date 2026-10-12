@@ -2,6 +2,7 @@ use super::*;
 
 mod landed;
 mod publish;
+use publish::CasRetry;
 mod shortfall;
 
 impl SyncEngine {
@@ -60,8 +61,10 @@ impl SyncEngine {
             .cas_resolve_latest_outcome(
                 cas,
                 store,
-                allow_rebind_retry,
-                allow_retirement,
+                CasRetry {
+                    allow_rebind_retry,
+                    allow_retirement,
+                },
                 previous_manifest,
                 &manifest,
                 &manifest_sha256,
