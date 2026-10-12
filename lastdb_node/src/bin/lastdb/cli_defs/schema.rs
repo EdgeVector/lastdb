@@ -4,6 +4,14 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum SchemaInspectCommand {
+    /// Diagnose exact durable schema authority on a closed owned temporary copy.
+    /// The schema name comes only from stdin; no names or stored values are output.
+    ReplayAuthorityProbe {
+        #[arg(long, required = true)]
+        schema_name_stdin: bool,
+        #[arg(long, required = true)]
+        closed_owned_copy: bool,
+    },
     /// Show bounded logical-current storage for one schema.
     ///
     /// This reads only the schema catalog and its declared molecule counters.
