@@ -31,6 +31,23 @@ impl AtomStore {
             })
     }
 
+    /// Read the count records of many atoms in one batch. `None` means the
+    /// record is absent. A count key holds a NUL byte, so it has no twin form.
+    pub(crate) async fn atom_live_ref_count_rows(
+        &self,
+        atom_uuids: &[String],
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<Option<AtomLiveRefCount>>, SchemaError> {
+        let keys: Vec<String> = atom_uuids
+            .iter()
+            .map(|uuid| atom_live_ref_count_key(uuid, storage_prefix))
+            .collect();
+        self.main_store
+            .get_items::<AtomLiveRefCount>(&keys)
+            .await
+            .map_err(|e| SchemaError::InvalidData(format!("load atom count records: {e}")))
+    }
+
     /// Add an explicit zero counter beside a newly stored atom body.
     /// Existing counters are never reset when content-addressed writes dedupe.
     pub(crate) async fn missing_atom_ref_count_items(

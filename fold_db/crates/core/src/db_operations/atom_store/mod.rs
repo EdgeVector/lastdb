@@ -233,6 +233,8 @@ pub struct AtomStore {
     /// Automatic atom-GC generation whose reference markers guard deletes.
     /// Zero means that no bounded delete sweep is active.
     automatic_gc_atoms_generation: Arc<AtomicU64>,
+    /// Candidates re-armed by body writes (see `rearm_atom_gc_candidate_mutations`).
+    atom_gc_candidates_rearmed: Arc<AtomicU64>,
     /// Fixed lock stripes serialize body writes and automatic deletes without
     /// retaining one process object for every atom UUID in a full sweep.
     automatic_gc_atom_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,

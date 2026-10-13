@@ -316,8 +316,13 @@ impl AtomStore {
         let stored = stored.unwrap_or_default();
         if !stored.exact {
             mutations.extend(
-                self.atom_gc_candidate_mutations_for_count(atom_uuid, u64::MAX, storage_prefix)
-                    .await?,
+                self.atom_gc_candidate_mutations_for_count(
+                    atom_uuid,
+                    u64::MAX,
+                    u64::MAX,
+                    storage_prefix,
+                )
+                .await?,
             );
             return Ok(());
         }
@@ -353,7 +358,7 @@ impl AtomStore {
             })?,
         ));
         mutations.extend(
-            self.atom_gc_candidate_mutations_for_count(atom_uuid, after, storage_prefix)
+            self.atom_gc_candidate_mutations_for_count(atom_uuid, before, after, storage_prefix)
                 .await?,
         );
         Ok(())
@@ -377,8 +382,13 @@ impl AtomStore {
             .map_err(|error| SchemaError::InvalidData(format!("{serialize_context}: {error}")))?,
         ));
         mutations.extend(
-            self.atom_gc_candidate_mutations_for_count(atom_uuid, u64::MAX, storage_prefix)
-                .await?,
+            self.atom_gc_candidate_mutations_for_count(
+                atom_uuid,
+                u64::MAX,
+                u64::MAX,
+                storage_prefix,
+            )
+            .await?,
         );
         Ok(())
     }
