@@ -47,10 +47,10 @@ does not take a write lock until after all async checks have completed.
 
 ## 3. Send / lock-across-await compile check — PASSED
 
-The shipped implementation compiles and passes the full `schema_service_core` suite. The
+The shipped implementation compiles. The
 important mechanical property is that `generate_canonicalization_candidates` returns owned
 candidate data and `canonicalization_gate_outcome` awaits only after those locks are gone.
-`cargo test -p schema_service_core` exercises the compiled future shape end to end.
+`cargo build -p schema_service_core` checks the compiled future shape.
 
 ## 4. Pre-flight: state.rs overlap with `schema-decompose-apply-path`
 

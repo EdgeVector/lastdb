@@ -6,7 +6,6 @@
 | **Design** | `docs/lastdb-ideal-storage-shape.md` PR-5 / tip-residue exit |
 | **CLI** | `lastdb_local_maintain drain-tip-residue --collection headers` |
 | **Code** | `LastStoreNamespacedStore::drain_tip_residue_collection` + `drop_empty_collection` |
-| **Unit proof** | `drain_tip_residue_copies_deletes_and_drops_empty_collection` in `fold_db/crates/core/src/storage/laststore/legacy_collection_fanout_cost_tests.rs` |
 
 ## Why this exists
 
@@ -88,7 +87,6 @@ Per key under `--execute`:
 
 ## VERIFY (this card)
 
-- Unit: `cargo test -p fold_db --lib drain_tip_residue_copies_deletes_and_drops_empty_collection`
 - Rehearsal on a stopped synthetic home: dry-run + execute +
   `collection_dropped=true` (or already-empty drop).
 - Primary untouched: no exclusive open of `~/.lastdb` without Tom clearance.

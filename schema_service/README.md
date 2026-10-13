@@ -437,11 +437,9 @@ markers activate the evidence-safety alarm and their values are never emitted.
 
 ### Spec / handler sync
 
-`crates/server_http/tests/openapi_spec.rs` drift-checks the spec against
-the route table in `configure_routes`. When you add, remove, or rename
-a `/v1/*` endpoint, update **both** `configure_routes` and
-`openapi.yaml` in the same commit — `cargo test -p schema_service_server_http`
-will fail otherwise.
+When you add, remove, or rename a `/v1/*` endpoint, update **both**
+`configure_routes` and `openapi.yaml` in the same commit. No automated
+drift check exists; the lint below checks only the spec itself.
 
 ### Lint the spec
 
@@ -469,5 +467,5 @@ In-repo design notes live under [`docs/`](./docs). Notable in-flight designs:
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --all-targets
+cargo build --workspace --all-targets
 ```

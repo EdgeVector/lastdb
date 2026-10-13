@@ -24,5 +24,3 @@ The first fresh restore passed point reads and exact atom misses across two cold
 An exact two-chunk cloud rewrite removed those old prefixes through the normal manifest receipt and CAS path. The next fresh restore passed a physical audit before any daemon boot. Two cold boots preserved both logical absence and physical absence. The retained control passed all checks.
 
 This test shows why the small cloud test precedes a production restore. It also shows that local compaction alone does not prove cloud payload reclamation. The prior Python proof missed native NUL keys; a retained positive control exposed its false result.
-
-Run the offline scanner tests with `python3 tests/test_physical_atom_audit.py`.

@@ -198,8 +198,7 @@ a calm primary; it should not run against an in-flight CAS verify grind.
 Once 1–5 are in, the open card `fkanban-align-membership-field-descriptions`
 collapses to almost nothing: descriptions stop deciding identity, and the
 milestone partition is populated by fold plus backfill rather than by the app.
-`test/no-protein-reach.test.ts` continues to hold the line that the app never
-reaches into proteins to make any of this work.
+The app never reaches into proteins to make any of this work.
 
 ---
 

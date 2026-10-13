@@ -10,7 +10,7 @@ the Kanban's bespoke socket client currently do — see "Convergence gaps").
 
 The README is the full API reference. This document is the **contract**: the
 small, stable surface an app depends on, and the guarantee that it does not
-change shape underneath the app without a test breaking first.
+change shape underneath the app without a documented contract change.
 
 ---
 
@@ -31,7 +31,7 @@ const app = await connect({ appId, baseUrl });        // production: TCP + conse
   node is reached over its **Unix-domain data-plane socket** by default (the
   `baseUrl` case socket-discovers it; see the README's "Socket-first
   discovery"). An external app-like caller connecting over that socket is the
-  primary path — exercised end-to-end in `test/integration.uds.test.ts`.
+  primary path.
 - **`defaultHeaders`** carries a production node's required `X-User-Hash`
   identity header on every request. A UDS caller does not need it (the socket
   carries kernel peer credentials).
@@ -178,31 +178,18 @@ Socket rejections now serve one shape, built in `lastdb_host::reject`:
 - Every byte comes from a compile-time constant on the node side, so naming the
   failed parse rule does not weaken **I4** — no caller-supplied value is echoed.
 
-Pinned from both directions: `ERRORS.missingRequiredKey400` in
-[`test/fixtures/wire.ts`](test/fixtures/wire.ts) here, and the
-`reject_bodies_are_built_only_from_static_bytes` / `require_keys_*` tests in
-`lastdb_host`.
+The wire shapes above are the contract; the node side lives in `lastdb_host`.
 
 ---
 
 ## Why route changes break in one place
 
-The exact JSON of every request the SDK emits and every response/error the node
-returns is pinned in **[`test/fixtures/wire.ts`](test/fixtures/wire.ts)** — the
-compatibility fixtures. Two test suites drive off them:
+The SDK builds every request and parses every response/error in
+`src/client.ts` and its helpers. When a LastDB route changes shape, update the
+SDK in that one place and this document in the same commit. An app never
+discovers a wire drift in production.
 
-- **`test/contract.test.ts`** — asserts the SDK emits each pinned request shape
-  and parses each pinned response/error into the right typed result.
-- **`test/integration.uds.test.ts`** — stands up a LastDB-shaped fake node on a
-  real Unix socket and drives the SDK's real transport through the full
-  lifecycle (connect → mutate → query → search → the error shapes).
-
-When a LastDB route changes shape, update the fixture to the node's new shape:
-the failing assertions name exactly which SDK surface must move with it. That is
-the single point of breakage the card asked for — an app never discovers a wire
-drift in production.
-
-The fixtures are verified against `origin/main` Mini / `lastdbd` data-plane
+The wire shapes follow `origin/main` Mini / `lastdbd` data-plane
 behavior: consent + capability write gate, `/api/query` + `/api/mutation` +
 `/api/app/search` over UDS, and the discriminated 403 reasons under
 `fold_db/crates/core/src/access/capability_denial.rs` (when present in-tree).

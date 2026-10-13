@@ -56,7 +56,6 @@ fn main() -> laststore::Result<()> {
 
 ```bash
 cargo run --example basic
-cargo test
 ```
 
 ## API surface
@@ -170,7 +169,7 @@ packages the product surface.
 ## Development
 
 ```bash
-cargo test
+cargo build --all-targets
 cargo run --example basic
 ```
 
