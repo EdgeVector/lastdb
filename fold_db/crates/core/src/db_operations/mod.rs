@@ -50,6 +50,7 @@ pub use admin_db::{
     LOCATOR_ONLY_PROBE_TARGET_QUOTA, SUPERSEDED_VERSION_RETENTION_CHECKPOINT_KEY,
     TIP_HISTORY_DRAIN_CHECKPOINT_KEY,
 };
+pub(crate) use atom_store::{automatic_gc_audit_id, ChangedKey, FilterLayout, OneDSlot};
 pub use atom_store::{
     mk_full_scans, AtomGcAuditDecision, AtomGcAuditResult, AtomGcCandidate, AtomGcCandidatePage,
     AtomGcReapOptions, AtomGcReapReport, AtomStore, DroppedSchemaReapCursor,
@@ -57,7 +58,6 @@ pub use atom_store::{
     MoleculeData, ResealAtomContentStats, DEFAULT_ATOM_GC_GRACE_WINDOW,
     MAX_DROPPED_SCHEMA_REAP_OPS,
 };
-pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,
     AttributionLedger, AttributionObjectKind, AttributionPath, AttributionPendingScope,

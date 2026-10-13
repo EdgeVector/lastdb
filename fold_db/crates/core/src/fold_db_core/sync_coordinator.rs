@@ -15,9 +15,9 @@ use tracing::{debug, info, warn};
 use std::sync::Arc;
 
 use crate::db_operations::{
-    AtomGcAuditDecision, AtomGcReapOptions, AtomGcReapReport, AtomStore,
-    AutomaticGcAtomsDeleteOptions, AutomaticGcAtomsProbeOptions, AutomaticGcAtomsProbeResult,
-    DbOperations, DEFAULT_ATOM_GC_GRACE_WINDOW,
+    automatic_gc_audit_id, AtomGcReapOptions, AtomStore, AutomaticGcAtomsDeleteOptions,
+    AutomaticGcAtomsProbeOptions, AutomaticGcAtomsProbeResult, DbOperations,
+    DEFAULT_ATOM_GC_GRACE_WINDOW,
 };
 use crate::sync::{SyncEngine, SyncError, SyncState, SyncStatus};
 

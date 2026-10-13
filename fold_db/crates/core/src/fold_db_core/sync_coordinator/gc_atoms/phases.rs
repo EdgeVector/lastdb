@@ -174,46 +174,84 @@ pub(super) async fn advance_gc_atoms_probe(
     }
 }
 
-/// Audit and reap the zero-count candidates a finished lap proved. `false`
-/// means the audit or reaper failed and was logged.
-pub(super) async fn reap_lap_zero_ref_candidates(
+/// Audit the zero-count candidates a finished lap proved. A failure is logged.
+pub(super) async fn audit_lap_zero_ref_candidates(
+    atoms: &AtomStore,
+    lap: &crate::db_operations::AutomaticGcAtomsProbeResult,
+    settings: &AutomaticGcAtomsSettings,
+) {
+    if let Err(error) = audit_zero_ref_candidates(atoms, lap, settings.delete_candidate_cap).await {
+        warn!(
+            target: "fold_db::gc_atoms",
+            generation = lap.generation,
+            %error,
+            "automatic gc-atoms candidate audit failed"
+        );
+    }
+}
+
+/// True when the oldest candidate page holds a delete that could run now.
+pub(super) async fn candidate_reap_ready(
     atoms: &AtomStore,
     lap: &crate::db_operations::AutomaticGcAtomsProbeResult,
     settings: &AutomaticGcAtomsSettings,
     now: u64,
 ) -> bool {
-    let now_unix_nanos = now.saturating_mul(1_000_000_000);
-    match audit_and_reap_zero_ref_candidates(
-        atoms,
+    let options = lap_reap_options(
         lap,
         settings.delete_candidate_cap,
-        now_unix_nanos,
-        DEFAULT_ATOM_GC_GRACE_WINDOW,
+        now.saturating_mul(1_000_000_000),
         true,
-    )
-    .await
-    {
-        Ok(report) if report.atoms_deleted > 0 => {
-            info!(
-                target: "fold_db::gc_atoms",
-                generation = lap.generation,
-                candidates_examined = report.candidates_examined,
-                atoms_deleted = report.atoms_deleted,
-                bytes_deleted_approx = report.bytes_deleted_approx,
-                truncated = report.truncated,
-                "automatic gc-atoms reaped audited zero-count candidates"
-            );
-            true
+    );
+    atoms
+        .atom_gc_reap_ready(None, &options)
+        .await
+        .unwrap_or(false)
+}
+
+/// Reap the audited zero-count candidates of a finished lap, under the backup
+/// cut the caller holds. A failure is logged.
+pub(super) async fn reap_lap_zero_ref_candidates(
+    atoms: &AtomStore,
+    lap: &crate::db_operations::AutomaticGcAtomsProbeResult,
+    settings: &AutomaticGcAtomsSettings,
+    now: u64,
+) {
+    let options = lap_reap_options(
+        lap,
+        settings.delete_candidate_cap,
+        now.saturating_mul(1_000_000_000),
+        true,
+    );
+    match atoms.reap_audited_atom_gc_candidates(None, options).await {
+        Ok(report) => {
+            if report.atoms_deleted > 0 {
+                info!(
+                    target: "fold_db::gc_atoms",
+                    generation = lap.generation,
+                    candidates_examined = report.candidates_examined,
+                    atoms_deleted = report.atoms_deleted,
+                    bytes_deleted_approx = report.bytes_deleted_approx,
+                    truncated = report.truncated,
+                    "automatic gc-atoms reaped audited zero-count candidates"
+                );
+            }
+            if report.retained_error > 0 {
+                warn!(
+                    target: "fold_db::gc_atoms",
+                    generation = lap.generation,
+                    retained_error = report.retained_error,
+                    "automatic gc-atoms kept candidates after errors"
+                );
+            }
         }
-        Ok(_) => true,
         Err(error) => {
             warn!(
                 target: "fold_db::gc_atoms",
                 generation = lap.generation,
                 %error,
-                "automatic gc-atoms candidate audit or reaper failed"
+                "automatic gc-atoms candidate reaper failed"
             );
-            false
         }
     }
 }

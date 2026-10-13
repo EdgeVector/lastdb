@@ -2,8 +2,10 @@
 
 use super::*;
 
+mod audit;
 mod phases;
 
+use audit::*;
 use phases::*;
 
 /// Unreferenced-atom bytes tolerated before the automatic delete pass arms.
@@ -152,78 +154,6 @@ pub(super) struct AutomaticGcAtomsRuntime<'a> {
     pub(super) engine: Option<&'a SyncEngine>,
 }
 
-/// Bind one completed reachability generation to exact zero-count epochs,
-/// then run the bounded grace-window reaper.
-///
-/// A candidate created after the probe began stays unaudited. The trace did
-/// not observe that zero epoch, so absence from its marker set proves nothing.
-pub(super) async fn audit_and_reap_zero_ref_candidates(
-    atoms: &AtomStore,
-    lap: &AutomaticGcAtomsProbeResult,
-    max_candidates: usize,
-    now_unix_nanos: u64,
-    grace_window: std::time::Duration,
-    compact_after_delete: bool,
-) -> Result<AtomGcReapReport, crate::schema::SchemaError> {
-    let started_at = chrono::DateTime::parse_from_rfc3339(&lap.started_at)
-        .map_err(|error| {
-            crate::schema::SchemaError::InvalidData(format!(
-                "invalid automatic gc-atoms candidate audit start time: {error}"
-            ))
-        })?
-        .timestamp_nanos_opt()
-        .and_then(|nanos| u64::try_from(nanos).ok())
-        .ok_or_else(|| {
-            crate::schema::SchemaError::InvalidData(
-                "automatic gc-atoms candidate audit start time is out of range".to_string(),
-            )
-        })?;
-    let candidates = atoms
-        .list_atom_gc_candidates(None, max_candidates)
-        .await?
-        .candidates
-        .into_iter()
-        .filter(|candidate| candidate.zero_since_unix_nanos <= started_at)
-        .collect::<Vec<_>>();
-    let uuids = candidates
-        .iter()
-        .map(|candidate| candidate.atom_uuid.clone())
-        .collect::<Vec<_>>();
-    let referenced = atoms
-        .automatic_gc_atoms_referenced_candidates(None, lap.generation, &uuids)
-        .await?;
-    let audit_id = format!("automatic-gc-atoms:{}", lap.generation);
-    for candidate in candidates {
-        match atoms
-            .record_atom_gc_audit(
-                &candidate.atom_uuid,
-                candidate.zero_since_unix_nanos,
-                &audit_id,
-                referenced.contains(&candidate.atom_uuid),
-                None,
-            )
-            .await?
-        {
-            AtomGcAuditDecision::Cleared
-            | AtomGcAuditDecision::StillReachable
-            | AtomGcAuditDecision::StaleEpoch
-            | AtomGcAuditDecision::PendingReference => {}
-        }
-    }
-    atoms
-        .reap_audited_atom_gc_candidates(
-            None,
-            AtomGcReapOptions {
-                now_unix_nanos,
-                grace_window,
-                max_candidates,
-                dry_run: false,
-                compact_after_delete,
-            },
-        )
-        .await
-}
-
 /// Run one probe step. `Err` carries the finished step when the lap is not
 /// complete yet (probe failed or only progressed).
 async fn run_probe_stage(
@@ -346,12 +276,28 @@ where
         Err(step) => return step,
     };
 
-    if !reap_lap_zero_ref_candidates(atoms, &lap, &settings, now).await {
-        return AutomaticGcAtomsStep::Failed;
+    // Audit first. It deletes nothing, so it needs no backup cut. A failure
+    // is logged and never stops the byte-cap check or the delete pass below.
+    audit_lap_zero_ref_candidates(atoms, &lap, &settings).await;
+
+    // The candidate reaper deletes bodies and compacts the atom plane, so it
+    // runs under the same backup cut as the delete pass. Take the cut only when
+    // a delete may happen.
+    let mut lock_cut = Some(lock_backup_cut);
+    let mut cut: Option<Option<G>> = None;
+    if candidate_reap_ready(atoms, &lap, &settings, now).await {
+        if cut_is_held(&mut cut, &mut lock_cut).await {
+            info!(
+                target: "fold_db::gc_atoms",
+                "automatic gc-atoms candidate reaper cut held"
+            );
+            return AutomaticGcAtomsStep::CutHeld;
+        }
+        reap_lap_zero_ref_candidates(atoms, &lap, &settings, now).await;
     }
 
-    // Ask the byte cap before taking any lock. A lap under the cap must not
-    // stall a backup cut just to find out it has nothing to delete.
+    // Ask the byte cap before taking any new lock. A lap under the cap must
+    // not stall a backup cut just to find out it has nothing to delete.
     if !automatic_gc_atoms_delete_armed(
         lap.unreferenced_bytes_approx,
         settings.max_unreferenced_bytes,
@@ -360,20 +306,15 @@ where
         return step_below_cap(&lap, &settings, restart_lap_at, now);
     }
 
-    // Packing lock held from here through every delete batch in this step.
-    let cut_guard = lock_backup_cut().await;
-    if !automatic_gc_atoms_delete_armed(
-        lap.unreferenced_bytes_approx,
-        settings.max_unreferenced_bytes,
-        cut_guard.is_none(),
-    ) {
+    // Packing lock held from here through every delete batch in this step. The
+    // guard taken for the reaper, if any, is reused.
+    if cut_is_held(&mut cut, &mut lock_cut).await {
         info!(
             target: "fold_db::gc_atoms",
             "automatic gc-atoms cut held"
         );
         return AutomaticGcAtomsStep::CutHeld;
     }
-    let _cut_guard = cut_guard;
 
     delete_pass_step(atoms, &lap, &settings, restart_lap_at, now, deadline).await
 }
