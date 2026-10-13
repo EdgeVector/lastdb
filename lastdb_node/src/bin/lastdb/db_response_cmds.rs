@@ -240,47 +240,78 @@ pub(crate) fn migrate_hash_group_command(
         &identity,
     )?;
 
-    let payload = serde_json::json!({
-        "status": "PASS",
-        "source_home": source_home,
-        "destination_home": target_home,
-        "source_layout": if relayout { "hash_group" } else { "segment_log" },
-        "destination_layout": "hash_group",
-        "relayout": relayout,
-        "hash_group_key": hash_group_key.as_str(),
-        "hash_group_partition_fanout": partition_fanout,
-        "hash_group_bits": migrated.options().hash_group_bits,
-        "layout_epoch": migrated.options().layout_epoch,
-        "total_documents": report.total_documents,
-        "collections": report.collections,
-        "source_unchanged": true,
-        "cloud_sync_copied": false,
-        "promoted": false,
-    });
+    let done = MigrationDone {
+        source_home: &source_home,
+        target_home: &target_home,
+        relayout,
+        hash_group_key,
+        partition_fanout,
+        report: &report,
+        hash_group_bits: migrated.options().hash_group_bits,
+        layout_epoch: migrated.options().layout_epoch,
+    };
     if json_only {
         println!(
             "{}",
-            serde_json::to_string_pretty(&payload)
+            serde_json::to_string_pretty(&done.payload())
                 .map_err(|e| format!("encode migration report: {e}"))?
         );
         return Ok(());
     }
-    if relayout {
-        println!("PASS: relaid out hash-group LastStore placement");
-    } else {
-        println!("PASS: migrated LastStore into hash-group layout");
-    }
-    println!("  source:      {}", source_home.display());
-    println!("  destination: {}", target_home.display());
-    println!("  documents:   {}", report.total_documents);
-    println!("  collections: {}", report.collections.len());
-    println!(
-        "  placement:   hash_group_key={} partition_fanout={} groups={}",
-        hash_group_key.as_str(),
-        partition_fanout,
-        1u32 << migrated.options().hash_group_bits
-    );
-    println!("  layout epoch: {}", migrated.options().layout_epoch);
-    println!("  source unchanged; destination not promoted; cloud sync not copied");
+    done.print_summary();
     Ok(())
+}
+
+/// The facts of one finished hash-group migration, rendered as JSON or text.
+struct MigrationDone<'a> {
+    source_home: &'a Path,
+    target_home: &'a Path,
+    relayout: bool,
+    hash_group_key: HashGroupKeyArg,
+    partition_fanout: u32,
+    report: &'a laststore::LayoutMigrationReport,
+    hash_group_bits: u8,
+    layout_epoch: u32,
+}
+
+impl MigrationDone<'_> {
+    fn payload(&self) -> serde_json::Value {
+        serde_json::json!({
+            "status": "PASS",
+            "source_home": self.source_home,
+            "destination_home": self.target_home,
+            "source_layout": if self.relayout { "hash_group" } else { "segment_log" },
+            "destination_layout": "hash_group",
+            "relayout": self.relayout,
+            "hash_group_key": self.hash_group_key.as_str(),
+            "hash_group_partition_fanout": self.partition_fanout,
+            "hash_group_bits": self.hash_group_bits,
+            "layout_epoch": self.layout_epoch,
+            "total_documents": self.report.total_documents,
+            "collections": self.report.collections,
+            "source_unchanged": true,
+            "cloud_sync_copied": false,
+            "promoted": false,
+        })
+    }
+
+    fn print_summary(&self) {
+        if self.relayout {
+            println!("PASS: relaid out hash-group LastStore placement");
+        } else {
+            println!("PASS: migrated LastStore into hash-group layout");
+        }
+        println!("  source:      {}", self.source_home.display());
+        println!("  destination: {}", self.target_home.display());
+        println!("  documents:   {}", self.report.total_documents);
+        println!("  collections: {}", self.report.collections.len());
+        println!(
+            "  placement:   hash_group_key={} partition_fanout={} groups={}",
+            self.hash_group_key.as_str(),
+            self.partition_fanout,
+            1u32 << self.hash_group_bits
+        );
+        println!("  layout epoch: {}", self.layout_epoch);
+        println!("  source unchanged; destination not promoted; cloud sync not copied");
+    }
 }

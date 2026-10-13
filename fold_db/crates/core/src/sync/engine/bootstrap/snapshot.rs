@@ -124,32 +124,7 @@ impl SyncEngine {
             snapshot.namespaces.len(),
             last_seq
         );
-        let restore_report = if target.prefix.is_empty() {
-            // AtRestEnc checkpoints must land on the raw store so ENC:
-            // envelopes are not double-sealed by EncryptingNamespacedStore.
-            // Logical (historical) snapshots restore through the encrypting
-            // seam so puts re-seal under local at-rest crypto.
-            if snapshot.is_at_rest_enc() {
-                tracing::info!(
-                    target: "fold_db::sync",
-                    "bootstrap: restoring at_rest_enc snapshot into raw store"
-                );
-                snapshot.restore(self.cursor_store.as_ref()).await?
-            } else {
-                snapshot.restore(self.store.as_ref()).await?
-            }
-        } else {
-            let restore_scopes = self
-                .target_restore_scopes
-                .lock()
-                .await
-                .get(&target.prefix)
-                .cloned()
-                .unwrap_or_else(|| vec![target.prefix.clone()]);
-            snapshot
-                .restore_scoped_to_prefixes(self.store.as_ref(), &restore_scopes)
-                .await?
-        };
+        let restore_report = self.restore_snapshot_into_store(target, &snapshot).await?;
         if target.prefix.is_empty() {
             self.invoke_photograph_restore_barrier()
                 .await
@@ -175,26 +150,65 @@ impl SyncEngine {
             "photograph restore phases complete"
         );
         if target.prefix.is_empty() {
-            let pack_id = format!("{last_seq}.enc");
-            match self
-                .warm_thumb_cache_for_snapshot(&snapshot, &pack_id)
-                .await
-            {
-                Ok(0) => {}
-                Ok(count) => tracing::info!(
-                    target: "fold_db::sync",
-                    pack_id = %pack_id,
-                    thumbnails = count,
-                    "bootstrap warmed thumbnail cache"
-                ),
-                Err(e) => tracing::warn!(
-                    target: "fold_db::sync",
-                    pack_id = %pack_id,
-                    error = %e,
-                    "bootstrap thumbnail cache warm failed (non-fatal)"
-                ),
-            }
+            self.warm_thumb_cache_after_restore(&snapshot, last_seq)
+                .await;
         }
         Ok(last_seq)
+    }
+
+    /// Restore the unsealed snapshot into the store this target writes to.
+    async fn restore_snapshot_into_store(
+        &self,
+        target: &SyncTarget,
+        snapshot: &Snapshot,
+    ) -> SyncResult<crate::sync::snapshot::SnapshotRestoreReport> {
+        let report = if target.prefix.is_empty() {
+            // AtRestEnc checkpoints must land on the raw store so ENC:
+            // envelopes are not double-sealed by EncryptingNamespacedStore.
+            // Logical (historical) snapshots restore through the encrypting
+            // seam so puts re-seal under local at-rest crypto.
+            if snapshot.is_at_rest_enc() {
+                tracing::info!(
+                    target: "fold_db::sync",
+                    "bootstrap: restoring at_rest_enc snapshot into raw store"
+                );
+                snapshot.restore(self.cursor_store.as_ref()).await?
+            } else {
+                snapshot.restore(self.store.as_ref()).await?
+            }
+        } else {
+            let restore_scopes = self
+                .target_restore_scopes
+                .lock()
+                .await
+                .get(&target.prefix)
+                .cloned()
+                .unwrap_or_else(|| vec![target.prefix.clone()]);
+            snapshot
+                .restore_scoped_to_prefixes(self.store.as_ref(), &restore_scopes)
+                .await?
+        };
+        Ok(report)
+    }
+
+    /// Warm the thumbnail cache from a restored snapshot. Failure is logged,
+    /// never fatal.
+    async fn warm_thumb_cache_after_restore(&self, snapshot: &Snapshot, last_seq: u64) {
+        let pack_id = format!("{last_seq}.enc");
+        match self.warm_thumb_cache_for_snapshot(snapshot, &pack_id).await {
+            Ok(0) => {}
+            Ok(count) => tracing::info!(
+                target: "fold_db::sync",
+                pack_id = %pack_id,
+                thumbnails = count,
+                "bootstrap warmed thumbnail cache"
+            ),
+            Err(e) => tracing::warn!(
+                target: "fold_db::sync",
+                pack_id = %pack_id,
+                error = %e,
+                "bootstrap thumbnail cache warm failed (non-fatal)"
+            ),
+        }
     }
 }

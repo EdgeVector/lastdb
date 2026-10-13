@@ -130,16 +130,57 @@ pub(crate) async fn discover_remote_recovery_descriptor(
 
 /// Find one normal cut from the account-root descriptors, then match the
 /// exact database-scoped `backup/latest` pointer before the target is opened.
+const MAX_DESCRIPTOR_BYTES: usize = 65_536;
+const MAX_DESCRIPTOR_OBJECTS: usize = 10_000;
+
+/// One listed recovery descriptor: object name, database hash, manifest hash.
+type DescriptorCandidate = (String, String, String);
+
 pub(crate) async fn discover_remote_latest_descriptor(
     unscoped: &fold_db::sync::auth::AuthClient,
     s3: &fold_db::sync::s3::S3Client,
     e2e_key: &[u8; 32],
     selection: RemoteRecoverySelector<'_>,
 ) -> Result<RemoteRecovery, String> {
+    let (databases, candidates) = list_descriptor_candidates(unscoped, &selection).await?;
+    if databases.len() > 1 {
+        return Err("several cloud databases match; specify --db-hash".into());
+    }
+    let db_hash = databases
+        .into_iter()
+        .next()
+        .ok_or("normal recovery descriptor is missing")?;
+    let scoped = unscoped
+        .clone()
+        .with_db_hash(Some(db_hash.clone()))
+        .without_db_auto_claim();
+    let latest = scoped
+        .backup_latest_get()
+        .await
+        .map_err(|error| format!("read normal backup latest: {error}"))?;
+    if selection
+        .manifest_sha256
+        .is_some_and(|selected| selected != latest.latest.manifest_sha256)
+    {
+        return Err("selected manifest does not match normal backup latest".into());
+    }
+    let descriptor =
+        select_latest_descriptor(unscoped, s3, e2e_key, &db_hash, &latest, candidates).await?;
+    Ok(RemoteRecovery {
+        descriptor,
+        rescue: None,
+        latest: Some(latest),
+    })
+}
+
+/// List the normal recovery descriptors, keeping those that match the
+/// selector. Returns the distinct database hashes and the candidates.
+async fn list_descriptor_candidates(
+    unscoped: &fold_db::sync::auth::AuthClient,
+    selection: &RemoteRecoverySelector<'_>,
+) -> Result<(std::collections::BTreeSet<String>, Vec<DescriptorCandidate>), String> {
     use fold_db::sync::engine::RecoveryDescriptorV1;
 
-    const MAX_DESCRIPTOR_BYTES: usize = 65_536;
-    const MAX_DESCRIPTOR_OBJECTS: usize = 10_000;
     let listed = unscoped
         .list_objects_legacy_personal_at_most(
             "snapshots/lastdb-recovery-v1-",
@@ -168,27 +209,21 @@ pub(crate) async fn discover_remote_latest_descriptor(
             manifest_sha256.to_string(),
         ));
     }
-    if databases.len() > 1 {
-        return Err("several cloud databases match; specify --db-hash".into());
-    }
-    let db_hash = databases
-        .into_iter()
-        .next()
-        .ok_or("normal recovery descriptor is missing")?;
-    let scoped = unscoped
-        .clone()
-        .with_db_hash(Some(db_hash.clone()))
-        .without_db_auto_claim();
-    let latest = scoped
-        .backup_latest_get()
-        .await
-        .map_err(|error| format!("read normal backup latest: {error}"))?;
-    if selection
-        .manifest_sha256
-        .is_some_and(|selected| selected != latest.latest.manifest_sha256)
-    {
-        return Err("selected manifest does not match normal backup latest".into());
-    }
+    Ok((databases, candidates))
+}
+
+/// Download and open the candidates that name the live backup, and return the
+/// one `replay_tail` descriptor they agree on.
+async fn select_latest_descriptor(
+    unscoped: &fold_db::sync::auth::AuthClient,
+    s3: &fold_db::sync::s3::S3Client,
+    e2e_key: &[u8; 32],
+    db_hash: &str,
+    latest: &fold_db::sync::auth::ops::BackupLatestGetResponse,
+    candidates: Vec<DescriptorCandidate>,
+) -> Result<fold_db::sync::engine::RecoveryDescriptorV1, String> {
+    use fold_db::sync::engine::RecoveryDescriptorV1;
+
     let mut selected: Option<RecoveryDescriptorV1> = None;
     for (name, candidate_db_hash, candidate_manifest_sha256) in candidates {
         if candidate_db_hash != db_hash
@@ -218,12 +253,7 @@ pub(crate) async fn discover_remote_latest_descriptor(
         }
         selected = Some(descriptor);
     }
-    let descriptor = selected.ok_or("normal backup has no matching recovery descriptor")?;
-    Ok(RemoteRecovery {
-        descriptor,
-        rescue: None,
-        latest: Some(latest),
-    })
+    selected.ok_or_else(|| "normal backup has no matching recovery descriptor".to_string())
 }
 
 pub(crate) fn restore_remote_s0_only_command(

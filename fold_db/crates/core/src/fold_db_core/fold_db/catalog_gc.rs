@@ -26,6 +26,14 @@ pub struct CatalogReclaimResult {
     pub reclaimed_rows: usize,
 }
 
+/// What `reclaim_unreferenced_instance` removed.
+#[derive(Default)]
+struct InstanceReclaim {
+    rows: usize,
+    wraps: usize,
+    search_tombstones: usize,
+}
+
 impl FoldDB {
     /// Delete one catalog membership. When that was the last reference to a
     /// prefixed instance, drop `{instance_id}:` rows in main.
@@ -40,23 +48,9 @@ impl FoldDB {
         let storage_prefix = existing
             .as_ref()
             .and_then(|entry| entry.instance_id.clone());
-        let mut molecule_uuids: Vec<String> = schema
-            .as_ref()
-            .and_then(|schema| schema.field_molecule_uuids.as_ref())
-            .into_iter()
-            .flat_map(|molecules| molecules.values().cloned())
-            .collect();
-        molecule_uuids.sort_unstable();
-        molecule_uuids.dedup();
-        let mut _molecule_guards = Vec::with_capacity(molecule_uuids.len());
-        for molecule_uuid in &molecule_uuids {
-            _molecule_guards.push(
-                self.db_ops()
-                    .atoms()
-                    .lock_molecule_commit(molecule_uuid, storage_prefix.as_deref())
-                    .await,
-            );
-        }
+        let _molecule_guards = self
+            .lock_schema_molecules(schema.as_ref(), storage_prefix.as_deref())
+            .await;
         let atom_ref_plan = match (existing.as_ref(), schema.as_ref()) {
             (Some(_), Some(schema)) => Some(
                 self.db_ops()
@@ -83,47 +77,86 @@ impl FoldDB {
             self.db_ops().atoms().abort_catalog_atom_refs(plan).await?;
         }
         let instance_id = existing.and_then(|entry| entry.instance_id);
-        let mut reclaimed_rows = 0usize;
-        let mut reclaimed_wraps = 0usize;
-        let mut search_tombstones = 0usize;
-        if let Some(ref instance) = instance_id {
-            if instance != UNPREFIXED_INSTANCE_ID {
-                let live = referenced_instance_ids(&catalog.list_entries().await?);
-                if !live.contains(instance) {
-                    if let Some(schema) = schema.as_ref() {
-                        let batch = self
-                            .build_catalog_unshare_tombstones(schema_name, schema, instance)
-                            .await?;
-                        search_tombstones = batch.changes.len();
-                        if !batch.changes.is_empty() {
-                            self.mutation_manager
-                                .deliver_index_change_batch(&batch)
-                                .await
-                                .map_err(crate::error::FoldDbError::from)?;
-                        }
-                        reclaimed_wraps = self
-                            .db_ops()
-                            .molecule_keys()
-                            .drop_schema_domain_wraps(schema)
-                            .await?;
-                    }
-                    let main = self
-                        .db_ops()
-                        .namespaced_store()
-                        .open_namespace("main")
-                        .await?;
-                    reclaimed_rows =
-                        drop_prefixed_rows_for_instance(main.as_ref(), instance).await?;
-                }
+        let reclaim = match instance_id.as_deref() {
+            Some(instance) if instance != UNPREFIXED_INSTANCE_ID => {
+                self.reclaim_unreferenced_instance(schema_name, schema.as_ref(), instance)
+                    .await?
             }
-        }
+            _ => InstanceReclaim::default(),
+        };
         Ok(CatalogDeleteReclaimResult {
             deleted,
             instance_id,
-            reclaimed_rows,
-            reclaimed_wraps,
-            search_tombstones,
+            reclaimed_rows: reclaim.rows,
+            reclaimed_wraps: reclaim.wraps,
+            search_tombstones: reclaim.search_tombstones,
         })
+    }
+
+    /// Take the commit lock of every molecule the schema owns, in sorted
+    /// order so concurrent deleters cannot deadlock.
+    async fn lock_schema_molecules(
+        &self,
+        schema: Option<&Schema>,
+        storage_prefix: Option<&str>,
+    ) -> Vec<impl Sized> {
+        let mut molecule_uuids: Vec<String> = schema
+            .and_then(|schema| schema.field_molecule_uuids.as_ref())
+            .into_iter()
+            .flat_map(|molecules| molecules.values().cloned())
+            .collect();
+        molecule_uuids.sort_unstable();
+        molecule_uuids.dedup();
+        let mut guards = Vec::with_capacity(molecule_uuids.len());
+        for molecule_uuid in &molecule_uuids {
+            guards.push(
+                self.db_ops()
+                    .atoms()
+                    .lock_molecule_commit(molecule_uuid, storage_prefix)
+                    .await,
+            );
+        }
+        guards
+    }
+
+    /// When no catalog entry references `instance` any more, drop its search
+    /// entries, domain key wraps, and `{instance}:` rows in main.
+    async fn reclaim_unreferenced_instance(
+        &self,
+        schema_name: &str,
+        schema: Option<&Schema>,
+        instance: &str,
+    ) -> FoldDbResult<InstanceReclaim> {
+        let catalog = self.db_ops().db_catalog();
+        let live = referenced_instance_ids(&catalog.list_entries().await?);
+        let mut reclaim = InstanceReclaim::default();
+        if live.contains(instance) {
+            return Ok(reclaim);
+        }
+        if let Some(schema) = schema {
+            let batch = self
+                .build_catalog_unshare_tombstones(schema_name, schema, instance)
+                .await?;
+            reclaim.search_tombstones = batch.changes.len();
+            if !batch.changes.is_empty() {
+                self.mutation_manager
+                    .deliver_index_change_batch(&batch)
+                    .await
+                    .map_err(crate::error::FoldDbError::from)?;
+            }
+            reclaim.wraps = self
+                .db_ops()
+                .molecule_keys()
+                .drop_schema_domain_wraps(schema)
+                .await?;
+        }
+        let main = self
+            .db_ops()
+            .namespaced_store()
+            .open_namespace("main")
+            .await?;
+        reclaim.rows = drop_prefixed_rows_for_instance(main.as_ref(), instance).await?;
+        Ok(reclaim)
     }
 
     async fn build_catalog_unshare_tombstones(

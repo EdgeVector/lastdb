@@ -100,6 +100,48 @@ fn assemble_transaction_group(
     })
 }
 
+/// Check a shard's identity and contents against its manifest reference.
+fn validate_shard_against_manifest(
+    group_id: &str,
+    manifest: &TransactionGroupManifestObject,
+    shard: &TransactionGroupShardObject,
+) -> Result<(), String> {
+    if shard.writer_id != manifest.writer_id
+        || shard.frontier_after != manifest.frontier_after
+        || shard.shard_count != manifest.shard_count
+    {
+        return Err(format!(
+            "transaction group {group_id} has inconsistent shard identity"
+        ));
+    }
+    let reference = manifest
+        .shards
+        .iter()
+        .find(|reference| reference.shard_index == shard.shard_index)
+        .ok_or_else(|| {
+            format!(
+                "transaction group {group_id} shard {} is absent from its manifest",
+                shard.shard_index
+            )
+        })?;
+    let shard_indexes = shard
+        .operations
+        .iter()
+        .map(|operation| operation.original_index)
+        .collect::<Vec<_>>();
+    if reference.schema_name != shard.schema_name
+        || reference.object_key != shard.segment.object_key
+        || reference.ciphertext_sha256 != shard.ciphertext_sha256
+        || reference.operation_indexes != shard_indexes
+    {
+        return Err(format!(
+            "transaction group {group_id} shard {} fails manifest validation",
+            shard.shard_index
+        ));
+    }
+    Ok(())
+}
+
 /// Place every shard operation (typed and raw) at its original index,
 /// rejecting inconsistent, repeated, out-of-range, or missing operations.
 fn collect_group_operations(
@@ -113,40 +155,12 @@ fn collect_group_operations(
         .collect::<Vec<Option<Box<RawValue>>>>();
     let mut seen_shards = BTreeSet::new();
     for shard in shards {
-        if shard.writer_id != manifest.writer_id
-            || shard.frontier_after != manifest.frontier_after
-            || shard.shard_count != manifest.shard_count
-            || !seen_shards.insert(shard.shard_index)
-        {
+        if !seen_shards.insert(shard.shard_index) {
             return Err(format!(
                 "transaction group {group_id} has inconsistent shard identity"
             ));
         }
-        let reference = manifest
-            .shards
-            .iter()
-            .find(|reference| reference.shard_index == shard.shard_index)
-            .ok_or_else(|| {
-                format!(
-                    "transaction group {group_id} shard {} is absent from its manifest",
-                    shard.shard_index
-                )
-            })?;
-        let shard_indexes = shard
-            .operations
-            .iter()
-            .map(|operation| operation.original_index)
-            .collect::<Vec<_>>();
-        if reference.schema_name != shard.schema_name
-            || reference.object_key != shard.segment.object_key
-            || reference.ciphertext_sha256 != shard.ciphertext_sha256
-            || reference.operation_indexes != shard_indexes
-        {
-            return Err(format!(
-                "transaction group {group_id} shard {} fails manifest validation",
-                shard.shard_index
-            ));
-        }
+        validate_shard_against_manifest(group_id, manifest, &shard)?;
         for (operation, raw_operation) in shard.operations.into_iter().zip(shard.raw_operations) {
             let index = operation.original_index as usize;
             let slot = operations.get_mut(index).ok_or_else(|| {
