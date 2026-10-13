@@ -57,6 +57,19 @@ pub struct SchemaNameClaim {
 /// This is operational state owned by the node. It is deliberately separate
 /// from [`DeclarativeSchemaDefinition`], so changing retention cannot alter a
 /// published schema artifact, its identity hash, or canonicalization.
+///
+/// How the sweep reads the age of a record depends on the schema layout:
+///
+/// - Range and HashRange: the entry time at the front of the range key, in
+///   unix seconds zero-padded to 20 digits (for example
+///   `00000000001791863226-0007`). A rewrite of the same key does not change
+///   it. A range key that does not start with 20 ASCII digits is never expired.
+/// - Hash and Single: the time since the last write to the key. A rewrite
+///   resets it.
+///
+/// A policy covers writes made after it is set, through the schema name it
+/// names. A record written before the policy exists, or through another
+/// installed name for the same data, is not covered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaRetentionPolicy {
     /// Maximum age of retained records, in seconds.
