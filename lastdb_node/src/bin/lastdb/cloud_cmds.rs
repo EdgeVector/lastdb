@@ -45,54 +45,18 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         | CloudCommand::FixBilling { .. }
         | CloudCommand::Account { .. }
         | CloudCommand::Status { .. }) => cloud_billing_command(&home, &runtime, action),
-        CloudCommand::HealStaging { json } => {
-            // Drop the tokio runtime — heal talks to the running daemon over UDS.
+        action @ (CloudCommand::HealStaging { .. }
+        | CloudCommand::Snapshot { .. }
+        | CloudCommand::BackupGc { .. }
+        | CloudCommand::PrefixInventory { .. }
+        | CloudCommand::BackupConcurrency { .. }
+        | CloudCommand::Off { .. }
+        | CloudCommand::On { .. }
+        | CloudCommand::PrepareResumePrimary { .. }
+        | CloudCommand::QuarantineReplay { .. }) => {
+            // These talk to the running daemon over UDS; no runtime needed.
             drop(runtime);
-            cloud_heal_staging(&home, json)
-        }
-        CloudCommand::Snapshot { json } => {
-            // Drop the tokio runtime — snapshot talks to the running daemon over UDS.
-            drop(runtime);
-            cloud_laststore_snapshot(&home, json)
-        }
-        CloudCommand::BackupGc {
-            execute,
-            json,
-            job,
-            status,
-            wait,
-            request_id,
-        } => {
-            drop(runtime);
-            cloud_backup_gc(
-                &home,
-                execute,
-                json,
-                job.as_deref(),
-                status,
-                wait,
-                request_id.as_deref(),
-            )
-        }
-        CloudCommand::PrefixInventory { json } => {
-            drop(runtime);
-            cloud_prefix_inventory(&home, json)
-        }
-        CloudCommand::BackupConcurrency { value, clear, json } => {
-            drop(runtime);
-            cloud_backup_concurrency(&home, value, clear, json)
-        }
-        CloudCommand::Off { json } => {
-            drop(runtime);
-            cloud_set_intent(&home, false, json)
-        }
-        CloudCommand::On { json } => {
-            drop(runtime);
-            cloud_set_intent(&home, true, json)
-        }
-        CloudCommand::PrepareResumePrimary { json } => {
-            drop(runtime);
-            cloud_prepare_resume_primary(&home, json)
+            cloud_daemon_command(&home, action)
         }
         CloudCommand::ResumePrimary { action } => resume_primary::run(&home, runtime, action),
         CloudCommand::BackupWhileOff {
@@ -112,15 +76,46 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
                 json,
             ))
         }
-        CloudCommand::QuarantineReplay { target, seq, json } => {
-            drop(runtime);
-            cloud_quarantine_replay(&home, &target, seq, json)
-        }
         CloudCommand::CutManifest {
             previous,
             out,
             json,
         } => cloud_cut_manifest(&home, previous, out.as_deref(), json),
+    }
+}
+
+/// `lastdb cloud` subcommands that call the running daemon over its socket.
+fn cloud_daemon_command(home: &Path, action: CloudCommand) -> Result<(), String> {
+    match action {
+        CloudCommand::HealStaging { json } => cloud_heal_staging(home, json),
+        CloudCommand::Snapshot { json } => cloud_laststore_snapshot(home, json),
+        CloudCommand::BackupGc {
+            execute,
+            json,
+            job,
+            status,
+            wait,
+            request_id,
+        } => cloud_backup_gc(
+            home,
+            execute,
+            json,
+            job.as_deref(),
+            status,
+            wait,
+            request_id.as_deref(),
+        ),
+        CloudCommand::PrefixInventory { json } => cloud_prefix_inventory(home, json),
+        CloudCommand::BackupConcurrency { value, clear, json } => {
+            cloud_backup_concurrency(home, value, clear, json)
+        }
+        CloudCommand::Off { json } => cloud_set_intent(home, false, json),
+        CloudCommand::On { json } => cloud_set_intent(home, true, json),
+        CloudCommand::PrepareResumePrimary { json } => cloud_prepare_resume_primary(home, json),
+        CloudCommand::QuarantineReplay { target, seq, json } => {
+            cloud_quarantine_replay(home, &target, seq, json)
+        }
+        _ => unreachable!("cloud_command routes only daemon subcommands here"),
     }
 }
 
