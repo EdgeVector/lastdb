@@ -63,26 +63,7 @@ impl AuthClient {
         }
         let is_read = is_cloud_read_action(path, &action, body);
         if let Some(plan) = &self.cloud_adoption_read {
-            if !is_read
-                && !matches!(
-                    action.as_str(),
-                    "cloud_control_get" | "cloud_control_download" | "cloud_purge_download_batch"
-                )
-            {
-                return Err(SyncError::CloudPurgeHeld(
-                    "inactive cloud adoption clients cannot mutate cloud data".into(),
-                ));
-            }
-            if is_read {
-                super::cloud_share::bind_read(body, plan.generation, plan.read_data_generation()?)?;
-            }
-            put_generation(
-                body,
-                &plan.account,
-                plan.generation,
-                Some(&plan.operation_id),
-            )?;
-            return Ok(());
+            return Self::guard_adoption_read_request(plan, &action, is_read, body);
         }
         if super::recipient_delivery::is_recipient_delivery(&action) {
             return self.guard_recipient_delivery_request(body).await;
@@ -140,6 +121,36 @@ impl AuthClient {
             Some(&control.operation_id),
         )?;
         body["cloud_adoption_token"] = serde_json::Value::String(token);
+        Ok(())
+    }
+
+    /// An inactive adoption client may read the replacement generation and
+    /// nothing else.
+    fn guard_adoption_read_request(
+        plan: &crate::sync::cloud_purge_peer::AdoptionPlan,
+        action: &str,
+        is_read: bool,
+        body: &mut serde_json::Value,
+    ) -> SyncResult<()> {
+        if !is_read
+            && !matches!(
+                action,
+                "cloud_control_get" | "cloud_control_download" | "cloud_purge_download_batch"
+            )
+        {
+            return Err(SyncError::CloudPurgeHeld(
+                "inactive cloud adoption clients cannot mutate cloud data".into(),
+            ));
+        }
+        if is_read {
+            super::cloud_share::bind_read(body, plan.generation, plan.read_data_generation()?)?;
+        }
+        put_generation(
+            body,
+            &plan.account,
+            plan.generation,
+            Some(&plan.operation_id),
+        )?;
         Ok(())
     }
 

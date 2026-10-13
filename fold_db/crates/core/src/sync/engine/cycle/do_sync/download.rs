@@ -82,44 +82,14 @@ impl SyncEngine {
         let picked = pick_scoped_round_robin(scoped_idxs, max_scoped, rr);
         for (pick_i, &idx) in picked.iter().enumerate() {
             let target = &targets[idx];
-            if propagate_errors {
-                tracing::info!(
-                    target: "fold_db::sync::memory",
-                    target_label = %target.label,
-                    scoped_index = pick_i,
-                    scoped_total,
-                    "download phase: starting scoped target before upload (no personal target)"
-                );
-            } else {
-                tracing::info!(
-                    target: "fold_db::sync::memory",
-                    target_label = %target.label,
-                    scoped_index = pick_i,
-                    scoped_total,
-                    "post-upload scoped download: starting (capped per cycle)"
-                );
-            }
+            log_scoped_download_start(&target.label, pick_i, scoped_total, propagate_errors);
             match self.download_with_auth_retry(target).await {
                 Ok(n) => {
                     *downloaded += n;
                     if n > 0 {
                         proven_prefixes.insert(target.prefix.clone());
                     }
-                    if propagate_errors {
-                        tracing::info!(
-                            target: "fold_db::sync::memory",
-                            target_label = %target.label,
-                            downloaded = n,
-                            "download phase: scoped target complete"
-                        );
-                    } else {
-                        tracing::info!(
-                            target: "fold_db::sync::memory",
-                            target_label = %target.label,
-                            downloaded = n,
-                            "post-upload scoped download: complete"
-                        );
-                    }
+                    log_scoped_download_complete(&target.label, n, propagate_errors);
                 }
                 Err(e) => {
                     self.record_cloud_sync_transfer_failure("download", &target.label, &e)
@@ -150,5 +120,48 @@ impl SyncEngine {
             }
         }
         Ok(())
+    }
+}
+
+fn log_scoped_download_start(
+    target_label: &str,
+    scoped_index: usize,
+    scoped_total: usize,
+    propagate_errors: bool,
+) {
+    if propagate_errors {
+        tracing::info!(
+            target: "fold_db::sync::memory",
+            target_label = %target_label,
+            scoped_index,
+            scoped_total,
+            "download phase: starting scoped target before upload (no personal target)"
+        );
+    } else {
+        tracing::info!(
+            target: "fold_db::sync::memory",
+            target_label = %target_label,
+            scoped_index,
+            scoped_total,
+            "post-upload scoped download: starting (capped per cycle)"
+        );
+    }
+}
+
+fn log_scoped_download_complete(target_label: &str, downloaded: u64, propagate_errors: bool) {
+    if propagate_errors {
+        tracing::info!(
+            target: "fold_db::sync::memory",
+            target_label = %target_label,
+            downloaded,
+            "download phase: scoped target complete"
+        );
+    } else {
+        tracing::info!(
+            target: "fold_db::sync::memory",
+            target_label = %target_label,
+            downloaded,
+            "post-upload scoped download: complete"
+        );
     }
 }
