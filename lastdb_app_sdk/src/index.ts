@@ -6,9 +6,8 @@
  * a 10-line quickstart.
  */
 
+export { connect, LastDbClient } from './client.js';
 export {
-  connect,
-  LastDbClient,
   parseAutoIdentityResponse,
   parseNodeVersion,
   parseSchemaListResponse,
@@ -17,7 +16,7 @@ export {
   resolveLoadedSchema,
   parseSearchResponse,
   parseChangesResponse,
-} from './client.js';
+} from './responseParsers.js';
 export type { AwaitConsentOptions, LastDbClientOptions } from './client.js';
 
 export {
