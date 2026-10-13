@@ -1,5 +1,10 @@
 use super::*;
 
+/// `(owner_app_id, descriptive_name, [(identity_hash, field_count)])`.
+type DuplicateGroup = (Option<String>, String, Vec<(String, usize)>);
+/// `(schema_name, label)` of a schema selected for deprecation.
+type DeprecationTarget = (String, String);
+
 impl SchemaServiceState {
     /// Repair existing duplicate `descriptive_name` groups in the registry by
     /// keeping the active schema with the largest field set as the survivor
@@ -17,6 +22,34 @@ impl SchemaServiceState {
     /// preserved so any in-flight writes that still address them keep
     /// resolving via the active-redirect path.
     pub async fn dedupe_descriptive_names(&self) -> FoldDbResult<Vec<DescriptiveNameDedupeGroup>> {
+        let groups = self.duplicate_descriptive_name_groups()?;
+
+        let mut report = Vec::with_capacity(groups.len());
+        for (owner_app_id, descriptive_name, entries) in groups {
+            report.push(
+                self.dedupe_group(owner_app_id, descriptive_name, entries)
+                    .await?,
+            );
+        }
+
+        // Advance the snapshot version when the cleanup actually flipped
+        // `superseded_by` markers and rewrote `descriptive_name_index`
+        // entries. Clients poll `state_version` via `GET /v1/snapshot` to
+        // decide whether to re-fetch; without the bump a pre-dedupe cache
+        // would silently keep showing loser hashes as active and resolve
+        // the descriptive_name against the stale index slot. An empty
+        // report means the registry was already clean, so we skip the
+        // bump there to avoid churning the version on idempotent re-runs.
+        if !report.is_empty() {
+            self.bump_state_version();
+        }
+
+        Ok(report)
+    }
+
+    /// Active schemas that share `(owner_app_id, descriptive_name)`, with
+    /// `(identity_hash, field_count)` for each member.
+    fn duplicate_descriptive_name_groups(&self) -> FoldDbResult<Vec<DuplicateGroup>> {
         // Collect groups of ((owner_app_id, descriptive_name), [(hash,
         // field_count)]) for all active schemas — sort descending by field
         // count + lexically by hash so the survivor pick is deterministic
@@ -27,10 +60,9 @@ impl SchemaServiceState {
         // (owner_app_id, descriptive_name) → [(identity_hash, field_count)].
         // Aliased for readability — clippy::type_complexity flags the raw form.
         type DedupeGroupKey = (Option<String>, String);
-        type DedupeEntries = Vec<(String, usize)>;
-        let groups: Vec<(Option<String>, String, DedupeEntries)> = {
+        let groups: Vec<DuplicateGroup> = {
             let schemas = read_lock(&self.schemas, "schemas")?;
-            let mut by_desc: HashMap<DedupeGroupKey, DedupeEntries> = HashMap::new();
+            let mut by_desc: HashMap<DedupeGroupKey, Vec<(String, usize)>> = HashMap::new();
             for (name, schema) in schemas.iter() {
                 if schema.superseded_by.is_some() {
                     continue;
@@ -49,85 +81,71 @@ impl SchemaServiceState {
                 .map(|((owner, desc), entries)| (owner, desc, entries))
                 .collect()
         };
-
-        let mut report = Vec::with_capacity(groups.len());
-        for (owner_app_id, descriptive_name, mut entries) in groups {
-            // Survivor: largest field count, tiebreak by lexical hash for
-            // determinism.
-            entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-            let (survivor_hash, survivor_field_count) = entries[0].clone();
-            let losers: Vec<String> = entries[1..].iter().map(|(h, _)| h.clone()).collect();
-
-            // Mark losers superseded_by survivor in memory; collect the
-            // post-mutation clones for persistence outside the lock.
-            let to_persist: Vec<Schema> = {
-                let mut schemas = write_lock(&self.schemas, "schemas")?;
-                losers
-                    .iter()
-                    .filter_map(|loser_hash| {
-                        let s = schemas.get_mut(loser_hash)?;
-                        s.superseded_by = Some(survivor_hash.clone());
-                        Some(s.clone())
-                    })
-                    .collect()
-            };
-
-            self.persist_schemas(&to_persist).await?;
-
-            // Keep the descriptive_name_index pointing at the survivor under
-            // the namespaced key so app-owned and un-owned same-name groups
-            // stay independent.
-            {
-                let index_key = descriptive_name_key(owner_app_id.as_deref(), &descriptive_name);
-                let mut index = write_lock(&self.descriptive_name_index, "descriptive_name_index")?;
-                index.insert(index_key, survivor_hash.clone());
-            }
-
-            tracing::info!(
-                target: "schema_service::dedupe",
-                descriptive_name = %descriptive_name,
-                owner_app_id = ?owner_app_id,
-                survivor = %survivor_hash,
-                survivor_field_count,
-                losers_count = losers.len(),
-                "Deduped descriptive_name group: kept largest field set as survivor",
-            );
-
-            report.push(DescriptiveNameDedupeGroup {
-                descriptive_name,
-                survivor: survivor_hash,
-                survivor_field_count,
-                superseded: losers,
-            });
-        }
-
-        // Advance the snapshot version when the cleanup actually flipped
-        // `superseded_by` markers and rewrote `descriptive_name_index`
-        // entries. Clients poll `state_version` via `GET /v1/snapshot` to
-        // decide whether to re-fetch; without the bump a pre-dedupe cache
-        // would silently keep showing loser hashes as active and resolve
-        // the descriptive_name against the stale index slot. An empty
-        // report means the registry was already clean, so we skip the
-        // bump there to avoid churning the version on idempotent re-runs.
-        if !report.is_empty() {
-            self.bump_state_version();
-        }
-
-        Ok(report)
+        Ok(groups)
     }
 
-    /// Mark selected schemas inactive without deleting their immutable records.
-    ///
-    /// This is the surgical cleanup path for bad registry entries. It uses the
-    /// same `superseded_by.is_some()` inactive convention as schema expansion
-    /// and dedupe, but self-references the deprecated schema when there is no
-    /// replacement survivor. The descriptive-name index entry is removed only
-    /// when it still points at the deprecated schema, so newer active schemas
-    /// in the same namespace are not disturbed.
-    pub async fn deprecate_schemas(
+    /// Keep the largest schema of one duplicate group and supersede the rest.
+    async fn dedupe_group(
+        &self,
+        owner_app_id: Option<String>,
+        descriptive_name: String,
+        mut entries: Vec<(String, usize)>,
+    ) -> FoldDbResult<DescriptiveNameDedupeGroup> {
+        // Survivor: largest field count, tiebreak by lexical hash for
+        // determinism.
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let (survivor_hash, survivor_field_count) = entries[0].clone();
+        let losers: Vec<String> = entries[1..].iter().map(|(h, _)| h.clone()).collect();
+
+        // Mark losers superseded_by survivor in memory; collect the
+        // post-mutation clones for persistence outside the lock.
+        let to_persist: Vec<Schema> = {
+            let mut schemas = write_lock(&self.schemas, "schemas")?;
+            losers
+                .iter()
+                .filter_map(|loser_hash| {
+                    let s = schemas.get_mut(loser_hash)?;
+                    s.superseded_by = Some(survivor_hash.clone());
+                    Some(s.clone())
+                })
+                .collect()
+        };
+
+        self.persist_schemas(&to_persist).await?;
+
+        // Keep the descriptive_name_index pointing at the survivor under
+        // the namespaced key so app-owned and un-owned same-name groups
+        // stay independent.
+        {
+            let index_key = descriptive_name_key(owner_app_id.as_deref(), &descriptive_name);
+            let mut index = write_lock(&self.descriptive_name_index, "descriptive_name_index")?;
+            index.insert(index_key, survivor_hash.clone());
+        }
+
+        tracing::info!(
+            target: "schema_service::dedupe",
+            descriptive_name = %descriptive_name,
+            owner_app_id = ?owner_app_id,
+            survivor = %survivor_hash,
+            survivor_field_count,
+            losers_count = losers.len(),
+            "Deduped descriptive_name group: kept largest field set as survivor",
+        );
+
+        Ok(DescriptiveNameDedupeGroup {
+            descriptive_name,
+            survivor: survivor_hash,
+            survivor_field_count,
+            superseded: losers,
+        })
+    }
+
+    /// Map a deprecate request to unique `(schema_name, label)` targets plus
+    /// the labels that matched no active schema.
+    fn resolve_deprecation_targets(
         &self,
         request: DeprecateSchemasRequest,
-    ) -> FoldDbResult<DeprecateSchemasResponse> {
+    ) -> FoldDbResult<(Vec<DeprecationTarget>, Vec<String>)> {
         let owner_app_id = request
             .owner_app_id
             .as_deref()
@@ -135,7 +153,7 @@ impl SchemaServiceState {
             .filter(|owner| !owner.is_empty())
             .map(str::to_string);
 
-        let mut targets: Vec<(String, String)> = Vec::new();
+        let mut targets: Vec<DeprecationTarget> = Vec::new();
         for name in request.schema_names {
             let trimmed = name.trim();
             if !trimmed.is_empty() {
@@ -175,6 +193,42 @@ impl SchemaServiceState {
 
         let mut seen = HashSet::new();
         targets.retain(|(hash, _)| seen.insert(hash.clone()));
+        Ok((targets, not_found))
+    }
+
+    /// Persist newly deprecated schemas and drop index entries that still
+    /// point at them.
+    async fn retire_deprecated_index_entries(&self, changed: &[Schema]) -> FoldDbResult<()> {
+        if changed.is_empty() {
+            return Ok(());
+        }
+        self.persist_schemas(changed).await?;
+        let mut index = write_lock(&self.descriptive_name_index, "descriptive_name_index")?;
+        for schema in changed {
+            if let Some(desc) = schema.descriptive_name.as_deref() {
+                let key = descriptive_name_key(schema.owner_app_id.as_deref(), desc);
+                if index.get(&key) == Some(&schema.name) {
+                    index.remove(&key);
+                }
+            }
+        }
+        self.bump_state_version();
+        Ok(())
+    }
+
+    /// Mark selected schemas inactive without deleting their immutable records.
+    ///
+    /// This is the surgical cleanup path for bad registry entries. It uses the
+    /// same `superseded_by.is_some()` inactive convention as schema expansion
+    /// and dedupe, but self-references the deprecated schema when there is no
+    /// replacement survivor. The descriptive-name index entry is removed only
+    /// when it still points at the deprecated schema, so newer active schemas
+    /// in the same namespace are not disturbed.
+    pub async fn deprecate_schemas(
+        &self,
+        request: DeprecateSchemasRequest,
+    ) -> FoldDbResult<DeprecateSchemasResponse> {
+        let (targets, mut not_found) = self.resolve_deprecation_targets(request)?;
 
         let mut deprecated = Vec::new();
         let mut changed = Vec::new();
@@ -205,19 +259,7 @@ impl SchemaServiceState {
             deprecated.push(entry);
         }
 
-        if !changed.is_empty() {
-            self.persist_schemas(&changed).await?;
-            let mut index = write_lock(&self.descriptive_name_index, "descriptive_name_index")?;
-            for schema in &changed {
-                if let Some(desc) = schema.descriptive_name.as_deref() {
-                    let key = descriptive_name_key(schema.owner_app_id.as_deref(), desc);
-                    if index.get(&key) == Some(&schema.name) {
-                        index.remove(&key);
-                    }
-                }
-            }
-            self.bump_state_version();
-        }
+        self.retire_deprecated_index_entries(&changed).await?;
 
         Ok(DeprecateSchemasResponse {
             deprecated,

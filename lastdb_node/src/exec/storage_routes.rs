@@ -260,6 +260,54 @@ pub(super) async fn execute_home_storage_reconcile_route(
     ))
 }
 
+/// Parse the optional `page_size` of a reconcile request, clamped to the
+/// allowed range. An empty body selects the default page size.
+fn reconcile_page_size(body: &[u8]) -> Result<usize, serde_json::Error> {
+    use crate::app_storage::{RECONCILE_PAGE_SIZE, RECONCILE_PAGE_SIZE_MAX};
+
+    #[derive(Deserialize, Default)]
+    struct ReconcileBody {
+        page_size: Option<u64>,
+    }
+
+    match serde_json::from_slice::<ReconcileBody>(body) {
+        Ok(body) => Ok(body
+            .page_size
+            .unwrap_or(RECONCILE_PAGE_SIZE as u64)
+            .clamp(1, RECONCILE_PAGE_SIZE_MAX as u64) as usize),
+        Err(_) if body.is_empty() => Ok(RECONCILE_PAGE_SIZE),
+        Err(e) => Err(e),
+    }
+}
+
+/// Resolve the owner of each schema name on the page: catalog cache first,
+/// then one durable point-get. Absence stays `Unknown`.
+async fn resolve_page_owners(
+    host: &Host,
+    page: &[String],
+) -> std::collections::HashMap<String, crate::app_storage::OwnerResolution> {
+    use crate::app_storage::{owner_from_catalog, OwnerResolution};
+
+    let schema_manager = host.db.schema_manager();
+    let mut resolutions = std::collections::HashMap::new();
+    for name in page {
+        let live = match schema_manager.get_schema_metadata(name) {
+            Ok(Some(schema)) => owner_from_catalog(schema.owner_app_id.as_deref()),
+            Ok(None) | Err(_) => OwnerResolution::Unknown,
+        };
+        if !matches!(live, OwnerResolution::Unknown) {
+            resolutions.insert(name.clone(), live);
+            continue;
+        }
+        let durable = match host.db.db_ops().get_schema(name).await {
+            Ok(Some(schema)) => owner_from_catalog(schema.owner_app_id.as_deref()),
+            Ok(None) | Err(_) => OwnerResolution::Unknown,
+        };
+        resolutions.insert(name.clone(), durable);
+    }
+    resolutions
+}
+
 /// `POST /api/storage/app/reconcile` — one bounded page of declared layouts.
 ///
 /// Pages in-memory catalog names plus keep-small meter names (already held
@@ -271,22 +319,12 @@ pub(super) async fn execute_app_storage_reconcile_route(
     host: &Host,
 ) -> UdsResponse {
     use crate::app_storage::{
-        apply_page, declared_layout_names, next_page, owner_from_catalog, OwnerResolution,
-        ReconciliationCheckpoint, RECONCILE_CHECKPOINT_KEY, RECONCILE_PAGE_SIZE,
-        RECONCILE_PAGE_SIZE_MAX,
+        apply_page, declared_layout_names, next_page, OwnerResolution, ReconciliationCheckpoint,
+        RECONCILE_CHECKPOINT_KEY,
     };
 
-    #[derive(Deserialize, Default)]
-    struct ReconcileBody {
-        page_size: Option<u64>,
-    }
-
-    let page_size = match serde_json::from_slice::<ReconcileBody>(&req.body) {
-        Ok(body) => body
-            .page_size
-            .unwrap_or(RECONCILE_PAGE_SIZE as u64)
-            .clamp(1, RECONCILE_PAGE_SIZE_MAX as u64) as usize,
-        Err(_) if req.body.is_empty() => RECONCILE_PAGE_SIZE,
+    let page_size = match reconcile_page_size(&req.body) {
+        Ok(size) => size,
         Err(e) => return error_response(400, &format!("invalid reconcile body: {e}"), ctx),
     };
 
@@ -310,24 +348,7 @@ pub(super) async fn execute_app_storage_reconcile_route(
     let layouts = declared_layout_names(declared, snapshot.schemas.keys().cloned());
     let page = next_page(&layouts, checkpoint.resume_after.as_deref(), page_size).to_vec();
 
-    let mut resolutions: std::collections::HashMap<String, OwnerResolution> =
-        std::collections::HashMap::new();
-    for name in &page {
-        let live = match schema_manager.get_schema_metadata(name) {
-            Ok(Some(schema)) => owner_from_catalog(schema.owner_app_id.as_deref()),
-            Ok(None) | Err(_) => OwnerResolution::Unknown,
-        };
-        if !matches!(live, OwnerResolution::Unknown) {
-            resolutions.insert(name.clone(), live);
-            continue;
-        }
-        // Cache miss: one durable point-get. Absence stays Unknown.
-        let durable = match host.db.db_ops().get_schema(name).await {
-            Ok(Some(schema)) => owner_from_catalog(schema.owner_app_id.as_deref()),
-            Ok(None) | Err(_) => OwnerResolution::Unknown,
-        };
-        resolutions.insert(name.clone(), durable);
-    }
+    let resolutions = resolve_page_owners(host, &page).await;
 
     let updated = apply_page(
         checkpoint,

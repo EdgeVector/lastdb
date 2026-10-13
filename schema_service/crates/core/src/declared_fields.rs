@@ -293,6 +293,51 @@ impl DeclaredFieldRegistry {
         request: &DeclareFieldRequest,
         mint_id: impl FnOnce() -> String,
     ) -> Result<DeclaredFieldRecord, DeclaredFieldError> {
+        let (owner, handle) = Self::validate_declare_request(request)?;
+
+        let key = (owner.to_string(), handle.to_string());
+        let declaration_id = match self.by_owner_handle.get(&key) {
+            Some(existing) => existing.clone(),
+            None => mint_id(),
+        };
+
+        let mut record =
+            self.by_id
+                .get(&declaration_id)
+                .cloned()
+                .unwrap_or_else(|| DeclaredFieldRecord {
+                    declaration_id: declaration_id.clone(),
+                    handle: handle.to_string(),
+                    owner_app_id: owner.to_string(),
+                    readers: Vec::new(),
+                    fields: Vec::new(),
+                    algo_version: DECLARED_FIELD_IDENTITY_ALGO_VERSION,
+                    declared_at: String::new(),
+                });
+
+        // Re-declaring someone else's declaration is not a declare, it is a
+        // takeover attempt.
+        if record.owner_app_id != owner {
+            return Err(DeclaredFieldError::NotOwner {
+                declaration_id: record.declaration_id.clone(),
+                owner_app_id: record.owner_app_id.clone(),
+            });
+        }
+
+        Self::merge_declared_fields(&mut record, request);
+        Self::grant_readers(&mut record, request, owner);
+
+        self.by_owner_handle
+            .insert(key, record.declaration_id.clone());
+        self.by_id
+            .insert(record.declaration_id.clone(), record.clone());
+        Ok(record)
+    }
+
+    /// Reject a malformed declare request; returns the trimmed owner and handle.
+    fn validate_declare_request(
+        request: &DeclareFieldRequest,
+    ) -> Result<(&str, &str), DeclaredFieldError> {
         let owner = request.owner_app_id.trim();
         if owner.is_empty() {
             return Err(DeclaredFieldError::OwnerRequired(
@@ -331,36 +376,11 @@ impl DeclaredFieldRegistry {
                 )));
             }
         }
+        Ok((owner, handle))
+    }
 
-        let key = (owner.to_string(), handle.to_string());
-        let declaration_id = match self.by_owner_handle.get(&key) {
-            Some(existing) => existing.clone(),
-            None => mint_id(),
-        };
-
-        let mut record =
-            self.by_id
-                .get(&declaration_id)
-                .cloned()
-                .unwrap_or_else(|| DeclaredFieldRecord {
-                    declaration_id: declaration_id.clone(),
-                    handle: handle.to_string(),
-                    owner_app_id: owner.to_string(),
-                    readers: Vec::new(),
-                    fields: Vec::new(),
-                    algo_version: DECLARED_FIELD_IDENTITY_ALGO_VERSION,
-                    declared_at: String::new(),
-                });
-
-        // Re-declaring someone else's declaration is not a declare, it is a
-        // takeover attempt.
-        if record.owner_app_id != owner {
-            return Err(DeclaredFieldError::NotOwner {
-                declaration_id: record.declaration_id.clone(),
-                owner_app_id: record.owner_app_id.clone(),
-            });
-        }
-
+    /// Insert or replace each requested field, keeping the record sorted by name.
+    fn merge_declared_fields(record: &mut DeclaredFieldRecord, request: &DeclareFieldRequest) {
         for input in &request.fields {
             let name = input.name.trim().to_string();
             let identity = compute_declared_field_identity(
@@ -383,7 +403,10 @@ impl DeclaredFieldRegistry {
             }
         }
         record.fields.sort_by(|a, b| a.name.cmp(&b.name));
+    }
 
+    /// Add the requested readers to the record.
+    fn grant_readers(record: &mut DeclaredFieldRecord, request: &DeclareFieldRequest, owner: &str) {
         // Grants are additive. Removing one is a separate, deliberate act.
         for reader in &request.readers {
             let reader = reader.trim();
@@ -393,12 +416,6 @@ impl DeclaredFieldRegistry {
             }
         }
         record.readers.sort();
-
-        self.by_owner_handle
-            .insert(key, record.declaration_id.clone());
-        self.by_id
-            .insert(record.declaration_id.clone(), record.clone());
-        Ok(record)
     }
 
     /// Refuse a reference to any identity the submitting app is not permitted

@@ -61,55 +61,12 @@ impl SyncEngine {
         let value_bytes = LogOp::decode_bytes_for_replay(namespace, "value", value_b64)?;
         let key_str = std::str::from_utf8(&key_bytes).ok();
 
-        // 1. Per-key molecule record: `mk:{M}:{key}` (optionally `{org}:`- or
-        //    `from:{sender}:`-prefixed).
         if let Some(s) = key_str {
-            let base_key =
-                crate::sync::org_sync::strip_storage_prefix(s).map_or(s, |(_, base_key)| base_key);
-            // A partition-prefixed atom body contains an embedded `mk:`
-            // partition (`atom:mk:{M}:…\0{uuid}`). Do not let the molecule-key
-            // parser mistake that embedded prefix for a top-level per-key
-            // molecule record: atom bodies are opaque puts, followed by local
-            // locator reconstruction below.
-            let is_atom_body = crate::atom::atom_key_codec::uuid_of(base_key).is_some();
-            if !is_atom_body {
-                if let Some(mol_uuid) = molecule_uuid_from_record_key(s) {
-                    return self
-                        .replay_per_key_record(
-                            namespace,
-                            &key_bytes,
-                            &value_bytes,
-                            &mol_uuid,
-                            crypto,
-                        )
-                        .await;
-                }
-                // 2. Per-key molecule header: `mh:{M}`.
-                if molecule_uuid_from_header_key(s).is_some() {
-                    return self
-                        .replay_header_record(namespace, &key_bytes, &value_bytes, crypto)
-                        .await;
-                }
-                // 3a. HashRange append-log order entry: `mord:{M}:{seq}`. Each entry
-                //     is append-only / immutable once written (its `(hash, range)` at
-                //     a fixed seq never changes), so keep-if-absent is order-
-                //     independent: whichever peer fills a seq slot first wins it and
-                //     re-receipt is a no-op. (`mord:` is checked before `mo:`; the two
-                //     prefixes are distinct so the order is just for clarity.)
-                if is_order_log_entry_key(s) {
-                    return self
-                        .replay_order_log_entry(namespace, &key_bytes, &value_bytes, crypto)
-                        .await;
-                }
-                // 3b. HashRange append-log count: `moc:{M}`. Keep the LARGER count
-                //     (the more complete log). Order-independent and used only as
-                //     the write path's append offset — the read path scans the
-                //     `mord:` entries.
-                if is_order_count_key(s) {
-                    return self
-                        .replay_order_count_record(namespace, &key_bytes, &value_bytes, crypto)
-                        .await;
-                }
+            if let Some(result) = self
+                .replay_structured_put(namespace, s, &key_bytes, &value_bytes, crypto)
+                .await
+            {
+                return result;
             }
         }
 
@@ -138,6 +95,72 @@ impl SyncEngine {
         self.absorb_put_or_warn(namespace, &key_bytes, &value_bytes, true, "opaque put")
             .await;
         Ok(())
+    }
+
+    /// Route a structured molecule key (`mk:`, `mh:`, `mord:`, `moc:`) to its
+    /// record-specific replay. Returns `None` when `s` is an opaque key.
+    async fn replay_structured_put(
+        &self,
+        namespace: &str,
+        s: &str,
+        key_bytes: &[u8],
+        value_bytes: &[u8],
+        crypto: &dyn CryptoProvider,
+    ) -> Option<SyncResult<()>> {
+        // 1. Per-key molecule record: `mk:{M}:{key}` (optionally `{org}:`- or
+        //    `from:{sender}:`-prefixed).
+        let base_key =
+            crate::sync::org_sync::strip_storage_prefix(s).map_or(s, |(_, base_key)| base_key);
+        // A partition-prefixed atom body contains an embedded `mk:`
+        // partition (`atom:mk:{M}:…\0{uuid}`). Do not let the molecule-key
+        // parser mistake that embedded prefix for a top-level per-key
+        // molecule record: atom bodies are opaque puts, followed by local
+        // locator reconstruction below.
+        let is_atom_body = crate::atom::atom_key_codec::uuid_of(base_key).is_some();
+        if !is_atom_body {
+            if let Some(mol_uuid) = molecule_uuid_from_record_key(s) {
+                return Some(
+                    self.replay_per_key_record(
+                        namespace,
+                        key_bytes,
+                        value_bytes,
+                        &mol_uuid,
+                        crypto,
+                    )
+                    .await,
+                );
+            }
+            // 2. Per-key molecule header: `mh:{M}`.
+            if molecule_uuid_from_header_key(s).is_some() {
+                return Some(
+                    self.replay_header_record(namespace, key_bytes, value_bytes, crypto)
+                        .await,
+                );
+            }
+            // 3a. HashRange append-log order entry: `mord:{M}:{seq}`. Each entry
+            //     is append-only / immutable once written (its `(hash, range)` at
+            //     a fixed seq never changes), so keep-if-absent is order-
+            //     independent: whichever peer fills a seq slot first wins it and
+            //     re-receipt is a no-op. (`mord:` is checked before `mo:`; the two
+            //     prefixes are distinct so the order is just for clarity.)
+            if is_order_log_entry_key(s) {
+                return Some(
+                    self.replay_order_log_entry(namespace, key_bytes, value_bytes, crypto)
+                        .await,
+                );
+            }
+            // 3b. HashRange append-log count: `moc:{M}`. Keep the LARGER count
+            //     (the more complete log). Order-independent and used only as
+            //     the write path's append offset — the read path scans the
+            //     `mord:` entries.
+            if is_order_count_key(s) {
+                return Some(
+                    self.replay_order_count_record(namespace, key_bytes, value_bytes, crypto)
+                        .await,
+                );
+            }
+        }
+        None
     }
 
     /// Rebuild the local `aloc:{uuid}` row from a partition-prefixed atom key.
