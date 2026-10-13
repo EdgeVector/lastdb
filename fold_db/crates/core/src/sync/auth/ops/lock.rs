@@ -1,3 +1,4 @@
+use super::super::failure::decode_service_response;
 use super::super::{AuthClient, LockResponse};
 use super::op_failed;
 use crate::sync::error::{SyncError, SyncResult};
@@ -12,7 +13,7 @@ impl AuthClient {
         });
 
         let resp = self.post("/api/storage-admin/lock", body).await?;
-        let parsed: LockResponse = serde_json::from_value(resp)?;
+        let parsed: LockResponse = decode_service_response("acquire_lock", resp)?;
 
         if !parsed.ok {
             if let Some(locked_by) = parsed.locked_by {
@@ -55,7 +56,7 @@ impl AuthClient {
         }
 
         let resp = self.post("/api/storage-admin/lock", body).await?;
-        let parsed: LockResponse = serde_json::from_value(resp)?;
+        let parsed: LockResponse = decode_service_response(action, resp)?;
 
         if !parsed.ok {
             return Err(op_failed(

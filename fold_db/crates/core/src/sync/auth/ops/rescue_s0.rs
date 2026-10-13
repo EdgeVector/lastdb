@@ -138,6 +138,7 @@ pub enum RescueS0CommitOutcome {
 }
 
 fn require_ok(action: &str, value: serde_json::Value) -> SyncResult<serde_json::Value> {
+    super::super::failure::reject_structured_failure(action, &value)?;
     if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
         return Ok(value);
     }
@@ -346,7 +347,8 @@ impl AuthClient {
             let value = self
                 .post_no_default_db_hash("/api/sync/list", body.clone())
                 .await?;
-            let response: RescueS0ListResponse = serde_json::from_value(value)?;
+            let response: RescueS0ListResponse =
+                super::super::failure::decode_service_response("rescue_s0_list", value)?;
             if !response.ok {
                 return Err(op_failed(
                     "rescue_s0_list",

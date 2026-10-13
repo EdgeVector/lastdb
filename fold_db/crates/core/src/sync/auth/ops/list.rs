@@ -1,3 +1,4 @@
+use super::super::failure::decode_service_response;
 use super::super::helpers::attach_target_scope;
 use super::super::{AuthClient, ListObjectsResponse, S3ObjectInfo};
 use super::op_failed;
@@ -38,7 +39,7 @@ impl AuthClient {
             let resp = self
                 .post_no_default_db_hash("/api/sync/list", body.clone())
                 .await?;
-            let parsed: ListObjectsResponse = serde_json::from_value(resp)?;
+            let parsed: ListObjectsResponse = decode_service_response("list_objects", resp)?;
             if !parsed.ok {
                 return Err(op_failed("bounded list", parsed.error.or(parsed.reason)));
             }
@@ -94,7 +95,7 @@ impl AuthClient {
             let resp = self
                 .post_no_default_db_hash("/api/sync/list", body.clone())
                 .await?;
-            let parsed: ListObjectsResponse = serde_json::from_value(resp)?;
+            let parsed: ListObjectsResponse = decode_service_response("list_objects", resp)?;
             if !parsed.ok {
                 return Err(op_failed(
                     "full log inventory",
@@ -160,7 +161,7 @@ impl AuthClient {
             let resp = self
                 .post_no_default_db_hash("/api/sync/list", body.clone())
                 .await?;
-            let parsed: ListObjectsResponse = serde_json::from_value(resp)?;
+            let parsed: ListObjectsResponse = decode_service_response("list_objects", resp)?;
             if !parsed.ok {
                 return Err(op_failed("streamed list", parsed.error.or(parsed.reason)));
             }
@@ -359,7 +360,7 @@ impl AuthClient {
 
         loop {
             let resp = self.post("/api/sync/list", body.clone()).await?;
-            let parsed: ListObjectsResponse = serde_json::from_value(resp)?;
+            let parsed: ListObjectsResponse = decode_service_response("list_objects", resp)?;
             if !parsed.ok {
                 return Err(op_failed(
                     "list log objects",
@@ -455,7 +456,7 @@ impl AuthClient {
                 self.post_no_default_db_hash("/api/sync/list", body.clone())
                     .await?
             };
-            let parsed: ListObjectsResponse = serde_json::from_value(resp)?;
+            let parsed: ListObjectsResponse = decode_service_response("list_objects", resp)?;
             if !parsed.ok {
                 return Err(op_failed(context, parsed.error.or(parsed.reason)));
             }
