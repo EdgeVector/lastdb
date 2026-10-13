@@ -146,6 +146,43 @@ impl AtomStore {
             })
     }
 
+    /// Retain several molecule sources, writing only the ones that are missing
+    /// or different. Returns how many it wrote.
+    ///
+    /// The caller runs on every lane job. A put appends a record even when the
+    /// stored record is equal, so an unconditional loop dirtied one hash group
+    /// per schema field on every write. One batch read replaces those puts. An
+    /// unreadable edge counts as different, so a damaged edge is written again.
+    pub async fn put_molecule_ref_edges_if_changed(
+        &self,
+        edges: &[MoleculeRefEdge],
+        storage_prefix: Option<&str>,
+    ) -> Result<usize, SchemaError> {
+        if edges.is_empty() {
+            return Ok(0);
+        }
+        let keys: Vec<String> = edges
+            .iter()
+            .map(|edge| edge.storage_key(storage_prefix))
+            .collect();
+        let stored = match self.main_store.get_items::<MoleculeRefEdge>(&keys).await {
+            Ok(stored) => stored,
+            Err(error) => {
+                tracing::warn!(%error, "molecule reference edges unreadable; writing them again");
+                vec![None; edges.len()]
+            }
+        };
+        let mut written = 0;
+        for (edge, stored) in edges.iter().zip(stored) {
+            if stored.as_ref() == Some(edge) {
+                continue;
+            }
+            self.put_molecule_ref_edge(edge, storage_prefix).await?;
+            written += 1;
+        }
+        Ok(written)
+    }
+
     /// Remove one source edge after its authoritative catalog row is absent.
     pub async fn delete_molecule_ref_edge(
         &self,
