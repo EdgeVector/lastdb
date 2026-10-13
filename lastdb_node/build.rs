@@ -126,7 +126,13 @@ fn strip_tag_prefix(ref_name: &str) -> Option<String> {
     }
 }
 
+/// The abbreviation is pinned, not left to git's default. The default grows
+/// with the object count of the checkout (8 hex in the public repo, 9 in the old
+/// private one), and the app registry matches this string against rows that CI
+/// proved with 9 hex. A moving default made `lastdb app resolve` miss every row.
+const DESCRIBE_ABBREV: &str = "--abbrev=9";
+
 fn git_describe() -> Option<String> {
-    let described = git_output(&["describe", "--tags", "--always", "--dirty"])?;
+    let described = git_output(&["describe", "--tags", "--always", "--dirty", DESCRIBE_ABBREV])?;
     Some(strip_tag_prefix(&described).unwrap_or(described))
 }
