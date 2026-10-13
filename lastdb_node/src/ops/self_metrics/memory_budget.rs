@@ -129,7 +129,15 @@ pub struct MemoryBudgetHealth {
     /// Empty on an older daemon payload.
     #[serde(default)]
     pub logical_key_memory_limit: String,
-    /// Store durability barriers since process start (see `WarmSetAdmissionStats`).
+    /// Store durability barrier counts (see `WarmSetAdmissionStats`).
+    #[serde(flatten)]
+    pub flush: StoreFlushHealth,
+}
+
+/// Durability barriers the store issued since process start, by kind.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoreFlushHealth {
+    /// Group data-file barriers.
     #[serde(default)]
     pub fsync_data_calls: u64,
     /// Total microseconds in data-file barriers.
@@ -162,6 +170,27 @@ pub struct MemoryBudgetHealth {
     /// Groups synced by those barriers.
     #[serde(default)]
     pub groups_synced: u64,
+}
+
+impl StoreFlushHealth {
+    fn from_admission(admission: Option<fold_db::storage::traits::WarmSetAdmissionStats>) -> Self {
+        let Some(s) = admission else {
+            return Self::default();
+        };
+        Self {
+            fsync_data_calls: s.fsync_data_calls,
+            fsync_data_micros: s.fsync_data_micros,
+            fsync_sidecar_calls: s.fsync_sidecar_calls,
+            fsync_sidecar_micros: s.fsync_sidecar_micros,
+            fsync_dir_calls: s.fsync_dir_calls,
+            scope_flushes_serial: s.scope_flushes_serial,
+            scope_flushes_parallel: s.scope_flushes_parallel,
+            whole_flushes_serial: s.whole_flushes_serial,
+            whole_flushes_parallel: s.whole_flushes_parallel,
+            flush_barriers: s.flush_barriers,
+            groups_synced: s.groups_synced,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -262,21 +291,7 @@ impl MemoryBudgetHealth {
             logical_key_memory_limit: logical_key_memory_limit_for(
                 resident.resident_key_budget.as_wire_u64(),
             ),
-            fsync_data_calls: attribution.admission.map_or(0, |s| s.fsync_data_calls),
-            fsync_data_micros: attribution.admission.map_or(0, |s| s.fsync_data_micros),
-            fsync_sidecar_calls: attribution.admission.map_or(0, |s| s.fsync_sidecar_calls),
-            fsync_sidecar_micros: attribution.admission.map_or(0, |s| s.fsync_sidecar_micros),
-            fsync_dir_calls: attribution.admission.map_or(0, |s| s.fsync_dir_calls),
-            scope_flushes_serial: attribution.admission.map_or(0, |s| s.scope_flushes_serial),
-            scope_flushes_parallel: attribution
-                .admission
-                .map_or(0, |s| s.scope_flushes_parallel),
-            whole_flushes_serial: attribution.admission.map_or(0, |s| s.whole_flushes_serial),
-            whole_flushes_parallel: attribution
-                .admission
-                .map_or(0, |s| s.whole_flushes_parallel),
-            flush_barriers: attribution.admission.map_or(0, |s| s.flush_barriers),
-            groups_synced: attribution.admission.map_or(0, |s| s.groups_synced),
+            flush: StoreFlushHealth::from_admission(attribution.admission),
         }
     }
 }
