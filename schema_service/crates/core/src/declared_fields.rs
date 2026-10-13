@@ -43,6 +43,8 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod declare_steps;
+
 use schema_types::{
     compute_declared_field_identity, FieldValueType, DECLARED_FIELD_IDENTITY_ALGO_VERSION,
 };
@@ -293,44 +295,7 @@ impl DeclaredFieldRegistry {
         request: &DeclareFieldRequest,
         mint_id: impl FnOnce() -> String,
     ) -> Result<DeclaredFieldRecord, DeclaredFieldError> {
-        let owner = request.owner_app_id.trim();
-        if owner.is_empty() {
-            return Err(DeclaredFieldError::OwnerRequired(
-                "owner_app_id is required — a field with no verified owner is a \
-                 proposal, not a declaration"
-                    .to_string(),
-            ));
-        }
-        let handle = request.handle.trim();
-        if handle.is_empty() {
-            return Err(DeclaredFieldError::InvalidHandle(
-                "handle must be non-empty".to_string(),
-            ));
-        }
-        if request.fields.is_empty() {
-            return Err(DeclaredFieldError::InvalidField(
-                "declare at least one field".to_string(),
-            ));
-        }
-        if request.fields.len() > MAX_FIELDS_PER_DECLARATION {
-            return Err(DeclaredFieldError::InvalidField(format!(
-                "at most {MAX_FIELDS_PER_DECLARATION} fields per declaration"
-            )));
-        }
-        let mut seen = HashSet::new();
-        for field in &request.fields {
-            let name = field.name.trim();
-            if name.is_empty() {
-                return Err(DeclaredFieldError::InvalidField(
-                    "field name must be non-empty".to_string(),
-                ));
-            }
-            if !seen.insert(name) {
-                return Err(DeclaredFieldError::InvalidField(format!(
-                    "duplicate field name `{name}` in one declaration"
-                )));
-            }
-        }
+        let (owner, handle) = declare_steps::validate_declare_request(request)?;
 
         let key = (owner.to_string(), handle.to_string());
         let declaration_id = match self.by_owner_handle.get(&key) {
@@ -361,38 +326,8 @@ impl DeclaredFieldRegistry {
             });
         }
 
-        for input in &request.fields {
-            let name = input.name.trim().to_string();
-            let identity = compute_declared_field_identity(
-                &record.declaration_id,
-                &name,
-                &input.field_type,
-                input.version,
-            );
-            let field = DeclaredField {
-                name: name.clone(),
-                field_type: input.field_type.clone(),
-                description: input.description.trim().to_string(),
-                version: input.version,
-                identity,
-            };
-            match record.fields.iter_mut().find(|f| f.name == name) {
-                // Description edits are free; identity is unaffected by them.
-                Some(existing) => *existing = field,
-                None => record.fields.push(field),
-            }
-        }
-        record.fields.sort_by(|a, b| a.name.cmp(&b.name));
-
-        // Grants are additive. Removing one is a separate, deliberate act.
-        for reader in &request.readers {
-            let reader = reader.trim();
-            if !reader.is_empty() && reader != owner && !record.readers.iter().any(|r| r == reader)
-            {
-                record.readers.push(reader.to_string());
-            }
-        }
-        record.readers.sort();
+        declare_steps::merge_declared_fields(&mut record, request);
+        declare_steps::grant_readers(&mut record, request, owner);
 
         self.by_owner_handle
             .insert(key, record.declaration_id.clone());

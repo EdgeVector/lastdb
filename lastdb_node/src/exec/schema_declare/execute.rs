@@ -12,96 +12,122 @@ pub(crate) fn declare_resolution_payload(
             catalog_hash,
             field_mappers,
             replaced_schema,
-        } => {
-            let adapter = serde_json::json!({
-                "kind": "registered_expansion",
-                "local_schema": declare.local_schema_id,
-                "catalog_schema": catalog_hash,
-                "field_mappers": field_mappers,
-            });
-            serde_json::json!({
-                "namespace": declare.namespace,
-                "schema_name": declare.local_schema_id.clone(),
-                "descriptive_name": declare.proposal.descriptive_name,
-                "identity_hash": catalog_hash,
-                "canonical": catalog_hash,
-                "resolution": if replaced_schema.is_some() { "expand" } else { "register" },
-                "replaced_schema": replaced_schema,
-                "adapter": adapter,
-                "adapters": [adapter],
-            })
-        }
+        } => register_payload(
+            declare,
+            catalog_hash,
+            field_mappers,
+            replaced_schema.as_deref(),
+        ),
         DirectDeclareResolution::Reuse {
             catalog_hash,
             field_mappers,
             confidence,
-        } => {
-            let adapter = serde_json::json!({
-                "kind": "edge_only",
-                "local_schema": declare.local_schema_id,
-                "catalog_schema": catalog_hash,
-                "field_mappers": field_mappers,
-            });
-            let mut payload = serde_json::json!({
-                "namespace": declare.namespace,
-                "schema_name": declare.local_schema_id.clone(),
-                "descriptive_name": declare.proposal.descriptive_name,
-                "identity_hash": catalog_hash,
-                "resolution": "reuse",
-                "adapter": adapter,
-                "adapters": [adapter],
-            });
-            if let Some(c) = confidence {
-                payload["confidence"] = serde_json::json!(c);
-            }
-            payload
-        }
+        } => reuse_payload(declare, catalog_hash, field_mappers, *confidence),
         DirectDeclareResolution::Compose {
             components,
             confidence,
-        } => {
-            let adapters: Vec<Value> = components
-                .iter()
-                .map(|c| {
-                    let mut a = serde_json::json!({
-                        "kind": "edge_only",
-                        "local_schema": declare.local_schema_id,
-                        "catalog_schema": c.catalog_hash,
-                        "field_mappers": c.field_mappers,
-                    });
-                    if let Some(ref n) = c.matched_descriptive_name {
-                        a["matched_descriptive_name"] = serde_json::json!(n);
-                    }
-                    if !c.unmapped_fields.is_empty() {
-                        a["unmapped_fields"] = serde_json::json!(c.unmapped_fields);
-                    }
-                    if let Some(v) = c.is_exact_match {
-                        a["is_exact_match"] = serde_json::json!(v);
-                    }
-                    if let Some(v) = c.is_superset {
-                        a["is_superset"] = serde_json::json!(v);
-                    }
-                    a
-                })
-                .collect();
-            let component_hashes: Vec<String> =
-                components.iter().map(|c| c.catalog_hash.clone()).collect();
-            let mut payload = serde_json::json!({
-                "namespace": declare.namespace,
-                "schema_name": declare.local_schema_id.clone(),
-                "descriptive_name": declare.proposal.descriptive_name,
-                "identity_hash": serde_json::Value::Null,
-                "resolution": "compose",
-                "component_catalog_hashes": component_hashes,
-                "adapters": adapters,
-                "adapter": adapters.first().cloned().unwrap_or(serde_json::json!({})),
-            });
-            if let Some(c) = confidence {
-                payload["confidence"] = serde_json::json!(c);
-            }
-            payload
-        }
+        } => compose_payload(declare, components, *confidence),
     }
+}
+
+fn register_payload(
+    declare: &DirectDeclareProposal,
+    catalog_hash: &str,
+    field_mappers: &HashMap<String, String>,
+    replaced_schema: Option<&str>,
+) -> Value {
+    let adapter = serde_json::json!({
+        "kind": "registered_expansion",
+        "local_schema": declare.local_schema_id,
+        "catalog_schema": catalog_hash,
+        "field_mappers": field_mappers,
+    });
+    serde_json::json!({
+        "namespace": declare.namespace,
+        "schema_name": declare.local_schema_id.clone(),
+        "descriptive_name": declare.proposal.descriptive_name,
+        "identity_hash": catalog_hash,
+        "canonical": catalog_hash,
+        "resolution": if replaced_schema.is_some() { "expand" } else { "register" },
+        "replaced_schema": replaced_schema,
+        "adapter": adapter,
+        "adapters": [adapter],
+    })
+}
+
+fn reuse_payload(
+    declare: &DirectDeclareProposal,
+    catalog_hash: &str,
+    field_mappers: &HashMap<String, String>,
+    confidence: Option<f32>,
+) -> Value {
+    let adapter = serde_json::json!({
+        "kind": "edge_only",
+        "local_schema": declare.local_schema_id,
+        "catalog_schema": catalog_hash,
+        "field_mappers": field_mappers,
+    });
+    let mut payload = serde_json::json!({
+        "namespace": declare.namespace,
+        "schema_name": declare.local_schema_id.clone(),
+        "descriptive_name": declare.proposal.descriptive_name,
+        "identity_hash": catalog_hash,
+        "resolution": "reuse",
+        "adapter": adapter,
+        "adapters": [adapter],
+    });
+    if let Some(c) = confidence {
+        payload["confidence"] = serde_json::json!(c);
+    }
+    payload
+}
+
+fn compose_adapter(declare: &DirectDeclareProposal, c: &DirectDeclareComponent) -> Value {
+    let mut a = serde_json::json!({
+        "kind": "edge_only",
+        "local_schema": declare.local_schema_id,
+        "catalog_schema": c.catalog_hash,
+        "field_mappers": c.field_mappers,
+    });
+    if let Some(ref n) = c.matched_descriptive_name {
+        a["matched_descriptive_name"] = serde_json::json!(n);
+    }
+    if !c.unmapped_fields.is_empty() {
+        a["unmapped_fields"] = serde_json::json!(c.unmapped_fields);
+    }
+    if let Some(v) = c.is_exact_match {
+        a["is_exact_match"] = serde_json::json!(v);
+    }
+    if let Some(v) = c.is_superset {
+        a["is_superset"] = serde_json::json!(v);
+    }
+    a
+}
+
+fn compose_payload(
+    declare: &DirectDeclareProposal,
+    components: &[DirectDeclareComponent],
+    confidence: Option<f32>,
+) -> Value {
+    let adapters: Vec<Value> = components
+        .iter()
+        .map(|c| compose_adapter(declare, c))
+        .collect();
+    let component_hashes: Vec<String> = components.iter().map(|c| c.catalog_hash.clone()).collect();
+    let mut payload = serde_json::json!({
+        "namespace": declare.namespace,
+        "schema_name": declare.local_schema_id.clone(),
+        "descriptive_name": declare.proposal.descriptive_name,
+        "identity_hash": serde_json::Value::Null,
+        "resolution": "compose",
+        "component_catalog_hashes": component_hashes,
+        "adapters": adapters,
+        "adapter": adapters.first().cloned().unwrap_or(serde_json::json!({})),
+    });
+    if let Some(c) = confidence {
+        payload["confidence"] = serde_json::json!(c);
+    }
+    payload
 }
 
 pub(crate) fn audit_resolution(

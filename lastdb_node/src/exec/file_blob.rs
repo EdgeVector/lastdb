@@ -43,6 +43,47 @@ impl ThumbnailBody {
     }
 }
 
+#[derive(Deserialize)]
+struct ForkFileBlobBody {
+    schema: String,
+    field: String,
+    key: KeyValue,
+    pointer: Value,
+    #[serde(default)]
+    thumbnail: Option<ThumbnailBody>,
+    #[serde(default)]
+    writer_pubkey: Option<String>,
+    #[serde(default)]
+    mutation_type: Option<MutationType>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    media_type: Option<String>,
+    #[serde(default)]
+    cache_local_plaintext: bool,
+    #[serde(default)]
+    additional_fields: HashMap<String, Value>,
+}
+
+impl ForkFileBlobBody {
+    /// Split into the shared write metadata and the source pointer to fork.
+    fn into_metadata(self) -> (FileBlobWriteMetadata, Value) {
+        let metadata = FileBlobWriteMetadata {
+            schema: self.schema,
+            field: self.field,
+            key: self.key,
+            thumbnail: self.thumbnail,
+            writer_pubkey: self.writer_pubkey,
+            mutation_type: self.mutation_type,
+            name: self.name,
+            media_type: self.media_type,
+            cache_local_plaintext: self.cache_local_plaintext,
+            additional_fields: self.additional_fields,
+        };
+        (metadata, self.pointer)
+    }
+}
+
 /// `POST /api/db/fork-file-blob` — fetch a shared pointer's bytes, upload them
 /// into this node's personal file-blob scope, and rewrite the local pointer.
 pub(super) async fn execute_db_fork_file_blob_route(
@@ -50,29 +91,7 @@ pub(super) async fn execute_db_fork_file_blob_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct Body {
-        schema: String,
-        field: String,
-        key: KeyValue,
-        pointer: Value,
-        #[serde(default)]
-        thumbnail: Option<ThumbnailBody>,
-        #[serde(default)]
-        writer_pubkey: Option<String>,
-        #[serde(default)]
-        mutation_type: Option<MutationType>,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        media_type: Option<String>,
-        #[serde(default)]
-        cache_local_plaintext: bool,
-        #[serde(default)]
-        additional_fields: HashMap<String, Value>,
-    }
-
-    let body: Body = match serde_json::from_slice(&req.body) {
+    let body: ForkFileBlobBody = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
         Err(e) => {
             return error_response(
@@ -82,18 +101,7 @@ pub(super) async fn execute_db_fork_file_blob_route(
             )
         }
     };
-    let metadata = FileBlobWriteMetadata {
-        schema: body.schema,
-        field: body.field,
-        key: body.key,
-        thumbnail: body.thumbnail,
-        writer_pubkey: body.writer_pubkey,
-        mutation_type: body.mutation_type,
-        name: body.name,
-        media_type: body.media_type,
-        cache_local_plaintext: body.cache_local_plaintext,
-        additional_fields: body.additional_fields,
-    };
+    let (metadata, pointer) = body.into_metadata();
     if let Some(response) = reject_blank_schema_field(&metadata, ctx) {
         return response;
     }
@@ -105,7 +113,7 @@ pub(super) async fn execute_db_fork_file_blob_route(
         Err(e) => return error_response(400, &e, ctx),
     };
     let request = PersonalFileBlobFork {
-        source_pointer: body.pointer,
+        source_pointer: pointer,
         write,
     };
 
