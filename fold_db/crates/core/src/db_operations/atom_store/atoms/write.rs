@@ -3,6 +3,15 @@ use super::*;
 mod rows;
 use rows::AtomBatchRows;
 
+/// Whether the atom batch writes the birth rows of its new atoms.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AtomBirth {
+    /// Write a zero count and a GC candidate pair for each new atom.
+    Rows,
+    /// A tip write follows in the same job. Skip the birth rows.
+    TipFollows,
+}
+
 impl AtomStore {
     /// Creates an atom in memory without storing it.
     /// Used for batch operations where atoms are collected first then stored together.
@@ -80,11 +89,73 @@ impl AtomStore {
     }
 
     /// Borrowed form of [`Self::batch_store_atoms_located`] for callers that
-    /// must retain ownership of a retryable batch.
+    /// must retain ownership of a retryable batch. Every new atom gets its
+    /// birth rows in the same batch.
     pub(crate) async fn batch_store_atoms_located_borrowed(
         &self,
         atoms: &[(Atom, Option<crate::atom::AtomPartition>)],
         storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        self.batch_store_atoms_located_with_birth(atoms, storage_prefix, AtomBirth::Rows)
+            .await
+    }
+
+    /// Store atoms that the same persist job tips right after. The birth rows
+    /// (a zero count and a GC candidate pair) are not written, because the tip
+    /// phase writes the real count and cancels the candidate in the next
+    /// barrier. Call [`Self::settle_atom_births`] after the tip phase so an
+    /// atom that no tip took still gets its birth rows.
+    pub(crate) async fn batch_store_atoms_located_tip_follows(
+        &self,
+        atoms: &[(Atom, Option<crate::atom::AtomPartition>)],
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        self.batch_store_atoms_located_with_birth(atoms, storage_prefix, AtomBirth::TipFollows)
+            .await
+    }
+
+    /// Write the birth rows of every atom that still has no durable count.
+    ///
+    /// An atom that a tip took already has its count from the tip phase and is
+    /// skipped by the same probe that the birth path uses. An atom that no tip
+    /// took (a lost last-writer-wins race, a same-content rewrite) gets a zero
+    /// count and a GC candidate pair now, so it stays reclaimable.
+    pub(crate) async fn settle_atom_births(
+        &self,
+        atoms: &[(Atom, Option<crate::atom::AtomPartition>)],
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        if atoms.is_empty() {
+            return Ok(());
+        }
+        let uuids: Vec<String> = atoms
+            .iter()
+            .map(|(atom, _)| atom.uuid().to_string())
+            .collect();
+        let _automatic_gc_guards = self.lock_automatic_gc_atoms(&uuids).await;
+        let _ref_count_guards = self.lock_atom_ref_counts(&uuids).await;
+        let items = self
+            .missing_atom_ref_count_items(&uuids, storage_prefix)
+            .await?;
+        if items.is_empty() {
+            return Ok(());
+        }
+        tracing::info!(
+            rows = items.len(),
+            "settled atom birth rows for untipped atoms"
+        );
+        self.main_store
+            .inner()
+            .batch_put(items)
+            .await
+            .map_err(|e| batch_write_error("atom births", e))
+    }
+
+    async fn batch_store_atoms_located_with_birth(
+        &self,
+        atoms: &[(Atom, Option<crate::atom::AtomPartition>)],
+        storage_prefix: Option<&str>,
+        birth: AtomBirth,
     ) -> Result<(), SchemaError> {
         if atoms.is_empty() {
             return Ok(());
@@ -124,10 +195,12 @@ impl AtomStore {
 
         // Every atom carries an explicit durable count from birth. A deduped
         // body never resets an existing count.
-        blob_edge_items.extend(
-            self.missing_atom_ref_count_items(&guarded_uuids, storage_prefix)
-                .await?,
-        );
+        if birth == AtomBirth::Rows {
+            blob_edge_items.extend(
+                self.missing_atom_ref_count_items(&guarded_uuids, storage_prefix)
+                    .await?,
+            );
+        }
         // Retain-first order: active blob edges and the zero-count row precede
         // immutable atom bodies in the same durable batch.
         blob_edge_items.extend(atom_items);

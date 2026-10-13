@@ -16,6 +16,7 @@ impl MutationManager {
         let persist_body = async {
             self.store_deferred_atoms(job, commit_id).await?;
             self.persist_deferred_molecules(job, commit_id).await?;
+            self.settle_deferred_atom_births(job, commit_id).await?;
             self.store_deferred_schema(job, commit_id).await?;
             self.store_deferred_side_records(job, commit_id).await?;
 
@@ -50,9 +51,12 @@ impl MutationManager {
         let Some(located) = job.deferred_atoms.as_deref().filter(|l| !l.is_empty()) else {
             return Ok(());
         };
+        // The tip phase of this job writes each atom's count and cancels its GC
+        // candidate, so the birth rows are not written here. The settle step
+        // after the tip phase covers an atom that no tip took.
         self.db_ops
             .atoms()
-            .batch_store_atoms_located_borrowed(located, job.storage_prefix.as_deref())
+            .batch_store_atoms_located_tip_follows(located, job.storage_prefix.as_deref())
             .await
             .map_err(|error| {
                 tracing::error!(
@@ -73,6 +77,30 @@ impl MutationManager {
             }
         }
         Ok(())
+    }
+
+    /// Give every atom that no tip took its birth rows, so it stays reclaimable.
+    async fn settle_deferred_atom_births(
+        &self,
+        job: &DeferredPersistJob,
+        commit_id: u64,
+    ) -> Result<(), SchemaError> {
+        let Some(located) = job.deferred_atoms.as_deref().filter(|l| !l.is_empty()) else {
+            return Ok(());
+        };
+        self.db_ops
+            .atoms()
+            .settle_atom_births(located, job.storage_prefix.as_deref())
+            .await
+            .map_err(|error| {
+                tracing::error!(
+                    error = %error,
+                    schema = %job.schema_name,
+                    commit_id,
+                    "deferred resident-write atom birth settle failed"
+                );
+                error
+            })
     }
 
     /// Persist modified molecules, then the protein sibling tip updates.

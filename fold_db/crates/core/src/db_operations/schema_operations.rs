@@ -62,9 +62,9 @@ impl DbOperations {
         // Retain first. Schema rows and liveness edges live in separate
         // namespaces, so an interrupted write may leave an extra edge but can
         // never publish a catalog binding without its retaining edge.
-        for edge in &new_edges {
-            self.atoms().put_molecule_ref_edge(edge, None).await?;
-        }
+        self.atoms()
+            .put_molecule_ref_edges_if_changed(&new_edges, None)
+            .await?;
         self.schemas().store_schema(schema_name, schema).await?;
         for edge in &new_edges {
             self.atoms()
