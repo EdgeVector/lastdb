@@ -170,6 +170,6 @@ caveats, current gates/approvals, and gotchas, ask the brain
 - `concepts-observability-conventions` — tracing/redaction/spawn/egress rules.
 - `concepts-edgevector-repo-layout`, `projects-monorepo-consolidation` — layout + migration history.
 - `concepts-claude-shell-gotchas-edgevector` — zsh glob / sandboxed PATH.
-- `preference-lastdb-atom-size-hard-limit-64kib` — atom content size hard limit (64 KiB default, `LASTDB_MAX_ATOM_CONTENT_BYTES` env override, docs path).
+- `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` — atom content size hard limit (256 KiB default, `LASTDB_MAX_ATOM_CONTENT_BYTES` env override, absolute max 1 MiB) and which shape to use for packed fields, growing lists, and large bytes.
 
 Per-crate command files: `fold_db/CLAUDE.md`, `schema_service/CLAUDE.md`.

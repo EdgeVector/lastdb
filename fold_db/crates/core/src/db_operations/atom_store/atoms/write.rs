@@ -9,7 +9,7 @@ impl AtomStore {
     ///
     /// Enforces [`crate::atom::max_atom_content_bytes`] on `value` so oversized
     /// field payloads fail at the create boundary (not only on store).
-    /// Default 64 KiB; see `LASTDB_MAX_ATOM_CONTENT_BYTES` and
+    /// Default 256 KiB; see `LASTDB_MAX_ATOM_CONTENT_BYTES` and
     /// `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
     pub fn create_atom(
         schema_name: &str,

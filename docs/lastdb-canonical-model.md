@@ -62,8 +62,8 @@ An **immutable, content-addressed value** (`atom:{uuid}`) holding one field's
 data at one key. A write never mutates an atom — it writes a new atom and
 repoints the molecule's tip (last-write-wins).
 
-Atoms are size-fenced (default 64 KiB serialized; hard max 1 MiB). They are
-structured field values, not a blob store.
+Atoms are size-fenced (default 256 KiB serialized; hard max 1 MiB). An atom may
+pack many small fields up to the fence, but it is not a blob store.
 
 ### File
 

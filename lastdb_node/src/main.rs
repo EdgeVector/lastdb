@@ -48,14 +48,14 @@ fn log_startup_limits(worker_pool: &UdsWorkerPool) {
         queue_capacity = worker_pool.queue_capacity(),
         "uds worker pool enabled (LASTDB_UDS_WORKERS / LASTDB_UDS_QUEUE)"
     );
-    // Product write fence: atom field content size (not a blob store).
+    // Product write fence: atom field content size (default 256 KiB).
     // Docs: fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md
     tracing::info!(
         max_atom_content_bytes = fold_db::atom::max_atom_content_bytes(),
         default = fold_db::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES,
         absolute_max = fold_db::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES,
         env = fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV,
-        "atom content size limit (LASTDB_MAX_ATOM_CONTENT_BYTES; large payloads → file-blob/CAS)"
+        "atom content size limit (LASTDB_MAX_ATOM_CONTENT_BYTES; growing lists → one record per entry; large opaque bytes → file blob/CAS)"
     );
 }
 

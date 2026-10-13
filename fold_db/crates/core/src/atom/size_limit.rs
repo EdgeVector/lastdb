@@ -1,17 +1,21 @@
 //! Hard upper bound on atom field content size.
 //!
-//! **Won't-undo product default (Tom, 2026-07-24):** 64 KiB.
-//! Preference: `preference-lastdb-atom-size-hard-limit-64kib`.
+//! **Product default (Tom, 2026-10-12):** one global ceiling of 256 KiB for new
+//! writes. It was 64 KiB before. At 10,000 resident records the worst case is
+//! 2.5 GiB of resident content, and a sealed 256 KiB atom is about 341 KiB,
+//! under the 400 KiB DynamoDB item limit.
 //!
-//! Atoms are structured field values, **not a blob store**. Large / opaque
-//! bytes belong in file-blob / CAS; the atom holds only a pointer (hash, size).
+//! An atom may pack many small fields, up to the ceiling. It is still **not a
+//! blob store**: a list or log that grows is one record per entry in a
+//! HashRange schema, and large opaque bytes belong in a file blob (CAS) with a
+//! pointer in the atom. See [`ATOM_CONTENT_TOO_LARGE_HINT`].
 //!
 //! ## Configuration
 //!
 //! | | |
 //! |--|--|
 //! | Env | `LASTDB_MAX_ATOM_CONTENT_BYTES` |
-//! | Default | [`DEFAULT_MAX_ATOM_CONTENT_BYTES`] (64 KiB) |
+//! | Default | [`DEFAULT_MAX_ATOM_CONTENT_BYTES`] (256 KiB) |
 //! | Absolute max | [`ABSOLUTE_MAX_ATOM_CONTENT_BYTES`] (1 MiB) — cannot raise higher via env |
 //! | Measure | serialized JSON of field content (`Value::to_string`), **before** encryption |
 //!
@@ -26,9 +30,9 @@ use serde_json::Value;
 
 use crate::schema::types::SchemaError;
 
-/// Product default hard limit (64 KiB). Prefer [`max_atom_content_bytes`] at
+/// Product default hard limit (256 KiB). Prefer [`max_atom_content_bytes`] at
 /// runtime so env overrides apply.
-pub const DEFAULT_MAX_ATOM_CONTENT_BYTES: usize = 64 * 1024;
+pub const DEFAULT_MAX_ATOM_CONTENT_BYTES: usize = 256 * 1024;
 
 /// Absolute ceiling even if `LASTDB_MAX_ATOM_CONTENT_BYTES` is set higher.
 /// Keeps the abuse fence while allowing limited ops headroom.
@@ -40,6 +44,13 @@ pub const MIN_MAX_ATOM_CONTENT_BYTES: usize = 1024;
 /// Env var that raises/lowers the atom content limit within
 /// \[`MIN_MAX_ATOM_CONTENT_BYTES`, `ABSOLUTE_MAX_ATOM_CONTENT_BYTES`\].
 pub const MAX_ATOM_CONTENT_BYTES_ENV: &str = "LASTDB_MAX_ATOM_CONTENT_BYTES";
+
+/// Guidance for a rejected write, by the shape of the data. The `413` body
+/// `hint` and the error message both carry this text.
+pub const ATOM_CONTENT_TOO_LARGE_HINT: &str = "For a list or log that grows, write one record \
+    per entry in a HashRange schema (hash = partition, range = entry key). For large opaque \
+    bytes, store a file blob (CAS) and keep a pointer in the atom; many small fields may be \
+    packed into one atom up to the limit.";
 
 static EFFECTIVE_LIMIT: OnceLock<usize> = OnceLock::new();
 
@@ -70,7 +81,7 @@ fn resolve_effective_limit() -> usize {
 
 /// Parse env value → clamped limit. `None` / empty / unparseable → default.
 ///
-/// Accepts plain decimal bytes (`65536`) or a trailing unit:
+/// Accepts plain decimal bytes (`262144`) or a trailing unit:
 /// `k`/`kb`/`kib`, `m`/`mb`/`mib` (case-insensitive).
 #[must_use]
 pub fn parse_max_atom_content_bytes(raw: Option<String>) -> usize {
@@ -209,9 +220,10 @@ fn observe_atom_content_headroom(schema_name: &str, size: usize, limit: usize) {
         limit_bytes = limit,
         remaining_bytes = limit - size,
         threshold_bytes = threshold,
-        "atom content is within {}% of the limit and was still accepted; a document \
-         that grows on every write will be REJECTED once it crosses — bound it now",
-        ((1.0 - HEADROOM_ALARM_FRACTION) * 100.0) as u32
+        "atom content is within {}% of the limit and was still accepted; if this \
+         document grows on every write it will be REJECTED once it crosses — bound it \
+         now, or store one record per entry",
+        ((1.0 - HEADROOM_ALARM_FRACTION) * 100.0).round() as u32
     );
 }
 
@@ -234,7 +246,7 @@ pub fn is_over_default_limit(size: usize) -> bool {
 /// to the app that wrote it.
 ///
 /// Silent when the limit is at (or below) the default, because then the hard
-/// check in [`ensure_atom_content_within_limit`] already rejects these writes
+/// check in [`enforce_atom_content_limit`] already rejects these writes
 /// loudly and there is nothing extra to observe.
 pub fn observe_atom_content_over_default(schema_name: &str, content: &Value) {
     let size = atom_content_byte_len(content);

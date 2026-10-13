@@ -72,7 +72,7 @@ fn main() {
     let cli = Cli::parse();
     if matches!(cli.command.as_ref(), Some(Command::Restore { .. })) {
         // Restore replays authenticated historical writes in this one-shot process.
-        // Keep the absolute atom cap even when this host uses the 64 KiB default.
+        // Keep the absolute atom cap even when this host uses the 256 KiB default.
         std::env::set_var(
             fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV,
             fold_db::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES.to_string(),

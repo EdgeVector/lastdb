@@ -498,7 +498,7 @@ pub struct LimitsHealth {
     pub max_request_body_bytes: Gauge,
     /// Effective max serialized atom field content (bytes).
     pub max_atom_content_bytes: Gauge,
-    /// Compiled default (64 KiB) when env is unset.
+    /// Compiled default (256 KiB) when env is unset.
     pub max_atom_content_bytes_default: Gauge,
     /// Absolute max even if env is higher.
     pub max_atom_content_bytes_absolute_max: Gauge,

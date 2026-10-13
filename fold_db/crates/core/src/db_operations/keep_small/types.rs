@@ -9,7 +9,7 @@ pub const LIVE_BUDGET_BYTES: u64 = 1 << 30;
 pub const ATOM_HISTOGRAM_16KIB: u64 = 16 * 1024;
 /// 32 KiB fence-visible bucket.
 pub const ATOM_HISTOGRAM_32KIB: u64 = 32 * 1024;
-/// Product atom content fence (default / restored).
+/// 64 KiB bucket (the product atom content fence before 2026-10-12).
 pub const ATOM_HISTOGRAM_64KIB: u64 = 64 * 1024;
 
 /// Version of the persisted meter trust payload.
