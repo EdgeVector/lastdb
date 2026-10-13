@@ -72,31 +72,6 @@ impl AtomStore {
                 ))
             })?;
 
-        // Max-heap of the `take` smallest `(range, hash)` keys seen so far.
-        // BinaryHeap is max-ordered: when full, replace the largest kept key if
-        // the candidate is smaller — peak decoded pairs = take, not field size.
-        #[derive(Eq, PartialEq)]
-        struct RangeMajorKey {
-            range: String,
-            hash: String,
-        }
-        impl Ord for RangeMajorKey {
-            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-                self.range
-                    .cmp(&other.range)
-                    .then_with(|| self.hash.cmp(&other.hash))
-            }
-        }
-        impl PartialOrd for RangeMajorKey {
-            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-                Some(self.cmp(other))
-            }
-        }
-
-        let mut heap: std::collections::BinaryHeap<RangeMajorKey> =
-            std::collections::BinaryHeap::new();
-        let mut all: Option<Vec<RangeMajorKey>> = take.is_none().then(Vec::new);
-
         // A legacy/current forked pair is ONE record. Excluding the legacy half
         // here rather than at the read boundary is what keeps the window and
         // `total_count` measured in rows: the boundary's collapse only fires
@@ -104,47 +79,23 @@ impl AtomStore {
         // served twice and every offset past it is off by one.
         let forked = self.forked_legacy_page_keys(molecule_uuid, &keys, &scan_prefix);
 
-        for k in &keys {
+        let candidates = keys.iter().filter_map(|k| {
             let suffix = k.strip_prefix(&scan_prefix).unwrap_or(k.as_str());
-            let Some((hash, range)) = molecule_key_codec::decode_hash_range_suffix(suffix) else {
-                continue;
-            };
+            let (hash, range) = molecule_key_codec::decode_hash_range_suffix(suffix)?;
             if !forked.is_empty() && forked.contains(&(hash.clone(), range.clone())) {
-                continue;
+                return None;
             }
             if let Some((after_r, after_h)) = after {
                 if (range.as_str(), hash.as_str()) <= (after_r, after_h) {
-                    continue;
+                    return None;
                 }
             }
-            let item = RangeMajorKey { range, hash };
-            match take {
-                Some(cap) => {
-                    if heap.len() < cap {
-                        heap.push(item);
-                    } else if item < *heap.peek().expect("heap non-empty when at cap") {
-                        heap.pop();
-                        heap.push(item);
-                    }
-                }
-                None => {
-                    all.as_mut().expect("all vec when take is None").push(item);
-                }
-            }
-        }
+            Some(RangeMajorKey { range, hash })
+        });
+        let ordered = select_smallest_range_major(candidates, take);
         // Drop the raw key listing before materializing the return buffer.
         drop(keys);
 
-        let mut ordered: Vec<RangeMajorKey> = if take.is_some() {
-            heap.into_sorted_vec()
-        } else {
-            let mut v = all.expect("all vec when take is None");
-            v.sort();
-            v
-        };
-        if let Some(cap) = take {
-            ordered.truncate(cap);
-        }
         Ok(ordered.into_iter().map(|k| (k.hash, k.range)).collect())
     }
 
@@ -331,4 +282,51 @@ impl AtomStore {
             records,
         )))
     }
+}
+
+/// A `(range, hash)` pair ordered range-major, the Page order of a HashRange field.
+#[derive(Eq, PartialEq)]
+struct RangeMajorKey {
+    range: String,
+    hash: String,
+}
+
+impl Ord for RangeMajorKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.range
+            .cmp(&other.range)
+            .then_with(|| self.hash.cmp(&other.hash))
+    }
+}
+
+impl PartialOrd for RangeMajorKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// The `take` smallest keys in Page order, or every key when `take` is `None`.
+///
+/// Max-heap of the `take` smallest keys seen so far. BinaryHeap is max-ordered:
+/// when full, replace the largest kept key if the candidate is smaller — peak
+/// decoded pairs = take, not field size.
+fn select_smallest_range_major(
+    candidates: impl Iterator<Item = RangeMajorKey>,
+    take: Option<usize>,
+) -> Vec<RangeMajorKey> {
+    let Some(cap) = take else {
+        let mut all: Vec<RangeMajorKey> = candidates.collect();
+        all.sort();
+        return all;
+    };
+    let mut heap: std::collections::BinaryHeap<RangeMajorKey> = std::collections::BinaryHeap::new();
+    for item in candidates {
+        if heap.len() < cap {
+            heap.push(item);
+        } else if item < *heap.peek().expect("heap non-empty when at cap") {
+            heap.pop();
+            heap.push(item);
+        }
+    }
+    heap.into_sorted_vec()
 }

@@ -215,9 +215,7 @@ impl EncryptingKvStore {
         let mut cursor = resume;
 
         loop {
-            if report.rows_scanned as usize >= max_rows
-                || (report.rows_scanned > 0 && std::time::Instant::now() >= deadline)
-            {
+            if reap_budget_spent(&report, max_rows, deadline) {
                 report.more_remaining = true;
                 break;
             }
@@ -242,9 +240,7 @@ impl EncryptingKvStore {
             }
 
             for (key, raw) in page.rows {
-                if report.rows_scanned as usize >= max_rows
-                    || (report.rows_scanned > 0 && std::time::Instant::now() >= deadline)
-                {
+                if reap_budget_spent(&report, max_rows, deadline) {
                     report.more_remaining = true;
                     break;
                 }
@@ -257,27 +253,7 @@ impl EncryptingKvStore {
                     ..page.row_handle.clone().unwrap_or_default()
                 });
 
-                if Self::is_encrypted_value(&raw) {
-                    report.rows_sealed += 1;
-                    continue;
-                }
-                report.rows_unsealed += 1;
-                report.bytes_reclaimed += raw.len() as u64;
-
-                if options.dry_run {
-                    continue;
-                }
-
-                // One atomic compare-and-delete: a row rewritten after the
-                // scan (for example, sealed by a writer) is never deleted.
-                if !self.inner.compare_and_swap(&key, &raw, None).await? {
-                    report.rows_cas_skipped += 1;
-                    report.rows_unsealed = report.rows_unsealed.saturating_sub(1);
-                    report.bytes_reclaimed =
-                        report.bytes_reclaimed.saturating_sub(raw.len() as u64);
-                    continue;
-                }
-                report.rows_removed += 1;
+                self.reap_one_row(&key, &raw, options, &mut report).await?;
             }
 
             if report.more_remaining {
@@ -297,4 +273,47 @@ impl EncryptingKvStore {
         report.next_cursor = cursor.filter(|_| report.more_remaining);
         Ok(report)
     }
+
+    /// Classify one scanned row and, outside a dry run, delete it when it is an
+    /// unsealed row that has not changed since the scan.
+    async fn reap_one_row(
+        &self,
+        key: &[u8],
+        raw: &[u8],
+        options: &ReapUnsealedOptions,
+        report: &mut ReapUnsealedReport,
+    ) -> StorageResult<()> {
+        if Self::is_encrypted_value(raw) {
+            report.rows_sealed += 1;
+            return Ok(());
+        }
+        report.rows_unsealed += 1;
+        report.bytes_reclaimed += raw.len() as u64;
+
+        if options.dry_run {
+            return Ok(());
+        }
+
+        // One atomic compare-and-delete: a row rewritten after the
+        // scan (for example, sealed by a writer) is never deleted.
+        if !self.inner.compare_and_swap(key, raw, None).await? {
+            report.rows_cas_skipped += 1;
+            report.rows_unsealed = report.rows_unsealed.saturating_sub(1);
+            report.bytes_reclaimed = report.bytes_reclaimed.saturating_sub(raw.len() as u64);
+            return Ok(());
+        }
+        report.rows_removed += 1;
+        Ok(())
+    }
+}
+
+/// True once the pass has scanned its row budget or run past its deadline.
+/// The deadline never stops a pass before it scans its first row.
+fn reap_budget_spent(
+    report: &ReapUnsealedReport,
+    max_rows: usize,
+    deadline: std::time::Instant,
+) -> bool {
+    report.rows_scanned as usize >= max_rows
+        || (report.rows_scanned > 0 && std::time::Instant::now() >= deadline)
 }

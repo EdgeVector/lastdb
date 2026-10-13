@@ -165,16 +165,7 @@ impl SyncEngine {
         ensure_contiguous_org_seqs(target, cursor, &new_seqs)?;
 
         if new_seqs.is_empty() {
-            tracing::info!(
-                "download '{}': 0 new entries (cursor={})",
-                target.label,
-                cursor
-            );
-            *self.last_download_stats.lock().await = Some(DownloadCycleStats {
-                target: target.label.clone(),
-                entries_listed: 0,
-                ..DownloadCycleStats::default()
-            });
+            self.record_empty_download_cycle(target, cursor).await;
             return Ok(0);
         }
 
@@ -221,14 +212,7 @@ impl SyncEngine {
             .replay_download_chunks(target, &new_seqs, byte_budget, &mut progress)
             .await?;
 
-        if progress.schemas_replayed {
-            self.invoke_reloader(&self.schema_reloader, "schema", &target.label)
-                .await;
-        }
-        if progress.embeddings_replayed {
-            self.invoke_reloader(&self.embedding_reloader, "embedding", &target.label)
-                .await;
-        }
+        self.reload_after_download(target, &progress).await;
 
         let entries_deferred = entries_deferred_from_cap
             + if truncated_by_byte_cap {
@@ -251,6 +235,32 @@ impl SyncEngine {
         *self.last_download_stats.lock().await = Some(stats);
 
         Ok(total_replayed)
+    }
+
+    /// Publish the stats of a download cycle that found no entries past the cursor.
+    async fn record_empty_download_cycle(&self, target: &SyncTarget, cursor: u64) {
+        tracing::info!(
+            "download '{}': 0 new entries (cursor={})",
+            target.label,
+            cursor
+        );
+        *self.last_download_stats.lock().await = Some(DownloadCycleStats {
+            target: target.label.clone(),
+            entries_listed: 0,
+            ..DownloadCycleStats::default()
+        });
+    }
+
+    /// Run the schema and embedding reloaders for the kinds this cycle replayed.
+    async fn reload_after_download(&self, target: &SyncTarget, progress: &DownloadProgress) {
+        if progress.schemas_replayed {
+            self.invoke_reloader(&self.schema_reloader, "schema", &target.label)
+                .await;
+        }
+        if progress.embeddings_replayed {
+            self.invoke_reloader(&self.embedding_reloader, "embedding", &target.label)
+                .await;
+        }
     }
 
     /// Presign, fetch and replay `new_seqs` chunk by chunk, strictly in seq

@@ -253,6 +253,55 @@ fn retained_pack_candidate(
     })
 }
 
+/// Decides which upload candidates may join a new pack.
+struct PackEligibility<'a> {
+    sha_ref_counts: BTreeMap<String, usize>,
+    prior_direct: BTreeMap<FileKey, (&'a str, u64)>,
+    convert_prior_direct: bool,
+}
+
+impl<'a> PackEligibility<'a> {
+    fn new(manifest: &BackupManifest, previous: Option<&'a BackupManifest>) -> Self {
+        // One direct cloud object can serve every file with the same stored bytes.
+        // Count all manifest refs, including carried atom and packed refs.
+        let mut sha_ref_counts = BTreeMap::<String, usize>::new();
+        for chunk in manifest.atom_chunks.iter().chain(&manifest.mutable_chunks) {
+            *sha_ref_counts.entry(chunk.sha256.clone()).or_default() += 1;
+        }
+        let prior_direct = previous
+            .into_iter()
+            .flat_map(|manifest| manifest.atom_chunks.iter().chain(&manifest.mutable_chunks))
+            .filter(|chunk| chunk.pack.is_none())
+            .map(|chunk| (file_key(chunk), (chunk.sha256.as_str(), chunk.bytes)))
+            .collect();
+        // Only the first v1-to-v2 step converts an unchanged direct file. The
+        // candidate list contains local files, so a carried ref without a local
+        // file stays direct in the manifest and cannot enter a pack.
+        let convert_prior_direct = previous.is_some_and(|prior| prior.version == MANIFEST_VERSION);
+        Self {
+            sha_ref_counts,
+            prior_direct,
+            convert_prior_direct,
+        }
+    }
+
+    fn can_pack(&self, candidate: &BackupChunkUploadCandidate) -> bool {
+        let already_direct = self
+            .prior_direct
+            .get(&file_key(&candidate.chunk))
+            .is_some_and(|(sha, bytes)| {
+                *sha == candidate.chunk.sha256 && *bytes == candidate.chunk.bytes
+            });
+        candidate.chunk.pack.is_none()
+            && candidate.chunk.role == BackupManifestRole::Mutable
+            && !matches!(candidate.chunk.collection.as_str(), "blobs" | "cas_blobs")
+            && self.sha_ref_counts.get(&candidate.chunk.sha256) == Some(&1)
+            && (!already_direct || self.convert_prior_direct)
+            && candidate.chunk.bytes > 0
+            && candidate.chunk.bytes <= MAX_PACK_BYTES
+    }
+}
+
 pub(super) fn pack_backup_publish_candidates(
     store: &crate::storage::laststore::LastStoreNamespacedStore,
     manifest: &mut BackupManifest,
@@ -278,36 +327,9 @@ pub(super) fn pack_backup_publish_candidates(
     let mut locations = BTreeMap::new();
     let mut retained_pack_members: BTreeMap<String, Vec<BackupChunkUploadCandidate>> =
         BTreeMap::new();
-    // One direct cloud object can serve every file with the same stored bytes.
-    // Count all manifest refs, including carried atom and packed refs.
-    let mut sha_ref_counts = BTreeMap::<String, usize>::new();
-    for chunk in manifest.atom_chunks.iter().chain(&manifest.mutable_chunks) {
-        *sha_ref_counts.entry(chunk.sha256.clone()).or_default() += 1;
-    }
-    let prior_direct: BTreeMap<_, _> = previous
-        .into_iter()
-        .flat_map(|manifest| manifest.atom_chunks.iter().chain(&manifest.mutable_chunks))
-        .filter(|chunk| chunk.pack.is_none())
-        .map(|chunk| (file_key(chunk), (chunk.sha256.as_str(), chunk.bytes)))
-        .collect();
-    // Only the first v1-to-v2 step converts an unchanged direct file. The
-    // candidate list contains local files, so a carried ref without a local
-    // file stays direct in the manifest and cannot enter a pack.
-    let convert_prior_direct = previous.is_some_and(|prior| prior.version == MANIFEST_VERSION);
+    let eligibility = PackEligibility::new(manifest, previous);
     for candidate in candidates {
-        let already_direct =
-            prior_direct
-                .get(&file_key(&candidate.chunk))
-                .is_some_and(|(sha, bytes)| {
-                    *sha == candidate.chunk.sha256 && *bytes == candidate.chunk.bytes
-                });
-        let can_pack = candidate.chunk.pack.is_none()
-            && candidate.chunk.role == BackupManifestRole::Mutable
-            && !matches!(candidate.chunk.collection.as_str(), "blobs" | "cas_blobs")
-            && sha_ref_counts.get(&candidate.chunk.sha256) == Some(&1)
-            && (!already_direct || convert_prior_direct)
-            && candidate.chunk.bytes > 0
-            && candidate.chunk.bytes <= MAX_PACK_BYTES;
+        let can_pack = eligibility.can_pack(&candidate);
         if !can_pack
             || pending.len() >= MAX_PACK_FILES
             || pending_bytes + candidate.chunk.bytes > MAX_PACK_BYTES

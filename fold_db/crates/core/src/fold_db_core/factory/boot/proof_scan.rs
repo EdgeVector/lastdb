@@ -74,9 +74,19 @@ pub(super) async fn scan_proof_namespace(
         return Ok(0);
     }
 
+    drop_org_rows_refuse_personal(kv.as_ref(), ns, scan.undecryptable).await
+}
+
+/// Delete the undecryptable org-scoped rows and refuse the boot when any
+/// undecryptable personal row remains. Returns the count of org rows dropped.
+async fn drop_org_rows_refuse_personal(
+    kv: &dyn crate::storage::traits::KvStore,
+    ns: &str,
+    undecryptable: Vec<Vec<u8>>,
+) -> FoldDbResult<usize> {
     let mut org_dropped = 0usize;
     let mut personal_poison = Vec::new();
-    for key in scan.undecryptable {
+    for key in undecryptable {
         let is_org = is_cloud_storage_prefixed_key(&key);
         if is_org {
             if let Err(e) = kv.delete(&key).await {
