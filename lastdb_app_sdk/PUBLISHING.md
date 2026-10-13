@@ -26,7 +26,7 @@ npm whoami            # confirm the right account
 
 # 2. Prove the tarball one more time (no publish):
 npm ci                # reproducible install from package-lock.json
-npm run lint && npm run typecheck && npm test
+npm run lint && npm run typecheck && npm run build
 npm publish --dry-run # review the file list; confirm dist/ + LICENSE + README only
 
 # 3. PUBLISH (irreversible — this is the gated step):

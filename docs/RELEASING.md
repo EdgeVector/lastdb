@@ -173,16 +173,14 @@ outside `version` / `url` / `sha256`. So if the bump script ever mangles
 the formula (a bug, or a structural change its matchers don't anticipate —
 e.g. a fourth platform arm), the release fails loudly instead of shipping a
 broken formula. Resolution is in the failing job's logs: inspect the diff,
-then fix `scripts/release/bump-homebrew-formula.rb` (and its fixture test
-[`bump-homebrew-formula-test.sh`](../scripts/release/bump-homebrew-formula-test.sh))
-so it handles the new shape, and re-tag.
+then fix `scripts/release/bump-homebrew-formula.rb` so it handles the new shape, and re-tag.
 
 ## Where the version comes from
 
 The tag is the only Mini version source. There's no `Cargo.toml` `version =
 "X.Y.Z"` to keep in sync and no commit-message regex.
 
-- `Cargo.toml`'s `version` field is purely cosmetic. [`build.rs`](../build.rs)
+- `Cargo.toml`'s `version` field is purely cosmetic. [`lastdb_node/build.rs`](../lastdb_node/build.rs)
   reads `GITHUB_REF_NAME` at compile time and stamps `FOLDDB_BUILD_VERSION`
   into every binary, overriding `CARGO_PKG_VERSION`. The verify-versus-tag
   step in the GitHub `release.yml` enforces this.

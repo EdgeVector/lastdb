@@ -10,7 +10,7 @@
 | Crate / remote | `laststore` · `https://github.com/EdgeVector/laststore` |
 | Program | **Storage v2** — three document collections + CAS blobs |
 | North Star | `north-star-lastdb-no-sled-document-store` |
-| Product design | [`storage-v2-three-collection-document-store.md`](./storage-v2-three-collection-document-store.md) |
+| Product design | `storage-v2-three-collection-document-store.md` (not in this repo) |
 | Evidence repo | historical LastGit remote `lastdb:///autoresearch-docstore` (retired) · branch `autoresearch/jul17-lastdb` |
 | Head-to-head harness | `bench_vs_sled` · results `results-vs-sled-64.txt`, `results-vs-sled-1024.txt` |
 | Brain run log | `reference autoresearch-docstore-run-log` |

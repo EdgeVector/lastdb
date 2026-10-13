@@ -794,9 +794,7 @@ Connect with `socketPath`, not `baseUrl`, for local work. So:
 > Both paths name the schema `fbrain/Note`: the SDK uses the **canonical
 > published** name, and the CLI uses the **namespaced registered** name
 > `folddb dev post dev/schemas --app fbrain` produces (it prefixes `<app>/`
-> to the file's bare `name`). They agree by construction. See the onboarding
-> doc's "CLI vs SDK mutation shape" table:
-> [`docs/developer-onboarding.md`](../../docs/developer-onboarding.md#cli-vs-sdk-mutation-shape).
+> to the file's bare `name`). They agree by construction. 
 - `search()` targets the node-authoritative `POST /api/app/search` (fold #693).
   Mini / local dev `/api/*` **routes it** (#130): the node serves
   `POST /api/app/search` with node-authoritative scope (it resolves `S(A)` from
