@@ -37,15 +37,13 @@ pub async fn execute_data_route(
     let request_id = crate::request_telemetry::request_id_from_request(req);
     let kind = op_kind_for_route(route);
     let schema = schema_hint_for_route(route, req);
-    let schema_owner = if client == "unknown" {
-        schema_owner_for_hint(host, schema.as_deref())
-    } else {
-        None
-    };
-    let client = crate::request_telemetry::client_or_schema_owner(client, schema_owner.as_deref());
-    // Last rung: name the process on the other end of the socket. Only a
-    // request whose peer pid the kernel would not report stays `"unknown"`.
-    let client = crate::request_telemetry::client_or_peer(client, peer_pid, peer_comm.as_deref());
+    let client = attribute_client(
+        client,
+        host,
+        schema.as_deref(),
+        peer_pid,
+        peer_comm.as_deref(),
+    );
     let body_bytes = req.body.len() as u64;
     // Socket-queue wait, for EVERY op kind: this future is polled by
     // `Handle::block_on` on the UDS worker thread that picked the job up, so
@@ -75,15 +73,7 @@ pub async fn execute_data_route(
     // lastdb-status callers show up if they hammer the node.
     let duration_ms = started.elapsed().as_millis() as u64;
     let rows = crate::request_telemetry::rows_from_response_body(resp.status, &resp.body);
-    // `saturating_sub` rather than a wrap: the counter is monotonic, so a
-    // negative delta is impossible unless the store was reopened mid-request,
-    // in which case 0 is the honest answer rather than a garbage spike.
-    let cold_shard_loads = loads_before.and_then(|before| {
-        host.db
-            .db_ops()
-            .cold_shard_loads()
-            .map(|after| after.saturating_sub(before))
-    });
+    let cold_shard_loads = cold_shard_load_delta(host, loads_before);
     let path = Some(crate::request_telemetry::path_from_request(
         req.method.as_str(),
         req.target.as_str(),
@@ -123,6 +113,39 @@ pub async fn execute_data_route(
         &tip_keys,
     );
     resp
+}
+
+/// Resolve the telemetry client label: the self-reported name, else the
+/// schema owner, else the process on the other end of the socket.
+fn attribute_client(
+    client: String,
+    host: &Host,
+    schema: Option<&str>,
+    peer_pid: Option<i32>,
+    peer_comm: Option<&str>,
+) -> String {
+    let schema_owner = if client == "unknown" {
+        schema_owner_for_hint(host, schema)
+    } else {
+        None
+    };
+    let client = crate::request_telemetry::client_or_schema_owner(client, schema_owner.as_deref());
+    // Last rung: name the process on the other end of the socket. Only a
+    // request whose peer pid the kernel would not report stays `"unknown"`.
+    crate::request_telemetry::client_or_peer(client, peer_pid, peer_comm)
+}
+
+/// Cold-shard loads this request caused. `saturating_sub` rather than a wrap:
+/// the counter is monotonic, so a negative delta is impossible unless the
+/// store was reopened mid-request, in which case 0 is the honest answer
+/// rather than a garbage spike.
+fn cold_shard_load_delta(host: &Host, loads_before: Option<u64>) -> Option<u64> {
+    loads_before.and_then(|before| {
+        host.db
+            .db_ops()
+            .cold_shard_loads()
+            .map(|after| after.saturating_sub(before))
+    })
 }
 
 /// Bounded identity label for the route the router already matched.

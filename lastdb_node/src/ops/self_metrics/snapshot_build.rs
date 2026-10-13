@@ -24,24 +24,7 @@ pub(super) async fn build_snapshot(
     let sync = timed_sync_health(host, refresh_sync).await;
     let (backup, backup_storage) = backup_health(host);
     let durability = durability_health(host, sampled_at, backup.as_ref());
-    let data_dir_started = Instant::now();
-    // Node home (primary operator gauge for disk pressure) and data dir
-    // (secondary). Both are cache reads: neither ever walks on this path, so
-    // `status_data_dir` is now microseconds even on the first call after a
-    // restart. `None` means no walk has completed yet — render it as
-    // "measuring…", never as zero.
-    let ttl = data_dir_size_ttl_from_env();
-    let home_bytes = NODE_HOME_SIZE.get(&host.home, ttl);
-    let data_dir_bytes = DATA_DIR_SIZE.get(&host.data_dir, ttl);
-    let home_size_walks = NODE_HOME_SIZE.walks();
-    let data_dir_size_walks = DATA_DIR_SIZE.walks();
-    request_phases::add_phase(RequestPhase::StatusDataDir, data_dir_started.elapsed());
-    // Always disclose on the current owner/status path so HTTP clients (and
-    // non-socket targets that still hit /api/status) can resolve node-relative
-    // durable paths. A future network bind policy can flip this without
-    // reintroducing silent omission — see `data_dir_path_for_status`.
-    let (home, home_path_disclosed) = data_dir_path_for_status(&host.home, true);
-    let (data_dir, data_dir_path_disclosed) = data_dir_path_for_status(&host.data_dir, true);
+    let dirs = DirReport::measure(host);
     let footprint = current_phys_footprint();
     let namespaced_store = host.db.db_ops().namespaced_store();
     let resident = ResidentHealth::from_graph(host.db.db_ops().resident());
@@ -64,14 +47,14 @@ pub(super) async fn build_snapshot(
         memory_guard_metric: memory_guard_metric(),
         memory_budget,
         cpu_percent,
-        home_bytes,
-        home_size_walks,
-        home,
-        home_path_disclosed,
-        data_dir_bytes,
-        data_dir_size_walks,
-        data_dir,
-        data_dir_path_disclosed,
+        home_bytes: dirs.home_bytes,
+        home_size_walks: dirs.home_size_walks,
+        home: dirs.home,
+        home_path_disclosed: dirs.home_path_disclosed,
+        data_dir_bytes: dirs.data_dir_bytes,
+        data_dir_size_walks: dirs.data_dir_size_walks,
+        data_dir: dirs.data_dir,
+        data_dir_path_disclosed: dirs.data_dir_path_disclosed,
         sync,
         backup,
         backup_storage,
@@ -104,6 +87,51 @@ pub(super) async fn build_snapshot(
         molecule_gate: molecule_gate_health(host),
         at_rest_compression: Some(AtRestCompressionHealth::current()),
         codec_policy: Some(CodecPolicyHealth::current(&host.home)),
+    }
+}
+
+/// Node home and data dir size gauges plus their disclosed paths.
+struct DirReport {
+    home_bytes: Option<u64>,
+    home_size_walks: u64,
+    home: Option<String>,
+    home_path_disclosed: bool,
+    data_dir_bytes: Option<u64>,
+    data_dir_size_walks: u64,
+    data_dir: Option<String>,
+    data_dir_path_disclosed: bool,
+}
+
+impl DirReport {
+    fn measure(host: &Host) -> Self {
+        let started = Instant::now();
+        // Node home (primary operator gauge for disk pressure) and data dir
+        // (secondary). Both are cache reads: neither ever walks on this path, so
+        // `status_data_dir` is now microseconds even on the first call after a
+        // restart. `None` means no walk has completed yet — render it as
+        // "measuring…", never as zero.
+        let ttl = data_dir_size_ttl_from_env();
+        let home_bytes = NODE_HOME_SIZE.get(&host.home, ttl);
+        let data_dir_bytes = DATA_DIR_SIZE.get(&host.data_dir, ttl);
+        let home_size_walks = NODE_HOME_SIZE.walks();
+        let data_dir_size_walks = DATA_DIR_SIZE.walks();
+        request_phases::add_phase(RequestPhase::StatusDataDir, started.elapsed());
+        // Always disclose on the current owner/status path so HTTP clients (and
+        // non-socket targets that still hit /api/status) can resolve node-relative
+        // durable paths. A future network bind policy can flip this without
+        // reintroducing silent omission — see `data_dir_path_for_status`.
+        let (home, home_path_disclosed) = data_dir_path_for_status(&host.home, true);
+        let (data_dir, data_dir_path_disclosed) = data_dir_path_for_status(&host.data_dir, true);
+        Self {
+            home_bytes,
+            home_size_walks,
+            home,
+            home_path_disclosed,
+            data_dir_bytes,
+            data_dir_size_walks,
+            data_dir,
+            data_dir_path_disclosed,
+        }
     }
 }
 
