@@ -126,21 +126,16 @@ impl AtomStore {
             .collect()
     }
 
-    pub(in super::super) async fn prepare_molecule_generation_activation(
+    /// Tip versions, backrefs, atom-ref edges, optional retired page/hash
+    /// indexes, and the molecule header row for one activation batch.
+    async fn activation_structural_items(
         &self,
         molecule_uuid: &str,
         data: &MoleculeData,
+        records: &[(String, PerKeyRecord)],
+        header: &MoleculeHeader,
         storage_prefix: Option<&str>,
-        domain: MoleculeKeyDomain,
-        generation_cut: super::super::PreparedMoleculeGeneration,
-    ) -> Result<super::super::PreparedMoleculeGenerationActivation, SchemaError> {
-        let records = self.per_key_storage_records(molecule_uuid, data, domain)?;
-        Self::refuse_partial_full_rewrite(molecule_uuid, data)?;
-        let header = MoleculeHeader {
-            version: data.version(),
-            updated_at: data.updated_at(),
-        };
-
+    ) -> Result<Vec<(String, Value)>, SchemaError> {
         // Page index (`mhr:`) is retired — see HASH_RANGE_PAGE_INDEX_ENABLED.
         let include_hash_range_page_index =
             super::super::super::helpers::HASH_RANGE_PAGE_INDEX_ENABLED;
@@ -170,7 +165,7 @@ impl AtomStore {
         items.extend(self.pending_tip_version_backref_items(
             molecule_uuid,
             data,
-            &records,
+            records,
             storage_prefix,
         )?);
         // Shadow atom-reference edges share this durable batch with the `mk:`
@@ -178,14 +173,14 @@ impl AtomStore {
         items.extend(self.pending_atom_ref_edge_items(
             molecule_uuid,
             data,
-            &records,
+            records,
             storage_prefix,
         )?);
         if include_hash_range_page_index {
             items.extend(Self::page_index_items(
                 molecule_uuid,
-                &records,
-                &header,
+                records,
+                header,
                 legacy_page_index_complete,
                 storage_prefix,
             ));
@@ -195,11 +190,11 @@ impl AtomStore {
         if super::super::super::helpers::HASH_RANGE_HASH_KEY_LOOKUP_ENABLED {
             items.extend(Self::hash_key_lookup_items_for_records(
                 molecule_uuid,
-                &records,
+                records,
                 storage_prefix,
             )?);
         }
-        let header_value = serde_json::to_value(&header)
+        let header_value = serde_json::to_value(header)
             .map_err(|e| SchemaError::InvalidData(format!("serialize molecule header: {e}")))?;
         items.push((
             build_storage_key(
@@ -208,8 +203,18 @@ impl AtomStore {
             ),
             header_value,
         ));
+        Ok(items)
+    }
 
-        let tip_items = Self::tip_record_items(&records, storage_prefix)?;
+    /// Append tip records, automatic-GC reference markers and the transition
+    /// mirror to `items`; returns the tip record items.
+    fn append_activation_tip_items(
+        &self,
+        items: &mut Vec<(String, Value)>,
+        records: &[(String, PerKeyRecord)],
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<(String, Value)>, SchemaError> {
+        let tip_items = Self::tip_record_items(records, storage_prefix)?;
         let automatic_gc_uuids = self.automatic_gc_tip_reference_uuids(&tip_items, storage_prefix);
         items
             .extend(self.automatic_gc_reference_marker_items(&automatic_gc_uuids, storage_prefix)?);
@@ -218,6 +223,28 @@ impl AtomStore {
         // reader resolves the selected generation and one release dwell shows
         // zero direct-base fallbacks.
         items.extend(tip_items.clone());
+        Ok(tip_items)
+    }
+
+    pub(in super::super) async fn prepare_molecule_generation_activation(
+        &self,
+        molecule_uuid: &str,
+        data: &MoleculeData,
+        storage_prefix: Option<&str>,
+        domain: MoleculeKeyDomain,
+        generation_cut: super::super::PreparedMoleculeGeneration,
+    ) -> Result<super::super::PreparedMoleculeGenerationActivation, SchemaError> {
+        let records = self.per_key_storage_records(molecule_uuid, data, domain)?;
+        Self::refuse_partial_full_rewrite(molecule_uuid, data)?;
+        let header = MoleculeHeader {
+            version: data.version(),
+            updated_at: data.updated_at(),
+        };
+
+        let mut items = self
+            .activation_structural_items(molecule_uuid, data, &records, &header, storage_prefix)
+            .await?;
+        let tip_items = self.append_activation_tip_items(&mut items, &records, storage_prefix)?;
 
         refuse_legacy_ref_blob_store_items(&items)?;
         self.account_keep_small_items(&tip_items);

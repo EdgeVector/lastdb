@@ -54,6 +54,36 @@ pub async fn compact_record_molecule_key(
     hash: &str,
     range: Option<&str>,
 ) -> Result<CompactReport, SchemaError> {
+    let (hash_molecule, record_uuid, declared) = prepare_compact_target(db, schema_name).await?;
+    if let Some(only_range) = range {
+        let stamped =
+            compact_one_key(db, schema_name, &declared, &hash_molecule, hash, only_range).await?;
+        return Ok(CompactReport {
+            schema_name: schema_name.to_string(),
+            hash: hash.to_string(),
+            keys_compacted: usize::from(stamped),
+            keys_skipped: usize::from(!stamped),
+            record_molecule_uuid: record_uuid,
+        });
+    }
+    let (keys_compacted, keys_skipped) =
+        compact_all_ranges(db, schema_name, &declared, &hash_molecule, hash).await?;
+
+    Ok(CompactReport {
+        schema_name: schema_name.to_string(),
+        hash: hash.to_string(),
+        keys_compacted,
+        keys_skipped,
+        record_molecule_uuid: record_uuid,
+    })
+}
+
+/// Resolve the hash molecule, stamp the schema's record molecule uuid and
+/// runtime field, and return `(hash_molecule, record_uuid, declared_fields)`.
+async fn prepare_compact_target(
+    db: &FoldDB,
+    schema_name: &str,
+) -> Result<(String, String, Vec<String>), SchemaError> {
     let mut schema = db
         .schema_manager()
         .get_schema_metadata(schema_name)?
@@ -85,17 +115,18 @@ pub async fn compact_record_molecule_key(
     db.schema_manager().update_schema(&schema).await?;
 
     let declared = declared_runtime_field_names(&schema);
-    if let Some(only_range) = range {
-        let stamped =
-            compact_one_key(db, schema_name, &declared, &hash_molecule, hash, only_range).await?;
-        return Ok(CompactReport {
-            schema_name: schema_name.to_string(),
-            hash: hash.to_string(),
-            keys_compacted: usize::from(stamped),
-            keys_skipped: usize::from(!stamped),
-            record_molecule_uuid: record_uuid,
-        });
-    }
+    Ok((hash_molecule, record_uuid, declared))
+}
+
+/// Compact every range under `hash`, page by page; returns
+/// `(keys_compacted, keys_skipped)`.
+async fn compact_all_ranges(
+    db: &FoldDB,
+    schema_name: &str,
+    declared: &[String],
+    hash_molecule: &str,
+    hash: &str,
+) -> Result<(usize, usize), SchemaError> {
     let mut after: Option<String> = None;
     let mut keys_compacted = 0usize;
     let mut keys_skipped = 0usize;
@@ -105,26 +136,14 @@ pub async fn compact_record_molecule_key(
         let (page, next, has_more) = db
             .db_ops()
             .atoms()
-            .list_live_record_keys_filtered(
-                &hash_molecule,
-                PAGE,
-                after.as_deref(),
-                None,
-                Some(hash),
-            )
+            .list_live_record_keys_filtered(hash_molecule, PAGE, after.as_deref(), None, Some(hash))
             .await?;
 
         for (page_hash, page_range) in &page {
             if page_hash != hash {
                 continue;
             }
-            if let Some(want) = range {
-                if page_range != want {
-                    continue;
-                }
-            }
-            if compact_one_key(db, schema_name, &declared, &hash_molecule, hash, page_range).await?
-            {
+            if compact_one_key(db, schema_name, declared, hash_molecule, hash, page_range).await? {
                 keys_compacted += 1;
             } else {
                 keys_skipped += 1;
@@ -139,14 +158,7 @@ pub async fn compact_record_molecule_key(
             break;
         }
     }
-
-    Ok(CompactReport {
-        schema_name: schema_name.to_string(),
-        hash: hash.to_string(),
-        keys_compacted,
-        keys_skipped,
-        record_molecule_uuid: record_uuid,
-    })
+    Ok((keys_compacted, keys_skipped))
 }
 
 async fn compact_one_key(

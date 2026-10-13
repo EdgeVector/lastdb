@@ -19,6 +19,43 @@ impl PinLog {
             .map(|(prefix, frontier)| (target_id_for_prefix(prefix), frontier))
             .collect();
         let store = self.pin_log_store().await?;
+        let count = Self::archive_and_delete_target_entries(
+            store.as_ref(),
+            &target_ids,
+            &mut archive,
+            archive_pages,
+        )
+        .await?;
+        Self::detach_marker_receipts(
+            store.as_ref(),
+            replacement_frontiers,
+            &mut archive,
+            archive_pages,
+        )
+        .await?;
+        Self::replace_published_frontiers(store.as_ref(), &target_ids, &mut archive, archive_pages)
+            .await?;
+        self.state
+            .lock()
+            .await
+            .retain(|id, _| !target_ids.contains_key(id));
+        self.known_pending_prefixes
+            .lock()
+            .await
+            .retain(|prefix| !replacement_frontiers.contains_key(prefix));
+        Ok(count)
+    }
+    /// Archive, then delete, every entry row that belongs to a retiring target.
+    /// Returns the number of rows removed.
+    async fn archive_and_delete_target_entries<F, V>(
+        store: &dyn crate::storage::traits::KvStore,
+        target_ids: &BTreeMap<String, V>,
+        archive: &mut F,
+        archive_pages: &mut Vec<String>,
+    ) -> Result<u64, String>
+    where
+        F: FnMut(&[(Vec<u8>, Vec<u8>)]) -> Result<String, String>,
+    {
         let prefix = PIN_LOG_ENTRY_PREFIX.as_bytes().to_vec();
         let end = prefix_upper_bound(&prefix).ok_or("cloud target prefix has no upper bound")?;
         let mut cursor = prefix;
@@ -53,13 +90,20 @@ impl PinLog {
                 .map_err(|e| e.to_string())?;
             store.flush().await.map_err(|e| e.to_string())?;
         }
-        Self::detach_marker_receipts(
-            store.as_ref(),
-            replacement_frontiers,
-            &mut archive,
-            archive_pages,
-        )
-        .await?;
+        Ok(count)
+    }
+
+    /// Archive the previous published frontier rows, then write the
+    /// replacement frontiers.
+    async fn replace_published_frontiers<F>(
+        store: &dyn crate::storage::traits::KvStore,
+        target_ids: &BTreeMap<String, &BTreeMap<String, u64>>,
+        archive: &mut F,
+        archive_pages: &mut Vec<String>,
+    ) -> Result<(), String>
+    where
+        F: FnMut(&[(Vec<u8>, Vec<u8>)]) -> Result<String, String>,
+    {
         let published_keys: Vec<_> = target_ids
             .keys()
             .map(|id| pin_log_published_f_key(id))
@@ -92,16 +136,9 @@ impl PinLog {
             .await
             .map_err(|e| e.to_string())?;
         store.flush().await.map_err(|e| e.to_string())?;
-        self.state
-            .lock()
-            .await
-            .retain(|id, _| !target_ids.contains_key(id));
-        self.known_pending_prefixes
-            .lock()
-            .await
-            .retain(|prefix| !replacement_frontiers.contains_key(prefix));
-        Ok(count)
+        Ok(())
     }
+
     async fn detach_marker_receipts<F>(
         store: &dyn crate::storage::traits::KvStore,
         replacement_frontiers: &BTreeMap<String, BTreeMap<String, u64>>,
