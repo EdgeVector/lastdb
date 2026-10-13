@@ -31,117 +31,138 @@ pub const DEFAULT_DEV_SCHEMA_PORT: u16 = 9102;
 /// Pulled out so integration tests can spin up an in-process server
 /// without re-declaring routes and risking drift.
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/health", web::get().to(handlers::health_check))
-            .service(
-                web::resource("/schemas")
-                    .route(web::get().to(handlers::list_schemas))
-                    .route(web::post().to(handlers::add_schema)),
-            )
-            .route(
-                "/schemas/mutation-challenge",
-                web::post().to(handlers::issue_schema_mutation_challenge),
-            )
-            // App registry (app_identity v3.1, Lane B2b). Register an app
-            // namespace (cert-gated), and browse the promoted public shelf
-            // (no developer credential required).
-            .service(
-                web::resource("/apps")
-                    .route(web::get().to(handlers::list_apps))
-                    .route(web::post().to(handlers::register_app)),
-            )
-            // Owner-authenticated sandbox→live promotion. Registered BEFORE
-            // the `/apps/{app_id}` dynamic resource so the literal
-            // `…/promote` path matches first — otherwise actix would capture
-            // `app_id="…"` including the `/promote` suffix.
-            .route(
-                "/apps/{app_id}/promote",
-                web::post().to(handlers::promote_app),
-            )
-            // Public, lookup-by-known-id app registry read (GET) +
-            // owner-authenticated metadata update (PUT). The GET is what
-            // nodes use to populate their local app registry without
-            // holding a developer `em_` bearer; PUT remains cert-gated.
-            .service(
-                web::resource("/apps/{app_id}")
-                    .route(web::get().to(handlers::get_app))
-                    .route(web::put().to(handlers::update_app)),
-            )
-            .route(
-                "/schemas/batch-check-reuse",
-                web::post().to(handlers::batch_check_reuse),
-            )
-            .route(
-                "/schemas/resolve",
-                web::post().to(handlers::resolve_schemas),
-            )
-            .route(
-                "/debug/field-match-probe",
-                web::post().to(handlers::field_match_probe),
-            )
-            // Declared fields (brain `design-lastdb-declared-fields`).
-            // Declaring is ALWAYS DevCert-gated — it claims a slot other
-            // schemas' writes fold into. Reading a declaration by id is not:
-            // the id is not a secret, and a node needs to resolve one it
-            // already holds. Registered BEFORE the dynamic `/fields/{id}`
-            // resource so the literal `/fields/declare` path matches first.
-            .route("/fields/declare", web::post().to(handlers::declare_field))
-            .route(
-                "/fields/{declaration_id}",
-                web::get().to(handlers::get_declared_field),
-            )
-            .route("/registry/index", web::get().to(handlers::registry_index))
-            .route("/schemas/reload", web::post().to(handlers::reload_schemas))
-            .route(
-                "/schemas/available",
-                web::get().to(handlers::get_available_schemas),
-            )
-            .route(
-                "/schemas/similar/{name}",
-                web::get().to(handlers::find_similar),
-            )
-            .route("/schema/{name}", web::get().to(handlers::get_schema))
-            // Phase C: shadow-mode canonicalization audit log.
-            .route(
-                "/canonicalization-near-misses",
-                web::get().to(handlers::list_near_misses),
-            )
-            // Snapshot — local-only routes for the `--hydrate-from`
-            // dev workflow. The Lambda binary intentionally does NOT
-            // mount these (Lambda will get GET `/v1/snapshot` behind
-            // an X-API-Key check in a follow-up; the import route is
-            // Sled-only).
-            .route("/snapshot", web::get().to(handlers::snapshot_export))
-            .route(
-                "/snapshot/shared-only",
-                web::get().to(handlers::snapshot_export_shared_only),
-            )
-            .route(
-                "/snapshot/import",
-                web::post().to(handlers::snapshot_import),
-            )
-            .route("/system/reset", web::post().to(handlers::reset_database))
-            // Admin — one-shot dev cleanup for the duplicate-descriptive_name
-            // pile produced by the pre-409 cross-schema_type fall-through and
-            // by concurrent Lambda races. Idempotent.
-            .route(
-                "/admin/dedupe-descriptive-names",
-                web::post().to(handlers::dedupe_descriptive_names),
-            )
-            .route(
-                "/admin/deprecate-schemas",
-                web::post().to(handlers::deprecate_schemas),
-            )
-            .route(
-                "/admin/schema-match-telemetry",
-                web::get().to(handlers::schema_match_telemetry),
-            ),
-    );
+    let v1 = web::scope("/v1").route("/health", web::get().to(handlers::health_check));
+    let v1 = v1_schema_routes(v1);
+    let v1 = v1_app_routes(v1);
+    let v1 = v1_field_and_registry_routes(v1);
+    let v1 = v1_snapshot_and_admin_routes(v1);
+    cfg.service(v1);
     // `/v2` — the Exemem app release registry. The eight-route registry
     // surface is `POST /v1/dev-cert` (exemem auth service) plus the seven
     // routes in this scope.
     cfg.service(v2_scope());
+}
+
+/// `/v1` schema CRUD, reuse, resolve and matching routes.
+fn v1_schema_routes(scope: actix_web::Scope) -> actix_web::Scope {
+    scope
+        .service(
+            web::resource("/schemas")
+                .route(web::get().to(handlers::list_schemas))
+                .route(web::post().to(handlers::add_schema)),
+        )
+        .route(
+            "/schemas/mutation-challenge",
+            web::post().to(handlers::issue_schema_mutation_challenge),
+        )
+        .route(
+            "/schemas/batch-check-reuse",
+            web::post().to(handlers::batch_check_reuse),
+        )
+        .route(
+            "/schemas/resolve",
+            web::post().to(handlers::resolve_schemas),
+        )
+        .route(
+            "/debug/field-match-probe",
+            web::post().to(handlers::field_match_probe),
+        )
+        .route("/schemas/reload", web::post().to(handlers::reload_schemas))
+        .route(
+            "/schemas/available",
+            web::get().to(handlers::get_available_schemas),
+        )
+        .route(
+            "/schemas/similar/{name}",
+            web::get().to(handlers::find_similar),
+        )
+        .route("/schema/{name}", web::get().to(handlers::get_schema))
+        // Phase C: shadow-mode canonicalization audit log.
+        .route(
+            "/canonicalization-near-misses",
+            web::get().to(handlers::list_near_misses),
+        )
+}
+
+/// `/v1` app registry routes (app_identity v3.1, Lane B2b). Register an app
+/// namespace (cert-gated), and browse the promoted public shelf (no developer
+/// credential required).
+fn v1_app_routes(scope: actix_web::Scope) -> actix_web::Scope {
+    scope
+        .service(
+            web::resource("/apps")
+                .route(web::get().to(handlers::list_apps))
+                .route(web::post().to(handlers::register_app)),
+        )
+        // Owner-authenticated sandbox→live promotion. Registered BEFORE
+        // the `/apps/{app_id}` dynamic resource so the literal
+        // `…/promote` path matches first — otherwise actix would capture
+        // `app_id="…"` including the `/promote` suffix.
+        .route(
+            "/apps/{app_id}/promote",
+            web::post().to(handlers::promote_app),
+        )
+        // Public, lookup-by-known-id app registry read (GET) +
+        // owner-authenticated metadata update (PUT). The GET is what
+        // nodes use to populate their local app registry without
+        // holding a developer `em_` bearer; PUT remains cert-gated.
+        .service(
+            web::resource("/apps/{app_id}")
+                .route(web::get().to(handlers::get_app))
+                .route(web::put().to(handlers::update_app)),
+        )
+}
+
+/// `/v1` declared-field and registry index routes.
+fn v1_field_and_registry_routes(scope: actix_web::Scope) -> actix_web::Scope {
+    scope
+        // Declared fields (brain `design-lastdb-declared-fields`).
+        // Declaring is ALWAYS DevCert-gated — it claims a slot other
+        // schemas' writes fold into. Reading a declaration by id is not:
+        // the id is not a secret, and a node needs to resolve one it
+        // already holds. Registered BEFORE the dynamic `/fields/{id}`
+        // resource so the literal `/fields/declare` path matches first.
+        .route("/fields/declare", web::post().to(handlers::declare_field))
+        .route(
+            "/fields/{declaration_id}",
+            web::get().to(handlers::get_declared_field),
+        )
+        .route("/registry/index", web::get().to(handlers::registry_index))
+}
+
+/// `/v1` snapshot, reset and admin routes.
+fn v1_snapshot_and_admin_routes(scope: actix_web::Scope) -> actix_web::Scope {
+    scope
+        // Snapshot — local-only routes for the `--hydrate-from`
+        // dev workflow. The Lambda binary intentionally does NOT
+        // mount these (Lambda will get GET `/v1/snapshot` behind
+        // an X-API-Key check in a follow-up; the import route is
+        // Sled-only).
+        .route("/snapshot", web::get().to(handlers::snapshot_export))
+        .route(
+            "/snapshot/shared-only",
+            web::get().to(handlers::snapshot_export_shared_only),
+        )
+        .route(
+            "/snapshot/import",
+            web::post().to(handlers::snapshot_import),
+        )
+        .route("/system/reset", web::post().to(handlers::reset_database))
+        // Admin — one-shot dev cleanup for the duplicate-descriptive_name
+        // pile produced by the pre-409 cross-schema_type fall-through and
+        // by concurrent Lambda races. Idempotent.
+        .route(
+            "/admin/dedupe-descriptive-names",
+            web::post().to(handlers::dedupe_descriptive_names),
+        )
+        .route(
+            "/admin/deprecate-schemas",
+            web::post().to(handlers::deprecate_schemas),
+        )
+        .route(
+            "/admin/schema-match-telemetry",
+            web::get().to(handlers::schema_match_telemetry),
+        )
 }
 
 /// The `/v2` app release registry scope.

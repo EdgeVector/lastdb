@@ -181,103 +181,103 @@ impl<'de> Deserialize<'de> for DatabaseConfig {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-
-        // Check if this is the legacy tagged format
-        if let Some(type_tag) = value.get("type").and_then(|v| v.as_str()) {
-            match type_tag {
-                "local" => {
-                    let path = value
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .map_or_else(|| PathBuf::from("data"), PathBuf::from);
-                    Ok(Self {
-                        path,
-                        engine: StorageEngine::Laststore,
-                        cloud_sync: None,
-                    })
-                }
-                "exemem" => {
-                    // `api_url` is the only field required on disk — the
-                    // per-device secrets (api_key, session_token, user_hash)
-                    // are runtime-hydrated from the credential store, so
-                    // their absence is expected, not an error.
-                    let api_url = value
-                        .get("api_url")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| {
-                            serde::de::Error::custom(
-                                "exemem database config missing required string field 'api_url'",
-                            )
-                        })?
-                        .to_string();
-                    let api_key = value
-                        .get("api_key")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string();
-                    let session_token = value
-                        .get("session_token")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string);
-                    let user_hash = value
-                        .get("user_hash")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string);
-
-                    // Retained for backward compatibility: existing on-disk
-                    // node_config.json files written by older versions of run.sh,
-                    // org-test.sh, or smoke-test-dmg.sh use this shape and lack a
-                    // `path` field. The path is recovered from FOLD_STORAGE_PATH.
-                    // All write-side consumers have been migrated to the new
-                    // `{path, cloud_sync}` format; this branch can be dropped once
-                    // it's safe to assume no user configs remain in the old shape.
-                    let path = std::env::var("FOLD_STORAGE_PATH")
-                        .map_or_else(|_| PathBuf::from("data"), PathBuf::from);
-
-                    Ok(Self {
-                        path,
-                        engine: StorageEngine::Laststore,
-                        cloud_sync: Some(CloudSyncConfig {
-                            api_url,
-                            api_key,
-                            session_token,
-                            user_hash,
-                            p2p_sync: None,
-                        }),
-                    })
-                }
-                other => Err(serde::de::Error::custom(format!(
-                    "Unknown database type: '{other}'. Supported: 'local', 'exemem'"
-                ))),
-            }
-        } else {
-            // New format: direct struct fields
-            let path = value
-                .get("path")
-                .and_then(|v| v.as_str())
-                .map_or_else(|| PathBuf::from("data"), PathBuf::from);
-            let engine = value
-                .get("engine")
-                .or_else(|| value.get("storage_engine"))
-                .map(|v| serde_json::from_value::<StorageEngine>(v.clone()))
-                .transpose()
-                .map_err(serde::de::Error::custom)?
-                .unwrap_or_default();
-
-            // If `cloud_sync` is present, it must parse — silently dropping a
-            // malformed block (e.g. missing `api_url`) would turn a broken
-            // cloud-mode config into an apparently-healthy local-mode one.
-            let cloud_sync = value
-                .get("cloud_sync")
-                .map(|v| serde_json::from_value::<CloudSyncConfig>(v.clone()))
-                .transpose()
-                .map_err(serde::de::Error::custom)?;
-
-            Ok(Self {
-                path,
-                engine,
-                cloud_sync,
-            })
+        match value.get("type").and_then(|v| v.as_str()) {
+            Some("local") => Ok(legacy_local_config(&value)),
+            Some("exemem") => legacy_exemem_config::<D::Error>(&value),
+            Some(other) => Err(serde::de::Error::custom(format!(
+                "Unknown database type: '{other}'. Supported: 'local', 'exemem'"
+            ))),
+            None => current_config::<D::Error>(&value),
         }
     }
+}
+
+fn config_path(value: &serde_json::Value) -> PathBuf {
+    value
+        .get("path")
+        .and_then(|v| v.as_str())
+        .map_or_else(|| PathBuf::from("data"), PathBuf::from)
+}
+
+fn legacy_local_config(value: &serde_json::Value) -> DatabaseConfig {
+    DatabaseConfig {
+        path: config_path(value),
+        engine: StorageEngine::Laststore,
+        cloud_sync: None,
+    }
+}
+
+fn legacy_exemem_config<E: serde::de::Error>(
+    value: &serde_json::Value,
+) -> Result<DatabaseConfig, E> {
+    // `api_url` is the only field required on disk — the
+    // per-device secrets (api_key, session_token, user_hash)
+    // are runtime-hydrated from the credential store, so
+    // their absence is expected, not an error.
+    let api_url = value
+        .get("api_url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| E::custom("exemem database config missing required string field 'api_url'"))?
+        .to_string();
+    let api_key = value
+        .get("api_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let session_token = value
+        .get("session_token")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let user_hash = value
+        .get("user_hash")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+
+    // Retained for backward compatibility: existing on-disk
+    // node_config.json files written by older versions of run.sh,
+    // org-test.sh, or smoke-test-dmg.sh use this shape and lack a
+    // `path` field. The path is recovered from FOLD_STORAGE_PATH.
+    // All write-side consumers have been migrated to the new
+    // `{path, cloud_sync}` format; this branch can be dropped once
+    // it's safe to assume no user configs remain in the old shape.
+    let path =
+        std::env::var("FOLD_STORAGE_PATH").map_or_else(|_| PathBuf::from("data"), PathBuf::from);
+
+    Ok(DatabaseConfig {
+        path,
+        engine: StorageEngine::Laststore,
+        cloud_sync: Some(CloudSyncConfig {
+            api_url,
+            api_key,
+            session_token,
+            user_hash,
+            p2p_sync: None,
+        }),
+    })
+}
+
+/// New format: direct struct fields.
+fn current_config<E: serde::de::Error>(value: &serde_json::Value) -> Result<DatabaseConfig, E> {
+    let engine = value
+        .get("engine")
+        .or_else(|| value.get("storage_engine"))
+        .map(|v| serde_json::from_value::<StorageEngine>(v.clone()))
+        .transpose()
+        .map_err(E::custom)?
+        .unwrap_or_default();
+
+    // If `cloud_sync` is present, it must parse — silently dropping a
+    // malformed block (e.g. missing `api_url`) would turn a broken
+    // cloud-mode config into an apparently-healthy local-mode one.
+    let cloud_sync = value
+        .get("cloud_sync")
+        .map(|v| serde_json::from_value::<CloudSyncConfig>(v.clone()))
+        .transpose()
+        .map_err(E::custom)?;
+
+    Ok(DatabaseConfig {
+        path: config_path(value),
+        engine,
+        cloud_sync,
+    })
 }

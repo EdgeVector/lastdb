@@ -292,6 +292,69 @@ pub fn jaccard_index(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
 }
 
 impl SchemaServiceState {
+    /// Highest-similarity same-namespace schema whose embedded
+    /// `descriptive_name` clears [`DESCRIPTIVE_NAME_SIMILARITY_THRESHOLD`].
+    fn best_semantic_descriptive_match(
+        &self,
+        query_embedding: &[f32],
+        owner_app_id: Option<&str>,
+    ) -> FoldDbResult<Option<(String, f32)>> {
+        // Source of truth for the namespace is the schema's own
+        // `owner_app_id` — `parse_canonical_name(existing_key)` is NOT
+        // safe to use here because `descriptive_name_key` is non-injective
+        // on `(Option<&str>, &str)`: a legacy un-owned schema whose
+        // `descriptive_name` contains `/` (e.g. "Vehicles/Sedans") encodes
+        // to the same key as `(Some("Vehicles"), "Sedans")`, so a parse
+        // would misclassify it as belonging to `Some("Vehicles")` and
+        // silently skip it from same-namespace lookups. Iterating schemas
+        // first lets us read the actual `owner_app_id`. Same shape as the
+        // bug fixed in `resolve_active_schema` and
+        // `descriptive_name_conflicts_cross_type` at sibling sites.
+        let schemas = read_lock(&self.schemas, "schemas")?;
+        let embeddings = read_lock(
+            &self.descriptive_name_embeddings,
+            "descriptive_name_embeddings",
+        )?;
+
+        fn normalize(s: Option<&str>) -> Option<&str> {
+            s.filter(|x| !x.is_empty())
+        }
+        let target_owner = normalize(owner_app_id);
+
+        let mut best_match: Option<(String, f32)> = None;
+        for schema in schemas.values() {
+            // Superseded schemas are not merge targets — their
+            // `descriptive_name_index` slot has already been replaced by
+            // the active expansion successor (see `expand_schema`).
+            if schema.superseded_by.is_some() {
+                continue;
+            }
+            if crate::builtin_schemas::is_schema_org_leftover(schema) {
+                continue;
+            }
+            if normalize(schema.owner_app_id.as_deref()) != target_owner {
+                continue;
+            }
+            let Some(existing_desc) = schema.descriptive_name.as_deref() else {
+                continue;
+            };
+            let key =
+                crate::state::descriptive_name_key(schema.owner_app_id.as_deref(), existing_desc);
+            let Some(existing_vec) = embeddings.get(&key) else {
+                continue;
+            };
+            let sim = cosine_similarity(query_embedding, existing_vec);
+            if sim >= DESCRIPTIVE_NAME_SIMILARITY_THRESHOLD
+                && best_match
+                    .as_ref()
+                    .is_none_or(|(_, best_sim)| sim > *best_sim)
+            {
+                best_match = Some((existing_desc.to_string(), sim));
+            }
+        }
+        Ok(best_match)
+    }
+
     /// Find an existing descriptive_name that matches the given name within
     /// the `owner_app_id` namespace.
     ///
@@ -337,60 +400,7 @@ impl SchemaServiceState {
             }
         };
 
-        // Source of truth for the namespace is the schema's own
-        // `owner_app_id` — `parse_canonical_name(existing_key)` is NOT
-        // safe to use here because `descriptive_name_key` is non-injective
-        // on `(Option<&str>, &str)`: a legacy un-owned schema whose
-        // `descriptive_name` contains `/` (e.g. "Vehicles/Sedans") encodes
-        // to the same key as `(Some("Vehicles"), "Sedans")`, so a parse
-        // would misclassify it as belonging to `Some("Vehicles")` and
-        // silently skip it from same-namespace lookups. Iterating schemas
-        // first lets us read the actual `owner_app_id`. Same shape as the
-        // bug fixed in `resolve_active_schema` and
-        // `descriptive_name_conflicts_cross_type` at sibling sites.
-        let schemas = read_lock(&self.schemas, "schemas")?;
-        let embeddings = read_lock(
-            &self.descriptive_name_embeddings,
-            "descriptive_name_embeddings",
-        )?;
-
-        fn normalize(s: Option<&str>) -> Option<&str> {
-            s.filter(|x| !x.is_empty())
-        }
-        let target_owner = normalize(owner_app_id);
-
-        let mut best_match: Option<(String, f32)> = None;
-        for schema in schemas.values() {
-            // Superseded schemas are not merge targets — their
-            // `descriptive_name_index` slot has already been replaced by
-            // the active expansion successor (see `expand_schema`).
-            if schema.superseded_by.is_some() {
-                continue;
-            }
-            if crate::builtin_schemas::is_schema_org_leftover(schema) {
-                continue;
-            }
-            if normalize(schema.owner_app_id.as_deref()) != target_owner {
-                continue;
-            }
-            let Some(existing_desc) = schema.descriptive_name.as_deref() else {
-                continue;
-            };
-            let key =
-                crate::state::descriptive_name_key(schema.owner_app_id.as_deref(), existing_desc);
-            let Some(existing_vec) = embeddings.get(&key) else {
-                continue;
-            };
-            let sim = cosine_similarity(&query_embedding, existing_vec);
-            if sim >= DESCRIPTIVE_NAME_SIMILARITY_THRESHOLD
-                && best_match
-                    .as_ref()
-                    .is_none_or(|(_, best_sim)| sim > *best_sim)
-            {
-                best_match = Some((existing_desc.to_string(), sim));
-            }
-        }
-        drop(schemas);
+        let best_match = self.best_semantic_descriptive_match(&query_embedding, owner_app_id)?;
 
         if let Some((matched_desc, similarity)) = best_match {
             tracing::info!(
@@ -400,7 +410,6 @@ impl SchemaServiceState {
                 matched_desc,
                 similarity
             );
-            drop(embeddings);
             // Re-resolve through the namespace-aware helper so a
             // matched_desc whose `descriptive_name_key` happens to alias
             // another namespace's entry doesn't return that entry's hash.
