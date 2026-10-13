@@ -36,7 +36,18 @@ impl LastStore {
         self.flush_barriers.fetch_add(1, Ordering::Relaxed);
         let seal = self.assigned_through();
         let keys = self.flush_sync_keys();
-        let result = self.sync_shard_keys(&keys, &keys);
+        let result = if parallel_whole_flush() && keys.len() >= parallel_scope_min_groups() {
+            if let Ok(_permit) = PARALLEL_SCOPE_FLUSH.try_lock() {
+                crate::durability::note_whole_flush(true);
+                self.sync_shard_keys_parallel(&keys)
+            } else {
+                crate::durability::note_whole_flush(false);
+                self.sync_shard_keys(&keys, &keys)
+            }
+        } else {
+            crate::durability::note_whole_flush(false);
+            self.sync_shard_keys(&keys, &keys)
+        };
         if result.is_ok() {
             self.publish_durable_through(seal);
             self.reap_clean_unheld_pins();
@@ -133,7 +144,7 @@ impl LastStore {
     /// reaches its own durability barrier before the transaction returns.
     /// The scope is independent of foreign dirty groups, as in the serial path.
     pub(super) fn sync_shard_keys_parallel(&self, keys: &[ShardKey]) -> Result<()> {
-        let workers = PARALLEL_SCOPE_WORKERS.min(keys.len());
+        let workers = parallel_scope_workers().min(keys.len());
         let chunk_size = keys.len().div_ceil(workers);
         let release = AtomicBool::new(self.over_append_descriptor_cap());
         let outcomes = std::thread::scope(|scope| {

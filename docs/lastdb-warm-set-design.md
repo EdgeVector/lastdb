@@ -528,3 +528,40 @@ FALLBACK if Tom does not allow new cells: use the existing cells, the key-cap ba
 - 13. Stop rule. Do you agree that Stage C2 ships only if every gate in the staged plan passes, and that the fallback is O4b (graph stays, warm set serves hot lists after writes, bugs fixed)? Recommend: yes.
 - 14. Store write memory. A dirty hash group stays in memory until the flush. This conflicts with 'a hash group does not stay in memory after the fetch'. It holds unflushed bytes and cannot be dropped. Do you accept it with a cap (S3a)? Recommend: accept with a cap.
 - 15. Atom placement. Atom ids spread over many hash groups, so a list of many atoms opens many groups. Parallel loads reduce the time. Grouping the atoms of one hash together would help more, but it is a storage format change. Do you want that study, or only the parallel loads first? Recommend: parallel loads first.
+
+## Measured fsync cost of a write (2026-10-12, store gauges)
+
+The store now counts its durability barriers by kind (`/api/status`,
+`memory_budget.fsync_*`, `scope_flushes_*`, `whole_flushes_*`, `flush_barriers`,
+`groups_synced`). Measured on a fresh synthetic home, release build of main plus
+the gauges, write mode, 100 creates with new keys, default flush settings.
+
+| Item | Value |
+|---|---|
+| Data fsyncs | 4002 (40 per create), 48 s of 62.8 s total |
+| Sidecar fsyncs | 1212 (12 per create), 13 s |
+| Drain rate | 1.6 creates per second (62.8 s for 100) |
+| Whole-store flushes | 1411 (the 500 ms tick, 8 namespaces per tick) |
+| Scoped flushes | 689 |
+
+Fsyncs are about 98% of the lane time. A one-create trace shows 6 barriers and
+33 hash groups: metadata 1; atoms phase 11 (atom locator 1, atom reference edge
+4, reference edge v2 2, atoms 4); schema index 1; molecules phase 17 (reference
+edge 5, reference edge v2 4, tips 8); idempotency 1; change feed 2. An update of
+one record syncs 8 + 12 + 3 groups. Every atom puts its edge, count and pending
+rows in groups of its own, so the group count grows with atoms, not with batch
+size. Group commit shares only the groups that repeat across a batch.
+
+One `F_FULLFSYNC` costs about 5 ms on this disk. Sixteen in parallel cost 2.1 ms
+each (2.5x). Syncing the scope in parallel (`LASTSTORE_PARALLEL_FLUSH_MIN_GROUPS=4`,
+`LASTSTORE_PARALLEL_FLUSH_WORKERS=8`) took the drain from 62.8 s to about 40 s
+(1.6x). Parallel whole-store flush (`LASTSTORE_PARALLEL_WHOLE_FLUSH=1`) gave
+36.6 s. Turning the 500 ms tick off gave no gain, so the cost sits in the lane's
+own scoped flushes. `LASTDB_TXN_DEFERRED_FLUSH=1` raised the drain to 21 writes
+per second but a kill -9 right after the drain lost 92 of 150 acked writes, 82
+after 1 s, 18 after 3 s and none after 8 s: the tick needs seconds to cover a
+burst. Do not set it on the primary.
+
+Fewer groups per write is the lever that is left: put the edge, count and
+pending rows of an atom under one group, or write them without a barrier. That
+is a storage layout change and needs a decision.

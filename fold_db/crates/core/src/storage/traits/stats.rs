@@ -85,6 +85,41 @@ pub struct WarmSetAdmissionStats {
     pub eviction_events: u64,
     /// Effective warm-set byte budget currently enforced by LRU eviction.
     pub effective_warm_bytes: u64,
+    /// Durability barriers the store has issued since process start, by kind,
+    /// with total time. These say what a write costs on disk: a mutation that
+    /// dirties many hash groups pays one data barrier per group.
+    #[serde(default)]
+    pub fsync_data_calls: u64,
+    /// Total microseconds in data-file barriers.
+    #[serde(default)]
+    pub fsync_data_micros: u64,
+    /// Key sidecar barriers (a clean group is reaped).
+    #[serde(default)]
+    pub fsync_sidecar_calls: u64,
+    /// Total microseconds in sidecar barriers.
+    #[serde(default)]
+    pub fsync_sidecar_micros: u64,
+    /// Directory barriers.
+    #[serde(default)]
+    pub fsync_dir_calls: u64,
+    /// Scoped flushes walked serially.
+    #[serde(default)]
+    pub scope_flushes_serial: u64,
+    /// Scoped flushes synced with parallel workers.
+    #[serde(default)]
+    pub scope_flushes_parallel: u64,
+    /// Whole-store flushes (the periodic tick) walked serially.
+    #[serde(default)]
+    pub whole_flushes_serial: u64,
+    /// Whole-store flushes synced with parallel workers.
+    #[serde(default)]
+    pub whole_flushes_parallel: u64,
+    /// Flush barriers since open and groups synced by them.
+    #[serde(default)]
+    pub flush_barriers: u64,
+    /// Groups synced by those barriers.
+    #[serde(default)]
+    pub groups_synced: u64,
 }
 
 /// Result of one LRU eviction pass against an explicit resident-byte target.

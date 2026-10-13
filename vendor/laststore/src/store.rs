@@ -32,10 +32,6 @@ const SORTED_ENCRYPTED_TAIL_BYTES: u64 = 1024 * 1024;
 const TRANSACTION_GATE_COUNT: usize = 1024;
 /// Bounds the lock table that permits one cold load per physical group.
 const COLD_LOAD_GATE_COUNT: usize = 1024;
-/// Wide transaction scopes can sync independent group files in parallel.
-/// Keep the worker count small so a flush cannot exhaust append descriptors.
-const PARALLEL_SCOPE_MIN_GROUPS: usize = 64;
-const PARALLEL_SCOPE_WORKERS: usize = 8;
 /// Permit one parallel scope at a time across all store instances. Other
 /// callers use the serial barrier, so worker creation stays bounded.
 static PARALLEL_SCOPE_FLUSH: Mutex<()> = Mutex::new(());
@@ -269,6 +265,8 @@ impl Drop for InFlightAdmission<'_> {
     }
 }
 
+mod flush_config;
+use flush_config::{parallel_scope_min_groups, parallel_scope_workers, parallel_whole_flush};
 mod admit_scope;
 mod append;
 mod append_tail;
