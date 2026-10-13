@@ -231,6 +231,17 @@ fn write_tombstone_audit_verdict<Out: Write>(
     Ok(())
 }
 
+const DRAIN_TOMBSTONE_COUNTERS: [&str; 8] = [
+    "keys_scanned",
+    "keys_unreadable",
+    "atoms_fetched",
+    "atoms_missing",
+    "tombstones_found",
+    "tombstones_drained",
+    "unowned_tombstones",
+    "search_tombstones_queued",
+];
+
 pub(crate) fn db_drain_legacy_tombstones(
     socket: &Path,
     schema: Option<&str>,
@@ -239,22 +250,12 @@ pub(crate) fn db_drain_legacy_tombstones(
     json_only: bool,
 ) -> Result<(), String> {
     let max_keys = max_keys.unwrap_or(TOMBSTONE_AUDIT_KEYS_PER_CALL);
-    let numeric = [
-        "keys_scanned",
-        "keys_unreadable",
-        "atoms_fetched",
-        "atoms_missing",
-        "tombstones_found",
-        "tombstones_drained",
-        "unowned_tombstones",
-        "search_tombstones_queued",
-    ];
     let mut totals = serde_json::json!({
         "dry_run": !execute,
         "per_schema_drained": {},
         "more_remaining": false,
     });
-    for key in numeric {
+    for key in DRAIN_TOMBSTONE_COUNTERS {
         totals[key] = serde_json::json!(0u64);
     }
     let mut after_key: Option<String> = None;
@@ -273,31 +274,7 @@ pub(crate) fn db_drain_legacy_tombstones(
         let pass = value
             .get("legacy_tombstone_drain")
             .ok_or_else(|| "response missing legacy_tombstone_drain".to_string())?;
-        for key in numeric {
-            let total = totals[key].as_u64().unwrap_or(0);
-            let add = pass
-                .get(key)
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
-            totals[key] = serde_json::json!(total.saturating_add(add));
-        }
-        if let Some(rows) = pass
-            .get("per_schema_drained")
-            .and_then(serde_json::Value::as_object)
-        {
-            for (name, count) in rows {
-                let current = totals["per_schema_drained"]
-                    .get(name)
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                totals["per_schema_drained"][name] =
-                    serde_json::json!(current.saturating_add(count.as_u64().unwrap_or(0)));
-            }
-        }
-        let more = pass
-            .get("more_remaining")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
+        let more = accumulate_drain_pass(&mut totals, pass);
         after_key = pass
             .get("next_after_key")
             .and_then(serde_json::Value::as_str)
@@ -314,18 +291,50 @@ pub(crate) fn db_drain_legacy_tombstones(
         );
         return Ok(());
     }
+    print_drain_report(&totals, execute, schema);
+    Ok(())
+}
+
+/// Add one drain pass onto the running totals. Returns `more_remaining`.
+fn accumulate_drain_pass(totals: &mut serde_json::Value, pass: &serde_json::Value) -> bool {
+    for key in DRAIN_TOMBSTONE_COUNTERS {
+        let total = totals[key].as_u64().unwrap_or(0);
+        let add = pass
+            .get(key)
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        totals[key] = serde_json::json!(total.saturating_add(add));
+    }
+    if let Some(rows) = pass
+        .get("per_schema_drained")
+        .and_then(serde_json::Value::as_object)
+    {
+        for (name, count) in rows {
+            let current = totals["per_schema_drained"]
+                .get(name)
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            totals["per_schema_drained"][name] =
+                serde_json::json!(current.saturating_add(count.as_u64().unwrap_or(0)));
+        }
+    }
+    pass.get("more_remaining")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn print_drain_report(totals: &serde_json::Value, execute: bool, schema: Option<&str>) {
     let mode = if execute { "EXECUTED" } else { "DRY RUN" };
     println!(
         "Legacy tombstone drain — {mode} — scope: {}",
         schema.unwrap_or("<whole store>")
     );
-    for key in numeric {
+    for key in DRAIN_TOMBSTONE_COUNTERS {
         println!("  {key}: {}", totals[key].as_u64().unwrap_or(0));
     }
     if !execute {
         println!("\nNo rows were erased. Re-run with --execute on a CoW clone first.");
     }
-    Ok(())
 }
 
 /// `mk:` records one `order-log-audit` daemon call walks. Higher than the

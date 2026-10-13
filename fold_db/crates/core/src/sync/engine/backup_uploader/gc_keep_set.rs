@@ -118,56 +118,13 @@ impl SyncEngine {
                 Self::require_exact_keep_set_match(process_identity.as_ref(), live_manifests)?;
             }
             BackupGcKeepProof::VerifiedPublishedBody => {
-                if live_manifests.is_empty() {
-                    if durable_counter > 0 {
-                        return Err(SyncError::Storage(
-                            "backup orphan GC refused: known published tip but empty published keep \
-                             (quota recovery will not DELETE with only the held cut)"
-                                .into(),
-                        ));
-                    }
-                    if process_identity.is_some() {
-                        return Err(SyncError::Storage(
-                            "backup orphan GC refused: process tip identity exists but published keep is empty"
-                                .into(),
-                        ));
-                    }
-                } else {
-                    for manifest in live_manifests {
-                        if cloud_db_hash_for_store_uuid(&manifest.store_uuid) != cloud_db_hash {
-                            return Err(SyncError::Storage(
-                                "backup orphan GC refused: published tip belongs to a different local database"
-                                    .into(),
-                            ));
-                        }
-                    }
-                    if let Some(current) = process_identity.as_ref() {
-                        Self::validate_backup_gc_tip_identity(
-                            Some(current),
-                            durable_counter,
-                            last_commit_unix_secs,
-                            &cloud_db_hash,
-                        )?;
-                        Self::require_exact_keep_set_match(Some(current), live_manifests)?;
-                    } else if live_manifests.len() != 1 {
-                        return Err(SyncError::Storage(format!(
-                            "backup orphan GC refused: quota recovery expected one verified published tip, got {}",
-                            live_manifests.len()
-                        )));
-                    } else {
-                        let manifest = &live_manifests[0];
-                        if manifest.counter != durable_counter {
-                            return Err(SyncError::Storage(format!(
-                                "backup orphan GC refused: published keep counter {} differs from durable counter {durable_counter}",
-                                manifest.counter
-                            )));
-                        }
-                        cloud_latest = Some(
-                            self.require_published_body_matches_cloud_latest(manifest)
-                                .await?,
-                        );
-                    }
-                }
+                cloud_latest = self
+                    .verify_published_body_keep_set(
+                        live_manifests,
+                        process_identity.as_ref(),
+                        (durable_counter, last_commit_unix_secs, &cloud_db_hash),
+                    )
+                    .await?;
             }
         }
         let published_tip = match process_identity.as_ref() {
@@ -191,6 +148,69 @@ impl SyncEngine {
             in_flight,
             cloud_latest,
         })
+    }
+
+    /// Quota-hatch / post-restart proof: accept a keep-set already resolved
+    /// from a published body. Returns the live cloud `backup/latest`
+    /// identity when it had to be fetched to prove the body.
+    async fn verify_published_body_keep_set(
+        &self,
+        live_manifests: &[BackupManifest],
+        process_identity: Option<&BackupTipIdentity>,
+        (durable_counter, last_commit_unix_secs, cloud_db_hash): (u64, Option<u64>, &str),
+    ) -> SyncResult<Option<BackupTipIdentity>> {
+        let mut cloud_latest = None;
+        if live_manifests.is_empty() {
+            if durable_counter > 0 {
+                return Err(SyncError::Storage(
+                    "backup orphan GC refused: known published tip but empty published keep \
+                     (quota recovery will not DELETE with only the held cut)"
+                        .into(),
+                ));
+            }
+            if process_identity.is_some() {
+                return Err(SyncError::Storage(
+                    "backup orphan GC refused: process tip identity exists but published keep is empty"
+                        .into(),
+                ));
+            }
+        } else {
+            for manifest in live_manifests {
+                if cloud_db_hash_for_store_uuid(&manifest.store_uuid) != cloud_db_hash {
+                    return Err(SyncError::Storage(
+                        "backup orphan GC refused: published tip belongs to a different local database"
+                            .into(),
+                    ));
+                }
+            }
+            if let Some(current) = process_identity {
+                Self::validate_backup_gc_tip_identity(
+                    Some(current),
+                    durable_counter,
+                    last_commit_unix_secs,
+                    cloud_db_hash,
+                )?;
+                Self::require_exact_keep_set_match(Some(current), live_manifests)?;
+            } else if live_manifests.len() != 1 {
+                return Err(SyncError::Storage(format!(
+                    "backup orphan GC refused: quota recovery expected one verified published tip, got {}",
+                    live_manifests.len()
+                )));
+            } else {
+                let manifest = &live_manifests[0];
+                if manifest.counter != durable_counter {
+                    return Err(SyncError::Storage(format!(
+                        "backup orphan GC refused: published keep counter {} differs from durable counter {durable_counter}",
+                        manifest.counter
+                    )));
+                }
+                cloud_latest = Some(
+                    self.require_published_body_matches_cloud_latest(manifest)
+                        .await?,
+                );
+            }
+        }
+        Ok(cloud_latest)
     }
 
     /// After restart, a supplied published body is keep-set only when it is
