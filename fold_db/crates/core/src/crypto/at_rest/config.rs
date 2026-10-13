@@ -19,7 +19,7 @@ pub const AT_REST_COMPRESS_MIN_BYTES_DEFAULT: usize = 256;
 /// blast radius of a *corrupt* frame that still passes the tag (or a future
 /// caller sealing something unbounded) so a bad row cannot OOM the node. Real
 /// atoms are capped far below this by `LASTDB_MAX_ATOM_CONTENT_BYTES`
-/// (default 64 KiB, absolute max 1 MiB).
+/// (default 256 KiB, absolute max 1 MiB).
 ///
 /// **It is also the write-side ceiling** — see [`compress_for_seal`]. Both
 /// sides read [`at_rest_max_inflated_bytes`] so a value this binary sealed

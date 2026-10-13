@@ -97,7 +97,7 @@ This document defines the **ideal on-disk / collection shape with proteins as fi
 | Warm set | 4.00 GiB budget, ~100% warm; cold_shard_loads high under kanban query |
 | Collections under `data/data/` | **exactly 33** (`ls data/data/`) |
 | Sync | **disabled** (`lastdb status`: Sync: disabled) |
-| Atom content cap (live) | `max_atom_content=524288` B (default 65536; abs max 1 MiB) |
+| Atom content cap (live) | `max_atom_content=524288` B (default was 65536 at the pin date, 262144 since 2026-10-12; abs max 1 MiB) |
 
 **Inventory command (refresh before migration PRs):**
 
@@ -438,7 +438,7 @@ Implementation of thin tips (retention / GC of existing `tv:` / `field_tip_versi
 
 #### Atom size fence
 
-- Default content fence: **64 KiB** serialized; env `LASTDB_MAX_ATOM_CONTENT_BYTES`; absolute max **1 MiB**.
+- Default content fence: **256 KiB** serialized (64 KiB before 2026-10-12); env `LASTDB_MAX_ATOM_CONTENT_BYTES`; absolute max **1 MiB**.
 - Live primary: `max_atom_content=524288`.
 - File-scale payloads → **CAS blobs**; atom holds ref.
 

@@ -75,14 +75,15 @@ pub enum SchemaError {
         actual: Option<String>,
     },
     /// Atom field content exceeded the hard size limit
-    /// ([`crate::atom::max_atom_content_bytes`], default 64 KiB).
+    /// ([`crate::atom::max_atom_content_bytes`], default 256 KiB).
     ///
     /// Carried as a distinct variant (not stringly-typed `InvalidData`) so the
     /// HTTP layer can render a discriminated `413 { error: "atom_content_too_large",
     /// size, limit }` body and clients can fail closed without sniffing text.
     /// Measure is pre-encryption serialized JSON of the field payload.
-    /// Raise (within 1 MiB absolute max) via env `LASTDB_MAX_ATOM_CONTENT_BYTES`;
-    /// larger payloads must use file-blob / CAS. See
+    /// Raise (within 1 MiB absolute max) via env `LASTDB_MAX_ATOM_CONTENT_BYTES`.
+    /// The right shape depends on the data: see
+    /// [`crate::atom::ATOM_CONTENT_TOO_LARGE_HINT`] and
     /// `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
     AtomContentTooLarge {
         size: usize,
@@ -194,9 +195,10 @@ impl fmt::Display for SchemaError {
             Self::AtomContentTooLarge { size, limit } => write!(
                 f,
                 "atom content too large: {size} bytes exceeds hard limit of {limit} bytes \
-                 (default 64 KiB; env LASTDB_MAX_ATOM_CONTENT_BYTES, absolute max 1 MiB). \
-                 Atoms are not a blob store — use file-blob/CAS for large payloads \
-                 (see fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md)"
+                 (default {} KiB; env LASTDB_MAX_ATOM_CONTENT_BYTES, absolute max 1 MiB). \
+                 {} See fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md.",
+                crate::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES / 1024,
+                crate::atom::ATOM_CONTENT_TOO_LARGE_HINT
             ),
             Self::StorageFull { detail } => write!(
                 f,
@@ -267,8 +269,8 @@ impl SchemaError {
 
     /// The discriminated `413 atom_content_too_large` response body for a
     /// [`Self::AtomContentTooLarge`]. Clients key on
-    /// `error == "atom_content_too_large"` and should move oversized payloads
-    /// to file-blob / CAS. Returns `None` for every other variant.
+    /// `error == "atom_content_too_large"`; `hint` says how to reshape the data
+    /// (one record per entry, or a file blob). Returns `None` for every other variant.
     pub fn atom_content_too_large_body(&self) -> Option<serde_json::Value> {
         match self {
             Self::AtomContentTooLarge { size, limit } => Some(serde_json::json!({
@@ -279,7 +281,7 @@ impl SchemaError {
                 "default_limit": crate::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES,
                 "absolute_max_limit": crate::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES,
                 "env": crate::atom::MAX_ATOM_CONTENT_BYTES_ENV,
-                "hint": "atoms are structured field values, not a blob store; use file-blob/CAS for large payloads",
+                "hint": crate::atom::ATOM_CONTENT_TOO_LARGE_HINT,
                 "docs": "fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md",
                 "message": self.to_string(),
             })),

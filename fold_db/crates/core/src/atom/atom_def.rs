@@ -20,11 +20,12 @@ use std::collections::HashMap;
 /// # Content size limit (hard fence)
 ///
 /// Field payloads written through the mutation / atom-store path must fit under
-/// [`crate::atom::max_atom_content_bytes`] (**default 64 KiB**; env
+/// [`crate::atom::max_atom_content_bytes`] (**default 256 KiB**; env
 /// `LASTDB_MAX_ATOM_CONTENT_BYTES`, absolute max 1 MiB). Oversized content is
 /// rejected with [`crate::schema::types::SchemaError::AtomContentTooLarge`].
-/// Atoms are **not** a blob store — large/opaque bytes go in file-blob / CAS.
-/// See `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
+/// An atom may pack many small fields up to the limit, but it is **not** a blob
+/// store: a growing list is one record per entry, and large/opaque bytes go in
+/// a file blob (CAS). See `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Atom {
     uuid: String,
