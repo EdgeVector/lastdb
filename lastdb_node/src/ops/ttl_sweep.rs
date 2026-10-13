@@ -2,10 +2,13 @@
 //!
 //! Consumes [`fold_db::schema::SchemaRetentionPolicy`] records and hard-deletes
 //! expired keys through the audited `MutationType::Purge` batch path. Range
-//! and HashRange layouts select by their time-sortable key. HashRange writes
-//! register their observed partitions in node-local retention state, so a
-//! sweep never needs a cross-partition product read. Hash and Single layouts
-//! select from the explicit node-local written-at index maintained by writes.
+//! and HashRange layouts select by their time-sortable key: the entry time at
+//! the front of the range key, written as unix seconds zero-padded to 20
+//! digits. A range key that does not start with 20 ASCII digits has no entry
+//! time, so the sweep never expires it. HashRange writes register their
+//! observed partitions in node-local retention state, so a sweep never needs a
+//! cross-partition product read. Hash and Single layouts select from the
+//! explicit node-local written-at index maintained by writes.
 //!
 //! Safety properties borrowed from `drain_orphaned_telemetry`:
 //! - never create an absent schema
@@ -35,6 +38,10 @@ pub const TTL_SWEEP_ENV: &str = "LASTDB_TTL_SWEEP";
 
 /// Upper bound on keys purged in one mutation batch.
 const TTL_SWEEP_BATCH_SIZE: usize = 64;
+
+/// Width of the entry time at the front of a Range or HashRange key: unix
+/// seconds, zero-padded to 20 digits (the width of `u64::MAX`).
+const AGE_KEY_DIGITS: usize = 20;
 
 static TEST_BACKUP_CUT_HELD: AtomicBool = AtomicBool::new(false);
 
@@ -188,7 +195,7 @@ async fn sweep_one_schema(
                 &schema,
                 &range_field,
                 &hash_partitions,
-                &format!("{cutoff:020}"),
+                cutoff,
             )
             .await?
         }
@@ -212,19 +219,23 @@ async fn query_expired_keys(
     schema: &DeclarativeSchemaDefinition,
     range_field: &str,
     hash_partitions: &[String],
-    cutoff_key: &str,
+    cutoff: u64,
 ) -> Result<Vec<KeyValue>, String> {
+    // The read starts at the lowest dated key, so a key below it (for example
+    // one that starts with `-` or `/`) is never selected.
+    let first_key = "0".repeat(AGE_KEY_DIGITS);
+    let cutoff_key = format!("{cutoff:0AGE_KEY_DIGITS$}");
     let filters: Vec<HashRangeFilter> = match &schema.schema_type {
         DeclarativeSchemaType::Range => vec![HashRangeFilter::RangeRange {
-            start: String::new(),
-            end: cutoff_key.to_string(),
+            start: first_key,
+            end: cutoff_key,
         }],
         DeclarativeSchemaType::HashRange => hash_partitions
             .iter()
             .map(|hash| HashRangeFilter::HashRangeRange {
                 hash: hash.clone(),
-                start: String::new(),
-                end: cutoff_key.to_string(),
+                start: first_key.clone(),
+                end: cutoff_key.clone(),
             })
             .collect(),
         DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => Vec::new(),
@@ -246,7 +257,7 @@ async fn query_expired_keys(
             rows.get(range_field)
                 .into_iter()
                 .flat_map(|field| field.keys().cloned())
-                .filter(|key| key_is_expired(key, &schema.schema_type, cutoff_key)),
+                .filter(|key| key_is_expired(key, &schema.schema_type, cutoff)),
         );
     }
     keys.sort_by(|a, b| a.range.cmp(&b.range).then(a.hash.cmp(&b.hash)));
@@ -254,11 +265,21 @@ async fn query_expired_keys(
     Ok(keys)
 }
 
-fn key_is_expired(key: &KeyValue, schema_type: &DeclarativeSchemaType, cutoff_key: &str) -> bool {
-    let Some(range) = key.range.as_deref() else {
+/// The entry time at the front of a range key, or `None` when the key does not
+/// start with [`AGE_KEY_DIGITS`] ASCII digits. An undated key is never expired.
+fn range_key_entry_time(range: &str) -> Option<u64> {
+    let digits = range.get(..AGE_KEY_DIGITS)?;
+    if !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+fn key_is_expired(key: &KeyValue, schema_type: &DeclarativeSchemaType, cutoff: u64) -> bool {
+    let Some(entry_time) = key.range.as_deref().and_then(range_key_entry_time) else {
         return false;
     };
-    if range >= cutoff_key {
+    if entry_time >= cutoff {
         return false;
     }
     match schema_type {

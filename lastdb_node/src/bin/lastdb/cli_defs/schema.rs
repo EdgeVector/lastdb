@@ -145,6 +145,12 @@ pub(crate) enum SchemaRetentionCommand {
         json: bool,
     },
     /// Set a positive human-readable duration such as `15m`, `24h`, or `7d`.
+    ///
+    /// Range and HashRange records expire by the entry time at the front of
+    /// the range key: unix seconds, zero-padded to 20 digits. A range key
+    /// without that prefix never expires. Hash and Single records expire by
+    /// the time since the last write. The policy covers writes made after it
+    /// is set, through the schema name given here.
     Set {
         #[arg(long)]
         schema: String,
