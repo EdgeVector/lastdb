@@ -118,7 +118,7 @@ where
 
 pub(super) fn sync_dir(path: &Path) -> Result<()> {
     if path.exists() {
-        File::open(path)?.sync_all()?;
+        crate::durability::sync_directory(&File::open(path)?)?;
     }
     Ok(())
 }

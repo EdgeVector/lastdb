@@ -385,7 +385,7 @@ pub(crate) fn write(
     let tmp = dir.join(SIDECAR_TMP);
     fs::write(&tmp, &encoded)?;
     let file = OpenOptions::new().write(true).open(&tmp)?;
-    crate::durability::sync_dirty_file(&file)?;
+    crate::durability::sync_sidecar_file(&file)?;
     drop(file);
     fs::rename(&tmp, sidecar_path(dir))?;
     Ok(())

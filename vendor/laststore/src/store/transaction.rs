@@ -46,13 +46,16 @@ impl LastStore {
             return Ok(());
         }
         self.flush_barriers.fetch_add(1, Ordering::Relaxed);
-        let result = if scope.len() >= PARALLEL_SCOPE_MIN_GROUPS {
+        let result = if scope.len() >= parallel_scope_min_groups() {
             if let Ok(_permit) = PARALLEL_SCOPE_FLUSH.try_lock() {
+                crate::durability::note_scope_flush(true);
                 self.sync_shard_keys_parallel(scope)
             } else {
+                crate::durability::note_scope_flush(false);
                 self.sync_shard_keys(scope, scope)
             }
         } else {
+            crate::durability::note_scope_flush(false);
             self.sync_shard_keys(scope, scope)
         };
         if result.is_ok() {

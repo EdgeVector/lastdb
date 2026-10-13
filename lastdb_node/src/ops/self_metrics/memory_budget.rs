@@ -129,6 +129,39 @@ pub struct MemoryBudgetHealth {
     /// Empty on an older daemon payload.
     #[serde(default)]
     pub logical_key_memory_limit: String,
+    /// Store durability barriers since process start (see `WarmSetAdmissionStats`).
+    #[serde(default)]
+    pub fsync_data_calls: u64,
+    /// Total microseconds in data-file barriers.
+    #[serde(default)]
+    pub fsync_data_micros: u64,
+    /// Key sidecar barriers.
+    #[serde(default)]
+    pub fsync_sidecar_calls: u64,
+    /// Total microseconds in sidecar barriers.
+    #[serde(default)]
+    pub fsync_sidecar_micros: u64,
+    /// Directory barriers.
+    #[serde(default)]
+    pub fsync_dir_calls: u64,
+    /// Scoped flushes walked serially.
+    #[serde(default)]
+    pub scope_flushes_serial: u64,
+    /// Scoped flushes synced with parallel workers.
+    #[serde(default)]
+    pub scope_flushes_parallel: u64,
+    /// Whole-store flushes walked serially.
+    #[serde(default)]
+    pub whole_flushes_serial: u64,
+    /// Whole-store flushes synced with parallel workers.
+    #[serde(default)]
+    pub whole_flushes_parallel: u64,
+    /// Flush barriers since open.
+    #[serde(default)]
+    pub flush_barriers: u64,
+    /// Groups synced by those barriers.
+    #[serde(default)]
+    pub groups_synced: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -229,6 +262,21 @@ impl MemoryBudgetHealth {
             logical_key_memory_limit: logical_key_memory_limit_for(
                 resident.resident_key_budget.as_wire_u64(),
             ),
+            fsync_data_calls: attribution.admission.map_or(0, |s| s.fsync_data_calls),
+            fsync_data_micros: attribution.admission.map_or(0, |s| s.fsync_data_micros),
+            fsync_sidecar_calls: attribution.admission.map_or(0, |s| s.fsync_sidecar_calls),
+            fsync_sidecar_micros: attribution.admission.map_or(0, |s| s.fsync_sidecar_micros),
+            fsync_dir_calls: attribution.admission.map_or(0, |s| s.fsync_dir_calls),
+            scope_flushes_serial: attribution.admission.map_or(0, |s| s.scope_flushes_serial),
+            scope_flushes_parallel: attribution
+                .admission
+                .map_or(0, |s| s.scope_flushes_parallel),
+            whole_flushes_serial: attribution.admission.map_or(0, |s| s.whole_flushes_serial),
+            whole_flushes_parallel: attribution
+                .admission
+                .map_or(0, |s| s.whole_flushes_parallel),
+            flush_barriers: attribution.admission.map_or(0, |s| s.flush_barriers),
+            groups_synced: attribution.admission.map_or(0, |s| s.groups_synced),
         }
     }
 }

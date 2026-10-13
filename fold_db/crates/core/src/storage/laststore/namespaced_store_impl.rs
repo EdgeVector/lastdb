@@ -218,11 +218,23 @@ impl NamespacedStore for LastStoreNamespacedStore {
 
     fn warm_set_admission_stats(&self) -> Option<crate::storage::traits::WarmSetAdmissionStats> {
         let warm = self.store.hash_group_warm_stats();
+        let sync = laststore::sync_stats();
         Some(crate::storage::traits::WarmSetAdmissionStats {
             in_flight_cold_load_count: warm.in_flight_cold_load_count,
             in_flight_cold_load_bytes: warm.in_flight_cold_load_bytes,
             eviction_events: warm.eviction_events,
             effective_warm_bytes: warm.budget_bytes,
+            fsync_data_calls: sync.data_syncs,
+            fsync_data_micros: sync.data_sync_micros,
+            fsync_sidecar_calls: sync.sidecar_syncs,
+            fsync_sidecar_micros: sync.sidecar_sync_micros,
+            fsync_dir_calls: sync.dir_syncs,
+            scope_flushes_serial: sync.scope_flushes_serial,
+            scope_flushes_parallel: sync.scope_flushes_parallel,
+            whole_flushes_serial: sync.whole_flushes_serial,
+            whole_flushes_parallel: sync.whole_flushes_parallel,
+            flush_barriers: self.store.flush_barriers(),
+            groups_synced: self.store.groups_synced(),
         })
     }
 

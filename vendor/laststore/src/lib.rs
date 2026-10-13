@@ -37,6 +37,7 @@ mod sorted_merge;
 mod sorted_metadata;
 mod store;
 
+pub use durability::{sync_stats, SyncStats};
 pub use error::{Error, Result};
 pub use options::{
     CaptureHook, CollectionPolicy, HashAlgo, HashGroupKey, LastStoreOptions, LayoutMode,
