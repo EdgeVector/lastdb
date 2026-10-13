@@ -64,17 +64,7 @@ impl MutationManager {
                 SchemaError::InvalidData("aggregate source partition is not enrolled".into())
             })?;
         guard.validate().map_err(SchemaError::InvalidData)?;
-        if guard.source_schema_name != repair.source_schema_name
-            || guard.source_partition_hash != source_hash
-            || guard.target_schema_name != repair.target_schema_name
-            || guard.target_key != target_key.to_storage_key()
-            || guard.member_schema_name != repair.member_schema_name
-            || !guard.committed
-        {
-            return Err(SchemaError::InvalidData(
-                "aggregate repair association does not match the enrolled guard".into(),
-            ));
-        }
+        Self::check_repair_guard_association(&repair, &guard, &target_key, source_hash)?;
         self.validate_enrolled_aggregate_schemas(&guard)?;
 
         let target_lock_key = Self::aggregate_target_lock_key(
@@ -118,6 +108,26 @@ impl MutationManager {
             storage_prefix.as_deref(),
         )
         .await
+    }
+
+    fn check_repair_guard_association(
+        repair: &AggregateRepair,
+        guard: &AggregateGuard,
+        target_key: &KeyValue,
+        source_hash: &str,
+    ) -> Result<(), SchemaError> {
+        if guard.source_schema_name != repair.source_schema_name
+            || guard.source_partition_hash != source_hash
+            || guard.target_schema_name != repair.target_schema_name
+            || guard.target_key != target_key.to_storage_key()
+            || guard.member_schema_name != repair.member_schema_name
+            || !guard.committed
+        {
+            return Err(SchemaError::InvalidData(
+                "aggregate repair association does not match the enrolled guard".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn validate_repair_request(repair: &AggregateRepair) -> Result<(), SchemaError> {

@@ -1,6 +1,15 @@
 use super::*;
 // lint:file-size-ok moved verbatim from the parent module; one method family per file
 
+/// Edges, count deltas and pending holds gathered for one catalog transition.
+#[derive(Default)]
+struct CatalogRefChanges {
+    molecule_edges: Vec<super::super::MoleculeRefEdge>,
+    atom_deltas: HashMap<String, u64>,
+    pending_items: Vec<(String, serde_json::Value)>,
+    pending_keys: Vec<String>,
+}
+
 impl AtomStore {
     /// Prepare the atom paths added by one database-catalog schema copy.
     /// Pending rows land before the catalog becomes live and do not alter the
@@ -49,6 +58,49 @@ impl AtomStore {
         kind: CatalogAtomRefTransitionKind,
     ) -> Result<CatalogAtomRefPlan, SchemaError> {
         let create_pending = kind == CatalogAtomRefTransitionKind::Add;
+        let CatalogRefChanges {
+            molecule_edges,
+            atom_deltas,
+            mut pending_items,
+            pending_keys,
+        } = self
+            .collect_catalog_ref_changes(
+                db_locator,
+                schema_name,
+                schema,
+                storage_prefix,
+                create_pending,
+            )
+            .await?;
+        let transition_id = catalog_atom_ref_transition_id(db_locator, schema_name);
+        let plan = CatalogAtomRefPlan {
+            storage_prefix: storage_prefix.map(str::to_string),
+            molecule_edges,
+            atom_deltas,
+            pending_keys,
+            transition_id: transition_id.clone(),
+        };
+        let transition = CatalogAtomRefTransition {
+            db_locator: db_locator.to_string(),
+            schema_name: schema_name.to_string(),
+            kind,
+            plan: plan.clone(),
+        };
+        self.persist_catalog_transition(transition_id, transition, &mut pending_items)
+            .await?;
+        Ok(plan)
+    }
+
+    /// Walk the schema's field molecules and gather the edges, atom count
+    /// deltas and pending holds this transition changes.
+    async fn collect_catalog_ref_changes(
+        &self,
+        db_locator: &str,
+        schema_name: &str,
+        schema: &Schema,
+        storage_prefix: Option<&str>,
+        create_pending: bool,
+    ) -> Result<CatalogRefChanges, SchemaError> {
         let mut fields: Vec<(String, String)> = schema
             .field_molecule_uuids
             .as_ref()
@@ -57,10 +109,7 @@ impl AtomStore {
             .map(|(field, molecule)| (field.clone(), molecule.clone()))
             .collect();
         fields.sort_unstable();
-        let mut molecule_edges = Vec::new();
-        let mut atom_deltas = HashMap::new();
-        let mut pending_items = Vec::new();
-        let mut pending_keys = Vec::new();
+        let mut changes = CatalogRefChanges::default();
         for (field, molecule_uuid) in fields {
             let edge = super::super::MoleculeRefEdge::database_catalog_field(
                 db_locator,
@@ -85,32 +134,31 @@ impl AtomStore {
                 .await?
             {
                 for (hash, range, entry, _) in molecule.per_key_records() {
-                    *atom_deltas.entry(entry.atom_uuid.clone()).or_default() += 1;
+                    *changes
+                        .atom_deltas
+                        .entry(entry.atom_uuid.clone())
+                        .or_default() += 1;
                     if create_pending {
                         let source = format!("{}:tip:{hash}:{range}", edge.source);
                         let item =
                             Self::pending_atom_ref_item(&entry.atom_uuid, &source, storage_prefix)?;
-                        pending_keys.push(item.0.clone());
-                        pending_items.push(item);
+                        changes.pending_keys.push(item.0.clone());
+                        changes.pending_items.push(item);
                     }
                 }
             }
-            molecule_edges.push(edge);
+            changes.molecule_edges.push(edge);
         }
-        let transition_id = catalog_atom_ref_transition_id(db_locator, schema_name);
-        let plan = CatalogAtomRefPlan {
-            storage_prefix: storage_prefix.map(str::to_string),
-            molecule_edges,
-            atom_deltas,
-            pending_keys,
-            transition_id: transition_id.clone(),
-        };
-        let transition = CatalogAtomRefTransition {
-            db_locator: db_locator.to_string(),
-            schema_name: schema_name.to_string(),
-            kind,
-            plan: plan.clone(),
-        };
+        Ok(changes)
+    }
+
+    /// Register the transition and flush it together with the pending holds.
+    async fn persist_catalog_transition(
+        &self,
+        transition_id: String,
+        transition: CatalogAtomRefTransition,
+        pending_items: &mut Vec<(String, serde_json::Value)>,
+    ) -> Result<(), SchemaError> {
         let _transition_guard = self.catalog_atom_ref_transition_lock.lock().await;
         let mut registry = self.catalog_atom_ref_transition_registry().await?;
         registry.transitions.insert(transition_id, transition);
@@ -123,7 +171,7 @@ impl AtomStore {
             })?,
         ));
         self.main_store
-            .batch_put_items(pending_items)
+            .batch_put_items(std::mem::take(pending_items))
             .await
             .map_err(|error| {
                 SchemaError::InvalidData(format!(
@@ -134,8 +182,7 @@ impl AtomStore {
             SchemaError::InvalidData(format!(
                 "flush database-catalog atom reference transition: {error}"
             ))
-        })?;
-        Ok(plan)
+        })
     }
 
     /// Commit a live catalog's prepared paths and clear the pending holds.
