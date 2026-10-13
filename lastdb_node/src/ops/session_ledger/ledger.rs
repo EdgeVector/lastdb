@@ -20,6 +20,53 @@ pub struct Ledger {
     pub(super) own: SessionRecord,
 }
 
+/// Facts known at session start that fill the new boot row.
+struct SessionStart<'a> {
+    pid: u32,
+    start_ts: u64,
+    port: u16,
+    took_over_from_pid: Option<u32>,
+    restart_cause: Option<String>,
+    prev: Option<&'a SessionRecord>,
+    prev_session_clean: bool,
+    prev_session_exit_recorded: bool,
+    prev_downtime_secs: Option<u64>,
+    prev_shutdown_cause: Option<String>,
+}
+
+impl SessionRecord {
+    /// The boot row for a new session. A producer-annotated restart cause wins;
+    /// otherwise the cause is classified from the previous session.
+    fn for_start(start: SessionStart<'_>) -> Self {
+        let build_version = env!("FOLDDB_BUILD_VERSION").to_string();
+        let restart_cause = start.restart_cause.unwrap_or_else(|| {
+            classify_restart_cause(
+                start.prev,
+                &build_version,
+                start.prev.and_then(|p| p.exit.as_deref()),
+                start.prev.and_then(|p| p.exit_reason.as_deref()),
+                start.prev_shutdown_cause.as_deref(),
+            )
+        });
+        Self {
+            pid: start.pid,
+            start_ts: start.start_ts,
+            build_version,
+            port: start.port,
+            restart_cause,
+            took_over_from_pid: start.took_over_from_pid,
+            prev_session_clean: start.prev_session_clean,
+            prev_session_exit_recorded: start.prev_session_exit_recorded,
+            prev_downtime_secs: start.prev_downtime_secs,
+            prev_shutdown_cause: start.prev_shutdown_cause,
+            end_ts: None,
+            exit: None,
+            exit_reason: None,
+            last_heartbeat_ts: None,
+        }
+    }
+}
+
 impl Ledger {
     /// `$FOLDDB_HOME/sessions.jsonl`.
     pub fn ledger_path(home: &Path) -> PathBuf {
@@ -76,32 +123,18 @@ impl Ledger {
             } else {
                 None
             };
-        let build_version = env!("FOLDDB_BUILD_VERSION").to_string();
-
-        let record = SessionRecord {
+        let record = SessionRecord::for_start(SessionStart {
             pid,
             start_ts,
-            build_version: build_version.clone(),
             port,
-            restart_cause: restart_intent.cause.clone().unwrap_or_else(|| {
-                classify_restart_cause(
-                    prev.as_ref(),
-                    &build_version,
-                    prev_exit.as_deref(),
-                    prev_exit_reason.as_deref(),
-                    prev_shutdown_cause.as_deref(),
-                )
-            }),
             took_over_from_pid,
+            restart_cause: restart_intent.cause.clone(),
+            prev: prev.as_ref(),
             prev_session_clean,
             prev_session_exit_recorded,
             prev_downtime_secs,
             prev_shutdown_cause: prev_shutdown_cause.clone(),
-            end_ts: None,
-            exit: None,
-            exit_reason: None,
-            last_heartbeat_ts: None,
-        };
+        });
 
         append_record(home, &record)?;
         // Consume only after the boot row is durable. A failed append leaves

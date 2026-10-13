@@ -14,6 +14,52 @@ struct StatusLiveness {
     last_capture_reexport_error: Option<String>,
 }
 
+/// Booleans that decide the ordered `degraded_reasons` list of a status snapshot.
+#[derive(Clone, Copy)]
+struct DegradedInputs {
+    /// Latched before the streak-based reasons: a deterministic block is a
+    /// strictly stronger statement than "the last N cycles failed".
+    backup_blocked: bool,
+    sync_failing: bool,
+    backup_failing: bool,
+    outbox_over_target: bool,
+    oversize_outbox_dropped: bool,
+    mutation_log_lag: bool,
+    /// Product rule (2026-08-15, card lastdb-capture-reexport-pending-keeps-
+    /// sync-degraded): residual dirty-key reexport after cutover is an
+    /// *observe-only drain phase* while the continuous plane is healthy.
+    /// Operators still see `capture_reexport_pending_count` on status.
+    /// Latch health RED only when pending markers remain *and* reexport is
+    /// stuck with an unrecovered error (not "pending alone for hours under
+    /// interactive_busy while log_lag=0 / transport OK").
+    capture_reexport_stuck: bool,
+    /// A dropped poison marker is permanent capture loss, even after the
+    /// marker plane empties. This count is process-local, so a restart
+    /// cannot prove that no poison was dropped in an earlier process.
+    capture_poison_dropped: bool,
+}
+
+/// Ordered degraded-reason names for the set inputs.
+fn degraded_reason_list(inputs: DegradedInputs) -> Vec<String> {
+    [
+        (inputs.backup_blocked, "backup_bootstrap_blocked"),
+        (inputs.sync_failing, "sync_failing"),
+        (inputs.backup_failing, "backup_failing"),
+        (inputs.outbox_over_target, "outbox_over_target"),
+        (inputs.oversize_outbox_dropped, "oversize_outbox_drops"),
+        (inputs.mutation_log_lag, "mutation_log_lag"),
+        (inputs.capture_reexport_stuck, "capture_reexport_pending"),
+        (
+            inputs.capture_poison_dropped,
+            "capture_reexport_poison_dropped",
+        ),
+    ]
+    .into_iter()
+    .filter(|(set, _)| *set)
+    .map(|(_, name)| name.to_string())
+    .collect()
+}
+
 /// Cloud-sync-off grace readings for one status snapshot.
 struct SyncOffStatus {
     cloud_sync_disabled_at: Option<u64>,
@@ -333,28 +379,6 @@ impl SyncEngine {
         // cycles stop running.
         let backup_blocker = self.backup_blocker.lock().await.clone();
 
-        let mut degraded_reasons = Vec::new();
-        if backup_blocker.is_some() {
-            degraded_reasons.push("backup_bootstrap_blocked".to_string());
-        }
-        if sync_failing {
-            degraded_reasons.push("sync_failing".to_string());
-        }
-        if backup_failing {
-            degraded_reasons.push("backup_failing".to_string());
-        }
-        if outbox_over_target {
-            degraded_reasons.push("outbox_over_target".to_string());
-        }
-        if oversize_outbox_drop_count > 0 {
-            degraded_reasons.push("oversize_outbox_drops".to_string());
-        }
-        if mutation_log
-            .as_ref()
-            .is_some_and(|m| m.active && m.lag_degraded)
-        {
-            degraded_reasons.push("mutation_log_lag".to_string());
-        }
         let capture_reexport_pending_known_nonempty =
             self.capture_reexport_pending_known_nonempty();
         let capture_reexport_pending_count = self
@@ -367,22 +391,17 @@ impl SyncEngine {
             .capture_reexport_failure_count
             .load(std::sync::atomic::Ordering::Relaxed);
         let last_capture_reexport_error = self.last_capture_reexport_error.lock().await.clone();
-        // Product rule (2026-08-15, card lastdb-capture-reexport-pending-keeps-
-        // sync-degraded): residual dirty-key reexport after cutover is an
-        // *observe-only drain phase* while the continuous plane is healthy.
-        // Operators still see `capture_reexport_pending_count` on status.
-        // Latch health RED only when pending markers remain *and* reexport is
-        // stuck with an unrecovered error (not "pending alone for hours under
-        // interactive_busy while log_lag=0 / transport OK").
-        if capture_reexport_pending_count > 0 && last_capture_reexport_error.is_some() {
-            degraded_reasons.push("capture_reexport_pending".to_string());
-        }
-        // A dropped poison marker is permanent capture loss, even after the
-        // marker plane empties. This count is process-local, so a restart
-        // cannot prove that no poison was dropped in an earlier process.
-        if capture.reexport_poison_dropped > 0 {
-            degraded_reasons.push("capture_reexport_poison_dropped".to_string());
-        }
+        let degraded_reasons = degraded_reason_list(DegradedInputs {
+            backup_blocked: backup_blocker.is_some(),
+            sync_failing,
+            backup_failing,
+            outbox_over_target,
+            oversize_outbox_dropped: oversize_outbox_drop_count > 0,
+            mutation_log_lag: mutation_log.is_some_and(|m| m.active && m.lag_degraded),
+            capture_reexport_stuck: capture_reexport_pending_count > 0
+                && last_capture_reexport_error.is_some(),
+            capture_poison_dropped: capture.reexport_poison_dropped > 0,
+        });
         StatusLiveness {
             consecutive_sync_failures,
             backup_blocker,
