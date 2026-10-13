@@ -51,57 +51,76 @@ impl MoleculeKeyStore {
                     output.legacy.insert(id.clone());
                     MoleculeKeyBundle::generate()
                 }
-                (Some(metadata), Some(wrap)) => {
-                    let metadata: BundleMetadata =
-                        serde_json::from_slice(metadata).map_err(|_| {
-                            StorageError::InvalidOperation("invalid molecule metadata".into())
-                        })?;
-                    if metadata.version != BUNDLE_VERSION || metadata.molecule_uuid != *id {
-                        return Err(StorageError::InvalidOperation(
-                            "molecule metadata differs".into(),
-                        ));
-                    }
-                    let wrap: BundleWrap = serde_json::from_slice(wrap).map_err(|_| {
-                        StorageError::InvalidOperation("invalid node molecule wrap".into())
-                    })?;
-                    open_wrap(&wrap, id, NODE_DOMAIN, node_key)?
-                }
+                (Some(metadata), Some(wrap)) => open_node_bundle(id, metadata, wrap, node_key)?,
                 _ => {
                     return Err(StorageError::InvalidOperation(
                         "incomplete molecule key identity".into(),
                     ))
                 }
             };
-            let plaintext = zeroize::Zeroizing::new(serde_json::to_vec(&bundle).map_err(|_| {
-                StorageError::SerializationError("serialize org molecule key".into())
-            })?);
-            let ciphertext = seal_at_rest_utf8(domain_key, &plaintext)
-                .map_err(|_| StorageError::InvalidOperation("org molecule wrap failed".into()))?;
-            let wrap = BundleWrap {
-                version: BUNDLE_VERSION,
-                molecule_uuid: id.clone(),
-                domain: domain.into(),
-                sealed_bundle: String::from_utf8(ciphertext).map_err(|_| {
-                    StorageError::InvalidOperation("invalid org wrap encoding".into())
-                })?,
-            };
-            let metadata = BundleMetadata {
-                version: BUNDLE_VERSION,
-                molecule_uuid: id.clone(),
-            };
-            output.rows.push((
-                metadata_key(id).into_bytes(),
-                serde_json::to_vec(&metadata).map_err(|_| {
-                    StorageError::SerializationError("serialize molecule metadata".into())
-                })?,
-            ));
-            output.rows.push((
-                wrap_key_for(id, domain).into_bytes(),
-                serde_json::to_vec(&wrap)
-                    .map_err(|_| StorageError::SerializationError("serialize org wrap".into()))?,
-            ));
+            output
+                .rows
+                .extend(domain_wrap_rows(id, domain, domain_key, &bundle)?);
             output.bundles.insert(id.clone(), bundle);
         }
         Ok(output)
     }
+}
+
+/// Check the node-side metadata for `id` and open its node-wrapped bundle.
+fn open_node_bundle(
+    id: &str,
+    metadata: &[u8],
+    wrap: &[u8],
+    node_key: &[u8; 32],
+) -> StorageResult<MoleculeKeyBundle> {
+    let metadata: BundleMetadata = serde_json::from_slice(metadata)
+        .map_err(|_| StorageError::InvalidOperation("invalid molecule metadata".into()))?;
+    if metadata.version != BUNDLE_VERSION || metadata.molecule_uuid != id {
+        return Err(StorageError::InvalidOperation(
+            "molecule metadata differs".into(),
+        ));
+    }
+    let wrap: BundleWrap = serde_json::from_slice(wrap)
+        .map_err(|_| StorageError::InvalidOperation("invalid node molecule wrap".into()))?;
+    open_wrap(&wrap, id, NODE_DOMAIN, node_key)
+}
+
+/// The metadata row and the org-domain wrap row for one molecule bundle.
+fn domain_wrap_rows(
+    id: &str,
+    domain: &str,
+    domain_key: &[u8; 32],
+    bundle: &MoleculeKeyBundle,
+) -> StorageResult<[(Vec<u8>, Vec<u8>); 2]> {
+    let plaintext = zeroize::Zeroizing::new(
+        serde_json::to_vec(bundle)
+            .map_err(|_| StorageError::SerializationError("serialize org molecule key".into()))?,
+    );
+    let ciphertext = seal_at_rest_utf8(domain_key, &plaintext)
+        .map_err(|_| StorageError::InvalidOperation("org molecule wrap failed".into()))?;
+    let wrap = BundleWrap {
+        version: BUNDLE_VERSION,
+        molecule_uuid: id.to_string(),
+        domain: domain.into(),
+        sealed_bundle: String::from_utf8(ciphertext)
+            .map_err(|_| StorageError::InvalidOperation("invalid org wrap encoding".into()))?,
+    };
+    let metadata = BundleMetadata {
+        version: BUNDLE_VERSION,
+        molecule_uuid: id.to_string(),
+    };
+    Ok([
+        (
+            metadata_key(id).into_bytes(),
+            serde_json::to_vec(&metadata).map_err(|_| {
+                StorageError::SerializationError("serialize molecule metadata".into())
+            })?,
+        ),
+        (
+            wrap_key_for(id, domain).into_bytes(),
+            serde_json::to_vec(&wrap)
+                .map_err(|_| StorageError::SerializationError("serialize org wrap".into()))?,
+        ),
+    ])
 }

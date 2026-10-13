@@ -278,22 +278,8 @@ pub(super) fn execute_sync_backup_gc_route(
             ctx,
         );
     }
-    #[derive(Default, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Body {
-        /// When omitted, default true (preview only). Pass `false` to delete.
-        #[serde(default)]
-        dry_run: Option<bool>,
-        #[serde(default)]
-        status: bool,
-        job_id: Option<String>,
-        request_id: Option<String>,
-        #[serde(default)]
-        after: u64,
-        limit: Option<usize>,
-    }
-    let body: Body = if req.body.is_empty() {
-        Body::default()
+    let body: BackupGcBody = if req.body.is_empty() {
+        BackupGcBody::default()
     } else {
         match serde_json::from_slice(&req.body) {
             Ok(b) => b,
@@ -304,41 +290,7 @@ pub(super) fn execute_sync_backup_gc_route(
     };
     let engine = host.db.sync_engine();
     if body.status || body.job_id.is_some() {
-        if body.request_id.is_some() || body.dry_run.is_some() {
-            return error_response(400, "status cannot accept execution parameters", ctx);
-        }
-        if engine.is_none() {
-            return match fold_db::sync::engine::gc_jobs::backup_gc_receipts_without_engine(
-                host.home.clone(),
-                body.job_id.as_deref(),
-                body.after,
-                body.limit.unwrap_or(0),
-            ) {
-                Ok((job, objects)) => json_ok(&envelope(
-                    &serde_json::json!({"ok":true,"job":job,"objects":objects}),
-                    ctx.user_id.as_str(),
-                )),
-                Err(error) => error_response(400, &error.to_string(), ctx),
-            };
-        }
-        let engine = engine.as_ref().expect("checked engine");
-        let job = match engine.backup_gc_job(body.job_id.as_deref()) {
-            Ok(job) => job,
-            Err(error) => return error_response(400, &error.to_string(), ctx),
-        };
-        let objects = match job.as_ref() {
-            Some(job) => {
-                match engine.backup_gc_objects(&job.job_id, body.after, body.limit.unwrap_or(0)) {
-                    Ok(objects) => objects,
-                    Err(error) => return error_response(500, &error.to_string(), ctx),
-                }
-            }
-            None => Vec::new(),
-        };
-        return json_ok(&envelope(
-            &serde_json::json!({"ok":true, "job":job, "objects":objects}),
-            ctx.user_id.as_str(),
-        ));
+        return backup_gc_status_response(&body, engine.as_deref(), ctx, host);
     }
     let Some(engine) = engine else {
         return error_response(
@@ -358,6 +310,66 @@ pub(super) fn execute_sync_backup_gc_route(
         }
         Err(error) => error_response(400, &error.to_string(), ctx),
     }
+}
+
+/// Body of `POST /api/sync/backup-gc`.
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BackupGcBody {
+    /// When omitted, default true (preview only). Pass `false` to delete.
+    #[serde(default)]
+    dry_run: Option<bool>,
+    #[serde(default)]
+    status: bool,
+    job_id: Option<String>,
+    request_id: Option<String>,
+    #[serde(default)]
+    after: u64,
+    limit: Option<usize>,
+}
+
+/// The `{status:true}` and `{job_id}` read path of the backup-GC route.
+/// Without a sync engine it reads receipts straight from the home directory.
+fn backup_gc_status_response(
+    body: &BackupGcBody,
+    engine: Option<&fold_db::sync::SyncEngine>,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    if body.request_id.is_some() || body.dry_run.is_some() {
+        return error_response(400, "status cannot accept execution parameters", ctx);
+    }
+    let Some(engine) = engine else {
+        return match fold_db::sync::engine::gc_jobs::backup_gc_receipts_without_engine(
+            host.home.clone(),
+            body.job_id.as_deref(),
+            body.after,
+            body.limit.unwrap_or(0),
+        ) {
+            Ok((job, objects)) => json_ok(&envelope(
+                &serde_json::json!({"ok":true,"job":job,"objects":objects}),
+                ctx.user_id.as_str(),
+            )),
+            Err(error) => error_response(400, &error.to_string(), ctx),
+        };
+    };
+    let job = match engine.backup_gc_job(body.job_id.as_deref()) {
+        Ok(job) => job,
+        Err(error) => return error_response(400, &error.to_string(), ctx),
+    };
+    let objects = match job.as_ref() {
+        Some(job) => {
+            match engine.backup_gc_objects(&job.job_id, body.after, body.limit.unwrap_or(0)) {
+                Ok(objects) => objects,
+                Err(error) => return error_response(500, &error.to_string(), ctx),
+            }
+        }
+        None => Vec::new(),
+    };
+    json_ok(&envelope(
+        &serde_json::json!({"ok":true, "job":job, "objects":objects}),
+        ctx.user_id.as_str(),
+    ))
 }
 
 /// `POST /api/sync/prefix-inventory` — read-only R2 prefix/category size
