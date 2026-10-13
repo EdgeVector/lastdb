@@ -20,6 +20,48 @@ pub async fn download_replacement_objects(
     root: &CloudReplacementRoot,
     directory: &Path,
 ) -> SyncResult<Vec<(CloudPurgeObject, PathBuf)>> {
+    verify_ready_control(control, root)?;
+    files::owner_directory(directory)?;
+    files::owner_directory(&directory.join("objects"))?;
+    files::require_capacity(
+        directory,
+        root.objects
+            .iter()
+            .fold(0u64, |sum, object| sum.saturating_add(object.bytes)),
+    )?;
+    let client = replacement_client()?;
+    let mut retained = Vec::new();
+    for batch in root.objects.chunks(32) {
+        verify_batch_root(batch, root)?;
+        let response = auth
+            .cloud_control_download(
+                &control.account,
+                control.generation,
+                &control.operation_id,
+                batch,
+            )
+            .await?;
+        verify_batch_downloads(batch, &response.downloads)?;
+        let paths: Vec<_> = stream::iter(
+            response
+                .downloads
+                .into_iter()
+                .map(|item| download_one(&client, directory, item)),
+        )
+        .buffer_unordered(4)
+        .try_collect()
+        .await?;
+        retained.extend(paths);
+    }
+    Ok(retained)
+}
+
+/// The control must be the verified ready one, and `root` must be one of its
+/// roots in the immutable replacement manifest.
+fn verify_ready_control(
+    control: &CloudPurgeControl,
+    root: &CloudReplacementRoot,
+) -> SyncResult<()> {
     control.validate_identity().map_err(SyncError::Storage)?;
     if control.phase != CloudPurgePhase::Ready || !control.deletion_is_complete() {
         return Err(SyncError::Storage(
@@ -44,68 +86,52 @@ pub async fn download_replacement_objects(
             "requested replacement root differs from the immutable control".into(),
         ));
     }
-    files::owner_directory(directory)?;
-    files::owner_directory(&directory.join("objects"))?;
-    files::require_capacity(
-        directory,
-        root.objects
-            .iter()
-            .fold(0u64, |sum, object| sum.saturating_add(object.bytes)),
-    )?;
+    Ok(())
+}
+
+/// HTTPS-only client that never follows redirects.
+fn replacement_client() -> SyncResult<reqwest::Client> {
     // trace-egress: skip-s3 — replacement objects use exact signed provider grants.
-    let client = reqwest::Client::builder()
+    reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(30))
         .read_timeout(Duration::from_secs(60))
         .build()
-        .map_err(|_| SyncError::Storage("replacement download transport unavailable".into()))?;
-    let mut retained = Vec::new();
-    for batch in root.objects.chunks(32) {
-        for object in batch {
-            object.validate().map_err(SyncError::Storage)?;
-            if object.logical_root != root.logical_root {
-                return Err(SyncError::Storage(
-                    "replacement inventory crosses its root".into(),
-                ));
-            }
-        }
-        let response = auth
-            .cloud_control_download(
-                &control.account,
-                control.generation,
-                &control.operation_id,
-                batch,
-            )
-            .await?;
-        let returned: std::collections::BTreeSet<_> = response
-            .downloads
-            .iter()
-            .map(|item| (&item.object.logical_root, &item.object.relative_key))
-            .collect();
-        if returned.len() != batch.len()
-            || response.downloads.len() != batch.len()
-            || response
-                .downloads
-                .iter()
-                .any(|item| !batch.contains(&item.object))
-        {
+        .map_err(|_| SyncError::Storage("replacement download transport unavailable".into()))
+}
+
+/// Every object in the batch must be valid and belong to `root`.
+fn verify_batch_root(batch: &[CloudPurgeObject], root: &CloudReplacementRoot) -> SyncResult<()> {
+    for object in batch {
+        object.validate().map_err(SyncError::Storage)?;
+        if object.logical_root != root.logical_root {
             return Err(SyncError::Storage(
-                "replacement download inventory differs from the ready source".into(),
+                "replacement inventory crosses its root".into(),
             ));
         }
-        let paths: Vec<_> = stream::iter(
-            response
-                .downloads
-                .into_iter()
-                .map(|item| download_one(&client, directory, item)),
-        )
-        .buffer_unordered(4)
-        .try_collect()
-        .await?;
-        retained.extend(paths);
     }
-    Ok(retained)
+    Ok(())
+}
+
+/// The grants must name exactly the requested objects, no more and no fewer.
+fn verify_batch_downloads(
+    batch: &[CloudPurgeObject],
+    downloads: &[CloudPurgeDownload],
+) -> SyncResult<()> {
+    let returned: std::collections::BTreeSet<_> = downloads
+        .iter()
+        .map(|item| (&item.object.logical_root, &item.object.relative_key))
+        .collect();
+    if returned.len() != batch.len()
+        || downloads.len() != batch.len()
+        || downloads.iter().any(|item| !batch.contains(&item.object))
+    {
+        return Err(SyncError::Storage(
+            "replacement download inventory differs from the ready source".into(),
+        ));
+    }
+    Ok(())
 }
 
 async fn download_one(

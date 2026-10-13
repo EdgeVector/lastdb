@@ -33,24 +33,14 @@ pub(super) fn scan_main_range(
     for (offset, collection) in collections[start_collection..].iter().enumerate() {
         let collection_index = start_collection + offset;
         let vendor_cursor = vendor_cursor_for(cursor.as_ref(), collection);
-        let page = if start_id.is_empty() {
-            store.walk_all_groups_at_startup(
-                collection,
-                vendor_cursor.as_ref(),
-                limit - rows.len(),
-                handles_left,
-            )
-        } else {
-            store.walk_all_groups(
-                collection,
-                start_id.as_str()..end_id.as_str(),
-                vendor_cursor.as_ref(),
-                limit - rows.len(),
-                handles_left,
-                laststore::AllGroupsPurpose::Admin,
-            )
-        }
-        .map_err(LastStoreKvStore::map_error)?;
+        let page = walk_collection(
+            store,
+            collection,
+            (start_id.as_str(), end_id.as_str()),
+            vendor_cursor.as_ref(),
+            limit - rows.len(),
+            handles_left,
+        )?;
         handles_visited = handles_visited.saturating_add(page.handles_visited);
         cold_shard_loads = cold_shard_loads.saturating_add(page.cold_shard_loads);
         handles_left = handles_left.saturating_sub(page.handles_visited as usize);
@@ -61,28 +51,14 @@ pub(super) fn scan_main_range(
         if let Some(position) = page.next_cursor {
             return Ok(PhysicalScanPage {
                 rows,
-                next_cursor: Some(collection_cursor(
-                    collection,
-                    position.shard,
-                    position.group_id,
-                    position
-                        .after_id
-                        .map(|id| LastStoreKvStore::decode_key(&id))
-                        .transpose()?,
-                )),
+                next_cursor: Some(position_cursor(collection, position)?),
                 row_handle,
                 handles_visited,
                 cold_shard_loads,
             });
         }
         if rows.len() >= limit || handles_left == 0 {
-            let next_cursor =
-                collections
-                    .get(collection_index + 1)
-                    .map(|next| PhysicalScanCursor {
-                        collection: Some((**next).to_string()),
-                        ..Default::default()
-                    });
+            let next_cursor = next_collection_cursor(&collections, collection_index);
             return Ok(PhysicalScanPage {
                 rows,
                 next_cursor,
@@ -100,6 +76,59 @@ pub(super) fn scan_main_range(
         handles_visited,
         cold_shard_loads,
     })
+}
+
+/// One page from `collection`. An empty start bound is the startup walk.
+fn walk_collection(
+    store: &LastStore,
+    collection: &str,
+    (start_id, end_id): (&str, &str),
+    vendor_cursor: Option<&laststore::PhysicalRangeCursor>,
+    limit: usize,
+    max_handles: usize,
+) -> StorageResult<laststore::PhysicalRangePage> {
+    if start_id.is_empty() {
+        store.walk_all_groups_at_startup(collection, vendor_cursor, limit, max_handles)
+    } else {
+        store.walk_all_groups(
+            collection,
+            start_id..end_id,
+            vendor_cursor,
+            limit,
+            max_handles,
+            laststore::AllGroupsPurpose::Admin,
+        )
+    }
+    .map_err(LastStoreKvStore::map_error)
+}
+
+/// The caller cursor for a vendor position inside `collection`.
+fn position_cursor(
+    collection: &str,
+    position: laststore::PhysicalRangeCursor,
+) -> StorageResult<PhysicalScanCursor> {
+    Ok(collection_cursor(
+        collection,
+        position.shard,
+        position.group_id,
+        position
+            .after_id
+            .map(|id| LastStoreKvStore::decode_key(&id))
+            .transpose()?,
+    ))
+}
+
+/// The cursor that starts the collection after `collection_index`, if any.
+fn next_collection_cursor(
+    collections: &[&str],
+    collection_index: usize,
+) -> Option<PhysicalScanCursor> {
+    collections
+        .get(collection_index + 1)
+        .map(|next| PhysicalScanCursor {
+            collection: Some((*next).to_string()),
+            ..Default::default()
+        })
 }
 
 /// The vendor resume position, when the caller's cursor points into `collection`.
