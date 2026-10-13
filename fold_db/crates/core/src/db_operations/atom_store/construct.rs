@@ -90,6 +90,7 @@ impl AtomStore {
             keep_small_hard_erase_pending: Arc::default(),
             keep_small_hard_erase_orphaned: Arc::default(),
             automatic_gc_atoms_generation: Arc::default(),
+            atom_gc_candidates_rearmed: Arc::default(),
             automatic_gc_atom_locks: Arc::new(
                 (0..256)
                     .map(|_| Arc::new(tokio::sync::Mutex::new(())))

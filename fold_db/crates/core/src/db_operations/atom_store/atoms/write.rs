@@ -175,6 +175,12 @@ impl AtomStore {
             .collect::<Vec<_>>();
         let _blob_liveness_guards = self.lock_liveness_blobs(&guarded_blob_refs).await;
         let automatic_gc_generation = self.automatic_gc_atoms_generation();
+        // A body write revives the atom. Under the locks the reaper takes,
+        // start a new epoch for each candidate that could reap, so an old
+        // audit cannot delete the body before the tip of this job lands.
+        let rearm = self
+            .rearm_atom_gc_candidate_mutations(&guarded_uuids, storage_prefix)
+            .await?;
 
         let AtomBatchRows {
             mut blob_edge_items,
@@ -203,6 +209,20 @@ impl AtomStore {
         }
         // Retain-first order: active blob edges and the zero-count row precede
         // immutable atom bodies in the same durable batch.
+        // The hash groups of one batch have no durable order. The contract is
+        // that this batch and its barrier finish before the tip batch of the
+        // same job starts. The re-arm relies on that contract.
+        if !rearm.is_empty() {
+            let rearmed = (rearm.len() / 2) as u64;
+            // A separate batch keeps the body batch and its capture path as
+            // they are.
+            self.main_store
+                .inner()
+                .batch_mutate(rearm)
+                .await
+                .map_err(|e| batch_write_error("atom GC re-arm", e))?;
+            self.note_atom_gc_candidates_rearmed(rearmed);
+        }
         blob_edge_items.extend(atom_items);
         self.main_store
             .inner()

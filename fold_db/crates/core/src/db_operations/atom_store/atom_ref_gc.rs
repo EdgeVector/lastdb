@@ -28,6 +28,7 @@ use std::time::Duration;
 
 mod body;
 mod reap;
+mod rearm;
 
 const ATOM_GC_CANDIDATE_PREFIX: &str = "aref:gc:v1:c:";
 const ATOM_GC_QUEUE_PREFIX: &str = "aref:gc:v1:q:";
@@ -143,6 +144,9 @@ pub struct AtomGcReapReport {
     pub retained_audit_reachable: u64,
     pub retained_pending_reference: u64,
     pub cancelled_positive_count: u64,
+    /// Candidates removed because their atom has no count record. The body leaks.
+    #[serde(default)]
+    pub cancelled_missing_count: u64,
     pub stale_queue_rows_deleted: u64,
     pub truncated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -270,27 +274,6 @@ impl AtomStore {
         Ok(report)
     }
 
-    pub(super) async fn atom_gc_candidate_mutations_for_count(
-        &self,
-        atom_uuid: &str,
-        after: u64,
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<KvMutation>, SchemaError> {
-        let existing = self
-            .load_atom_gc_candidate(atom_uuid, storage_prefix)
-            .await?;
-        if after == 0 {
-            if existing.is_some() {
-                return Ok(Vec::new());
-            }
-            let candidate = new_candidate(atom_uuid, storage_prefix, unix_nanos());
-            return candidate_put_mutations(&candidate, storage_prefix);
-        }
-        Ok(existing.map_or_else(Vec::new, |candidate| {
-            candidate_delete_mutations(&candidate, storage_prefix)
-        }))
-    }
-
     pub(super) fn new_atom_gc_candidate_items(
         atom_uuid: &str,
         storage_prefix: Option<&str>,
@@ -309,7 +292,7 @@ impl AtomStore {
         ])
     }
 
-    async fn load_atom_gc_candidate(
+    pub(super) async fn load_atom_gc_candidate(
         &self,
         atom_uuid: &str,
         storage_prefix: Option<&str>,

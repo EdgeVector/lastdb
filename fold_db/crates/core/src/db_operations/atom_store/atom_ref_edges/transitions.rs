@@ -238,8 +238,13 @@ impl AtomStore {
         let stored = stored.unwrap_or_default();
         if !stored.exact {
             mutations.extend(
-                self.atom_gc_candidate_mutations_for_count(atom_uuid, u64::MAX, storage_prefix)
-                    .await?,
+                self.atom_gc_candidate_mutations_for_count(
+                    atom_uuid,
+                    u64::MAX,
+                    u64::MAX,
+                    storage_prefix,
+                )
+                .await?,
             );
             return Ok(());
         }
@@ -268,8 +273,13 @@ impl AtomStore {
         })?;
         mutations.push(KvMutation::put(key.into_bytes(), value));
         mutations.extend(
-            self.atom_gc_candidate_mutations_for_count(atom_uuid, after as u64, storage_prefix)
-                .await?,
+            self.atom_gc_candidate_mutations_for_count(
+                atom_uuid,
+                before,
+                after as u64,
+                storage_prefix,
+            )
+            .await?,
         );
         Ok(())
     }
@@ -293,8 +303,13 @@ impl AtomStore {
         })?;
         mutations.push(KvMutation::put(key.into_bytes(), value));
         mutations.extend(
-            self.atom_gc_candidate_mutations_for_count(atom_uuid, u64::MAX, storage_prefix)
-                .await?,
+            self.atom_gc_candidate_mutations_for_count(
+                atom_uuid,
+                u64::MAX,
+                u64::MAX,
+                storage_prefix,
+            )
+            .await?,
         );
         Ok(())
     }

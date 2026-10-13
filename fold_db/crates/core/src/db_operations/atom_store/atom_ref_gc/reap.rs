@@ -44,12 +44,10 @@ impl AtomStore {
             }
             return Ok(());
         }
-        if self.atom_live_ref_count(&atom_uuid, storage_prefix).await? != 0 {
-            report.cancelled_positive_count = report.cancelled_positive_count.saturating_add(1);
-            if !options.dry_run {
-                self.delete_atom_gc_candidate(&candidate, storage_prefix)
-                    .await?;
-            }
+        if self
+            .cancel_unless_exact_zero_count(&candidate, storage_prefix, options, report)
+            .await?
+        {
             return Ok(());
         }
         // A pre-count atom can have a false zero. Verify the authoritative
@@ -102,6 +100,38 @@ impl AtomStore {
             .bytes_deleted_approx
             .saturating_add(deleted.bytes_approx);
         Ok(())
+    }
+
+    /// Remove the candidate and report true when the count record is absent,
+    /// inexact or not zero. A candidate always travels with an explicit count
+    /// record. Without one, a zero proves nothing, so the body leaks.
+    async fn cancel_unless_exact_zero_count(
+        &self,
+        candidate: &AtomGcCandidate,
+        storage_prefix: Option<&str>,
+        options: &AtomGcReapOptions,
+        report: &mut AtomGcReapReport,
+    ) -> Result<bool, SchemaError> {
+        let count = self
+            .atom_live_ref_count_rows(std::slice::from_ref(&candidate.atom_uuid), storage_prefix)
+            .await?
+            .into_iter()
+            .next()
+            .flatten();
+        match count {
+            None => {
+                report.cancelled_missing_count = report.cancelled_missing_count.saturating_add(1);
+            }
+            Some(count) if !count.exact || count.live_refs != 0 => {
+                report.cancelled_positive_count = report.cancelled_positive_count.saturating_add(1);
+            }
+            Some(_) => return Ok(false),
+        }
+        if !options.dry_run {
+            self.delete_atom_gc_candidate(candidate, storage_prefix)
+                .await?;
+        }
+        Ok(true)
     }
 
     /// Flush the deletes and optionally compact the atom plane.

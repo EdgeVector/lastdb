@@ -15,6 +15,19 @@ The reaper deletes an atom only when all these conditions are true:
 A positive count deletes the candidate and its audit result in the same durable
 batch as the count change. A later zero transition creates a new epoch.
 
+A body write that meets a candidate with an exact zero count record starts a
+new epoch with no audit, in its own durable batch before the tip batch of the
+same job. The new epoch has a fresh grace window. A replayed legacy tip does the
+same before it writes the tip. A count that returns to zero while an old
+candidate stays starts a new epoch, because the cancel of that candidate was
+lost. The reaper deletes only when the count record is present and an exact
+zero. A candidate without a count record is removed, and its body leaks.
+
+A crash can leak an orphan atom. It must not let the reaper delete an atom that
+a tip refers to. The re-arm relies on the body batch and its barrier finishing
+before the tip batch of the same job starts. The hash groups inside one batch
+have no durable order.
+
 ## Access shape
 
 The `aref:gc:v1:c:` key gives an exact candidate lookup by atom UUID. The
@@ -56,11 +69,3 @@ The 2026-09-28 run above used an APFS clone of the real data. That harness and
 its ignored host-lane test are removed (Tom, 2026-10-12: nothing copies the
 primary home). The numbers stay as the historical measurement. A new
 measurement uses a fresh empty home with synthetic protein writes.
-
-The focused LastStore test also proves these results:
-
-- A candidate stays present before its grace deadline.
-- A reference bounce removes the candidate and prevents deletion.
-- An audit that finds a root prevents deletion.
-- An unreachable audited atom loses its body after the grace window.
-- Atom segment allocation decreases after compaction.

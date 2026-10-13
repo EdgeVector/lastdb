@@ -16,6 +16,30 @@ struct ReplayedKey<'a> {
 }
 
 impl SyncEngine {
+    /// Re-arm the GC candidate of the atom that an unprefixed replayed tip
+    /// names. A re-arm for a tip that then loses the LWW test is harmless: it
+    /// only delays the reap.
+    async fn rearm_replayed_tip_candidate(
+        &self,
+        key_bytes: &[u8],
+        atom_uuid: &str,
+    ) -> SyncResult<()> {
+        let Some(atoms) = self.automatic_gc_atom_store.lock().await.clone() else {
+            return Ok(());
+        };
+        let unprefixed = std::str::from_utf8(key_bytes)
+            .ok()
+            .is_some_and(|key| storage_scope_for_key_marker(key, "mk:").is_none());
+        if !unprefixed {
+            return Ok(());
+        }
+        atoms
+            .rearm_atom_gc_candidates_before_tip(&[atom_uuid.to_string()], None)
+            .await
+            .map(|_| ())
+            .map_err(|error| SyncError::Storage(error.to_string()))
+    }
+
     /// Merge one incoming per-key molecule record (`mk:{M}:{key}`) into the
     /// local store with last-writer-wins on `AtomEntry.written_at`. Records a
     /// `MergeConflict` when the incoming record both wins and displaces a
@@ -40,6 +64,12 @@ impl SyncEngine {
         // storage key before they touch the raw store.
         let incoming: PerKeyRecord =
             Self::decode_incoming(namespace, crypto, self.enc_key.as_ref(), value_bytes).await?;
+
+        // The raw legacy tip names an atom whose GC candidate could reap.
+        // Start a new epoch before the tip put. This must come before the tip
+        // locks: the lane tip path takes the automatic-GC lock before them.
+        self.rearm_replayed_tip_candidate(key_bytes, &incoming.entry.atom_uuid)
+            .await?;
 
         let _tip_guards = self.lock_replay_tip_guards(key_bytes).await;
 
