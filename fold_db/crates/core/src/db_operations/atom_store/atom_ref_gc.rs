@@ -42,6 +42,15 @@ type AtomGcCandidateItems = Vec<(Vec<u8>, Vec<u8>)>;
 /// gate remains mandatory after this duration passes.
 pub const DEFAULT_ATOM_GC_GRACE_WINDOW: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// The audit id of the automatic gc-atoms trigger for one probe lap.
+///
+/// The reaper accepts an audit for a delete only when it carries the id of the
+/// lap that is running now. An audit from an older lap cannot clear a delete.
+#[must_use]
+pub(crate) fn automatic_gc_audit_id(generation: u64) -> String {
+    format!("automatic-gc-atoms:{generation}")
+}
+
 /// The audit result bound to one zero-count epoch.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AtomGcAuditResult {
@@ -74,11 +83,15 @@ impl AtomGcCandidate {
             .saturating_add(duration_nanos(grace_window))
     }
 
-    fn audit_clears_delete(&self) -> bool {
+    /// True when the audit clears this exact epoch. `required` names the probe
+    /// lap whose audit may clear a delete, or `None` to accept any audit.
+    fn audit_clears_delete(&self, required: Option<u64>) -> bool {
         self.audit.as_ref().is_some_and(|audit| {
             !audit.reachable
                 && audit.zero_since_unix_nanos == self.zero_since_unix_nanos
                 && audit.audited_at_unix_nanos >= self.zero_since_unix_nanos
+                && required
+                    .is_none_or(|generation| audit.audit_id == automatic_gc_audit_id(generation))
         })
     }
 }
@@ -88,6 +101,9 @@ impl AtomGcCandidate {
 pub struct AtomGcCandidatePage {
     pub candidates: Vec<AtomGcCandidate>,
     pub truncated: bool,
+    /// Queue records that did not decode. They stay in place and are reported.
+    #[serde(default)]
+    pub undecodable_queue_keys: Vec<String>,
 }
 
 /// Result of recording an isolated reachability decision.
@@ -113,6 +129,8 @@ pub struct AtomGcReapOptions {
     pub dry_run: bool,
     /// Rewrite the atom plane after deletes so dead segment bytes return.
     pub compact_after_delete: bool,
+    /// Probe lap whose audit may clear a delete. `None` accepts any audit.
+    pub required_audit_generation: Option<u64>,
 }
 
 impl Default for AtomGcReapOptions {
@@ -123,6 +141,7 @@ impl Default for AtomGcReapOptions {
             max_candidates: 256,
             dry_run: true,
             compact_after_delete: false,
+            required_audit_generation: None,
         }
     }
 }
@@ -147,6 +166,9 @@ pub struct AtomGcReapReport {
     /// Candidates removed because their atom has no count record. The body leaks.
     #[serde(default)]
     pub cancelled_missing_count: u64,
+    /// Candidates kept because their revalidation returned an error.
+    #[serde(default)]
+    pub retained_error: u64,
     pub stale_queue_rows_deleted: u64,
     pub truncated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -162,9 +184,12 @@ impl AtomStore {
     ) -> Result<AtomGcCandidatePage, SchemaError> {
         let limit = limit.max(1);
         let prefix = build_storage_key(storage_prefix, ATOM_GC_QUEUE_PREFIX);
-        let rows = self
+        let (rows, undecodable_queue_keys) = self
             .main_store
-            .scan_items_with_prefix_paged::<AtomGcCandidate>(&prefix, limit.saturating_add(1))
+            .scan_items_with_prefix_paged_lenient::<AtomGcCandidate>(
+                &prefix,
+                limit.saturating_add(1),
+            )
             .await
             .map_err(|error| {
                 SchemaError::InvalidData(format!("list atom GC candidates: {error}"))
@@ -177,6 +202,7 @@ impl AtomStore {
                 .map(|(_, candidate)| candidate)
                 .collect(),
             truncated,
+            undecodable_queue_keys,
         })
     }
 
@@ -236,42 +262,6 @@ impl AtomStore {
         } else {
             AtomGcAuditDecision::Cleared
         })
-    }
-
-    /// Reap old, still-zero candidates that the audit marked unreachable.
-    ///
-    /// The delete path uses exact candidate/count/body keys. It never walks the
-    /// atom plane. Every candidate is revalidated while it holds the same locks
-    /// as atom body writes and refcount transitions.
-    pub async fn reap_audited_atom_gc_candidates(
-        &self,
-        storage_prefix: Option<&str>,
-        options: AtomGcReapOptions,
-    ) -> Result<AtomGcReapReport, SchemaError> {
-        let page = self
-            .list_atom_gc_candidates(storage_prefix, options.max_candidates)
-            .await?;
-        let mut report = AtomGcReapReport {
-            dry_run: options.dry_run,
-            truncated: page.truncated,
-            ..AtomGcReapReport::default()
-        };
-        let retired_roots = self.retired_gc_page(&page, storage_prefix).await?;
-        for queued in page.candidates {
-            report.candidates_examined = report.candidates_examined.saturating_add(1);
-            if retired_roots.retains(&queued.atom_uuid, &mut report) {
-                continue;
-            }
-            if options.now_unix_nanos < queued.eligible_at_unix_nanos(options.grace_window) {
-                report.retained_before_grace = report.retained_before_grace.saturating_add(1);
-                continue;
-            }
-            self.reap_audited_atom_gc_candidate(&queued, storage_prefix, &options, &mut report)
-                .await?;
-        }
-        self.flush_and_compact_after_atom_gc(&options, &mut report)
-            .await?;
-        Ok(report)
     }
 
     pub(super) fn new_atom_gc_candidate_items(

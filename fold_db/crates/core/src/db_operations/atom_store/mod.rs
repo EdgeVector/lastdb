@@ -47,6 +47,7 @@ pub use atom_ref_edges::{
     AtomRefMoleculeManifest, PendingAtomRef, ATOM_REF_MANIFEST_VERSION_HISTORY,
     ATOM_REF_MANIFEST_VERSION_TIPS, ATOM_REF_V2_ACTIVE_MARKER,
 };
+pub(crate) use atom_ref_gc::automatic_gc_audit_id;
 pub use atom_ref_gc::{
     AtomGcAuditDecision, AtomGcAuditResult, AtomGcCandidate, AtomGcCandidatePage,
     AtomGcReapOptions, AtomGcReapReport, DEFAULT_ATOM_GC_GRACE_WINDOW,
