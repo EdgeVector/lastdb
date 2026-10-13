@@ -93,19 +93,8 @@ impl SyncEngine {
         }
 
         let mut acc = TickAccum::default();
-        let mut last_examined = None;
-        let mut examined_count = 0usize;
-        let mut budget_exhausted = false;
-        for (marker_key, marker_bytes) in rows {
-            if started.elapsed() >= CAPTURE_REEXPORT_TICK_BUDGET && last_examined.is_some() {
-                budget_exhausted = true;
-                break;
-            }
-            last_examined = Some(marker_key.clone());
-            examined_count += 1;
-            self.drain_one_marker(marker_key, marker_bytes, &mut acc)
-                .await;
-        }
+        let (last_examined, examined_count, budget_exhausted) =
+            self.drain_marker_rows(rows, started, &mut acc).await;
         self.flush_intents(&mut acc).await;
         self.retire_drained_markers(&marker_store, &mut acc).await?;
         let next_cursor = if budget_exhausted {
@@ -126,6 +115,29 @@ impl SyncEngine {
         stats.staging_budget_exhausted = budget_exhausted;
         stats.namespaces_scanned = acc.namespaces.len();
         Ok(stats)
+    }
+
+    /// Drain marker rows until the tick budget runs out. Returns the last
+    /// examined key, the examined count, and whether the budget cut the page short.
+    async fn drain_marker_rows(
+        &self,
+        rows: Vec<(Vec<u8>, Vec<u8>)>,
+        started: Instant,
+        acc: &mut TickAccum,
+    ) -> (Option<Vec<u8>>, usize, bool) {
+        let mut last_examined = None;
+        let mut examined_count = 0usize;
+        let mut budget_exhausted = false;
+        for (marker_key, marker_bytes) in rows {
+            if started.elapsed() >= CAPTURE_REEXPORT_TICK_BUDGET && last_examined.is_some() {
+                budget_exhausted = true;
+                break;
+            }
+            last_examined = Some(marker_key.clone());
+            examined_count += 1;
+            self.drain_one_marker(marker_key, marker_bytes, acc).await;
+        }
+        (last_examined, examined_count, budget_exhausted)
     }
 
     async fn flush_intents(&self, acc: &mut TickAccum) {

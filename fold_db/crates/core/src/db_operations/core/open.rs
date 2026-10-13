@@ -14,6 +14,78 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 
+/// The namespace handles `DbOperationsCore` opens at construction.
+struct CoreNamespaces {
+    main_kv: Arc<dyn KvStore>,
+    metadata_kv: Arc<dyn KvStore>,
+    schema_states_kv: Arc<dyn KvStore>,
+    schemas_kv: Arc<dyn KvStore>,
+    db_catalog_kv: Arc<dyn KvStore>,
+    molecule_keys_kv: Arc<dyn KvStore>,
+    public_keys_kv: Arc<dyn KvStore>,
+    idempotency_kv: Arc<dyn KvStore>,
+    superseded_by_kv: Arc<dyn KvStore>,
+    schema_index_kv: Arc<dyn KvStore>,
+    lineage_forward_kv: Arc<dyn KvStore>,
+    lineage_reverse_kv: Arc<dyn KvStore>,
+    change_feed_kv: Arc<dyn KvStore>,
+    attribution_ledger_kv: Arc<dyn KvStore>,
+    keep_small_kv: Arc<dyn KvStore>,
+}
+
+impl CoreNamespaces {
+    async fn open(store: &Arc<dyn NamespacedStore>) -> Result<Self, crate::storage::StorageError> {
+        let main_kv = store.open_namespace("main").await?;
+        let metadata_kv = store.open_namespace("metadata").await?;
+        let schema_states_kv = store.open_namespace("schema_states").await?;
+        let schemas_kv = store.open_namespace("schemas").await?;
+        let db_catalog_kv = store.open_namespace("db_catalog").await?;
+        let molecule_keys_kv = store.open_namespace("molecule_keys").await?;
+        let public_keys_kv = store.open_namespace("public_keys").await?;
+        let idempotency_kv = store.open_namespace("idempotency").await?;
+        let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
+        let schema_index_kv = store.open_namespace("schema_index").await?;
+        // `lineage_forward` / `lineage_reverse` back the derived-molecule
+        // lineage index. Skipped by store-level capture per
+        // `crate::sync::policy::CAPTURE_SKIP_NAMESPACES`; rebuildable from
+        // replay (project 2). Both namespaces are still cloud-backed-up
+        // (encrypted since #1153, not at-rest-exempt) — capture-skip does not
+        // mean cloud-excluded. No production writers exist until
+        // `projects/view-compute-as-mutations` wires them in.
+        let lineage_forward_kv = store.open_namespace("lineage_forward").await?;
+        let lineage_reverse_kv = store.open_namespace("lineage_reverse").await?;
+        let change_feed_kv = store.open_namespace("change_feed").await?;
+        let attribution_ledger_kv = store.open_namespace("attribution_ledger").await?;
+        // The keep-small snapshot gets its own plane (2026-09-21). It is one
+        // whole-map value rewritten every debounce tick, so every put is dead
+        // bytes the moment the next one lands. In `metadata` (no automatic
+        // compaction; shares hash groups with correctness records) that grew
+        // one group to 39 GB and looped the primary. `keep_small` is
+        // capture-skipped, backup-excluded and residual-self-compacted, so the
+        // plane stays one live value plus whatever the last compact left.
+        let keep_small_kv = store
+            .open_namespace(super::super::KEEP_SMALL_SNAPSHOT_COLLECTION)
+            .await?;
+        Ok(Self {
+            main_kv,
+            metadata_kv,
+            schema_states_kv,
+            schemas_kv,
+            db_catalog_kv,
+            molecule_keys_kv,
+            public_keys_kv,
+            idempotency_kv,
+            superseded_by_kv,
+            schema_index_kv,
+            lineage_forward_kv,
+            lineage_reverse_kv,
+            change_feed_kv,
+            attribution_ledger_kv,
+            keep_small_kv,
+        })
+    }
+}
+
 impl DbOperations {
     /// Create from a NamespacedStore (works with any backend).
     ///
@@ -71,38 +143,23 @@ impl DbOperations {
         molecule_wrap_key: Option<[u8; 32]>,
         admit_meter_trust: bool,
     ) -> Result<Self, crate::storage::StorageError> {
-        // Open all required namespaces
-        let main_kv = store.open_namespace("main").await?;
-        let metadata_kv = store.open_namespace("metadata").await?;
-        let schema_states_kv = store.open_namespace("schema_states").await?;
-        let schemas_kv = store.open_namespace("schemas").await?;
-        let db_catalog_kv = store.open_namespace("db_catalog").await?;
-        let molecule_keys_kv = store.open_namespace("molecule_keys").await?;
-        let public_keys_kv = store.open_namespace("public_keys").await?;
-        let idempotency_kv = store.open_namespace("idempotency").await?;
-        let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
-        let schema_index_kv = store.open_namespace("schema_index").await?;
-        // `lineage_forward` / `lineage_reverse` back the derived-molecule
-        // lineage index. Skipped by store-level capture per
-        // `crate::sync::policy::CAPTURE_SKIP_NAMESPACES`; rebuildable from
-        // replay (project 2). Both namespaces are still cloud-backed-up
-        // (encrypted since #1153, not at-rest-exempt) — capture-skip does not
-        // mean cloud-excluded. No production writers exist until
-        // `projects/view-compute-as-mutations` wires them in.
-        let lineage_forward_kv = store.open_namespace("lineage_forward").await?;
-        let lineage_reverse_kv = store.open_namespace("lineage_reverse").await?;
-        let change_feed_kv = store.open_namespace("change_feed").await?;
-        let attribution_ledger_kv = store.open_namespace("attribution_ledger").await?;
-        // The keep-small snapshot gets its own plane (2026-09-21). It is one
-        // whole-map value rewritten every debounce tick, so every put is dead
-        // bytes the moment the next one lands. In `metadata` (no automatic
-        // compaction; shares hash groups with correctness records) that grew
-        // one group to 39 GB and looped the primary. `keep_small` is
-        // capture-skipped, backup-excluded and residual-self-compacted, so the
-        // plane stays one live value plus whatever the last compact left.
-        let keep_small_kv = store
-            .open_namespace(super::super::KEEP_SMALL_SNAPSHOT_COLLECTION)
-            .await?;
+        let CoreNamespaces {
+            main_kv,
+            metadata_kv,
+            schema_states_kv,
+            schemas_kv,
+            db_catalog_kv,
+            molecule_keys_kv,
+            public_keys_kv,
+            idempotency_kv,
+            superseded_by_kv,
+            schema_index_kv,
+            lineage_forward_kv,
+            lineage_reverse_kv,
+            change_feed_kv,
+            attribution_ledger_kv,
+            keep_small_kv,
+        } = CoreNamespaces::open(&store).await?;
 
         // Wrap KvStores in TypedKvStore adapters
         let main_store = Arc::new(TypedKvStore::new(main_kv));
