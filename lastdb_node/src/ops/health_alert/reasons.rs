@@ -101,14 +101,20 @@ pub(super) fn sync_reason(status: &serde_json::Value) -> Option<String> {
                 })
                 .filter(|j| !j.is_empty())
                 .unwrap_or_else(|| "no reason given".to_string());
-            // The recovery point is the number an operator acts on, and it is
-            // the node's own field, so it rides along as context rather than
-            // as a second judgement by this checker.
-            let rpo = sync
-                .get("mutation_log_recovery_point_age_secs")
-                .and_then(serde_json::Value::as_u64)
-                .map(|secs| format!("; rpo_secs={secs}"))
-                .unwrap_or_default();
+            // The recovery point is the number an operator acts on, and it
+            // rides along as context rather than as a second judgement by
+            // this checker. Computed the same way `lastdb status`'s `Sync:`
+            // line computes it (frontier-based crash-loss window, falling
+            // back to the raw publish-event age only when no frontier is
+            // available) rather than reading the raw publish-event-age field
+            // directly, which understated real exposure by up to 150x
+            // (papercut-lastdb-alert-check-rpo-secs-reads-wrong-field-understates-recovery-point-20261013).
+            let rpo = crate::ops::self_metrics::crash_loss_window_secs_from_status_json(
+                fold_db::clock::unix_secs(),
+                sync,
+            )
+            .map(|secs| format!("; rpo_secs={secs}"))
+            .unwrap_or_default();
             return Some(format!("sync.sync_degraded=true ({why}){rpo}"));
         }
     }

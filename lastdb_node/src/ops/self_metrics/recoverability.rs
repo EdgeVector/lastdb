@@ -201,6 +201,38 @@ pub(super) fn crash_loss_window_secs(now_secs: u64, sync: &SyncHealth) -> Option
         .or_else(|| rpo_secs_from_log_lag(lag, published_through))
 }
 
+/// JSON-compatible mirror of [`crash_loss_window_secs`] for callers that hold
+/// only the raw `/api/status` `sync` value and have no typed [`SyncHealth`]
+/// (`health_alert::reasons`, which parses the status payload itself and never
+/// builds the typed struct). Reads the identical field names and calls the
+/// same frontier/log-lag functions, so the two paths cannot disagree the way
+/// `alert-check` and `lastdb status` once did: `alert-check` was reading
+/// `mutation_log_recovery_point_age_secs` directly as if it were the
+/// frontier-based RPO, understating real cloud-recovery exposure by up to
+/// 150x during a live sync-degraded episode
+/// (papercut-lastdb-alert-check-rpo-secs-reads-wrong-field-understates-recovery-point-20261013).
+pub(crate) fn crash_loss_window_secs_from_status_json(
+    now_secs: u64,
+    sync: &serde_json::Value,
+) -> Option<u64> {
+    let lag = sync
+        .get("mutation_log_lag")
+        .and_then(serde_json::Value::as_u64);
+    let published_through = sync
+        .get("mutation_log_published_through")
+        .and_then(serde_json::Value::as_u64)
+        .or_else(|| {
+            sync.get("mutation_log_frontier_f")
+                .and_then(serde_json::Value::as_u64)
+        });
+    rpo_secs_from_frontier(now_secs, lag, published_through)
+        .or_else(|| {
+            sync.get("mutation_log_recovery_point_age_secs")
+                .and_then(serde_json::Value::as_u64)
+        })
+        .or_else(|| rpo_secs_from_log_lag(lag, published_through))
+}
+
 /// The watermark clause of the recoverability line.
 ///
 /// "Cloud confirmed through T" is a claim about DATA: every record up to T is

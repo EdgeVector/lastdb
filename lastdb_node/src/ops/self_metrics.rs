@@ -85,6 +85,7 @@ use prune::*;
 pub use purge_lines::*;
 pub use qos_uds_watchers::*;
 pub use read_health::*;
+pub(crate) use recoverability::crash_loss_window_secs_from_status_json;
 use recoverability::*;
 pub use resident::*;
 pub use sampler::*;
