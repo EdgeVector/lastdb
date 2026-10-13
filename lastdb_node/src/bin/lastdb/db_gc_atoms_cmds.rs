@@ -5,6 +5,7 @@ pub(crate) fn db_gc_atoms(
     schema: Option<&str>,
     execute: bool,
     prune_live_history: bool,
+    allow_after_peer_apply: bool,
     json_only: bool,
 ) -> Result<(), String> {
     if schema.is_some() && prune_live_history {
@@ -17,6 +18,7 @@ pub(crate) fn db_gc_atoms(
             "dry_run": !execute,
             "prune_live_history": prune_live_history,
             "schema": schema,
+            "allow_after_peer_apply": allow_after_peer_apply,
         }),
     )?;
     let report = value

@@ -320,6 +320,9 @@ pub struct SyncEngine {
     /// Serving atom store used only to protect legacy reference-only pin rows
     /// while an automatic GC generation is active.
     pub(crate) automatic_gc_atom_store: Arc<Mutex<Option<crate::db_operations::AtomStore>>>,
+    /// True once this process has made the peer-apply row durable (`seen`). The
+    /// replay and restore paths check it before they apply peer data.
+    pub(crate) peer_apply_marked: AtomicBool,
     /// Serializes the short transition from marker clear to an active probe.
     pub(crate) automatic_gc_pin_log_barrier: Arc<Mutex<()>>,
     /// True while pin appends must finish before the probe activates markers.

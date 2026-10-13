@@ -51,6 +51,11 @@ pub(super) async fn before_boot(home: &Path) -> Result<(), String> {
     }
     if pending.phase == "prepared" {
         let proof = proof::load(home, &pending)?;
+        // The candidate holds another device's store, with that store's own
+        // `peer-apply:v1` row. Mark the home first (durably); the next boot
+        // writes `seen` over the inherited row. A crash between the marker and
+        // the switch leaves a marker with nothing switched: safe.
+        crate::cloud::write_peer_derived_marker(home)?;
         files::switch_data(home, &pending.staged_home, &retained.directory, &proof)?;
         pending.phase = "switched".into();
         crate::cloud_purge_runtime::atomic(&path, &pending)?;

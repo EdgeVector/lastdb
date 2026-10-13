@@ -332,6 +332,11 @@ pub struct HistoryClearReport {
     pub schemas_touched: usize,
     pub history_rows_deleted: u64,
     pub history_bytes_freed_approx: u64,
+    /// Conflict history rows left in place. Multi-device conflict writes stay:
+    /// `clear-history` never selects a row marked as a conflict or a kept
+    /// (suppressed) Put, whatever `keep_last_per_key` says.
+    #[serde(default)]
+    pub conflict_rows_kept: u64,
     pub per_schema: Vec<SchemaHistoryClearStat>,
 }
 

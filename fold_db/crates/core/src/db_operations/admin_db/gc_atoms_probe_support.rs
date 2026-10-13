@@ -3,6 +3,17 @@
 use super::*;
 
 impl AtomStore {
+    /// Physical handles one probe scan call may visit.
+    ///
+    /// Each call persists a checkpoint, and a sparse plane has one tiny group
+    /// per handle, so one handle per call made a lap cost one durable write
+    /// per group in every plane, including planes with no rows to find (an
+    /// empty marker prefix took 699 calls and still ran). The row limit still
+    /// bounds a call over dense groups, so only sparse planes change. The
+    /// prologue and the delete scan stop in the middle of a page and resume
+    /// from one handle, so they keep one handle per call.
+    pub(crate) const GC_PROBE_HANDLES_PER_CALL: usize = 8;
+
     /// Load the durable `gc-atoms` prologue checkpoint (empty if absent).
     pub async fn gc_atoms_prune_checkpoint(
         &self,

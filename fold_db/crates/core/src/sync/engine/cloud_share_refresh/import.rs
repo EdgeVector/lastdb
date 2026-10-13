@@ -10,6 +10,10 @@ pub(super) async fn write(
     staged: &[stage::StagedShare],
     receiver: &str,
 ) -> SyncResult<()> {
+    if !staged.is_empty() {
+        // A share seed is another party's data: record that before it lands.
+        engine.mark_peer_apply_seen_now().await?;
+    }
     for item in staged {
         let meta = std::fs::symlink_metadata(&item.path)?;
         if !meta.is_file() || meta.file_type().is_symlink() {

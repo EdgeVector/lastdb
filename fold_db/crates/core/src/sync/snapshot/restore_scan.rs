@@ -42,6 +42,13 @@ pub(super) async fn restore_namespace(
             let key = BASE64.decode(&entry.key).map_err(|error| {
                 SyncError::Serialization(format!("invalid key base64: {error}"))
             })?;
+            // Node-local rows never travel in a snapshot: the peer-apply row
+            // (the restoring node writes its own `seen` after the install) and
+            // the `gcatoms-*` probe checkpoints and markers, which describe the
+            // lap of the node that wrote them and must not steer this one.
+            if crate::sync::policy::is_node_local_gc_scratch_key(&key) {
+                continue;
+            }
             match mode {
                 RestoreMode::Personal if is_org_scoped_key_bytes(&key) => {
                     report.org_skipped = report.org_skipped.saturating_add(1);
@@ -104,6 +111,7 @@ pub(super) async fn collect_snapshot_namespaces(
                 .await
                 .map_err(|e| namespace_scan_error(ns_name, &e))?
                 .into_iter()
+                .filter(|(k, _)| !crate::sync::policy::is_node_local_gc_scratch_key(k))
                 .map(|(k, v)| SnapshotEntry {
                     key: BASE64.encode(&k),
                     value: BASE64.encode(&v),

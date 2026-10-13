@@ -8,6 +8,7 @@ impl SyncCoordinator {
     /// Idempotent: a second call is a no-op. A zero byte cap does not spawn.
     pub fn start_automatic_gc_atoms(&self, db_ops: Arc<DbOperations>) {
         let settings = AutomaticGcAtomsSettings::from_env();
+        self.gc_atoms_status.mark_started(&settings, unix_secs());
         if !settings.enabled() {
             info!(
                 target: "fold_db::gc_atoms",
@@ -20,6 +21,7 @@ impl SyncCoordinator {
             return;
         }
         let engine_slot = Arc::clone(&self.engine);
+        let status = self.gc_atoms_status.clone();
         let interval = tokio::time::Duration::from_secs(settings.step_interval_secs.max(1));
         // lint:spawn-bare-ok process-lifetime local gc-atoms cadence — not request-scoped.
         let handle = tokio::spawn(async move {
@@ -36,25 +38,20 @@ impl SyncCoordinator {
                 let deadline = tokio::time::Instant::now()
                     + tokio::time::Duration::from_secs(settings.step_budget_secs.max(1));
                 let now = unix_secs();
+                let lock_wait = tokio::time::Duration::from_secs(GC_ATOMS_PACKING_LOCK_WAIT_SECS);
                 if let Some(engine) = engine {
                     advance_automatic_gc_atoms(
                         AutomaticGcAtomsRuntime {
                             atoms: db_ops.atoms(),
                             engine: Some(engine.as_ref()),
+                            status: &status,
                         },
                         &last_step,
                         &restart_lap_at,
                         settings,
                         now,
                         deadline,
-                        || async {
-                            let guard = engine.lock_backup_publish_target().await;
-                            if guard.is_some() {
-                                None
-                            } else {
-                                Some(guard)
-                            }
-                        },
+                        || lock_engine_backup_cut(&engine, lock_wait),
                     )
                     .await;
                 } else {
@@ -62,13 +59,14 @@ impl SyncCoordinator {
                         AutomaticGcAtomsRuntime {
                             atoms: db_ops.atoms(),
                             engine: None,
+                            status: &status,
                         },
                         &last_step,
                         &restart_lap_at,
                         settings,
                         now,
                         deadline,
-                        || async { Some(()) },
+                        || async { CutLock::Acquired(()) },
                     )
                     .await;
                 }

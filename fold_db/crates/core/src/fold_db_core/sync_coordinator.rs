@@ -15,9 +15,8 @@ use tracing::{debug, info, warn};
 use std::sync::Arc;
 
 use crate::db_operations::{
-    automatic_gc_audit_id, AtomGcReapOptions, AtomStore, AutomaticGcAtomsDeleteOptions,
+    AtomGcReapOptions, AtomGcReapReport, AtomStore, AutomaticGcAtomsDeleteOptions,
     AutomaticGcAtomsProbeOptions, AutomaticGcAtomsProbeResult, DbOperations,
-    DEFAULT_ATOM_GC_GRACE_WINDOW,
 };
 use crate::sync::{SyncEngine, SyncError, SyncState, SyncStatus};
 
@@ -27,6 +26,7 @@ mod cadence;
 mod gc_atoms;
 mod shutdown;
 use backoff::*;
+pub use gc_atoms::AutomaticGcAtomsStatus;
 use gc_atoms::*;
 
 /// Coordinates the optional cloud sync engine lifecycle.
@@ -38,6 +38,8 @@ pub struct SyncCoordinator {
     capture_reexport_task: Mutex<Option<JoinHandle<()>>>,
     /// Local gc-atoms cadence. Independent of `engine.sync()` success.
     gc_atoms_task: Mutex<Option<JoinHandle<()>>>,
+    /// What the cadence has done, for `lastdb status`.
+    gc_atoms_status: AutomaticGcAtomsStatusCell,
     /// Local plane self-compaction cadence. Independent of cloud sync: a node
     /// booted without `cloud_sync.json` runs the identical sweeps.
     plane_compaction_task: Mutex<Option<JoinHandle<()>>>,
@@ -74,6 +76,7 @@ impl SyncCoordinator {
             task: Mutex::new(None),
             capture_reexport_task: Mutex::new(None),
             gc_atoms_task: Mutex::new(None),
+            gc_atoms_status: AutomaticGcAtomsStatusCell::default(),
             plane_compaction_task: Mutex::new(None),
             local_plane_compactor: RwLock::new(None),
             backup_publish_target,

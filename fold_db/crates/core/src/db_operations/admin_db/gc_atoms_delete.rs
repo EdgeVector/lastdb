@@ -23,6 +23,7 @@ pub(super) struct GcAtomsDeletePassTotals {
     pub(super) rows_decided: u64,
     pub(super) candidates_revalidated: u64,
     pub(super) candidates_cleared: u64,
+    pub(super) retained: GcAtomsRevalidationTally,
     pub(super) atoms_deleted: u64,
     pub(super) storage_keys_deleted: u64,
     pub(super) bytes_freed_approx: u64,
@@ -82,16 +83,18 @@ impl AtomStore {
     /// atom writes the active generation marker in its durable batch. It either
     /// wins the lock and clears the candidate, or follows the delete and writes
     /// the body back before it can publish the tip.
+    ///
+    /// A gated pass (`AutomaticGcAtomsDeleteOptions::gated`) deletes a candidate
+    /// only when a zero-count row names it, that zero epoch is older than the
+    /// grace window and the gate's audit cleared the epoch. The byte cap only
+    /// decided that this pass should start. `ungated_emergency` is the
+    /// operator's full-disk switch.
     pub async fn delete_orphan_atoms_from_probe(
         &self,
         options: AutomaticGcAtomsDeleteOptions,
     ) -> Result<AutomaticGcAtomsDeleteReport, SchemaError> {
         let storage_prefix = options.storage_prefix.as_deref();
-        let max_rows = options
-            .max_rows
-            .unwrap_or(Self::GC_PLANE_SCAN_PAGE)
-            .clamp(1, Self::GC_PLANE_SCAN_PAGE);
-        let candidate_cap = options.candidate_cap.max(1);
+        let (max_rows, candidate_cap) = self.admit_automatic_delete(&options).await?;
         let (probe, probe_started_at, mut checkpoint) =
             self.load_gc_atoms_delete_state(storage_prefix).await?;
         if checkpoint.phase == AutomaticGcAtomsDeletePhase::Complete {
@@ -123,17 +126,24 @@ impl AtomStore {
             .collect::<Vec<_>>();
         let _retired_reclaim = self.retired_intent_reclaim_guard().await;
         let _candidate_guards = self.lock_automatic_gc_atoms(&candidate_uuids).await;
-        let validated = self
-            .revalidate_gc_atoms_delete_candidates(storage_prefix, probe.generation, candidates)
+        // Reaper order: body guards, then count guards. A count change drops
+        // the candidate row under them, so a row read below stays current.
+        let _count_guards = self.lock_atom_ref_counts(&candidate_uuids).await;
+        let locks_taken = std::time::Instant::now();
+        let (validated, retained) = self
+            .revalidate_gc_atoms_delete_candidates(
+                storage_prefix,
+                probe.generation,
+                options.grace_gate.as_ref(),
+                candidates,
+            )
             .await?;
 
         let candidates_revalidated_this_call = candidate_uuids.len() as u64;
-        let candidates_cleared_by_revalidation_this_call =
-            candidates_revalidated_this_call.saturating_sub(validated.len() as u64);
         let atoms_deleted_this_call = validated.len() as u64;
-        let bytes_freed_approx_this_call = validated.iter().fold(0u64, |total, (candidate, _)| {
-            total.saturating_add(candidate.key.len() as u64 + candidate.value.len() as u64)
-        });
+        let candidates_cleared_by_revalidation_this_call =
+            candidates_revalidated_this_call.saturating_sub(atoms_deleted_this_call);
+        let bytes_freed_approx_this_call = Self::gc_atoms_validated_bytes(&validated);
         let mut storage_keys_deleted_this_call = 0u64;
         if !validated.is_empty() {
             storage_keys_deleted_this_call = self
@@ -152,6 +162,7 @@ impl AtomStore {
                 rows_decided: rows_decided as u64,
                 candidates_revalidated: candidates_revalidated_this_call,
                 candidates_cleared: candidates_cleared_by_revalidation_this_call,
+                retained,
                 atoms_deleted: atoms_deleted_this_call,
                 storage_keys_deleted: storage_keys_deleted_this_call,
                 bytes_freed_approx: bytes_freed_approx_this_call,
@@ -168,10 +179,34 @@ impl AtomStore {
             rows_scanned_this_call: rows_decided as u64,
             candidates_revalidated_this_call,
             candidates_cleared_by_revalidation_this_call,
+            candidates_retained_this_call: retained,
+            locks_held_ms_this_call: u64::try_from(locks_taken.elapsed().as_millis())
+                .unwrap_or(u64::MAX),
             atoms_deleted_this_call,
             storage_keys_deleted_this_call,
             bytes_freed_approx_this_call,
             result: Self::automatic_gc_atoms_delete_result(&checkpoint),
+        })
+    }
+
+    /// The scan page and batch this call may use, after the peer-apply
+    /// interlock. The cadence checks the interlock first; this is the backstop.
+    async fn admit_automatic_delete(
+        &self,
+        options: &AutomaticGcAtomsDeleteOptions,
+    ) -> Result<(usize, usize), SchemaError> {
+        self.require_no_peer_apply_for_atom_delete(
+            options.allow_after_peer_apply,
+            "automatic gc-atoms delete",
+        )
+        .await?;
+        Ok(options.limits(Self::GC_PLANE_SCAN_PAGE))
+    }
+
+    /// Approximate bytes the validated atoms free: each body key and value.
+    fn gc_atoms_validated_bytes(validated: &[(GcAtomsDeleteCandidate, Vec<String>)]) -> u64 {
+        validated.iter().fold(0u64, |total, (candidate, _)| {
+            total.saturating_add(candidate.key.len() as u64 + candidate.value.len() as u64)
         })
     }
 

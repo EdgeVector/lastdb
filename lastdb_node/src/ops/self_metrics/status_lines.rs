@@ -399,6 +399,7 @@ fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     }
     lines.extend(purge_stats_lines(snapshot));
     lines.extend(local_retention_lines(snapshot));
+    lines.extend(gc_atoms_status_lines(snapshot));
     lines
 }
 

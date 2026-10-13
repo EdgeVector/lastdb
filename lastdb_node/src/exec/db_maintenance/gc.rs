@@ -32,12 +32,24 @@ pub(in crate::exec) async fn execute_db_gc_atoms_route(
         prune_live_history: Option<bool>,
         #[serde(default)]
         schema: Option<String>,
+        /// Accept that the atoms of a lost multi-device write can be deleted.
+        /// Without it a delete refuses on a node that has applied a peer
+        /// mutation or cannot prove it never did.
+        #[serde(default)]
+        allow_after_peer_apply: Option<bool>,
+    }
+    // The route table keeps this verb off the app socket. This check also keeps
+    // out a code-signed app on the owner socket: it is not the owner principal,
+    // and the override below accepts that atoms can be deleted.
+    if !ctx.is_owner {
+        return error_response(403, "gc-atoms is owner-only", ctx);
     }
     let body: Body = if req.body.is_empty() {
         Body {
             dry_run: None,
             prune_live_history: None,
             schema: None,
+            allow_after_peer_apply: None,
         }
     } else {
         match serde_json::from_slice(&req.body) {
@@ -49,13 +61,14 @@ pub(in crate::exec) async fn execute_db_gc_atoms_route(
     };
     let dry_run = body.dry_run.unwrap_or(true);
     let prune_live_history = body.prune_live_history.unwrap_or(false);
+    let allow_after_peer_apply = body.allow_after_peer_apply.unwrap_or(false);
     let result = if let Some(schema) = body.schema.as_deref() {
         host.db
-            .gc_orphan_atoms_for_schema(schema, dry_run, prune_live_history)
+            .gc_orphan_atoms_for_schema(schema, dry_run, prune_live_history, allow_after_peer_apply)
             .await
     } else {
         host.db
-            .gc_orphan_atoms_with(dry_run, prune_live_history)
+            .gc_orphan_atoms_with(dry_run, prune_live_history, allow_after_peer_apply)
             .await
     };
     match result {
@@ -63,6 +76,10 @@ pub(in crate::exec) async fn execute_db_gc_atoms_route(
             &serde_json::json!({ "gc_atoms": report }),
             ctx.user_id.as_str(),
         )),
+        // The peer-apply interlock is a precondition, not a server fault.
+        Err(e) if e.to_string().contains("gc-atoms refused:") => {
+            error_response(409, &format!("gc-atoms failed: {e}"), ctx)
+        }
         Err(e) => error_response(500, &format!("gc-atoms failed: {e}"), ctx),
     }
 }

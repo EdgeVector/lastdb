@@ -27,8 +27,13 @@ use sha2::{Digest, Sha256};
 use std::time::Duration;
 
 mod body;
+mod gate;
 mod reap;
+mod reap_types;
 mod rearm;
+
+pub use gate::GraceGateVerdict;
+pub use reap_types::{AtomGcReapOptions, AtomGcReapReport};
 
 const ATOM_GC_CANDIDATE_PREFIX: &str = "aref:gc:v1:c:";
 const ATOM_GC_QUEUE_PREFIX: &str = "aref:gc:v1:q:";
@@ -83,15 +88,13 @@ impl AtomGcCandidate {
             .saturating_add(duration_nanos(grace_window))
     }
 
-    /// True when the audit clears this exact epoch. `required` names the probe
-    /// lap whose audit may clear a delete, or `None` to accept any audit.
-    fn audit_clears_delete(&self, required: Option<u64>) -> bool {
+    /// True when the audit clears this exact epoch. Which lap recorded it is a
+    /// separate check ([`Self::audit_is_from`]).
+    fn audit_clears_delete(&self) -> bool {
         self.audit.as_ref().is_some_and(|audit| {
             !audit.reachable
                 && audit.zero_since_unix_nanos == self.zero_since_unix_nanos
                 && audit.audited_at_unix_nanos >= self.zero_since_unix_nanos
-                && required
-                    .is_none_or(|generation| audit.audit_id == automatic_gc_audit_id(generation))
         })
     }
 }
@@ -118,61 +121,6 @@ pub enum AtomGcAuditDecision {
     StaleEpoch,
     /// An in-flight writer still holds the atom.
     PendingReference,
-}
-
-/// Knobs for one bounded reap call.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AtomGcReapOptions {
-    pub now_unix_nanos: u64,
-    pub grace_window: Duration,
-    pub max_candidates: usize,
-    pub dry_run: bool,
-    /// Rewrite the atom plane after deletes so dead segment bytes return.
-    pub compact_after_delete: bool,
-    /// Probe lap whose audit may clear a delete. `None` accepts any audit.
-    pub required_audit_generation: Option<u64>,
-}
-
-impl Default for AtomGcReapOptions {
-    fn default() -> Self {
-        Self {
-            now_unix_nanos: unix_nanos(),
-            grace_window: DEFAULT_ATOM_GC_GRACE_WINDOW,
-            max_candidates: 256,
-            dry_run: true,
-            compact_after_delete: false,
-            required_audit_generation: None,
-        }
-    }
-}
-
-/// Result of one bounded candidate reap.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct AtomGcReapReport {
-    pub dry_run: bool,
-    pub candidates_examined: u64,
-    /// Permanent references from an encrypted retired-intent outcome.
-    #[serde(default)]
-    pub retained_retired_intent_reference: u64,
-    pub eligible: u64,
-    pub atoms_deleted: u64,
-    pub storage_keys_deleted: u64,
-    pub bytes_deleted_approx: u64,
-    pub retained_before_grace: u64,
-    pub retained_without_audit: u64,
-    pub retained_audit_reachable: u64,
-    pub retained_pending_reference: u64,
-    pub cancelled_positive_count: u64,
-    /// Candidates removed because their atom has no count record. The body leaks.
-    #[serde(default)]
-    pub cancelled_missing_count: u64,
-    /// Candidates kept because their revalidation returned an error.
-    #[serde(default)]
-    pub retained_error: u64,
-    pub stale_queue_rows_deleted: u64,
-    pub truncated: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compaction: Option<CollectionCompactReport>,
 }
 
 impl AtomStore {

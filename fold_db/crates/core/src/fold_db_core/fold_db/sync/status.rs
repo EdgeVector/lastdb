@@ -153,6 +153,46 @@ impl FoldDB {
         self.sync_coordinator.engine()
     }
 
+    /// Stamp the compact reverse-edge completion markers on a brand-new,
+    /// empty home so automatic `gc-atoms` can delete on it. The caller is the
+    /// one boot that created the home. Best effort: returns `false` when the
+    /// home is not provably empty or on any error, and never fails boot.
+    pub async fn stamp_fresh_home_atom_ref_markers(&self) -> bool {
+        self.db_ops
+            .atoms()
+            .stamp_fresh_home_atom_ref_markers()
+            .await
+    }
+
+    /// Stamp the peer-apply row `never` on a brand-new, empty home. The caller
+    /// is the one boot that created the home. Best effort: `false` when the
+    /// home is not provably new or on any error (the state then stays
+    /// `unknown`), and it never fails boot.
+    pub async fn stamp_peer_apply_never_on_new_home(&self) -> bool {
+        self.db_ops
+            .atoms()
+            .stamp_peer_apply_never_on_new_home()
+            .await
+    }
+
+    /// Record that this home holds data from a peer or a restore. Called at
+    /// boot for a home that a restore finished. Durable before it returns.
+    pub async fn mark_peer_apply_seen(&self) -> Result<(), crate::schema::SchemaError> {
+        self.db_ops.atoms().mark_peer_apply_seen().await
+    }
+
+    /// What this node knows about peer data: `never`, `seen` or `unknown`.
+    pub async fn peer_apply_state(
+        &self,
+    ) -> Result<crate::db_operations::PeerApplyState, crate::schema::SchemaError> {
+        self.db_ops.atoms().peer_apply_state().await
+    }
+
+    /// What the automatic `gc-atoms` cadence has done, for `lastdb status`.
+    pub fn automatic_gc_atoms_status(&self) -> crate::fold_db_core::AutomaticGcAtomsStatus {
+        self.sync_coordinator.automatic_gc_atoms_status()
+    }
+
     /// True while a backup cut is held in-process and must not be deleted out
     /// from under. Local-only boots with no sync engine are never held.
     pub async fn backup_publish_target_is_held(&self) -> bool {

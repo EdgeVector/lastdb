@@ -7,6 +7,16 @@ fn history_row_bytes(storage_key: &str, ev: &MutationEvent) -> u64 {
     storage_key.len() as u64 + serde_json::to_vec(ev).map_or(0, |v| v.len() as u64)
 }
 
+/// True for a history row that keeps a conflicting write: a merge-conflict
+/// event, a conflict loser, or an imported Put kept out of the tip. Tom's rule
+/// (2026-10-13): when two devices write the same key, each write stays. A
+/// history clear never selects such a row, and its loser atom keeps its edge.
+fn keeps_conflicting_write(ev: &MutationEvent) -> bool {
+    ev.is_conflict
+        || ev.conflict_loser_atom.is_some()
+        || ev.kind == crate::atom::MutationEventKind::SuppressedPut
+}
+
 /// Pick the history rows to delete for one molecule, with per-row byte sizes.
 ///
 /// `keep == 0` selects every row; otherwise the newest `keep` events per
@@ -64,7 +74,9 @@ impl AtomStore {
     /// - **`keep_last_per_key >= 1`**: keep the newest N events per field key.
     ///
     /// Does **not** delete current tips or atoms (safe; may leave orphan atoms
-    /// until a later GC).
+    /// until a later GC). Does **not** select a conflict row (see
+    /// [`keeps_conflicting_write`]): those rows, and the loser atoms their
+    /// edges keep alive, stay.
     pub async fn clear_mutation_history(
         &self,
         schema_field_molecules: &[(String, Vec<String>)],
@@ -79,6 +91,7 @@ impl AtomStore {
             schemas_touched: 0,
             history_rows_deleted: 0,
             history_bytes_freed_approx: 0,
+            conflict_rows_kept: 0,
             per_schema: Vec::new(),
         };
 
@@ -91,6 +104,10 @@ impl AtomStore {
                     self.scan_exact_storage_prefix(&base, storage_prefix, "clear_history load")
                         .await?
                 };
+                let (conflicts, events_with_keys): (Vec<_>, Vec<_>) = events_with_keys
+                    .into_iter()
+                    .partition(|(_, ev)| keeps_conflicting_write(ev));
+                report.conflict_rows_kept += conflicts.len() as u64;
                 if events_with_keys.is_empty() {
                     continue;
                 }

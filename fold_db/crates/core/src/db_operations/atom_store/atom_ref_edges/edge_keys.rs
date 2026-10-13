@@ -1,3 +1,4 @@
+use super::super::fresh_home_edges::ATOM_REF_V2_FRESH_HOME_MARKER;
 use super::*;
 // lint:file-size-ok moved verbatim from the parent module; one method family per file
 
@@ -221,6 +222,32 @@ impl AtomStore {
         Ok(edges)
     }
 
+    /// Return whether the legacy v1 edge plane holds an ACTIVE edge for the atom.
+    ///
+    /// The delete gate (`has_active_atom_refs`) reads only the compact v2
+    /// partition. Edges written before the compact plane, and the history and
+    /// conflict edges the replay conflict recorder wrote as raw v1 rows, are
+    /// invisible to it. This is the second, explicit guard: any active v1 edge
+    /// of any type (tip, tip-version, mutation-history) keeps the atom, so a
+    /// conflict loser named by a `history:` or `conflict:` record survives
+    /// even if no lap marked it.
+    ///
+    /// One range probe when the v1 plane is empty. A malformed row is an
+    /// error, never a false zero: the caller must retain the atom.
+    pub(crate) async fn has_active_legacy_atom_ref_edge(
+        &self,
+        atom_uuid: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<bool, SchemaError> {
+        if matches!(self.atom_ref_v1_keys_remain().await, Ok(false)) {
+            return Ok(false);
+        }
+        Ok(!self
+            .active_atom_ref_edges_for_atom(atom_uuid, storage_prefix)
+            .await?
+            .is_empty())
+    }
+
     /// Return whether the compact reverse-edge plane contains a live reference.
     ///
     /// A present compact edge is authoritative immediately. Absence is
@@ -291,7 +318,9 @@ impl AtomStore {
             else {
                 return Ok(false);
             };
-            if value.as_slice() != ATOM_REF_V2_COMPLETE_MARKER {
+            if value.as_slice() != ATOM_REF_V2_COMPLETE_MARKER
+                && value.as_slice() != ATOM_REF_V2_FRESH_HOME_MARKER
+            {
                 return Err(SchemaError::InvalidData(format!(
                     "compact atom reverse-edge {label} marker is invalid"
                 )));

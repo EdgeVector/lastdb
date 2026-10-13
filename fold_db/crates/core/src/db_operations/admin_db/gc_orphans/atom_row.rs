@@ -74,6 +74,16 @@ impl AtomStore {
                     .await?;
             }
             if !ctx.dry_run && !pending.is_empty() {
+                // The walk can run for a long time, and a peer mutation can be
+                // applied during it. Ask the interlock again for every page;
+                // when the answer changed, drop what this page queued and stop.
+                if let Err(error) = self
+                    .require_no_peer_apply_for_atom_delete(ctx.allow_after_peer_apply, "gc-atoms")
+                    .await
+                {
+                    pending.clear();
+                    return Err(error);
+                }
                 storage_keys_deleted += self.drain_gc_deletes(pending).await?;
             }
             cursor = page.next_cursor;

@@ -1,4 +1,6 @@
-//! Phases of one automatic `gc-atoms` step: slot claim, probe, reap, delete.
+//! Probe-side phases of one automatic `gc-atoms` step: slot claim and the
+//! resumable probe. The audit, reap and delete halves are in `reap` and
+//! `delete_pass`.
 
 use super::*;
 
@@ -10,7 +12,7 @@ pub(super) fn claim_automatic_gc_atoms_slot(
 ) -> bool {
     let previous = last_step.load(Ordering::Relaxed);
     if !automatic_gc_atoms_due(previous, now, settings.step_interval_secs) {
-        info!(
+        debug!(
             target: "fold_db::gc_atoms",
             reason = "not-due",
             last_step = previous,
@@ -25,7 +27,7 @@ pub(super) fn claim_automatic_gc_atoms_slot(
         .compare_exchange(previous, now.max(1), Ordering::SeqCst, Ordering::Relaxed)
         .is_err()
     {
-        info!(
+        debug!(
             target: "fold_db::gc_atoms",
             reason = "slot-taken",
             "automatic gc-atoms Skipped"
@@ -47,11 +49,11 @@ pub(super) enum ProbeStepOutcome {
 }
 
 /// Pin-log references the engine owes the probe for the checkpoint's current
-/// phase. `Err(())` means the pin-log read failed and was logged.
+/// phase. `Err` carries the text of a pin-log read failure that was logged.
 pub(super) async fn pin_log_reference_page_for(
     engine: Option<&SyncEngine>,
     checkpoint: &crate::db_operations::AutomaticGcAtomsProbeCheckpoint,
-) -> Result<Option<crate::db_operations::AutomaticGcAtomsPinLogReferencePage>, ()> {
+) -> Result<Option<crate::db_operations::AutomaticGcAtomsPinLogReferencePage>, String> {
     if checkpoint.version != 2
         || checkpoint.phase != crate::db_operations::AutomaticGcAtomsProbePhase::PinLogReferences
     {
@@ -73,7 +75,7 @@ pub(super) async fn pin_log_reference_page_for(
                     %error,
                     "automatic gc-atoms pin-log reference read failed"
                 );
-                Err(())
+                Err(error)
             }
         },
         None => Ok(Some(
@@ -106,6 +108,7 @@ pub(super) async fn advance_gc_atoms_probe(
             Ok(checkpoint) => checkpoint,
             Err(error) => {
                 warn!(target: "fold_db::gc_atoms", %error, "automatic gc-atoms checkpoint read failed");
+                runtime.status.record_error(&error.to_string());
                 return ProbeStepOutcome::Failed;
             }
         };
@@ -121,16 +124,22 @@ pub(super) async fn advance_gc_atoms_probe(
                     .store(true, Ordering::Release);
             }
         }
-        let Ok(pin_log_reference_page) = pin_log_reference_page_for(engine, &checkpoint).await
-        else {
-            return ProbeStepOutcome::Failed;
+        let pin_log_reference_page = match pin_log_reference_page_for(engine, &checkpoint).await {
+            Ok(page) => page,
+            Err(error) => {
+                runtime.status.record_error(&error);
+                return ProbeStepOutcome::Failed;
+            }
         };
         let options = AutomaticGcAtomsProbeOptions {
             restart_completed,
             pin_log_reference_page,
             ..Default::default()
         };
-        match atoms.probe_orphan_atoms_from_checkpoint(options).await {
+        let call_started = std::time::Instant::now();
+        let call = atoms.probe_orphan_atoms_from_checkpoint(options).await;
+        runtime.status.record_probe_call(call_started.elapsed());
+        match call {
             Ok(report) => {
                 if report.phase
                     == crate::db_operations::AutomaticGcAtomsProbePhase::ClearTipVersionSkipMarkers
@@ -163,6 +172,7 @@ pub(super) async fn advance_gc_atoms_probe(
                     %error,
                     "automatic gc-atoms probe failed"
                 );
+                runtime.status.record_error(&error.to_string());
                 return ProbeStepOutcome::Failed;
             }
         }
@@ -174,137 +184,140 @@ pub(super) async fn advance_gc_atoms_probe(
     }
 }
 
-/// Audit the zero-count candidates a finished lap proved. A failure is logged.
-pub(super) async fn audit_lap_zero_ref_candidates(
-    atoms: &AtomStore,
-    lap: &crate::db_operations::AutomaticGcAtomsProbeResult,
-    settings: &AutomaticGcAtomsSettings,
-) {
-    if let Err(error) = audit_zero_ref_candidates(atoms, lap, settings.delete_candidate_cap).await {
-        warn!(
-            target: "fold_db::gc_atoms",
-            generation = lap.generation,
-            %error,
-            "automatic gc-atoms candidate audit failed"
-        );
+impl AutomaticGcAtomsRuntime<'_> {
+    /// Why the completed lap may no longer authorize a delete, `None` when it
+    /// may (or when no lap has completed), `Err` when the checkpoint could not
+    /// be read. A read error is never a pass: the caller deletes nothing.
+    ///
+    /// A lap's verdicts say what the node looked like while the lap ran. Four
+    /// things make that view too old to delete on:
+    /// - the lap finished before this process started, so no writer marked a
+    ///   reference while the process was down, and a boot may follow an
+    ///   offline tool that installed rows;
+    /// - the lap claims to have finished after `now` (the clock moved back
+    ///   since), so its age cannot be trusted at all; and
+    /// - the lap is older than the maximum lap age (the grace window, never less
+    ///   than the relap interval). Nothing waives this one: a pass that is
+    ///   still making progress restarts the lap and deletes again only on the
+    ///   new lap's audit; and
+    /// - the lap is older than the relap interval, so the same gap has had a
+    ///   whole interval to open (the scheduled restart only covers a lap that
+    ///   some step has scheduled).
+    ///
+    /// Either way the lap restarts first, and only the new lap's audit counts.
+    /// The caller decides whether the relap-interval reason is waived while a
+    /// reap or delete pass is still making progress.
+    pub(super) async fn stale_completed_lap(
+        &self,
+        settings: &AutomaticGcAtomsSettings,
+        now: u64,
+    ) -> Result<Option<&'static str>, String> {
+        let checkpoint = self
+            .atoms
+            .automatic_gc_atoms_probe_checkpoint(None)
+            .await
+            .map_err(|error| error.to_string())?;
+        if checkpoint.version != 2
+            || checkpoint.phase != crate::db_operations::AutomaticGcAtomsProbePhase::Complete
+        {
+            return Ok(None);
+        }
+        let completed = checkpoint.completed_at.as_deref().map_or(0, unix_secs_of);
+        Ok(if completed > now {
+            Some(skip_reason::LAP_FROM_FUTURE)
+        } else if completed < self.status.started_at_unix_secs() {
+            Some(skip_reason::LAP_BEFORE_BOOT)
+        } else if completed.saturating_add(settings.max_lap_age_secs()) <= now {
+            Some(skip_reason::LAP_OLDER_THAN_MAX_AGE)
+        } else if completed.saturating_add(settings.relap_interval_secs) <= now {
+            Some(skip_reason::LAP_OLDER_THAN_RELAP)
+        } else {
+            None
+        })
     }
-}
 
-/// True when the oldest candidate page holds a delete that could run now.
-pub(super) async fn candidate_reap_ready(
-    atoms: &AtomStore,
-    lap: &crate::db_operations::AutomaticGcAtomsProbeResult,
-    settings: &AutomaticGcAtomsSettings,
-    now: u64,
-) -> bool {
-    let options = lap_reap_options(
-        lap,
-        settings.delete_candidate_cap,
-        now.saturating_mul(1_000_000_000),
-        true,
-    );
-    atoms
-        .atom_gc_reap_ready(None, &options)
-        .await
-        .unwrap_or(false)
-}
-
-/// Reap the audited zero-count candidates of a finished lap, under the backup
-/// cut the caller holds. A failure is logged.
-pub(super) async fn reap_lap_zero_ref_candidates(
-    atoms: &AtomStore,
-    lap: &crate::db_operations::AutomaticGcAtomsProbeResult,
-    settings: &AutomaticGcAtomsSettings,
-    now: u64,
-) {
-    let options = lap_reap_options(
-        lap,
-        settings.delete_candidate_cap,
-        now.saturating_mul(1_000_000_000),
-        true,
-    );
-    match atoms.reap_audited_atom_gc_candidates(None, options).await {
-        Ok(report) => {
-            if report.atoms_deleted > 0 {
-                info!(
-                    target: "fold_db::gc_atoms",
-                    generation = lap.generation,
-                    candidates_examined = report.candidates_examined,
-                    atoms_deleted = report.atoms_deleted,
-                    bytes_deleted_approx = report.bytes_deleted_approx,
-                    truncated = report.truncated,
-                    "automatic gc-atoms reaped audited zero-count candidates"
-                );
-            }
-            if report.retained_error > 0 {
-                warn!(
-                    target: "fold_db::gc_atoms",
-                    generation = lap.generation,
-                    retained_error = report.retained_error,
-                    "automatic gc-atoms kept candidates after errors"
-                );
-            }
-        }
-        Err(error) => {
-            warn!(
-                target: "fold_db::gc_atoms",
-                generation = lap.generation,
-                %error,
-                "automatic gc-atoms candidate reaper failed"
-            );
-        }
-    }
-}
-
-/// Totals from the bounded delete pass of one step.
-pub(super) struct DeletePassOutcome {
-    pub(super) atoms_deleted: u64,
-    pub(super) bytes_freed_approx: u64,
-    pub(super) drained: bool,
-}
-
-/// Run delete batches under the already-held packing lock. `None` means a
-/// batch failed and was logged.
-pub(super) async fn run_gc_atoms_delete_pass(
-    atoms: &AtomStore,
-    settings: &AutomaticGcAtomsSettings,
-    deadline: tokio::time::Instant,
-) -> Option<DeletePassOutcome> {
-    let mut outcome = DeletePassOutcome {
-        atoms_deleted: 0,
-        bytes_freed_approx: 0,
-        drained: false,
-    };
-    for _ in 0..GC_ATOMS_MAX_CALLS_PER_STEP {
-        if tokio::time::Instant::now() >= deadline {
-            break;
-        }
-        let options = AutomaticGcAtomsDeleteOptions {
-            candidate_cap: settings.delete_candidate_cap,
-            ..Default::default()
-        };
-        match atoms.delete_orphan_atoms_from_probe(options).await {
-            Ok(report) => {
-                outcome.atoms_deleted = outcome
-                    .atoms_deleted
-                    .saturating_add(report.atoms_deleted_this_call);
-                outcome.bytes_freed_approx = outcome
-                    .bytes_freed_approx
-                    .saturating_add(report.bytes_freed_approx_this_call);
-                if report.result.is_some() {
-                    outcome.drained = true;
-                    break;
-                }
-            }
+    /// Decide whether this step restarts the completed lap, and say so when the
+    /// lap is stale. `Err` means the lap's age could not be judged: delete
+    /// nothing (the failure is logged and recorded).
+    ///
+    /// A terminal lap stays terminal until a lap interval elapses. Without this
+    /// the trigger would either re-walk the whole plane every step or never
+    /// refresh a measurement it already took.
+    pub(super) async fn restart_completed_lap(
+        &self,
+        settings: &AutomaticGcAtomsSettings,
+        restart_lap_at: &AtomicU64,
+        now: u64,
+    ) -> Result<bool, ()> {
+        let scheduled_restart = restart_lap_at.load(Ordering::Relaxed);
+        let scheduled_due = scheduled_restart != 0 && now >= scheduled_restart;
+        // A lap whose reap or delete pass progressed within one relap interval
+        // is not cut by the interval rule: at a large scale the pass needs
+        // several intervals, and a cut would reset its cursor and starve the
+        // late keys. The writers keep marking for the lap's generation for as
+        // long as it is active, and every delete still passes the grace, audit
+        // and edge gates. A lap from before this boot, from the future, or
+        // older than the maximum lap age is always restarted, progress or not.
+        let working = self
+            .status
+            .progressed_within(now, settings.relap_interval_secs);
+        let stale = match self.stale_completed_lap(settings, now).await {
+            Ok(stale) => stale.filter(|reason| {
+                *reason != skip_reason::LAP_OLDER_THAN_RELAP || !(scheduled_due || working)
+            }),
             Err(error) => {
                 warn!(
                     target: "fold_db::gc_atoms",
                     %error,
-                    "automatic gc-atoms delete failed"
+                    "automatic gc-atoms could not read the probe checkpoint to judge the lap's age"
                 );
-                return None;
+                self.status.record_error(&error);
+                return Err(());
             }
+        };
+        if let Some(reason) = stale {
+            self.status.record_stale_lap_restart(reason);
+            info!(
+                target: "fold_db::gc_atoms",
+                reason,
+                "automatic gc-atoms restarts a completed lap that is too old to delete on"
+            );
+        }
+        Ok(stale.is_some() || scheduled_due)
+    }
+
+    /// Publish where the probe stands. One keyed read per claimed step.
+    pub(super) async fn record_probe_progress(&self) {
+        if let Ok(checkpoint) = self.atoms.automatic_gc_atoms_probe_checkpoint(None).await {
+            self.status.record_probe_progress(&checkpoint);
         }
     }
-    Some(outcome)
+}
+
+/// Run one probe step. `Err` carries the finished step when the lap is not
+/// complete yet (probe failed or only progressed).
+pub(super) async fn run_probe_stage(
+    runtime: &AutomaticGcAtomsRuntime<'_>,
+    restart_lap_at: &AtomicU64,
+    restart_completed: bool,
+    deadline: tokio::time::Instant,
+) -> Result<AutomaticGcAtomsProbeResult, AutomaticGcAtomsStep> {
+    match advance_gc_atoms_probe(runtime, restart_lap_at, restart_completed, deadline).await {
+        ProbeStepOutcome::Failed => Err(AutomaticGcAtomsStep::Failed),
+        ProbeStepOutcome::Progressed {
+            generation,
+            phase,
+            rows_scanned,
+        } => {
+            debug!(
+                target: "fold_db::gc_atoms",
+                generation,
+                phase = ?phase,
+                rows_scanned,
+                "automatic gc-atoms probe progressed"
+            );
+            Err(AutomaticGcAtomsStep::ProbeAdvanced)
+        }
+        ProbeStepOutcome::LapComplete(lap) => Ok(lap),
+    }
 }

@@ -98,8 +98,16 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
             schema,
             execute,
             prune_live_history,
+            allow_after_peer_apply,
             json,
-        } => db_gc_atoms(socket, schema.as_deref(), execute, prune_live_history, json),
+        } => db_gc_atoms(
+            socket,
+            schema.as_deref(),
+            execute,
+            prune_live_history,
+            allow_after_peer_apply,
+            json,
+        ),
         DbReclaimCommand::GcFileBlobs { execute, json } => db_gc_file_blobs(socket, execute, json),
         DbReclaimCommand::GcProteins { execute, json } => db_gc_proteins(socket, execute, json),
         DbReclaimCommand::PurgeRefBlobs { execute, json } => {

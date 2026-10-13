@@ -689,6 +689,7 @@ fn default_status_snapshot(
         locator_only: None,
         purge_stats: HashMap::new(),
         local_retention: crate::self_metrics::LocalRetentionHealth::default(),
+        gc_atoms: None,
         molecule_gate: MoleculeGateHealth::default(),
         at_rest_compression: None,
         codec_policy: None,

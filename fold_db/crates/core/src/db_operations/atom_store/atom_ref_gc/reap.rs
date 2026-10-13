@@ -16,6 +16,14 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         options: AtomGcReapOptions,
     ) -> Result<AtomGcReapReport, SchemaError> {
+        // Peer-apply interlock. A dry run deletes nothing and always runs.
+        if !options.dry_run {
+            self.require_no_peer_apply_for_atom_delete(
+                options.allow_after_peer_apply,
+                "atom GC reap",
+            )
+            .await?;
+        }
         // The re-arm and the sorted write order assume that a batch write is
         // durable when it returns. Without that barrier the reaper stays off.
         if !options.dry_run && !self.main_store.inner().batch_put_has_durable_barrier() {
@@ -42,6 +50,13 @@ impl AtomStore {
         }
         let retired_roots = self.retired_gc_page(&page, storage_prefix).await?;
         for queued in page.candidates {
+            if options
+                .deadline
+                .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
+            {
+                report.truncated = true;
+                break;
+            }
             report.candidates_examined = report.candidates_examined.saturating_add(1);
             if retired_roots.retains(&queued.atom_uuid, &mut report) {
                 continue;
@@ -129,6 +144,14 @@ impl AtomStore {
             }
             return Ok(());
         }
+        // A conflict loser or history atom can hold only a legacy v1 edge,
+        // which the v2 read above cannot see.
+        if self
+            .legacy_edge_keeps_candidate(&candidate, storage_prefix, options, report)
+            .await?
+        {
+            return Ok(());
+        }
         if self
             .has_any_pending_atom_refs(&atom_uuid, storage_prefix)
             .await?
@@ -136,20 +159,8 @@ impl AtomStore {
             report.retained_pending_reference = report.retained_pending_reference.saturating_add(1);
             return Ok(());
         }
-        match candidate.audit.as_ref() {
-            None => {
-                report.retained_without_audit = report.retained_without_audit.saturating_add(1);
-                return Ok(());
-            }
-            Some(audit) if audit.reachable => {
-                report.retained_audit_reachable = report.retained_audit_reachable.saturating_add(1);
-                return Ok(());
-            }
-            Some(_) if !candidate.audit_clears_delete(options.required_audit_generation) => {
-                report.retained_without_audit = report.retained_without_audit.saturating_add(1);
-                return Ok(());
-            }
-            Some(_) => {}
+        if audit_gate_retains(&candidate, options, report) {
+            return Ok(());
         }
         report.eligible = report.eligible.saturating_add(1);
         if options.dry_run {
@@ -201,9 +212,9 @@ impl AtomStore {
     }
 
     /// True when the oldest page holds a candidate that could reap now: past
-    /// its grace window and carrying an audit that clears this epoch. It is a
-    /// hint so the caller can take a backup cut only when a delete may happen.
-    /// The reaper checks everything again under the locks.
+    /// its grace window and carrying an audit of the required lap that clears
+    /// this epoch. It is a hint so the caller can take a backup cut only when a
+    /// delete may happen. The reaper checks everything again under the locks.
     pub async fn atom_gc_reap_ready(
         &self,
         storage_prefix: Option<&str>,
@@ -214,8 +225,49 @@ impl AtomStore {
             .await?;
         Ok(page.candidates.iter().any(|candidate| {
             options.now_unix_nanos >= candidate.eligible_at_unix_nanos(options.grace_window)
-                && candidate.audit_clears_delete(options.required_audit_generation)
+                && options
+                    .required_audit_id
+                    .as_deref()
+                    .is_none_or(|id| candidate.audit_is_from(id))
+                && candidate.audit_clears_delete()
         }))
+    }
+
+    /// The second edge guard. An active legacy v1 edge keeps the atom (and
+    /// cancels the candidate, like a v2 edge). An edge that cannot be read keeps
+    /// the atom and its candidate row: it is never a pass. `true` means the
+    /// candidate is kept and the caller returns.
+    async fn legacy_edge_keeps_candidate(
+        &self,
+        candidate: &AtomGcCandidate,
+        storage_prefix: Option<&str>,
+        options: &AtomGcReapOptions,
+        report: &mut AtomGcReapReport,
+    ) -> Result<bool, SchemaError> {
+        match self
+            .has_active_legacy_atom_ref_edge(&candidate.atom_uuid, storage_prefix)
+            .await
+        {
+            Ok(false) => Ok(false),
+            Ok(true) => {
+                report.cancelled_positive_count = report.cancelled_positive_count.saturating_add(1);
+                if !options.dry_run {
+                    self.delete_atom_gc_candidate(candidate, storage_prefix)
+                        .await?;
+                }
+                Ok(true)
+            }
+            Err(error) => {
+                tracing::warn!(
+                    atom_uuid = %candidate.atom_uuid,
+                    %error,
+                    "atom GC kept a candidate whose legacy edges could not be read"
+                );
+                report.retained_pending_reference =
+                    report.retained_pending_reference.saturating_add(1);
+                Ok(true)
+            }
+        }
     }
 
     /// Flush the deletes and optionally compact the atom plane.
@@ -251,5 +303,35 @@ impl AtomStore {
             }
         }
         Ok(())
+    }
+}
+
+/// Count and report a candidate the audit gate keeps. `false` means the audit
+/// is the current lap's, it is unreachable, and it names this zero epoch.
+fn audit_gate_retains(
+    candidate: &AtomGcCandidate,
+    options: &AtomGcReapOptions,
+    report: &mut AtomGcReapReport,
+) -> bool {
+    if let Some(required) = options.required_audit_id.as_deref() {
+        if candidate.audit.is_some() && !candidate.audit_is_from(required) {
+            report.retained_stale_audit = report.retained_stale_audit.saturating_add(1);
+            return true;
+        }
+    }
+    match candidate.audit.as_ref() {
+        None => {
+            report.retained_without_audit = report.retained_without_audit.saturating_add(1);
+            true
+        }
+        Some(audit) if audit.reachable => {
+            report.retained_audit_reachable = report.retained_audit_reachable.saturating_add(1);
+            true
+        }
+        Some(_) if !candidate.audit_clears_delete() => {
+            report.retained_without_audit = report.retained_without_audit.saturating_add(1);
+            true
+        }
+        Some(_) => false,
     }
 }

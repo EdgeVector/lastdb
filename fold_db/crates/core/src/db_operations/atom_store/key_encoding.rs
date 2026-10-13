@@ -35,6 +35,9 @@ impl AtomStore {
     pub(crate) async fn refresh_boot_encoding_after_restore(
         &self,
     ) -> Result<(), crate::storage::StorageError> {
+        // The restore target booted empty and may carry a fresh-home stamp the
+        // photograph never held. Drop it before the restored data is served.
+        self.revoke_fresh_home_atom_ref_markers().await?;
         self.clone().resolve_boot_encoding().await.map(|_| ())
     }
 

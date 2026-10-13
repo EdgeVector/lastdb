@@ -63,6 +63,16 @@ pub(crate) const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
 ///   (range, hash) order. Photograph S can still carry old rows.
 ///   `replay_order_log_entry` still stores a historical `mord:` put. Named in
 ///   [`DEAD_ORDER_LOG_RESIDUE_CAPTURE_SKIP_PREFIXES`].
+/// - `gcatoms-meta:` / `gcatoms-probe-ref:` / `gcatoms-probe-tv-skip:` — the
+///   automatic `gc-atoms` probe's checkpoints and per-atom reference markers
+///   (`gcatoms-probe-ref` is a kind-partition kind: its write form is
+///   `gcatoms-probe-ref\0<atom>`, and the colon prefix matches both forms).
+///   They are node-local scratch: the next lap clears and rebuilds them, and no
+///   peer can use another node's lap view. A lap writes one marker per
+///   referenced atom and the next lap deletes each one. Left captured, every
+///   hourly lap would add two mutation-log records per referenced atom (each
+///   `PhysicalDigest` or delete record is a separate entry in `sync_pin_log`).
+///   They route to the `tips` plane (the default for an unrouted main key).
 /// - Dead index residue (`mhr:` / `mhk:` / `mhi:` / `schema_atoms:` / `idx:` /
 ///   `schemaidx:`) — no reconstruct helper. Product writes do not emit them
 ///   (`HASH_RANGE_*_ENABLED = false`). Named in
@@ -94,7 +104,43 @@ pub(crate) const CAPTURE_SKIP_MAIN_KEY_PREFIXES: &[&str] = &[
     "schema_atoms:",
     "idx:",
     "schemaidx:",
+    // Node-local `gc-atoms` probe scratch (checkpoints and reference markers).
+    "gcatoms-meta:",
+    "gcatoms-probe-ref:",
+    "gcatoms-probe-tv-skip:",
+    // Node-local peer-apply row (`never` / `seen`): this node's own answer.
+    "peer-apply:",
 ];
+
+/// Automatic `gc-atoms` node-local rows: probe checkpoints, reference markers
+/// and the peer-apply row.
+///
+/// These rows describe this node's own lap and history. They are never
+/// captured (see [`CAPTURE_SKIP_MAIN_KEY_PREFIXES`]) and replay must never
+/// apply them: a log written by an older build, or by a peer, could otherwise
+/// plant a foreign checkpoint or marker set, or flip this node's `seen` row
+/// back to `never`, and steer its delete decisions.
+pub(crate) const NODE_LOCAL_GC_SCRATCH_PREFIXES: &[&str] = &[
+    "gcatoms-meta:",
+    "gcatoms-probe-ref:",
+    "gcatoms-probe-tv-skip:",
+    "peer-apply:",
+];
+
+/// Whether a key is node-local `gc-atoms` scratch or the peer-apply row (any
+/// storage scope, colon or anchored form). Replay drops such a key, and a
+/// snapshot neither carries nor restores it: the restoring node writes its own
+/// `seen` after the install.
+pub(crate) fn is_node_local_gc_scratch_key(key: &[u8]) -> bool {
+    let Ok(key) = std::str::from_utf8(key) else {
+        return false;
+    };
+    let base_key =
+        crate::sync::org_sync::strip_storage_prefix(key).map_or(key, |(_, base_key)| base_key);
+    NODE_LOCAL_GC_SCRATCH_PREFIXES
+        .iter()
+        .any(|prefix| crate::kind_partition::colon_prefix_matches(base_key, prefix))
+}
 
 /// Exact logical rows whose values are node-local gauges, not replicated
 /// state. Keep this separate from the prefix catalog: `metadata` also holds
@@ -265,7 +311,17 @@ pub(crate) fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
 /// requires the plane's *entire* population to be that one prefix.
 fn namespace_is_physical_home_of_skipped_prefix(namespace: &str, prefix: &str) -> bool {
     match prefix {
-        "mk:" | "mgp:v1:" | "mgr:v1:" | "mgd:v1:" | "mh:" | "tv:" => namespace == "tips",
+        // `gcatoms-*` keys are unrouted main keys, so they land in `tips` too.
+        "mk:"
+        | "mgp:v1:"
+        | "mgr:v1:"
+        | "mgd:v1:"
+        | "mh:"
+        | "tv:"
+        | "gcatoms-meta:"
+        | "gcatoms-probe-ref:"
+        | "gcatoms-probe-tv-skip:"
+        | "peer-apply:" => namespace == "tips",
         "aloc:" => namespace == "atom_locators",
         "aref:" => namespace == "atom_ref_edges" || namespace == "atom_ref_edges_v2",
         "mref:v1:" => namespace == "molecule_ref_edges",

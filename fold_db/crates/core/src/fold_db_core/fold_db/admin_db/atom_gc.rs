@@ -11,22 +11,30 @@ impl FoldDB {
     /// Prunes tip-version chains on **tombstoned** tips only (preserves `as_of`
     /// history on live tips).
     pub async fn gc_orphan_atoms(&self, dry_run: bool) -> Result<AtomGcReport, FoldDbError> {
-        self.gc_orphan_atoms_with(dry_run, false).await
+        self.gc_orphan_atoms_with(dry_run, false, false).await
     }
 
     /// Like [`Self::gc_orphan_atoms`]. When `prune_live_history` is true, also
     /// drop tip-version chains on **live** tips (tip becomes the only version;
     /// historical body atoms become freeable). Use for reclaim after
     /// append-heavy rewrites; sacrifices `as_of` depth.
+    ///
+    /// `allow_after_peer_apply` is the explicit operator acceptance that the
+    /// atoms of a lost multi-device write can be deleted; without it a delete
+    /// refuses on a node that has applied a peer mutation (or cannot prove it
+    /// never did).
     pub async fn gc_orphan_atoms_with(
         &self,
         dry_run: bool,
         prune_live_history: bool,
+        allow_after_peer_apply: bool,
     ) -> Result<AtomGcReport, FoldDbError> {
         // A delete run waits for the mutation work that existed when it began.
         // A deferred lane job can store an atom body before its tip, so a scan
         // that runs inside that window would call the body unreferenced. The
         // run start is taken before the wait, as the reclaim janitor does.
+        self.refuse_gc_after_peer_apply(dry_run, allow_after_peer_apply)
+            .await?;
         let scan_started_at = chrono::Utc::now();
         self.wait_for_gc_persist_cut(dry_run).await?;
         // A durable pin-log record references atoms by uuid and has had its
@@ -49,7 +57,25 @@ impl FoldDB {
                 prune_live_history,
                 &extra_roots,
                 scan_started_at,
+                allow_after_peer_apply,
             )
+            .await
+            .map_err(|e| FoldDbError::Database(format!("gc_orphan_atoms: {e}")))
+    }
+
+    /// The peer-apply interlock, checked before the run waits for the persist
+    /// cut so a refusal is immediate. The store checks it again as the backstop.
+    async fn refuse_gc_after_peer_apply(
+        &self,
+        dry_run: bool,
+        allow_after_peer_apply: bool,
+    ) -> Result<(), FoldDbError> {
+        if dry_run {
+            return Ok(());
+        }
+        self.db_ops()
+            .atoms()
+            .require_no_peer_apply_for_atom_delete(allow_after_peer_apply, "gc-atoms")
             .await
             .map_err(|e| FoldDbError::Database(format!("gc_orphan_atoms: {e}")))
     }
@@ -83,6 +109,7 @@ impl FoldDB {
         requested_schema: &str,
         dry_run: bool,
         prune_live_history: bool,
+        allow_after_peer_apply: bool,
     ) -> Result<AtomGcReport, FoldDbError> {
         if prune_live_history {
             return Err(FoldDbError::Database(
@@ -114,6 +141,8 @@ impl FoldDB {
             }
             None => requested_schema.to_string(),
         };
+        self.refuse_gc_after_peer_apply(dry_run, allow_after_peer_apply)
+            .await?;
         let scan_started_at = chrono::Utc::now();
         self.wait_for_gc_persist_cut(dry_run).await?;
         let extra_roots = self
@@ -128,8 +157,11 @@ impl FoldDB {
                 None,
                 false,
                 &extra_roots,
-                Some(&schema_name),
-                Some(scan_started_at),
+                crate::db_operations::GcAtomsRunScope {
+                    source_schema_name: Some(&schema_name),
+                    scan_started_at: Some(scan_started_at),
+                    allow_after_peer_apply,
+                },
             )
             .await
             .map_err(|e| FoldDbError::Database(format!("gc_orphan_atoms: {e}")))

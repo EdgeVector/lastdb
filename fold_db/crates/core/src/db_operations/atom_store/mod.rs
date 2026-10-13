@@ -31,6 +31,7 @@ mod content_maintenance;
 mod delete_barriers;
 mod dropped_schema_reap;
 mod filter;
+mod fresh_home_edges;
 mod hard_erase_journal;
 mod helpers;
 mod keep_small;
@@ -38,6 +39,7 @@ mod key_encoding;
 mod locks;
 mod molecule_ref_edges;
 mod molecules;
+mod peer_apply;
 mod retired_intent_retention;
 mod tip_version_backrefs;
 mod types;
@@ -50,7 +52,7 @@ pub use atom_ref_edges::{
 pub(crate) use atom_ref_gc::automatic_gc_audit_id;
 pub use atom_ref_gc::{
     AtomGcAuditDecision, AtomGcAuditResult, AtomGcCandidate, AtomGcCandidatePage,
-    AtomGcReapOptions, AtomGcReapReport, DEFAULT_ATOM_GC_GRACE_WINDOW,
+    AtomGcReapOptions, AtomGcReapReport, GraceGateVerdict, DEFAULT_ATOM_GC_GRACE_WINDOW,
 };
 pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
 pub use content_maintenance::{
@@ -69,6 +71,9 @@ pub use molecule_ref_edges::{
 /// Full `mk:` prefix-scan counter (test/ops surface for zero-yield purge plan cost).
 pub use molecules::mk_full_scans;
 pub(crate) use molecules::MoleculeKeyDomain;
+pub use peer_apply::{
+    allow_after_peer_apply_from_env, PeerApplyState, ALLOW_AFTER_PEER_APPLY_ENV, PEER_APPLY_KEY,
+};
 pub(crate) use retired_intent_retention::{
     RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
 };
@@ -236,6 +241,16 @@ pub struct AtomStore {
     automatic_gc_atoms_generation: Arc<AtomicU64>,
     /// Candidates re-armed by body writes (see `rearm_atom_gc_candidate_mutations`).
     atom_gc_candidates_rearmed: Arc<AtomicU64>,
+    /// Cache of the peer-apply row once it reads `seen`, durable or not. The
+    /// state never moves back, so every clone shares the answer. It only ever
+    /// makes a delete refuse, so it may run ahead of the disk.
+    peer_apply_seen: Arc<AtomicBool>,
+    /// Set only after this process wrote `seen` AND the flush returned `Ok`.
+    /// A retry after a failed flush must not trust `peer_apply_seen`.
+    peer_apply_durable: Arc<AtomicBool>,
+    /// Serializes the `seen` write and the `never` stamp, so a stamp can never
+    /// overwrite a `seen` that a replay wrote after the stamp probed.
+    peer_apply_lock: Arc<tokio::sync::Mutex<()>>,
     /// Fixed lock stripes serialize body writes and automatic deletes without
     /// retaining one process object for every atom UUID in a full sweep.
     automatic_gc_atom_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,

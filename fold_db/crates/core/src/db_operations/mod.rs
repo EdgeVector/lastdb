@@ -26,19 +26,21 @@ pub mod schema_store;
 pub mod search_index;
 mod storage_breakdown;
 // Re-exports
+pub(crate) use admin_db::GcAtomsRunScope;
 pub use admin_db::{
     last_locator_only_probe, AtomGcReport, AtomPartitionRekeyCheckpoint, AtomPartitionRekeyOptions,
     AtomPartitionRekeyReport, AutomaticGcAtomsDeleteCheckpoint, AutomaticGcAtomsDeleteOptions,
     AutomaticGcAtomsDeletePhase, AutomaticGcAtomsDeleteReport, AutomaticGcAtomsDeleteResult,
-    AutomaticGcAtomsPinLogReferencePage, AutomaticGcAtomsProbeCheckpoint,
-    AutomaticGcAtomsProbeOptions, AutomaticGcAtomsProbePhase, AutomaticGcAtomsProbeReport,
-    AutomaticGcAtomsProbeResult, DanglingTipRepairOptions, DanglingTipRepairReport,
-    DanglingTipRepairScope, DanglingTipRepairScopeReport, DbInventory, GcAtomsPruneCheckpoint,
-    HistoryClearReport, LegacyKeyForkAudit, LegacyKeyForkMoleculeStat, LegacyRefBlobPurgeReport,
-    LocatorOnlyPopulationReport, LocatorOnlyProbeOptions, MainKeyClass, MoleculeHashBucketReport,
-    MoleculeHashBucketRow, MoleculeKeyRow, MoleculeKeysReport, MoleculeTombstoneFlagStat,
-    OrderLogAudit, OrderLogBloatAudit, OrderLogBloatRow, OrderLogBloatSchemaStat,
-    OrderLogRepairReport, OrderLogShortRow, OrderLogZeroLiveCompactionReport, ProteinGcReport,
+    AutomaticGcAtomsGraceGate, AutomaticGcAtomsPinLogReferencePage,
+    AutomaticGcAtomsProbeCheckpoint, AutomaticGcAtomsProbeOptions, AutomaticGcAtomsProbePhase,
+    AutomaticGcAtomsProbeReport, AutomaticGcAtomsProbeResult, DanglingTipRepairOptions,
+    DanglingTipRepairReport, DanglingTipRepairScope, DanglingTipRepairScopeReport, DbInventory,
+    GcAtomsPruneCheckpoint, GcAtomsRevalidationTally, HistoryClearReport, LegacyKeyForkAudit,
+    LegacyKeyForkMoleculeStat, LegacyRefBlobPurgeReport, LocatorOnlyPopulationReport,
+    LocatorOnlyProbeOptions, MainKeyClass, MoleculeHashBucketReport, MoleculeHashBucketRow,
+    MoleculeKeyRow, MoleculeKeysReport, MoleculeTombstoneFlagStat, OrderLogAudit,
+    OrderLogBloatAudit, OrderLogBloatRow, OrderLogBloatSchemaStat, OrderLogRepairReport,
+    OrderLogShortRow, OrderLogZeroLiveCompactionReport, ProteinGcReport,
     SchemaCurrentStorageReport, SchemaHistoryClearStat, SchemaHistoryStat, SchemaIdxPurgeReport,
     SchemaLogicalStorageReport, SchemaLogicalStorageRow, SchemaOrderLogStat, SchemaRecordKey,
     SchemaRecordKeysReport, SchemaStorageReport, SupersededVersionRetentionCheckpoint,
@@ -49,6 +51,9 @@ pub use admin_db::{
     GC_ATOMS_PROBE_CHECKPOINT_KEY, GC_ATOMS_PRUNE_CHECKPOINT_KEY, LOCATOR_ONLY_PROBE_STRATA,
     LOCATOR_ONLY_PROBE_TARGET_QUOTA, SUPERSEDED_VERSION_RETENTION_CHECKPOINT_KEY,
     TIP_HISTORY_DRAIN_CHECKPOINT_KEY,
+};
+pub use atom_store::{
+    allow_after_peer_apply_from_env, PeerApplyState, ALLOW_AFTER_PEER_APPLY_ENV, PEER_APPLY_KEY,
 };
 pub(crate) use atom_store::{automatic_gc_audit_id, ChangedKey, FilterLayout, OneDSlot};
 pub use atom_store::{

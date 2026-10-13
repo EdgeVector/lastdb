@@ -206,7 +206,15 @@ impl SyncEngine {
                     let storage_prefix = std::str::from_utf8(key_bytes)
                         .ok()
                         .and_then(|key| storage_scope_for_key_marker(key, "mk:"));
-                    Self::store_merge_conflicts(kv, mol_uuid, storage_prefix, &[conflict]).await?;
+                    let atoms = self.automatic_gc_atom_store.lock().await.clone();
+                    Self::store_merge_conflicts(
+                        kv,
+                        atoms.as_ref(),
+                        mol_uuid,
+                        storage_prefix,
+                        &[conflict],
+                    )
+                    .await?;
                 }
             }
         }
