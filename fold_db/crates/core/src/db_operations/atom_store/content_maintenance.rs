@@ -94,41 +94,14 @@ impl AtomStore {
                 }
                 stats.scanned += 1;
                 last_key = Some(storage_key.clone());
-                if stored.starts_with(crate::atom::ATOM_BINARY_ROW_PREFIX) {
-                    stats.already_sealed += 1;
-                    continue;
-                }
-                let mut value: serde_json::Value =
-                    serde_json::from_slice(&stored).map_err(|e| {
-                        crate::schema::SchemaError::InvalidData(format!(
-                            "reseal decode {storage_key}: {e}"
-                        ))
-                    })?;
-                match crate::atom::reseal_atom_json_if_plain(&key, &mut value) {
-                    Ok(true) => {
-                        let encoded = serde_json::to_vec(&value).map_err(|e| {
-                            crate::schema::SchemaError::InvalidData(format!(
-                                "reseal encode {storage_key}: {e}"
-                            ))
-                        })?;
-                        if let Err(e) = self
-                            .main_store
-                            .inner()
-                            .put(&storage_key_bytes, encoded)
-                            .await
-                        {
-                            stats.errors += 1;
-                            tracing::warn!(%storage_key, error = %e, "reseal put failed");
-                            continue;
-                        }
-                        stats.resealed += 1;
-                    }
-                    Ok(false) => stats.already_sealed += 1,
-                    Err(e) => {
-                        stats.errors += 1;
-                        tracing::warn!(%storage_key, error = %e, "reseal skipped");
-                    }
-                }
+                self.reseal_one_atom_row(
+                    &key,
+                    &storage_key,
+                    &storage_key_bytes,
+                    &stored,
+                    &mut stats,
+                )
+                .await?;
             }
 
             let Some(last) = last_key else {
@@ -155,6 +128,50 @@ impl AtomStore {
             .await
             .map_err(|e| crate::schema::SchemaError::InvalidData(format!("reseal flush: {e}")))?;
         Ok(stats)
+    }
+
+    /// Reseal one canonical `atom:` row in place, counting the outcome in `stats`.
+    async fn reseal_one_atom_row(
+        &self,
+        key: &[u8; 32],
+        storage_key: &str,
+        storage_key_bytes: &[u8],
+        stored: &[u8],
+        stats: &mut ResealAtomContentStats,
+    ) -> Result<(), crate::schema::SchemaError> {
+        if stored.starts_with(crate::atom::ATOM_BINARY_ROW_PREFIX) {
+            stats.already_sealed += 1;
+            return Ok(());
+        }
+        let mut value: serde_json::Value = serde_json::from_slice(stored).map_err(|e| {
+            crate::schema::SchemaError::InvalidData(format!("reseal decode {storage_key}: {e}"))
+        })?;
+        match crate::atom::reseal_atom_json_if_plain(key, &mut value) {
+            Ok(true) => {
+                let encoded = serde_json::to_vec(&value).map_err(|e| {
+                    crate::schema::SchemaError::InvalidData(format!(
+                        "reseal encode {storage_key}: {e}"
+                    ))
+                })?;
+                if let Err(e) = self
+                    .main_store
+                    .inner()
+                    .put(storage_key_bytes, encoded)
+                    .await
+                {
+                    stats.errors += 1;
+                    tracing::warn!(%storage_key, error = %e, "reseal put failed");
+                    return Ok(());
+                }
+                stats.resealed += 1;
+            }
+            Ok(false) => stats.already_sealed += 1,
+            Err(e) => {
+                stats.errors += 1;
+                tracing::warn!(%storage_key, error = %e, "reseal skipped");
+            }
+        }
+        Ok(())
     }
 
     /// Rewrite one bounded page of legacy `ENC:` atom content through the
