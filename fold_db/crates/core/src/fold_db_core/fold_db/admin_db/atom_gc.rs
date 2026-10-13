@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// How long a delete run waits for the mutation work that existed at its start.
+const GC_PERSIST_CUT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl FoldDB {
     /// Delete `atom:` rows not referenced by tips / remaining history / conflicts.
     ///
@@ -20,6 +23,12 @@ impl FoldDB {
         dry_run: bool,
         prune_live_history: bool,
     ) -> Result<AtomGcReport, FoldDbError> {
+        // A delete run waits for the mutation work that existed when it began.
+        // A deferred lane job can store an atom body before its tip, so a scan
+        // that runs inside that window would call the body unreferenced. The
+        // run start is taken before the wait, as the reclaim janitor does.
+        let scan_started_at = chrono::Utc::now();
+        self.wait_for_gc_persist_cut(dry_run).await?;
         // A durable pin-log record references atoms by uuid and has had its
         // inline bodies stripped on that basis, but the pin log is the sync
         // engine's own namespace — `AtomStore`'s five reference roots cannot
@@ -34,9 +43,34 @@ impl FoldDB {
             .map_err(|e| FoldDbError::Database(format!("gc_orphan_atoms: {e}")))?;
         self.db_ops()
             .atoms()
-            .gc_orphan_atoms_with_roots(dry_run, None, prune_live_history, &extra_roots)
+            .gc_orphan_atoms_with_roots_at_cut(
+                dry_run,
+                None,
+                prune_live_history,
+                &extra_roots,
+                scan_started_at,
+            )
             .await
             .map_err(|e| FoldDbError::Database(format!("gc_orphan_atoms: {e}")))
+    }
+
+    /// Wait for the persist cut before a delete run. A dry run deletes nothing
+    /// and does not wait. A cut that does not drain in time fails the run, so
+    /// the caller retries instead of deleting inside the window.
+    async fn wait_for_gc_persist_cut(&self, dry_run: bool) -> Result<(), FoldDbError> {
+        if dry_run {
+            return Ok(());
+        }
+        if self
+            .mutation_manager()
+            .wait_for_atom_gc_persist_cut(GC_PERSIST_CUT_TIMEOUT)
+            .await
+        {
+            return Ok(());
+        }
+        Err(FoldDbError::Database(
+            "gc_orphan_atoms: the persist cut did not drain in time; retry".into(),
+        ))
     }
 
     /// Delete orphan atom bodies from one schema only.
@@ -80,6 +114,8 @@ impl FoldDB {
             }
             None => requested_schema.to_string(),
         };
+        let scan_started_at = chrono::Utc::now();
+        self.wait_for_gc_persist_cut(dry_run).await?;
         let extra_roots = self
             .mutation_manager()
             .pending_pin_log_atom_roots()
@@ -87,12 +123,13 @@ impl FoldDB {
             .map_err(|e| FoldDbError::Database(format!("gc_orphan_atoms: {e}")))?;
         self.db_ops()
             .atoms()
-            .gc_orphan_atoms_with_roots_for_schema(
+            .gc_orphan_atoms_with_roots_for_schema_at_cut(
                 dry_run,
                 None,
                 false,
                 &extra_roots,
                 Some(&schema_name),
+                Some(scan_started_at),
             )
             .await
             .map_err(|e| FoldDbError::Database(format!("gc_orphan_atoms: {e}")))
