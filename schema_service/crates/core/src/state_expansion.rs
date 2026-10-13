@@ -197,17 +197,10 @@ impl SchemaServiceState {
         }
 
         let existing_fields = existing.fields.clone().unwrap_or_default();
-        let existing_set: HashSet<String> = existing_fields.iter().cloned().collect();
-        let new_field_set: HashSet<String> = schema
-            .fields
-            .as_ref()
-            .map(|nf| nf.iter().cloned().collect())
-            .unwrap_or_default();
-
-        // If the new schema's fields are a subset of the existing, reuse existing
-        if new_field_set.is_subset(&existing_set) {
+        let Some(merged_fields) = merge_expansion_fields(schema, &existing_fields)? else {
+            // The new schema's fields are a subset of the existing: reuse it.
             tracing::info!(
-            target: "schema_service::schema",
+                target: "schema_service::schema",
                 "New schema is a subset of existing '{}' (descriptive_name='{}') — reusing existing",
                 old_name,
                 desc_name
@@ -216,7 +209,7 @@ impl SchemaServiceState {
                 existing.clone(),
                 mutation_mappers.clone(),
             ));
-        }
+        };
 
         tracing::info!(
             target: "schema_service::schema",
@@ -224,21 +217,6 @@ impl SchemaServiceState {
             desc_name,
             old_name
         );
-
-        // Merge to superset: existing fields + new-only fields
-        let new_fields_to_add: Vec<String> =
-            new_field_set.difference(&existing_set).cloned().collect();
-        let mut merged_fields = existing_fields.clone();
-        merged_fields.extend(new_fields_to_add);
-        if merged_fields
-            .iter()
-            .any(|f| f == schema_types::RECORD_SENTINEL)
-        {
-            return Err(FoldDbError::Config(format!(
-                "refusing expand_schema: field name {:?} is reserved as RECORD_SENTINEL",
-                schema_types::RECORD_SENTINEL
-            )));
-        }
         schema.fields = Some(merged_fields);
 
         Self::stamp_predecessor_mappers(schema, existing, &existing_fields, old_name);
@@ -282,4 +260,40 @@ impl SchemaServiceState {
             mutation_mappers.clone(),
         ))
     }
+}
+
+/// Merge the incoming schema's fields onto the existing fields.
+///
+/// Returns `None` when the incoming fields are a subset of the existing
+/// (nothing to expand), and an error when the merge would contain the
+/// reserved `RECORD_SENTINEL` field name.
+fn merge_expansion_fields(
+    schema: &Schema,
+    existing_fields: &[String],
+) -> FoldDbResult<Option<Vec<String>>> {
+    let existing_set: HashSet<&String> = existing_fields.iter().collect();
+    let new_field_set: HashSet<String> = schema
+        .fields
+        .as_ref()
+        .map(|nf| nf.iter().cloned().collect())
+        .unwrap_or_default();
+    if new_field_set.iter().all(|f| existing_set.contains(f)) {
+        return Ok(None);
+    }
+    let mut merged_fields = existing_fields.to_vec();
+    merged_fields.extend(
+        new_field_set
+            .into_iter()
+            .filter(|f| !existing_set.contains(f)),
+    );
+    if merged_fields
+        .iter()
+        .any(|f| f == schema_types::RECORD_SENTINEL)
+    {
+        return Err(FoldDbError::Config(format!(
+            "refusing expand_schema: field name {:?} is reserved as RECORD_SENTINEL",
+            schema_types::RECORD_SENTINEL
+        )));
+    }
+    Ok(Some(merged_fields))
 }

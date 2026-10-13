@@ -188,12 +188,15 @@ macro_rules! heap_delivery {
 }
 
 mod admin_routes;
+mod aggregate_routes;
 mod app_routes;
+mod batch_mutation_routes;
 mod cloud_purge_routes;
 mod db_compact_routes;
 mod dispatch;
 mod introspection_routes;
 mod liveness_routes;
+mod query_filters;
 mod query_mutation_routes;
 mod schema_routes;
 mod setup_routes;
@@ -202,11 +205,14 @@ mod sync_routes;
 mod timeouts;
 
 use admin_routes::*;
+use aggregate_routes::*;
 use app_routes::*;
+use batch_mutation_routes::*;
 use db_compact_routes::*;
 pub use dispatch::*;
 use introspection_routes::*;
 use liveness_routes::*;
+use query_filters::*;
 use query_mutation_routes::*;
 use schema_routes::*;
 pub use setup_routes::*;
