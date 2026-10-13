@@ -1,3 +1,4 @@
+use super::super::failure::decode_service_response;
 use super::super::helpers::{
     attach_target_scope, snapshot_presign_body, snapshot_presign_body_for_target,
 };
@@ -325,7 +326,7 @@ impl AuthClient {
             self.post_no_default_db_hash("/api/sync/presign", body)
                 .await?
         };
-        let parsed: PresignedResponse = serde_json::from_value(resp)?;
+        let parsed: PresignedResponse = decode_service_response(&action, resp)?;
         if !parsed.ok {
             return Err(op_failed(&action, parsed.error.or(parsed.reason)));
         }

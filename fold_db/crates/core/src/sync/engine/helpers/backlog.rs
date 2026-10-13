@@ -22,6 +22,7 @@ pub(crate) fn crossed_cloud_sync_backlog_threshold(
 pub(crate) fn cloud_sync_failure_class(operation: &str, err: &SyncError) -> String {
     let kind = match err {
         SyncError::Network(_) => "network",
+        SyncError::CloudServiceResponse { .. } => "cloud_service_response",
         SyncError::S3(_) => "s3",
         SyncError::Auth(_) => "auth",
         SyncError::Banned(_) => "auth_banned",

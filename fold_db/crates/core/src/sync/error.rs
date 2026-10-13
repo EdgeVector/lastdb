@@ -14,6 +14,14 @@ pub enum SyncError {
     #[error("network error: {0}")]
     Network(String),
 
+    /// A structured service refusal preserves its protocol code and retry hint.
+    #[error("cloud service refusal for {action}: {code} (retryable={retryable})")]
+    CloudServiceResponse {
+        action: String,
+        code: String,
+        retryable: bool,
+    },
+
     #[error("auth error: {0}")]
     Auth(String),
 

@@ -1,8 +1,13 @@
 # Fresh Local Cloud Backup
 
+CAUTION: This document describes the historical fresh-resume procedure. It does not describe the current primary sync repair.
+Use the [normal source-free restore](normal-cloud-restore.md) for a current cloud backup.
+Keep the current cloud backup and mutation log during an ordinary sync repair.
+
 This plan makes the current local database the source for a new cloud backup.
 The cloud backup reads the primary files without a second local database.
-The safe upgrade uses a test copy.
+The safe upgrade uses synthetic data in a fresh empty home. It never copies the primary database.
+The live upgrade requires a current cloud recovery point and the saved binary pair.
 The primary must run the new Mini code and the new storage service code.
 
 ## Cloud scope
@@ -31,7 +36,7 @@ CAUTION: Remote restore rejects a recovery home that contains database files.
 
 1. Keep Cloud Sync Off on the primary.
 2. Deploy the storage service with the fresh pointer condition before the Mini upgrade.
-3. Make a durable local backup and test the new Mini on a copy before the primary upgrade.
+3. Prove the new Mini on synthetic data through the safe upgrade procedure. Require its current cloud recovery point before the primary upgrade.
 4. Set the primary resume marker and restart the daemon under the safe upgrade procedure.
 5. Run `lastdb cloud resume-primary start --fresh-from-local`.
 6. Wait for the job status `verified_backup`.
@@ -74,7 +79,7 @@ The code validates these fields. It does not count every unreadable key.
 The fresh cut stops primary writes while it reads the local files.
 The file read can stop writes for more than 30 seconds on a large local store.
 Schedule a quiet period and measure the pause.
-The remote restore test uses the normal backup; it does not test B2 file blobs.
+The remote restore check uses the normal backup; it does not check B2 file blobs.
 The restored target has no sync engine. Its file blob fetch route reads local `cas_blobs`.
 It returns 404 when the file blob is absent locally because it cannot ask the cloud.
 This local read does not prove access to a file blob that exists only in B2.

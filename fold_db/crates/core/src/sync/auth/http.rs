@@ -291,9 +291,9 @@ impl AuthClient {
 
         let response = req.send().await.map_err(|e| {
             if e.is_timeout() {
-                SyncError::Network(format!("auth Lambda timeout: {e}"))
+                SyncError::Network(format!("cloud storage service timeout: {e}"))
             } else if e.is_connect() {
-                SyncError::Network(format!("auth Lambda unreachable: {e}"))
+                SyncError::Network(format!("cloud storage service unreachable: {e}"))
             } else {
                 SyncError::Network(e.to_string())
             }
@@ -339,7 +339,7 @@ impl AuthClient {
         }
 
         if status.is_server_error() {
-            // A 5xx from the auth Lambda is a SERVER-side transient (cold start,
+            // A 5xx from the storage service is a SERVER-side transient (cold start,
             // dependency blip, throttle) — NOT a credential problem. Classifying
             // it as `Auth` was wrong twice over: it drove the engine into the
             // credential-refresh path (churning a perfectly valid token), and
@@ -349,14 +349,13 @@ impl AuthClient {
             // and never touches the credential-refresh path.
             let body = response.text().await.unwrap_or_default();
             return Err(SyncError::Network(format!(
-                "auth Lambda error: HTTP {status}: {body}"
+                "cloud storage service error: HTTP {status}: {body}"
             )));
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| SyncError::Serialization(format!("invalid JSON from auth Lambda: {e}")))?;
+        let json: serde_json::Value = response.json().await.map_err(|e| {
+            SyncError::Serialization(format!("invalid JSON from cloud storage service: {e}"))
+        })?;
 
         crate::sync::upload_completion::register_response(self, &json)?;
         crate::sync::delete_completion::register_response(self, &json)?;

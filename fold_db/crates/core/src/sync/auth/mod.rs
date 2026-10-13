@@ -174,6 +174,7 @@ mod cloud_peer;
 mod cloud_share;
 mod completion_transport;
 mod continuation;
+mod failure;
 mod recipient_delivery;
 pub use recipient_delivery::{RecipientDeliveryBinding, RecipientDeliveryTarget};
 mod helpers;
