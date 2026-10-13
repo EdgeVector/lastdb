@@ -143,7 +143,7 @@ impl AtomStore {
     /// 120 seconds. Returning here makes each call either reclaim bytes or
     /// bank prologue progress, and prevents `gc scan mk` from consuming the
     /// remainder after a bounded prune page.
-    pub(super) async fn gc_orphan_atoms_with_roots_for_schema_at_cut(
+    pub(crate) async fn gc_orphan_atoms_with_roots_for_schema_at_cut(
         &self,
         dry_run: bool,
         storage_prefix: Option<&str>,
