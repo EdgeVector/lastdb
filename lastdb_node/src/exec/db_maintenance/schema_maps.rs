@@ -175,7 +175,7 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
     // Every change to a policy leaves a durable row, written before the change.
     let audit = match open_retention_audit(req, ctx, host, &body, &previous).await {
         Ok(audit) => audit,
-        Err(message) => return error_response(424, &message, ctx),
+        Err(message) => return error_response(503, &message, ctx),
     };
     let result = match body.action.as_str() {
         "get" => store.get_schema_retention_policy(&body.schema).await,
@@ -208,7 +208,7 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
         let closed = event.closed(error.as_deref().map_or(Ok(()), Err));
         if let Err(error) = crate::retention_audit::append(&host.home, &closed) {
             return error_response(
-                424,
+                503,
                 &format!("the audit row that closes the change failed: {error}"),
                 ctx,
             );

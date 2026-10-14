@@ -115,6 +115,12 @@ manifest name as an alias of the catalog schema, so a write through either name
 is tracked and expired under the same policy. `lastdb schema-retention get` on
 either name prints the same policy and the anchor.
 
+The catalog schema can carry other field names than your manifest: the Schema
+Service maps a field to its canonical name (a range field `tick` can come back
+as `stamp`). A write through the catalog name uses the catalog's field names. The
+sweep reads the key from the catalog schema, so the TTL does not depend on which
+names a writer used.
+
 When a re-declare binds the manifest name to a new catalog schema (the app added
 a field), the policy follows it: the policy, an operator override included, and
 the tracking move to the new anchor. A policy is never left on the old
