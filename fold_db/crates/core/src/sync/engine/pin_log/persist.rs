@@ -200,6 +200,7 @@ impl PinLog {
     pub(super) async fn read_pending_pin_log_records_paged(
         &self,
         target: &SyncTarget,
+        after_frontier: u64,
         // `Sync` so the returned future stays `Send` — this runs inside the
         // spawned sync-coordinator task.
         is_pending: &(dyn Fn(&PinLogRecord) -> bool + Sync),
@@ -226,7 +227,15 @@ impl PinLog {
             scan_complete: true,
             row_budget_exhausted: false,
         };
-        let mut cursor = prefix.clone();
+        // `after_frontier` is the flushed published-F cursor. Zero means the
+        // map is empty, so the range starts at the target prefix. A positive
+        // cursor starts strictly after that entry key. Rows at or below the
+        // cursor stay out of this read. The writer filter still runs in memory.
+        let mut cursor = if after_frontier == 0 {
+            prefix.clone()
+        } else {
+            key_after(&pin_log_entry_key(&target_id, after_frontier))
+        };
         let mut pending_bytes = 0usize;
 
         loop {

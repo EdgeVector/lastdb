@@ -15,6 +15,15 @@ pub(super) fn pin_log_entry_key(target_id: &str, frontier: u64) -> Vec<u8> {
     format!("{}{frontier:020}", pin_log_target_prefix(target_id)).into_bytes()
 }
 
+/// Lowest flushed published-F value.
+///
+/// The upload range starts after this frontier. One writer makes this the cut
+/// frontier from `incorporate_applied_frontier`. An empty map has no cursor,
+/// so the range starts at the target prefix. The writer filter stays in memory.
+pub(super) fn published_f_upload_cursor(published: &BTreeMap<String, u64>) -> u64 {
+    published.values().copied().min().unwrap_or(0)
+}
+
 pub(super) fn capture_marker_receipt_key(marker_key: &[u8]) -> Vec<u8> {
     format!("{CAPTURE_MARKER_RECEIPT_PREFIX}{}", sha256_hex(marker_key)).into_bytes()
 }
