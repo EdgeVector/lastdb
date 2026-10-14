@@ -16,9 +16,11 @@ use lastdb_node::atom_gc_reap::ReapPolicy;
 
 mod atom_gc;
 mod home;
+mod liveness;
 mod residue;
 
 use atom_gc::{atom_gc_audit, atom_gc_reap, AtomGcReapArgs};
+use liveness::{bootstrap_liveness, LivenessBootstrapArgs};
 use residue::{
     drain_plane, drain_tip_residue, index_plane_inventory, reclaim_index_residue,
     reclaim_keep_small_legacy, PlaneDrainArgs, ReclaimIndexResidueArgs, TipDrainArgs,
@@ -282,6 +284,29 @@ enum Cmd {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    /// Rebuild the molecule and blob liveness planes on a STOPPED home.
+    ///
+    /// Reads every schema, protein and atom, rewrites the derived edges, and
+    /// writes each completeness marker last. It replaces the copy-only
+    /// `lastdb liveness bootstrap --isolated-copy` route for a home that has no
+    /// copy: stop the daemon gracefully first, run this against the home, then
+    /// start the daemon again. It refuses in four cases: a daemon is alive, a
+    /// socket is open, the last session did not end cleanly with a flush
+    /// receipt, or another offline tool holds `data/maintenance.lock`.
+    ///
+    /// Run it with the daemon's launch environment (atom key encoding, at-rest
+    /// flags); the report lists what this process saw. Default is a dry run
+    /// that checks the home and opens nothing.
+    BootstrapLiveness {
+        /// Rebuild. Without this the command only checks that the home is
+        /// stopped, flushed and lockable.
+        #[arg(long)]
+        execute: bool,
+        #[arg(long)]
+        i_know_this_is_primary: bool,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 /// Decode optional plain/`--after-hex` resume cursors. Hex is required when the
@@ -460,6 +485,16 @@ fn run_report(home: &Path, cmd: Cmd) -> Result<(), String> {
                 reap_unreferenced_orphans,
             },
             detail_limit,
+            i_know_this_is_primary,
+            json,
+        }),
+        Cmd::BootstrapLiveness {
+            execute,
+            i_know_this_is_primary,
+            json,
+        } => bootstrap_liveness(&LivenessBootstrapArgs {
+            home,
+            execute,
             i_know_this_is_primary,
             json,
         }),

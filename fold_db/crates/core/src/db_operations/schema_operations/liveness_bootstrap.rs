@@ -1,4 +1,8 @@
-//! Isolated-copy rebuild of the molecule and blob liveness planes, plus the molecule-scoped row measurement it relies on.
+//! Rebuild of the molecule and blob liveness planes, plus the molecule-scoped row measurement it relies on.
+//!
+//! The rebuild clears every derived edge before it rewrites them, so no other writer may touch the home:
+//! run it on an isolated copy, or on a stopped home held by `maintenance.lock`
+//! (`lastdb_local_maintain bootstrap-liveness`).
 
 use super::super::core::DbOperations;
 use super::molecule_measure::measure_molecule_counter;
@@ -37,7 +41,8 @@ mod snapshot;
 use snapshot::{build_repaired_snapshot, MeasuredMolecules};
 
 impl DbOperations {
-    /// Rebuild `mref:v1` and `bref:v1` from canonical rows on an isolated copy.
+    /// Rebuild `mref:v1` and `bref:v1` from canonical rows on an isolated copy
+    /// or a stopped home. No other writer may touch the home while it runs.
     /// Completeness markers land last. A read or decode failure leaves the
     /// corresponding reclaim gate closed.
     pub async fn bootstrap_liveness_edges_on_isolated_copy(
