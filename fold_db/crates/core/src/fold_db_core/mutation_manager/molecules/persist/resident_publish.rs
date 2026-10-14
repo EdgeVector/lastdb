@@ -34,6 +34,7 @@ impl MutationManager {
                 logical_counter: entry.logical_counter,
                 device_id: entry.lww_device().to_string(),
                 mutation_uuid: entry.mutation_uuid.clone(),
+                origin_device: entry.origin_device.clone(),
                 key_metadata: data.get_key_metadata(api_hash, api_range).cloned(),
                 writer_pubkey: entry.writer_pubkey.clone(),
             };
@@ -65,6 +66,7 @@ impl MutationManager {
                     logical_counter: entry.logical_counter,
                     device_id: entry.lww_device().to_string(),
                     mutation_uuid: entry.mutation_uuid.clone(),
+                    origin_device: entry.origin_device.clone(),
                     key_metadata: data.get_key_metadata(api_hash, api_range).cloned(),
                     writer_pubkey: entry.writer_pubkey.clone(),
                 })

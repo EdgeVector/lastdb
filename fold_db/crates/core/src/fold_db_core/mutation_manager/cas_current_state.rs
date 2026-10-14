@@ -336,6 +336,7 @@ impl MutationManager {
                     tip.value.mutation_uuid,
                     String::new(),
                 )
+                .with_origin_device(tip.value.origin_device)
             });
         let durable_entry = if resident_entry.is_none() {
             let changed = std::collections::HashSet::from([changed_key.clone()]);

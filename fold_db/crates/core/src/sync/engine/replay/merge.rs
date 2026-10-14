@@ -139,6 +139,7 @@ impl SyncEngine {
             new_atom_uuid: conflict.winner_atom.clone(),
             kind: crate::atom::MutationEventKind::Transition,
             suppressed_by_delete: None,
+            suppressed_by_tip: None,
             source_order: None,
             version: 0,
             is_conflict: true,

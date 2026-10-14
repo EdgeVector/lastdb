@@ -205,6 +205,9 @@ pub struct ResidentTip {
     /// Stable mutation identity. Empty on legacy resident tips.
     #[serde(default)]
     pub mutation_uuid: String,
+    /// Sync device that wrote the tip. Empty when it is not known.
+    #[serde(default)]
+    pub origin_device: String,
     /// Metadata belongs to this key-to-atom association, not the shared atom.
     #[serde(default)]
     pub key_metadata: Option<crate::atom::KeyMetadata>,
@@ -234,6 +237,7 @@ impl ResidentTip {
                 + self.range.len()
                 + self.atom_uuid.len()
                 + self.device_id.len()
+                + self.origin_device.len()
                 + self.mutation_uuid.len()
                 + self.writer_pubkey.len()) as u64
             + self.key_metadata.as_ref().map_or(0, |meta| {

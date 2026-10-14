@@ -94,6 +94,8 @@ impl AtomStore {
             peer_apply_seen: Arc::default(),
             peer_apply_durable: Arc::default(),
             peer_apply_lock: Arc::default(),
+            local_origin_device: Arc::default(),
+            conflict_record_gate: Arc::default(),
             automatic_gc_atom_locks: Arc::new(
                 (0..256)
                     .map(|_| Arc::new(tokio::sync::Mutex::new(())))

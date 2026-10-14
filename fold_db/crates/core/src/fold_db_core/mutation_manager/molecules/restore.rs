@@ -300,4 +300,5 @@ fn atom_entry_from_resident_tip(tip: &crate::resident::ResidentTip) -> AtomEntry
         tip.mutation_uuid.clone(),
         String::new(),
     )
+    .with_origin_device(tip.origin_device.clone())
 }

@@ -15,6 +15,7 @@ impl MoleculeHashRange {
             atom_uuids: HashMap::new(),
             pending_tip_versions: Vec::new(),
             pending_replaced_tips: Vec::new(),
+            pending_tip_conflicts: Vec::new(),
             tip_history_enabled: false,
             updated_at: Utc::now(),
             order_is_tail: false,
@@ -39,6 +40,7 @@ impl MoleculeHashRange {
             atom_uuids: HashMap::new(),
             pending_tip_versions: Vec::new(),
             pending_replaced_tips: Vec::new(),
+            pending_tip_conflicts: Vec::new(),
             tip_history_enabled: false,
             updated_at: Utc::now(),
             order_is_tail: false,
@@ -108,6 +110,7 @@ impl MoleculeHashRange {
             key_metadata,
             pending_tip_versions: Vec::new(),
             pending_replaced_tips: Vec::new(),
+            pending_tip_conflicts: Vec::new(),
             tip_history_enabled: false,
         }
     }
@@ -143,6 +146,7 @@ impl MoleculeHashRange {
             key_metadata,
             pending_tip_versions: Vec::new(),
             pending_replaced_tips: Vec::new(),
+            pending_tip_conflicts: Vec::new(),
             tip_history_enabled: false,
         }
     }

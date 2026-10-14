@@ -169,12 +169,22 @@ no cleanup may remove those atoms. What protects them today:
   foreign checkpoint or marker set.
 - The manual orphan collectors already treat `conflict_loser_atom` as a root.
 
-What does not protect them: the logical replay path (`MutationIntent`, the path
-modern peers use) records no conflict on either side. A replayed write that
-loses to a different device's tip is dropped at the tip decision, and a write
-that displaces a local atom archives nothing (thin tips keep no `tv:` row). Both
-atoms are then ordinary zero-count candidates. The peer-apply interlock below
-keeps every deleter off such a node until replay records those writes.
+The logical replay path (`MutationIntent`, the path modern peers use) records
+a conflict at the tip decision (`conflict_record/`). A write that came from
+another sync device (`AtomEntry.origin_device`, set from the log entry's writer
+on replay) and replaces a different atom, or loses to the tip, leaves reverse
+edges (compact v2), a `history:` row (`Transition`, or `SuppressedPut` with
+`suppressed_by_tip`), a `conflict:` row, an `mcc:` entry and an `hcu:` event.
+They reach disk (flush) before the tip batch. The key of each row is a digest of
+the pair, so a replay of the same decision writes the same rows. A pair is
+skipped when both writes name the same device (one device wrote them in
+sequence), and a local write never needs a record.
+
+What still does not protect them: a conflict that a node applied before it ran
+a build with this recorder left no record. Its atoms are ordinary zero-count
+candidates. The peer-apply interlock below stays, and keeps every deleter off a
+node that applied a peer mutation, until a per-atom gate lets a node delete
+only the atoms that lost after the recorder started.
 
 ### Peer-apply interlock
 

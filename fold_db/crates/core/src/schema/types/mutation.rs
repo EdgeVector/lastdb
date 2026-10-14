@@ -52,6 +52,12 @@ pub struct Mutation {
     /// API input cannot forge this internal import marker.
     #[serde(skip)]
     pub(crate) replayed_source_mutation_uuid: Option<String>,
+    /// Sync device that wrote this mutation: this node's sync device id for a
+    /// local write, the log writer for a replayed one. Empty when unknown.
+    /// Internal and never on the wire: API input cannot forge it, and it is
+    /// not part of [`Self::content_hash`].
+    #[serde(skip)]
+    pub(crate) origin_device: String,
     /// Durable per-device logical author counter. Legacy mutations use zero.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub logical_counter: u64,
@@ -136,6 +142,7 @@ impl Mutation {
             provenance: None,
             imported_written_at: None,
             replayed_source_mutation_uuid: None,
+            origin_device: String::new(),
             logical_counter: 0,
             author_clock_writer_id: String::new(),
             author_clock_signature: String::new(),

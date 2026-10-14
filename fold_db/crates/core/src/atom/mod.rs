@@ -22,7 +22,9 @@ pub use content_at_rest::{
     reseal_atom_json_if_plain, seal_atom_binary_row, seal_atom_json, seal_content_value,
     ATOM_BINARY_ROW_PREFIX,
 };
-pub use molecule_hash_range::MoleculeHashRange;
+pub use molecule_hash_range::{
+    ImportedTip, MoleculeHashRange, PendingTipConflict, TipAuthor, TipConflictKind,
+};
 pub use molecule_key_codec::{
     HashKeyEncoding, MoleculeKeyCodec, MoleculeKeyCodecError, RangeKeyEncoding,
 };
@@ -32,6 +34,7 @@ pub use molecule_uuid::{
 };
 pub use mutation_event::{
     FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,
+    SuppressedByTip,
 };
 pub use provenance::{MoleculeRef, Provenance};
 pub use size_limit::{
@@ -138,6 +141,14 @@ pub struct AtomEntry {
     /// (typically the writer's public key base64). Empty on pre-thin tips.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub device_id: String,
+    /// Sync device that wrote this tip (the sync `writer_id` of its log
+    /// stream). Not part of the LWW order: `device_id` above is the owner key,
+    /// which own devices share. Empty means "in doubt": an old tip, a write
+    /// made before the node had a sync device id, or an import path that does
+    /// not know the writer. An old binary ignores this field and drops it the
+    /// next time it rewrites the tip.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub origin_device: String,
     /// Id of the previous tip version at this slot (`tv:{id}`). Empty on first
     /// write. Walk this chain for real per-slot history / `as_of`.
     ///
@@ -177,6 +188,7 @@ impl AtomEntry {
             signature_version: 0,
             provenance: None,
             device_id,
+            origin_device: String::new(),
             prev_tip_id,
         }
     }
@@ -201,8 +213,16 @@ impl AtomEntry {
             signature_version: 0,
             provenance: None,
             device_id,
+            origin_device: String::new(),
             prev_tip_id,
         }
+    }
+
+    /// Return this entry with the sync device that wrote it.
+    #[must_use]
+    pub fn with_origin_device(mut self, origin_device: String) -> Self {
+        self.origin_device = origin_device;
+        self
     }
 
     /// True when this entry has no per-tip crypto payload (thin format).
@@ -232,6 +252,7 @@ impl AtomEntry {
             self.mutation_uuid.clone(),
             self.prev_tip_id.clone(),
         )
+        .with_origin_device(self.origin_device.clone())
     }
 
     /// Device key used for LWW: explicit `device_id`, else legacy `writer_pubkey`.

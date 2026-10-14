@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::atom::{Atom, MutationEvent};
+use crate::atom::{Atom, MutationEvent, TipAuthor};
 use crate::db_operations::ChangedKey;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
@@ -65,6 +65,7 @@ impl MutationManager {
                     logical_counter: mutation.logical_counter,
                     author_clock_writer_id: mutation.author_clock_writer_id.clone(),
                     mutation_uuid: mutation.uuid.clone(),
+                    origin_device: mutation.origin_device.clone(),
                     imported_version: mutation.imported_version,
                 },
             );
@@ -121,7 +122,7 @@ impl MutationManager {
         crate::db_operations::MoleculeData,
         HashSet<ChangedKey>,
     )> {
-        use crate::atom::{AtomEntry, MoleculeHashRange};
+        use crate::atom::{AtomEntry, ImportedTip, MoleculeHashRange};
 
         if schema
             .runtime_fields
@@ -167,6 +168,7 @@ impl MutationManager {
                             tip.mutation_uuid,
                             String::new(),
                         )
+                        .with_origin_device(tip.origin_device)
                     })
             });
 
@@ -181,14 +183,17 @@ impl MutationManager {
                 rebased.set_atom_uuid_from_values_imported_with_author(
                     hash.clone(),
                     range.clone(),
-                    proposed.atom_uuid.clone(),
-                    proposed.lww_device().to_string(),
-                    proposed.writer_pubkey.clone(),
-                    proposed.signature.clone(),
-                    proposed.signature_version,
-                    Some(proposed.written_at),
-                    proposed.logical_counter,
-                    proposed.mutation_uuid.clone(),
+                    ImportedTip {
+                        atom_uuid: proposed.atom_uuid.clone(),
+                        device_id: proposed.lww_device().to_string(),
+                        origin_device: proposed.origin_device.clone(),
+                        writer_pubkey: proposed.writer_pubkey.clone(),
+                        signature: proposed.signature.clone(),
+                        signature_version: proposed.signature_version,
+                        written_at: Some(proposed.written_at),
+                        logical_counter: proposed.logical_counter,
+                        mutation_uuid: proposed.mutation_uuid.clone(),
+                    },
                 );
                 rebased
             } else {
@@ -372,8 +377,8 @@ fn sibling_key_fields(
     fields
 }
 
-/// The imported author clock `(written_at, counter, writer, uuid)` of a mutation.
-fn mutation_author_clock(mutation: &Mutation) -> Option<(u64, u64, String, String)> {
+/// The imported author clock of a mutation, with the sync device that wrote it.
+fn mutation_author_clock(mutation: &Mutation) -> Option<TipAuthor> {
     mutation.imported_written_at.map(|written_at| {
         let device_id = if mutation.author_clock_writer_id.is_empty() {
             match &mutation.provenance {
@@ -383,11 +388,12 @@ fn mutation_author_clock(mutation: &Mutation) -> Option<(u64, u64, String, Strin
         } else {
             mutation.author_clock_writer_id.clone()
         };
-        (
+        TipAuthor {
             written_at,
-            mutation.logical_counter,
+            logical_counter: mutation.logical_counter,
             device_id,
-            mutation.uuid.clone(),
-        )
+            mutation_uuid: mutation.uuid.clone(),
+            origin_device: mutation.origin_device.clone(),
+        }
     })
 }

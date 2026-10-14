@@ -44,6 +44,10 @@ pub struct MutationEvent {
     /// The Delete that kept this imported Put out of the tip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suppressed_by_delete: Option<SuppressedByDelete>,
+    /// The tip that kept this imported Put out of the tip: the replayed write
+    /// lost last-writer-wins to the tip that this node already held.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suppressed_by_tip: Option<SuppressedByTip>,
 }
 
 /// Old history rows are tip transitions. A suppressed Put keeps its atom,
@@ -62,6 +66,9 @@ pub struct SourceMutationOrder {
     pub logical_counter: u64,
     pub device_id: String,
     pub mutation_uuid: String,
+    /// Sync device that wrote the source Put. Empty when it is not known.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub origin_device: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +78,19 @@ pub struct SuppressedByDelete {
     pub logical_counter: u64,
     pub device_id: String,
     pub mutation_uuid: String,
+}
+
+/// The tip that won against a replayed Put (see `suppressed_by_tip`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SuppressedByTip {
+    pub atom_uuid: String,
+    pub written_at: u64,
+    pub logical_counter: u64,
+    pub device_id: String,
+    pub mutation_uuid: String,
+    /// Sync device that wrote the winning tip. Empty when it is not known.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub origin_device: String,
 }
 
 /// Identifies which slot in the molecule was changed.

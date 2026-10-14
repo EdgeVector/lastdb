@@ -241,6 +241,7 @@ impl MutationManager {
             })?
             .try_reserve(schema)?;
         let local_writer_id = self.signer.public_key_base64();
+        let local_origin_device = self.db_ops.atoms().local_origin_device();
         let mut resident_state = self
             .author_clock_state
             .lock()
@@ -279,6 +280,7 @@ impl MutationManager {
             mutation.imported_written_at = Some(written_at);
             mutation.logical_counter = logical_counter;
             mutation.author_clock_writer_id = local_writer_id.clone();
+            mutation.origin_device = local_origin_device.clone();
             mutation.author_clock_signature_version =
                 crate::schema::types::MUTATION_AUTHOR_SIGNATURE_VERSION;
             mutation.author_clock_signature =

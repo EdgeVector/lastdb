@@ -174,6 +174,7 @@ impl HashRangeQueryProcessor {
                         logical_counter: rec.entry.logical_counter,
                         device_id: rec.entry.lww_device().to_string(),
                         mutation_uuid: rec.entry.mutation_uuid.clone(),
+                        origin_device: rec.entry.origin_device.clone(),
                         key_metadata: rec.meta.clone(),
                         writer_pubkey: rec.entry.writer_pubkey.clone(),
                     },
