@@ -105,7 +105,7 @@ impl PinLog {
 
         // The meter runs after the flush. A confirm failure does not roll
         // back published-F and does not fail this publish.
-        for unit in sealed_units.iter() {
+        for unit in &sealed_units {
             engine.meter_uploaded_log_segments(target, unit).await;
         }
 
