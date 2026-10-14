@@ -30,7 +30,9 @@ Both are plaintext record lengths, so the ratio holds under at-rest sealing
 and compression. The counters are exact for a resident group (maintained on
 every index change and every delete-marker append), rebuilt exactly by the
 segment scan when a group loads, and persisted in the group's id sidecar
-(`keys-v1.idx`, framing `LSKI3`) on eviction and at shutdown. A v2 sidecar
+(`keys-v1.idx`, framing `LSKI3`) on eviction and at shutdown, with no forced
+disk write for a group under half the cold-load cap, so a power loss can lose
+it (a lost sidecar reads as unknown bytes, never as dead). A v2 sidecar
 (`LSKI2`) still answers ids; it is rewritten with residue on the next persist.
 
 `LastStore::collection_residue` sums the plane without loading a cold group:

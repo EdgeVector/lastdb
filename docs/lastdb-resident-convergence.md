@@ -358,3 +358,22 @@ pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
   `docs/lastdb-write-ahead-journal-design.md` written. Built since the warm set
   design: store fsync gauges (#160), fewer groups per write (#167), GC reaper
   re-arm and hardening (#169, #170), persist cut for the manual GC verb (#171).
+- 2026-10-14, sidecar flush rule: the key sidecar (`keys-v1.idx`) keeps its write
+  aside and rename. The forced disk write before the rename now happens only for a
+  group of half the cold-load cap or more (1 GiB by default). Proof on fresh
+  synthetic homes in write mode: main at 2d0ffbf0 against the same commit plus the
+  change, 3 interleaved rounds of 200 creates. The machine load average was 16 to
+  45, so the times are noisy and the counts are exact. Sidecar fsyncs 1554, 1548,
+  1551 became 0, 0, 0. Data fsyncs did not change (4445, 4412, 4423 against 4443,
+  4477, 4421). Fsync time 105, 88, 84 s became 66, 56, 71 s. Time until the lane was
+  empty 202, 130, 170 s became 119, 90, 145 s. Drill: 30 hashes, a kill -9 and a
+  graceful stop, each followed by a restart and a range list of every hash. The id
+  sets match the baseline exactly in both cases, the node still reads sidecars after
+  the restart, and the logs have no panic or checksum line. Bars on the new binary,
+  3 modes, 2 runs each: every read-after-ack cell GREEN, `deferred_persist_failed`
+  0, write p50 30 ms. NOT proven: power loss. No drill can show it. Open points:
+  whether APFS can persist the rename before the file bytes (a bad file fails the
+  checksum and the node loads the group), and whether the old sidecar flush also
+  made a new plain-mode group directory entry durable (plain mode does not sync new
+  group directories). A group that is under the floor at its last sidecar write and
+  later grows past it can lose that sidecar in a power cut.

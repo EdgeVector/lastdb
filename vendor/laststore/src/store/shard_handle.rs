@@ -120,11 +120,11 @@ impl LastStore {
         }
         // Carry what the group's existing sidecar already claims into the fresh
         // handle. Without this a handle starts with no idea what is on disk, so
-        // the eviction below rewrites a byte-identical sidecar — fsync and all —
-        // every time a group cycles through the warm set. Under a scan that
-        // overflows the warm budget that is the dominant cost of the read:
-        // measured on the primary, a single `list` rewrote sidecars at ~51/s
-        // with a 0% content-change rate.
+        // the eviction below rewrites a byte-identical sidecar (the flush too,
+        // for a big group) every time a group cycles through the warm set.
+        // Under a scan that overflows the warm budget that is the dominant
+        // cost of the read: measured on the primary, a single `list` rewrote
+        // sidecars at ~51/s with a 0% content-change rate.
         if group.is_some() && self.sidecar_enabled() {
             loaded.sidecar_stamps = keysidecar::recorded_stamps(&loaded.dir);
         }
