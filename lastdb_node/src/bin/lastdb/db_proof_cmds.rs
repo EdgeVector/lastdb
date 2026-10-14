@@ -3,11 +3,12 @@
 use super::*;
 
 /// Dispatch the hidden proof verbs. The daemon enforces every guard; this
-/// side only resolves the directory to an absolute path.
+/// side only makes the directory path absolute.
 pub(super) fn db_proof_command(socket: &Path, action: DbProofCommand) -> Result<(), String> {
     match action {
         DbProofCommand::ExportMutationLog { to, json } => {
-            std::fs::create_dir_all(&to).map_err(|e| format!("create {}: {e}", to.display()))?;
+            // The daemon checks the path and creates the directory. The CLI
+            // must not create anything: a refused path must leave no trace.
             let dir = absolute_dir(&to)?;
             let value = db_post_json(
                 socket,
@@ -28,9 +29,11 @@ pub(super) fn db_proof_command(socket: &Path, action: DbProofCommand) -> Result<
     }
 }
 
+/// Make the path absolute without touching the file system. The daemon
+/// refuses a symlink or a `..` component, so the CLI must not resolve them.
 fn absolute_dir(path: &Path) -> Result<String, String> {
-    std::fs::canonicalize(path)
-        .map_err(|e| format!("resolve {}: {e}", path.display()))?
+    std::path::absolute(path)
+        .map_err(|e| format!("make {} absolute: {e}", path.display()))?
         .to_str()
         .map(str::to_string)
         .ok_or_else(|| "directory path is not UTF-8".to_string())

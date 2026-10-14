@@ -15,12 +15,20 @@
 //!
 //! 1. The daemon was started with `LASTDB_PROOF_REPLAY=1` in its environment.
 //! 2. The home holds a regular file `.synthetic-home` that the operator made.
-//! 3. The home is not `~/.lastdb` or `~/.folddb`, nor a symlink target of
-//!    either, nor inside one, nor above one.
-//! 4. The home has no cloud sync configuration (`cloud_sync.json`, its paused
+//! 3. The home, its `data` directory and its `identity.key` are not symlinks,
+//!    and no entry directly inside `data` is a symlink.
+//! 4. By file identity (device and inode, see [`primary`]), the home and its
+//!    `data` directory are not a primary home (`~/.lastdb`, `~/.folddb`, as
+//!    written or resolved, under `$HOME` and under the OS account home), do
+//!    not sit inside one, and do not hold one.
+//! 5. The home has no cloud sync configuration (`cloud_sync.json`, its paused
 //!    form, or a cloud resume marker).
-//! 5. The daemon booted with the local proof engine. The engine is only built
-//!    when 1 to 4 hold at boot, so the verbs cannot run on a cloud engine.
+//! 6. The daemon booted with the local proof engine. The engine is only built
+//!    when 1 to 5 hold at boot, so the verbs cannot run on a cloud engine.
+//!
+//! What the guard does not cover: a real-data home that is not a primary
+//! candidate. For such a home the marker is the only protection, so never
+//! create the marker in a home that holds real data.
 //!
 //! The verbs exist only on the owner socket. Every use logs at WARN.
 
@@ -29,95 +37,53 @@ use std::sync::Arc;
 
 use crate::host::Host;
 
+mod primary;
+
 /// Environment variable that arms the proof tooling on a daemon.
 pub const PROOF_REPLAY_ENV: &str = "LASTDB_PROOF_REPLAY";
 /// File the operator creates in a synthetic home to allow the proof tooling.
 pub const SYNTHETIC_HOME_MARKER: &str = ".synthetic-home";
 
-/// Default primary home paths, as `$HOME`-relative names.
-const PRIMARY_HOME_NAMES: [&str; 2] = [".lastdb", ".folddb"];
-
-/// The home directory the OS account database names for this user.
-///
-/// `$HOME` can be rewritten per process. The account database cannot, so a
-/// daemon started with a fake `$HOME` still cannot hide the real primary.
-fn os_account_home() -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStrExt as _;
-
-    let mut account = std::mem::MaybeUninit::<libc::passwd>::uninit();
-    let mut buffer = vec![0_u8; 16_384];
-    let mut result = std::ptr::null_mut();
-    // SAFETY: `getpwuid_r` fills `account` and `buffer` and sets `result`;
-    // `account` is read only after a zero return and a non-null `result`.
-    let owner = unsafe { libc::geteuid() };
-    let rc = unsafe {
-        libc::getpwuid_r(
-            owner,
-            account.as_mut_ptr(),
-            buffer.as_mut_ptr().cast(),
-            buffer.len(),
-            &mut result,
-        )
-    };
-    if rc != 0 || result.is_null() {
-        return None;
+/// Refuse a path that is not a real directory (a symlink or a file).
+fn require_real_dir(path: &Path, what: &str) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_dir() => Ok(()),
+        Ok(_) => Err(format!(
+            "{what} is not a real directory (a symlink or a file)"
+        )),
+        Err(error) => Err(format!("cannot inspect {what}: {error}")),
     }
-    // SAFETY: the call above succeeded, so `account` is initialized and
-    // `pw_dir` points into `buffer`, which is still alive here.
-    let account = unsafe { account.assume_init() };
-    if account.pw_dir.is_null() {
-        return None;
-    }
-    let dir = unsafe { std::ffi::CStr::from_ptr(account.pw_dir) };
-    let path = PathBuf::from(std::ffi::OsStr::from_bytes(dir.to_bytes()));
-    path.is_absolute().then_some(path)
 }
 
-/// User home directories to guard: `$HOME` and the OS account home.
-fn user_homes() -> Vec<PathBuf> {
-    let from_env = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute());
-    let mut homes: Vec<PathBuf> = from_env.into_iter().chain(os_account_home()).collect();
-    homes.dedup();
-    homes
-}
-
-/// Every path that names a primary home, as written and fully resolved.
-/// `None` when no user home is known: the caller must then refuse.
-fn primary_home_paths() -> Option<Vec<PathBuf>> {
-    let homes = user_homes();
-    if homes.is_empty() {
-        return None;
-    }
-    let mut paths = Vec::new();
-    for user in homes {
-        for name in PRIMARY_HOME_NAMES {
-            let path = user.join(name);
-            if let Ok(resolved) = std::fs::canonicalize(&path) {
-                paths.push(resolved);
+/// Refuse a home whose files can lead outside it: the home, `data` and
+/// `identity.key` must not be symlinks, and no entry directly inside `data`
+/// may be one. A missing `data` or `identity.key` is a fresh home.
+fn require_plain_layout(home: &Path) -> Result<(), String> {
+    require_real_dir(home, "the home")?;
+    let data = home.join("data");
+    match std::fs::symlink_metadata(&data) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        _ => {
+            require_real_dir(&data, "<home>/data")?;
+            let entries = std::fs::read_dir(&data)
+                .map_err(|error| format!("cannot read <home>/data: {error}"))?;
+            for entry in entries {
+                let entry = entry.map_err(|error| format!("cannot read <home>/data: {error}"))?;
+                let is_link = entry.file_type().is_ok_and(|kind| kind.is_symlink());
+                if is_link {
+                    return Err("an entry inside <home>/data is a symlink".to_string());
+                }
             }
-            paths.push(path);
         }
     }
-    Some(paths)
+    let seed = home.join("identity.key");
+    if std::fs::symlink_metadata(&seed).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err("<home>/identity.key is a symlink".to_string());
+    }
+    Ok(())
 }
 
-/// True when `candidate` is a primary home, sits inside one, or holds one.
-/// Fails closed: an unknown `$HOME` counts as touching a primary home.
-fn touches_primary_home(candidate: &Path) -> bool {
-    let resolved = std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
-    let Some(primaries) = primary_home_paths() else {
-        return true;
-    };
-    primaries.iter().any(|primary| {
-        [candidate, resolved.as_path()].iter().any(|path| {
-            path.starts_with(primary) || primary.starts_with(path) || *path == primary.as_path()
-        })
-    })
-}
-
-/// Check every static condition for `home`. Conditions 1 to 4 of the module
+/// Check every static condition for `home`. Conditions 1 to 5 of the module
 /// doc. Returns the first reason the proof tooling must refuse.
 pub fn check_home(home: &Path) -> Result<(), String> {
     if std::env::var(PROOF_REPLAY_ENV).as_deref() != Ok("1") {
@@ -136,10 +102,12 @@ pub fn check_home(home: &Path) -> Result<(), String> {
             "the home has no regular file {SYNTHETIC_HOME_MARKER} (the operator must create it)"
         ));
     }
-    if touches_primary_home(home) {
-        return Err(
-            "the home is, or overlaps, a primary home (~/.lastdb or ~/.folddb)".to_string(),
-        );
+    require_plain_layout(home)?;
+    let primary_error = "the home is, or overlaps, a primary home (~/.lastdb or ~/.folddb)";
+    for path in [home.to_path_buf(), home.join("data")] {
+        if primary::overlaps_primary(&path)? {
+            return Err(primary_error.to_string());
+        }
     }
     if crate::cloud::cloud_sync_file_state(home) != "unset"
         || crate::cloud::cloud_resume_required_path(home).exists()
@@ -211,28 +179,54 @@ pub fn authorize(host: &Host, verb: &str) -> Result<Arc<fold_db::sync::SyncEngin
     Ok(engine)
 }
 
+/// The longest existing ancestor of `path` (the path itself when it exists).
+fn nearest_existing(path: &Path) -> PathBuf {
+    path.ancestors()
+        .find(|ancestor| ancestor.exists())
+        .map_or_else(|| PathBuf::from("/"), Path::to_path_buf)
+}
+
 /// Validate the directory argument of a proof verb.
 ///
-/// The directory must be absolute, must exist for a replay, and must not
-/// touch a primary home. Returns the resolved path.
+/// The directory must be absolute and plain: no `..` component and no symlink
+/// as its last component. A replay needs it to exist. It must not touch a
+/// primary home, and an export checks that BEFORE it creates anything.
+/// Returns the resolved path.
 pub fn resolve_directory(raw: &str, must_exist: bool) -> Result<PathBuf, Refusal> {
     let path = PathBuf::from(raw);
     if !path.is_absolute() {
         return Err(Refusal("the directory path must be absolute".to_string()));
     }
-    if must_exist && !path.is_dir() {
-        return Err(Refusal(format!("{} is not a directory", path.display())));
+    if path
+        .components()
+        .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err(Refusal("the directory path has a .. component".to_string()));
     }
-    if !must_exist {
+    if std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(Refusal("the directory is a symlink".to_string()));
+    }
+    let overlap = Refusal("the directory is, or overlaps, a primary home".to_string());
+    if must_exist {
+        if !path.is_dir() {
+            return Err(Refusal(format!("{} is not a directory", path.display())));
+        }
+    } else {
+        // A new directory sits below its nearest existing ancestor, so only
+        // "inside a primary home" can hold. Check before any create.
+        let existing = nearest_existing(&path);
+        if primary::inside_primary(&existing).map_err(Refusal)? {
+            return Err(overlap);
+        }
         std::fs::create_dir_all(&path)
             .map_err(|e| Refusal(format!("create {}: {e}", path.display())))?;
     }
     let resolved = std::fs::canonicalize(&path)
         .map_err(|e| Refusal(format!("resolve {}: {e}", path.display())))?;
-    if touches_primary_home(&resolved) {
-        return Err(Refusal(
-            "the directory is, or overlaps, a primary home".to_string(),
-        ));
+    if primary::overlaps_primary(&path).map_err(Refusal)?
+        || primary::overlaps_primary(&resolved).map_err(Refusal)?
+    {
+        return Err(overlap);
     }
     Ok(resolved)
 }

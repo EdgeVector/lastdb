@@ -59,19 +59,60 @@ pub(in crate::sync::engine) fn validated_relative_key(key: &str) -> Result<&str,
     Ok(key)
 }
 
+/// Refuse a path that is not a plain directory. Create a missing one when
+/// `create` is set. A symlink is never followed and never accepted.
+fn ensure_plain_dir(path: &Path, create: bool) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_dir() => Ok(()),
+        Ok(meta) if meta.file_type().is_symlink() => Err(format!(
+            "refusing a symlink on the sink path: {}",
+            path.display()
+        )),
+        Ok(_) => Err(format!("not a directory: {}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && create => {
+            std::fs::create_dir(path)
+                .map_err(|e| format!("create segment directory {}: {e}", path.display()))
+        }
+        Err(error) => Err(format!("cannot inspect {}: {error}", path.display())),
+    }
+}
+
 /// Write one sealed segment under `dir` at its object key, atomically.
+///
+/// Every directory below `dir` is checked one component at a time and a
+/// symlink anywhere is refused, so a planted link cannot send the file out of
+/// the sink. `dir` itself must already be a plain directory.
 fn write_segment_file(dir: &Path, segment: &MutationLogSegment) -> Result<u64, String> {
     use std::io::Write as _;
 
     let key = validated_relative_key(&segment.segment.object_key)?;
-    let path = dir.join(key);
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("mutation-log object key has no parent: {key}"))?;
-    std::fs::create_dir_all(parent)
-        .map_err(|e| format!("create segment directory {}: {e}", parent.display()))?;
-    let tmp = path.with_extension("enc.part");
-    let mut file = std::fs::File::create(&tmp)
+    ensure_plain_dir(dir, false)?;
+    let mut parts: Vec<&str> = key.split('/').collect();
+    let file_name = parts
+        .pop()
+        .ok_or_else(|| format!("mutation-log object key has no file name: {key}"))?;
+    let mut parent = dir.to_path_buf();
+    for part in parts {
+        parent.push(part);
+        ensure_plain_dir(&parent, true)?;
+    }
+    let path = parent.join(file_name);
+    if let Ok(meta) = std::fs::symlink_metadata(&path) {
+        if !meta.file_type().is_file() {
+            return Err(format!("not a regular file: {}", path.display()));
+        }
+    }
+    let tmp = parent.join(format!("{file_name}.part"));
+    match std::fs::remove_file(&tmp) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("clear stale {}: {error}", tmp.display())),
+    }
+    // `create_new` fails on any existing entry, a symlink included.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
         .map_err(|e| format!("create segment file {}: {e}", tmp.display()))?;
     file.write_all(&segment.payload)
         .and_then(|()| file.sync_all())
@@ -99,6 +140,7 @@ impl PinLog {
         if !engine.cloud_plane_allows_upload().await {
             return Err("the sync engine is paused; export refused".to_string());
         }
+        ensure_plain_dir(dir, false)?;
         let mut export = MutationLogDirectoryExport::default();
         for _ in 0..EXPORT_MAX_PAGES {
             let report = self.run_directory_export_cycle(engine, dir).await?;

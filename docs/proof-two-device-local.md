@@ -43,21 +43,48 @@ The daemon refuses unless every condition holds:
 
 1. The daemon environment has `LASTDB_PROOF_REPLAY=1`.
 2. The home holds a regular file named `.synthetic-home`. You create it.
-3. The home is not `~/.lastdb` or `~/.folddb`, a symlink target of either, a
-   path inside one, or a path above one. The check also uses the home that the
-   operating system account database names, so a changed `$HOME` does not hide
-   the real home.
-4. The home has no cloud configuration (`cloud_sync.json` or its paused form).
-5. The daemon booted with the local proof engine. That engine is built only
-   when conditions 1 to 4 hold at boot. It is a sync engine that captures
+3. The home, its `data` directory and its `identity.key` are not symlinks, and
+   no entry directly inside `data` is a symlink.
+4. By file identity (device and inode), the home and its `data` directory are
+   not a primary home, do not sit inside one, and do not hold one. A primary
+   home is `.lastdb` or `.folddb` under `$HOME` and under the home that the
+   operating system account database names (`getpwuid`), each as written and
+   after symlinks. The check compares identities, not path strings, so an alias
+   of the same directory (a symlink, or a macOS firmlink spelling) is refused.
+   A changed `$HOME` does not hide the real home. With no known user home the
+   guard refuses.
+5. The home has no cloud configuration (`cloud_sync.json` or its paused form).
+6. The daemon booted with the local proof engine. That engine is built only
+   when conditions 1 to 5 hold at boot. It is a sync engine that captures
    writes and replays segments, with an unresolvable `.invalid` address and an
    HTTPS-only client, so no call can leave the machine.
 
 If the variable is set but the guard fails at boot, the daemon boots as a
 normal local-only node and logs the refusal. It never fails boot.
 
-Each verb checks conditions 1 to 4 again on every call. Every use logs a WARN
+Each verb checks conditions 1 to 5 again on every call. Every use logs a WARN
 line. The boot logs `PROOF TOOLING ARMED`.
+
+The directory argument of a verb must be an absolute path with no `..`
+component, and its last component must not be a symlink. A directory that is,
+sits inside, or holds a primary home is refused. An export makes this check
+before it creates anything. The export writes only below the directory it is
+given and refuses a symlink on any component below it. The replay refuses a
+symlinked `log` entry or segment file, a segment file larger than a cloud
+download accepts (the engine's `max_download_entry_bytes`, plus 1 MiB), more
+than 10,000 segment files, and more than 512 MiB in one call.
+
+### What the guard does not cover
+
+CAUTION: The guard knows only the primary candidates above. Any other home
+that holds real data (a home that was moved or saved aside, a copy, a home at a custom path) is
+protected by the marker alone. Never create `.synthetic-home` in a home that
+holds real data, and never set `LASTDB_PROOF_REPLAY=1` for a daemon that
+serves one.
+
+The guard also does not stop an operator who has the owner socket from
+arming a home on purpose. The owner socket already gives full control of the
+home.
 
 The daemon with the proof engine shuts down in the local-only mode (no final
 cloud sync), because it has no cloud.
