@@ -1,5 +1,6 @@
 // lint:file-size-ok verbatim move from store.rs; splitting this file further is separate work
 use super::*;
+use crate::read_receipt_io::fs;
 
 impl LastStore {
     pub(super) fn shard_name(&self, shard: u16) -> String {
@@ -32,7 +33,7 @@ impl LastStore {
     pub(super) fn shards_on_disk(&self, collection: &str) -> Result<Vec<u16>> {
         let dir = self.root.join("data").join(collection);
         let mut out = Vec::new();
-        if !dir.exists() {
+        if !crate::read_receipt_io::exists(&dir) {
             return Ok(out);
         }
         for e in fs::read_dir(dir)? {
@@ -407,7 +408,7 @@ impl LastStore {
     pub(super) fn hash_groups_on_disk(&self, collection: &str) -> Result<Vec<(u16, Option<u32>)>> {
         let mut out = Vec::new();
         let collection_dir = self.root.join("data").join(collection);
-        if !collection_dir.exists() {
+        if !crate::read_receipt_io::exists(&collection_dir) {
             return Ok(out);
         }
         for shard_entry in fs::read_dir(collection_dir)? {
@@ -420,7 +421,7 @@ impl LastStore {
                 continue;
             };
             let groups_dir = shard_entry.path().join("g");
-            if !groups_dir.exists() {
+            if !crate::read_receipt_io::exists(&groups_dir) {
                 continue;
             }
             for group_entry in fs::read_dir(groups_dir)? {

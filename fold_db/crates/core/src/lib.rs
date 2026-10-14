@@ -65,6 +65,7 @@ pub mod memory_budget;
 pub mod mini_cutover;
 #[cfg(unix)]
 pub mod process_cpu;
+pub mod read_receipts;
 pub mod request_phases;
 pub mod schema;
 pub mod security;

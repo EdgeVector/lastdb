@@ -2,12 +2,13 @@ use super::*;
 
 pub(crate) fn apply_durable_through(store: &LastStore, set: &Mutex<LogicalResidentSet>) {
     let seal = DurabilityToken::new(store.durable_through().as_u64());
-    set.lock().expect("poison").apply_durable_through(seal);
+    crate::read_receipts::lock(set).apply_durable_through(seal);
     publish_loader_measurements(store, set);
 }
 
 /// Count one point read the set served from memory.
 pub(in super::super) fn note_point_hit(guard: &LogicalResidentSet) {
+    laststore::record_logical_warm_hits(1);
     if let Some(metrics) = guard.metrics() {
         metrics.record_point_hit();
     }
@@ -20,7 +21,8 @@ pub(in super::super) fn timed_load<T>(
     misses: u64,
     load: impl FnOnce() -> T,
 ) -> T {
-    let metrics = set.lock().expect("poison").metrics().cloned();
+    laststore::record_logical_warm_misses(misses);
+    let metrics = crate::read_receipts::lock(set).metrics().cloned();
     let started = std::time::Instant::now();
     let out = load();
     if let Some(metrics) = metrics {
@@ -34,7 +36,7 @@ pub(in super::super) fn timed_load<T>(
 
 /// Publish pin occupancy. Call after a pin opens, a pin is reaped, and flush.
 pub(super) fn publish_loader_measurements(store: &LastStore, set: &Mutex<LogicalResidentSet>) {
-    let metrics = set.lock().expect("poison").metrics().cloned();
+    let metrics = crate::read_receipts::lock(set).metrics().cloned();
     let Some(metrics) = metrics else {
         return;
     };
@@ -44,7 +46,7 @@ pub(super) fn publish_loader_measurements(store: &LastStore, set: &Mutex<Logical
 /// Hit the warm set with plaintext already admitted (encrypting layer).
 pub(crate) fn lookup_plaintext(set: &Mutex<LogicalResidentSet>, key: &[u8]) -> ResidentLookup {
     let id = LastStoreKvStore::encode_key(key);
-    let mut guard = set.lock().expect("poison");
+    let mut guard = crate::read_receipts::lock(set);
     if let Some(coords) = parse_tip_coords(&id) {
         if guard.has_tombstone(coords.molecule, &coords.hash, &coords.range) {
             return ResidentLookup::Absent;
@@ -84,7 +86,7 @@ pub(crate) fn body_digest(bytes: &[u8]) -> u64 {
 /// body: a write admitted that body, and it is at least as new as the read.
 pub(crate) fn admit_plaintext(set: &Mutex<LogicalResidentSet>, key: &[u8], value: &[u8]) {
     let id = LastStoreKvStore::encode_key(key);
-    let mut guard = set.lock().expect("poison");
+    let mut guard = crate::read_receipts::lock(set);
     if let Some(coords) = parse_tip_coords(&id) {
         if guard.has_tombstone(coords.molecule, &coords.hash, &coords.range)
             || guard
@@ -112,7 +114,7 @@ pub(crate) fn admit_written_plaintext(
     value: &[u8],
 ) {
     let id = LastStoreKvStore::encode_key(key);
-    let mut guard = set.lock().expect("poison");
+    let mut guard = crate::read_receipts::lock(set);
     let Some(token) = guard.take_write_token_for(key, stored_digest) else {
         return;
     };

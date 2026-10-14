@@ -215,11 +215,18 @@ impl LastStoreKvStore {
             )
         });
         let admit = crate::warm_admit::current_code();
+        let disk_reads = crate::read_receipts::current();
+        let queued = disk_reads.as_ref().map(|_| std::time::Instant::now());
         let observed_work = move || {
-            laststore::with_admit_code(admit, || {
-                let ((result, activity), placed) =
-                    laststore::observe_placed_writes(|| laststore::observe_read_activity(work));
-                (result, activity, placed)
+            crate::read_receipts::with_sync(disk_reads, || {
+                if let Some(queued) = queued {
+                    laststore::record_queue_wait(queued.elapsed());
+                }
+                laststore::with_admit_code(admit, || {
+                    let ((result, activity), placed) =
+                        laststore::observe_placed_writes(|| laststore::observe_read_activity(work));
+                    (result, activity, placed)
+                })
             })
         };
         let (result, activity, placed) = if can_block {

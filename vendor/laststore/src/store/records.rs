@@ -198,7 +198,10 @@ pub(super) fn decode_segment_payload(
     last: bool,
 ) -> Result<(Vec<u8>, u64, Option<Uuid>, u64)> {
     let Some(data_key) = sh.data_key.as_ref() else {
-        return Ok((disk_data.to_vec(), disk_data.len() as u64, None, 0));
+        return crate::read_receipt_io::decode(
+            || Ok((disk_data.to_vec(), disk_data.len() as u64, None, 0)),
+            |(data, _, _, _)| (data.len(), data.capacity()),
+        );
     };
 
     let mut plaintext = Vec::new();

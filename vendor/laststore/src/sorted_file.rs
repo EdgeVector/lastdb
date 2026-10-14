@@ -462,12 +462,13 @@ pub(crate) struct Input {
     length: u64,
     position: u64,
     parts: Option<(PathBuf, Uuid)>,
-    file: Option<(u32, File)>,
+    file: Option<(u32, crate::read_receipt_io::MeasuredFile)>,
 }
 
 impl Input {
     pub(crate) fn open(path: &Path) -> io::Result<Self> {
-        let mut file = File::open(path)?;
+        let _read_class = crate::read_receipt_io::ReadClass::FormatProbe.enter();
+        let mut file = crate::read_receipt_io::open(path)?;
         let physical_len = file.metadata()?.len();
         let mut magic = [0; 8];
         if physical_len < 8 {
@@ -537,9 +538,12 @@ impl Read for Input {
                 .as_ref()
                 .map_or(true, |(current, _)| *current != index)
             {
-                let mut file = File::open(part_path(home, index))?;
+                let mut file = crate::read_receipt_io::open(part_path(home, index))?;
                 let expected = (self.length - index as u64 * PAYLOAD_BYTES).min(PAYLOAD_BYTES);
-                let piece = Piece::read(&mut file)?;
+                let piece = {
+                    let _read_class = crate::read_receipt_io::ReadClass::FormatProbe.enter();
+                    Piece::read(&mut file)?
+                };
                 if piece.uuid != *uuid
                     || piece.index != index
                     || piece.length as u64 != expected

@@ -46,7 +46,8 @@ pub(super) fn may_inflate(shard: &Shard, id: &str, location: Loc, size: u64) -> 
 }
 
 fn read_legacy(directory: &Path, seg: u64, offset: u64, id: &str, take: usize) -> Result<bool> {
-    let mut file = File::open(directory.join(format!("{seg:010}.seg")))?;
+    let _read_class = crate::read_receipt_io::ReadClass::FormatProbe.enter();
+    let mut file = crate::read_receipt_io::open(directory.join(format!("{seg:010}.seg")))?;
     file.seek(SeekFrom::Start(
         offset
             .checked_add(7 + id.len() as u64)

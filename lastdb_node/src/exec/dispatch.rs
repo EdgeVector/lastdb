@@ -52,19 +52,19 @@ pub async fn execute_data_route(
     let queue_wait_us = lastdb_uds::worker_pool::current_queue_wait()
         .map_or(0, fold_db::request_phases::duration_us);
     let started = std::time::Instant::now();
-    // One relaxed atomic load — see NamespacedStore::cold_shard_loads, which is
-    // deliberately the lock-free half of the read-cost pair so it can live here.
-    let loads_before = host.db.db_ops().cold_shard_loads();
 
     // Phase accumulator scope: mutation-path recording sites (parse here in
     // exec, resolve/validate/admission/index-wait in `lastdb_host::handlers`,
     // apply/persist/flush lifted from fold_db core's timing breakdown) add
     // into this request's totals. Non-mutation routes add nothing, so their
     // samples keep an absent phase set by construction.
-    let (resp, phase_totals, work_counts, tip_keys) =
-        fold_db::request_phases::run_with_phases_and_keys(fold_db::user_context::run_with_user(
-            &user_hash,
-            async move { dispatch_data_route(route, req, ctx, host).await },
+    let ((resp, phase_totals, work_counts, tip_keys), read_receipt) =
+        fold_db::read_receipts::observe(Box::pin(
+            fold_db::request_phases::run_with_phases_and_keys(
+                fold_db::user_context::run_with_user(&user_hash, async move {
+                    dispatch_data_route(route, req, ctx, host).await
+                }),
+            ),
         ))
         .await;
 
@@ -73,7 +73,7 @@ pub async fn execute_data_route(
     // lastdb-status callers show up if they hammer the node.
     let duration_ms = started.elapsed().as_millis() as u64;
     let rows = crate::request_telemetry::rows_from_response_body(resp.status, &resp.body);
-    let cold_shard_loads = cold_shard_load_delta(host, loads_before);
+    let cold_shard_loads = Some(read_receipt.group_opens);
     let path = Some(crate::request_telemetry::path_from_request(
         req.method.as_str(),
         req.target.as_str(),
@@ -133,19 +133,6 @@ fn attribute_client(
     // Last rung: name the process on the other end of the socket. Only a
     // request whose peer pid the kernel would not report stays `"unknown"`.
     crate::request_telemetry::client_or_peer(client, peer_pid, peer_comm)
-}
-
-/// Cold-shard loads this request caused. `saturating_sub` rather than a wrap:
-/// the counter is monotonic, so a negative delta is impossible unless the
-/// store was reopened mid-request, in which case 0 is the honest answer
-/// rather than a garbage spike.
-fn cold_shard_load_delta(host: &Host, loads_before: Option<u64>) -> Option<u64> {
-    loads_before.and_then(|before| {
-        host.db
-            .db_ops()
-            .cold_shard_loads()
-            .map(|after| after.saturating_sub(before))
-    })
 }
 
 /// Bounded identity label for the route the router already matched.

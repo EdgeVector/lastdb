@@ -11,6 +11,7 @@ impl LastStore {
         limit: usize,
         mut admit: F,
     ) -> Result<PhysicalRangePage> {
+        let read_scope = crate::read_receipt::enter_child();
         let handles = self.walk_all_group_handles(collection, AllGroupsPurpose::Admin)?;
         let wanted = cursor.map(|position| (position.shard, position.group_id));
         let mut index = wanted.map_or(0, |key| {
@@ -73,7 +74,7 @@ impl LastStore {
             next_cursor,
             row_handle: None,
             handles_visited: visited,
-            cold_shard_loads: 0,
+            cold_shard_loads: read_scope.snapshot().group_opens,
         })
     }
 }

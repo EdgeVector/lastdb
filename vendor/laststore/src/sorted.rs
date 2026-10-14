@@ -195,7 +195,7 @@ fn decode_payload(
         }
         Ok(decoded.payload)
     } else {
-        Ok(bytes.to_vec())
+        crate::read_receipt_io::plain_copy(bytes)
     }
 }
 
@@ -261,6 +261,7 @@ impl Segment {
     }
 
     pub(crate) fn recognizes(path: &Path) -> Result<bool> {
+        let _read_class = crate::read_receipt_io::ReadClass::FormatProbe.enter();
         let mut file = sorted_file::Input::open(path)?;
         let mut magic = [0; 8];
         if file.len() < magic.len() as u64 {
@@ -399,6 +400,7 @@ impl Segment {
     }
 
     pub(crate) fn open(path: &Path, key: Option<&[u8; 32]>) -> Result<Self> {
+        let _read_class = crate::read_receipt_io::ReadClass::Footer.enter();
         let mut file = sorted_file::Input::open(path)?;
         let file_len = file.len();
         if file_len < (HEADER_LEN + TRAILER_LEN) as u64 {
@@ -432,6 +434,7 @@ impl Segment {
         }
         file.seek(SeekFrom::Start(offset))?;
         let mut encoded = vec![0; length as usize];
+        let _encoded_charge = crate::read_receipt::TemporaryBytes::new(encoded.capacity());
         file.read_exact(&mut encoded)?;
         if crc32fast::hash(&encoded) != u32::from_le_bytes(trailer[24..28].try_into().unwrap()) {
             return Err(corrupt("footer checksum mismatch"));
@@ -451,6 +454,7 @@ impl Segment {
         } else {
             (encoded, None)
         };
+        let _footer_charge = crate::read_receipt_io::charge_if(footer.capacity(), header.encrypted);
         let mut decoder = Decoder(&footer);
         if decoder.take(8)? != INDEX_MAGIC || decoder.take(HEADER_LEN)? != raw_header {
             return Err(corrupt("footer header mismatch"));
@@ -590,6 +594,7 @@ impl Segment {
             file: sorted_file::Input::open(&self.path)?,
             offset,
             cached: None,
+            receipt_bytes: crate::read_receipt::TemporaryBytes::new(0),
             data_blocks_read: 0,
         })
     }
@@ -714,6 +719,7 @@ pub(crate) struct Cursor<'a> {
     file: sorted_file::Input,
     offset: u64,
     cached: Option<(usize, Vec<u8>)>,
+    receipt_bytes: crate::read_receipt::TemporaryBytes,
     pub data_blocks_read: u64,
 }
 
@@ -735,6 +741,7 @@ impl Cursor<'_> {
                 let block = self.segment.block(block_index);
                 self.file.seek(SeekFrom::Start(block.offset))?;
                 let mut encoded = vec![0; block.encoded_len as usize];
+                let _encoded_charge = crate::read_receipt::TemporaryBytes::new(encoded.capacity());
                 self.file.read_exact(&mut encoded)?;
                 if crc32fast::hash(&encoded) != block.crc {
                     return Err(corrupt("block checksum mismatch"));
@@ -746,6 +753,7 @@ impl Cursor<'_> {
                 if decoded.len() as u64 != expected {
                     return Err(corrupt("decoded block length mismatch"));
                 }
+                self.receipt_bytes.resize(decoded.capacity());
                 self.cached = Some((block_index, decoded));
                 self.data_blocks_read += 1;
             }

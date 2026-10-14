@@ -150,7 +150,10 @@ pub fn encode_frame_with_stats(
 /// Any authentication failure returns [`Error::AeadAuthFail`]; plaintext is
 /// returned only after the tag verifies.
 pub fn decode_frame(data_key: &[u8; 32], frame: &[u8]) -> Result<DecodedFrame> {
-    decode_frame_inner(data_key, frame, None)
+    crate::read_receipt_io::decode(
+        || decode_frame_inner(data_key, frame, None),
+        |decoded| (decoded.payload.len(), decoded.payload.capacity()),
+    )
 }
 
 /// A block reader supplies its physical format's tighter allocation limit.
@@ -160,7 +163,10 @@ pub(crate) fn decode_frame_bounded(
     frame: &[u8],
     max_payload: usize,
 ) -> Result<DecodedFrame> {
-    decode_frame_inner(data_key, frame, Some(max_payload))
+    crate::read_receipt_io::decode(
+        || decode_frame_inner(data_key, frame, Some(max_payload)),
+        |decoded| (decoded.payload.len(), decoded.payload.capacity()),
+    )
 }
 
 fn decode_frame_inner(
@@ -185,6 +191,7 @@ fn decode_frame_inner(
     }
     let tag_offset = HEADER_SIZE + payload_len;
     let mut payload = frame[HEADER_SIZE..tag_offset].to_vec();
+    let mut payload_charge = crate::read_receipt::TemporaryBytes::new(payload.capacity());
     let tag = Tag::from_slice(&frame[tag_offset..]);
     let cipher = Aes256Gcm::new_from_slice(&chunk_key(data_key, header.chunk_uuid)?)
         .map_err(|_| Error::Config("invalid aead key length".into()))?;
@@ -198,6 +205,7 @@ fn decode_frame_inner(
             &payload,
             max_payload.unwrap_or(MAX_DECOMPRESSED_FRAME_BYTES),
         )?;
+        payload_charge.resize(payload.capacity());
     } else if max_payload.is_some_and(|limit| payload.len() > limit) {
         return Err(Error::Corrupt("decoded frame exceeds block limit".into()));
     }
@@ -219,6 +227,7 @@ fn decompress_bounded(stored: &[u8], max_payload: usize) -> Result<Vec<u8>> {
     }
     let decoded = zstd::bulk::decompress(&stored[8..], expected)
         .map_err(|e| Error::Corrupt(format!("frame zstd decompression failed: {e}")))?;
+    let _decoded_charge = crate::read_receipt::TemporaryBytes::new(decoded.capacity());
     if decoded.len() != expected {
         return Err(Error::Corrupt("decompressed frame length mismatch".into()));
     }

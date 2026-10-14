@@ -1,6 +1,7 @@
 //! Exact value lengths from live locations, with cold-open memory admission.
 
 use super::*;
+use crate::read_receipt_io::lock as read_lock;
 
 #[derive(Clone, Copy)]
 /// Exact stored-body size and conservative cold-open requirements.
@@ -37,7 +38,7 @@ impl LastStore {
             let Some(handle) = self.open_point_group_unpublished(key, true)? else {
                 continue;
             };
-            let shard = handle.lock().expect("poison");
+            let shard = read_lock(&handle).expect("poison");
             for (slot, id) in entries {
                 if let Some(location) = shard.lookup(id)? {
                     lengths[slot] = Some(PointValueSize {

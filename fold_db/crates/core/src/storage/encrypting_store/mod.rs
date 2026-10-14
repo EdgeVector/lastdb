@@ -136,9 +136,17 @@ impl EncryptingKvStore {
     }
 
     fn lookup_plain(&self, key: &[u8]) -> Option<logical_path::ResidentLookup> {
-        self.logical
+        let result = self
+            .logical
             .as_ref()
-            .map(|set| logical_path::lookup_plaintext(set, key))
+            .map(|set| logical_path::lookup_plaintext(set, key));
+        if matches!(
+            result,
+            Some(logical_path::ResidentLookup::Hit(_) | logical_path::ResidentLookup::Absent)
+        ) {
+            crate::read_receipts::warm_hit();
+        }
+        result
     }
 
     /// Select the crypto provider for a key.
@@ -267,7 +275,15 @@ impl EncryptingKvStore {
     /// `context` names the read for the discard log.
     async fn open_or_discard(&self, key: &[u8], stored: Vec<u8>) -> StorageResult<Option<Vec<u8>>> {
         let crypto = self.select_crypto(key);
-        self.open_sealed_value(stored, crypto.as_ref()).await
+        let started = std::time::Instant::now();
+        let result = self.open_sealed_value(stored, crypto.as_ref()).await;
+        let bytes = result
+            .as_ref()
+            .ok()
+            .and_then(|value| value.as_ref())
+            .map_or(0, Vec::len);
+        crate::read_receipts::decrypted(bytes, started.elapsed());
+        result
     }
 
     async fn decrypt_rows(

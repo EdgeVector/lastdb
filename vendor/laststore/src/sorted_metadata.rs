@@ -6,6 +6,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 pub(crate) fn opening_bound(path: &Path) -> Result<Option<(bool, u64)>> {
+    let _read_class = crate::read_receipt_io::ReadClass::FormatProbe.enter();
     if !Segment::recognizes(path)? {
         return Ok(None);
     }

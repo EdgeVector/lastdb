@@ -1,4 +1,5 @@
 use super::*;
+use crate::read_receipt_io::fs;
 
 /// Is this error the process (or the system) being out of file descriptors?
 ///
@@ -94,7 +95,7 @@ pub(super) fn read_plain_sorted_residue(
 pub(super) fn reject_incomplete_sorted_restore(directory: &Path) -> Result<()> {
     // One existence probe suffices, including a crash before the intent or
     // manifest write. Only verified restore publication removes this marker.
-    if directory.join(".sorted-restore-pending").exists() {
+    if crate::read_receipt_io::exists(directory.join(".sorted-restore-pending")) {
         return Err(Error::Corrupt(
             "sorted restore is incomplete; its manifest is not published".into(),
         ));
@@ -183,9 +184,11 @@ fn replay_plain_segments(sh: &mut Shard, seqs: &[u64]) -> Result<()> {
     for (i, &seq) in seqs.iter().enumerate() {
         let last = i + 1 == seqs.len();
         let path = sh.dir.join(format!("{seq:010}.seg"));
+        let _read_class = crate::read_receipt_io::ReadClass::LegacyReplay.enter();
         let disk_data = fs::read(&path)?;
         let (data, clean_disk_len, chunk_uuid, next_frame_counter) =
             decode_segment_payload(sh, seq, &disk_data, last)?;
+        let _data_charge = crate::read_receipt::TemporaryBytes::new(data.capacity());
         let mut off = 0usize;
         let mut clean = 0usize;
         while off < data.len() {
@@ -264,9 +267,10 @@ pub(super) fn load_shard(
         ..Default::default()
     };
     reject_incomplete_sorted_restore(&sh.dir)?;
-    if !sh.dir.exists() {
+    if !crate::read_receipt_io::exists(&sh.dir) {
         return Ok(sh);
     }
+    crate::read_receipt::update(|receipt| receipt.group_opens += 1);
     let mut seqs = numbered_segment_sequences(&sh.dir)?;
     seqs.sort_unstable();
     sh.plain_high_seq = seqs.last().copied().unwrap_or(0);
@@ -280,7 +284,7 @@ pub(super) fn load_shard(
             }
             return load_sorted_encrypted_tail(sh);
         }
-        let has_sorted_tail = sh.dir.join("sorted-tail").exists();
+        let has_sorted_tail = crate::read_receipt_io::exists(sh.dir.join("sorted-tail"));
         let has_legacy = !encrypted_files(&encrypted_chunks_dir(&sh))?.is_empty()
             || !encrypted_files(&encrypted_tail_dir_for(&sh.dir))?.is_empty();
         if has_legacy {

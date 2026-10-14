@@ -30,6 +30,8 @@ mod keysidecar;
 mod options;
 mod placed_write;
 mod read_activity;
+mod read_receipt;
+mod read_receipt_io;
 mod segfmt;
 mod sorted;
 mod sorted_file;
@@ -45,6 +47,11 @@ pub use options::{
 };
 pub use placed_write::{observe_placed_writes, PlacedWrite};
 pub use read_activity::{observe_read_activity, ReadActivity};
+pub use read_receipt::{
+    observe_disk_reads, record_decryption, record_lock_wait, record_logical_warm_hits,
+    record_logical_warm_misses, record_queue_wait, record_requested_keys, DiskReadContext,
+    DiskReadReceipt,
+};
 /// Record limits the segment format enforces. Exported so callers that build
 /// ids from their own data can check a write **before** taking a destructive
 /// step that assumes it will succeed.
