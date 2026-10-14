@@ -31,6 +31,16 @@ async fn settle(host: &Host) -> Result<(), String> {
     Ok(())
 }
 
+/// Defense in depth: the route table serves these routes on the owner socket
+/// only, and the handler still refuses a caller that is not the owner.
+fn require_owner(ctx: &AccessContext) -> Result<(), UdsResponse> {
+    if ctx.is_owner {
+        Ok(())
+    } else {
+        Err(error_response(403, "proof tooling is owner-only", ctx))
+    }
+}
+
 fn parse_dir_body(
     req: &UdsRequest,
     route: &str,
@@ -52,6 +62,9 @@ pub(in crate::exec) async fn execute_db_export_mutation_log_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    if let Err(response) = require_owner(ctx) {
+        return response;
+    }
     let body = match parse_dir_body(req, "/api/db/export-mutation-log", ctx) {
         Ok(body) => body,
         Err(response) => return response,
@@ -92,6 +105,9 @@ pub(in crate::exec) async fn execute_db_replay_mutation_log_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    if let Err(response) = require_owner(ctx) {
+        return response;
+    }
     let body = match parse_dir_body(req, "/api/db/replay-mutation-log", ctx) {
         Ok(body) => body,
         Err(response) => return response,
