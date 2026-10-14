@@ -269,6 +269,10 @@ pub struct AtomStore {
     /// Serializes the conflict recorder, so two recorders cannot lose an id in
     /// the `mcc:{molecule}` list that they read, extend, and write.
     conflict_record_gate: Arc<tokio::sync::Mutex<()>>,
+    /// Counts the record calls that wrote a conflict row. A reader that scans
+    /// the conflict rows outside the gate stamps its `mcc:` list only if this
+    /// number did not change since before the scan.
+    conflict_record_epoch: Arc<AtomicU64>,
     /// Fixed target gates for molecule source transitions and reclaim.
     molecule_liveness_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
     /// Fixed target gates for blob source transitions and reclaim.

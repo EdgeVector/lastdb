@@ -59,23 +59,33 @@ impl AtomStore {
         }
         let count = unique.len();
         let placements = crate::durable_flush::BatchPlacementLog::shared();
-        {
+        let gate_held = {
             // The gate covers the `mcc:` read, extend and write.
             let _gate = self.lock_conflict_record_gate().await;
+            let held = std::time::Instant::now();
             let items = self.conflict_items(&unique, storage_prefix).await?;
             crate::durable_flush::scope(
                 Arc::clone(&placements),
                 self.batch_put_items_with_atom_ref_v2(items, storage_prefix),
             )
             .await?;
-        }
+            // After the rows: a reader that scanned before this point sees a
+            // new epoch and does not stamp its stale list.
+            self.conflict_record_epoch
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
+            held.elapsed()
+        };
         self.flush_recorded_groups(&placements).await?;
         for conflict in unique.values() {
             crate::atom::legacy_history_memo::invalidate_for_event_key(
                 &conflict.history_key(storage_prefix),
             );
         }
-        tracing::info!(count, "recorded tip conflicts");
+        tracing::info!(
+            count,
+            gate_held_us = u64::try_from(gate_held.as_micros()).unwrap_or(u64::MAX),
+            "recorded tip conflicts"
+        );
         Ok(count)
     }
 

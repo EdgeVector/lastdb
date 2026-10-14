@@ -10,6 +10,7 @@ mod molecule_hash_range;
 pub mod molecule_key_codec;
 pub mod molecule_uuid;
 pub mod mutation_event;
+pub mod origin_device;
 pub mod provenance;
 pub mod size_limit;
 pub mod tombstone;
@@ -36,6 +37,7 @@ pub use mutation_event::{
     FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,
     SuppressedByTip,
 };
+pub use origin_device::{bounded_origin_device, MAX_ORIGIN_DEVICE_BYTES};
 pub use provenance::{MoleculeRef, Provenance};
 pub use size_limit::{
     atom_content_byte_len, enforce_atom_content_limit, is_over_default_limit,
@@ -90,21 +92,6 @@ pub fn lww_order_key<'a>(
         mutation_uuid,
         atom_uuid,
     )
-}
-
-/// Longest `origin_device` that a tip keeps, in bytes.
-pub const MAX_ORIGIN_DEVICE_BYTES: usize = 128;
-
-/// A device id as a tip may carry it. A value that is longer than
-/// [`MAX_ORIGIN_DEVICE_BYTES`], or that holds a control character, counts as
-/// unknown ("in doubt"): the peer that sent it is not trusted to bound it.
-#[must_use]
-pub fn bounded_origin_device(raw: &str) -> &str {
-    if raw.len() > MAX_ORIGIN_DEVICE_BYTES || raw.chars().any(char::is_control) {
-        ""
-    } else {
-        raw
-    }
 }
 
 fn is_zero_u8(v: &u8) -> bool {

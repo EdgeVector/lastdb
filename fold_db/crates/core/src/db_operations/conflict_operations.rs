@@ -238,12 +238,9 @@ impl DbOperations {
         };
         let prefix = build_storage_key(storage_prefix, &base_prefix);
 
-        // The stamp below must not overwrite an id that the recorder adds
-        // while this scan runs, so the scan and the stamp share its gate.
-        let _stamp_gate = match molecule_uuid {
-            Some(_) => Some(self.atoms().lock_conflict_record_gate().await),
-            None => None,
-        };
+        // The scan runs outside the recorder gate. The stamp below is written
+        // only if no record call wrote a row since this point.
+        let epoch = self.atoms().conflict_record_epoch();
         let items: Vec<(String, SyncConflict)> = self
             .atoms()
             .raw()
@@ -261,7 +258,7 @@ impl DbOperations {
         if let Some(mol) = molecule_uuid {
             let index_key = build_storage_key(storage_prefix, &molecule_conflict_index_key(mol));
             let ids: Vec<String> = conflicts.iter().map(|c| c.id.clone()).collect();
-            let _ = self.atoms().raw().put_item(&index_key, &ids).await;
+            self.stamp_conflict_index(&index_key, &ids, epoch).await;
         }
 
         Ok(conflicts)

@@ -23,6 +23,14 @@ impl SyncEngine {
     /// Store merge conflicts as MutationEvent entries in the atoms namespace
     /// and as dedicated conflict records for efficient scanning.
     ///
+    /// This path writes the `mcc:{M}` list without the recorder gate, and it
+    /// cannot race with the recorder. Its only caller, `record_replaced_tip`
+    /// (`records.rs`), reaches it only when the engine holds no atom store.
+    /// The slot has one setter, `FoldDB::set_sync_engine_with_capture`, which
+    /// installs the atom store of that `FoldDB`. So an engine with an empty slot
+    /// was never attached to a `FoldDB`, and no recorder (which lives in the
+    /// atom store of a `FoldDB`) writes the same store in that process.
+    ///
     /// The `history:` row names both atoms, and a conflict loser can have no
     /// other reference. Its reverse edges go through the compact v2 path
     /// (`batch_put_items_with_atom_ref_v2`) when the atom store is attached,
