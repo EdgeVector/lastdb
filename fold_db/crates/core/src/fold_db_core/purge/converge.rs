@@ -7,8 +7,11 @@ use super::converge_steps::*;
 
 /// Converge the tips of a live `Delete` to disk.
 ///
-/// Every exit leaves the pending Delete barriers cleared. A failed converge
-/// that kept them would hide its keys from readers until the next restart.
+/// A converge that returns `Err` clears the pending Delete barriers of its
+/// mutations first. That covers a failure in the planning, in the ledger or
+/// meter intent, in the delete, and in the flush. A failed converge that kept
+/// them would hide its keys from readers until the next restart. A panic and a
+/// dropped (cancelled) future do not reach the clear.
 pub(in crate::fold_db_core) async fn converge_delete_tips(
     db_ops: &Arc<DbOperations>,
     schema_manager: &Arc<SchemaCore>,
@@ -19,7 +22,31 @@ pub(in crate::fold_db_core) async fn converge_delete_tips(
     if mutations.is_empty() {
         return Ok(BulkPurgeReport::empty());
     }
+    let converged = converge_locked(
+        db_ops,
+        schema_manager,
+        schema_name,
+        mutations,
+        storage_prefix,
+    )
+    .await;
+    if converged.is_err() {
+        let uuids: Vec<&str> = mutations
+            .iter()
+            .map(|mutation| mutation.uuid.as_str())
+            .collect();
+        db_ops.atoms().clear_pending_delete_barriers_of(&uuids);
+    }
+    converged
+}
 
+async fn converge_locked(
+    db_ops: &Arc<DbOperations>,
+    schema_manager: &Arc<SchemaCore>,
+    schema_name: &str,
+    mutations: &[crate::schema::types::Mutation],
+    storage_prefix: Option<&str>,
+) -> Result<BulkPurgeReport, SchemaError> {
     let (planned_barriers, tip_guards, plan) = lock_and_plan_converge(
         db_ops,
         schema_manager,
@@ -36,7 +63,7 @@ pub(in crate::fold_db_core) async fn converge_delete_tips(
         .iter()
         .find_map(|mutation| mutation.erase_caller)
         .unwrap_or("mutation-pipeline");
-    let converged = converge_planned(
+    converge_planned(
         db_ops,
         schema_manager,
         schema_name,
@@ -44,20 +71,12 @@ pub(in crate::fold_db_core) async fn converge_delete_tips(
         plan,
         (&planned_barriers, tip_guards),
     )
-    .await;
-    if converged.is_err() {
-        // Idempotent: a converge that failed after its own release cleared
-        // the barriers already.
-        db_ops
-            .atoms()
-            .clear_pending_delete_barriers(&planned_barriers);
-    }
-    converged
+    .await
 }
 
 /// The destructive stage of a converge, after the plan exists. `locks` holds
 /// the planned barriers and the exact tip guards. A guard drops on any early
-/// exit. The caller clears the barriers when this returns an error.
+/// exit.
 async fn converge_planned(
     db_ops: &Arc<DbOperations>,
     schema_manager: &Arc<SchemaCore>,

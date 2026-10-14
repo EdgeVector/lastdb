@@ -109,6 +109,14 @@ pub fn local_retention_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         health.in_flight,
         health.settled,
     )];
+    lines.push(format!(
+        "  last_pass: finished_backlog={} keys_left={} cut={} schemas_failed={} schema_failures_total={}",
+        health.last_pass.finished_backlog,
+        health.last_pass.keys_left,
+        health.last_pass.cut,
+        health.last_pass.schemas_failed,
+        health.schema_failures,
+    ));
     if let Some(error) = health.policy_error.as_deref() {
         lines.push(format!("  policy_read_error={error}"));
     }

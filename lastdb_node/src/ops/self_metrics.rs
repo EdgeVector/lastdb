@@ -63,6 +63,7 @@ mod sync_health;
 mod sync_health_wire;
 mod sync_lines;
 mod sync_probe;
+mod ttl_pass;
 mod write;
 mod write_fields;
 
@@ -99,4 +100,5 @@ pub use status_snapshot::*;
 pub use sync_health::*;
 pub use sync_lines::*;
 use sync_probe::*;
+pub use ttl_pass::TtlPassReport;
 use write::*;

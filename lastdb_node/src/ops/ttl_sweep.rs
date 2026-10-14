@@ -1,7 +1,9 @@
 //! Node-local TTL sweep for retained Single, Hash, Range, and HashRange series.
 //!
-//! Consumes [`fold_db::schema::SchemaRetentionPolicy`] records and hard-deletes
-//! expired keys through the audited `MutationType::Purge` batch path. Range
+//! Consumes [`fold_db::schema::SchemaRetentionPolicy`] records and erases
+//! expired keys through the audited mutation batch path: the ordinary
+//! `MutationType::Delete` by default, the hard-erasure `MutationType::Purge`
+//! when `LASTDB_TTL_SWEEP_VERB=purge` (see [`erase`]). Range
 //! and HashRange layouts select by their time-sortable key: the entry time at
 //! the front of the range key, written as unix seconds zero-padded to 20
 //! digits. A range key that does not start with 20 ASCII digits has no entry
@@ -99,19 +101,7 @@ pub async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
 
     let started = std::time::Instant::now();
     match sweep_ttl_inner(host, shutdown).await {
-        Ok(totals) => {
-            host.self_metrics
-                .mark_ttl_sweep_pass(totals.erased, unix_secs());
-            if totals.erased > 0 || totals.dropped > 0 {
-                tracing::info!(
-                    target: "lastdbd::ttl_sweep",
-                    removed = totals.erased,
-                    dropped_after_recheck = totals.dropped,
-                    elapsed_ms = started.elapsed().as_millis() as u64,
-                    "ttl sweep purged expired retained rows"
-                );
-            }
-        }
+        Ok(totals) => finish_pass(host, &totals, started),
         Err(error) => {
             tracing::warn!(
                 target: "lastdbd::ttl_sweep",
@@ -121,6 +111,44 @@ pub async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
             );
             host.self_metrics.record_ttl_sweep_failure();
         }
+    }
+}
+
+/// Count a pass that listed its schemas. Only a pass where no schema succeeded
+/// counts toward the give-up rule, because one broken schema must not stop the
+/// others for the life of the process.
+fn finish_pass(host: &Host, totals: &erase::PassTotals, started: std::time::Instant) {
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    if totals.whole_pass_failed() {
+        tracing::warn!(
+            target: "lastdbd::ttl_sweep",
+            schemas = totals.schemas,
+            elapsed_ms,
+            "ttl sweep failed: no schema succeeded"
+        );
+        host.self_metrics.record_ttl_sweep_failure();
+    } else {
+        host.self_metrics
+            .mark_ttl_sweep_pass(totals.erased, unix_secs());
+        if totals.erased > 0 || totals.dropped > 0 {
+            tracing::info!(
+                target: "lastdbd::ttl_sweep",
+                removed = totals.erased,
+                dropped_after_recheck = totals.dropped,
+                elapsed_ms,
+                "ttl sweep purged expired retained rows"
+            );
+        }
+    }
+    host.self_metrics.record_ttl_pass(totals.report());
+    if totals.keys_left > 0 || totals.cut {
+        tracing::info!(
+            target: "lastdbd::ttl_sweep",
+            keys_left = totals.keys_left,
+            cut = totals.cut,
+            schemas_failed = totals.schemas_failed,
+            "ttl sweep pass ended with listed keys left over; the next pass lists them again"
+        );
     }
 }
 
@@ -151,16 +179,33 @@ async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<erase::Pa
     }
 
     // List every schema first, then erase one batch from each schema in turn.
-    // A large backlog in one schema cannot starve the others for a paced pass.
+    // A large backlog in one schema cannot starve the others for a paced pass,
+    // and a schema that fails to list is skipped, not fatal to the pass.
     let now = unix_secs();
+    let mut totals = erase::PassTotals {
+        schemas: policies.len(),
+        ..erase::PassTotals::default()
+    };
     let mut backlogs = Vec::new();
     for (schema_name, policy) in policies {
         if shutdown.load(Ordering::Acquire) {
-            return Ok(erase::PassTotals::default());
+            totals.cut = true;
+            return Ok(totals);
         }
-        backlogs.extend(list_expired(host, &schema_name, policy, now).await?);
+        match list_expired(host, &schema_name, policy, now).await {
+            Ok(listed) => backlogs.extend(listed),
+            Err(error) => {
+                tracing::warn!(
+                    target: "lastdbd::ttl_sweep",
+                    schema = %schema_name,
+                    error = %error,
+                    "ttl sweep could not list the expired keys of this schema; it is skipped for this pass"
+                );
+                totals.schemas_failed += 1;
+            }
+        }
     }
-    erase::purge_round_robin(host, backlogs, shutdown).await
+    Ok(erase::purge_round_robin(host, backlogs, shutdown, totals).await)
 }
 
 /// The expired keys of one schema, hash by hash. `None` when the schema is

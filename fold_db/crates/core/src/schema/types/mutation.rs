@@ -117,6 +117,13 @@ pub struct Mutation {
     /// Never serialized, so it is never captured, synced or replayed.
     #[serde(skip)]
     pub(crate) erase_caller: Option<&'static str>,
+    /// Local guard for a `Delete` that a node job issues on a key whose age is
+    /// its write time (the TTL sweep on a Hash or Single schema): a tip written
+    /// at or after this time, in unix nanoseconds, is not erased. The check
+    /// reads the tip's own write clock under the tip lock, so a rewrite that is
+    /// acked but not yet indexed survives. Never serialized.
+    #[serde(skip)]
+    pub(crate) erase_tips_before_nanos: Option<u64>,
 }
 
 impl Mutation {
@@ -151,6 +158,7 @@ impl Mutation {
             aggregate_set: None,
             aggregate_derived_internal: false,
             erase_caller: None,
+            erase_tips_before_nanos: None,
         }
     }
 
@@ -191,6 +199,13 @@ impl Mutation {
     #[must_use]
     pub fn with_erase_caller(mut self, caller: &'static str) -> Self {
         self.erase_caller = Some(caller);
+        self
+    }
+
+    /// Erase only tips written before `nanos` (unix nanoseconds). See the field.
+    #[must_use]
+    pub fn with_erase_tips_before_nanos(mut self, nanos: u64) -> Self {
+        self.erase_tips_before_nanos = Some(nanos);
         self
     }
 

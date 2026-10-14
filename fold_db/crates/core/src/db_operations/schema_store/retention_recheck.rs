@@ -42,4 +42,19 @@ impl SchemaStore {
             .map(|(key, _)| key.clone())
             .collect())
     }
+
+    /// Remove the age rows of `keys` whose latest write is older than
+    /// `cutoff_secs`. A key that a later write moved past the cutoff keeps its
+    /// row, so a rewrite that the delete spared still expires on its own clock.
+    pub async fn remove_schema_retention_keys_older_than(
+        &self,
+        schema_name: &str,
+        keys: &[KeyValue],
+        cutoff_secs: u64,
+    ) -> Result<(), SchemaError> {
+        let older = self
+            .retention_keys_still_expired(schema_name, keys, cutoff_secs)
+            .await?;
+        self.remove_schema_retention_keys(schema_name, &older).await
+    }
 }

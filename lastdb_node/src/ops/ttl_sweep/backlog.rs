@@ -11,6 +11,7 @@ pub(super) struct Backlog {
     pub(super) cutoff: u64,
     keys: Vec<KeyValue>,
     next: usize,
+    failed: bool,
 }
 
 impl Backlog {
@@ -26,11 +27,24 @@ impl Backlog {
             cutoff,
             keys,
             next: 0,
+            failed: false,
         }
     }
 
+    /// True when the pass has no batch left for this schema: it reached the
+    /// last key, or a batch failed and the pass skips the schema.
     pub(super) fn is_done(&self) -> bool {
-        self.next >= self.keys.len()
+        self.failed || self.next >= self.keys.len()
+    }
+
+    /// Keys that the pass listed and has not reached.
+    pub(super) fn left(&self) -> usize {
+        self.keys.len().saturating_sub(self.next)
+    }
+
+    /// Skip this schema for the rest of the pass. Its keys stay counted as left.
+    pub(super) fn abandon(&mut self) {
+        self.failed = true;
     }
 
     /// The next `n` keys. The backlog moves past them.

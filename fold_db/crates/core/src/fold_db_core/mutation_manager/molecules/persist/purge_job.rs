@@ -108,11 +108,30 @@ impl MutationManager {
         }
 
         if let Some(keys) = &job.retention_keys {
-            self.db_ops
-                .schemas()
-                .remove_schema_retention_keys(schema_name, keys)
-                .await
-                .map_err(PurgeAttemptError::Retry)?;
+            // A key that the erase spared by tip write time keeps its age row.
+            let spared_from_nanos = job
+                .erasures
+                .iter()
+                .filter_map(|mutation| mutation.erase_tips_before_nanos)
+                .min();
+            let schemas = self.db_ops.schemas();
+            match spared_from_nanos {
+                Some(nanos) => {
+                    schemas
+                        .remove_schema_retention_keys_older_than(
+                            schema_name,
+                            keys,
+                            nanos / 1_000_000_000,
+                        )
+                        .await
+                }
+                None => {
+                    schemas
+                        .remove_schema_retention_keys(schema_name, keys)
+                        .await
+                }
+            }
+            .map_err(PurgeAttemptError::Retry)?;
         }
 
         if let Some(batch) = &job.search_batch {

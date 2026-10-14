@@ -42,6 +42,7 @@ impl SyncEngine {
             kind: DeleteKind::LegacyPhysical,
             displaced_atom_uuid: None,
             cloud_sequence: Some(entry.seq),
+            tip_before_nanos: None,
         }
     }
 }

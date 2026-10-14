@@ -17,6 +17,7 @@ use super::backlog::Backlog;
 use super::pace::Pace;
 use super::{backup_cut_is_held, key_is_expired, owner_context};
 use crate::host::Host;
+use crate::self_metrics::TtlPassReport;
 
 /// Environment name: `delete` (default) or `purge`. See [`SweepVerb`].
 pub const TTL_SWEEP_VERB_ENV: &str = "LASTDB_TTL_SWEEP_VERB";
@@ -28,9 +29,10 @@ const LEDGER_CALLER: &str = "ttl-sweep-delete";
 /// How the sweep erases an expired key.
 ///
 /// `delete` (default) is the ordinary delete that a client uses. It removes the
-/// tips, needs only the keys of the batch, and leaves atom bodies to garbage
-/// collection. It does not touch history rows or conflict records. `purge` is
-/// the hard-erasure verb. It also deletes the atoms of the key that no other
+/// tips and their tip-version chain, needs only the keys of the batch, and
+/// leaves atom bodies to garbage collection. It does not touch conflict
+/// records, and it leaves one delete barrier record per field per key. `purge`
+/// is the hard-erasure verb. It also deletes the atoms of the key that no other
 /// key references. That needs a reachability proof over the whole schema,
 /// unless every molecule has a complete reverse-reference manifest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,31 +96,71 @@ pub(super) fn warn_on_bad_verb_once() {
 /// What one pass did.
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct PassTotals {
-    /// Keys that a batch erased.
+    /// Keys that a batch sent to the erase. A key that the tip write-time guard
+    /// spared counts here; the delete ledger counts only the tips it removed.
     pub(super) erased: usize,
     /// Keys that the re-check dropped because they were no longer expired.
     pub(super) dropped: usize,
+    /// Keys that the pass listed and had not reached when it ended.
+    pub(super) keys_left: usize,
+    /// The pass ended early: the node was stopping, a backup cut was held, or
+    /// local writes were paused.
+    pub(super) cut: bool,
+    /// Schemas with a policy that the pass tried.
+    pub(super) schemas: usize,
+    /// Schemas that the pass skipped because their listing or a batch failed.
+    pub(super) schemas_failed: usize,
+}
+
+impl PassTotals {
+    /// Every schema failed, so the pass did no useful work.
+    pub(super) fn whole_pass_failed(&self) -> bool {
+        self.schemas > 0 && self.schemas_failed >= self.schemas
+    }
+
+    pub(super) fn report(&self) -> TtlPassReport {
+        TtlPassReport {
+            finished_backlog: !self.cut && self.keys_left == 0 && self.schemas_failed == 0,
+            keys_left: u64::try_from(self.keys_left).unwrap_or(u64::MAX),
+            cut: self.cut,
+            schemas_failed: u32::try_from(self.schemas_failed).unwrap_or(u32::MAX),
+        }
+    }
 }
 
 /// Erase the backlogs in rounds: one batch from each schema that still has
-/// keys, then the rest, then the next round. Stops early, without an error,
-/// when the node stops, pauses local writes or holds a backup cut. The next
-/// sampler tick lists the rest again.
+/// keys, then the rest, then the next round. A schema whose batch fails is
+/// skipped for the rest of the pass, logged once, and the others go on. The
+/// pass ends early, without an error, when the node stops, pauses local writes
+/// or holds a backup cut. The next sampler tick lists the rest again.
 pub(super) async fn purge_round_robin(
     host: &Host,
     mut backlogs: Vec<Backlog>,
     shutdown: &AtomicBool,
-) -> Result<PassTotals, String> {
+    mut totals: PassTotals,
+) -> PassTotals {
     let verb = SweepVerb::from_env();
     let pace = Pace::from_env();
-    let mut totals = PassTotals::default();
+    totals.cut = erase_rounds(host, &mut backlogs, shutdown, (verb, pace), &mut totals).await;
+    totals.keys_left = backlogs.iter().map(Backlog::left).sum();
+    totals
+}
+
+/// Run the rounds. Returns true when the pass was cut.
+async fn erase_rounds(
+    host: &Host,
+    backlogs: &mut [Backlog],
+    shutdown: &AtomicBool,
+    (verb, pace): (SweepVerb, Pace),
+    totals: &mut PassTotals,
+) -> bool {
     while backlogs.iter().any(|backlog| !backlog.is_done()) {
         for index in 0..backlogs.len() {
             if backlogs[index].is_done() {
                 continue;
             }
             if shutdown.load(Ordering::Acquire) || backup_cut_is_held(host).await {
-                return Ok(totals);
+                return true;
             }
             let chunk = backlogs[index].take(pace.batch);
             let started = Instant::now();
@@ -128,9 +170,22 @@ pub(super) async fn purge_round_robin(
             )
             .await;
             let Some((outcome, phases, _counts)) = admitted else {
-                return Ok(totals);
+                return true;
             };
-            let (erased, dropped) = outcome?;
+            let (erased, dropped) = match outcome {
+                Ok(done) => done,
+                Err(error) => {
+                    tracing::warn!(
+                        target: "lastdbd::ttl_sweep",
+                        schema = %backlogs[index].schema_name,
+                        error = %error,
+                        "ttl sweep skips this schema for the rest of the pass; the other schemas go on"
+                    );
+                    backlogs[index].abandon();
+                    totals.schemas_failed += 1;
+                    continue;
+                }
+            };
             let took = started.elapsed();
             totals.erased += erased;
             totals.dropped += dropped;
@@ -140,7 +195,7 @@ pub(super) async fn purge_round_robin(
             }
         }
     }
-    Ok(totals)
+    false
 }
 
 /// Re-check `chunk`, then erase the keys that are still expired. Returns the
@@ -152,7 +207,7 @@ async fn erase_batch(
     verb: SweepVerb,
 ) -> Result<(usize, usize), String> {
     let listed = chunk.len();
-    let Some(keys) = still_expired(host, backlog, chunk).await? else {
+    let Some((keys, cutoff)) = still_expired(host, backlog, chunk).await? else {
         backlog.clear();
         tracing::info!(
             target: "lastdbd::ttl_sweep",
@@ -162,12 +217,22 @@ async fn erase_batch(
         return Ok((0, listed));
     };
     let dropped = listed - keys.len();
-    purge_keys(host, &backlog.schema_name, &keys, verb).await?;
+    // A Hash or Single key ages by its tip write time, so the delete spares a
+    // tip written at or after the cutoff. A rewrite that is acked but not yet
+    // in the age index is spared this way. Range and HashRange keys age by the
+    // key, and `purge` does not read delete barriers.
+    let tip_cutoff_nanos = (verb == SweepVerb::Delete
+        && matches!(
+            backlog.schema_type,
+            DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
+        ))
+    .then(|| cutoff.saturating_mul(1_000_000_000));
+    purge_keys(host, &backlog.schema_name, &keys, verb, tip_cutoff_nanos).await?;
     Ok((keys.len(), dropped))
 }
 
-/// The keys of `chunk` that are expired now, under the policy now. `None`
-/// means the policy is gone.
+/// The keys of `chunk` that are expired now, under the policy now, and the
+/// cutoff that decided it in unix seconds. `None` means the policy is gone.
 ///
 /// The pass lists its keys once. A paced pass reaches a key long after the
 /// listing, and a client can rewrite the key in that time. Range and HashRange
@@ -179,7 +244,7 @@ async fn still_expired(
     host: &Host,
     backlog: &Backlog,
     chunk: Vec<KeyValue>,
-) -> Result<Option<Vec<KeyValue>>, String> {
+) -> Result<Option<(Vec<KeyValue>, u64)>, String> {
     let policy = host
         .db
         .db_ops()
@@ -199,14 +264,15 @@ async fn still_expired(
             .schemas()
             .retention_keys_still_expired(&backlog.schema_name, &chunk, cutoff)
             .await
-            .map(Some)
+            .map(|keys| Some((keys, cutoff)))
             .map_err(|e| e.to_string()),
-        DeclarativeSchemaType::Range | DeclarativeSchemaType::HashRange => Ok(Some(
+        DeclarativeSchemaType::Range | DeclarativeSchemaType::HashRange => Ok(Some((
             chunk
                 .into_iter()
                 .filter(|key| key_is_expired(key, &backlog.schema_type, cutoff))
                 .collect(),
-        )),
+            cutoff,
+        ))),
     }
 }
 
@@ -264,6 +330,7 @@ async fn purge_keys(
     schema_name: &str,
     keys: &[KeyValue],
     verb: SweepVerb,
+    tip_cutoff_nanos: Option<u64>,
 ) -> Result<(), String> {
     if keys.is_empty() {
         return Ok(());
@@ -281,6 +348,9 @@ async fn purge_keys(
             mutation.synchronous = verb.waits_for_lane().then_some(true);
             if verb == SweepVerb::Delete {
                 mutation = mutation.with_erase_caller(LEDGER_CALLER);
+            }
+            if let Some(nanos) = tip_cutoff_nanos {
+                mutation = mutation.with_erase_tips_before_nanos(nanos);
             }
             mutation
         })

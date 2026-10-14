@@ -133,6 +133,8 @@ pub(super) struct TtlSweepState {
     pub(super) last_sweep_unix_secs: Option<u64>,
     pub(super) policies: HashMap<String, fold_db::schema::SchemaRetentionPolicy>,
     pub(super) policy_error: Option<String>,
+    pub(super) schema_failures: u64,
+    pub(super) last_pass: super::ttl_pass::TtlPassReport,
 }
 
 /// Node-local retention policy and sweep state exposed by `/api/status`.
@@ -151,6 +153,11 @@ pub struct LocalRetentionHealth {
     pub settled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_error: Option<String>,
+    /// Schemas skipped for an error, summed over passes (process counter).
+    #[serde(default)]
+    pub schema_failures: u64,
+    #[serde(default)]
+    pub last_pass: super::ttl_pass::TtlPassReport,
 }
 
 impl SamplerRuntimeState {
@@ -347,6 +354,8 @@ impl SamplerRuntimeState {
             in_flight: ttl.in_flight,
             settled: ttl.settled,
             policy_error: ttl.policy_error.clone(),
+            schema_failures: ttl.schema_failures,
+            last_pass: ttl.last_pass.clone(),
         }
     }
 
