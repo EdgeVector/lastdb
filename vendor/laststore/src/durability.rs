@@ -28,7 +28,7 @@ pub struct SyncStats {
     pub data_syncs: u64,
     /// Total time spent in those barriers, in microseconds.
     pub data_sync_micros: u64,
-    /// Key sidecars made durable when a clean group was reaped.
+    /// Key sidecars flushed before their rename (big groups only).
     pub sidecar_syncs: u64,
     /// Total time spent in sidecar barriers, in microseconds.
     pub sidecar_sync_micros: u64,
@@ -115,7 +115,8 @@ pub(crate) fn sync_dirty_file(file: &File) -> Result<()> {
     timed(&DATA_SYNCS, &DATA_SYNC_MICROS, || barrier(file))
 }
 
-/// Make a key sidecar durable before it replaces the previous one.
+/// Make a key sidecar durable before it replaces the previous one. Only a
+/// group at or above the sidecar flush floor calls this.
 pub(crate) fn sync_sidecar_file(file: &File) -> Result<()> {
     timed(&SIDECAR_SYNCS, &SIDECAR_SYNC_MICROS, || barrier(file))
 }

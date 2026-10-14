@@ -22,7 +22,8 @@ impl LastStore {
     /// already matches its current segment stamps is skipped.
     ///
     /// Advisory like every other sidecar write: a failure costs the next cold
-    /// walk one segment read, so nothing here is propagated.
+    /// walk one segment read (a group near the load cap is flushed first), so
+    /// nothing here is propagated.
     pub fn persist_key_sidecars(&self) {
         if !self.sidecar_enabled() {
             return;
@@ -91,7 +92,8 @@ impl LastStore {
         let Ok(ids) = sh.live_keys() else {
             return;
         };
-        if keysidecar::write(&sh.dir, &stamps, sh.residue, &ids).is_ok() {
+        let floor = self.sidecar_flush_floor();
+        if keysidecar::write(&sh.dir, &stamps, sh.residue, &ids, floor).is_ok() {
             sh.sidecar_stamps = Some(stamps);
         }
     }

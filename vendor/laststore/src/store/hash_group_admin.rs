@@ -49,8 +49,8 @@ impl LastStore {
     ///   in `group` — the caller named the wrong group;
     /// - the group is resident in the warm set — a live handle owns it;
     /// - there is no sidecar the store can trust for the group's ids
-    ///   (`keysidecar::read_ids_tolerating_appends`), which includes every
-    ///   frame-AEAD home since those write no sidecar;
+    ///   (`keysidecar::read_ids_tolerating_appends`): frame-AEAD homes write
+    ///   none, and a small group's is not flushed, so power loss can lose it;
     /// - the sidecar records any id other than `expected_only_id`.
     ///
     /// The id proof reads only the sidecar plus segments appended after it

@@ -296,7 +296,8 @@ impl LastStore {
         let Ok(ids) = sh.live_keys() else {
             return false;
         };
-        if keysidecar::write(&sh.dir, &stamps, sh.residue, &ids).is_err() {
+        let floor = self.sidecar_flush_floor();
+        if keysidecar::write(&sh.dir, &stamps, sh.residue, &ids, floor).is_err() {
             return false;
         }
         sh.sidecar_stamps = Some(stamps);

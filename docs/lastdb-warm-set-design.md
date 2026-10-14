@@ -414,7 +414,7 @@ WRITE ACK AS THE BAR SEES IT
 
 SUSTAINED WRITES
 - Lane: about 7 mutations each second for each schema (measured). Unchanged by A, B, D and C.
-- If the fsync gauge shows that calls for each hash group dominate, the fix is Track S3b (sidecar without fsync, exact flush mark). Group commit helps only the fixed part. I removed the 5 to 10 times claim.
+- If the fsync gauge shows that calls for each hash group dominate, the fix is Track S3b (sidecar without fsync, exact flush mark). The sidecar part was built on 2026-10-14: a group under half the cold-load cap is no longer flushed (see docs/lastdb-write-ahead-journal-design.md, B6). Group commit helps only the fixed part. I removed the 5 to 10 times claim.
 - Six clients still get persist_queue_full until Track S.
 
 MEMORY
@@ -544,7 +544,7 @@ the gauges, write mode, 100 creates with new keys, default flush settings.
 | Item | Value |
 |---|---|
 | Data fsyncs | 4002 (40 per create), 48 s of 62.8 s total |
-| Sidecar fsyncs | 1212 (12 per create), 13 s |
+| Sidecar fsyncs (before the 2026-10-14 flush rule) | 1212 (12 per create), 13 s |
 | Drain rate | 1.6 creates per second (62.8 s for 100) |
 | Whole-store flushes | 1411 (the 500 ms tick, 8 namespaces per tick) |
 | Scoped flushes | 689 |
