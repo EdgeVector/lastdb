@@ -132,8 +132,11 @@ async fn create_local_fold_db_inner(
     // An empty cloud-connected home must restore S and its writer tail before
     // steady sync can apply new log entries. Capture this before LastStore open
     // creates layout metadata that makes the directory non-empty.
-    let bootstrap_from_cloud =
-        sync_setup.is_some() && !defer_cloud_workers && laststore_is_empty_home(path);
+    let local_proof_engine = sync_setup.as_ref().is_some_and(|s| s.local_proof_engine);
+    let bootstrap_from_cloud = sync_setup.is_some()
+        && !defer_cloud_workers
+        && !local_proof_engine
+        && laststore_is_empty_home(path);
 
     let primary_store = open_primary_store(path, e2e_keys)?;
     let base_store = Arc::clone(&primary_store.store);
@@ -196,6 +199,12 @@ async fn create_local_fold_db_inner(
     fold_db.set_config_store(config_store);
 
     if let Some(engine) = store_stack.sync_engine {
+        if local_proof_engine {
+            // No cloud: attach for capture and replay only. No bootstrap, no
+            // backup uploader, no sync loop.
+            fold_db.set_sync_engine(engine).await;
+            return Ok(Arc::new(fold_db));
+        }
         wire_sync_engine(
             &fold_db,
             engine,

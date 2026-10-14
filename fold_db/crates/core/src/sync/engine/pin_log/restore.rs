@@ -587,9 +587,24 @@ impl SyncEngine {
         target: &SyncTarget,
         incorporated: &Frontier,
     ) -> SyncResult<MutationLogReplayReport> {
-        let mut segments = self
+        let segments = self
             .download_peer_mutation_log_segments(target, incorporated)
             .await?;
+        self.apply_peer_segments(target, segments, incorporated)
+            .await
+    }
+
+    /// Apply already-fetched peer segments: drop this device's own writer
+    /// (self-echo), then replay the rest in writer-then-frontier order.
+    ///
+    /// The live peer-apply cycle and the local-directory replay both end here,
+    /// so they run one apply path.
+    pub(super) async fn apply_peer_segments(
+        &self,
+        target: &SyncTarget,
+        mut segments: Vec<MutationLogSegment>,
+        incorporated: &Frontier,
+    ) -> SyncResult<MutationLogReplayReport> {
         if !self.device_id.is_empty() {
             segments.retain(|segment| {
                 segment.segment.writer_id.as_deref() != Some(self.device_id.as_str())

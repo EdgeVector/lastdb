@@ -91,6 +91,19 @@ impl Host {
         search_outbox_inbox: PathBuf,
         resume_required: bool,
     ) -> Result<Arc<FoldDB>, String> {
+        // A synthetic home that passes the proof guard gets the local proof
+        // engine instead of a plain local-only database. Never with a cloud.
+        if cloud_sync.is_none() && crate::proof_replay::boot_engine_requested(home) {
+            return Self::open_proof_boot_db(
+                home,
+                data_path,
+                existing_store,
+                keypair,
+                e2e_keys,
+                search_outbox_inbox,
+            )
+            .await;
+        }
         // Last Store only. Legacy sled personal bootstrap is gone — restore
         // uses `lastdb restore --into`. Auth-refresh still wires 401 self-heal
         // when cloud_sync.json is present.
@@ -147,5 +160,34 @@ impl Host {
             .await
             .map_err(|e| map_and_record_boot_error(home, existing_store, e))?
         })
+    }
+
+    /// Open the FoldDB with the local proof engine: capture and replay are
+    /// wired, no cloud is contacted. Called only after the proof guard passed
+    /// (see [`crate::proof_replay::boot_engine_requested`]).
+    pub(super) async fn open_proof_boot_db(
+        home: &Path,
+        data_path: &Path,
+        existing_store: bool,
+        keypair: &Arc<Ed25519KeyPair>,
+        e2e_keys: &E2eKeys,
+        search_outbox_inbox: PathBuf,
+    ) -> Result<Arc<FoldDB>, String> {
+        let storage_engine = StorageEngine::from_env()
+            .map_err(|e| map_and_record_boot_error(home, existing_store, e))?
+            .unwrap_or(StorageEngine::Laststore);
+        let config = DatabaseConfig {
+            path: data_path.to_path_buf(),
+            engine: storage_engine,
+            cloud_sync: None,
+        };
+        fold_db::fold_db_core::factory::create_fold_db_with_local_proof_engine(
+            &config,
+            e2e_keys,
+            Arc::clone(keypair),
+            Some(search_outbox_inbox),
+        )
+        .await
+        .map_err(|e| map_and_record_boot_error(home, existing_store, e))
     }
 }
