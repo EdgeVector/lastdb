@@ -40,7 +40,7 @@ pub use protein_reaper::{
     BackgroundProteinReaperTask, ProteinReaperPolicy, DEFAULT_PROTEIN_REAPER_MS,
     PROTEIN_REAPER_MS_ENV,
 };
-pub use sync_coordinator::SyncCoordinator;
+pub use sync_coordinator::{AutomaticGcAtomsStatus, SyncCoordinator};
 pub use tip_history_drain::{
     BackgroundTipHistoryDrainTask, TipHistoryDrainPolicy, DEFAULT_TIP_HISTORY_DRAIN_MAX_KEYS,
     DEFAULT_TIP_HISTORY_DRAIN_MS, TIP_HISTORY_DRAIN_MAX_KEYS_ENV, TIP_HISTORY_DRAIN_MS_ENV,

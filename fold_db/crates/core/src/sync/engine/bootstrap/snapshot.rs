@@ -97,6 +97,23 @@ impl SyncEngine {
         })
     }
 
+    /// Drop any fresh-home marker BEFORE a personal restore installs rows, not
+    /// only after. A crash between the install and the barrier that follows it
+    /// would otherwise leave a marker that vouches for rows no edge writer
+    /// produced.
+    async fn drop_fresh_home_before_restore(&self, target: &SyncTarget) -> SyncResult<()> {
+        if !target.prefix.is_empty() {
+            return Ok(());
+        }
+        self.invoke_photograph_restore_barrier()
+            .await
+            .map_err(|error| {
+                SyncError::Storage(format!(
+                    "prepare serving store before photograph restore: {error}"
+                ))
+            })
+    }
+
     /// Unseal one snapshot and restore it into the right store. Returns the
     /// snapshot's `last_seq`.
     pub(super) async fn restore_bootstrap_snapshot(
@@ -124,7 +141,12 @@ impl SyncEngine {
             snapshot.namespaces.len(),
             last_seq
         );
+        self.drop_fresh_home_before_restore(target).await?;
         let restore_report = self.restore_snapshot_into_store(target, &snapshot).await?;
+        // The install cleared this node's own peer-apply row and wrote nothing
+        // in its place (a snapshot never carries it). The rows now in the store
+        // came from another store: record that before anything can run.
+        self.rewrite_peer_apply_seen_after_restore().await?;
         if target.prefix.is_empty() {
             self.invoke_photograph_restore_barrier()
                 .await

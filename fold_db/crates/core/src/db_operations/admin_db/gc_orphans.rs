@@ -2,18 +2,56 @@
 
 use super::*;
 
+/// Who asks and how far one `gc-atoms` run reaches.
+#[derive(Clone, Copy)]
+pub(crate) struct GcAtomsRunScope<'a> {
+    /// Decide only atom bodies whose plain header names this schema.
+    pub(crate) source_schema_name: Option<&'a str>,
+    /// The run start instant; `None` takes it at the first read.
+    pub(crate) scan_started_at: Option<DateTime<Utc>>,
+    /// The operator accepts that the atoms of a lost multi-device write can be
+    /// deleted (the peer-apply interlock override).
+    pub(crate) allow_after_peer_apply: bool,
+}
+
 /// The fixed inputs of one `gc-atoms` atom walk.
 struct GcAtomWalk<'a> {
     dry_run: bool,
     storage_prefix: Option<&'a str>,
     source_schema_name: Option<&'a str>,
     scan_started_at: DateTime<Utc>,
+    /// The operator override; the walk asks the interlock again for each page.
+    allow_after_peer_apply: bool,
 }
 
 mod atom_row;
 mod atom_walk;
 mod proteins;
 mod references;
+
+impl AtomStore {
+    /// Refuse a run that must not start: a schema-scoped history prune, or a
+    /// delete on a node the peer-apply interlock holds off. Every caller of the
+    /// walker (the manual verb and the opt-in reclaim janitor) passes through
+    /// here. A dry run deletes nothing and always runs.
+    async fn admit_gc_atoms_run(
+        &self,
+        dry_run: bool,
+        prune_live_history: bool,
+        scope: GcAtomsRunScope<'_>,
+    ) -> Result<(), SchemaError> {
+        if scope.source_schema_name.is_some() && prune_live_history {
+            return Err(SchemaError::InvalidData(
+                "schema-scoped gc-atoms does not support --prune-live-history".into(),
+            ));
+        }
+        if !dry_run {
+            self.require_no_peer_apply_for_atom_delete(scope.allow_after_peer_apply, "gc-atoms")
+                .await?;
+        }
+        Ok(())
+    }
+}
 
 impl AtomStore {
     /// GC orphan atoms + tip-version chains.
@@ -45,6 +83,7 @@ impl AtomStore {
             storage_prefix,
             prune_live_history,
             &HashSet::new(),
+            false,
         )
         .await
     }
@@ -62,12 +101,17 @@ impl AtomStore {
     /// in `FoldDB::gc_orphan_atoms_with`, which owns both.
     ///
     /// An empty `extra_roots` reproduces the historical behavior exactly.
+    ///
+    /// `allow_after_peer_apply` is the operator's explicit acceptance that the
+    /// atoms of a lost multi-device write can be deleted. Without it a
+    /// non-dry-run refuses unless this node has never applied a peer mutation.
     pub async fn gc_orphan_atoms_with_roots(
         &self,
         dry_run: bool,
         storage_prefix: Option<&str>,
         prune_live_history: bool,
         extra_roots: &HashSet<String>,
+        allow_after_peer_apply: bool,
     ) -> Result<AtomGcReport, SchemaError> {
         self.gc_orphan_atoms_with_roots_at_cut(
             dry_run,
@@ -75,6 +119,7 @@ impl AtomStore {
             prune_live_history,
             extra_roots,
             Utc::now(),
+            allow_after_peer_apply,
         )
         .await
     }
@@ -91,14 +136,18 @@ impl AtomStore {
         prune_live_history: bool,
         extra_roots: &HashSet<String>,
         scan_started_at: DateTime<Utc>,
+        allow_after_peer_apply: bool,
     ) -> Result<AtomGcReport, SchemaError> {
         self.gc_orphan_atoms_with_roots_for_schema_at_cut(
             dry_run,
             storage_prefix,
             prune_live_history,
             extra_roots,
-            None,
-            Some(scan_started_at),
+            GcAtomsRunScope {
+                source_schema_name: None,
+                scan_started_at: Some(scan_started_at),
+                allow_after_peer_apply,
+            },
         )
         .await
     }
@@ -112,14 +161,18 @@ impl AtomStore {
         prune_live_history: bool,
         extra_roots: &HashSet<String>,
         source_schema_name: Option<&str>,
+        allow_after_peer_apply: bool,
     ) -> Result<AtomGcReport, SchemaError> {
         self.gc_orphan_atoms_with_roots_for_schema_at_cut(
             dry_run,
             storage_prefix,
             prune_live_history,
             extra_roots,
-            source_schema_name,
-            None,
+            GcAtomsRunScope {
+                source_schema_name,
+                scan_started_at: None,
+                allow_after_peer_apply,
+            },
         )
         .await
     }
@@ -149,14 +202,15 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         prune_live_history: bool,
         extra_roots: &HashSet<String>,
-        source_schema_name: Option<&str>,
-        scan_started_at: Option<DateTime<Utc>>,
+        scope: GcAtomsRunScope<'_>,
     ) -> Result<AtomGcReport, SchemaError> {
-        if source_schema_name.is_some() && prune_live_history {
-            return Err(SchemaError::InvalidData(
-                "schema-scoped gc-atoms does not support --prune-live-history".into(),
-            ));
-        }
+        self.admit_gc_atoms_run(dry_run, prune_live_history, scope)
+            .await?;
+        let GcAtomsRunScope {
+            source_schema_name,
+            scan_started_at,
+            allow_after_peer_apply,
+        } = scope;
         let scan_started_at = scan_started_at.unwrap_or_else(Utc::now);
 
         let mut checkpoint = if source_schema_name.is_some() {
@@ -217,6 +271,7 @@ impl AtomStore {
             storage_prefix,
             source_schema_name,
             scan_started_at,
+            allow_after_peer_apply,
         };
         let mut pending: Vec<String> = Vec::new();
         let storage_keys_deleted = self

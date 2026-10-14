@@ -10,6 +10,45 @@ pub use recovery::register_dev_recovery_device;
 /// its presence keeps subsequent boots from re-running the full restore.
 pub const BOOTSTRAP_DONE_FILE: &str = ".bootstrap_done";
 
+/// Marker file `lastdb restore` writes into the destination home BEFORE it
+/// installs anything. The restored rows came from another store, so the home
+/// holds data it did not author. The next boot records that in the store
+/// (`peer-apply:v1 = seen`), which keeps automatic atom delete off.
+pub const PEER_DERIVED_FILE: &str = ".peer_derived";
+
+/// Where the restore marker lives for `home`.
+pub fn peer_derived_marker_path(home: &Path) -> PathBuf {
+    home.join(PEER_DERIVED_FILE)
+}
+
+/// Write the restore marker durably: a temporary file, `fsync`, rename, then
+/// `fsync` of the home directory. Idempotent. The marker is never removed.
+///
+/// Call it BEFORE anything of another home's data lands in `home`. A physical
+/// copy (a chunk install, a cloud-purge adoption switch) carries the source's
+/// own `peer-apply:v1` row, and that row says nothing about this home's
+/// lineage. The next boot reads the marker and writes `seen` over it.
+pub fn write_peer_derived_marker(home: &Path) -> Result<(), String> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let path = peer_derived_marker_path(home);
+    let tmp = home.join(format!(".peer_derived.tmp-{}", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .map_err(|e| format!("write {}: {e}", tmp.display()))?;
+    file.write_all(b"restored\n")
+        .and_then(|()| file.sync_all())
+        .map_err(|e| format!("sync {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("rename to {}: {e}", path.display()))?;
+    std::fs::File::open(home)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| format!("sync {}: {e}", home.display()))
+}
+
 /// Parse a 24-word BIP39 recovery phrase into the account's 32-byte Ed25519
 /// seed — the same derivation as the full node's `identity_from_phrase`.
 pub fn seed_from_phrase(words: &str) -> Result<[u8; 32], String> {

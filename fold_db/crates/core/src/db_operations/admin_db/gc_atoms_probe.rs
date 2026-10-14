@@ -108,7 +108,7 @@ impl AtomStore {
                 end.as_bytes(),
                 checkpoint.cursor.as_ref(),
                 max_rows,
-                1,
+                Self::GC_PROBE_HANDLES_PER_CALL,
             )
             .await
             .map_err(|e| {
@@ -263,7 +263,7 @@ impl AtomStore {
                 end.as_bytes(),
                 checkpoint.cursor.as_ref(),
                 max_rows,
-                1,
+                Self::GC_PROBE_HANDLES_PER_CALL,
             )
             .await
             .map_err(|e| {
@@ -397,7 +397,7 @@ impl AtomStore {
                 atom_end.as_bytes(),
                 checkpoint.cursor.as_ref(),
                 max_rows,
-                1,
+                Self::GC_PROBE_HANDLES_PER_CALL,
             )
             .await
             .map_err(|e| SchemaError::InvalidData(format!("automatic gc-atoms scan atom: {e}")))?;

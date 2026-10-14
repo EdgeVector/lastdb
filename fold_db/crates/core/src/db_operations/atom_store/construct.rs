@@ -91,6 +91,9 @@ impl AtomStore {
             keep_small_hard_erase_orphaned: Arc::default(),
             automatic_gc_atoms_generation: Arc::default(),
             atom_gc_candidates_rearmed: Arc::default(),
+            peer_apply_seen: Arc::default(),
+            peer_apply_durable: Arc::default(),
+            peer_apply_lock: Arc::default(),
             automatic_gc_atom_locks: Arc::new(
                 (0..256)
                     .map(|_| Arc::new(tokio::sync::Mutex::new(())))

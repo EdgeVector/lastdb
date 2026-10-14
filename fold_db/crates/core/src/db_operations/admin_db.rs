@@ -128,6 +128,7 @@ mod gc_atoms_delete_steps;
 mod gc_atoms_probe;
 mod gc_atoms_probe_support;
 mod gc_orphans;
+pub(crate) use gc_orphans::GcAtomsRunScope;
 mod history_prune;
 mod inventory;
 mod inventory_key_classes;

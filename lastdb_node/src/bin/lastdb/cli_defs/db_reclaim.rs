@@ -203,6 +203,11 @@ pub(crate) enum DbReclaimCommand {
     /// 2. Delete `atom:` rows no remaining tip/tv/history still references.
     ///
     /// Default is dry-run. Pass `--execute` to apply.
+    ///
+    /// `--execute` refuses on a node that has applied a peer mutation, or that
+    /// cannot prove it never did (every home an older build created): the atom
+    /// of a lost multi-device write is an ordinary unreferenced atom. Pass
+    /// `--allow-after-peer-apply` to accept that those atoms can be deleted.
     GcAtoms {
         /// Limit deletion candidates to one installed source schema.
         #[arg(long)]
@@ -214,6 +219,11 @@ pub(crate) enum DbReclaimCommand {
         /// sacrifices `as_of` depth.
         #[arg(long)]
         prune_live_history: bool,
+        /// Accept that the atoms of a LOST multi-device write can be deleted.
+        /// Needed with `--execute` on a node that has applied a peer mutation
+        /// or whose peer history is unknown.
+        #[arg(long)]
+        allow_after_peer_apply: bool,
         #[arg(long)]
         json: bool,
     },

@@ -84,6 +84,7 @@ pub(super) async fn build_snapshot(
         local_retention: host
             .self_metrics
             .local_retention_health(crate::ttl_sweep::ttl_sweep_enabled()),
+        gc_atoms: Some(host.db.automatic_gc_atoms_status()),
         molecule_gate: molecule_gate_health(host),
         at_rest_compression: Some(AtRestCompressionHealth::current()),
         codec_policy: Some(CodecPolicyHealth::current(&host.home)),

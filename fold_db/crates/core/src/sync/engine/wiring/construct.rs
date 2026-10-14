@@ -150,6 +150,7 @@ impl SyncEngine {
             retired_intent_preserver: Arc::new(Mutex::new(None)),
             mutation_intent_materializer: Arc::new(Mutex::new(None)),
             automatic_gc_atom_store: Arc::new(Mutex::new(None)),
+            peer_apply_marked: AtomicBool::new(false),
             automatic_gc_pin_log_barrier: Arc::new(Mutex::new(())),
             automatic_gc_pin_log_activation_pending: AtomicBool::new(false),
             photograph_cut_barrier: Arc::new(Mutex::new(None)),

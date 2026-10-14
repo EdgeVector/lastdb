@@ -1,14 +1,25 @@
 use super::gc_atoms_delete::{GcAtomsDeleteCandidate, GcAtomsDeletePassTotals};
 use super::*;
+use crate::db_operations::atom_store::{AtomGcCandidate, GraceGateVerdict};
 
 impl AtomStore {
     /// Re-read markers and bodies under the candidate locks; keep the safe ones.
+    ///
+    /// The tally counts each candidate the pass kept, under the first gate that
+    /// kept it, so an empty delete is never silent about its reason.
     pub(super) async fn revalidate_gc_atoms_delete_candidates(
         &self,
         storage_prefix: Option<&str>,
         probe_generation: u64,
+        gate: Option<&AutomaticGcAtomsGraceGate>,
         candidates: Vec<GcAtomsDeleteCandidate>,
-    ) -> Result<Vec<(GcAtomsDeleteCandidate, Vec<String>)>, SchemaError> {
+    ) -> Result<
+        (
+            Vec<(GcAtomsDeleteCandidate, Vec<String>)>,
+            GcAtomsRevalidationTally,
+        ),
+        SchemaError,
+    > {
         let candidate_ids: Vec<String> = candidates
             .iter()
             .map(|candidate| candidate.uuid.clone())
@@ -45,55 +56,137 @@ impl AtomStore {
                 SchemaError::InvalidData(format!("revalidate automatic gc-atoms bodies: {e}"))
             })?;
 
+        // The zero-count rows of the whole batch, read once. Only a gated pass
+        // needs them.
+        let gate_rows = match gate {
+            Some(_) => {
+                self.load_atom_gc_candidates(&candidate_ids, storage_prefix)
+                    .await?
+            }
+            None => vec![None; candidate_ids.len()],
+        };
         let mut validated: Vec<(GcAtomsDeleteCandidate, Vec<String>)> = Vec::new();
-        for ((candidate, marker), body) in candidates
+        let mut tally = GcAtomsRevalidationTally::default();
+        for (((candidate, marker), body), row) in candidates
             .into_iter()
             .zip(rechecked_markers)
             .zip(rechecked_bodies)
+            .zip(gate_rows)
         {
+            let referenced = marker.is_some_and(|marker| marker.generation == probe_generation);
+            let changed = body.as_ref() != Some(&candidate.value);
             if retired_roots.contains(&candidate.uuid) {
+                tally.retired_intent_root += 1;
+            } else if referenced {
+                tally.referenced_marker += 1;
+            } else if changed {
+                tally.body_changed += 1;
+            } else if !Self::gc_atoms_grace_gate_clears(gate, row.as_ref(), &mut tally) {
                 continue;
-            }
-            if marker.is_some_and(|marker| marker.generation == probe_generation)
-                || body.as_ref() != Some(&candidate.value)
+            } else if let Some(mut keys) = self
+                .gc_atoms_delete_blob_keys(storage_prefix, &candidate, &mut tally)
+                .await?
             {
-                continue;
-            }
-            if !self.atom_ref_v2_reads_ready(storage_prefix).await?
-                || self
-                    .has_active_atom_refs(&candidate.uuid, storage_prefix)
-                    .await?
-                || self
-                    .has_any_pending_atom_refs(&candidate.uuid, storage_prefix)
-                    .await?
-            {
-                continue;
-            }
-            let atom = match self.decode_atom_bytes(&candidate.value).await {
-                Ok(atom) => atom,
-                Err(error) => {
-                    tracing::warn!(
-                        atom_uuid = candidate.uuid,
-                        %error,
-                        "automatic gc-atoms retained an unreadable candidate"
-                    );
-                    continue;
+                if let Some(row) = row.as_ref() {
+                    keys.extend(Self::atom_gc_delete_pass_keys(row, storage_prefix));
                 }
-            };
-            let blob_keys =
-                crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
-                    .into_iter()
-                    .map(|blob_ref| {
-                        crate::db_operations::atom_store::BlobRefEdge::atom(
-                            &candidate.uuid,
-                            &blob_ref,
-                        )
-                        .storage_key(storage_prefix)
-                    })
-                    .collect();
-            validated.push((candidate, blob_keys));
+                validated.push((candidate, keys));
+            }
         }
-        Ok(validated)
+        Ok((validated, tally))
+    }
+
+    /// The grace and audit gate for one candidate. Counts the reason in the
+    /// tally when it keeps the candidate. An ungated pass clears everything.
+    fn gc_atoms_grace_gate_clears(
+        gate: Option<&AutomaticGcAtomsGraceGate>,
+        row: Option<&AtomGcCandidate>,
+        tally: &mut GcAtomsRevalidationTally,
+    ) -> bool {
+        let Some(gate) = gate else {
+            return true;
+        };
+        let Some(row) = row else {
+            tally.no_zero_epoch += 1;
+            return false;
+        };
+        match row.grace_gate_verdict(&gate.audit_id, gate.now_unix_nanos, gate.grace_window) {
+            GraceGateVerdict::Clear => true,
+            GraceGateVerdict::WithinGrace => {
+                tally.within_grace += 1;
+                false
+            }
+            GraceGateVerdict::AuditNotClear => {
+                tally.audit_not_clear += 1;
+                false
+            }
+        }
+    }
+
+    /// The edge, hold and decode gates for one candidate. `None` means the
+    /// candidate is kept and the tally names the gate; `Some` carries the blob
+    /// edge keys that go with the atom body.
+    async fn gc_atoms_delete_blob_keys(
+        &self,
+        storage_prefix: Option<&str>,
+        candidate: &GcAtomsDeleteCandidate,
+        tally: &mut GcAtomsRevalidationTally,
+    ) -> Result<Option<Vec<String>>, SchemaError> {
+        if !self.atom_ref_v2_reads_ready(storage_prefix).await? {
+            tally.reads_not_ready += 1;
+            return Ok(None);
+        }
+        if self
+            .has_active_atom_refs(&candidate.uuid, storage_prefix)
+            .await?
+        {
+            tally.active_edge += 1;
+            return Ok(None);
+        }
+        // A conflict loser or history atom can hold only a legacy v1 edge.
+        // An edge that cannot be read keeps the atom: it is never a pass.
+        let legacy_edge = self
+            .has_active_legacy_atom_ref_edge(&candidate.uuid, storage_prefix)
+            .await;
+        if legacy_edge.as_ref().map_or(true, |active| *active) {
+            if let Err(error) = &legacy_edge {
+                tracing::warn!(
+                    atom_uuid = candidate.uuid,
+                    %error,
+                    "automatic gc-atoms kept a candidate whose legacy edges could not be read"
+                );
+            }
+            tally.active_edge += 1;
+            return Ok(None);
+        }
+        if self
+            .has_any_pending_atom_refs(&candidate.uuid, storage_prefix)
+            .await?
+        {
+            tally.pending_hold += 1;
+            return Ok(None);
+        }
+        let atom = match self.decode_atom_bytes(&candidate.value).await {
+            Ok(atom) => atom,
+            Err(error) => {
+                tracing::warn!(
+                    atom_uuid = candidate.uuid,
+                    %error,
+                    "automatic gc-atoms retained an unreadable candidate"
+                );
+                tally.unreadable += 1;
+                return Ok(None);
+            }
+        };
+        let blob_keys =
+            crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
+                .into_iter()
+                .map(|blob_ref| {
+                    crate::db_operations::atom_store::BlobRefEdge::atom(&candidate.uuid, &blob_ref)
+                        .storage_key(storage_prefix)
+                })
+                .collect();
+        Ok(Some(blob_keys))
     }
 
     /// Delete the validated atoms under a ledger row; return the key count.
@@ -145,6 +238,7 @@ impl AtomStore {
         checkpoint.candidates_cleared_by_revalidation = checkpoint
             .candidates_cleared_by_revalidation
             .saturating_add(totals.candidates_cleared);
+        checkpoint.candidates_retained.add(&totals.retained);
         checkpoint.atoms_deleted = checkpoint
             .atoms_deleted
             .saturating_add(totals.atoms_deleted);
@@ -173,6 +267,8 @@ impl AtomStore {
             rows_scanned_this_call: 0,
             candidates_revalidated_this_call: 0,
             candidates_cleared_by_revalidation_this_call: 0,
+            candidates_retained_this_call: GcAtomsRevalidationTally::default(),
+            locks_held_ms_this_call: 0,
             atoms_deleted_this_call: 0,
             storage_keys_deleted_this_call: 0,
             bytes_freed_approx_this_call: 0,

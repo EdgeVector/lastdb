@@ -120,7 +120,9 @@ async fn run_reclaim_pass(
     let extra_roots = mutation_manager.pending_pin_log_atom_roots().await?;
     let atoms = db_ops
         .atoms()
-        .gc_orphan_atoms_with_roots_at_cut(false, None, false, &extra_roots, scan_started_at)
+        // No explicit override: the janitor honors the peer-apply interlock
+        // (only the daemon-wide env override lets it delete after a peer apply).
+        .gc_orphan_atoms_with_roots_at_cut(false, None, false, &extra_roots, scan_started_at, false)
         .await?;
 
     // The atom pass can return while its bounded molecule-tip prologue still
