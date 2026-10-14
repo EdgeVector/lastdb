@@ -99,8 +99,11 @@ env LASTDB_HOME="$HB" FOLDDB_HOME="$HB" LASTDB_PROOF_REPLAY=1 EXEMEM_ENV=dev \
 Check that the two homes are two devices of one owner:
 
 ```bash
-lastdb --data-dir "$HA" status | grep -E 'Home|Owner'    # same Owner on both
+for h in "$HA" "$HB"; do
+  curl -s --unix-socket "$h/data/folddb.sock" http://x/api/schemas | jq -r .user_hash
+done                                                      # same owner hash twice
 cat "$HA/data/.device_id" "$HB/data/.device_id"           # two different ids
+lastdb --data-dir "$HB" status | grep '^Home:'            # the home is your temp dir
 ```
 
 Notes:
