@@ -9,10 +9,13 @@ use super::AtomStore;
 use crate::hex::hex_lower;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
+use crate::storage::traits::PhysicalScanCursor;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
+/// Atom rows read per page by the bootstrap walk.
+const BLOB_BOOTSTRAP_PAGE_ROWS: usize = 2_048;
 const BLOB_REF_PREFIX: &str = "bref:v1:e:";
 pub const BLOB_REF_COMPLETE_KEY: &str = "bref:v1:complete";
 const BLOB_REF_DOMAIN: &[u8] = b"lastdb:blob-ref-edge-source:v1\0";
@@ -191,41 +194,66 @@ impl AtomStore {
 
     /// Rebuild one storage domain from its canonical immutable atom bodies.
     /// Any unreadable atom aborts before the completeness marker is written.
+    ///
+    /// The walk reads the atom plane one page at a time, so memory holds one
+    /// page of rows and the edges found so far, never the whole plane. The
+    /// caller must still keep every other writer away from the home: an
+    /// isolated copy, or a stopped home held by `maintenance.lock`.
     pub async fn bootstrap_blob_ref_edges_from_atoms_on_isolated_copy(
         &self,
         storage_prefix: Option<&str>,
     ) -> Result<BlobRefCompleteness, SchemaError> {
         let (start, end) = Self::kind_plane_scan_bounds(storage_prefix, "atom:");
-        let rows = self
-            .main_store
-            .inner()
-            .scan_range(start.as_bytes(), end.as_bytes())
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "scan atoms for blob reference bootstrap: {error}"
-                ))
-            })?;
         let mut edges = Vec::new();
-        for (key, value) in &rows {
-            let key = String::from_utf8_lossy(key);
-            let uuid = Self::atom_uuid_from_body_key(&key).ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "blob reference bootstrap found malformed atom key {key:?}"
-                ))
-            })?;
-            let atom = self.decode_atom_bytes(value).await.map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "blob reference bootstrap cannot decode atom {uuid}: {error}"
-                ))
-            })?;
-            edges.extend(
-                crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
-                    .into_iter()
-                    .map(|blob_ref| BlobRefEdge::atom(uuid, &blob_ref)),
-            );
+        let mut atoms_read = 0u64;
+        let mut cursor: Option<PhysicalScanCursor> = None;
+        loop {
+            let page = self
+                .main_store
+                .inner()
+                .scan_range_physical_paged(
+                    start.as_bytes(),
+                    end.as_bytes(),
+                    cursor.as_ref(),
+                    BLOB_BOOTSTRAP_PAGE_ROWS,
+                    1,
+                )
+                .await
+                .map_err(|error| {
+                    SchemaError::InvalidData(format!(
+                        "scan atoms for blob reference bootstrap: {error}"
+                    ))
+                })?;
+            for (key, value) in &page.rows {
+                let key = String::from_utf8_lossy(key);
+                let uuid = Self::atom_uuid_from_body_key(&key).ok_or_else(|| {
+                    SchemaError::InvalidData(format!(
+                        "blob reference bootstrap found malformed atom key {key:?}"
+                    ))
+                })?;
+                let atom = self.decode_atom_bytes(value).await.map_err(|error| {
+                    SchemaError::InvalidData(format!(
+                        "blob reference bootstrap cannot decode atom {uuid}: {error}"
+                    ))
+                })?;
+                edges.extend(
+                    crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
+                        .into_iter()
+                        .map(|blob_ref| BlobRefEdge::atom(uuid, &blob_ref)),
+                );
+                atoms_read = atoms_read.saturating_add(1);
+            }
+            let Some(next) = page.next_cursor else {
+                break;
+            };
+            if cursor.as_ref() == Some(&next) {
+                return Err(SchemaError::InvalidData(
+                    "blob reference bootstrap atom scan did not advance".to_string(),
+                ));
+            }
+            cursor = Some(next);
         }
-        self.bootstrap_blob_ref_edges_on_isolated_copy(&edges, rows.len() as u64, storage_prefix)
+        self.bootstrap_blob_ref_edges_on_isolated_copy(&edges, atoms_read, storage_prefix)
             .await
     }
 }
