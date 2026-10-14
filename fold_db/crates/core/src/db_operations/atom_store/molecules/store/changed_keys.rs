@@ -149,7 +149,7 @@ impl AtomStore {
         // The conflict rows reach disk before the tip. See `conflict_record`.
         // Boxed: the store future is already deep in the node's async graph,
         // and the recorder adds a second deep subtree.
-        let decided = [(molecule_uuid, data)];
+        let decided = [(molecule_uuid, data, changed)];
         if Self::has_conflicts_to_record(&decided, &decisions) {
             Box::pin(self.record_store_conflicts(&decided, decisions, storage_prefix)).await?;
         }
@@ -285,12 +285,8 @@ impl AtomStore {
         let _tip_guards = self.lock_tip_commits(&tip_keys).await;
         let decisions = self.retain_durable_tip_winners(&mut all_items).await?;
         // The conflict rows reach disk before the tips. See `conflict_record`.
-        let decided: Vec<(&str, &MoleculeData)> = molecules
-            .iter()
-            .map(|(molecule_uuid, data, _)| (*molecule_uuid, *data))
-            .collect();
-        if Self::has_conflicts_to_record(&decided, &decisions) {
-            Box::pin(self.record_store_conflicts(&decided, decisions, storage_prefix)).await?;
+        if Self::has_conflicts_to_record(molecules, &decisions) {
+            Box::pin(self.record_store_conflicts(molecules, decisions, storage_prefix)).await?;
         }
 
         let automatic_gc_uuids = self.automatic_gc_tip_reference_uuids(&all_items, storage_prefix);

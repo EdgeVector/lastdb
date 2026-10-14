@@ -100,7 +100,7 @@ impl MoleculeHashRange {
             origin_device: tip.origin_device,
             prev_tip_id: String::new(),
         };
-        let mut candidate = None;
+        let mut replaced = None;
         if let Some(existing) = self.get_atom_entry(&hash_value, &range_value) {
             // Pre-clock #1556 envelopes deserialize written_at=0. Treat that as
             // "no origin clock": last-write-wins among zeros so bootstrap of
@@ -108,32 +108,36 @@ impl MoleculeHashRange {
             // but still lose to any real (non-zero) tip.
             let legacy_zero_clock =
                 written_at == 0 && entry.logical_counter == 0 && entry.mutation_uuid.is_empty();
-            if legacy_zero_clock {
-                if existing.written_at > 0 {
-                    return;
-                }
-            } else if !crate::atom::incoming_wins_lww(
-                crate::atom::lww_order_key(
-                    written_at,
-                    entry.logical_counter,
-                    entry.device_id.as_str(),
-                    entry.mutation_uuid.as_str(),
-                    entry.atom_uuid.as_str(),
-                ),
-                existing.lww_key(),
-            ) {
-                if may_conflict(&entry, existing) {
+            let incoming_wins = if legacy_zero_clock {
+                existing.written_at == 0
+            } else {
+                crate::atom::incoming_wins_lww(
+                    crate::atom::lww_order_key(
+                        written_at,
+                        entry.logical_counter,
+                        entry.device_id.as_str(),
+                        entry.mutation_uuid.as_str(),
+                        entry.atom_uuid.as_str(),
+                    ),
+                    existing.lww_key(),
+                )
+            };
+            // A zero-clock pair is in doubt, so it is queued like any other.
+            let queued = may_conflict(&entry, existing);
+            if !incoming_wins {
+                if queued {
                     let conflict = (TipConflictKind::Dropped, existing.clone(), entry);
                     self.push_tip_conflict(&hash_value, &range_value, conflict);
                 }
                 return;
-            } else if may_conflict(&entry, existing) {
-                candidate = Some(existing.clone());
+            }
+            if queued {
+                replaced = Some(existing.clone());
             }
         }
         entry.prev_tip_id = self.archive_current_tip(&hash_value, &range_value, &entry.atom_uuid);
         self.version += 1;
-        if let Some(replaced) = candidate {
+        if let Some(replaced) = replaced {
             let conflict = (TipConflictKind::Replaced, entry.clone(), replaced);
             self.push_tip_conflict(&hash_value, &range_value, conflict);
         }
@@ -164,14 +168,6 @@ impl MoleculeHashRange {
     #[must_use]
     pub(crate) fn pending_tip_conflicts(&self) -> &[PendingTipConflict] {
         &self.pending_tip_conflicts
-    }
-
-    /// Keep only the pending pairs that `keep` accepts.
-    pub(crate) fn retain_pending_tip_conflicts(
-        &mut self,
-        keep: impl FnMut(&PendingTipConflict) -> bool,
-    ) {
-        self.pending_tip_conflicts.retain(keep);
     }
 
     /// Stamp the sync device on the tip at `(hash, range)` when the tip names

@@ -19,6 +19,9 @@ impl MutationManager {
         storage_prefix: Option<&str>,
         origin_device: &str,
     ) -> Result<Vec<String>, SchemaError> {
+        // The one place where a peer's device id enters a tip. A long or odd
+        // value from the log counts as unknown.
+        let origin_device = crate::atom::bounded_origin_device(origin_device);
         for mutation in &mut mutations {
             mutation.origin_device = origin_device.to_string();
         }

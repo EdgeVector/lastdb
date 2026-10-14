@@ -203,6 +203,7 @@ impl DbOperations {
                 let original_len = ids.len();
                 let mut out = Vec::with_capacity(original_len);
                 let mut live_ids = Vec::with_capacity(original_len);
+                let mut gone = Vec::new();
                 for id in ids {
                     let key = build_storage_key(
                         storage_prefix,
@@ -221,11 +222,11 @@ impl DbOperations {
                         }
                         // Resolved or missing: drop from the cache so the next
                         // call stays honest without a scan.
-                        _ => {}
+                        _ => gone.push(id),
                     }
                 }
-                if live_ids.len() != original_len {
-                    let _ = self.atoms().raw().put_item(&index_key, &live_ids).await;
+                if !gone.is_empty() {
+                    self.prune_conflict_index(&index_key, &gone).await;
                 }
                 return Ok(out);
             }
@@ -237,6 +238,12 @@ impl DbOperations {
         };
         let prefix = build_storage_key(storage_prefix, &base_prefix);
 
+        // The stamp below must not overwrite an id that the recorder adds
+        // while this scan runs, so the scan and the stamp share its gate.
+        let _stamp_gate = match molecule_uuid {
+            Some(_) => Some(self.atoms().lock_conflict_record_gate().await),
+            None => None,
+        };
         let items: Vec<(String, SyncConflict)> = self
             .atoms()
             .raw()

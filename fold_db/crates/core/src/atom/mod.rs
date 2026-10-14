@@ -92,6 +92,21 @@ pub fn lww_order_key<'a>(
     )
 }
 
+/// Longest `origin_device` that a tip keeps, in bytes.
+pub const MAX_ORIGIN_DEVICE_BYTES: usize = 128;
+
+/// A device id as a tip may carry it. A value that is longer than
+/// [`MAX_ORIGIN_DEVICE_BYTES`], or that holds a control character, counts as
+/// unknown ("in doubt"): the peer that sent it is not trusted to bound it.
+#[must_use]
+pub fn bounded_origin_device(raw: &str) -> &str {
+    if raw.len() > MAX_ORIGIN_DEVICE_BYTES || raw.chars().any(char::is_control) {
+        ""
+    } else {
+        raw
+    }
+}
+
 fn is_zero_u8(v: &u8) -> bool {
     *v == 0
 }

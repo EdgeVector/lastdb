@@ -9,6 +9,7 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// SHA-256 identity of one conflict pair. See [`TipConflict::digest`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -37,6 +38,11 @@ impl AtomStore {
     /// molecule. The flush returns before the caller writes the tip. A crash
     /// at any step leaves the tip as it was, and a repeat of the decision
     /// rewrites the same keys.
+    ///
+    /// The flush is scoped to the groups that this batch wrote, like the flush
+    /// of a Delete barrier. The caller holds the molecule commit lock, the tip
+    /// locks and the GC atom locks, and a store-wide flush would wait for
+    /// every dirty group of unrelated writes while it holds them.
     pub(crate) async fn record_tip_conflicts(
         &self,
         conflicts: Vec<TipConflict>,
@@ -52,16 +58,18 @@ impl AtomStore {
             return Ok(0);
         }
         let count = unique.len();
+        let placements = crate::durable_flush::BatchPlacementLog::shared();
         {
             // The gate covers the `mcc:` read, extend and write.
-            let _gate = self.conflict_record_gate.lock().await;
+            let _gate = self.lock_conflict_record_gate().await;
             let items = self.conflict_items(&unique, storage_prefix).await?;
-            self.batch_put_items_with_atom_ref_v2(items, storage_prefix)
-                .await?;
+            crate::durable_flush::scope(
+                Arc::clone(&placements),
+                self.batch_put_items_with_atom_ref_v2(items, storage_prefix),
+            )
+            .await?;
         }
-        self.flush()
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("flush tip conflicts: {error}")))?;
+        self.flush_recorded_groups(&placements).await?;
         for conflict in unique.values() {
             crate::atom::legacy_history_memo::invalidate_for_event_key(
                 &conflict.history_key(storage_prefix),
@@ -69,6 +77,27 @@ impl AtomStore {
         }
         tracing::info!(count, "recorded tip conflicts");
         Ok(count)
+    }
+
+    /// Sync the groups that the recorder batch wrote, in one barrier. A backend
+    /// that already syncs a batch needs nothing. A backend without placements
+    /// (not LastStore) falls back to the whole namespace flush.
+    async fn flush_recorded_groups(
+        &self,
+        placements: &crate::durable_flush::BatchPlacementLog,
+    ) -> Result<(), SchemaError> {
+        if self.main_store.inner().batch_put_has_durable_barrier() {
+            return Ok(());
+        }
+        let written = placements.written_keys();
+        let result = match self.namespaced_store.as_ref() {
+            Some(store) if !written.is_empty() => store
+                .flush_written_keys(&written)
+                .await
+                .map_err(|error| error.to_string()),
+            _ => self.flush().await.map_err(|error| error.to_string()),
+        };
+        result.map_err(|error| SchemaError::InvalidData(format!("flush tip conflicts: {error}")))
     }
 
     /// The batch of one record call: edges first, then the rows.

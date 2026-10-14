@@ -65,6 +65,9 @@ pub async fn molecule_history<H: HostNode>(
             let mut ev = serde_json::json!({
                 "timestamp": e.timestamp.to_rfc3339(),
                 "version": e.version,
+                // `transition` changed the tip. `suppressed_put` is a write
+                // that never became the tip: `new_atom_uuid` names that write.
+                "kind": e.kind,
                 "field_key": serde_json::to_value(&e.field_key).unwrap_or_default(),
                 "old_atom_uuid": e.old_atom_uuid,
                 "new_atom_uuid": e.new_atom_uuid,

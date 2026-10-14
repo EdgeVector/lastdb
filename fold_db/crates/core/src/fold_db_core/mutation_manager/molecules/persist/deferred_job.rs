@@ -109,7 +109,6 @@ impl MutationManager {
         job: &mut DeferredPersistJob,
         commit_id: u64,
     ) -> Result<(), SchemaError> {
-        Self::drop_sibling_conflicts_of_entry_losers(job);
         let mut timing = std::collections::HashMap::new();
         self.persist_modified_molecules(
             &mut job.schema,
@@ -147,30 +146,6 @@ impl MutationManager {
                 );
                 error
             })
-    }
-
-    /// A protein sibling mirrors the atoms of the entry molecule, so the entry
-    /// molecule's record already keeps a loser that the sibling decision shares.
-    /// Keep a sibling pair only when its loser atom is not an entry loser of
-    /// this job. Run before the entry molecules persist: that persist clears
-    /// their pending pairs.
-    fn drop_sibling_conflicts_of_entry_losers(job: &mut DeferredPersistJob) {
-        if job.sibling_updates.is_empty() {
-            return;
-        }
-        let entry_losers: HashSet<String> = job
-            .modified_fields
-            .keys()
-            .filter_map(|field_name| job.schema.runtime_fields.get(field_name))
-            .filter_map(|field| field.molecule_data())
-            .flat_map(MoleculeData::pending_tip_conflicts)
-            .map(|pending| pending.loser.atom_uuid.clone())
-            .collect();
-        for (_, sibling, _) in &mut job.sibling_updates {
-            sibling.retain_pending_tip_conflicts(|pending| {
-                !entry_losers.contains(&pending.loser.atom_uuid)
-            });
-        }
     }
 
     /// Store the durable schema row, then refresh the in-process schema cache.
