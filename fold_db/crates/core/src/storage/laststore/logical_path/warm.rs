@@ -25,6 +25,7 @@ pub(super) fn warm_lookup(
     };
     if let Some(coords) = parse_tip_coords(&id) {
         if guard.has_tombstone(coords.molecule, &coords.hash, &coords.range) {
+            note_point_hit(guard);
             return WarmLookup::Absent;
         }
         if let Some(body) = guard
@@ -127,7 +128,7 @@ pub(super) fn admit_loaded_body(set: &Mutex<LogicalResidentSet>, id: &str, body:
     }
     if let Some(atom) = parse_atom_id(id) {
         if admit_raw_body(body) {
-            let mut guard = set.lock().expect("poison");
+            let mut guard = crate::read_receipts::lock(set);
             if guard.atom_body(&atom).is_some() {
                 return;
             }
@@ -163,7 +164,7 @@ pub(super) fn admit_loaded_tip(set: &Mutex<LogicalResidentSet>, coords: &TipCoor
     if !admit_raw_body(body) {
         return;
     }
-    let mut guard = set.lock().expect("poison");
+    let mut guard = crate::read_receipts::lock(set);
     if guard
         .tip_body(coords.molecule, &coords.hash, &coords.range)
         .is_some()

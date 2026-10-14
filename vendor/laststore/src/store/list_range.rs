@@ -1,5 +1,6 @@
 // lint:file-size-ok verbatim move from store.rs; splitting this file further is separate work
 use super::*;
+use crate::read_receipt_io::lock as read_lock;
 
 impl LastStore {
     /// Documents with ids in the half-open range `[start, end)` (sorted).
@@ -144,7 +145,7 @@ impl LastStore {
             let mut found = None;
             match self.group_key_source(collection, shard, group)? {
                 GroupKeySource::Live(handle) => {
-                    let shard = handle.handle().lock().expect("poison");
+                    let shard = read_lock(handle.handle()).expect("poison");
                     shard.visit_keys(prefix, None, |id, _| {
                         if id.starts_with(prefix) {
                             found = Some(id.to_string());
@@ -189,7 +190,7 @@ impl LastStore {
             let source = self.group_key_source(collection, shard, group)?;
             match &source {
                 GroupKeySource::Live(handle) => {
-                    let shard = handle.handle().lock().expect("poison");
+                    let shard = read_lock(handle.handle()).expect("poison");
                     shard.visit_keys(prefix, None, |id, _| {
                         if !id.starts_with(prefix) {
                             return false;
@@ -296,7 +297,7 @@ impl LastStore {
         handles: &[(u16, Option<u32>)],
     ) -> Result<PhysicalRangePage> {
         let (start, end) = bounds;
-        let cold_before = self.shard_loads();
+        let read_scope = crate::read_receipt::enter_child();
         if limit == 0 || max_handles == 0 || end.is_some_and(|end| start >= end) {
             return Ok(PhysicalRangePage {
                 rows: Vec::new(),
@@ -383,7 +384,7 @@ impl LastStore {
             next_cursor,
             row_handle,
             handles_visited,
-            cold_shard_loads: self.shard_loads().saturating_sub(cold_before),
+            cold_shard_loads: read_scope.snapshot().group_opens,
         })
     }
 
@@ -403,7 +404,7 @@ impl LastStore {
         let mut out = Vec::with_capacity(limit);
         match source {
             GroupKeySource::Live(handle) => {
-                let shard = handle.handle().lock().expect("poison");
+                let shard = read_lock(handle.handle()).expect("poison");
                 shard.visit_keys(range_start, end, |id, _| {
                     if after_id != Some(id) {
                         out.push(id.to_string());

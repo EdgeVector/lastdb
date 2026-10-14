@@ -47,11 +47,13 @@ pub(super) fn get(
     collection: &str,
     key: &[u8],
 ) -> StorageResult<Option<Vec<u8>>> {
+    laststore::record_requested_keys(1);
     let id = LastStoreKvStore::encode_key(key);
     if let Some(coords) = parse_tip_coords(&id) {
         let epoch = {
-            let mut guard = set.lock().expect("poison");
+            let mut guard = crate::read_receipts::lock(set);
             if guard.has_tombstone(coords.molecule, &coords.hash, &coords.range) {
+                note_point_hit(&guard);
                 return Ok(None);
             }
             if let Some(body) = guard
@@ -80,7 +82,7 @@ pub(super) fn get(
 
     if let Some(atom) = parse_atom_id(&id) {
         let epoch = {
-            let mut guard = set.lock().expect("poison");
+            let mut guard = crate::read_receipts::lock(set);
             if let Some(body) = guard.atom_body(&atom).map(ToOwned::to_owned) {
                 guard.touch(crate::resident::ResidentKey::Atom(atom));
                 note_point_hit(&guard);
@@ -98,16 +100,14 @@ pub(super) fn get(
             return Ok(None);
         };
         if admit_raw_body(&body) {
-            set.lock()
-                .expect("poison")
-                .admit_atom_body(atom, body.clone());
+            crate::read_receipts::lock(set).admit_atom_body(atom, body.clone());
         }
         return Ok(Some(body));
     }
 
     if is_molecule_header_key(&id) {
         let epoch = {
-            let mut guard = set.lock().expect("poison");
+            let mut guard = crate::read_receipts::lock(set);
             if let Some(known) = record_hit(&mut guard, collection, &id) {
                 return Ok(known);
             }
@@ -120,9 +120,12 @@ pub(super) fn get(
             return Ok(None);
         };
         if admit_raw_body(&body) {
-            set.lock()
-                .expect("poison")
-                .admit_record(collection, &id, Some(body.clone()), epoch);
+            crate::read_receipts::lock(set).admit_record(
+                collection,
+                &id,
+                Some(body.clone()),
+                epoch,
+            );
         }
         return Ok(Some(body));
     }
@@ -148,9 +151,7 @@ fn record_hit(
 /// that id does not open the group again. A plain id does not use this. A
 /// write of the header replaces this entry with the new body.
 fn admit_absent(set: &Mutex<LogicalResidentSet>, collection: &str, id: &str, epoch: u64) {
-    set.lock()
-        .expect("poison")
-        .admit_record(collection, id, None, epoch);
+    crate::read_receipts::lock(set).admit_record(collection, id, None, epoch);
 }
 
 pub(super) fn get_many(
@@ -159,6 +160,7 @@ pub(super) fn get_many(
     collection: &str,
     keys: &[Vec<u8>],
 ) -> StorageResult<Vec<Option<Vec<u8>>>> {
+    laststore::record_requested_keys(keys.len() as u64);
     if keys.is_empty() {
         return Ok(Vec::new());
     }
@@ -166,7 +168,7 @@ pub(super) fn get_many(
     let mut miss = Vec::new();
     let mut epochs = Vec::new();
     {
-        let mut guard = set.lock().expect("poison");
+        let mut guard = crate::read_receipts::lock(set);
         for (slot, key) in keys.iter().enumerate() {
             match warm_lookup(&mut guard, collection, key) {
                 WarmLookup::Hit(body) => out[slot] = Some(body),
@@ -199,15 +201,13 @@ pub(super) fn get_many(
             if read_keeps_id(&id) {
                 admit_absent(set, collection, &id, epoch);
             } else if super::absence_hints::is_absence_hint_id(&id) {
-                set.lock()
-                    .expect("poison")
-                    .admit_absent_hint(collection, &id, epoch);
+                crate::read_receipts::lock(set).admit_absent_hint(collection, &id, epoch);
             }
             continue;
         };
         if is_molecule_header_key(&id) {
             if admit_raw_body(&body) {
-                set.lock().expect("poison").admit_record(
+                crate::read_receipts::lock(set).admit_record(
                     collection,
                     &id,
                     Some(body.clone()),
@@ -228,36 +228,36 @@ pub(super) fn exists(
     collection: &str,
     key: &[u8],
 ) -> StorageResult<bool> {
+    laststore::record_requested_keys(1);
     let id = LastStoreKvStore::encode_key(key);
     if let Some(coords) = parse_tip_coords(&id) {
-        let guard = set.lock().expect("poison");
+        let guard = crate::read_receipts::lock(set);
         if guard.has_tombstone(coords.molecule, &coords.hash, &coords.range) {
+            note_point_hit(&guard);
             return Ok(false);
         }
         if guard
             .tip(coords.molecule, &coords.hash, &coords.range)
             .is_some()
         {
+            note_point_hit(&guard);
             return Ok(true);
         }
     }
     if let Some(atom) = parse_atom_id(&id) {
-        let guard = set.lock().expect("poison");
+        let guard = crate::read_receipts::lock(set);
         if guard.atom_body(&atom).is_some() {
+            note_point_hit(&guard);
             return Ok(true);
         }
     }
     if read_keeps_id(&id) {
-        if let Some(present) = set
-            .lock()
-            .expect("poison")
-            .has_fetched_record(collection, &id)
-        {
+        if let Some(present) = crate::read_receipts::lock(set).has_fetched_record(collection, &id) {
+            laststore::record_logical_warm_hits(1);
             return Ok(present);
         }
     }
-    let loaded = store
-        .load_point(collection, &id)
+    let loaded = timed_load(set, 1, || store.load_point(collection, &id))
         .map_err(LastStoreKvStore::map_error)?;
     Ok(loaded.and_then(|point| point.body).is_some())
 }
@@ -268,13 +268,14 @@ pub(super) fn exists_many(
     collection: &str,
     keys: &[Vec<u8>],
 ) -> StorageResult<Vec<bool>> {
+    laststore::record_requested_keys(keys.len() as u64);
     if keys.is_empty() {
         return Ok(Vec::new());
     }
     let mut out = vec![false; keys.len()];
     let mut miss = Vec::new();
     {
-        let guard = set.lock().expect("poison");
+        let guard = crate::read_receipts::lock(set);
         for (slot, key) in keys.iter().enumerate() {
             match warm_exists(&guard, collection, key) {
                 WarmExists::Yes => out[slot] = true,
@@ -283,6 +284,8 @@ pub(super) fn exists_many(
             }
         }
     }
+    laststore::record_logical_warm_hits((keys.len() - miss.len()) as u64);
+    laststore::record_logical_warm_misses(miss.len() as u64);
     if miss.is_empty() {
         return Ok(out);
     }

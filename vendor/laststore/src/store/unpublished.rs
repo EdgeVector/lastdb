@@ -1,4 +1,5 @@
 use super::*;
+use crate::read_receipt_io::lock as read_lock;
 
 impl LastStore {
     /// Where a keys-only pass should read one group's ids from.
@@ -51,7 +52,7 @@ impl LastStore {
             // and clears `dirty_ops` on a read path.
             if let Some(handle) = self.pin_table_handle(&key) {
                 let keys = {
-                    let shard = handle.lock().expect("poison");
+                    let shard = read_lock(&handle).expect("poison");
                     shard.live_keys()?
                 };
                 self.id_tier_resident.fetch_add(1, Ordering::Relaxed);
@@ -65,7 +66,7 @@ impl LastStore {
                 .contains_key(&key);
             if !resident {
                 if self.opts.hash_group_key_cache_bytes > 0 {
-                    if let Some(keys) = self.key_index.lock().expect("poison").get(&key) {
+                    if let Some(keys) = read_lock(&self.key_index).expect("poison").get(&key) {
                         self.id_tier_key_cache_hits.fetch_add(1, Ordering::Relaxed);
                         return Ok(Some(keys));
                     }
@@ -110,7 +111,7 @@ impl LastStore {
         touch: WarmTouch,
     ) -> Result<Option<ShardHandle>> {
         let leased = {
-            let mut warm = self.shards.lock().expect("poison");
+            let mut warm = read_lock(&self.shards).expect("poison");
             if let Some(h) = warm.handles.get(key).cloned() {
                 if admission == WarmAdmission::Point {
                     warm.promote_point(key);
@@ -145,7 +146,7 @@ impl LastStore {
             return Ok(handle);
         }
         let gate = Self::cold_load_gate_index(&key);
-        let _cold_load_guard = self.cold_load_gates[gate].lock().expect("poison");
+        let _cold_load_guard = read_lock(&self.cold_load_gates[gate]).expect("poison");
         if let Some(handle) = self.existing_unpublished_authority(&key) {
             return Ok(handle);
         }
@@ -166,11 +167,13 @@ impl LastStore {
             return Ok(Some(handle));
         }
         let gate = Self::cold_load_gate_index(&key);
-        let _cold_load_guard = self.cold_load_gates[gate].lock().expect("poison");
+        let _cold_load_guard = read_lock(&self.cold_load_gates[gate]).expect("poison");
         if let Some(handle) = self.existing_unpublished_authority(&key) {
             return Ok(Some(handle));
         }
-        if skip_absent_groups && !self.handle_dir(&key.0, key.1, key.2).try_exists()? {
+        if skip_absent_groups
+            && !crate::read_receipt_io::try_exists(self.handle_dir(&key.0, key.1, key.2))?
+        {
             return Ok(None);
         }
         self.load_unpublished_shard_with_sidecar(&key, false)
@@ -178,10 +181,15 @@ impl LastStore {
     }
 
     pub(super) fn existing_unpublished_authority(&self, key: &ShardKey) -> Option<ShardHandle> {
-        if let Some(handle) = self.pins.lock().expect("poison").handles.get(key).cloned() {
+        if let Some(handle) = read_lock(&self.pins)
+            .expect("poison")
+            .handles
+            .get(key)
+            .cloned()
+        {
             return Some(handle);
         }
-        let mut warm = self.shards.lock().expect("poison");
+        let mut warm = read_lock(&self.shards).expect("poison");
         if let Some(handle) = warm.handles.get(key).cloned() {
             return Some(handle);
         }
@@ -194,7 +202,7 @@ impl LastStore {
     /// an empty fanout slot does not count as a cold load.
     pub(super) fn unpublished_group_present(&self, key: &ShardKey) -> bool {
         self.existing_unpublished_authority(key).is_some()
-            || self.handle_dir(&key.0, key.1, key.2).exists()
+            || crate::read_receipt_io::exists(self.handle_dir(&key.0, key.1, key.2))
     }
 
     pub(super) fn load_unpublished_shard(&self, key: &ShardKey) -> Result<ShardHandle> {
@@ -208,6 +216,7 @@ impl LastStore {
     ) -> Result<ShardHandle> {
         let (collection, shard, group) = key;
         self.shard_loads.fetch_add(1, Ordering::Relaxed);
+        crate::read_receipt::update(|receipt| receipt.loader_calls += 1);
         let dir = self.handle_dir(collection, *shard, *group);
         let estimate = estimate_group_on_disk_bytes(&dir);
         self.refuse_if_cold_group_too_large(collection, *shard, *group, &dir, estimate)?;
@@ -238,7 +247,7 @@ impl LastStore {
         loaded.fd_gauge = Arc::clone(&self.open_append_handles);
         loaded.frame_compression_stats = Arc::clone(&self.frame_compression_stats);
         {
-            let mut meta = self.meta.lock().expect("poison");
+            let mut meta = read_lock(&self.meta).expect("poison");
             meta.next_csn = meta.next_csn.max(loaded.max_csn.saturating_add(1));
         }
         Ok(Arc::new(Mutex::new(loaded)))

@@ -1,4 +1,5 @@
 use super::*;
+use crate::read_receipt_io::fs;
 
 pub(super) fn encrypted_tail_dir(sh: &Shard) -> PathBuf {
     if sh.uses_sorted_index() && !sh.sorted_legacy_encrypted {
@@ -85,7 +86,7 @@ pub(super) fn find_chunk_file(
             }
 
             let groups_dir = shard_entry.path().join("g");
-            if !groups_dir.exists() {
+            if !crate::read_receipt_io::exists(&groups_dir) {
                 continue;
             }
             for group_entry in fs::read_dir(groups_dir)? {
@@ -126,7 +127,7 @@ pub(super) fn shard_group_from_dir(sh: &Shard) -> Option<u32> {
 
 pub(super) fn encrypted_files(dir: &Path) -> Result<Vec<(Uuid, PathBuf)>> {
     let mut out = Vec::new();
-    if !dir.exists() {
+    if !crate::read_receipt_io::exists(dir) {
         return Ok(out);
     }
     for e in fs::read_dir(dir)? {
@@ -322,7 +323,7 @@ pub(super) fn find_plain_segment_log_chunk(
             // every enumerated chunk into `missing chunk`, which aborted the whole
             // backup walk and stopped all cloud backup.
             let groups_dir = shard_entry.path().join("g");
-            if !groups_dir.exists() {
+            if !crate::read_receipt_io::exists(&groups_dir) {
                 continue;
             }
             for group_entry in fs::read_dir(groups_dir)? {

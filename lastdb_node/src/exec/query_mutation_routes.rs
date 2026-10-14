@@ -61,10 +61,12 @@ pub(super) async fn execute_query_route(
         .header("x-lastdb-allow-full-scan")
         .is_some_and(env_flag::truthy);
 
-    render(
-        handlers::execute_query(host, query, limit, offset, cursor, ctx, allow_full_scan).await,
+    super::query_read_receipt::render_query(
+        req,
         ctx,
+        handlers::execute_query(host, query, limit, offset, cursor, ctx, allow_full_scan),
     )
+    .await
 }
 
 pub(super) fn mutation_type_label(mt: &fold_db::schema::types::MutationType) -> &'static str {

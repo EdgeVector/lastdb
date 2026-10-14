@@ -1,4 +1,5 @@
 use super::*;
+use crate::read_receipt_io::lock as read_lock;
 
 impl LastStore {
     pub(super) fn shard_handle_at(
@@ -21,7 +22,7 @@ impl LastStore {
         // A completed delete cannot leave an older, still-loading image that
         // later becomes this group's authority after the delete is evicted.
         let gate = Self::cold_load_gate_index(&key);
-        let _cold_load_guard = self.cold_load_gates[gate].lock().expect("poison");
+        let _cold_load_guard = read_lock(&self.cold_load_gates[gate]).expect("poison");
         if let Some(handle) = self.pin_table_handle(&key) {
             return Ok(handle);
         }
@@ -43,6 +44,7 @@ impl LastStore {
         touch: WarmTouch,
     ) -> Result<ShardHandle> {
         self.shard_loads.fetch_add(1, Ordering::Relaxed);
+        crate::read_receipt::update(|receipt| receipt.loader_calls += 1);
         let dir = self.handle_dir(collection, shard, group);
         let estimate = estimate_group_on_disk_bytes(&dir);
         // Refuse a whole-group load the process cannot survive. Hash groups
@@ -82,7 +84,7 @@ impl LastStore {
         // marks an atoms group that actually holds the shared plane. The hot
         // hit path above does not scan.
         if !touch.atom && collection == "atoms" {
-            let shard = handle.lock().expect("poison");
+            let shard = read_lock(&handle).expect("poison");
             if shard.index.keys().any(|id| is_atom_plane_id(id)) {
                 touch.atom = true;
             }
@@ -91,7 +93,7 @@ impl LastStore {
         // the only way to reach a mutation. Any id snapshot taken when it was
         // last evicted is now superseded — drop it before publishing the
         // handle, so no walk can read a snapshot that a writer has moved past.
-        self.key_index.lock().expect("poison").forget(key);
+        read_lock(&self.key_index).expect("poison").forget(key);
         let handle = self.publish_warm_handle(key, handle, admission, touch)?;
         if admission == WarmAdmission::Point {
             // Room was made before the charge was published. This pass still
@@ -131,7 +133,7 @@ impl LastStore {
         loaded.fd_gauge = Arc::clone(&self.open_append_handles);
         loaded.frame_compression_stats = Arc::clone(&self.frame_compression_stats);
         {
-            let mut meta = self.meta.lock().expect("poison");
+            let mut meta = read_lock(&self.meta).expect("poison");
             meta.next_csn = meta.next_csn.max(loaded.max_csn.saturating_add(1));
         }
     }
@@ -168,7 +170,7 @@ impl LastStore {
         let mut room = WarmRoom::default();
         loop {
             let step = {
-                let mut warm = self.shards.lock().expect("poison");
+                let mut warm = read_lock(&self.shards).expect("poison");
                 if let Some(existing) = warm.handles.get(key).cloned() {
                     if admission == WarmAdmission::Point {
                         warm.promote_point(key);
@@ -206,7 +208,7 @@ impl LastStore {
                             }
                             warm.leased.remove(key);
                             warm.touch(key);
-                            self.key_index.lock().expect("poison").forget(key);
+                            read_lock(&self.key_index).expect("poison").forget(key);
                             warm.handles.insert(key.clone(), Arc::clone(&handle));
                             if admission == WarmAdmission::Scan {
                                 warm.mark_scan(key);
@@ -218,7 +220,7 @@ impl LastStore {
                             Admit::Done(Arc::clone(&handle))
                         } else if room.exhausted {
                             // A scan or background group that still does not fit.
-                            self.key_index.lock().expect("poison").forget(key);
+                            read_lock(&self.key_index).expect("poison").forget(key);
                             warm.leased.insert(key.clone(), Arc::downgrade(&handle));
                             Admit::Done(Arc::clone(&handle))
                         } else {

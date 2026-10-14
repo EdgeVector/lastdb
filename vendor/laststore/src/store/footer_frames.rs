@@ -129,10 +129,11 @@ pub(super) fn insert_frame_cache(sh: &mut Shard, key: FrameKey, payload: Vec<u8>
 /// encoded frames and a record's plaintext offset is not a file offset.
 pub(super) fn read_segment_range(dir: &Path, seg: u64, offset: u64, len: u64) -> Result<Vec<u8>> {
     let path = dir.join(format!("{seg:010}.seg"));
-    let mut f = File::open(&path)
+    let mut f = crate::read_receipt_io::open(&path)
         .map_err(|e| Error::Corrupt(format!("missing seg {seg} at {}: {e}", path.display())))?;
     f.seek(SeekFrom::Start(offset))?;
     let mut buf = vec![0u8; len as usize];
+    let _buffer_charge = crate::read_receipt::TemporaryBytes::new(buf.capacity());
     f.read_exact(&mut buf).map_err(|e| {
         Error::Corrupt(format!(
             "short read of {len} bytes at {offset} in seg {seg}: {e}"

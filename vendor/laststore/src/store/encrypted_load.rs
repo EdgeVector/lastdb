@@ -1,5 +1,6 @@
 // lint:file-size-ok verbatim move from store.rs; splitting this file further is separate work
 use super::*;
+use crate::read_receipt_io::fs;
 
 pub(super) fn load_sorted_encrypted_tail(mut sh: Shard) -> Result<Shard> {
     // Only the current generation's bounded append tail remains relevant.
@@ -11,7 +12,7 @@ pub(super) fn load_sorted_encrypted_tail(mut sh: Shard) -> Result<Shard> {
                 "sorted encrypted tail exceeds its physical file cap".into(),
             ));
         }
-        let bytes = fs::read(&path)?;
+        let bytes = crate::read_receipt_io::read_replay(&path)?;
         let decoded = decode_encrypted_file(&sh, uuid, &path, &bytes, true)?;
         if decoded.sealed {
             return Err(Error::Corrupt("sorted append tail contains a seal".into()));
@@ -37,7 +38,7 @@ pub(super) fn load_sorted_encrypted_tail(mut sh: Shard) -> Result<Shard> {
 }
 
 pub(super) fn load_encrypted_shard(mut sh: Shard) -> Result<Shard> {
-    if !sh.dir.exists() {
+    if !crate::read_receipt_io::exists(&sh.dir) {
         return Ok(sh);
     }
 
@@ -120,7 +121,7 @@ fn decode_open_tails(
 ) -> Result<Vec<(u64, Uuid, DecodedEncryptedFile)>> {
     let mut open_tails = Vec::with_capacity(tails.len());
     for (chunk_uuid, path) in tails {
-        let disk_data = fs::read(&path)?;
+        let disk_data = crate::read_receipt_io::read_replay(&path)?;
         let decoded = decode_encrypted_file(sh, chunk_uuid, &path, &disk_data, true)?;
         if decoded.clean_disk_len < disk_data.len() as u64 {
             let f = OpenOptions::new().write(true).open(&path)?;
@@ -151,6 +152,7 @@ fn adopt_recovered_tail(
         .iter()
         .flat_map(|(_, payload)| payload.iter().copied())
         .collect();
+    let _plaintext_charge = crate::read_receipt::TemporaryBytes::new(plaintext.capacity());
     for (frame_idx, payload) in decoded.frames {
         insert_frame_cache(sh, (chunk_uuid, frame_idx), payload);
     }
@@ -215,6 +217,7 @@ pub(super) struct DecodedEncryptedFile {
     pub(super) next_frame_counter: u64,
     pub(super) sealed: bool,
     pub(super) max_csn: u64,
+    _receipt_bytes: crate::read_receipt::TemporaryBytes,
 }
 
 pub(super) fn decode_encrypted_file(
@@ -229,6 +232,7 @@ pub(super) fn decode_encrypted_file(
         .as_ref()
         .ok_or_else(|| Error::Config("encrypted decode without data key".into()))?;
     let mut frames = Vec::new();
+    let mut receipt_bytes = crate::read_receipt::TemporaryBytes::new(0);
     let mut frame_locs = Vec::new();
     let mut off = 0usize;
     let mut plaintext_len = 0u64;
@@ -300,6 +304,7 @@ pub(super) fn decode_encrypted_file(
                 disk_len: frame_len as u64,
             },
         ));
+        receipt_bytes.grow(decoded.payload.capacity());
         frames.push((decoded.header.counter, decoded.payload));
         off += frame_len;
         next_frame_counter = next_frame_counter.saturating_add(1);
@@ -311,6 +316,7 @@ pub(super) fn decode_encrypted_file(
         next_frame_counter,
         sealed,
         max_csn,
+        _receipt_bytes: receipt_bytes,
     })
 }
 
@@ -372,7 +378,7 @@ pub(super) fn decode_verified_sealed_chunk(
     chunk_uuid: Uuid,
     path: &Path,
 ) -> Result<DecodedEncryptedFile> {
-    let disk_data = fs::read(path)?;
+    let disk_data = crate::read_receipt_io::read_replay(path)?;
     let decoded = decode_encrypted_file(sh, chunk_uuid, path, &disk_data, false)?;
     if !decoded.sealed {
         return Err(Error::Corrupt(format!(

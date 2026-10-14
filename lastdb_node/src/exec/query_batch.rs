@@ -111,7 +111,7 @@ fn query_batch_results(mut finished: Vec<(usize, UdsResponse)>) -> Vec<Value> {
             let body = serde_json::from_slice::<Value>(&response.body).unwrap_or_else(|_| {
                 Value::String(String::from_utf8_lossy(&response.body).into_owned())
             });
-            serde_json::json!({ "status": response.status, "response": body })
+            super::query_read_receipt::batch_entry(response, &body)
         })
         .collect()
 }

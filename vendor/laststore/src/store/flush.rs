@@ -101,13 +101,13 @@ impl LastStore {
         std::thread::scope(|scope| {
             for chunk in keys.chunks(chunk_size) {
                 let retry = &retry;
-                scope.spawn(move || {
+                scope.spawn(crate::read_receipt_io::attach(move || {
                     for key in chunk {
                         if self.sync_resident_shard(key, true).is_err() {
                             retry.lock().expect("poison").push(key.clone());
                         }
                     }
-                });
+                }));
             }
         });
 
@@ -152,7 +152,7 @@ impl LastStore {
                 .chunks(chunk_size)
                 .map(|chunk| {
                     let release = &release;
-                    scope.spawn(move || {
+                    scope.spawn(crate::read_receipt_io::attach(move || {
                         let mut deferred = Vec::new();
                         let mut errors = Vec::new();
                         for key in chunk {
@@ -170,7 +170,7 @@ impl LastStore {
                             }
                         }
                         (deferred, errors)
-                    })
+                    }))
                 })
                 .collect();
             jobs.into_iter()

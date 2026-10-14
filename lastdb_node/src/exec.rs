@@ -198,6 +198,7 @@ mod introspection_routes;
 mod liveness_routes;
 mod query_filters;
 mod query_mutation_routes;
+mod query_read_receipt;
 mod schema_routes;
 mod setup_routes;
 mod storage_routes;

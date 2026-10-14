@@ -1,4 +1,5 @@
 use super::*;
+use crate::read_receipt_io::lock as read_lock;
 
 impl LastStore {
     /// Load bodies for `ids`, resolving each owning shard **once per shard**
@@ -118,7 +119,7 @@ impl LastStore {
                 },
             )?;
             {
-                let mut sh = h.handle().lock().expect("poison");
+                let mut sh = read_lock(h.handle()).expect("poison");
                 for (slot, id) in &entries {
                     bodies[*slot] = Self::current_body_locked(&mut sh, id)?;
                 }
@@ -158,7 +159,7 @@ impl LastStore {
                 }),
             )? {
                 GroupKeySource::Live(h) => {
-                    let sh = h.handle().lock().expect("poison");
+                    let sh = read_lock(h.handle()).expect("poison");
                     visited += sh.visit_keys(start, Some(end), |id, _| {
                         merged.offer(id) != Offer::StopGroup
                     })?;
@@ -200,7 +201,7 @@ impl LastStore {
         for (shard, group) in self.handles_for_prefix(collection, prefix)? {
             match self.group_key_source(collection, shard, group)? {
                 GroupKeySource::Live(handle) => {
-                    let shard = handle.handle().lock().expect("poison");
+                    let shard = read_lock(handle.handle()).expect("poison");
                     shard.visit_keys(&start, None, |id, _| {
                         if !id.starts_with(prefix) {
                             return false;

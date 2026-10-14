@@ -34,11 +34,12 @@
 //! therefore discloses nothing the segment beside it does not. Frame-AEAD
 //! groups get no sidecar rather than a plaintext id list next to the cabinet.
 
+use crate::read_receipt_io::fs;
 use crate::segfmt;
 use crate::store::{fnv1a64, GroupResidue};
 use crate::Result;
 use std::collections::BTreeSet;
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 /// File name of a group's id sidecar, beside its `*.seg` files.
@@ -70,7 +71,7 @@ pub(crate) fn sidecar_path(dir: &Path) -> PathBuf {
 /// Current `(seq, len)` of every `*.seg` in `dir`, ascending by seq.
 pub(crate) fn segment_stamps(dir: &Path) -> Result<Vec<SegmentStamp>> {
     let mut out = Vec::new();
-    if !dir.exists() {
+    if !crate::read_receipt_io::exists(dir) {
         return Ok(out);
     }
     for entry in fs::read_dir(dir)? {
@@ -252,7 +253,7 @@ fn parse_header(bytes: &[u8]) -> Option<SidecarHeader> {
 /// without residue for as long as its segments stayed unchanged — the
 /// coldest groups, exactly the ones only a sidecar can answer for.
 pub(crate) fn recorded_stamps(dir: &Path) -> Option<Vec<SegmentStamp>> {
-    let bytes = fs::read(sidecar_path(dir)).ok()?;
+    let bytes = crate::read_receipt_io::read_footer(sidecar_path(dir)).ok()?;
     let header = parse_header(&bytes)?;
     header.residue?;
     Some(header.stamps)
@@ -278,7 +279,7 @@ pub(crate) struct SidecarResidue {
 /// validation as [`read_valid`], because the residue is only as current as
 /// the stamps it was written with.
 pub(crate) fn read_residue(dir: &Path) -> Option<SidecarResidue> {
-    let bytes = fs::read(sidecar_path(dir)).ok()?;
+    let bytes = crate::read_receipt_io::read_footer(sidecar_path(dir)).ok()?;
     let header = parse_header(&bytes)?;
     let residue = header.residue?;
     let current = segment_stamps(dir).ok()?;
@@ -402,7 +403,7 @@ pub(crate) fn read_valid_window(dir: &Path, window: KeyWindow<'_>) -> Option<BTr
 }
 
 fn read_valid_with_window(dir: &Path, window: Option<KeyWindow<'_>>) -> Option<BTreeSet<String>> {
-    let bytes = fs::read(sidecar_path(dir)).ok()?;
+    let bytes = crate::read_receipt_io::read_footer(sidecar_path(dir)).ok()?;
     let header = parse_header(&bytes)?;
     if let Some(window) = window {
         if segment_stamps(dir).ok()? == header.stamps {
@@ -470,7 +471,7 @@ fn read_valid_with_window(dir: &Path, window: Option<KeyWindow<'_>>) -> Option<B
 /// any record that does not parse. That is a group the sidecar cannot vouch
 /// for, and the caller refuses.
 pub(crate) fn read_ids_tolerating_appends(dir: &Path) -> Option<BTreeSet<String>> {
-    let bytes = fs::read(sidecar_path(dir)).ok()?;
+    let bytes = crate::read_receipt_io::read_footer(sidecar_path(dir)).ok()?;
     let header = parse_header(&bytes)?;
     let mut ids = decode_ids(&bytes, &header, None)?;
     let recorded = header.stamps;
@@ -529,9 +530,11 @@ fn replay_range(
 ) -> Option<()> {
     use std::io::{Read, Seek, SeekFrom};
 
-    let mut file = fs::File::open(path).ok()?;
+    let _read_class = crate::read_receipt_io::ReadClass::LegacyReplay.enter();
+    let mut file = crate::read_receipt_io::open(path).ok()?;
     file.seek(SeekFrom::Start(from)).ok()?;
     let mut bytes = vec![0u8; usize::try_from(to.checked_sub(from)?).ok()?];
+    let _bytes_charge = crate::read_receipt::TemporaryBytes::new(bytes.capacity());
     file.read_exact(&mut bytes).ok()?;
     let mut off = 0usize;
     while off < bytes.len() {
@@ -565,9 +568,11 @@ fn replay_suffix(
     use std::io::{Read, Seek, SeekFrom};
 
     let path = dir.join(format!("{:010}.seg", stamp.seq));
-    let mut file = fs::File::open(path).ok()?;
+    let _read_class = crate::read_receipt_io::ReadClass::LegacyReplay.enter();
+    let mut file = crate::read_receipt_io::open(path).ok()?;
     file.seek(SeekFrom::Start(stamp.len)).ok()?;
     let mut suffix = vec![0u8; usize::try_from(current_len - stamp.len).ok()?];
+    let _suffix_charge = crate::read_receipt::TemporaryBytes::new(suffix.capacity());
     file.read_exact(&mut suffix).ok()?;
 
     let mut off = 0usize;

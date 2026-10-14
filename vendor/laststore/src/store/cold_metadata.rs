@@ -1,10 +1,11 @@
 //! Bounded physical metadata preflight before legacy cold-group allocation.
 
 use super::*;
+use crate::read_receipt_io::fs;
 use std::io::{Read, Seek, SeekFrom};
 
 pub(super) fn opening_bound(directory: &Path) -> Result<u64> {
-    if !directory.exists() {
+    if !crate::read_receipt_io::exists(directory) {
         return Ok(0);
     }
     let mut segments = Vec::new();
@@ -45,7 +46,7 @@ pub(super) fn opening_bound(directory: &Path) -> Result<u64> {
 }
 
 fn directory_bound(directory: &Path, depth: u8) -> Result<u64> {
-    if !directory.exists() {
+    if !crate::read_receipt_io::exists(directory) {
         return Ok(0);
     }
     let mut bound = 0;
@@ -71,7 +72,8 @@ fn legacy_file_bound(path: &Path) -> Result<u64> {
             "metadata segment is not a regular file".into(),
         ));
     }
-    let mut file = File::open(path)?;
+    let _read_class = crate::read_receipt_io::ReadClass::FormatProbe.enter();
+    let mut file = crate::read_receipt_io::open(path)?;
     let mut decoded = meta.len();
     let mut offset = 0u64;
     while offset

@@ -55,7 +55,7 @@ pub(super) fn get_plain(
 ) -> StorageResult<Option<Vec<u8>>> {
     let hinted = is_absence_hint_id(id);
     let epoch = {
-        let mut guard = set.lock().expect("poison");
+        let mut guard = crate::read_receipts::lock(set);
         if hinted && guard.absent_hint(collection, id) {
             note_point_hit(&guard);
             return Ok(None);
@@ -66,9 +66,7 @@ pub(super) fn get_plain(
         .map_err(LastStoreKvStore::map_error)?;
     let body = loaded.and_then(|point| point.body);
     if hinted && body.is_none() {
-        set.lock()
-            .expect("poison")
-            .admit_absent_hint(collection, id, epoch);
+        crate::read_receipts::lock(set).admit_absent_hint(collection, id, epoch);
     }
     Ok(body)
 }

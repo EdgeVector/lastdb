@@ -1,4 +1,5 @@
 use super::*;
+use crate::read_receipt_io::lock as read_lock;
 
 impl LastStore {
     /// Write an id sidecar for every hash group resident right now.
@@ -35,7 +36,7 @@ impl LastStore {
         // the warm map, and this method must not invert that order.
         let mut chosen: BTreeMap<ShardKey, ShardHandle> = BTreeMap::new();
         {
-            let warm = self.shards.lock().expect("poison");
+            let warm = read_lock(&self.shards).expect("poison");
             for (key, handle) in &warm.handles {
                 if key.2.is_some() {
                     chosen.insert(key.clone(), Arc::clone(handle));
@@ -43,7 +44,7 @@ impl LastStore {
             }
         }
         {
-            let pins = self.pins.lock().expect("poison");
+            let pins = read_lock(&self.pins).expect("poison");
             for (key, handle) in &pins.handles {
                 if key.2.is_some() {
                     chosen.insert(key.clone(), Arc::clone(handle));
@@ -52,7 +53,7 @@ impl LastStore {
         }
 
         for handle in chosen.into_values() {
-            let mut sh = handle.lock().expect("poison");
+            let mut sh = read_lock(&handle).expect("poison");
             // Sync, stamp, and write all under the one lock. The eviction
             // path has to drop the lock before writing — it is removing the
             // handle — and relies on the reader replaying any suffix a writer
@@ -131,7 +132,7 @@ impl LastStore {
     pub fn collection_residue(&self, collection: &str) -> Result<CollectionResidue> {
         let mut out = CollectionResidue::default();
         let mut resident: HashMap<ShardKey, ShardHandle> = {
-            let warm = self.shards.lock().expect("poison");
+            let warm = read_lock(&self.shards).expect("poison");
             warm.handles
                 .iter()
                 .filter(|(key, _)| key.0 == collection)
@@ -143,7 +144,7 @@ impl LastStore {
         // an older published handle and keep the map locks separate, as
         // persist_key_sidecars does for the same write authority.
         {
-            let pins = self.pins.lock().expect("poison");
+            let pins = read_lock(&self.pins).expect("poison");
             for (key, handle) in &pins.handles {
                 if key.0 == collection {
                     resident.insert(key.clone(), Arc::clone(handle));
@@ -157,7 +158,7 @@ impl LastStore {
             seen.insert(key.clone());
             out.groups += 1;
             if let Some(handle) = resident.get(&key) {
-                let sh = handle.lock().expect("poison");
+                let sh = read_lock(handle).expect("poison");
                 out.groups_resident += 1;
                 out.live_bytes = out.live_bytes.saturating_add(sh.residue.live_bytes);
                 out.dead_bytes = out.dead_bytes.saturating_add(sh.residue.dead_bytes);
@@ -193,7 +194,7 @@ impl LastStore {
             if seen.contains(&key) {
                 continue;
             }
-            let sh = handle.lock().expect("poison");
+            let sh = read_lock(&handle).expect("poison");
             out.groups += 1;
             out.groups_resident += 1;
             out.live_bytes = out.live_bytes.saturating_add(sh.residue.live_bytes);
@@ -206,7 +207,7 @@ impl LastStore {
     /// loads the group if it is cold, so it is exact but not cheap.
     pub fn group_residue(&self, collection: &str, id: &str) -> Result<GroupResidue> {
         let h = self.point_handle(collection, id)?;
-        let sh = h.lock().expect("poison");
+        let sh = read_lock(&h).expect("poison");
         Ok(sh.residue)
     }
 }

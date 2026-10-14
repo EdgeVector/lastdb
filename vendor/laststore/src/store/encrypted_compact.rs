@@ -9,9 +9,10 @@ pub(super) fn read_encrypted_frame_uncached(
         .data_key
         .as_ref()
         .ok_or_else(|| Error::Config("encrypted frame read without data key".into()))?;
-    let mut f = File::open(&loc.path)?;
+    let mut f = crate::read_receipt_io::open(&loc.path)?;
     f.seek(SeekFrom::Start(loc.disk_offset))?;
     let mut encoded = vec![0u8; loc.disk_len as usize];
+    let _encoded_charge = crate::read_receipt::TemporaryBytes::new(encoded.capacity());
     f.read_exact(&mut encoded)?;
     let decoded = if sh.uses_sorted_index() && !sh.sorted_legacy_encrypted {
         frame::decode_frame_bounded(&data_key, &encoded, SORTED_ENCRYPTED_TAIL_BYTES as usize)?

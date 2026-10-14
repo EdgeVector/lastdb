@@ -1,5 +1,6 @@
 // lint:file-size-ok verbatim move from store.rs; splitting this file further is separate work
 use super::*;
+use crate::read_receipt_io::lock as read_lock;
 
 impl LastStore {
     /// Insert or replace a document. Not durable until [`Self::flush`] /
@@ -16,7 +17,7 @@ impl LastStore {
         let key = self.point_key(collection, id);
         let h = self.shard_handle_for_id(collection, id)?;
         {
-            let mut sh = h.lock().expect("poison");
+            let mut sh = read_lock(&h).expect("poison");
             let previous_len = sh.lookup(id)?.map(|location| location.record_len());
             let loc = self.append(&mut sh, &line, id, CaptureOp::Put, previous_len)?;
             sh.insert_index_known(id.to_string(), loc, previous_len);
@@ -70,7 +71,7 @@ impl LastStore {
         std::thread::scope(|scope| {
             for chunk in groups.chunks_mut(chunk_size) {
                 let errors = &errors;
-                scope.spawn(move || {
+                scope.spawn(crate::read_receipt_io::attach(move || {
                     with_admit_code(admit_code, || {
                         for (key, entries) in chunk {
                             if let Err(error) =
@@ -81,7 +82,7 @@ impl LastStore {
                             }
                         }
                     });
-                });
+                }));
             }
         });
         if let Some(error) = errors.into_inner().expect("poison").into_iter().next() {
@@ -107,7 +108,7 @@ impl LastStore {
             },
         )?;
         {
-            let mut shard = handle.lock().expect("poison");
+            let mut shard = read_lock(&handle).expect("poison");
             for (id, body) in entries {
                 let line = encode_put(&id, &body)?;
                 let previous_len = shard.lookup(&id)?.map(|location| location.record_len());
@@ -127,7 +128,7 @@ impl LastStore {
         let key = self.point_key(collection, id);
         let h = self.shard_handle_for_id(collection, id)?;
         let out = {
-            let mut sh = h.lock().expect("poison");
+            let mut sh = read_lock(&h).expect("poison");
             Self::current_body_locked(&mut sh, id)?
         };
         self.refresh_warm_resident_bytes(&key, &h)?;
@@ -168,7 +169,7 @@ impl LastStore {
         storage_key: &str,
     ) -> Result<Option<LoadedPoint>> {
         let body = {
-            let mut shard = handle.lock().expect("poison");
+            let mut shard = read_lock(handle).expect("poison");
             Self::current_body_locked(&mut shard, storage_key)?
         };
         Ok(body.map(|body| LoadedPoint {
@@ -222,7 +223,7 @@ impl LastStore {
                 continue;
             };
             {
-                let mut shard = handle.lock().expect("poison");
+                let mut shard = read_lock(&handle).expect("poison");
                 for (slot, id) in entries {
                     out[slot] =
                         Self::current_body_locked(&mut shard, id)?.map(|body| LoadedPoint {
@@ -254,7 +255,7 @@ impl LastStore {
         for (key, entries) in by_group {
             let handle = self.open_group_unpublished(key)?;
             {
-                let shard = handle.lock().expect("poison");
+                let shard = read_lock(&handle).expect("poison");
                 for (slot, id) in entries {
                     out[slot] = shard.lookup(id.as_str())?.is_some();
                 }
@@ -298,7 +299,7 @@ impl LastStore {
             }
             let handle = self.open_group_unpublished(key)?;
             {
-                let mut shard = handle.lock().expect("poison");
+                let mut shard = read_lock(&handle).expect("poison");
                 let mut ids = Vec::new();
                 shard.visit_keys(prefix, None, |id, _| {
                     if !id.starts_with(prefix) {
@@ -351,7 +352,7 @@ impl LastStore {
         let key = self.point_key(collection, id);
         let h = self.shard_handle_for_id(collection, id)?;
         {
-            let mut sh = h.lock().expect("poison");
+            let mut sh = read_lock(&h).expect("poison");
             let previous_len = sh.lookup(id)?.map(|location| location.record_len());
             if previous_len.is_none() {
                 return Ok(());
@@ -391,7 +392,7 @@ impl LastStore {
         let key = self.point_key(collection, id);
         let h = self.shard_handle_for_id(collection, id)?;
         let current = {
-            let mut sh = h.lock().expect("poison");
+            let mut sh = read_lock(&h).expect("poison");
             Self::current_body_locked(&mut sh, id)?
         };
         if current.as_deref() != expected {
@@ -408,7 +409,7 @@ impl LastStore {
     /// Whether a document id exists (no body load).
     pub fn exists(&self, collection: &str, id: &str) -> Result<bool> {
         let h = self.point_handle(collection, id)?;
-        let sh = h.lock().expect("poison");
+        let sh = read_lock(&h).expect("poison");
         Ok(sh.lookup(id)?.is_some())
     }
 
@@ -449,7 +450,7 @@ impl LastStore {
         for (key, entries) in by_group {
             match self.group_key_source(&key.0, key.1, key.2)? {
                 GroupKeySource::Live(h) => {
-                    let sh = h.handle().lock().expect("poison");
+                    let sh = read_lock(h.handle()).expect("poison");
                     for (slot, id) in entries {
                         out[slot] = sh.lookup(id.as_str())?.is_some();
                     }

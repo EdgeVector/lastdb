@@ -97,7 +97,7 @@ pub struct ResidentMetrics {
     resident_over_cap_stalls: AtomicU64,
     /// Used records above the budget right now. Zero when within budget.
     resident_over_cap_keys: AtomicU64,
-    /// Loader point loads (one hash-group open each) since process start.
+    /// Loader calls since process start. A batch can open several hash groups.
     loader_loads: AtomicU64,
     /// Cumulative wall-clock microseconds inside those loads. Divide by
     /// `loader_loads` for the mean.
@@ -160,7 +160,7 @@ pub struct ResidentMetricsSnapshot {
     pub resident_over_cap_stalls: u64,
     /// Used records above the budget right now.
     pub resident_over_cap_keys: u64,
-    /// Loader point loads since process start.
+    /// Loader calls since process start, distinct from actual hash-group opens.
     pub loader_loads: u64,
     /// Cumulative microseconds inside loader point loads.
     pub loader_load_us: u64,
