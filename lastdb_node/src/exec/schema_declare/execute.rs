@@ -399,7 +399,7 @@ pub(crate) async fn execute_catalog_schema_check(
             payload["canonical"] = hash;
         }
     }
-    match preview_declare_retention(host, &declare, resolution_anchor(&plan.resolution)).await {
+    match preview_declare_retention(host, &declare, &plan.resolution).await {
         Ok(Some(retention)) => payload["retention"] = retention,
         Ok(None) => {}
         Err(e) => return error_response(409, &e, ctx),

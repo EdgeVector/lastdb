@@ -29,11 +29,12 @@ pub(super) async fn assess(
     anchor: &str,
     ttl_seconds: u64,
     layout: RetentionLayout,
+    predecessors: &[String],
 ) -> Result<Assessment, String> {
     let store = host.db.db_ops().schemas();
     let binding = declare.local_schema_id.as_str();
     let sharing = store
-        .retention_sharing(binding, anchor, &declare.namespace)
+        .retention_sharing(binding, anchor, &declare.namespace, predecessors)
         .await
         .map_err(|e| e.to_string())?;
     let plan = store

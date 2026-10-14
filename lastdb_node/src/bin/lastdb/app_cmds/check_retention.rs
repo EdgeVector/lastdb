@@ -132,7 +132,7 @@ fn names_with_retention<'a>(
 
 /// Print the manifest schemas that resolved to one catalog schema, and fail
 /// when one of them declares a retention (or a schema is bound to a catalog
-/// schema that carries a TTL): the TTL purge deletes the records of all of
+/// schema that carries a TTL): the TTL sweep deletes the records of all of
 /// them.
 pub(crate) fn collision_error(
     manifest: &lastdb_node::app_publish::AppManifest,
@@ -161,7 +161,7 @@ pub(crate) fn collision_error(
     }
     (!hazards.is_empty()).then(|| {
         format!(
-            "a retention would delete records it should not: {}. A TTL purge deletes the records \
+            "a retention would delete records it should not: {}. The TTL sweep deletes the records \
              of every schema bound to the catalog schema. Give each schema its own shape, or \
              remove the `retention`",
             hazards.join("; ")

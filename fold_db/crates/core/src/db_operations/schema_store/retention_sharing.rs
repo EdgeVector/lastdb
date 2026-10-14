@@ -1,15 +1,15 @@
-//! Who else shares the records a manifest TTL would purge.
+//! Who else shares the records a manifest TTL would delete.
 //!
-//! The sweep reads and purges through the anchor schema. The anchor's molecules
+//! The sweep reads and deletes through the anchor schema. The anchor's molecules
 //! are shared with every schema bound to it, so a TTL on one name deletes the
 //! records of all of them. This is the guard that runs before an alias or a
 //! policy is written.
 
 use super::catalog_keys::*;
 use super::SchemaStore;
-use crate::schema::manifest_retention::RetentionSharing;
+use crate::schema::manifest_retention::{RetentionPolicyInReach, RetentionReach, RetentionSharing};
 use crate::schema::types::declarative_schemas::FieldMapper;
-use crate::schema::{Schema, SchemaError};
+use crate::schema::{Schema, SchemaError, SchemaRetentionPolicy};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 impl SchemaStore {
@@ -52,7 +52,7 @@ impl SchemaStore {
         Ok(names)
     }
 
-    /// Which other schemas and apps a TTL purge through `anchor` would reach.
+    /// Which other schemas and apps a TTL sweep through `anchor` would reach.
     ///
     /// `binding` is the manifest name that declares the TTL. It and the anchor
     /// are the two names of one manifest entry, so they are not reported.
@@ -61,17 +61,84 @@ impl SchemaStore {
     /// alias points at it, or when it holds a molecule the anchor holds. A
     /// schema the anchor was expanded from is the same app's earlier version
     /// and is not reported, unless another app owns it.
+    ///
+    /// `predecessors` seeds the expansion chain with schemas the anchor will be
+    /// expanded from but whose mappers are not stored yet: a read-only check of
+    /// a declare that the Schema Service would expand.
     pub async fn retention_sharing(
         &self,
         binding: &str,
         anchor: &str,
         owner_app: &str,
+        predecessors: &[String],
     ) -> Result<RetentionSharing, SchemaError> {
         let schemas = self.get_all_schemas().await?;
         let aliases = self.retention_aliases().await?;
         Ok(compute_sharing(
-            &schemas, &aliases, binding, anchor, owner_app,
+            &schemas,
+            &aliases,
+            binding,
+            anchor,
+            owner_app,
+            predecessors,
         ))
+    }
+
+    /// The retention policies whose sweep would delete records of a schema
+    /// bound to `anchor`: a policy on the anchor, on a schema it was expanded
+    /// from, or on any schema bound to either. This is the same closure as
+    /// [`Self::retention_sharing`], so a plain declare is checked as widely as
+    /// a declare with a TTL. A policy that only `binding` itself declared is its
+    /// own and is not reported.
+    pub async fn retention_policies_in_reach(
+        &self,
+        binding: &str,
+        anchor: &str,
+        predecessors: &[String],
+    ) -> Result<RetentionReach, SchemaError> {
+        let schemas = self.get_all_schemas().await?;
+        let aliases = self.retention_aliases().await?;
+        let reach = compute_reach(&schemas, &aliases, binding, anchor, predecessors);
+        let binding_bound = schemas.get(binding).is_some_and(|schema| {
+            mapper_sources(schema).any(|source| reach.chain.contains(source))
+        });
+        let names: Vec<String> = reach.chain.into_iter().chain(reach.shared).collect();
+        let keys: Vec<String> = names
+            .iter()
+            .map(|name| retention_policy_key(name))
+            .collect();
+        let policies = self
+            .schema_states_store
+            .get_items::<SchemaRetentionPolicy>(&keys)
+            .await?;
+        let mut found = Vec::new();
+        for (name, policy) in names.into_iter().zip(policies) {
+            let Some(policy) = policy else {
+                continue;
+            };
+            let declared: Vec<&str> = aliases
+                .iter()
+                .filter(|(_, target)| *target == name)
+                .map(|(alias, _)| alias.as_str())
+                .collect();
+            let declared_by: Vec<String> = declared
+                .iter()
+                .filter(|alias| **alias != binding)
+                .map(|alias| (*alias).to_string())
+                .collect();
+            if !declared.is_empty() && declared_by.is_empty() {
+                continue;
+            }
+            found.push(RetentionPolicyInReach {
+                anchor: name,
+                declared_by,
+                policy,
+            });
+        }
+        Ok(RetentionReach {
+            policies: found,
+            binding_bound,
+        })
     }
 }
 
@@ -98,16 +165,27 @@ fn molecules_of<'a>(
         .collect()
 }
 
-fn compute_sharing(
+/// The schemas a TTL sweep through an anchor reaches: the anchor's expansion
+/// chain, and every schema bound to the chain.
+struct Reach {
+    /// The anchor and the schemas it was expanded from.
+    chain: BTreeSet<String>,
+    /// Other schemas bound to the chain, by field mapper, retention alias or
+    /// shared molecule, transitively. Neither `binding` nor the chain.
+    shared: BTreeSet<String>,
+}
+
+fn compute_reach(
     schemas: &HashMap<String, Schema>,
     aliases: &[(String, String)],
     binding: &str,
     anchor: &str,
-    owner_app: &str,
-) -> RetentionSharing {
+    predecessors: &[String],
+) -> Reach {
     // The anchor and the schemas it was expanded from: the same data's history.
     let mut chain: BTreeSet<String> = BTreeSet::from([anchor.to_string()]);
-    let mut pending = vec![anchor.to_string()];
+    chain.extend(predecessors.iter().cloned());
+    let mut pending: Vec<String> = chain.iter().cloned().collect();
     while let Some(name) = pending.pop() {
         let Some(schema) = schemas.get(&name) else {
             continue;
@@ -118,18 +196,8 @@ fn compute_sharing(
             }
         }
     }
-    let foreign_owners: Vec<String> = chain
-        .iter()
-        .filter(|name| {
-            schemas
-                .get(*name)
-                .is_some_and(|schema| schema.owner_app_id.as_deref() != Some(owner_app))
-        })
-        .cloned()
-        .collect();
-
     let molecules = molecules_of(schemas, &chain);
-    let mut reach = chain;
+    let mut reach = chain.clone();
     reach.insert(binding.to_string());
     let mut shared: BTreeSet<String> = BTreeSet::new();
     loop {
@@ -156,8 +224,30 @@ fn compute_sharing(
         }
         shared.extend(added);
     }
+    Reach { chain, shared }
+}
+
+fn compute_sharing(
+    schemas: &HashMap<String, Schema>,
+    aliases: &[(String, String)],
+    binding: &str,
+    anchor: &str,
+    owner_app: &str,
+    predecessors: &[String],
+) -> RetentionSharing {
+    let reach = compute_reach(schemas, aliases, binding, anchor, predecessors);
+    let foreign_owners: Vec<String> = reach
+        .chain
+        .iter()
+        .filter(|name| {
+            schemas
+                .get(*name)
+                .is_some_and(|schema| schema.owner_app_id.as_deref() != Some(owner_app))
+        })
+        .cloned()
+        .collect();
     RetentionSharing {
-        shared_with: shared.into_iter().collect(),
+        shared_with: reach.shared.into_iter().collect(),
         foreign_owners,
     }
 }

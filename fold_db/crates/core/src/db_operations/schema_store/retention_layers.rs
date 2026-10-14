@@ -58,7 +58,12 @@ impl SchemaStore {
             self.refuse_policy_on_manifest_name(schema_name).await?;
         }
         let source = moved_from.as_deref().unwrap_or(anchor);
-        let current = self.read_retention_policy(source).await?;
+        let mut current = self.read_retention_policy(source).await?;
+        if current.is_none() && moved_from.is_some() {
+            // A move that was interrupted after the old policy was deleted:
+            // the policy is already on the new anchor.
+            current = self.read_retention_policy(anchor).await?;
+        }
         if let (Some(from), Some(carried)) = (&moved_from, &current) {
             let held = self.read_retention_policy(anchor).await?;
             if held.as_ref().is_some_and(|held| held != carried) {
@@ -83,7 +88,7 @@ impl SchemaStore {
     ///
     /// `schema_name` is the manifest name and `anchor` the catalog schema it is
     /// bound to. Both must be installed. The call refuses when another app owns
-    /// the catalog schema, or when another schema is bound to it: the TTL purge
+    /// the catalog schema, or when another schema is bound to it: the TTL sweep
     /// would delete their records too. It refuses a TTL shorter than the
     /// manifest TTL running unless `allow_shorter`. It records the alias, moves
     /// the policy and its tracking when the manifest name pointed at another
@@ -106,7 +111,7 @@ impl SchemaStore {
             ));
         }
         let sharing = self
-            .retention_sharing(schema_name, anchor, owner_app)
+            .retention_sharing(schema_name, anchor, owner_app, &[])
             .await?;
         if let Some(reason) = sharing.refusal(schema_name, anchor, owner_app) {
             return Err(SchemaError::InvalidData(reason));

@@ -126,6 +126,7 @@ pub(crate) fn schema_retention_command(
 ) -> Result<(), String> {
     let home = lastdb_node::host::resolve_home(data_dir)?;
     let socket = home.join("data").join("folddb.sock");
+    let mut confirm = false;
     let (action, schema, ttl_seconds, hash_partitions, json_only) = match action {
         SchemaRetentionCommand::Get { schema, json } => ("get", schema, None, Vec::new(), json),
         SchemaRetentionCommand::Set {
@@ -140,7 +141,14 @@ pub(crate) fn schema_retention_command(
             hash_partitions,
             json,
         ),
-        SchemaRetentionCommand::Clear { schema, json } => ("clear", schema, None, Vec::new(), json),
+        SchemaRetentionCommand::Clear {
+            schema,
+            confirm_expire_existing,
+            json,
+        } => {
+            confirm = confirm_expire_existing;
+            ("clear", schema, None, Vec::new(), json)
+        }
     };
     let response = db_post_json(
         &socket,
@@ -150,6 +158,7 @@ pub(crate) fn schema_retention_command(
             "schema": schema,
             "ttl_seconds": ttl_seconds,
             "hash_partitions": hash_partitions,
+            "confirm_expire_existing": confirm,
         }),
     )?;
     if json_only {
@@ -187,6 +196,15 @@ pub(crate) fn schema_retention_command(
             {
                 println!(
                     "  the operator policy overrides a manifest policy of {manifest_ttl}s; `clear` puts it back"
+                );
+            }
+            if response
+                .get("existing_records_may_expire")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            {
+                println!(
+                    "  WARNING: existing_records_may_expire: the shorter manifest TTL is in force; records older than {ttl_seconds}s are deleted for good"
                 );
             }
             match response.get("anchor").and_then(serde_json::Value::as_str) {

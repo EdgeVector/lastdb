@@ -10,7 +10,7 @@
 
 use super::*;
 use fold_db::schema::types::FieldValueType;
-use fold_db::schema::ManifestRetention;
+use fold_db::schema::{ManifestRetention, SchemaError, SchemaRetentionPolicy};
 
 const RANGE_KEY_RULE: &str = "records expire by the entry time at the front of the range key: \
      unix seconds, zero-padded to 20 digits. A range key without that prefix never expires";
@@ -116,5 +116,25 @@ fn can_hold_time_prefix(kind: &FieldValueType) -> bool {
         FieldValueType::String | FieldValueType::Any => true,
         FieldValueType::OneOf(variants) => variants.iter().any(can_hold_time_prefix),
         _ => false,
+    }
+}
+
+/// The policy in force for `name` (a manifest name resolves to its anchor).
+/// `None` means the schema is not installed or holds no policy. A failed read
+/// is an error: a guard must never read a failure as "no policy".
+pub(crate) async fn read_policy(
+    host: &Host,
+    name: &str,
+) -> Result<Option<SchemaRetentionPolicy>, String> {
+    match host
+        .db
+        .db_ops()
+        .schemas()
+        .get_schema_retention_policy(name)
+        .await
+    {
+        Ok(policy) => Ok(policy),
+        Err(SchemaError::NotFound(_)) => Ok(None),
+        Err(error) => Err(format!("reading the retention policy of {name}: {error}")),
     }
 }

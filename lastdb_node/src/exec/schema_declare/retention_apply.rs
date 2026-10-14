@@ -1,7 +1,7 @@
 //! Applying and previewing a manifest retention at declare time.
 //!
-//! A TTL purge runs through the catalog schema the declare resolved to. It
-//! erases a record from every molecule that schema names, so it reaches every
+//! A TTL sweep runs through the catalog schema the declare resolved to. It
+//! removes a record from every molecule that schema names, so it reaches every
 //! schema bound to it. Before any policy is written the declare checks, in
 //! order:
 //!
@@ -13,7 +13,7 @@
 //!
 //! Every change to a policy leaves a durable audit row.
 
-use super::retention::validate_declare_retention;
+use super::retention::{read_policy, validate_declare_retention};
 use super::retention_assess::{assess, Assessment, NEEDS_ONE_SCHEMA};
 use super::retention_unmanaged::unmanaged_report;
 use super::*;
@@ -27,6 +27,17 @@ pub(crate) fn resolution_anchor(resolution: &DirectDeclareResolution) -> Option<
         DirectDeclareResolution::Register { catalog_hash, .. }
         | DirectDeclareResolution::Reuse { catalog_hash, .. } => Some(catalog_hash.as_str()),
         DirectDeclareResolution::Compose { .. } => None,
+    }
+}
+
+/// The schema a registration replaces (an expansion), for a read-only check.
+fn resolution_predecessors(resolution: &DirectDeclareResolution) -> Vec<String> {
+    match resolution {
+        DirectDeclareResolution::Register {
+            replaced_schema: Some(replaced),
+            ..
+        } => vec![replaced.clone()],
+        _ => Vec::new(),
     }
 }
 
@@ -46,13 +57,26 @@ pub(crate) async fn finish_declare_retention(
         None => None,
     };
     let Some(retention) = declare.retention else {
-        return Ok(unmanaged_report(host, declare, anchor, moved_from.as_deref()).await);
+        let report = unmanaged_report(host, declare, anchor, moved_from.as_deref(), &[]).await?;
+        // The pre-check ran under the same lock, so a refusal here means the
+        // state changed under it: fail loudly, never a 200 with `blocked`.
+        if let Some(blocked) = report
+            .as_ref()
+            .and_then(|report| report.get("blocked"))
+            .and_then(Value::as_str)
+        {
+            return Err(format!(
+                "{blocked}. {} is already bound: drop it with `lastdb schema drop --schema {}`                  or clear the TTL",
+                declare.local_schema_id, declare.local_schema_id
+            ));
+        }
+        return Ok(report);
     };
     let (ttl_seconds, layout) = validate_declare_retention(declare)?
         .ok_or_else(|| "the declare carries no retention".to_string())?;
     let anchor = anchor.ok_or_else(|| NEEDS_ONE_SCHEMA.to_string())?;
     let binding = declare.local_schema_id.as_str();
-    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
+    let assessment = assess(host, declare, anchor, ttl_seconds, layout, &[]).await?;
     if let Some(reason) = assessment.refusal(declare, anchor, retention.confirmed()) {
         return Err(reason);
     }
@@ -156,7 +180,8 @@ fn apply_notes(
         ManifestRetentionStatus::Unchanged => {}
         ManifestRetentionStatus::OperatorOverride => notes.push(format!(
             "an operator policy of {}s is in force and wins; the manifest TTL of {ttl}s is kept \
-             beside it",
+             beside it. Clearing the operator policy puts the manifest TTL in force: when it is \
+             shorter, that needs `--confirm-expire-existing`",
             outcome.effective.ttl_seconds
         )),
     }
@@ -181,11 +206,7 @@ async fn follow_schema(
     if from == binding || from == anchor {
         return Ok(None);
     }
-    let previous = store
-        .get_schema_retention_policy(binding)
-        .await
-        .ok()
-        .flatten();
+    let previous = read_policy(host, binding).await?;
     let mut event = audit_event(req, ctx, "anchor_move", binding, anchor)
         .with_policies(previous.clone(), previous);
     event.app_id = Some(declare.namespace.clone());
@@ -213,24 +234,21 @@ async fn follow_schema(
 pub(crate) async fn preview_declare_retention(
     host: &Host,
     declare: &DirectDeclareProposal,
-    anchor: Option<&str>,
+    resolution: &DirectDeclareResolution,
 ) -> Result<Option<Value>, String> {
+    let anchor = resolution_anchor(resolution);
+    // A declare the Schema Service would expand has no stored mappers yet:
+    // seed the chain with the schema it replaces.
+    let predecessors = resolution_predecessors(resolution);
     let Some(retention) = declare.retention else {
-        return Ok(unmanaged_report(host, declare, anchor, None).await);
+        return unmanaged_report(host, declare, anchor, None, &predecessors).await;
     };
     let (ttl_seconds, layout) = validate_declare_retention(declare)?
         .ok_or_else(|| "the declare carries no retention".to_string())?;
     let anchor = anchor.ok_or_else(|| NEEDS_ONE_SCHEMA.to_string())?;
     let binding = declare.local_schema_id.as_str();
-    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
-    let current: Option<SchemaRetentionPolicy> = host
-        .db
-        .db_ops()
-        .schemas()
-        .get_schema_retention_policy(binding)
-        .await
-        .ok()
-        .flatten();
+    let assessment = assess(host, declare, anchor, ttl_seconds, layout, &predecessors).await?;
+    let current: Option<SchemaRetentionPolicy> = read_policy(host, binding).await?;
     let operator_wins = current
         .as_ref()
         .is_some_and(|policy| policy.source == RetentionSource::Operator);

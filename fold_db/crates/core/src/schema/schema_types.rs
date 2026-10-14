@@ -67,8 +67,9 @@ pub struct SchemaNameClaim {
 /// - Hash and Single: the time since the last write to the key. A rewrite
 ///   resets it.
 ///
-/// What a policy deletes depends on the layout. The sweep deletes with a hard
-/// erase, so none of it comes back.
+/// What a policy deletes depends on the layout. The sweep removes a record with
+/// the sweep verb (the default is changing from purge to delete; see
+/// `docs/app-manifest-retention.md`), and an app cannot read it back.
 ///
 /// - Range: every record whose range key is older than the TTL, at the next
 ///   sweep, **including records written before the policy existed**.
@@ -87,7 +88,7 @@ pub struct SchemaNameClaim {
 /// schema is itself unless an app manifest declared a `retention` for it: that
 /// declare records the manifest name as an alias of the catalog schema. A
 /// policy set by hand on a schema without such an alias covers only the name it
-/// names. The sweep reads and purges through the anchor, so a policy reaches
+/// names. The sweep reads and deletes through the anchor, so a policy reaches
 /// every schema bound to the anchor; a manifest declare refuses a TTL on an
 /// anchor that another schema or another app shares.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -178,11 +178,18 @@ pub(crate) enum SchemaRetentionCommand {
     /// Clear the current policy for one installed schema.
     ///
     /// An operator policy that overrides a manifest policy is removed and the
-    /// manifest policy is back in force. Any other policy is removed with its
-    /// age tracking; a manifest policy then returns at the next declare.
+    /// manifest policy is back in force. When the manifest TTL is shorter, the
+    /// clear needs `--confirm-expire-existing`: records between the two TTLs
+    /// expire for good. Any other policy is removed with its age tracking and
+    /// the manifest-name aliases; a manifest policy then returns at the next
+    /// declare.
     Clear {
         #[arg(long)]
         schema: String,
+        /// Confirm that clearing puts a SHORTER manifest TTL in force, so that
+        /// records between the two TTLs expire for good.
+        #[arg(long)]
+        confirm_expire_existing: bool,
         #[arg(long)]
         json: bool,
     },

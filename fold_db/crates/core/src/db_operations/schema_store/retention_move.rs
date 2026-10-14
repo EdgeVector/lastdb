@@ -33,7 +33,9 @@ impl SchemaStore {
             return Ok(None);
         }
         if self.read_retention_policy(&current).await?.is_some() {
-            let sharing = self.retention_sharing(binding, anchor, owner_app).await?;
+            let sharing = self
+                .retention_sharing(binding, anchor, owner_app, &[])
+                .await?;
             if let Some(reason) = sharing.refusal(binding, anchor, owner_app) {
                 return Err(SchemaError::InvalidData(format!(
                     "the retention policy cannot follow {binding} from {current} to {anchor}: \
@@ -49,9 +51,10 @@ impl SchemaStore {
     /// Move the retention state of `from` to `to` and point `binding` at `to`.
     ///
     /// Refuses when another manifest name still points at `from`, or when `to`
-    /// already holds a different policy. Idempotent and resumable: the old
-    /// rows are deleted only after their copies exist, and a second call moves
-    /// what a first call left behind.
+    /// already holds a different policy. Idempotent and resumable. The order is:
+    /// copy the policy and the tracking rows, delete the old policy, then point
+    /// the alias at `to`. An interruption at any step leaves the alias on
+    /// `from`, and the next call finishes the move.
     pub(super) async fn move_retention_anchor(
         &self,
         binding: &str,
@@ -87,6 +90,14 @@ impl SchemaStore {
                 }
             }
             self.move_tracking_rows(from, to).await?;
+            // The old policy goes BEFORE the alias moves. A crash or a failed
+            // delete leaves the alias on `from`, so a retry still sees a move
+            // to finish; with the alias on `to` first, a retry would return
+            // early and the old policy would keep sweeping shared records.
+            self.schema_states_store
+                .delete_item(&retention_policy_key(from))
+                .await?;
+            self.schema_states_store.inner().flush().await?;
         }
         let row = SchemaRetentionAnchor {
             anchor: to.to_string(),
@@ -96,9 +107,6 @@ impl SchemaStore {
             .await?;
         // A write that registered under `from` while the rows moved.
         self.move_tracking_rows(from, to).await?;
-        self.schema_states_store
-            .delete_item(&retention_policy_key(from))
-            .await?;
         self.schema_states_store.inner().flush().await?;
         tracing::info!(
             binding = %binding,

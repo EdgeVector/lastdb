@@ -67,7 +67,8 @@ impl SchemaStore {
     /// Clear the operator retention policy for an installed schema.
     ///
     /// An operator policy over a manifest policy gives way to it. Any other
-    /// policy is removed with its age index and partition registry.
+    /// policy is removed with its age index, its partition registry and the
+    /// manifest-name aliases that pointed at it.
     pub async fn clear_schema_retention_policy(
         &self,
         schema_name: &str,
@@ -93,6 +94,15 @@ impl SchemaStore {
             self.schema_states_store
                 .list_keys_with_prefix(&retention_hash_partition_prefix(schema_name))
                 .await?,
+        );
+        // No policy is left, so the manifest names that pointed here have
+        // nothing to share. Dropping the alias rows also leaves the plane with
+        // nothing an older build cannot read.
+        keys.extend(
+            self.retention_aliases_of(schema_name)
+                .await?
+                .iter()
+                .map(|name| retention_anchor_key(name)),
         );
         self.schema_states_store.batch_delete_keys(keys).await?;
         self.schema_states_store.inner().flush().await?;

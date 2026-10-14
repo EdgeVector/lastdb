@@ -3,6 +3,7 @@
 
 use super::*;
 
+mod anchor_lock;
 mod app_binding;
 mod bind;
 mod catalog_alias;
@@ -17,6 +18,7 @@ mod retention_assess;
 mod retention_unmanaged;
 mod reuse;
 
+pub(super) use anchor_lock::*;
 pub(super) use app_binding::*;
 pub(super) use bind::*;
 pub(super) use catalog_alias::*;
@@ -27,5 +29,5 @@ pub(super) use plan::*;
 pub(super) use proposal::*;
 pub(super) use retention::*;
 pub(super) use retention_apply::*;
-pub(super) use retention_unmanaged::precheck_declare_retention;
+pub(super) use retention_unmanaged::{discard_orphan_catalog_schema, precheck_declare_retention};
 pub(super) use reuse::*;

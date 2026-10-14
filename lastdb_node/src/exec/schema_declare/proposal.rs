@@ -12,6 +12,9 @@ pub(crate) struct DirectDeclareProposal {
     /// The manifest TTL for this schema, when the request asked for one. It is
     /// node-local policy kept beside the schema, never inside it.
     pub(crate) retention: Option<ManifestRetention>,
+    /// The lock of the catalog schema this declare binds to, held until the
+    /// declare returns. See `anchor_lock`.
+    pub(crate) anchor_lock: DeclareLock,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -124,6 +127,7 @@ pub(crate) fn normalize_direct_declare_proposal(
             owner_app_id: schema.owner_app_id.clone(),
         },
         retention: None,
+        anchor_lock: DeclareLock::default(),
     })
 }
 

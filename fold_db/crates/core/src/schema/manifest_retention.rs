@@ -160,9 +160,9 @@ pub struct ManifestRetentionOutcome {
     pub shortened: bool,
 }
 
-/// Who else reads and writes the records a manifest TTL would purge.
+/// Who else reads and writes the records a manifest TTL would delete.
 ///
-/// A TTL purge runs through the catalog schema. It erases a record from every
+/// A TTL sweep runs through the catalog schema. It removes a record from every
 /// molecule that schema names, so it reaches every other schema that is bound
 /// to it, and every record it holds, whoever wrote it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -201,10 +201,32 @@ impl RetentionSharing {
             return None;
         }
         Some(format!(
-            "a manifest TTL on {binding} is refused. A TTL purge runs through {anchor} and \
+            "a manifest TTL on {binding} is refused. The TTL sweep runs through {anchor} and \
              deletes the records of every schema bound to it. {}. Give each schema its own \
              shape, or set a policy on purpose with `lastdb schema-retention set`",
             reasons.join("; ")
         ))
     }
+}
+
+/// A retention policy whose sweep would delete through a schema that shares
+/// records with a schema being declared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RetentionPolicyInReach {
+    /// The schema that holds the policy. Its sweep deletes through this name.
+    pub anchor: String,
+    /// The manifest names that declared the TTL, other than the schema being
+    /// declared. Empty when an operator set the policy on the schema directly.
+    pub declared_by: Vec<String>,
+    pub policy: SchemaRetentionPolicy,
+}
+
+/// The retention policies a schema being declared would fall under.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct RetentionReach {
+    pub policies: Vec<RetentionPolicyInReach>,
+    /// True when the schema is already bound to the catalog schema. Declaring
+    /// it again joins nothing new, so an app that declares its schemas on every
+    /// start is warned, not refused.
+    pub binding_bound: bool,
 }

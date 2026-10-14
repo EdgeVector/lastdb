@@ -91,6 +91,41 @@ struct RetentionBody {
     ttl_seconds: Option<u64>,
     #[serde(default)]
     hash_partitions: Vec<String>,
+    /// Confirms a `clear` that puts a shorter manifest TTL in force.
+    #[serde(default)]
+    confirm_expire_existing: bool,
+}
+
+/// Whether clearing `previous` puts a SHORTER manifest TTL in force, so that
+/// records between the two TTLs expire. That needs an explicit confirmation,
+/// like a manifest TTL that deletes records. `Err` is the refusal.
+fn clear_may_expire(
+    body: &RetentionBody,
+    previous: &Option<fold_db::schema::SchemaRetentionPolicy>,
+) -> Result<bool, String> {
+    use fold_db::schema::SchemaRetentionPolicy as Policy;
+    if body.action != "clear" {
+        return Ok(false);
+    }
+    let (Some(operator), Some(restored)) = (
+        previous.as_ref(),
+        Policy::after_operator_clear(previous.as_ref()),
+    ) else {
+        return Ok(false);
+    };
+    if restored.ttl_seconds >= operator.ttl_seconds {
+        return Ok(false);
+    }
+    if body.confirm_expire_existing {
+        return Ok(true);
+    }
+    Err(format!(
+        "clearing the operator policy of {}s puts the manifest TTL of {}s in force. \
+         existing_records_may_expire: every record older than {}s is deleted for good, a Range \
+         schema's at the next sweep. Review it, then run \
+         `lastdb schema-retention clear --schema {} --confirm-expire-existing`",
+        operator.ttl_seconds, restored.ttl_seconds, restored.ttl_seconds, body.schema
+    ))
 }
 
 /// Write the audit row that precedes an operator `set` or `clear`. `Ok(None)`
@@ -132,6 +167,8 @@ async fn open_retention_audit(
         &anchor,
     )
     .with_policies(previous.clone(), expected);
+    let mut event = event;
+    event.confirmed_expire_existing = body.confirm_expire_existing;
     crate::retention_audit::append(&host.home, &event).map_err(|error| {
         format!("no policy change was made: its audit row could not be written: {error}")
     })?;
@@ -167,11 +204,18 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
         return error_response(400, "schema is required", ctx);
     }
     let store = host.db.db_ops().schemas();
-    let previous = store
-        .get_schema_retention_policy(&body.schema)
-        .await
-        .ok()
-        .flatten();
+    // A failed read is an error, never "no policy": the audit row and the
+    // confirmation below both depend on what is in force now.
+    let previous = match store.get_schema_retention_policy(&body.schema).await {
+        Ok(previous) => previous,
+        Err(error) => {
+            return error_response(400, &format!("schema retention failed: {error}"), ctx)
+        }
+    };
+    let may_expire = match clear_may_expire(&body, &previous) {
+        Ok(may_expire) => may_expire,
+        Err(message) => return error_response(409, &message, ctx),
+    };
     // Every change to a policy leaves a durable row, written before the change.
     let audit = match open_retention_audit(req, ctx, host, &body, &previous).await {
         Ok(audit) => audit,
@@ -226,6 +270,7 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
                     "schema": body.schema,
                     "retention_policy": policy,
                     "anchor": anchor,
+                    "existing_records_may_expire": may_expire,
                 }),
                 ctx.user_id.as_str(),
             ))

@@ -44,10 +44,17 @@ pub(crate) async fn load_app_single_catalog_binding(
     catalog_hash: &str,
     field_mappers: &HashMap<String, String>,
 ) -> Result<(), String> {
+    // One declare at a time for this catalog schema, from the pre-check to the
+    // end of the declare: the pre-check, the bind and the retention step must
+    // not interleave with another declare of the same schema.
+    declare.anchor_lock.hold(catalog_hash).await;
     // A TTL that must be refused (a shared catalog schema, another app's
     // schema, existing records that would expire) is refused before the
     // schema is bound, so a refusal leaves the node as it was.
-    precheck_declare_retention(host, declare, catalog_hash).await?;
+    if let Err(refusal) = precheck_declare_retention(host, declare, catalog_hash).await {
+        discard_orphan_catalog_schema(host, catalog_hash).await;
+        return Err(refusal);
+    }
     let binding = app_single_catalog_binding(declare, catalog_hash, field_mappers)?;
     if let Some(catalog_fields) = host
         .db
