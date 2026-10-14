@@ -354,3 +354,7 @@ pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
 - 2026-10-12, step 3: not started. See the assessment above.
 - 2026-10-12, warm set design: `docs/lastdb-warm-set-design.md` written and open for
   Tom's decisions. No code change.
+- 2026-10-13, designs: `docs/lastdb-blind-write-design.md` and
+  `docs/lastdb-write-ahead-journal-design.md` written. Built since the warm set
+  design: store fsync gauges (#160), fewer groups per write (#167), GC reaper
+  re-arm and hardening (#169, #170), persist cut for the manual GC verb (#171).

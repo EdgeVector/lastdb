@@ -4,6 +4,11 @@ Status (2026-10-12): design for Tom's review. Nothing here is implemented. It
 supersedes the "Revised order" in `docs/lastdb-resident-convergence.md` for
 steps 3 to 6. Steps 1, 2, 2b and 2c of that document are merged.
 
+Related designs: `docs/lastdb-blind-write-design.md` (the write path: ack from memory with
+no read first, protein siblings as background writes) and
+`docs/lastdb-write-ahead-journal-design.md` (a store journal; not built, group
+reduction goes first).
+
 How this was made: six agents read the code (logical set, graph, mutation and
 lane path, read paths, storage objects, history). Four agents drafted designs.
 Three judges scored them. One agent wrote this design. Three skeptics attacked
