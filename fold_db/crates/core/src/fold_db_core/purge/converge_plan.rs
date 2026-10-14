@@ -217,12 +217,23 @@ pub(super) async fn lock_and_plan_converge(
         .map(|barrier| barrier.mk_key.clone())
         .collect();
     let tip_guards = db_ops.atoms().lock_tip_commits(&tip_keys).await;
-    let removable_tip_keys =
-        flush_converge_barriers(db_ops, &planned_barriers, storage_prefix).await?;
-    let plan = if removable_tip_keys.is_empty() {
-        None
-    } else {
-        prepare_converge_plan(db_ops, schema, &keys, &removable_tip_keys).await?
-    };
-    Ok((planned_barriers, tip_guards, plan))
+    let planned = async {
+        let removable_tip_keys =
+            flush_converge_barriers(db_ops, &planned_barriers, storage_prefix).await?;
+        if removable_tip_keys.is_empty() {
+            Ok(None)
+        } else {
+            prepare_converge_plan(db_ops, schema, &keys, &removable_tip_keys).await
+        }
+    }
+    .await;
+    match planned {
+        Ok(plan) => Ok((planned_barriers, tip_guards, plan)),
+        Err(error) => {
+            db_ops
+                .atoms()
+                .clear_pending_delete_barriers(&planned_barriers);
+            Err(error)
+        }
+    }
 }

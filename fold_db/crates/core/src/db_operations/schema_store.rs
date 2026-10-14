@@ -26,6 +26,7 @@ mod catalog_keys;
 mod claims_retention;
 mod replay_catalog;
 mod replay_probe;
+mod retention_recheck;
 mod retired_replay;
 
 pub use replay_probe::ReplayAuthorityProbe;

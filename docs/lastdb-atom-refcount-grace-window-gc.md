@@ -281,10 +281,16 @@ needs its own explicit option (below).
 - The opt-in reclaim janitor (`LASTDB_ATOM_RECLAIM_MS`) honors it through the
   walker; only the daemon-wide env lifts it.
 - Not unreferenced-atom deleters, so not gated: purge and hard erasure, the TTL
-  sweep (both delete the atoms of named keys, an explicit user action),
+  sweep with `LASTDB_TTL_SWEEP_VERB=purge` (both delete the atoms of named keys,
+  an explicit user action),
   `clear-history` (deletes history rows, never atoms), `reap-dropped-schema`,
   the offline `lastdb_local_maintain atom-gc` reap (removes redundant storage
   copies of a body that survives), and `gc-file-blobs` (blob rows).
+
+The default TTL sweep verb is `delete`. It leaves the atoms of the expired keys to
+this garbage collection, so on a node that has applied a peer mutation (state
+`seen` or `unknown`) it frees no atom bytes until the override above is set. See
+`docs/lastdb-ttl-sweep.md`.
 
 **Later (not built).** O1: record a history entry on replay when a tip is
 replaced or a peer atom is dropped, with a retention window, then lift the

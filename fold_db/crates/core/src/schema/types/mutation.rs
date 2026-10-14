@@ -112,6 +112,11 @@ pub struct Mutation {
     /// Serde always clears it, so API or replay input cannot forge the bypass.
     #[serde(skip)]
     pub(crate) aggregate_derived_internal: bool,
+    /// Local audit tag for the delete ledger row of a `Delete` that a node job
+    /// issues, for example the TTL sweep. `None` writes the default caller.
+    /// Never serialized, so it is never captured, synced or replayed.
+    #[serde(skip)]
+    pub(crate) erase_caller: Option<&'static str>,
 }
 
 impl Mutation {
@@ -145,6 +150,7 @@ impl Mutation {
             must_exist: None,
             aggregate_set: None,
             aggregate_derived_internal: false,
+            erase_caller: None,
         }
     }
 
@@ -176,6 +182,15 @@ impl Mutation {
     #[must_use]
     pub fn with_must_exist(mut self, must_exist: bool) -> Self {
         self.must_exist = Some(must_exist);
+        self
+    }
+
+    /// Name the node job that issues this `Delete`. The delete ledger row
+    /// carries the name as its caller, so an audit read can tell the job from
+    /// a client delete. Local only: it is not captured or synced.
+    #[must_use]
+    pub fn with_erase_caller(mut self, caller: &'static str) -> Self {
+        self.erase_caller = Some(caller);
         self
     }
 

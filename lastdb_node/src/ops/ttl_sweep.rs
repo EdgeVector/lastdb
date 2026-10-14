@@ -20,15 +20,7 @@
 //!
 //! Kill switch: `LASTDB_TTL_SWEEP=0`. Default **on**.
 //!
-//! Pacing: a pass erases `LASTDB_TTL_SWEEP_BATCH` keys at a time (default 64
-//! for `purge`, 16 for `delete`, at most 64). It holds the local mutation
-//! admission only while one batch runs. It rests after each batch so that the
-//! erase work takes at most `LASTDB_TTL_SWEEP_DUTY_PCT` percent of wall time
-//! (default 25), and never rests less than `LASTDB_TTL_SWEEP_MIN_PAUSE_MS`
-//! (default 25) between batches. See [`pace`].
-//!
-//! Verb: `LASTDB_TTL_SWEEP_VERB=delete` selects the ordinary delete in place of
-//! the hard-erasure `purge` verb. See [`erase`].
+//! Pacing, verb and the knobs that tune them: `docs/lastdb-ttl-sweep.md`.
 
 use fold_db::clock::unix_secs;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,8 +34,10 @@ use fold_db::schema::SchemaRetentionPolicy;
 
 use crate::host::Host;
 
+mod backlog;
 mod erase;
 mod pace;
+use backlog::Backlog;
 pub use erase::TTL_SWEEP_VERB_ENV;
 pub use pace::{TTL_SWEEP_BATCH_ENV, TTL_SWEEP_DUTY_PCT_ENV, TTL_SWEEP_MIN_PAUSE_MS_ENV};
 
@@ -74,6 +68,7 @@ pub fn maybe_spawn_ttl_sweep(host: &std::sync::Arc<Host>, shutdown: &std::sync::
     if !ttl_sweep_enabled() {
         return;
     }
+    erase::warn_on_bad_verb_once();
     if !host.self_metrics.begin_ttl_sweep() {
         return;
     }
@@ -104,12 +99,14 @@ pub async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
 
     let started = std::time::Instant::now();
     match sweep_ttl_inner(host, shutdown).await {
-        Ok(removed) => {
-            host.self_metrics.mark_ttl_sweep_pass(removed, unix_secs());
-            if removed > 0 {
+        Ok(totals) => {
+            host.self_metrics
+                .mark_ttl_sweep_pass(totals.erased, unix_secs());
+            if totals.erased > 0 || totals.dropped > 0 {
                 tracing::info!(
                     target: "lastdbd::ttl_sweep",
-                    removed,
+                    removed = totals.erased,
+                    dropped_after_recheck = totals.dropped,
                     elapsed_ms = started.elapsed().as_millis() as u64,
                     "ttl sweep purged expired retained rows"
                 );
@@ -134,7 +131,7 @@ async fn backup_cut_is_held(host: &Host) -> bool {
     host.db.backup_publish_target_is_held().await
 }
 
-async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<usize, String> {
+async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<erase::PassTotals, String> {
     let policies = match host.db.db_ops().list_schema_retention_policies().await {
         Ok(policies) => {
             host.self_metrics
@@ -150,34 +147,37 @@ async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<usize, St
     };
     if policies.is_empty() {
         host.self_metrics.settle_ttl_sweep();
-        return Ok(0);
+        return Ok(erase::PassTotals::default());
     }
 
+    // List every schema first, then erase one batch from each schema in turn.
+    // A large backlog in one schema cannot starve the others for a paced pass.
     let now = unix_secs();
-    let mut removed = 0usize;
+    let mut backlogs = Vec::new();
     for (schema_name, policy) in policies {
         if shutdown.load(Ordering::Acquire) {
-            break;
+            return Ok(erase::PassTotals::default());
         }
-        removed += sweep_one_schema(host, &schema_name, policy, now, shutdown).await?;
+        backlogs.extend(list_expired(host, &schema_name, policy, now).await?);
     }
-    Ok(removed)
+    erase::purge_round_robin(host, backlogs, shutdown).await
 }
 
-async fn sweep_one_schema(
+/// The expired keys of one schema, hash by hash. `None` when the schema is
+/// absent, has no usable range field, or holds nothing expired.
+async fn list_expired(
     host: &Host,
     schema_name: &str,
     policy: SchemaRetentionPolicy,
     now: u64,
-    shutdown: &AtomicBool,
-) -> Result<usize, String> {
+) -> Result<Option<Backlog>, String> {
     let Some(schema) = host
         .db
         .schema_manager()
         .get_schema_metadata(schema_name)
         .map_err(|e| e.to_string())?
     else {
-        return Ok(0);
+        return Ok(None);
     };
     let cutoff = now.saturating_sub(policy.ttl_seconds);
     let mut expired = match &schema.schema_type {
@@ -195,7 +195,7 @@ async fn sweep_one_schema(
                 .and_then(|key| key.range_field.clone())
                 .filter(|field| !field.is_empty())
             else {
-                return Ok(0);
+                return Ok(None);
             };
             let mut hash_partitions = policy.hash_partitions.clone();
             if matches!(schema.schema_type, DeclarativeSchemaType::HashRange) {
@@ -222,11 +222,14 @@ async fn sweep_one_schema(
         }
     };
     expired.sort_by(partition_then_age);
-    if expired.is_empty() {
-        return Ok(0);
-    }
-
-    erase::purge_paced(host, schema_name, &expired, shutdown).await
+    Ok((!expired.is_empty()).then(|| {
+        Backlog::new(
+            schema_name.to_string(),
+            schema.schema_type.clone(),
+            cutoff,
+            expired,
+        )
+    }))
 }
 
 async fn query_expired_keys(

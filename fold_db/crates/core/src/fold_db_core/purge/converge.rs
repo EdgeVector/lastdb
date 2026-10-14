@@ -5,6 +5,10 @@ use super::*;
 use super::converge_plan::*;
 use super::converge_steps::*;
 
+/// Converge the tips of a live `Delete` to disk.
+///
+/// Every exit leaves the pending Delete barriers cleared. A failed converge
+/// that kept them would hide its keys from readers until the next restart.
 pub(in crate::fold_db_core) async fn converge_delete_tips(
     db_ops: &Arc<DbOperations>,
     schema_manager: &Arc<SchemaCore>,
@@ -24,11 +28,48 @@ pub(in crate::fold_db_core) async fn converge_delete_tips(
         storage_prefix,
     )
     .await?;
-    let Some(mut plan) = plan else {
+    let Some(plan) = plan else {
         release_converge_locks(db_ops, &planned_barriers, tip_guards);
         return Ok(BulkPurgeReport::empty());
     };
+    let caller = mutations
+        .iter()
+        .find_map(|mutation| mutation.erase_caller)
+        .unwrap_or("mutation-pipeline");
+    let converged = converge_planned(
+        db_ops,
+        schema_manager,
+        schema_name,
+        caller,
+        plan,
+        (&planned_barriers, tip_guards),
+    )
+    .await;
+    if converged.is_err() {
+        // Idempotent: a converge that failed after its own release cleared
+        // the barriers already.
+        db_ops
+            .atoms()
+            .clear_pending_delete_barriers(&planned_barriers);
+    }
+    converged
+}
 
+/// The destructive stage of a converge, after the plan exists. `locks` holds
+/// the planned barriers and the exact tip guards. A guard drops on any early
+/// exit. The caller clears the barriers when this returns an error.
+async fn converge_planned(
+    db_ops: &Arc<DbOperations>,
+    schema_manager: &Arc<SchemaCore>,
+    schema_name: &str,
+    caller: &str,
+    mut plan: ConvergePlan,
+    locks: (
+        &[crate::atom::delete_barrier::DeleteBarrier],
+        Vec<tokio::sync::OwnedMutexGuard<()>>,
+    ),
+) -> Result<BulkPurgeReport, SchemaError> {
+    let (planned_barriers, tip_guards) = locks;
     let (extra_keys, trailing_keys) = converge_extra_and_trailing_keys(db_ops, &plan).await?;
     let batch_refs: Vec<_> = plan
         .owned_for_batch
@@ -39,8 +80,13 @@ pub(in crate::fold_db_core) async fn converge_delete_tips(
         .collect();
 
     let step_started = std::time::Instant::now();
-    let ledger_entry =
-        build_converge_ledger_entry(schema_name, &plan, extra_keys.len(), trailing_keys.len());
+    let ledger_entry = build_converge_ledger_entry(
+        caller,
+        schema_name,
+        &plan,
+        extra_keys.len(),
+        trailing_keys.len(),
+    );
     let ledger_started = std::time::Instant::now();
     let ledger_handle = db_ops
         .atoms()
@@ -72,7 +118,7 @@ pub(in crate::fold_db_core) async fn converge_delete_tips(
     });
     plan.timings.flush = step_started.elapsed();
     flushed?;
-    release_converge_locks(db_ops, &planned_barriers, tip_guards);
+    release_converge_locks(db_ops, planned_barriers, tip_guards);
 
     // Release every exact tip lock after source removal reaches disk, then
     // refresh the schema cache.
