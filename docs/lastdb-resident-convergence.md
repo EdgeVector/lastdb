@@ -377,3 +377,5 @@ pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
   made a new plain-mode group directory entry durable (plain mode does not sync new
   group directories). A group that is under the floor at its last sidecar write and
   later grows past it can lose that sidecar in a power cut.
+- 2026-10-14, one page: `docs/lastdb-write-path-one-pager.md` summarizes the write
+  path, what is built, what is designed and the open decisions for Tom.
