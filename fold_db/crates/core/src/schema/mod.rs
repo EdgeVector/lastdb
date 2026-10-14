@@ -42,7 +42,11 @@ pub use field_hash_coherence::{
 };
 pub use field_mapper::FieldMapperService;
 pub use interpreter::SchemaInterpreter;
-pub use manifest_retention::{ManifestRetention, MAX_MANIFEST_TTL_SECONDS};
+pub use manifest_retention::{
+    min_manifest_ttl_seconds, ManifestRetention, ManifestRetentionOutcome, ManifestRetentionPlan,
+    ManifestRetentionStatus, RetentionSharing, MAX_MANIFEST_TTL_SECONDS, MIN_MANIFEST_TTL_ENV,
+    MIN_MANIFEST_TTL_SECONDS,
+};
 pub use schema_types::{
     RetentionSource, SchemaListEntry, SchemaNameClaim, SchemaRetentionPolicy, SchemaState,
     SchemaWithState,

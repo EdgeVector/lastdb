@@ -16,16 +16,23 @@ use fold_db::schema::ManifestRetention;
 ///   "retention": { "ttl_days": 90 } }
 /// ```
 ///
-/// `retention` takes `ttl_days` or `ttl_seconds` (not both; above zero and at
-/// most 3650 days). It is node-local policy: `lastdb app check` sends it beside
-/// the schema, never inside it, so it cannot change the schema identity hash.
-/// An entry with no `retention` gets no policy, and nothing is deleted.
+/// A TTL deletes records for good. `retention` takes `ttl_days` or
+/// `ttl_seconds` (not both; at least one hour by default, at most 3650 days),
+/// and `confirm_expire_existing`. It is node-local policy: `lastdb app check`
+/// sends it beside the schema, never inside it, so it cannot change the schema
+/// identity hash. An entry with no `retention` gets no policy.
 ///
 /// The node applies the TTL when the schema is declared (`lastdb app check
 /// --sync`), before the first write, and it covers both installed names of the
-/// schema. There is no backfill: a record written before the declare is never
-/// expired. A synced second device declares the same manifest on its own node,
-/// because the policy is not synced; a TTL delete syncs as an ordinary delete.
+/// schema. It refuses the TTL when another schema is bound to the same catalog
+/// schema (`shared_with`) or another app owns it. It also refuses a new TTL on
+/// a Range or HashRange schema that already holds data, and a shorter TTL than
+/// the one running, unless `--confirm-expire-existing` says the records may
+/// expire. On a Range schema every old record expires at the next sweep, those
+/// written before the declare included. Hash and Single schemas track only
+/// later writes. A synced second device must declare the same manifest: the
+/// policy is not synced, and a TTL purge syncs and erases on the peers. The
+/// full contract is in `docs/app-manifest-retention.md`.
 ///
 /// What the app author must do:
 ///
@@ -41,6 +48,8 @@ use fold_db::schema::ManifestRetention;
 ///   write.
 /// - Write one record for each entry and never edit it: a rewrite of a
 ///   HashRange or Range record does not reset its age.
+/// - Give schemas with different lifecycles different shapes: two schemas of
+///   one shape can resolve to one catalog schema and then share one dataset.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppManifest {
     pub app_id: String,

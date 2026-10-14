@@ -28,6 +28,8 @@ mod name_claims;
 mod replay_catalog;
 mod replay_probe;
 mod retention_layers;
+mod retention_move;
+mod retention_sharing;
 mod retired_replay;
 
 pub use replay_probe::ReplayAuthorityProbe;

@@ -67,17 +67,29 @@ pub struct SchemaNameClaim {
 /// - Hash and Single: the time since the last write to the key. A rewrite
 ///   resets it.
 ///
-/// A policy covers writes made after it is set. A record written before the
-/// policy exists is never covered: there is no backfill.
+/// What a policy deletes depends on the layout. The sweep deletes with a hard
+/// erase, so none of it comes back.
 ///
-/// An app schema has two installed names that share records: the manifest
-/// name (`app/Name`) and the catalog schema, named by its identity hash. The
-/// policy, the age index and the HashRange partition registry are all kept
-/// under one anchor name, so a write through either name is covered. The
-/// anchor of a schema is itself unless an app manifest declared a `retention`
-/// for it: that declare records the manifest name as an alias of the catalog
-/// schema. A policy set by hand on a schema without such an alias covers only
-/// the name it names.
+/// - Range: every record whose range key is older than the TTL, at the next
+///   sweep, **including records written before the policy existed**.
+/// - HashRange: in every partition the node has seen written since the policy
+///   exists, every record whose range key is older than the TTL, including
+///   records written before the policy. A partition with no later write is not
+///   swept.
+/// - Hash and Single: a record whose last write after the policy exists is
+///   older than the TTL. Records written before the policy are not tracked and
+///   are kept.
+///
+/// An app schema has two installed names that share records: the manifest name
+/// (`app/Name`) and the catalog schema named by its identity hash. The policy,
+/// the age index and the HashRange partition registry are all kept under one
+/// anchor name, so a write through either name is covered. The anchor of a
+/// schema is itself unless an app manifest declared a `retention` for it: that
+/// declare records the manifest name as an alias of the catalog schema. A
+/// policy set by hand on a schema without such an alias covers only the name it
+/// names. The sweep reads and purges through the anchor, so a policy reaches
+/// every schema bound to the anchor; a manifest declare refuses a TTL on an
+/// anchor that another schema or another app shares.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaRetentionPolicy {
     /// Maximum age of retained records, in seconds.
@@ -128,6 +140,33 @@ impl SchemaRetentionPolicy {
             overridden_manifest_ttl_seconds: None,
             hash_partitions: Vec::new(),
         }
+    }
+
+    /// The operator policy that follows `previous` when the operator sets
+    /// `ttl_seconds`. A manifest TTL in force or already shadowed is kept
+    /// beside it, and `clear` puts it back.
+    pub fn operator_over(
+        previous: Option<&Self>,
+        ttl_seconds: u64,
+        mut hash_partitions: Vec<String>,
+    ) -> Self {
+        hash_partitions.sort();
+        hash_partitions.dedup();
+        Self {
+            ttl_seconds,
+            source: RetentionSource::Operator,
+            overridden_manifest_ttl_seconds: previous.and_then(Self::manifest_ttl_seconds),
+            hash_partitions,
+        }
+    }
+
+    /// The policy in force after the operator clears `previous`: the manifest
+    /// policy an operator policy shadowed, otherwise none.
+    pub fn after_operator_clear(previous: Option<&Self>) -> Option<Self> {
+        previous
+            .filter(|policy| policy.source == RetentionSource::Operator)
+            .and_then(|policy| policy.overridden_manifest_ttl_seconds)
+            .map(Self::manifest)
     }
 
     /// The manifest TTL this policy holds or shadows, if any.

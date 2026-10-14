@@ -12,6 +12,9 @@ mod expansion;
 mod plan;
 mod proposal;
 mod retention;
+mod retention_apply;
+mod retention_assess;
+mod retention_unmanaged;
 mod reuse;
 
 pub(super) use app_binding::*;
@@ -23,4 +26,6 @@ pub(super) use expansion::*;
 pub(super) use plan::*;
 pub(super) use proposal::*;
 pub(super) use retention::*;
+pub(super) use retention_apply::*;
+pub(super) use retention_unmanaged::precheck_declare_retention;
 pub(super) use reuse::*;

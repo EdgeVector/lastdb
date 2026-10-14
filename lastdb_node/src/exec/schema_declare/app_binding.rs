@@ -44,6 +44,10 @@ pub(crate) async fn load_app_single_catalog_binding(
     catalog_hash: &str,
     field_mappers: &HashMap<String, String>,
 ) -> Result<(), String> {
+    // A TTL that must be refused (a shared catalog schema, another app's
+    // schema, existing records that would expire) is refused before the
+    // schema is bound, so a refusal leaves the node as it was.
+    precheck_declare_retention(host, declare, catalog_hash).await?;
     let binding = app_single_catalog_binding(declare, catalog_hash, field_mappers)?;
     if let Some(catalog_fields) = host
         .db
@@ -181,7 +185,7 @@ pub(crate) async fn adopt_existing_app_molecules_for_empty_catalog(
 }
 
 /// Physical molecule of the schema's key field, when the map names one.
-fn key_molecule(schema: &Schema, map: &HashMap<String, String>) -> Option<String> {
+pub(crate) fn key_molecule(schema: &Schema, map: &HashMap<String, String>) -> Option<String> {
     schema
         .key
         .as_ref()
@@ -191,7 +195,7 @@ fn key_molecule(schema: &Schema, map: &HashMap<String, String>) -> Option<String
 }
 
 /// Whether the key molecule holds at least one live record.
-async fn has_live_key(host: &Host, molecule: Option<String>) -> Result<bool, String> {
+pub(crate) async fn has_live_key(host: &Host, molecule: Option<String>) -> Result<bool, String> {
     let Some(molecule) = molecule else {
         return Ok(false);
     };

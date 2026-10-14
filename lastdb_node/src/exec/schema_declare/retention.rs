@@ -6,10 +6,11 @@
 //!
 //! A catalog sync applies the TTL before it returns, so the policy exists
 //! before the first write. A read-only check only reports what it would apply.
+//! Applying and previewing live in `retention_apply`.
 
 use super::*;
 use fold_db::schema::types::FieldValueType;
-use fold_db::schema::{ManifestRetention, RetentionSource, SchemaRetentionPolicy};
+use fold_db::schema::ManifestRetention;
 
 const RANGE_KEY_RULE: &str = "records expire by the entry time at the front of the range key: \
      unix seconds, zero-padded to 20 digits. A range key without that prefix never expires";
@@ -21,6 +22,9 @@ const WRITE_TIME_RULE: &str = "records expire by the time since the last write; 
 pub(crate) struct RetentionLayout {
     pub(crate) age_rule: &'static str,
     pub(crate) warnings: Vec<String>,
+    /// Range and HashRange: records expire by the key, so records that exist
+    /// before the policy can expire too.
+    pub(crate) range_keyed: bool,
 }
 
 /// Check the `retention` of a declare body and who may ask for it.
@@ -74,6 +78,7 @@ fn retention_layout(schema: &DeclarativeSchemaDefinition) -> Result<RetentionLay
             return Ok(RetentionLayout {
                 age_rule: WRITE_TIME_RULE,
                 warnings: Vec::new(),
+                range_keyed: false,
             });
         }
         SchemaType::Range | SchemaType::HashRange => schema
@@ -102,6 +107,7 @@ fn retention_layout(schema: &DeclarativeSchemaDefinition) -> Result<RetentionLay
     Ok(RetentionLayout {
         age_rule: RANGE_KEY_RULE,
         warnings,
+        range_keyed: true,
     })
 }
 
@@ -111,82 +117,4 @@ fn can_hold_time_prefix(kind: &FieldValueType) -> bool {
         FieldValueType::OneOf(variants) => variants.iter().any(can_hold_time_prefix),
         _ => false,
     }
-}
-
-/// Apply the declared TTL under the catalog schema both installed names share.
-///
-/// Runs after the declare resolved and bound the schema, before the response
-/// returns. Idempotent. It never reads, changes or deletes product data.
-pub(crate) async fn apply_declare_retention(
-    host: &Host,
-    declare: &DirectDeclareProposal,
-    resolution: &DirectDeclareResolution,
-) -> Result<Option<Value>, String> {
-    let Some((ttl_seconds, layout)) = validate_declare_retention(declare)? else {
-        return Ok(None);
-    };
-    let anchor = match resolution {
-        DirectDeclareResolution::Register { catalog_hash, .. }
-        | DirectDeclareResolution::Reuse { catalog_hash, .. } => catalog_hash.as_str(),
-        DirectDeclareResolution::Compose { .. } => {
-            return Err(
-                "a retention needs one catalog schema, and this declare composed several"
-                    .to_string(),
-            );
-        }
-    };
-    let outcome = host
-        .db
-        .db_ops()
-        .schemas()
-        .apply_manifest_retention(&declare.local_schema_id, anchor, ttl_seconds)
-        .await
-        .map_err(|e| e.to_string())?;
-    tracing::info!(
-        target: "lastdb_node::apps_declare_schema",
-        schema = %declare.local_schema_id,
-        anchor = %outcome.anchor,
-        ttl_seconds,
-        status = ?outcome.status,
-        "applied the manifest retention"
-    );
-    Ok(Some(serde_json::json!({
-        "ttl_seconds": ttl_seconds,
-        "source": RetentionSource::Manifest.as_str(),
-        "status": outcome.status,
-        "anchor": outcome.anchor,
-        "effective": outcome.effective,
-        "age_rule": layout.age_rule,
-        "warnings": layout.warnings,
-    })))
-}
-
-/// What a read-only check reports: the policy a sync would apply, the policy in
-/// force now, and anything the manifest already shows is wrong. Writes nothing.
-pub(crate) async fn preview_declare_retention(
-    host: &Host,
-    declare: &DirectDeclareProposal,
-) -> Result<Option<Value>, String> {
-    let Some((ttl_seconds, layout)) = validate_declare_retention(declare)? else {
-        return Ok(None);
-    };
-    let current: Option<SchemaRetentionPolicy> = host
-        .db
-        .db_ops()
-        .schemas()
-        .get_schema_retention_policy(&declare.local_schema_id)
-        .await
-        .ok()
-        .flatten();
-    let operator_wins = current
-        .as_ref()
-        .is_some_and(|policy| policy.source == RetentionSource::Operator);
-    Ok(Some(serde_json::json!({
-        "ttl_seconds": ttl_seconds,
-        "source": RetentionSource::Manifest.as_str(),
-        "would_apply": !operator_wins,
-        "current": current,
-        "age_rule": layout.age_rule,
-        "warnings": layout.warnings,
-    })))
 }

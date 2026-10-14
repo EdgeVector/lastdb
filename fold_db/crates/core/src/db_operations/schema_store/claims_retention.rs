@@ -7,7 +7,7 @@
 use super::catalog_keys::*;
 use super::SchemaStore;
 use crate::schema::types::KeyValue;
-use crate::schema::{RetentionSource, SchemaError, SchemaRetentionPolicy};
+use crate::schema::{SchemaError, SchemaRetentionPolicy};
 
 impl SchemaStore {
     /// Read the node-local retention policy for an installed schema.
@@ -30,7 +30,7 @@ impl SchemaStore {
     pub async fn set_schema_retention_policy(
         &self,
         schema_name: &str,
-        mut policy: SchemaRetentionPolicy,
+        policy: SchemaRetentionPolicy,
     ) -> Result<(), SchemaError> {
         self.require_installed_schema(schema_name).await?;
         let anchor = self.retention_anchor(schema_name).await?;
@@ -45,18 +45,17 @@ impl SchemaStore {
                 "schema retention hash partitions must not be empty".to_string(),
             ));
         }
-        policy.hash_partitions.sort();
-        policy.hash_partitions.dedup();
-
         let key = retention_policy_key(schema_name);
         let current = self
             .schema_states_store
             .get_item::<SchemaRetentionPolicy>(&key)
             .await?;
-        policy.source = RetentionSource::Operator;
-        policy.overridden_manifest_ttl_seconds = current
-            .as_ref()
-            .and_then(SchemaRetentionPolicy::manifest_ttl_seconds);
+        // An operator policy keeps the manifest TTL it shadows.
+        let policy = SchemaRetentionPolicy::operator_over(
+            current.as_ref(),
+            policy.ttl_seconds,
+            policy.hash_partitions,
+        );
         if current.as_ref() == Some(&policy) {
             return Ok(());
         }

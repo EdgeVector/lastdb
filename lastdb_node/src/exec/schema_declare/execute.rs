@@ -266,21 +266,11 @@ pub(crate) async fn execute_catalog_schema_sync(
     retire_superseded_claims_into_payload(host, &declare, &mut payload).await;
 
     // The policy must exist before the first write, so it is applied before
-    // this declare returns. A TTL the node cannot apply fails the declare:
-    // the schema is bound, and a second declare is idempotent.
-    match apply_declare_retention(host, &declare, &resolution).await {
-        Ok(Some(retention)) => payload["retention"] = retention,
-        Ok(None) => {}
-        Err(e) => {
-            return error_response(
-                409,
-                &format!(
-                    "schema declared and bound, but its manifest retention was not applied: {e}"
-                ),
-                ctx,
-            )
-        }
-    }
+    // this declare returns. Every refusal that can be known from the catalog
+    // schema already happened before the bind. The named-db membership comes
+    // first so a late failure leaves the declare complete: bound, a member,
+    // and the retention step to repeat (it is idempotent).
+    let retention = finish_declare_retention(host, req, ctx, &declare, &resolution).await;
 
     if let Err(e) = insert_declare_catalog_membership(host, ctx, &declare.local_schema_id).await {
         return error_response(
@@ -288,6 +278,18 @@ pub(crate) async fn execute_catalog_schema_sync(
             &format!("schema declared but named-db catalog membership failed: {e}"),
             ctx,
         );
+    }
+
+    match retention {
+        Ok(Some(retention)) => payload["retention"] = retention,
+        Ok(None) => {}
+        Err(e) => {
+            return error_response(
+                409,
+                &format!("schema declared and bound, but its retention step failed: {e}"),
+                ctx,
+            )
+        }
     }
 
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
@@ -397,7 +399,7 @@ pub(crate) async fn execute_catalog_schema_check(
             payload["canonical"] = hash;
         }
     }
-    match preview_declare_retention(host, &declare).await {
+    match preview_declare_retention(host, &declare, resolution_anchor(&plan.resolution)).await {
         Ok(Some(retention)) => payload["retention"] = retention,
         Ok(None) => {}
         Err(e) => return error_response(409, &e, ctx),
