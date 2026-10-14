@@ -59,7 +59,7 @@ fn receipt_json(r: fold_db::read_receipts::DiskReadReceipt, elapsed: Duration) -
     })
 }
 
-pub(super) fn batch_entry(response: &UdsResponse, body: Value) -> Value {
+pub(super) fn batch_entry(response: &UdsResponse, body: &Value) -> Value {
     let mut entry = serde_json::json!({ "status": response.status, "response": body });
     if let Some(receipt) = response
         .headers
