@@ -174,9 +174,29 @@ pub(crate) fn schema_retention_command(
                 .get("hash_partitions")
                 .and_then(serde_json::Value::as_array)
                 .map_or(0, Vec::len);
+            let source = policy
+                .get("source")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("operator");
             println!(
-                "Schema retention for {shown_schema}: {ttl_seconds}s (hash partitions: {hash_partitions})"
+                "Schema retention for {shown_schema}: {ttl_seconds}s source={source} (hash partitions: {hash_partitions})"
             );
+            if let Some(manifest_ttl) = policy
+                .get("overridden_manifest_ttl_seconds")
+                .and_then(serde_json::Value::as_u64)
+            {
+                println!(
+                    "  the operator policy overrides a manifest policy of {manifest_ttl}s; `clear` puts it back"
+                );
+            }
+            match response.get("anchor").and_then(serde_json::Value::as_str) {
+                Some(anchor) if anchor != shown_schema => {
+                    println!(
+                        "  policy state is held under {anchor}, shared by both installed names"
+                    );
+                }
+                _ => {}
+            }
         }
         _ => println!("Schema retention for {shown_schema}: unset"),
     }

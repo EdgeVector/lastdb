@@ -11,6 +11,7 @@ mod execute;
 mod expansion;
 mod plan;
 mod proposal;
+mod retention;
 mod reuse;
 
 pub(super) use app_binding::*;
@@ -21,4 +22,5 @@ pub(super) use execute::*;
 pub(super) use expansion::*;
 pub(super) use plan::*;
 pub(super) use proposal::*;
+pub(super) use retention::*;
 pub(super) use reuse::*;

@@ -27,6 +27,7 @@ pub mod field_hash_coherence;
 pub mod field_mapper;
 
 pub mod interpreter;
+pub mod manifest_retention;
 pub mod persistence;
 pub mod schema_types;
 pub mod types;
@@ -41,8 +42,10 @@ pub use field_hash_coherence::{
 };
 pub use field_mapper::FieldMapperService;
 pub use interpreter::SchemaInterpreter;
+pub use manifest_retention::{ManifestRetention, MAX_MANIFEST_TTL_SECONDS};
 pub use schema_types::{
-    SchemaListEntry, SchemaNameClaim, SchemaRetentionPolicy, SchemaState, SchemaWithState,
+    RetentionSource, SchemaListEntry, SchemaNameClaim, SchemaRetentionPolicy, SchemaState,
+    SchemaWithState,
 };
 pub use types::{Schema, SchemaError};
 

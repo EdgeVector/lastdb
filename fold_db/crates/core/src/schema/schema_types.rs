@@ -67,9 +67,17 @@ pub struct SchemaNameClaim {
 /// - Hash and Single: the time since the last write to the key. A rewrite
 ///   resets it.
 ///
-/// A policy covers writes made after it is set, through the schema name it
-/// names. A record written before the policy exists, or through another
-/// installed name for the same data, is not covered.
+/// A policy covers writes made after it is set. A record written before the
+/// policy exists is never covered: there is no backfill.
+///
+/// An app schema has two installed names that share records: the manifest
+/// name (`app/Name`) and the catalog schema, named by its identity hash. The
+/// policy, the age index and the HashRange partition registry are all kept
+/// under one anchor name, so a write through either name is covered. The
+/// anchor of a schema is itself unless an app manifest declared a `retention`
+/// for it: that declare records the manifest name as an alias of the catalog
+/// schema. A policy set by hand on a schema without such an alias covers only
+/// the name it names.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaRetentionPolicy {
     /// Maximum age of retained records, in seconds.
@@ -77,6 +85,19 @@ pub struct SchemaRetentionPolicy {
     /// Store APIs reject zero; keeping the wire value as a plain integer makes
     /// the durable JSON straightforward for owner tooling to inspect later.
     pub ttl_seconds: u64,
+
+    /// Who set the policy in force. A policy written before sources existed
+    /// reads as [`RetentionSource::Operator`].
+    #[serde(default)]
+    pub source: RetentionSource,
+
+    /// The manifest TTL that an operator policy is shadowing, in seconds.
+    ///
+    /// Set only while `source` is `operator` over a manifest policy. Clearing
+    /// the operator policy puts this value back in force, so the manifest
+    /// policy returns without a second declare.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overridden_manifest_ttl_seconds: Option<u64>,
 
     /// Legacy HashRange partitions explicitly covered by this policy.
     ///
@@ -86,6 +107,59 @@ pub struct SchemaRetentionPolicy {
     /// for policy rows that predate the write-side registry.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hash_partitions: Vec<String>,
+}
+
+impl SchemaRetentionPolicy {
+    /// A policy set by `lastdb schema-retention set`.
+    pub fn operator(ttl_seconds: u64, hash_partitions: Vec<String>) -> Self {
+        Self {
+            ttl_seconds,
+            source: RetentionSource::Operator,
+            overridden_manifest_ttl_seconds: None,
+            hash_partitions,
+        }
+    }
+
+    /// A policy applied from an app manifest `retention` key.
+    pub fn manifest(ttl_seconds: u64) -> Self {
+        Self {
+            ttl_seconds,
+            source: RetentionSource::Manifest,
+            overridden_manifest_ttl_seconds: None,
+            hash_partitions: Vec::new(),
+        }
+    }
+
+    /// The manifest TTL this policy holds or shadows, if any.
+    pub fn manifest_ttl_seconds(&self) -> Option<u64> {
+        match self.source {
+            RetentionSource::Manifest => Some(self.ttl_seconds),
+            RetentionSource::Operator => self.overridden_manifest_ttl_seconds,
+        }
+    }
+}
+
+/// Who set the retention policy in force for a schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetentionSource {
+    /// Set with `lastdb schema-retention set`. An operator policy wins over a
+    /// manifest policy until the operator clears it.
+    #[default]
+    Operator,
+    /// Applied from the `retention` key of an app manifest schema entry when
+    /// the schema was declared.
+    Manifest,
+}
+
+impl RetentionSource {
+    /// The wire name, as printed by `lastdb schema-retention get`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Operator => "operator",
+            Self::Manifest => "manifest",
+        }
+    }
 }
 
 /// Schema definition bundled with its current state for UI/API responses

@@ -86,6 +86,10 @@ pub(in crate::exec) async fn execute_db_molecule_keys_route(
 /// `POST /api/db/schema-retention` — owner read/set/clear of one installed
 /// schema's node-local retention policy. Body: `{ action: "get"|"set"|"clear",
 /// schema: string, ttl_seconds?: u64, hash_partitions?: string[] }`.
+///
+/// `set` writes an operator policy, which wins over a manifest policy until
+/// `clear` removes it. The response names the `anchor` schema that holds the
+/// policy for `schema`: an app schema's two installed names share one anchor.
 pub(in crate::exec) async fn execute_db_schema_retention_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -123,10 +127,10 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
             Some(ttl_seconds) => match store
                 .set_schema_retention_policy(
                     &body.schema,
-                    fold_db::schema::SchemaRetentionPolicy {
+                    fold_db::schema::SchemaRetentionPolicy::operator(
                         ttl_seconds,
-                        hash_partitions: body.hash_partitions.clone(),
-                    },
+                        body.hash_partitions.clone(),
+                    ),
                 )
                 .await
             {
@@ -135,17 +139,30 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
             },
             None => return error_response(400, "ttl_seconds is required for set", ctx),
         },
-        "clear" => store
-            .clear_schema_retention_policy(&body.schema)
-            .await
-            .map(|()| None),
+        // Read back: clearing an operator policy over a manifest policy puts
+        // the manifest policy in force.
+        "clear" => match store.clear_schema_retention_policy(&body.schema).await {
+            Ok(()) => store.get_schema_retention_policy(&body.schema).await,
+            Err(error) => Err(error),
+        },
         _ => return error_response(400, "action must be get, set, or clear", ctx),
     };
     match result {
-        Ok(policy) => json_ok(&envelope(
-            &serde_json::json!({ "schema": body.schema, "retention_policy": policy }),
-            ctx.user_id.as_str(),
-        )),
+        Ok(policy) => {
+            // The schema that holds the state for both installed names.
+            let anchor = store
+                .retention_anchor(&body.schema)
+                .await
+                .unwrap_or_else(|_| body.schema.clone());
+            json_ok(&envelope(
+                &serde_json::json!({
+                    "schema": body.schema,
+                    "retention_policy": policy,
+                    "anchor": anchor,
+                }),
+                ctx.user_id.as_str(),
+            ))
+        }
         Err(error) => error_response(400, &format!("schema retention failed: {error}"), ctx),
     }
 }

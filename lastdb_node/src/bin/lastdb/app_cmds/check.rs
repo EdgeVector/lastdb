@@ -72,12 +72,16 @@ fn check_outcome_rows(
                 ),
                 SchemaCoverage::Novel { reason } => ("novel", reason.clone()),
             };
-            serde_json::json!({
+            let mut row = serde_json::json!({
                 "schema": o.schema_name,
                 "resolution": resolution,
                 "detail": detail,
                 "covered": o.coverage.is_covered(),
-            })
+            });
+            if let Some(retention) = &o.retention {
+                row["retention"] = retention.clone();
+            }
+            row
         })
         .collect()
 }
@@ -143,6 +147,70 @@ fn print_check_outcomes_text(
             ),
             SchemaCoverage::Novel { reason } => println!("  {}\tNOVEL\t{reason}", o.schema_name),
         }
+        if let Some(retention) = &o.retention {
+            print_retention_text(retention);
+        }
+    }
+}
+
+/// Print the retention the node reported for one schema: the policy a
+/// read-only check would apply, or the policy a sync applied.
+fn print_retention_text(retention: &serde_json::Value) {
+    let ttl = retention
+        .get("ttl_seconds")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let status = retention
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let anchor = retention
+        .get("anchor")
+        .and_then(serde_json::Value::as_str)
+        .map(|anchor| format!(" anchor={anchor}"))
+        .unwrap_or_default();
+    let policy_in_force = |key: &str| -> Option<String> {
+        let policy = retention.get(key)?;
+        let ttl = policy.get("ttl_seconds")?.as_u64()?;
+        let source = policy.get("source")?.as_str()?;
+        Some(format!("{ttl}s source={source}"))
+    };
+    if status == "operator_override" {
+        let in_force = policy_in_force("effective").unwrap_or_default();
+        println!(
+            "    retention: manifest ttl_seconds={ttl} is kept, but an operator policy ({in_force}) wins until `lastdb schema-retention clear`{anchor}"
+        );
+    } else if !status.is_empty() {
+        println!("    retention: {status} ttl_seconds={ttl} source=manifest{anchor}");
+    } else if retention
+        .get("would_apply")
+        .and_then(serde_json::Value::as_bool)
+        == Some(false)
+    {
+        let in_force = policy_in_force("current").unwrap_or_default();
+        println!(
+            "    retention: would NOT take effect: an operator policy ({in_force}) wins; manifest ttl_seconds={ttl} would be kept beside it"
+        );
+    } else {
+        let current = policy_in_force("current")
+            .map(|policy| format!(" (in force now: {policy})"))
+            .unwrap_or_default();
+        println!("    retention: would apply ttl_seconds={ttl} source=manifest{current}");
+    }
+    if let Some(rule) = retention
+        .get("age_rule")
+        .and_then(serde_json::Value::as_str)
+    {
+        println!("    retention: {rule}");
+    }
+    let warnings = retention
+        .get("warnings")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str);
+    for warning in warnings {
+        println!("    retention: WARNING: {warning}");
     }
 }
 

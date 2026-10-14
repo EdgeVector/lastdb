@@ -123,8 +123,9 @@ pub fn local_retention_lines(snapshot: &StatusSnapshot) -> Vec<String> {
             policy.hash_partitions.join(",")
         };
         lines.push(format!(
-            "  {name}: ttl_seconds={} hash_partitions={} records_reaped={} exclusive_hold_us={} exclusive_hold_semantics=purge_critical_section last_purge_finished_unix_ms={}",
+            "  {name}: ttl_seconds={} source={} hash_partitions={} records_reaped={} exclusive_hold_us={} exclusive_hold_semantics=purge_critical_section last_purge_finished_unix_ms={}",
             policy.ttl_seconds,
+            policy.source.as_str(),
             partitions,
             purge.records_purged,
             purge.exclusive_hold_us,

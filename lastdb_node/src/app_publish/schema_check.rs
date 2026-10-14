@@ -58,6 +58,10 @@ impl CheckMode {
 pub struct CheckOutcome {
     pub schema_name: String,
     pub coverage: SchemaCoverage,
+    /// The `retention` object the node returned for a schema whose manifest
+    /// declares a TTL: the policy a sync would apply (read-only check), or the
+    /// policy it applied (sync). `None` when the manifest declares no TTL.
+    pub retention: Option<Value>,
 }
 
 /// Declare every manifest schema on the local node and classify coverage.
@@ -77,11 +81,7 @@ pub fn check_schemas(
             .and_then(Value::as_str)
             .unwrap_or("<unnamed>")
             .to_string();
-        let body = json!({
-            "app_id": manifest.app_id,
-            "schema": schema,
-            "intent": mode.intent(),
-        });
+        let body = declare_body(&manifest.app_id, schema, mode);
         let (status, payload) =
             socket_post_json(socket, "/api/apps/declare-schema", &user_hash, &body)?;
         let coverage = match mode {
@@ -91,9 +91,31 @@ pub fn check_schemas(
         outcomes.push(CheckOutcome {
             schema_name: name,
             coverage,
+            retention: payload.get("retention").cloned(),
         });
     }
     Ok(outcomes)
+}
+
+/// The declare body for one manifest schema entry.
+///
+/// The manifest `retention` key moves out of the schema and beside it: it is
+/// node-local policy, so it must never reach the schema artifact that is
+/// hashed, registered and shared.
+fn declare_body(app_id: &str, schema: &Value, mode: CheckMode) -> Value {
+    let mut schema = schema.clone();
+    let retention = schema
+        .as_object_mut()
+        .and_then(|entry| entry.remove("retention"));
+    let mut body = json!({
+        "app_id": app_id,
+        "schema": schema,
+        "intent": mode.intent(),
+    });
+    if let Some(retention) = retention {
+        body["retention"] = retention;
+    }
+    body
 }
 
 /// Classify a read-only `check` declare response. It carries no audit event

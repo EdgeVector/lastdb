@@ -10,6 +10,12 @@
 //! cross-partition product read. Hash and Single layouts select from the
 //! explicit node-local written-at index maintained by writes.
 //!
+//! Policies are listed by anchor name. An app schema has two installed names
+//! that share records, and an app manifest `retention` makes its catalog schema
+//! (named by the identity hash) the anchor of both. The sweep reads, queries and
+//! purges through the anchor, so a write through either name is covered. See
+//! `docs/app-manifest-retention.md`.
+//!
 //! Safety properties borrowed from `drain_orphaned_telemetry`:
 //! - never create an absent schema
 //! - skip while a backup cut is held

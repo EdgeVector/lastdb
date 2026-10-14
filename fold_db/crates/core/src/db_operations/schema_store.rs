@@ -24,8 +24,10 @@ pub struct SchemaDropReceipt {
 
 mod catalog_keys;
 mod claims_retention;
+mod name_claims;
 mod replay_catalog;
 mod replay_probe;
+mod retention_layers;
 mod retired_replay;
 
 pub use replay_probe::ReplayAuthorityProbe;
@@ -309,6 +311,7 @@ impl SchemaStore {
             schema_name.to_string(),
             name_claim_key(schema_name),
             retention_policy_key(schema_name),
+            retention_anchor_key(schema_name),
         ];
         state_keys.extend(
             self.schema_states_store
@@ -541,7 +544,11 @@ impl SchemaStore {
         self.load_catalog_map::<SchemaState>(
             &self.schema_states_store,
             "schema_states",
-            &[NAME_CLAIM_KEY_PREFIX, RETENTION_POLICY_KEY_PREFIX],
+            &[
+                NAME_CLAIM_KEY_PREFIX,
+                RETENTION_POLICY_KEY_PREFIX,
+                RETENTION_ANCHOR_KEY_PREFIX,
+            ],
         )
         .await
     }
