@@ -184,11 +184,20 @@ Exhaustion requires a bounded tree rewrite under a fresh UUID before the next ad
 | 52 | 2 | Entry count |
 | 54 | 2 | Entry width; zero for key overflow |
 | 56 | 8 | Leftmost child for an internal page; otherwise zero |
-| 64 | 8 | Next overflow page; otherwise zero |
-| 72 | 8 | Auxiliary value: overflow suffix length or first block ordinal; otherwise zero |
+| 64 | 8 | Next page: key overflow 4, source descriptor 9, or generation receipt 11; otherwise zero |
+| 72 | 8 | Auxiliary total: overflow suffix bytes for kind 4, first block ordinal for kind 5, chain page count for kinds 9 and 11; otherwise zero |
 | 80 | 32 | SHA-256 of the complete page |
 | 112 | 16 | Zero |
 | 128 | 16,256 | Payload and zero slack |
+
+The next-page field is a `u64` page number in the same object UUID.
+Its value is zero on the final chain page. Other page kinds require zero at offsets 64 through 71.
+An overflow chain contains at most five pages. Source and receipt chains contain at most `u32::MAX` pages.
+For kinds 9 and 11, offset 72 contains that exact complete chain count on every page.
+It must equal the count in the descriptor prefix. A zero count is invalid.
+The reader checks the declared count before work, then verifies that the final page ends the chain at that exact count.
+Every link preserves page kind and object UUID and names a complete durable page.
+Cycles, duplicate links, a premature zero link, or a nonzero final link cause an integrity error.
 
 An internal entry is a 176-byte key descriptor followed by an eight-byte child page number.
 The leftmost child lies below the first separator. Each separator is the full minimum key of its right child.
@@ -429,6 +438,12 @@ Each operation is `64-byte header | collection name | storage key | operation pa
 A put payload is the complete record from Section 6. Its duplicate key and version must agree with the operation.
 A delete has no payload. It installs a versioned tombstone, including deletes of a key already absent.
 A conversion-boundary payload is a 128-byte directory value; its collection and group are exact named coordinates.
+Unlike a put, that payload references data outside its own journal batch.
+Every referenced locator, pack, directory, source descriptor, and retained conversion reference must be durable before its COMMIT is appended.
+The converter must acquire a durable conversion reference to that complete dependency closure before COMMIT.
+This reference remains until CURRENT or a recovery publication includes the boundary and the required retention rules permit release.
+TAIL cannot advance through a conversion-boundary batch without those file and directory barriers.
+An ordinary mutation batch still follows Section 8's existing journal-first publication order.
 Destructive home, collection, or history commands cannot use a v1 writer until they receive explicit journal operation formats.
 They must refuse the enabled feature rather than bypass its journal.
 
@@ -454,19 +469,20 @@ If every warm slot is protected, a cold read uses its bounded call buffer or ret
 
 The proposed publication sequence is exact:
 
-1. Serialize complete accepted batches in mutation-version order into new journal identities.
-2. Finish each batch's COMMIT, part headers, immutable map, and any newly created parent directories.
-3. Execute the data durability barrier on every journal part, marker-bearing part, and map file.
-4. Execute directory barriers, from each newly created child directory to its already durable parent.
-5. Write the new JOURNAL_TAIL temporary file. Execute its file barrier.
-6. Rename it atomically over JOURNAL_TAIL on the same filesystem. Execute the parent-directory barrier.
-7. Advance in-process `J` only after Step 6 succeeds.
-8. Write replacement locator pages and the complete replacement root directory for selected complete batches through `F_new <= J`.
-9. Execute file barriers on all new locator and directory objects, then their parent-directory barriers.
-10. Write the new CURRENT temporary file and its immutable generation receipt. Execute both file barriers.
-11. Execute the receipt directory barrier. Rename CURRENT atomically on the same filesystem.
-12. Execute CURRENT's parent-directory barrier. Then exchange the in-process readable root for the new generation.
-13. Mark those complete batches flushed. Release their write protection only when the committed reader can locate their complete records.
+1. For a conversion-boundary batch, first complete its external dependency and durable-reference barriers as Section 7 requires.
+2. Serialize complete accepted batches in mutation-version order into new journal identities.
+3. Finish each batch's COMMIT, part headers, immutable map, and any newly created parent directories.
+4. Execute the data durability barrier on every journal part, marker-bearing part, and map file.
+5. Execute directory barriers, from each newly created child directory to its already durable parent.
+6. Write the new JOURNAL_TAIL temporary file. Execute its file barrier.
+7. Rename it atomically over JOURNAL_TAIL on the same filesystem. Execute the parent-directory barrier.
+8. Advance in-process `J` only after Step 7 succeeds.
+9. Write replacement locator pages and the complete replacement root directory for selected complete batches through `F_new <= J`.
+10. Execute file barriers on all new locator and directory objects, then their parent-directory barriers.
+11. Write the new CURRENT temporary file and its immutable generation receipt. Execute both file barriers.
+12. Execute the receipt directory barrier. Rename CURRENT atomically on the same filesystem.
+13. Execute CURRENT's parent-directory barrier. Then exchange the in-process readable root for the new generation.
+14. Mark those complete batches flushed. Release their write protection only when the committed reader can locate their complete records.
 
 The platform barrier uses the supported strongest existing LastStore barrier.
 On macOS, data uses `F_FULLFSYNC`; directory publication uses the existing directory barrier.
@@ -475,7 +491,7 @@ Neither a rename alone nor a successful write establishes durability.
 
 The 500 ms schedule starts this work. A failed or delayed flush does not establish a 500 ms loss window.
 Status exposes the oldest memory-acked batch without durable recovery data, `J - F`, reserved suffix bytes, and its oldest age.
-A durable journal batch can remain newer than CURRENT. Its record protection remains until Step 13.
+A durable journal batch can remain newer than CURRENT. Its record protection remains until Step 14.
 
 Pack materialization uses the same order:
 
@@ -642,8 +658,12 @@ The proposed boundary protocol is:
 6. Serve each unconverted group through its captured source plus the current journal-backed overlay tree.
 7. Convert one named collection and group boundary at a time with the declared worker reserve.
 8. Build a proposed complete locator from the captured source and the journal changes after `B`.
-9. Under the publication gate, select a complete durable frontier `C`, include every batch through `C`, and publish the complete group root.
-10. Later batches update that converted root normally. Retain the old source until every required reference releases it.
+9. Under the publication gate, select complete durable frontier `C` and include every batch through `C` in the complete proposed group root.
+10. Reserve the next boundary batch `K` and its publication generation. Set the converted boundary frontier to `K`.
+11. Make the complete proposed root, its pack and descriptor dependencies, and its durable conversion reference durable.
+12. Append the conversion-boundary batch and COMMIT, then publish TAIL through `K` with the required barriers.
+13. Publish CURRENT through that complete boundary. Only then serve the group through the converted root.
+14. Later batches update that converted root normally. Retain the old source until every required reference releases it.
 
 The journal capture point, memory ack point, and publication gate require an implementation review.
 A capture gap, an unjournaled direct writer, or an incomplete API-to-store batch mapping prevents conversion activation.
@@ -665,6 +685,12 @@ Duplicate legacy changes retain the current source-order semantics. A later dele
 Required atom history and shared file data remain under their existing retention rules.
 
 An interruption leaves the prior committed directory entry readable.
+Before a durable boundary COMMIT, an interruption leaves conversion output protected by its named conversion reference.
+After TAIL reaches `K`, startup recovery must replay that complete conversion operation before it exposes the affected data.
+Recovery verifies the complete named dependency closure before it installs the directory value.
+A missing dependency below durable TAIL refuses recovery. It cannot fall back to the legacy source and hide later writes.
+Rollback uses the compatible bridge binary, which must decode the conversion-boundary operation and its dependencies.
+Retained legacy files alone do not reverse the boundary or restore writes accepted afterwards.
 A progress receipt records completed source identities, output object identities, durable frontier, and a checksum of the conversion plan.
 A resume uses exactly those identities or restarts the selected boundary with fresh output identities.
 It never rereads a completed source to infer missing progress, and it never publishes partial output as a complete group.
@@ -879,7 +905,7 @@ A kind-10 receipt has exactly 256 used payload bytes:
 | 146 | 6 | Zero |
 | 152 | 16 | Metadata spool manifest object UUID |
 | 168 | 8 | Metadata spool manifest first page |
-| 176 | 8 | Selected CURRENT generation |
+| 176 | 8 | Reserved publication generation; zero before ready-for-publication state |
 | 184 | 16 | Proposed complete locator object UUID, or zero |
 | 200 | 8 | Proposed complete locator root page |
 | 208 | 2 | Proposed complete locator height, or zero |
@@ -932,7 +958,12 @@ Its 128-byte payload contains, in order:
 `purpose:u8`, seven zero bytes, `created_time_ms:u64`, `expiry_time_ms:u64`,
 `current_sha256:[u8;32]`, and 24 zero bytes.
 Purpose is backup 1, rollback 2, conversion 3, or cloud recovery 4. Unknown purposes refuse the reference.
-The path generation and receipt identity must match the validated receipt header.
+For backup, rollback, and cloud recovery, the generation and receipt identity must match the validated kind-11 generation receipt.
+For conversion, the receipt identity instead names a kind-10 ready-for-publication conversion receipt.
+Its reserved generation must equal the reference generation. Its output inventory holds the complete external dependency closure.
+The conversion reference's CURRENT digest is zero until a planned CURRENT exists, or equals that planned CURRENT's digest.
+This purpose-specific reference does not require the future journal batch or a published generation receipt before COMMIT.
+After CURRENT includes the boundary, a generation reference replaces this conversion reference before the converter releases it.
 Expiry prevents new work from acquiring the reference. It does not release an active call or incomplete required backup.
 The supported owner command releases that work and removes its durable reference with a directory barrier.
 The reclaimer never infers release from elapsed time alone.

@@ -46,7 +46,7 @@ pub(crate) fn warm_hit() {
 /// At-rest value open time includes envelope decode and decompression.
 pub(crate) fn decrypted(bytes: usize, elapsed: std::time::Duration) {
     with_sync(current(), || {
-        laststore::record_decryption(bytes as u64, elapsed)
+        laststore::record_decryption(bytes as u64, elapsed);
     });
 }
 

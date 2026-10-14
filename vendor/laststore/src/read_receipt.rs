@@ -57,6 +57,10 @@ pub struct DiskReadReceipt {
     pub read_nanos: u64,
     /// Sum of authentication, decompression, and plain-copy durations.
     pub decode_nanos: u64,
+    /// Inclusive admitted group reconstruction time in load_shard.
+    /// This overlaps its nested open, metadata, read, and decode durations.
+    /// Errors and unwinds contribute the elapsed reconstruction time.
+    pub group_load_nanos: u64,
     /// Sum of read-only file open durations, including failed attempts.
     pub open_nanos: u64,
     /// Sum of status and directory enumeration durations.
@@ -237,6 +241,22 @@ impl Timer {
         if let Some((context, start)) = self.0 {
             let nanos = duration_nanos(start.elapsed());
             context.update(|state| record(&mut state.receipt, nanos));
+        }
+    }
+}
+
+pub(crate) struct GroupLoadTimer(Option<Timer>);
+
+pub(crate) fn group_load_timer() -> GroupLoadTimer {
+    GroupLoadTimer(Some(Timer::start()))
+}
+
+impl Drop for GroupLoadTimer {
+    fn drop(&mut self) {
+        if let Some(timer) = self.0.take() {
+            timer.finish(|receipt, nanos| {
+                receipt.group_load_nanos = receipt.group_load_nanos.saturating_add(nanos);
+            });
         }
     }
 }

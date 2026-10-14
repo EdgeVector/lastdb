@@ -534,6 +534,7 @@ fn replay_range(
     let mut file = crate::read_receipt_io::open(path).ok()?;
     file.seek(SeekFrom::Start(from)).ok()?;
     let mut bytes = vec![0u8; usize::try_from(to.checked_sub(from)?).ok()?];
+    let _bytes_charge = crate::read_receipt::TemporaryBytes::new(bytes.capacity());
     file.read_exact(&mut bytes).ok()?;
     let mut off = 0usize;
     while off < bytes.len() {
@@ -571,6 +572,7 @@ fn replay_suffix(
     let mut file = crate::read_receipt_io::open(path).ok()?;
     file.seek(SeekFrom::Start(stamp.len)).ok()?;
     let mut suffix = vec![0u8; usize::try_from(current_len - stamp.len).ok()?];
+    let _suffix_charge = crate::read_receipt::TemporaryBytes::new(suffix.capacity());
     file.read_exact(&mut suffix).ok()?;
 
     let mut off = 0usize;

@@ -15,8 +15,10 @@ pub(super) async fn render_query(
     }
     let started = std::time::Instant::now();
     let (result, receipt) = fold_db::read_receipts::observe(Box::pin(work)).await;
-    let receipt = receipt_json(receipt, started.elapsed());
-    render(result, ctx).with_header("x-lastdb-read-receipt", receipt.to_string())
+    let mut receipt = receipt_json(receipt, started.elapsed());
+    let response = render(result, ctx);
+    receipt["returned_body_bytes"] = Value::from(response.body.len());
+    response.with_header("x-lastdb-read-receipt", receipt.to_string())
 }
 
 fn receipt_json(r: fold_db::read_receipts::DiskReadReceipt, elapsed: Duration) -> Value {
@@ -28,6 +30,7 @@ fn receipt_json(r: fold_db::read_receipts::DiskReadReceipt, elapsed: Duration) -
         "logical_warm_misses": r.logical_warm_misses,
         "loader_calls": r.loader_calls,
         "group_opens": r.group_opens,
+        "group_load_nanos": r.group_load_nanos,
         "file_open_attempts": r.file_open_attempts,
         "file_opens": r.file_opens,
         "metadata_operations": r.metadata_operations,

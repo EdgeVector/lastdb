@@ -271,6 +271,7 @@ pub(super) fn load_shard(
         return Ok(sh);
     }
     crate::read_receipt::update(|receipt| receipt.group_opens += 1);
+    let _group_load_timer = crate::read_receipt::group_load_timer();
     let mut seqs = numbered_segment_sequences(&sh.dir)?;
     seqs.sort_unstable();
     sh.plain_high_seq = seqs.last().copied().unwrap_or(0);

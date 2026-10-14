@@ -205,6 +205,7 @@ pub(super) fn decode_segment_payload(
     };
 
     let mut plaintext = Vec::new();
+    let mut plaintext_charge = crate::read_receipt::TemporaryBytes::new(plaintext.capacity());
     let mut off = 0usize;
     let mut chunk_uuid = None;
     let mut next_frame_counter = 0u64;
@@ -222,6 +223,7 @@ pub(super) fn decode_segment_payload(
             Err(e) => return Err(e),
         };
         let decoded = frame::decode_frame(data_key, &disk_data[off..off + frame_len])?;
+        let _decoded_charge = crate::read_receipt::TemporaryBytes::new(decoded.payload.capacity());
         if decoded.header.shard != sh.shard {
             return Err(Error::AeadAuthFail);
         }
@@ -236,6 +238,7 @@ pub(super) fn decode_segment_payload(
             return Err(Error::AeadAuthFail);
         }
         plaintext.extend_from_slice(&decoded.payload);
+        plaintext_charge.resize(plaintext.capacity());
         next_frame_counter = decoded.header.counter.saturating_add(1);
         off += frame_len;
     }

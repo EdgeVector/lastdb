@@ -33,6 +33,8 @@ scope can carry the partial receipt.
 | `logical_warm_misses` | Exact lookup attempts that the logical warm path cannot supply. |
 | `loader_calls` | Storage group loader entry attempts, including cap refusals. |
 | `group_opens` | Existing group directories that enter the storage parser. |
+| `group_load_nanos` | Inclusive time in admitted group reconstruction. This overlaps the file, metadata, and decode times. |
+| `returned_body_bytes` | Exact response body bytes after the result envelope. Header bytes are separate. |
 | `file_open_attempts` | Read-only file open attempts, including failed attempts. |
 | `file_opens` | Successful read-only file opens. A repeated open counts again. |
 | `metadata_operations` | Explicit file status, existence, and directory-entry status calls. |
