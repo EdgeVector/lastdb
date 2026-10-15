@@ -79,10 +79,10 @@ impl PackNamespacedStore {
     pub fn open(path: &Path) -> StorageResult<Self> {
         if crate::resident::ResidentPolicy::from_env()
             .mode
-            .acks_on_resident()
+            .reads_resident_first()
         {
             return Err(StorageError::ConfigurationError(
-                "native disk memory acknowledgements require the pre-apply admission gate".into(),
+                "native disk resident routing requires complete read-root and pre-apply admission gates".into(),
             ));
         }
         use std::io::{Read, Write};
