@@ -24,6 +24,12 @@ pub(super) enum PurgeAttemptError {
     Missing(SchemaError),
 }
 
+impl From<crate::storage::StorageError> for PurgeAttemptError {
+    fn from(error: crate::storage::StorageError) -> Self {
+        Self::Retry(error.into())
+    }
+}
+
 pub(crate) struct PurgeEnvelope {
     /// The request author clock must reach durable metadata before this data.
     pub(in crate::fold_db_core::mutation_manager) author_clock_barrier:

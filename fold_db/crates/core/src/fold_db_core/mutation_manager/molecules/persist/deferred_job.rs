@@ -12,6 +12,8 @@ impl MutationManager {
         // Persist jobs created after the apply-gate cut carry no guards. Drop
         // any rolling-upgrade leftovers before the first storage await.
         job.molecule_write_guards.clear();
+        let native = self.db_ops.namespaced_store().disk_pack_runtime();
+        let original_schema = native.as_ref().map(|_| job.schema.clone());
         let deferred_start = std::time::Instant::now();
         let persist_body = async {
             self.store_deferred_atoms(job, commit_id).await?;
@@ -20,18 +22,29 @@ impl MutationManager {
             self.store_deferred_schema(job, commit_id).await?;
             self.store_deferred_side_records(job, commit_id).await?;
 
-            // Complete the exact turn after every durable stage. The dirty
-            // clear is then infallible, so a rejected completion keeps all pins.
-            self.complete_resident_persist_turn(slot_revisions)?;
-            self.clear_deferred_job_dirty_after_success(job, slot_revisions);
-            Ok(())
+            Ok::<(), SchemaError>(())
         };
         let result = {
             let _kv_suppress = self
                 .capture_router()
                 .map(|router| router.enter_kv_suppress());
-            crate::sync::capture::with_capture_suppressed(persist_body).await
+            crate::sync::capture::with_capture_suppressed(
+                crate::storage::disk_pack::transaction::scope(native, persist_body),
+            )
+            .await
         };
+
+        if result.is_err() {
+            if let Some(schema) = original_schema {
+                job.schema = schema;
+            }
+        }
+
+        if result.is_ok() {
+            // Native scopes reach their complete CURRENT before any dirty clear.
+            self.complete_resident_persist_turn(slot_revisions)?;
+            self.clear_deferred_job_dirty_after_success(job, slot_revisions);
+        }
 
         let metrics = self.db_ops.resident().metrics();
         metrics.record_deferred_persist_duration(deferred_start.elapsed());

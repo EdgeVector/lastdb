@@ -25,6 +25,20 @@ pub const PLACEMENT_CODEC: u16 = 0x0101;
 /// Higher layers retain their own escaping, binary-id, blind-key, and range codecs.
 pub const KEY_CODEC: u16 = 0x0101;
 
+/// Deliberately unsupported by legacy version-1 layout parsers, before any data open.
+pub const LEGACY_FENCE_BYTES: &[u8] = b"version=2\nlayout_mode=disk_pack_v1\n";
+
+/// Create and sync the downgrade refusal in a new, explicitly selected destination.
+pub fn write_legacy_fence(root: &Path) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(root.join("laststore-layout-v1"))?;
+    file.write_all(LEGACY_FENCE_BYTES)?;
+    durability::sync_dirty_file(&file)?;
+    durability::sync_directory(&File::open(root)?)
+}
+
 /// Immutable home identity. Unsupported physical encryption is refused explicitly.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HomeDescriptor {
@@ -163,6 +177,7 @@ impl HomeDescriptor {
     }
 
     pub(super) fn write(&self, root: &Path) -> Result<()> {
+        write_legacy_fence(root)?;
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
@@ -206,6 +221,14 @@ impl DiskHome {
     /// The immutable placement/key identity held by this home handle.
     pub fn descriptor(&self) -> &HomeDescriptor {
         &self.descriptor
+    }
+
+    /// Use an already verified complete publication from this home's writer.
+    /// The owner retains its generation files and publishes this root only after disk barriers.
+    /// This avoids reopening CURRENT for a memory-only or request-shared read.
+    pub fn read_committed(&self, current: Current, budget: ReadBudget) -> Result<HomeRead> {
+        let call = ReadCall::from_committed(&self.root, current, self.descriptor.clone(), budget)?;
+        Ok(HomeRead::new(self.descriptor.clone(), call))
     }
 
     /// Capture one generation and one aggregate budget for all reads in this call.

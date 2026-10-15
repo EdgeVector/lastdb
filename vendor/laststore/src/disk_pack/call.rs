@@ -101,6 +101,28 @@ pub struct ReadCall {
 }
 
 impl ReadCall {
+    pub(super) fn from_committed(
+        root: &Path,
+        current: Current,
+        descriptor: super::home::HomeDescriptor,
+        budget: ReadBudget,
+    ) -> Result<Self> {
+        budget.validate()?;
+        current.encode()?;
+        descriptor.check_current(&current)?;
+        Ok(Self {
+            root: root.to_path_buf(),
+            current,
+            budget,
+            costs: ReadCosts::default(),
+            pages: HashMap::new(),
+            blocks: HashMap::new(),
+            parts: HashMap::new(),
+            payload_class: ReadClass::Payload,
+            native_descriptor: Some(descriptor),
+        })
+    }
+
     /// Capture CURRENT once. Expected codecs come from the held home descriptor.
     /// The caller must retain this generation's files for the entire call.
     pub fn open(

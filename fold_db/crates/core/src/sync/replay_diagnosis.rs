@@ -50,6 +50,7 @@ pub enum ReplayCause {
     AtomContentTooLarge,
     InvalidCursor,
     StorageFull,
+    ReadResourceLimit,
     PersistQueueFull,
     CaptureQueueFull,
     MaterializationFailed,
@@ -121,6 +122,7 @@ impl From<SchemaError> for MutationIntentReplayError {
             SchemaError::AtomContentTooLarge { .. } => ReplayCause::AtomContentTooLarge,
             SchemaError::InvalidCursor(_) => ReplayCause::InvalidCursor,
             SchemaError::StorageFull { .. } => ReplayCause::StorageFull,
+            SchemaError::ReadResourceLimit { .. } => ReplayCause::ReadResourceLimit,
             SchemaError::PersistQueueFull { .. } => ReplayCause::PersistQueueFull,
             SchemaError::CaptureQueueFull { .. } => ReplayCause::CaptureQueueFull,
         };

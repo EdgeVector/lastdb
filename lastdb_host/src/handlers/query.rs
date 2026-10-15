@@ -32,6 +32,34 @@ mod plan;
 /// saturated, `500` on a core failure.
 pub async fn execute_query<H: HostNode>(
     host: &H,
+    query: Query,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    cursor: Option<KeyValue>,
+    ctx: &AccessContext,
+    allow_full_scan: bool,
+) -> Result<Value, HostError> {
+    let store = host.fold_db().db_ops().namespaced_store();
+    let scope = fold_db::storage::disk_pack::PackReadScope::for_store(&store)
+        .await
+        .map_err(|error| HostError::new(503, error.to_string()))?;
+    let future = Box::pin(execute_query_scoped(
+        host,
+        query,
+        limit,
+        offset,
+        cursor,
+        ctx,
+        allow_full_scan,
+    ));
+    match scope {
+        Some(scope) => scope.run_result(future).await,
+        None => future.await,
+    }
+}
+
+async fn execute_query_scoped<H: HostNode>(
+    host: &H,
     mut query: Query,
     limit: Option<usize>,
     offset: Option<usize>,

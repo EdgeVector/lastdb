@@ -115,13 +115,32 @@ impl ReadCall {
                 "disk-pack encoded range bounds are invalid".into(),
             ));
         }
-        let mut groups = Vec::with_capacity(scope.groups.len());
+        self.range_in_groups(scope.collection, start, end, &scope.groups)
+    }
+
+    pub(super) fn range_in_groups(
+        &mut self,
+        collection: String,
+        start: Vec<u8>,
+        end: Vec<u8>,
+        source_groups: &[u16],
+    ) -> Result<HashRangeCursor<'_>> {
+        if start.len() > super::KEY_BYTES
+            || end.len() > super::KEY_BYTES
+            || source_groups.is_empty()
+            || source_groups.len() > 1024
+            || source_groups.iter().any(|group| *group >= 1024)
+        {
+            return Err(corrupt("administrative range exceeds format bounds"));
+        }
+        self.charge((source_groups.len() * std::mem::size_of::<GroupCursor>()) as u64)?;
+        let mut groups = Vec::with_capacity(source_groups.len());
         let directory = self.current.directory.clone();
-        for group in scope.groups {
-            if start == end {
+        for &group in source_groups {
+            if start >= end {
                 break;
             }
-            let key = Self::directory_key(&scope.collection, group)?;
+            let key = Self::directory_key(&collection, group)?;
             let Some(value) = self.find(&directory, &key)? else {
                 continue;
             };
@@ -137,7 +156,7 @@ impl ReadCall {
         }
         Ok(HashRangeCursor {
             call: self,
-            collection: scope.collection,
+            collection,
             end,
             groups,
             failed: false,
@@ -146,6 +165,16 @@ impl ReadCall {
 }
 
 impl HashRangeCursor<'_> {
+    /// Charge a selected pending-write value against this cursor's original budget.
+    /// The caller copies its body only after this succeeds.
+    pub fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
+        self.call.examine()?;
+        let bytes = key_bytes
+            .checked_add(body_bytes)
+            .ok_or_else(super::resource)?;
+        self.call.charge(bytes as u64)
+    }
+
     /// Continue only with the original held call. Budget failure poisons this cursor.
     /// An error never returns a short successful page or an exhausted result.
     pub fn next_page(&mut self, limit: usize) -> Result<RangePage> {
