@@ -268,6 +268,12 @@ impl ReadCall {
     }
 
     pub(super) fn read_block(&mut self, location: &Location, ordinal: u64) -> Result<Arc<Buffer>> {
+        let object = self.object_metadata(location)?;
+        if let Some(object) = &object {
+            if ordinal >= object.blocks {
+                return Err(corrupt("block outside published object length"));
+            }
+        }
         let sequence = if location.source == Source::Journal {
             location.version.batch
         } else {
@@ -283,6 +289,13 @@ impl ReadCall {
         }
         let base = self.data_path(location);
         let map = self.map_page(&base, location.object, ordinal / super::MAP_ENTRIES)?;
+        if let Some(object) = &object {
+            if map.object_bounds() != Some((object.logical_bytes, object.data_parts))
+                || map.generation() != object.generation
+            {
+                return Err(corrupt("block-map object bounds differ across pages"));
+            }
+        }
         let index = (ordinal % super::MAP_ENTRIES) as usize;
         if index >= map.count() {
             return Err(corrupt("block outside map"));
@@ -292,6 +305,9 @@ impl ReadCall {
         let offset = u32_at(entry, 4);
         let stored = u32_at(entry, 8) as usize;
         let decoded = u32_at(entry, 12) as usize;
+        if let Some(object) = &object {
+            object.check_block(ordinal, part, decoded, map.count())?;
+        }
         if u32_at(entry, 16) != 0
             || u32_at(entry, 20) != 0
             || offset < 128

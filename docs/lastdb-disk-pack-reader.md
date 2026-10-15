@@ -16,6 +16,13 @@ It supports these objects:
 - Plain frames with CRC32, independent zstd frames, and a bounded decoder window.
 - Full record digests, exact keys, collection digests, mutation versions, and versioned tombstones.
 
+New artifacts require feature `0x1` for complete object bounds in each block-map header.
+The bounds state the complete logical byte count and data-part count.
+The reader obtains them from the map page that the read already needs.
+No extra object file or footer read is required.
+Older feature-zero artifacts remain readable.
+An older reader refuses feature `0x1` before a payload read.
+
 The reader follows exact file positions.
 It does not reconstruct a hash group or read a complete footer.
 One call shares metadata pages, part headers, and payload blocks.

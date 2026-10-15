@@ -109,6 +109,7 @@ impl ArtifactBuilder {
             key_codec: self.key_codec,
             journal_stream: Uuid::new_v4(),
             published_ms: unix_ms(),
+            required_features: super::FEATURE_OBJECT_METADATA,
         };
         let temporary = self.root.join("CURRENT.pending");
         let mut file = OpenOptions::new()

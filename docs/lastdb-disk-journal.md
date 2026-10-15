@@ -22,6 +22,9 @@ No read depends on a previous record to decode its bytes.
 The artifact writer accepts at most 4,096 operations and 128 MiB of logical bytes per batch.
 The complete size includes both markers, operation headers, collection names, keys, and record bytes.
 It checks every input before it creates the batch files.
+New construction requires the complete-object-bounds artifact feature.
+Each map header receives its final bounds and checksum before the durability barriers and TAIL.
+Older artifacts remain readable, but this writer refuses a new journal on them.
 The suffix cap is 512 MiB of reserved uncompressed file bytes and at most 4,096 complete batches.
 Compression does not increase admission capacity.
 

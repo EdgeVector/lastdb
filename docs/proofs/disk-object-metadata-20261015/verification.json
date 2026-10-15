@@ -1,0 +1,37 @@
+{
+  "old_reader_refused_feature": {
+    "exit_code": 1,
+    "stdout_bytes": 0,
+    "error": "disk-pack command failed: corrupt: disk-pack v1: unsupported CURRENT format or feature"
+  },
+  "old_value_matches": true,
+  "old_features": 0,
+  "new_value_matches": true,
+  "new_features": 1,
+  "large_values_match": true,
+  "large_actual_data_parts": 2,
+  "large_map_headers": [
+    {
+      "flags": 1,
+      "logical_bytes": 10486830,
+      "data_parts": 2
+    },
+    {
+      "flags": 1,
+      "logical_bytes": 10486830,
+      "data_parts": 2
+    },
+    {
+      "flags": 1,
+      "logical_bytes": 10486830,
+      "data_parts": 2
+    },
+    {
+      "flags": 1,
+      "logical_bytes": 10486830,
+      "data_parts": 2
+    }
+  ],
+  "journal_values_match": true,
+  "journal_complete": true
+}

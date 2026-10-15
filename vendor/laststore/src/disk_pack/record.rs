@@ -33,6 +33,17 @@ impl ReadCall {
         key: &str,
         location: &Location,
     ) -> Result<Vec<u8>> {
+        if let Some(object) = self.object_metadata(location)? {
+            let end = location
+                .first_block
+                .checked_mul(BLOCK_BYTES as u64)
+                .and_then(|n| n.checked_add(u64::from(location.first_position)))
+                .and_then(|n| n.checked_add(location.record_bytes))
+                .ok_or_else(|| corrupt("record object offset overflow"))?;
+            if end > object.logical_bytes {
+                return Err(corrupt("record outside published object length"));
+            }
+        }
         let length = usize::try_from(location.record_bytes).map_err(|_| super::resource())?;
         self.charge(location.record_bytes)?;
         let mut record = Vec::new();

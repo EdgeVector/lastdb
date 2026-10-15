@@ -116,7 +116,7 @@ impl JournalRecovery {
             .checked_add(reserve)
             .filter(|bytes| *bytes + 8192 <= super::MAX_SUFFIX_BYTES)
             .ok_or_else(|| super::refuse("recovery suffix admission limit"))?;
-        stream.limit = marker.logical_bytes;
+        stream.set_logical_length(marker.logical_bytes)?;
         let mut hash = Sha256::new();
         hash.update(begin);
         let mut mutations = Vec::new();

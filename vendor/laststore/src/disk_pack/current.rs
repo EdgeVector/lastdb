@@ -24,6 +24,8 @@ pub struct Current {
     pub journal_stream: Uuid,
     /// Publication time in Unix milliseconds.
     pub published_ms: u64,
+    /// Mandatory format features. Unknown bits cause an early refusal.
+    pub required_features: u64,
 }
 
 impl Current {
@@ -34,7 +36,7 @@ impl Current {
             || u16_at(bytes, 10) != 4096
             || u16_at(bytes, 74) != 1024
             || u64_at(bytes, 104) != 0
-            || u64_at(bytes, 112) != 0
+            || u64_at(bytes, 112) & !super::FEATURE_OBJECT_METADATA != 0
         {
             return Err(corrupt("unsupported CURRENT format or feature"));
         }
@@ -58,6 +60,7 @@ impl Current {
             key_codec: u16_at(bytes, 78),
             journal_stream: nonnil(uuid_at(bytes, 80))?,
             published_ms: u64_at(bytes, 120),
+            required_features: u64_at(bytes, 112),
         };
         current.validate()?;
         if u64_at(bytes, 96) != current.frontier {
@@ -86,6 +89,7 @@ impl Current {
         bytes[80..96].copy_from_slice(self.journal_stream.as_bytes());
         put64(&mut bytes, 96, self.frontier);
         put64(&mut bytes, 120, self.published_ms);
+        put64(&mut bytes, 112, self.required_features);
         let sum = checksum(&bytes, 128);
         bytes[128..160].copy_from_slice(&sum);
         Ok(bytes)
@@ -98,6 +102,7 @@ impl Current {
             || self.previous_generation >= self.generation
             || self.frontier > self.journal_frontier
             || self.directory.kind != TreeKind::Directory
+            || self.required_features & !super::FEATURE_OBJECT_METADATA != 0
         {
             return Err(corrupt("inconsistent CURRENT frontier or generation"));
         }

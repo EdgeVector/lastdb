@@ -62,6 +62,11 @@ impl JournalWriter {
     /// require the future root publisher and are explicitly refused here.
     pub fn create(root: &Path) -> Result<Self> {
         let current = artifact_current(root)?;
+        if current.required_features & crate::disk_pack::FEATURE_OBJECT_METADATA == 0 {
+            return Err(super::refuse(
+                "new journal writes require complete object bounds",
+            ));
+        }
         let lock = OpenOptions::new()
             .create(true)
             .truncate(false)
