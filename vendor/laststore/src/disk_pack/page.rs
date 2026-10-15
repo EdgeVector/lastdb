@@ -27,12 +27,12 @@ impl Page {
         object: Uuid,
         number: u64,
         generation: u64,
+        features: u64,
     ) -> Result<Self> {
         let bytes = &buffer.bytes;
         if bytes.len() != PAGE_BYTES
             || &bytes[..8] != b"LDPAGE1\0"
             || u16_at(bytes, 8) != 1
-            || bytes[11] != 0
             || u16_at(bytes, 12) != HEADER_BYTES as u16
             || bytes[15] != 0
             || u64_at(bytes, 16) == 0
@@ -43,7 +43,16 @@ impl Page {
             return Err(corrupt("page identity or header"));
         }
         verify_checksum(bytes, 80)?;
-        zero(&bytes[112..128])?;
+        let bounded_map =
+            bytes[10] == 5 && bytes[11] == 1 && features & super::FEATURE_OBJECT_METADATA != 0;
+        if !bounded_map {
+            zero(&bytes[112..128])?;
+        }
+        if bytes[11] != 0 && !bounded_map
+            || (bytes[10] == 5 && features & super::FEATURE_OBJECT_METADATA != 0 && !bounded_map)
+        {
+            return Err(corrupt("unsupported page flags or missing object bounds"));
+        }
         let used = u32_at(bytes, 48) as usize;
         if used > PAGE_PAYLOAD {
             return Err(corrupt("page payload length"));
@@ -139,6 +148,17 @@ impl Page {
 
     pub(super) fn kind(&self) -> u8 {
         self.buffer.bytes[10]
+    }
+    pub(super) fn generation(&self) -> u64 {
+        u64_at(&self.buffer.bytes, 16)
+    }
+    pub(super) fn object_bounds(&self) -> Option<(u64, u64)> {
+        (self.kind() == 5 && self.buffer.bytes[11] == 1).then(|| {
+            (
+                u64_at(&self.buffer.bytes, 112),
+                u64_at(&self.buffer.bytes, 120),
+            )
+        })
     }
     pub(super) fn level(&self) -> u8 {
         self.buffer.bytes[14]
@@ -241,6 +261,7 @@ impl ReadCall {
             object,
             number,
             self.current.generation,
+            self.current.required_features,
         )?);
         match page.kind() {
             1 | 2 if directory.starts_with(self.root.join("locator")) => {

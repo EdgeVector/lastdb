@@ -151,6 +151,14 @@ impl ReadCall {
         let end = start
             .checked_add(u64_at(bytes, 56))
             .ok_or_else(|| corrupt("part block overflow"))?;
+        if let Some(object) = self.object_metadata(location)? {
+            if u64::from(part) >= object.data_parts
+                || end > object.blocks
+                || u64_at(bytes, 72) != object.generation
+            {
+                return Err(corrupt("part outside complete object bounds"));
+            }
+        }
         if ordinal < start || ordinal >= end {
             return Err(corrupt("block outside named part"));
         }

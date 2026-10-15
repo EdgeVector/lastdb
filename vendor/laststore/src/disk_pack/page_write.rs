@@ -2,7 +2,7 @@ use super::bytes::*;
 use super::{corrupt, HEADER_BYTES, PAGE_BYTES, PAGE_PAYLOAD};
 use crate::{durability, Result};
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -107,6 +107,46 @@ impl PageWriter {
 
     pub(super) fn finish(mut self) -> Result<()> {
         self.sync_part()?;
+        durability::sync_directory(&File::open(&self.directory)?)
+    }
+
+    /// Finalize private map headers before any root or TAIL references them.
+    /// No published metadata part is modified by this method.
+    pub(super) fn finish_block_map(mut self, logical_bytes: u64, data_parts: u64) -> Result<()> {
+        drop(self.file.take());
+        for part in 0..self.next.div_ceil(512) {
+            let part_number = u32::try_from(part).map_err(|_| corrupt("map part exhaustion"))?;
+            let path = self.directory.join(format!("part-{part_number:08x}"));
+            let mut file = OpenOptions::new().read(true).write(true).open(path)?;
+            let pages = (self.next - part * 512).min(512);
+            if file.metadata()?.len() != pages * PAGE_BYTES as u64 {
+                return Err(corrupt("private map part length"));
+            }
+            let mut bytes = vec![0; PAGE_BYTES];
+            for index in 0..pages {
+                let position = index * PAGE_BYTES as u64;
+                file.seek(SeekFrom::Start(position))?;
+                file.read_exact(&mut bytes)?;
+                if &bytes[..8] != b"LDPAGE1\0"
+                    || bytes[10] != 5
+                    || bytes[11] != 0
+                    || uuid_at(&bytes, 24) != self.object
+                    || u64_at(&bytes, 16) != self.generation
+                    || u64_at(&bytes, 40) != part * 512 + index
+                {
+                    return Err(corrupt("private block-map identity"));
+                }
+                verify_checksum(&bytes, 80)?;
+                bytes[11] = 1;
+                put64(&mut bytes, 112, logical_bytes);
+                put64(&mut bytes, 120, data_parts);
+                let sum = checksum(&bytes, 80);
+                bytes[80..112].copy_from_slice(&sum);
+                file.seek(SeekFrom::Start(position))?;
+                file.write_all(&bytes)?;
+            }
+            durability::sync_dirty_file(&file)?;
+        }
         durability::sync_directory(&File::open(&self.directory)?)
     }
 }

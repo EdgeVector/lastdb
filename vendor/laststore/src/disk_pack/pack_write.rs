@@ -257,7 +257,12 @@ impl PackWriter {
             .next_page()
             .checked_mul(super::PAGE_BYTES as u64)
             .ok_or_else(|| corrupt("map byte count overflow"))?;
-        self.map.finish()?;
+        let data_parts = if self.ordinal == 0 {
+            0
+        } else {
+            u64::from(self.part) + 1
+        };
+        self.map.finish_block_map(self.logical_bytes, data_parts)?;
         durability::sync_directory(&File::open(&self.directory)?)?;
         Ok(WrittenData {
             logical_bytes: self.logical_bytes,

@@ -10,6 +10,7 @@ mod current;
 mod frame;
 pub mod journal;
 mod location;
+mod object;
 mod pack_write;
 mod page;
 mod page_write;
@@ -22,6 +23,10 @@ pub use call::{ReadBudget, ReadCall, ReadCosts};
 pub use current::Current;
 pub use location::{DirectoryEntry, Location, MutationVersion, Source};
 pub use tree::{TreeKind, TreeRoot};
+
+/// CURRENT feature bit: payload objects have complete immutable object metadata.
+/// Older readers refuse this bit before they trust any payload extent.
+pub const FEATURE_OBJECT_METADATA: u64 = 1;
 
 const PAGE_BYTES: usize = 16_384;
 const HEADER_BYTES: usize = 128;

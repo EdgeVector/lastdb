@@ -21,6 +21,18 @@ pub(super) struct Stream {
 }
 
 impl Stream {
+    pub(super) fn set_logical_length(&mut self, length: u64) -> Result<()> {
+        if let Some(object) = self.call.object_metadata(&self.location)? {
+            if object.logical_bytes != length {
+                return Err(corrupt(
+                    "journal marker differs from complete object length",
+                ));
+            }
+        }
+        self.limit = length;
+        Ok(())
+    }
+
     pub(super) fn new(
         root: &Path,
         mut current: Current,

@@ -127,7 +127,7 @@ The durable file and the in-process readable root identify the same published ge
 | 80 | 16 | Journal stream UUID for the checkpoint boundary |
 | 96 | 8 | Checkpoint batch sequence; normally equal to `F` |
 | 104 | 8 | Conversion descriptor page, or zero |
-| 112 | 8 | Required feature bits |
+| 112 | 8 | Required feature bits; bit zero (`0x1`) requires complete object bounds in block maps |
 | 120 | 8 | Publication time, Unix milliseconds |
 | 128 | 32 | SHA-256 of all 4,096 bytes |
 | 160 | 3,936 | Zero bytes |
@@ -183,7 +183,7 @@ Exhaustion requires a bounded tree rewrite under a fresh UUID before the next ad
 | 0 | 8 | Magic `LDPAGE1\0` |
 | 8 | 2 | Format version, 1 |
 | 10 | 1 | Kind: internal 1, locator leaf 2, directory leaf 3, key overflow 4, block map 5; metadata kinds in Appendix A |
-| 11 | 1 | Flags, zero |
+| 11 | 1 | Flags: bit zero only for a block map with complete object bounds; otherwise zero |
 | 12 | 2 | Header length, 128 |
 | 14 | 1 | Tree level; zero for a leaf or non-tree page |
 | 15 | 1 | Zero |
@@ -197,7 +197,7 @@ Exhaustion requires a bounded tree rewrite under a fresh UUID before the next ad
 | 64 | 8 | Next page: key overflow 4, source descriptor 9, or generation receipt 11; otherwise zero |
 | 72 | 8 | Auxiliary total: overflow suffix bytes for kind 4, first block ordinal for kind 5, chain page count for kinds 9 and 11; otherwise zero |
 | 80 | 32 | SHA-256 of the complete page |
-| 112 | 16 | Zero |
+| 112 | 16 | A flagged block map uses logical object bytes `u64`, then complete data-part count `u64`; otherwise zero |
 | 128 | 16,256 | Payload and zero slack |
 
 The next-page field is a `u64` page number in the same object UUID.
@@ -307,6 +307,24 @@ A valid tombstone returns absence at that version. It does not authorize atom-hi
 A cloud-only entry has no local payload fields. It must contain a valid cloud descriptor and complete record length and digest.
 
 ### Block map
+
+New artifacts require CURRENT feature `0x1`.
+Every block-map page sets flag bit zero and repeats the complete object's logical byte count and data-part count.
+These values occupy common-header bytes 112 through 127 and receive the page checksum.
+The full block count is `ceil(logical_object_bytes / 4,096)`.
+The complete map-page count is `ceil(block_count / 677)`; map-part count is `ceil(map_page_count / 512)`.
+Data parts use exact consecutive numbers starting at zero.
+These fields let a backup enumerate the complete object without a directory walk or footer.
+
+The reader validates complete record extents, selected map counts, final-block lengths, data-part bounds, and creation generations.
+The values must agree across all map pages used by a call.
+The writer finalizes and checksums only its private, unpublished map pages before the file and directory barriers.
+It never changes a published map part.
+
+Readers retain feature-zero artifact support with the original zero header bytes.
+New journal construction refuses those older artifacts instead of mixing map formats.
+Readers from before feature `0x1` refuse the new CURRENT before any payload read.
+This artifact feature does not activate the production home fence or a LastDB query route.
 
 A block-map page has 24-byte entries, at most 677 per page, and zero slack.
 The page for block ordinal `b` is `floor(b / 677)`; the entry is `b mod 677`.
