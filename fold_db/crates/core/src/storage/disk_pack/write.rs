@@ -26,10 +26,13 @@ impl PackRuntime {
         if let Some(pending) = transaction::PendingBatch::current(self) {
             return pending.stage(operations);
         }
-        let _gate = Arc::clone(&self.write_gate).lock_owned().await;
+        let gate = Arc::clone(&self.write_gate).lock_owned().await;
         let runtime = Arc::clone(self);
-        super::super::laststore::LastStoreKvStore::run_blocking(move || runtime.commit(operations))
-            .await
+        super::super::laststore::LastStoreKvStore::run_blocking(move || {
+            let _gate = gate;
+            runtime.commit(operations)
+        })
+        .await
     }
 
     pub(super) fn commit(&self, operations: Vec<HomeMutation>) -> StorageResult<()> {

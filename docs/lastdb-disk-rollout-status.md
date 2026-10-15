@@ -28,6 +28,7 @@ The generation-carry change reduces repeated writer metadata reads, but it does 
 Reserve the complete native store mutation, its physical capacity, and protected logical records before resident publication and ack.
 The existing schema-lane reservation covers deferred work; it does not yet cover the native journal and directory limits.
 The [journal quote and owned quota](lastdb-disk-journal-reservations.md) now cover a complete journal batch; the actor still needs the complete preparation and protection boundary.
+The [native schema reload cache](lastdb-disk-native-cache-publication.md) now stays private until its complete disk root succeeds.
 Preparation must include atoms, tips, schema, side records, and protein siblings.
 A retry or cancellation must keep each accepted write protected until its complete native root reaches disk.
 The normal 500 ms flush policy and read-after-ack behavior must remain intact.

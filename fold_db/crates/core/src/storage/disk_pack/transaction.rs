@@ -1,6 +1,8 @@
 use super::*;
 use std::collections::BTreeMap;
 
+pub(crate) mod publication;
+
 pub(super) struct PendingRecord {
     pub(super) collection: String,
     pub(super) key: String,
@@ -17,6 +19,7 @@ struct PendingData {
 pub(super) struct PendingBatch {
     identity: uuid::Uuid,
     data: Mutex<PendingData>,
+    publications: publication::PendingPublications,
 }
 
 tokio::task_local! {
@@ -100,16 +103,26 @@ impl PendingBatch {
         Ok(())
     }
 
-    fn owned_operations(&self) -> Vec<HomeMutation> {
-        self.data
-            .lock()
-            .expect("native pending batch")
-            .operations
-            .iter()
-            .map(|record| HomeMutation {
-                collection: record.collection.clone(),
-                key: record.key.clone(),
-                body: record.body.clone(),
+    fn take_operations(&self) -> Vec<HomeMutation> {
+        let operations = {
+            let mut data = self.data.lock().expect("native pending batch");
+            data.latest.clear();
+            data.bytes = 0;
+            std::mem::take(&mut data.operations)
+        };
+        operations
+            .into_iter()
+            .map(|record| {
+                let record = Arc::try_unwrap(record).unwrap_or_else(|shared| PendingRecord {
+                    collection: shared.collection.clone(),
+                    key: shared.key.clone(),
+                    body: shared.body.clone(),
+                });
+                HomeMutation {
+                    collection: record.collection,
+                    key: record.key,
+                    body: record.body,
+                }
             })
             .collect()
     }
@@ -156,21 +169,31 @@ where
     if PendingBatch::current(&runtime).is_some() {
         return future.await;
     }
-    let _gate = Arc::clone(&runtime.write_gate).lock_owned().await;
+    let gate = Arc::clone(&runtime.write_gate).lock_owned().await;
     let pending = Arc::new(PendingBatch {
         identity: runtime.home.descriptor().identity,
         data: Mutex::new(PendingData::default()),
+        publications: publication::PendingPublications::default(),
     });
     let result = read::write_scope(
         Arc::clone(&runtime),
         WRITE.scope(Arc::clone(&pending), future),
     )
     .await??;
-    let operations = pending.owned_operations();
-    if !operations.is_empty() {
-        let runtime = Arc::clone(&runtime);
-        super::super::laststore::LastStoreKvStore::run_blocking(move || runtime.commit(operations))
-            .await?;
-    }
+    let operations = pending.take_operations();
+    // Once submitted, cancellation must not release the exclusive gate or drop
+    // cache publication while the blocking disk commit continues independently.
+    super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        let _gate = gate;
+        if !operations.is_empty() {
+            runtime.commit(operations)?;
+        }
+        if let Err(error) = pending.publications.finish() {
+            runtime.failed.store(true, Ordering::Release);
+            return Err(error);
+        }
+        Ok(())
+    })
+    .await?;
     Ok(result)
 }
