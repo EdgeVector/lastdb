@@ -4,6 +4,11 @@ Draft, October 14, 2026. This document completes the format part of Stage 1.
 It does not enable a reader, writer, converter, or primary upgrade.
 All new numeric values below are proposals. Stage 2 must freeze them before it writes this format.
 
+The [first Stage 2 implementation](lastdb-disk-pack-reader.md) freezes the local page,
+key, record, and plain-frame bytes for separate immutable artifacts.
+It does not allocate the production home fence or enable an online writer.
+The journal, bridge, encrypted-frame, conversion, and retention rules below remain release prerequisites.
+
 Source: [Draft LastDB pack files and bounded disk lookup](https://chatgpt.com/space/page_dac3cffa86f08191b9fe60c47d7477a9).
 The canonical model and access requirement remain authoritative:
 `lastdb-canonical-model.md`, `lastdb-agent-access-model.md`, and

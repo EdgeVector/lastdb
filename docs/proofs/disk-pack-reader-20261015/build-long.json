@@ -1,0 +1,10 @@
+{
+  "artifact_only": true,
+  "body_bytes": 256,
+  "elapsed_nanos": 170810833,
+  "format": 1,
+  "frontier": 1,
+  "generation": 1,
+  "puts": 128,
+  "tombstones": 0
+}

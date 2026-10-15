@@ -1,0 +1,35 @@
+{
+  "costs": {
+    "budget_bytes": 104376,
+    "directory_pages": 1,
+    "examined_keys": 6,
+    "file_bytes": 90146,
+    "locator_pages": 3,
+    "map_pages": 1,
+    "overflow_pages": 0,
+    "payload_blocks": 3,
+    "shared_blocks": 1,
+    "shared_pages": 16
+  },
+  "disk": {
+    "directory_reads": 0,
+    "file_opens": 10,
+    "footer_bytes": 0,
+    "format_probe_bytes": 86144,
+    "group_opens": 0,
+    "legacy_replay_bytes": 0,
+    "payload_bytes": 4002,
+    "read_operations": 10,
+    "temporary_bytes_peak": 95655
+  },
+  "elapsed_nanos": 468834,
+  "filesystem_pages": "unknown",
+  "results": [
+    "97623c857ff028fe45f73fcf0de5ffa6e7bc84bb600b9583aa05f1639fbfdbe997623c857ff028fe45f73fcf0de5ffa6e7bc84bb600b9583aa05f1639fbfdbe997623c857ff028fe45f73fcf0de5ffa6e7bc84bb600b9583aa05f1639fbfdbe997623c857ff028fe45f73fcf0de5ffa6e7bc84bb600b9583aa05f1639fbfdbe9",
+    "2c470e110dc80778fa8889ac6f18010bd31f7db5df0b5a7aab1fd60cd58d9bf52c470e110dc80778fa8889ac6f18010bd31f7db5df0b5a7aab1fd60cd58d9bf52c470e110dc80778fa8889ac6f18010bd31f7db5df0b5a7aab1fd60cd58d9bf52c470e110dc80778fa8889ac6f18010bd31f7db5df0b5a7aab1fd60cd58d9bf5",
+    "1150690af82f89eae299502b66fc89455eb1612515c00d7dbb6fca7f98e947c81150690af82f89eae299502b66fc89455eb1612515c00d7dbb6fca7f98e947c81150690af82f89eae299502b66fc89455eb1612515c00d7dbb6fca7f98e947c81150690af82f89eae299502b66fc89455eb1612515c00d7dbb6fca7f98e947c8",
+    null,
+    null,
+    "97623c857ff028fe45f73fcf0de5ffa6e7bc84bb600b9583aa05f1639fbfdbe997623c857ff028fe45f73fcf0de5ffa6e7bc84bb600b9583aa05f1639fbfdbe997623c857ff028fe45f73fcf0de5ffa6e7bc84bb600b9583aa05f1639fbfdbe997623c857ff028fe45f73fcf0de5ffa6e7bc84bb600b9583aa05f1639fbfdbe9"
+  ]
+}
