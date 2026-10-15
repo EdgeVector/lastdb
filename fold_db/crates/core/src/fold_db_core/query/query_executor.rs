@@ -266,6 +266,22 @@ impl QueryExecutor {
         window: Option<KeyWindow>,
         access_context: Option<&AccessContext>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+        let scope =
+            crate::storage::disk_pack::PackReadScope::for_store(&self.db_ops.namespaced_store())
+                .await?;
+        let future = Box::pin(self.query_internal_scoped(query, window, access_context));
+        match scope {
+            Some(scope) => scope.run_result(future).await,
+            None => future.await,
+        }
+    }
+
+    async fn query_internal_scoped(
+        &self,
+        query: Query,
+        window: Option<KeyWindow>,
+        access_context: Option<&AccessContext>,
+    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
         // Approved local callers read all local fields. Context is identity +
         // optional multi-DB storage_prefix (X-LastDB-Db → org cohabitation).
         let storage_prefix = match access_context {

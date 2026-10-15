@@ -1,0 +1,15 @@
+{
+  "fresh_current": {
+    "before": "b9608a7499dea5ca655efe36a343550f6babd6644b91238c04f6d618a2204ef5",
+    "after": "b9608a7499dea5ca655efe36a343550f6babd6644b91238c04f6d618a2204ef5"
+  },
+  "updated_current": {
+    "before": "efa0e2f3d33c3274cbcdb1ae84f73d857461e119cd9c47c87ea5a81439e95df3",
+    "after": "efa0e2f3d33c3274cbcdb1ae84f73d857461e119cd9c47c87ea5a81439e95df3"
+  },
+  "older_command_current_and_fence": {
+    "before": "2eccb0cea660df5e750429c6f29fa90f6f98107e76865bd9077ecf1e628bfe7a\nad6a57a2d2e7997089d0604762b8c0ed117b3639b0922b0a5ddf782b37a960c4",
+    "after": "2eccb0cea660df5e750429c6f29fa90f6f98107e76865bd9077ecf1e628bfe7a\nad6a57a2d2e7997089d0604762b8c0ed117b3639b0922b0a5ddf782b37a960c4"
+  },
+  "older_command_created_legacy_data": false
+}

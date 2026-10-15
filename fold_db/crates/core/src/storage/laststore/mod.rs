@@ -45,6 +45,7 @@ mod logical_main;
 pub(crate) mod logical_path;
 mod namespaced_maintenance;
 mod namespaced_store_impl;
+pub(in crate::storage) mod native_routing;
 mod partition_scan;
 mod residue_types;
 
@@ -127,7 +128,10 @@ pub const RECLAIMABLE_RETIRED_INDEX_PREFIXES: &[&str] = &["mhr:", "mhi:", "mhk:"
 /// and `get_all_schemas` aborted `open_existing_store`. Reject at the LastStore
 /// put so a mis-wired `EncryptingNamespacedStore::new()` (empty allowlist)
 /// fails closed instead of poisoning the catalog.
-fn reject_enc_on_plaintext_catalog(collection: &str, value: &[u8]) -> StorageResult<()> {
+pub(in crate::storage) fn reject_enc_on_plaintext_catalog(
+    collection: &str,
+    value: &[u8],
+) -> StorageResult<()> {
     // All at-rest envelopes are equally fatal on a plaintext catalog: the
     // 2026-08-16 brick was an `ENC:` body the catalog reader could not parse,
     // and `ENZ:` / binary `ENB:` bodies would fail identically.
@@ -201,7 +205,7 @@ impl LastStoreKvStore {
         }
     }
 
-    async fn run_blocking<T, F>(work: F) -> StorageResult<T>
+    pub(in crate::storage) async fn run_blocking<T, F>(work: F) -> StorageResult<T>
     where
         T: Send + 'static,
         F: FnOnce() -> StorageResult<T> + Send + 'static,

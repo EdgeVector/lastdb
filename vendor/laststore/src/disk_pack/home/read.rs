@@ -23,6 +23,16 @@ impl HomeRead {
         self.call.costs()
     }
 
+    /// Charge a memory or pending-write result before its body is copied.
+    /// It consumes the same key/byte budget without reporting nonexistent file reads.
+    pub fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
+        self.call.examine()?;
+        let bytes = key_bytes
+            .checked_add(body_bytes)
+            .ok_or_else(super::super::resource)?;
+        self.call.charge(bytes as u64)
+    }
+
     /// Resolve a complete storage id with the held placement codec.
     pub fn get(&mut self, collection: &str, key: &str) -> Result<Option<Vec<u8>>> {
         self.call.charge((collection.len() + key.len()) as u64)?;
@@ -60,6 +70,31 @@ impl HomeRead {
         self.call.hash_range(
             HashScope::new(collection.to_string(), prefix.to_string(), groups)?,
             bounds,
+        )
+    }
+
+    /// Bounded internal metadata range across this collection's exact 1024 directory coordinates.
+    /// Node bootstrap and explicit maintenance use this; user molecule reads use `hash_range`.
+    /// No directory walk or group replay occurs. All work shares this call's limits.
+    pub fn administrative_range(
+        &mut self,
+        collection: &str,
+        start: &[u8],
+        end: &[u8],
+    ) -> Result<HashRangeCursor<'_>> {
+        if start.len() > super::super::KEY_BYTES || end.len() > super::super::KEY_BYTES {
+            return Err(super::super::corrupt(
+                "administrative bound exceeds key limit",
+            ));
+        }
+        self.call
+            .charge((collection.len() + start.len() + end.len() + 2048) as u64)?;
+        let groups: Vec<u16> = (0..1024).collect();
+        self.call.range_in_groups(
+            collection.to_string(),
+            start.to_vec(),
+            end.to_vec(),
+            &groups,
         )
     }
 }

@@ -3,6 +3,26 @@
 use super::*;
 
 impl LogicalResidentSet {
+    /// Make a slot before a read admission, never after the 10,001st record.
+    /// If every record is protected, the caller returns its temporary body without admission.
+    pub(super) fn make_read_room(&mut self) -> bool {
+        let mut purged = 0u64;
+        while self.logical_record_count() >= resident_key_cap() {
+            let Some(key) = self.oldest_purgeable_key() else {
+                self.publish_occupancy();
+                return false;
+            };
+            self.drop_used_record(key);
+            purged += 1;
+        }
+        if let Some(metrics) = &self.metrics {
+            metrics.record_purged_keys(purged);
+            metrics.record_purge_pass(purged, 0);
+        }
+        self.publish_occupancy();
+        true
+    }
+
     /// Drop least-recently-used clean unheld records until the used-record
     /// count is at most [`resident_key_cap`]. A skip of a held or dirty
     /// record does not change that record's recency tick.

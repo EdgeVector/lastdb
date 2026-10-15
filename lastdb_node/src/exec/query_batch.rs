@@ -2,6 +2,7 @@
 //! Design page: `docs/designs/lastdb-query-batch-route.md`.
 
 use super::*;
+use lastdb_host::HostNode as _;
 
 /// Most queries one `POST /api/queries/batch` request may carry.
 const QUERY_BATCH_MAX_QUERIES: usize = 64;
@@ -89,10 +90,18 @@ pub(super) async fn execute_query_batch_route(
         };
         async move { (index, execute_query_route(&item, ctx, host).await) }
     });
-    let finished: Vec<(usize, UdsResponse)> = futures::stream::iter(items)
+    let store = host.fold_db().db_ops().namespaced_store();
+    let scope = match fold_db::storage::disk_pack::PackReadScope::for_store(&store).await {
+        Ok(scope) => scope,
+        Err(error) => return error_response(503, &error.to_string(), ctx),
+    };
+    let future = futures::stream::iter(items)
         .buffer_unordered(QUERY_BATCH_CONCURRENCY)
-        .collect()
-        .await;
+        .collect();
+    let finished: Vec<(usize, UdsResponse)> = match scope {
+        Some(scope) => scope.run_shared(future).await,
+        None => future.await,
+    };
 
     let results = query_batch_results(finished);
     render(

@@ -26,6 +26,7 @@
 //! test code use [`LastStoreNamespacedStore`] or [`InMemoryNamespacedStore`].
 
 pub mod config;
+pub mod disk_pack;
 pub mod encrypting_namespaced_store;
 /// Kv-level at-rest encryptor — implementation detail of [`EncryptingNamespacedStore`].
 pub(crate) mod encrypting_store;

@@ -39,6 +39,16 @@ impl LogicalResidentSet {
         Some(body)
     }
 
+    /// Inspect a fetched body size before a bounded reader copies it.
+    pub fn fetched_record_bytes(&self, collection: &str, id: &str) -> Option<Option<usize>> {
+        self.records
+            .get(&RecordKey {
+                collection: collection.to_string(),
+                id: id.to_string(),
+            })
+            .map(|body| body.as_ref().map(Vec::len))
+    }
+
     /// True when the set holds a fetched record (present or absent) for the id.
     pub fn has_fetched_record(&self, collection: &str, id: &str) -> Option<bool> {
         self.records
@@ -72,6 +82,9 @@ impl LogicalResidentSet {
             collection: collection.to_string(),
             id: id.to_string(),
         };
+        if !self.records.contains_key(&key) && !self.make_read_room() {
+            return false;
+        }
         self.records.insert(key.clone(), body);
         self.touch(ResidentKey::Record {
             collection: key.collection,

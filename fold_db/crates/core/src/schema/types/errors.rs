@@ -5,6 +5,10 @@ use std::fmt;
 pub enum SchemaError {
     NotFound(String),
     Blocked(String),
+    /// A finite storage read limit, never record absence.
+    ReadResourceLimit {
+        detail: String,
+    },
     InvalidField(String),
     InvalidPermission(String),
     InvalidTransform(String),
@@ -153,6 +157,7 @@ impl fmt::Display for SchemaError {
         match self {
             Self::NotFound(msg) => write!(f, "Schema not found: {msg}"),
             Self::Blocked(msg) => write!(f, "Schema blocked: {msg}"),
+            Self::ReadResourceLimit {detail} => write!(f,"read resource limit exceeded: {detail}"),
             Self::InvalidField(msg) => write!(f, "Invalid field: {msg}"),
             Self::InvalidPermission(msg) => write!(f, "Invalid permission: {msg}"),
             Self::InvalidTransform(msg) => write!(f, "Invalid transform: {msg}"),
@@ -361,39 +366,4 @@ impl SchemaError {
     }
 }
 
-impl From<crate::storage::StorageError> for SchemaError {
-    fn from(error: crate::storage::StorageError) -> Self {
-        match error {
-            crate::storage::StorageError::CatalogMembershipDenied {
-                db_locator,
-                schema_name,
-            } => Self::CatalogMembershipDenied {
-                db_locator,
-                schema_name,
-            },
-            // A full disk keeps its identity across the boundary. Folding it
-            // into `InvalidData` here is what made every storage path report a
-            // host condition as a malformed request.
-            crate::storage::StorageError::StorageFull { detail } => Self::StorageFull { detail },
-            // `ENOSPC` also reaches this boundary as a plain IO error, from the
-            // paths that build a `StorageError` straight off `std::io::Error`
-            // instead of through a backend's `map_error`. It is the same host
-            // condition either way, so the caller's status must not depend on
-            // which path happened to report it.
-            crate::storage::StorageError::IoError(io)
-                if crate::storage::StorageError::is_storage_full_io(&io) =>
-            {
-                Self::StorageFull {
-                    detail: io.to_string(),
-                }
-            }
-            // Capture backpressure keeps its identity for the same reason a
-            // full disk does: the request was fine and the caller's status
-            // must say "retry", not "your payload is invalid".
-            crate::storage::StorageError::CaptureQueueFull { waited_ms } => {
-                Self::CaptureQueueFull { waited_ms }
-            }
-            other => Self::InvalidData(other.to_string()),
-        }
-    }
-}
+mod storage;

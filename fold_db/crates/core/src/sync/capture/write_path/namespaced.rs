@@ -18,6 +18,16 @@ impl MutationLogCaptureNamespacedStore {
 
 #[async_trait]
 impl NamespacedStore for MutationLogCaptureNamespacedStore {
+    fn disk_pack_runtime(&self) -> Option<Arc<crate::storage::disk_pack::PackRuntime>> {
+        self.inner.disk_pack_runtime()
+    }
+
+    fn plaintext_read_cache(
+        &self,
+    ) -> Option<Arc<std::sync::Mutex<crate::resident::LogicalResidentSet>>> {
+        self.inner.plaintext_read_cache()
+    }
+
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
         let inner = self.inner.open_namespace(name).await?;
         if policy::capture_should_skip_namespace(name) {
