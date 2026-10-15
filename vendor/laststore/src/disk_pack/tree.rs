@@ -156,7 +156,7 @@ impl ReadCall {
         Ok(key)
     }
 
-    fn check_boundaries(
+    pub(super) fn check_boundaries(
         &mut self,
         tree: &TreeRoot,
         page: &Arc<Page>,

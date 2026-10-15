@@ -50,3 +50,9 @@ path = "src/bin/lastdb-journal.rs"
 test = false
 doctest = false
 bench = false
+
+[[bin]]
+bench = false
+test = false
+name = "lastdb-range"
+path = "src/bin/lastdb-range.rs"

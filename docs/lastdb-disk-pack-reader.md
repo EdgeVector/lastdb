@@ -88,6 +88,7 @@ They do not establish LastDB app latency, protected write admission, or a recove
 ## Remaining dependency order
 
 The separate artifact path now supports complete journal recovery and [immutable tree publication](lastdb-disk-pack-publication.md).
+It also supports [bounded hash ranges](lastdb-disk-pack-ranges.md) at one captured generation.
 The LastDB home and ack paths still require these steps:
 
 1. Map every store write and memory ack to a complete recovery-journal batch.
