@@ -15,7 +15,7 @@ pub(super) struct SparsePages {
     next: u64,
     file: Option<File>,
     pub(super) written_pages: u64,
-    pub(super) written_parts: u64,
+    part_numbers: Vec<u32>,
 }
 
 impl SparsePages {
@@ -34,12 +34,15 @@ impl SparsePages {
             next: 0,
             file: None,
             written_pages: 0,
-            written_parts: 0,
+            part_numbers: Vec::new(),
         })
     }
 
     fn allocate(&mut self) -> Result<()> {
         self.sync_part()?;
+        self.part_numbers
+            .try_reserve(1)
+            .map_err(|_| super::resource())?;
         // Exact create-new attempts replace a directory walk and never reuse an identity.
         for _ in 0..8 {
             let part = u32::from_le_bytes(
@@ -55,7 +58,7 @@ impl SparsePages {
                 Ok(file) => {
                     self.file = Some(file);
                     self.next = u64::from(part) * 512;
-                    self.written_parts += 1;
+                    self.part_numbers.push(part);
                     return Ok(());
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -74,9 +77,10 @@ impl SparsePages {
         Ok(())
     }
 
-    pub(super) fn finish(mut self) -> Result<()> {
+    pub(super) fn finish(mut self) -> Result<Vec<u32>> {
         self.sync_part()?;
-        durability::sync_directory(&File::open(&self.directory)?)
+        durability::sync_directory(&File::open(&self.directory)?)?;
+        Ok(self.part_numbers)
     }
 }
 

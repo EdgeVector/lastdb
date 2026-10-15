@@ -167,13 +167,13 @@ impl TreeEdit {
             .collect()
     }
 
-    pub(super) fn finish(self) -> Result<(TreeRoot, u64, u64)> {
+    pub(super) fn finish(self) -> Result<(TreeRoot, u64, Vec<u32>)> {
         if self.failed {
             return Err(corrupt("refusing failed tree edit"));
         }
-        let counts = (self.pages.written_pages, self.pages.written_parts);
-        self.pages.finish()?;
-        Ok((self.root, counts.0, counts.1))
+        let pages = self.pages.written_pages;
+        let parts = self.pages.finish()?;
+        Ok((self.root, pages, parts))
     }
 }
 

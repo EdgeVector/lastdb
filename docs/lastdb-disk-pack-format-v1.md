@@ -974,6 +974,9 @@ The descriptor supplies the validated existing path. Its captured length supplie
 For every other local dependency, the UUID, kind, batch, and part number determine the exact new-format path.
 The checksum-present flag distinguishes a verified whole-part digest from zero.
 This receipt is operational metadata. An ordinary read does not enumerate its dependency entries.
+An incremental receipt may conservatively retain prior dependency parts and private intermediate tree parts.
+These extra references prevent premature deletion. They do not change the committed directory's readable keys.
+A compaction can rebuild the live dependency closure under the required generation and durable-reference rules.
 
 The first receipt page contains at most 150 dependency entries.
 Every later page contains at most 201 entries. The exact used payload length follows its prefix and count.
