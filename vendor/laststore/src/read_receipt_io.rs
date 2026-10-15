@@ -11,6 +11,7 @@ use std::sync::{LockResult, Mutex, MutexGuard};
 #[derive(Clone, Copy)]
 pub(crate) enum ReadClass {
     LegacyReplay,
+    JournalReplay,
     Footer,
     Payload,
     FormatProbe,
@@ -71,6 +72,7 @@ impl Read for MeasuredFile {
             let count = result.as_ref().copied().unwrap_or(0) as u64;
             let target = match class {
                 ReadClass::LegacyReplay => &mut receipt.legacy_replay_bytes,
+                ReadClass::JournalReplay => &mut receipt.journal_replay_bytes,
                 ReadClass::Footer => &mut receipt.footer_bytes,
                 ReadClass::Payload => &mut receipt.payload_bytes,
                 ReadClass::FormatProbe => &mut receipt.format_probe_bytes,

@@ -1,0 +1,142 @@
+{
+  "normal": {
+    "mutations": 96,
+    "expected_mutations": 96,
+    "values_and_order_match": true,
+    "batch_sequences": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "accepted_time_preserved": true,
+    "complete": true,
+    "recovery_summary": {
+      "artifact_only": true,
+      "batches": 6,
+      "complete": true,
+      "decoded_bytes": 32379,
+      "directory_reads": 0,
+      "elapsed_nanos": 2669958,
+      "file_opens": 27,
+      "footer_bytes": 0,
+      "format_probe_bytes": 107289,
+      "group_opens": 0,
+      "journal_replay_bytes": 14653,
+      "legacy_replay_bytes": 0,
+      "mutations": 96,
+      "read_operations": 27,
+      "temporary_bytes_peak": 22978
+    }
+  },
+  "long": {
+    "mutations": 8,
+    "expected_mutations": 8,
+    "values_and_order_match": true,
+    "batch_sequences": [
+      1
+    ],
+    "accepted_time_preserved": true,
+    "complete": true,
+    "recovery_summary": {
+      "artifact_only": true,
+      "batches": 1,
+      "complete": true,
+      "decoded_bytes": 1051163,
+      "directory_reads": 0,
+      "elapsed_nanos": 17760416,
+      "file_opens": 262,
+      "footer_bytes": 0,
+      "format_probe_bytes": 24729,
+      "group_opens": 0,
+      "journal_replay_bytes": 27545,
+      "legacy_replay_bytes": 0,
+      "mutations": 8,
+      "read_operations": 262,
+      "temporary_bytes_peak": 156109
+    }
+  },
+  "large": {
+    "mutations": 10,
+    "expected_mutations": 10,
+    "values_and_order_match": true,
+    "batch_sequences": [
+      1
+    ],
+    "accepted_time_preserved": true,
+    "complete": true,
+    "recovery_summary": {
+      "artifact_only": true,
+      "batches": 1,
+      "complete": true,
+      "decoded_bytes": 10488251,
+      "directory_reads": 0,
+      "elapsed_nanos": 134442125,
+      "file_opens": 2570,
+      "footer_bytes": 0,
+      "format_probe_bytes": 74009,
+      "group_opens": 0,
+      "journal_replay_bytes": 10693041,
+      "legacy_replay_bytes": 0,
+      "mutations": 10,
+      "read_operations": 2570,
+      "temporary_bytes_peak": 1126642
+    }
+  },
+  "marker": {
+    "mutations": 1,
+    "expected_mutations": 1,
+    "values_and_order_match": true,
+    "batch_sequences": [
+      1
+    ],
+    "accepted_time_preserved": true,
+    "complete": true,
+    "recovery_summary": {
+      "artifact_only": true,
+      "batches": 1,
+      "complete": true,
+      "decoded_bytes": 4160,
+      "directory_reads": 0,
+      "elapsed_nanos": 2679666,
+      "file_opens": 7,
+      "footer_bytes": 0,
+      "format_probe_bytes": 24729,
+      "group_opens": 0,
+      "journal_replay_bytes": 475,
+      "legacy_replay_bytes": 0,
+      "mutations": 1,
+      "read_operations": 7,
+      "temporary_bytes_peak": 24320
+    }
+  },
+  "operation": {
+    "mutations": 2,
+    "expected_mutations": 2,
+    "values_and_order_match": true,
+    "batch_sequences": [
+      1
+    ],
+    "accepted_time_preserved": true,
+    "complete": true,
+    "recovery_summary": {
+      "artifact_only": true,
+      "batches": 1,
+      "complete": true,
+      "decoded_bytes": 4377,
+      "directory_reads": 0,
+      "elapsed_nanos": 1255166,
+      "file_opens": 7,
+      "footer_bytes": 0,
+      "format_probe_bytes": 24729,
+      "group_opens": 0,
+      "journal_replay_bytes": 664,
+      "legacy_replay_bytes": 0,
+      "mutations": 2,
+      "read_operations": 7,
+      "temporary_bytes_peak": 24360
+    }
+  }
+}

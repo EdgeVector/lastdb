@@ -244,6 +244,7 @@ fn read(options: &Options, input: &mut impl BufRead) -> Result<()> {
         "payload_blocks":costs.payload_blocks,"shared_pages":costs.shared_pages,"shared_blocks":costs.shared_blocks,
         "file_bytes":costs.file_bytes,"budget_bytes":costs.budget_bytes,"examined_keys":costs.examined_keys},
         "disk":{"group_opens":disk.group_opens,"legacy_replay_bytes":disk.legacy_replay_bytes,
+        "journal_replay_bytes":disk.journal_replay_bytes,
         "footer_bytes":disk.footer_bytes,"directory_reads":disk.directory_reads,"file_opens":disk.file_opens,
         "read_operations":disk.read_operations,"payload_bytes":disk.payload_bytes,
         "format_probe_bytes":disk.format_probe_bytes,"temporary_bytes_peak":disk.temporary_bytes_peak},
