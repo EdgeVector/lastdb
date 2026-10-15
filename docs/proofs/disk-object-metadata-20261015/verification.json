@@ -33,5 +33,11 @@
     }
   ],
   "journal_values_match": true,
-  "journal_complete": true
+  "journal_complete": true,
+  "new_writer_refused_old_artifact": {
+    "exit_code": 1,
+    "stdout_bytes": 0,
+    "error": "journal command failed: config: disk-pack journal: new journal writes require complete object bounds",
+    "tail_created": false
+  }
 }
