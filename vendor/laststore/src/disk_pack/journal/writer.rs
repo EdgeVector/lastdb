@@ -36,7 +36,7 @@ pub struct JournalWriter {
 
 impl JournalWriter {
     /// Create one new stream for the artifact's CURRENT. Resume and stream rotation
-    /// require the future root publisher and are explicitly refused here.
+    /// require online writer coordination and are explicitly refused here.
     pub fn create(root: &Path) -> Result<Self> {
         let current = crate::disk_pack::artifact::current(root)?;
         if current.required_features & crate::disk_pack::FEATURE_OBJECT_METADATA == 0 {
