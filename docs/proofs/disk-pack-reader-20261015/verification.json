@@ -3,9 +3,17 @@
     "returned_values_match": true,
     "items": 6
   },
+  "single_64": {
+    "returned_values_match": true,
+    "items": 1
+  },
   "20000": {
     "returned_values_match": true,
     "items": 6
+  },
+  "single_20000": {
+    "returned_values_match": true,
+    "items": 1
   },
   "65535_byte_keys": {
     "returned_values_match": true,
