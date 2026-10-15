@@ -107,7 +107,10 @@ impl SchemaServiceState {
         // map / mutation_mappers clone).
         if let Some(fields) = probe.fields.clone() {
             let mut mappers = mutation_mappers.clone();
-            let rename_map = self.canonicalize_fields(&fields, &probe, &mut mappers);
+            // A reject is not a repost hit. The write path returns the error.
+            let rename_map = self
+                .canonicalize_fields(&fields, &probe, &mut mappers)
+                .ok()?;
             if !rename_map.is_empty() {
                 Self::apply_field_renames(&mut probe, &rename_map, &mut mappers);
                 probe.identity_hash = None;

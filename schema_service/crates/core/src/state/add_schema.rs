@@ -318,7 +318,7 @@ impl SchemaServiceState {
         // Canonicalize field names against the global canonical field registry
         // before any dedup or identity hash computation.
         if let Some(ref fields) = schema.fields {
-            let rename_map = self.canonicalize_fields(fields, &schema, &mut mutation_mappers);
+            let rename_map = self.canonicalize_fields(fields, &schema, &mut mutation_mappers)?;
             if !rename_map.is_empty() {
                 Self::apply_field_renames(&mut schema, &rename_map, &mut mutation_mappers);
                 // Canonicalization changed field names, so any precomputed identity
