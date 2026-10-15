@@ -14,7 +14,7 @@ use uuid::Uuid;
 pub(super) struct PageAddress {
     directory: std::path::PathBuf,
     object: Uuid,
-    number: u64,
+    pub(super) number: u64,
 }
 
 pub(super) struct Page {
@@ -95,6 +95,15 @@ impl Page {
                 && self.count() <= super::MAP_ENTRIES as usize
                 && self.left() == 0
                 && self.next() == 0 => {}
+            11 if self.level() == 0
+                && width == 80
+                && self.count() <= 201
+                && self.left() == 0
+                && self.auxiliary() > 0
+                && used >= 128 =>
+            {
+                return Ok(())
+            }
             _ => return Err(corrupt("unsupported page kind or shape")),
         }
         if self.count() * width != used {

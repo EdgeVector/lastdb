@@ -24,15 +24,18 @@ pub struct JournalRecovery {
 
 impl JournalRecovery {
     /// Capture the separate artifact's CURRENT and TAIL exactly once.
-    /// This unit accepts the initial suffix after CURRENT; stream rotation is refused.
+    /// Checkpointed prefixes may remain on disk; stream rotation is refused.
     pub fn open(root: &Path) -> Result<Self> {
-        let current = super::writer::artifact_current(root)?;
+        let current = crate::disk_pack::artifact::current(root)?;
         let tail = JournalTail::read(root)?;
         let next = current
             .frontier
             .checked_add(1)
             .ok_or_else(|| corrupt("recovery sequence exhausted"))?;
-        if tail.stream != current.journal_stream || tail.first_batch != next {
+        if tail.stream != current.journal_stream
+            || tail.first_batch > next
+            || tail.last_batch < current.frontier
+        {
             return Err(corrupt("journal TAIL does not extend the artifact CURRENT"));
         }
         let complete = tail.last_batch < next;
@@ -76,7 +79,9 @@ impl JournalRecovery {
             .checked_add(recovered.encoded_bytes)
             .ok_or_else(|| corrupt("recovery byte count overflow"))?;
         if self.next == self.tail.last_batch {
-            if self.encoded_bytes != self.tail.encoded_bytes
+            if (self.tail.first_batch == self.current.frontier + 1
+                && self.encoded_bytes != self.tail.encoded_bytes)
+                || self.encoded_bytes > self.tail.encoded_bytes
                 || recovered.marker_digest != self.tail.last_marker_digest
             {
                 return Err(corrupt(

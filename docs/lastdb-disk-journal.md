@@ -4,6 +4,7 @@ This unit adds the recovery bytes for the disk-pack plan.
 It follows the [artifact reader and builder](lastdb-disk-pack-reader.md).
 It does not activate a LastStore home writer or change a memory ack.
 It does not publish a directory root.
+The separate [artifact publisher](lastdb-disk-pack-publication.md) supplies that next step.
 
 The journal contains complete immutable batches.
 Each batch contains BEGIN, ordered operations, and COMMIT.
@@ -78,7 +79,7 @@ No LastDB query route invokes recovery in this unit.
 
 ## Product commands
 
-Both commands require an explicit separate artifact path.
+The commands require an explicit separate artifact path.
 The artifact marker prevents their use as a home writer.
 The input file contains generated or explicitly supplied stored mutations.
 No primary-home default exists.
@@ -86,6 +87,7 @@ No primary-home default exists.
 ```sh
 lastdb-journal append --artifact PATH --input mutations.jsonl --batch-size 64
 lastdb-journal recover --artifact PATH
+lastdb-journal publish --artifact PATH
 ```
 
 Each input line contains `collection`, `group`, `key`, and `body_hex`.
@@ -98,7 +100,7 @@ Recovery prints a receipt for each verified batch.
 The final `complete: true` receipt establishes completion of the captured suffix.
 The inspection output uses storage-id and body digests.
 It does not print stored bodies or complete storage keys.
-The library returns the original bytes and direct positions to the future publisher.
+The library returns the original bytes and direct positions to the artifact publisher.
 
 The [operational report](proofs/disk-journal-20261015/report.md) records fresh generated-data results.
 The commands exercise real file barriers and reopen the completed files.
@@ -121,7 +123,7 @@ A per-operation append observer cannot supply the required complete logical batc
 The older per-operation journal proposal uses a different format and contract.
 It does not enable this format.
 
-The next unit adds immutable directory updates and atomic root publication.
+The artifact publisher adds immutable directory updates and atomic root publication.
 Online admission, complete token coverage, the home fence, and bridge support follow before activation.
 Backup retention, source-free restore, concurrent conversion, and primary preparation remain open.
 The primary, archive, factory, and reset stores stay outside this work.

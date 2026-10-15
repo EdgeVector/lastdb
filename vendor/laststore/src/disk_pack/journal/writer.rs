@@ -5,11 +5,9 @@ use crate::disk_pack::bytes::digest;
 use crate::disk_pack::pack_write::PackWriter;
 use crate::disk_pack::page_write::directory;
 use crate::disk_pack::{corrupt, Current, Location, MutationVersion, Source};
-use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -36,32 +34,11 @@ pub struct JournalWriter {
     _lock: File,
 }
 
-pub(super) fn artifact_current(root: &Path) -> Result<Current> {
-    let expected = b"artifact-only=1\nformat=1\n";
-    let _class = ReadClass::FormatProbe.enter();
-    let mut marker = measured::open(root.join("disk-pack-artifact-v1"))?;
-    if marker.metadata()?.len() != expected.len() as u64 {
-        return Err(super::refuse("not a separate artifact"));
-    }
-    let mut bytes = vec![0; expected.len()];
-    marker.read_exact(&mut bytes)?;
-    if bytes != expected {
-        return Err(super::refuse("not a separate artifact"));
-    }
-    let mut file = measured::open(root.join("CURRENT"))?;
-    if file.metadata()?.len() != 4096 {
-        return Err(corrupt("CURRENT length"));
-    }
-    let mut bytes = [0; 4096];
-    file.read_exact(&mut bytes)?;
-    Current::decode(&bytes)
-}
-
 impl JournalWriter {
     /// Create one new stream for the artifact's CURRENT. Resume and stream rotation
-    /// require the future root publisher and are explicitly refused here.
+    /// require online writer coordination and are explicitly refused here.
     pub fn create(root: &Path) -> Result<Self> {
-        let current = artifact_current(root)?;
+        let current = crate::disk_pack::artifact::current(root)?;
         if current.required_features & crate::disk_pack::FEATURE_OBJECT_METADATA == 0 {
             return Err(super::refuse(
                 "new journal writes require complete object bounds",

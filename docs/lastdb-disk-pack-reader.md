@@ -87,8 +87,11 @@ They do not establish LastDB app latency, protected write admission, or a recove
 
 ## Remaining dependency order
 
+The separate artifact path now supports complete journal recovery and [immutable tree publication](lastdb-disk-pack-publication.md).
+The LastDB home and ack paths still require these steps:
+
 1. Map every store write and memory ack to a complete recovery-journal batch.
-2. Add bounded journal recovery, immutable tree updates, and the atomic root publisher.
+2. Add incremental dependency inventory and journal resume for the online publisher.
 3. Add the compatible bridge reader and allocate the home fence.
 4. Connect exact, batch, and hash-range LastDB reads, with protected warm-set admission.
 5. Add backup retention, source-free restore, and concurrent conversion.
