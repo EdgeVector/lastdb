@@ -1,0 +1,51 @@
+{
+  "disk": {
+    "directory_reads": 0,
+    "file_opens": 1439,
+    "footer_bytes": 0,
+    "format_probe_bytes": 16425856,
+    "group_opens": 0,
+    "journal_replay_bytes": 11566,
+    "legacy_replay_bytes": 0,
+    "payload_bytes": 0,
+    "read_operations": 1106,
+    "temporary_bytes_peak": 65536
+  },
+  "durable_batch": 5,
+  "elapsed_nanos": 620808917,
+  "frontier": 5,
+  "generation": 15,
+  "journal_after_append": {
+    "durable_suffix_bytes": 17054,
+    "oldest_reservation_ms": 0,
+    "oldest_unpublished_ms": 30,
+    "reserved_batches": 0,
+    "reserved_bytes": 0,
+    "should_materialize": false
+  },
+  "journal_final": {
+    "durable_suffix_bytes": 0,
+    "oldest_reservation_ms": 0,
+    "oldest_unpublished_ms": 0,
+    "reserved_batches": 0,
+    "reserved_bytes": 0,
+    "should_materialize": false
+  },
+  "journal_quote": {
+    "logical_bytes": 462,
+    "operations": 1,
+    "physical_reserve": 17054,
+    "scope": "journal_only"
+  },
+  "journal_reserved": {
+    "durable_suffix_bytes": 0,
+    "oldest_reservation_ms": 0,
+    "oldest_unpublished_ms": 0,
+    "reserved_batches": 1,
+    "reserved_bytes": 17054,
+    "should_materialize": false
+  },
+  "operations": 1,
+  "published": true,
+  "recovered_frontier": 4
+}
