@@ -161,6 +161,7 @@ fn read_request(path: &str) -> Result<Value> {
 
 fn run() -> Result<()> {
     let request = request()?;
+    laststore::disk_pack::require_artifact_path(&request.artifact)?;
     let started = Instant::now();
     let (result, disk) = observe_disk_reads(|| -> Result<_> {
         let mut call = ReadCall::open(

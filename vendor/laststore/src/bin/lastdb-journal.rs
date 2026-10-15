@@ -124,6 +124,7 @@ fn options() -> Result<Options> {
 
 fn run() -> Result<()> {
     let options = options()?;
+    laststore::disk_pack::require_artifact_path(&options.artifact)?;
     if options.command == "append" || options.command == "write" {
         append(&options)
     } else if options.command == "publish" {

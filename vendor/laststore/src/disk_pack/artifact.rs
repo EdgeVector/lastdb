@@ -6,6 +6,34 @@ use std::io::Read;
 use std::path::Path;
 
 pub(super) fn current(root: &Path) -> Result<Current> {
+    let native = if root.join(super::home::MARKER).try_exists()? {
+        if root.join("disk-pack-artifact-v1").try_exists()? {
+            return Err(corrupt("ambiguous artifact and native home markers"));
+        }
+        Some(super::home::HomeDescriptor::read(root)?)
+    } else {
+        None
+    };
+    if native.is_none() {
+        require_marker(root)?;
+    }
+    let _class = ReadClass::FormatProbe.enter();
+    let mut file = measured::open(root.join("CURRENT"))?;
+    if file.metadata()?.len() != 4096 {
+        return Err(corrupt("CURRENT length"));
+    }
+    let mut bytes = [0; 4096];
+    file.read_exact(&mut bytes)?;
+    let current = Current::decode(&bytes)?;
+    if let Some(descriptor) = native {
+        descriptor.check_current(&current)?;
+    } else if current.required_features & super::FEATURE_NATIVE_HOME != 0 {
+        return Err(corrupt("native CURRENT requires a native home descriptor"));
+    }
+    Ok(current)
+}
+
+pub(super) fn require_marker(root: &Path) -> Result<()> {
     let expected = b"artifact-only=1\nformat=1\n";
     let _class = ReadClass::FormatProbe.enter();
     let mut marker = measured::open(root.join("disk-pack-artifact-v1"))?;
@@ -17,13 +45,7 @@ pub(super) fn current(root: &Path) -> Result<Current> {
     if bytes != expected {
         return Err(corrupt("not a separate artifact"));
     }
-    let mut file = measured::open(root.join("CURRENT"))?;
-    if file.metadata()?.len() != 4096 {
-        return Err(corrupt("CURRENT length"));
-    }
-    let mut bytes = [0; 4096];
-    file.read_exact(&mut bytes)?;
-    Current::decode(&bytes)
+    Ok(())
 }
 
 /// Administrative work still has finite per-path allocation and I/O limits.
@@ -42,6 +64,7 @@ pub(super) fn metadata_call(root: &Path, current: Current) -> ReadCall {
         blocks: HashMap::new(),
         parts: HashMap::new(),
         payload_class: ReadClass::Payload,
+        native_descriptor: None,
     }
 }
 

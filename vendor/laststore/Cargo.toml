@@ -56,3 +56,9 @@ bench = false
 test = false
 name = "lastdb-range"
 path = "src/bin/lastdb-range.rs"
+
+[[bin]]
+bench = false
+test = false
+name = "lastdb-disk-home"
+path = "src/bin/lastdb-disk-home.rs"

@@ -1,0 +1,95 @@
+{
+  "costs": {
+    "budget_bytes": 779480,
+    "directory_pages": 1,
+    "examined_keys": 400,
+    "file_bytes": 568538,
+    "locator_pages": 16,
+    "map_pages": 16,
+    "overflow_pages": 0,
+    "payload_blocks": 16,
+    "shared_blocks": 284,
+    "shared_pages": 631
+  },
+  "disk": {
+    "directory_reads": 0,
+    "file_opens": 70,
+    "footer_bytes": 0,
+    "format_probe_bytes": 563200,
+    "group_opens": 0,
+    "journal_replay_bytes": 0,
+    "legacy_replay_bytes": 0,
+    "payload_bytes": 17626,
+    "read_operations": 70,
+    "temporary_bytes_peak": 602435
+  },
+  "elapsed_nanos": 3801500,
+  "exhausted": true,
+  "frontier": 0,
+  "generation": 1,
+  "pages": [
+    {
+      "exhausted": false,
+      "records": {
+        "count": 37,
+        "ordered_values_sha256": "f4bb852223acddf9fed61530ce69dcf3a2a50bf3901113c31d72736c4e25db64"
+      }
+    },
+    {
+      "exhausted": false,
+      "records": {
+        "count": 37,
+        "ordered_values_sha256": "edfc69ba8e51a7775304e070a0eb9adcceea0f34b26e05b9d4f7817531ac81e0"
+      }
+    },
+    {
+      "exhausted": false,
+      "records": {
+        "count": 37,
+        "ordered_values_sha256": "d0bb23a96426230464e5f6c712a2c9102cfa9297e1bff8e84ff305eeff5ea0ce"
+      }
+    },
+    {
+      "exhausted": false,
+      "records": {
+        "count": 37,
+        "ordered_values_sha256": "ecaed11d99a3ec1ff144c09e9c9ce59971cf8bd4fc0f16e788730494b6539768"
+      }
+    },
+    {
+      "exhausted": false,
+      "records": {
+        "count": 37,
+        "ordered_values_sha256": "6a47c40fffc551b44b360f9ba47ec7c34b058ac47751b6bd5892a2c425a58258"
+      }
+    },
+    {
+      "exhausted": false,
+      "records": {
+        "count": 37,
+        "ordered_values_sha256": "d4a27cef2369160a4636b6178a17b9d6d00dbecfc167bdaa49f00e4c499f8e0f"
+      }
+    },
+    {
+      "exhausted": false,
+      "records": {
+        "count": 37,
+        "ordered_values_sha256": "fb9d907c548f307c2ff18c141cfc4efa528dcfbde0867d8ce62d9587e4e15cb1"
+      }
+    },
+    {
+      "exhausted": false,
+      "records": {
+        "count": 37,
+        "ordered_values_sha256": "031af932e9c623d917b85c6b0d0f07f45b50bb2025d09aa567a1135745cab3fd"
+      }
+    },
+    {
+      "exhausted": true,
+      "records": {
+        "count": 4,
+        "ordered_values_sha256": "c9a115c38fea53e6a8a52aa98d7adc77a36719d49548f29a970bdbb8bd5b4945"
+      }
+    }
+  ]
+}

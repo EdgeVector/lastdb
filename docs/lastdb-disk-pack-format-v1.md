@@ -6,7 +6,8 @@ All new numeric values below are proposals. Stage 2 must freeze them before it w
 
 The [first Stage 2 implementation](lastdb-disk-pack-reader.md) freezes the local page,
 key, record, and plain-frame bytes for separate immutable artifacts.
-It does not allocate the production home fence or enable an online writer.
+The [native home API](lastdb-disk-native-home.md) allocates a separate home fence and codec identities.
+It does not select the node backend or change the memory ack boundary.
 The journal, bridge, encrypted-frame, conversion, and retention rules below remain release prerequisites.
 
 Source: [Draft LastDB pack files and bounded disk lookup](https://chatgpt.com/space/page_dac3cffa86f08191b9fe60c47d7477a9).
@@ -127,10 +128,11 @@ The durable file and the in-process readable root identify the same published ge
 | 80 | 16 | Journal stream UUID for the checkpoint boundary |
 | 96 | 8 | Checkpoint batch sequence; normally equal to `F` |
 | 104 | 8 | Conversion descriptor page, or zero |
-| 112 | 8 | Required feature bits; `0x1` requires complete object bounds; `0x2` requires the checkpointed journal lifecycle |
+| 112 | 8 | Required feature bits; `0x1` requires complete object bounds; `0x2` requires the checkpointed journal lifecycle; `0x4` requires the native home descriptor |
 | 120 | 8 | Publication time, Unix milliseconds |
 | 128 | 32 | SHA-256 of all 4,096 bytes |
-| 160 | 3,936 | Zero bytes |
+| 160 | 32 | SHA-256 of the complete native home descriptor with feature `0x4`; otherwise zero |
+| 192 | 3,904 | Zero bytes |
 
 The placement and key identifiers must equal the home descriptor. Conversion does not change either codec.
 One directory root contains every collection and group root needed through `F`.
