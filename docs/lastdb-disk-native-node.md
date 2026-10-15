@@ -8,7 +8,7 @@ No primary, primary copy, archive, factory, or shared service participates in th
 ## Current limits
 
 This is an explicit development path. The default new-node backend remains the legacy format.
-The native constructor refuses memory-first acknowledgements until the pre-apply admission gate is complete.
+The native constructor refuses resident-first reads and memory-first acknowledgements until their root and admission gates are complete.
 Use `LASTDB_RESIDENT_MODE=off` for the generated-node check. Each write waits for its complete disk directory.
 The constructor also refuses a cloud-connected native node until native backup and cloud references are complete.
 Namespace removal requires a complete named-key plan and remains refused.

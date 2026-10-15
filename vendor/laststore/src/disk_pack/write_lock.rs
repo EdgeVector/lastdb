@@ -1,14 +1,14 @@
 use super::{artifact, Current};
 use crate::Result;
-use std::cell::Cell;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// A typed proof of exclusive artifact write ownership. No caller can forge it.
 pub(super) struct WriteLock {
     root: PathBuf,
     _file: File,
-    checked_current: Cell<Option<[u8; 32]>>,
+    checked_current: Mutex<Option<[u8; 32]>>,
 }
 
 impl WriteLock {
@@ -30,7 +30,7 @@ impl WriteLock {
         Ok(Self {
             root,
             _file: file,
-            checked_current: Cell::new(None),
+            checked_current: Mutex::new(None),
         })
     }
 
@@ -40,13 +40,20 @@ impl WriteLock {
 
     /// This lease retains only a complete-root digest, never pages or part metadata.
     pub(super) fn checked(&self, current: &Current) -> Result<bool> {
-        Ok(self.checked_current.get() == Some(super::bytes::digest(&current.encode()?)))
+        let checked = self
+            .checked_current
+            .lock()
+            .map_err(|_| super::corrupt("verified writer root lock is poisoned"))?;
+        Ok(*checked == Some(super::bytes::digest(&current.encode()?)))
     }
 
     /// Call only after complete dependency verification or successful root barriers.
     pub(super) fn remember_checked(&self, current: &Current) -> Result<()> {
-        self.checked_current
-            .set(Some(super::bytes::digest(&current.encode()?)));
+        let mut checked = self
+            .checked_current
+            .lock()
+            .map_err(|_| super::corrupt("verified writer root lock is poisoned"))?;
+        *checked = Some(super::bytes::digest(&current.encode()?));
         Ok(())
     }
 }
