@@ -68,24 +68,7 @@ impl PageWriter {
                     .open(self.directory.join(format!("part-{part:08x}")))?,
             );
         }
-        let mut bytes = vec![0; PAGE_BYTES];
-        bytes[..8].copy_from_slice(b"LDPAGE1\0");
-        put16(&mut bytes, 8, 1);
-        bytes[10] = fields.kind;
-        put16(&mut bytes, 12, HEADER_BYTES as u16);
-        bytes[14] = fields.level;
-        put64(&mut bytes, 16, self.generation);
-        bytes[24..40].copy_from_slice(self.object.as_bytes());
-        put64(&mut bytes, 40, self.next);
-        put32(&mut bytes, 48, payload.len() as u32);
-        put16(&mut bytes, 52, fields.count);
-        put16(&mut bytes, 54, fields.width);
-        put64(&mut bytes, 56, fields.left);
-        put64(&mut bytes, 64, fields.next);
-        put64(&mut bytes, 72, fields.auxiliary);
-        bytes[HEADER_BYTES..HEADER_BYTES + payload.len()].copy_from_slice(payload);
-        let sum = checksum(&bytes, 80);
-        bytes[80..112].copy_from_slice(&sum);
+        let bytes = encode_page(self.object, self.generation, self.next, fields, payload)?;
         self.file
             .as_mut()
             .expect("open metadata part")
@@ -149,4 +132,35 @@ impl PageWriter {
         }
         durability::sync_directory(&File::open(&self.directory)?)
     }
+}
+
+pub(super) fn encode_page(
+    object: Uuid,
+    generation: u64,
+    number: u64,
+    fields: PageFields,
+    payload: &[u8],
+) -> Result<Vec<u8>> {
+    if payload.len() > PAGE_PAYLOAD {
+        return Err(corrupt("page write payload too large"));
+    }
+    let mut bytes = vec![0; PAGE_BYTES];
+    bytes[..8].copy_from_slice(b"LDPAGE1\0");
+    put16(&mut bytes, 8, 1);
+    bytes[10] = fields.kind;
+    put16(&mut bytes, 12, HEADER_BYTES as u16);
+    bytes[14] = fields.level;
+    put64(&mut bytes, 16, generation);
+    bytes[24..40].copy_from_slice(object.as_bytes());
+    put64(&mut bytes, 40, number);
+    put32(&mut bytes, 48, payload.len() as u32);
+    put16(&mut bytes, 52, fields.count);
+    put16(&mut bytes, 54, fields.width);
+    put64(&mut bytes, 56, fields.left);
+    put64(&mut bytes, 64, fields.next);
+    put64(&mut bytes, 72, fields.auxiliary);
+    bytes[HEADER_BYTES..HEADER_BYTES + payload.len()].copy_from_slice(payload);
+    let sum = checksum(&bytes, 80);
+    bytes[80..112].copy_from_slice(&sum);
+    Ok(bytes)
 }

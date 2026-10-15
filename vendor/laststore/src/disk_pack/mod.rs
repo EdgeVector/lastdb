@@ -3,25 +3,34 @@
 //! These APIs address an explicitly selected artifact root. They do not activate
 //! the format in a LastStore home or bypass the legacy home descriptor fence.
 
+mod artifact;
 mod build;
 mod bytes;
 mod call;
 mod current;
+mod dependency;
+mod dependency_walk;
 mod frame;
+mod generation;
 pub mod journal;
 mod location;
 mod object;
 mod pack_write;
 mod page;
 mod page_write;
+mod publish;
 mod record;
+mod sparse_pages;
 mod tree;
+mod tree_edit;
+mod tree_output;
 mod tree_write;
 
 pub use build::{ArtifactBuilder, GroupWriter};
 pub use call::{ReadBudget, ReadCall, ReadCosts};
 pub use current::Current;
 pub use location::{DirectoryEntry, Location, MutationVersion, Source};
+pub use publish::{publish_artifact_journal, PublishedGeneration};
 pub use tree::{TreeKind, TreeRoot};
 
 /// CURRENT feature bit: payload objects have complete immutable object metadata.

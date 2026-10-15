@@ -28,9 +28,10 @@ struct Options {
 
 fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
-        println!("usage: lastdb-pack <build|read> --artifact PATH --input JSONL --collection NAME --group N");
+        println!("usage: lastdb-pack <build|read|read-batch> --artifact PATH --input JSONL [--collection NAME --group N]");
         println!("  build: --frontier N; input objects: key, body_hex (or deleted=true), batch, operation");
         println!("  read: input JSON strings; --pages N --blocks N --bytes N --keys N");
+        println!("  read-batch: input objects with collection, group, key; one shared read call");
         println!(
             "  both: --placement-codec N --key-codec N (default 1); explicit artifact paths only"
         );
@@ -54,7 +55,7 @@ fn options() -> Result<Options> {
     let command = args
         .next()
         .ok_or_else(|| invalid("build or read is required"))?;
-    if command != "build" && command != "read" {
+    if command != "build" && command != "read" && command != "read-batch" {
         return Err(invalid("unknown command").into());
     }
     let mut values = BTreeMap::new();
@@ -97,11 +98,18 @@ fn options() -> Result<Options> {
             .unwrap_or(default))
     };
     Ok(Options {
-        command,
         artifact: required("--artifact")?.into(),
         input: required("--input")?.into(),
-        collection: required("--collection")?,
-        group: required("--group")?.parse()?,
+        collection: if command == "read-batch" {
+            String::new()
+        } else {
+            required("--collection")?
+        },
+        group: if command == "read-batch" {
+            0
+        } else {
+            required("--group")?.parse()?
+        },
         frontier: number("--frontier", 0)?,
         placement: number("--placement-codec", 1)?.try_into()?,
         key_codec: number("--key-codec", 1)?.try_into()?,
@@ -111,6 +119,7 @@ fn options() -> Result<Options> {
             bytes: number("--bytes", 16 * 1024 * 1024)?,
             keys: number("--keys", 256)?,
         },
+        command,
     })
 }
 
@@ -120,7 +129,7 @@ fn run() -> Result<()> {
     let mut input = BufReader::new(File::open(&options.input)?);
     match options.command.as_str() {
         "build" => build(&options, &mut input),
-        "read" => read(&options, &mut input),
+        "read" | "read-batch" => read(&options, &mut input),
         _ => unreachable!("validated command"),
     }
 }
@@ -205,20 +214,46 @@ fn read(options: &Options, input: &mut impl BufRead) -> Result<()> {
         if keys.len() as u64 >= options.budget.keys {
             return Err(invalid("input exceeds key budget").into());
         }
-        let key = value
-            .as_str()
-            .ok_or_else(|| invalid("read input must contain JSON strings"))?;
+        let (collection, group, key) = if options.command == "read-batch" {
+            (
+                value
+                    .get("collection")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| invalid("collection must be a string"))?,
+                value
+                    .get("group")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| invalid("group must be an integer"))?
+                    .try_into()?,
+                value
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| invalid("key must be a string"))?,
+            )
+        } else {
+            (
+                options.collection.as_str(),
+                options.group,
+                value
+                    .as_str()
+                    .ok_or_else(|| invalid("read input must contain JSON strings"))?,
+            )
+        };
         input_bytes = input_bytes
-            .checked_add(key.len() as u64)
+            .checked_add((collection.len() + key.len() + 4) as u64)
             .ok_or_else(|| invalid("input byte count overflow"))?;
-        if key.len() > 65_535 || input_bytes > options.budget.bytes {
+        if collection.len() > 65_531
+            || group >= 1024
+            || key.len() > 65_535
+            || input_bytes > options.budget.bytes
+        {
             return Err(invalid("input keys exceed the byte budget or format limit").into());
         }
-        keys.push(key.to_string());
+        keys.push((collection.to_string(), group, key.to_string()));
     }
     let addresses = keys
         .iter()
-        .map(|key| (options.collection.as_str(), options.group, key.as_str()))
+        .map(|(collection, group, key)| (collection.as_str(), *group, key.as_str()))
         .collect::<Vec<_>>();
     let started = Instant::now();
     let (result, disk) = observe_disk_reads(|| -> Result<_> {

@@ -1,6 +1,7 @@
 //! Construct and inspect complete journal batches in a separate pack artifact.
 
 use laststore::disk_pack::journal::{JournalMutation, JournalRecovery, JournalWriter};
+use laststore::disk_pack::publish_artifact_journal;
 use laststore::observe_disk_reads;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -23,10 +24,11 @@ struct Options {
 
 fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
-        println!("usage: lastdb-journal <append|recover> --artifact PATH [--input JSONL] [--batch-size N] [--accepted-ms N]");
+        println!("usage: lastdb-journal <append|recover|publish> --artifact PATH [--input JSONL] [--batch-size N] [--accepted-ms N]");
         println!("  append input: collection, group, key, body_hex (or deleted=true)");
         println!("  recover emits verified batches, then a final complete=true summary");
-        println!("  separate artifacts only; no home writer or root publisher is enabled");
+        println!("  publish includes the captured complete journal suffix in artifact CURRENT");
+        println!("  separate artifacts only; no home writer or memory ack change is enabled");
         return ExitCode::SUCCESS;
     }
     match run() {
@@ -46,8 +48,8 @@ fn options() -> Result<Options> {
     let mut args = std::env::args().skip(1);
     let command = args
         .next()
-        .ok_or_else(|| invalid("append or recover is required"))?;
-    if command != "append" && command != "recover" {
+        .ok_or_else(|| invalid("append, recover, or publish is required"))?;
+    if command != "append" && command != "recover" && command != "publish" {
         return Err(invalid("unknown command").into());
     }
     let mut values = BTreeMap::new();
@@ -100,9 +102,34 @@ fn run() -> Result<()> {
     let options = options()?;
     if options.command == "append" {
         append(&options)
+    } else if options.command == "publish" {
+        publish(&options)
     } else {
         recover(&options)
     }
+}
+
+fn publish(options: &Options) -> Result<()> {
+    let started = Instant::now();
+    let (result, disk) = observe_disk_reads(|| publish_artifact_journal(&options.artifact));
+    let result = result?;
+    println!(
+        "{}",
+        json!({
+            "complete":true,"artifact_only":true,"generation":result.current.generation,
+            "previous_generation":result.current.previous_generation,"frontier":result.current.frontier,
+        "receipt_uuid":result.receipt.to_string(),"dependency_parts":result.dependency_parts,
+            "mutations":result.mutations,"metadata_pages_written":result.metadata_pages_written,
+            "metadata_parts_written":result.metadata_parts_written,
+            "group_opens":disk.group_opens,"legacy_replay_bytes":disk.legacy_replay_bytes,
+            "journal_replay_bytes":disk.journal_replay_bytes,"footer_bytes":disk.footer_bytes,
+            "directory_reads":disk.directory_reads,"file_opens":disk.file_opens,
+            "read_operations":disk.read_operations,"format_probe_bytes":disk.format_probe_bytes,
+            "temporary_bytes_peak":disk.temporary_bytes_peak,
+            "elapsed_nanos":started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64
+        })
+    );
+    Ok(())
 }
 
 fn append(options: &Options) -> Result<()> {
