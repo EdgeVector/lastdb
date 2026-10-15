@@ -8,11 +8,14 @@ use crate::Result;
 use std::path::Path;
 use uuid::Uuid;
 
+mod dependency_record;
+
 /// Complete generation identity; ordinary reads do not enumerate this receipt.
 pub(super) struct Generation {
     pub(super) object: Uuid,
     pub(super) dependencies: u64,
     pub(super) coordinates: Vec<Coordinate>,
+    records: Vec<[u8; 80]>,
 }
 
 pub(super) fn write(
@@ -20,8 +23,29 @@ pub(super) fn write(
     current: &Current,
     dependencies: &[Coordinate],
 ) -> Result<Generation> {
+    write_with_prior(root, current, dependencies, None)
+}
+
+pub(super) fn write_carried(
+    root: &Path,
+    current: &Current,
+    dependencies: &[Coordinate],
+    prior: &Generation,
+) -> Result<Generation> {
+    write_with_prior(root, current, dependencies, Some(prior))
+}
+
+fn write_with_prior(
+    root: &Path,
+    current: &Current,
+    dependencies: &[Coordinate],
+    prior: Option<&Generation>,
+) -> Result<Generation> {
     if dependencies.len() > super::dependency::MAX_DEPENDENCIES {
         return Err(super::resource());
+    }
+    if dependencies.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(corrupt("generation coordinates are not strictly ordered"));
     }
     let parent = root.join("generations");
     if !parent.try_exists()? {
@@ -35,6 +59,10 @@ pub(super) fn write(
     let mut pages = PageWriter::new(path, object, current.generation)?;
     let current_bytes = current.encode()?;
     let count = dependencies.len();
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(count)
+        .map_err(|_| super::resource())?;
     let page_count = 1 + count.saturating_sub(150).div_ceil(201);
     let mut ordinal = 0;
     for number in 0..page_count {
@@ -47,7 +75,20 @@ pub(super) fn write(
             payload.extend_from_slice(&current_bytes);
         }
         for dependency in &dependencies[ordinal..ordinal + entries] {
-            payload.extend_from_slice(&dependency.capture(root, current)?);
+            let carried = prior.and_then(|prior| {
+                prior
+                    .coordinates
+                    .binary_search(dependency)
+                    .ok()
+                    .map(|at| prior.records[at])
+            });
+            let entry = match carried {
+                Some(entry) => entry,
+                None => dependency.capture(root, current)?,
+            };
+            dependency_record::decode(current, &entry)?;
+            payload.extend_from_slice(&entry);
+            records.push(entry);
         }
         pages.append(
             PageFields {
@@ -72,6 +113,7 @@ pub(super) fn write(
         object,
         dependencies: count as u64,
         coordinates: dependencies.to_vec(),
+        records,
     })
 }
 
@@ -88,6 +130,16 @@ fn prefix(current: &Current, count: u64, pages: u64, bytes: &[u8; 4096]) -> Vec<
 }
 
 pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
+    read(root, current, true)
+}
+
+/// Read checksummed receipt bytes for an already verified generation under the
+/// same exclusive lock. The caller must prove the complete CURRENT identity.
+pub(super) fn read_receipt(root: &Path, current: &Current) -> Result<Generation> {
+    read(root, current, false)
+}
+
+fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation> {
     let path = root
         .join("generations")
         .join(current.generation.to_string());
@@ -125,6 +177,10 @@ pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
     coordinates
         .try_reserve_exact(count as usize)
         .map_err(|_| super::resource())?;
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(count as usize)
+        .map_err(|_| super::resource())?;
     loop {
         let first_bytes = if number == 0 { 4096 } else { 0 };
         let entries = (count - ordinal).min(if number == 0 { 150 } else { 201 });
@@ -145,7 +201,15 @@ pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
             return Err(corrupt("generation receipt boundary or CURRENT mismatch"));
         }
         for entry in page.payload()[128 + first_bytes as usize..].chunks_exact(80) {
-            coordinates.push(verify_dependency(root, current, entry)?);
+            let coordinate = dependency_record::decode(current, entry)?;
+            if coordinates.last().is_some_and(|prior| *prior >= coordinate) {
+                return Err(corrupt("generation coordinates are not strictly ordered"));
+            }
+            if verify_parts && coordinate.capture(root, current)? != entry {
+                return Err(corrupt("generation dependency differs from immutable part"));
+            }
+            coordinates.push(coordinate);
+            records.push(entry.try_into().expect("fixed dependency record"));
         }
         ordinal += entries;
         if next == 0 {
@@ -172,21 +236,6 @@ pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
         object,
         dependencies: count,
         coordinates,
+        records,
     })
-}
-
-fn verify_dependency(root: &Path, current: &Current, entry: &[u8]) -> Result<Coordinate> {
-    // This first publisher emits no whole-part hashes; unknown flags never pass.
-    zero(&entry[1..4])?;
-    zero(&entry[40..72])?;
-    let coordinate = Coordinate {
-        kind: entry[0],
-        object: nonnil(uuid_at(entry, 8))?,
-        batch: u64_at(entry, 24),
-        part: u32_at(entry, 4),
-    };
-    if coordinate.capture(root, current)? != entry {
-        return Err(corrupt("generation dependency differs from immutable part"));
-    }
-    Ok(coordinate)
 }

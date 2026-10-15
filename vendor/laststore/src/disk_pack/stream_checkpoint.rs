@@ -21,18 +21,19 @@ pub(super) fn publish_stream(
             "stream change requires a complete unchanged root checkpoint",
         ));
     }
-    let old = ensure_generation(root, previous)?;
+    let old = ensure_generation(lock, previous)?;
     let mut current = previous.clone();
     current.generation = fresh_generation(root, previous.generation)?;
     current.previous_generation = previous.generation;
     current.required_features |= super::FEATURE_JOURNAL_LIFECYCLE;
     current.journal_stream = tail.stream;
     current.published_ms = artifact::unix_ms();
-    let receipt = generation::write(root, &current, &old.coordinates)?;
+    let receipt = generation::write_carried(root, &current, &old.coordinates, &old)?;
     if artifact::current(root)? != *previous {
         return Err(corrupt("CURRENT changed during stream checkpoint"));
     }
     publish_current(root, &current)?;
+    lock.remember_checked(&current)?;
     Ok(PublishedGeneration {
         current,
         receipt: receipt.object,

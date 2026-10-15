@@ -1,0 +1,81 @@
+{
+  "conflict_flags": "unknown",
+  "has_more": false,
+  "key_form": "opaque",
+  "limit": 100,
+  "next_cursor": null,
+  "offset": 0,
+  "ok": true,
+  "results": [
+    {
+      "author_pub_key": null,
+      "fields": {
+        "body": "final-body-0",
+        "bucket": "generated",
+        "title": "final-title-0"
+      },
+      "key": {
+        "hash": "generated",
+        "range": "record-0"
+      },
+      "metadata": {
+        "body": {
+          "atom_uuid": "ee64e0db596fde873712ce0ab8e93d4a283eed27193037d0ce966bd11e83376c",
+          "has_conflicts": "unknown",
+          "molecule_uuid": "Mc4-XSOAl-rHNy92lAatGC1yJHJhraXIzAQ6iohyPeY",
+          "source_file_name": null
+        },
+        "bucket": {
+          "atom_uuid": "6b353cb1e53e0f924ea27f43b7932568fb2bd2ca8fe602f00462085cd5e29b8e",
+          "has_conflicts": "unknown",
+          "molecule_uuid": "o60VVDi0B4XlkG_VaZN03GHrwC0C964_wWtRGY5R6hA",
+          "molecule_version": 9,
+          "source_file_name": null
+        },
+        "title": {
+          "atom_uuid": "df492278062403783b2486e8940045911461a4f08e98fae3ddb6893152bc7390",
+          "has_conflicts": "unknown",
+          "molecule_uuid": "m3yzr_5xvONkXOXDU96UsD_K220GRTiRFDljQcsQPjw",
+          "source_file_name": null
+        }
+      }
+    },
+    {
+      "author_pub_key": null,
+      "fields": {
+        "body": "cost-body-2",
+        "bucket": "generated",
+        "title": "cost-title-2"
+      },
+      "key": {
+        "hash": "generated",
+        "range": "record-1"
+      },
+      "metadata": {
+        "body": {
+          "atom_uuid": "305486ed3d665f450006d6c2fad540ecdf0b35ac77bed66619e540b21029d015",
+          "has_conflicts": "unknown",
+          "molecule_uuid": "Mc4-XSOAl-rHNy92lAatGC1yJHJhraXIzAQ6iohyPeY",
+          "source_file_name": null
+        },
+        "bucket": {
+          "atom_uuid": "6b353cb1e53e0f924ea27f43b7932568fb2bd2ca8fe602f00462085cd5e29b8e",
+          "has_conflicts": "unknown",
+          "molecule_uuid": "o60VVDi0B4XlkG_VaZN03GHrwC0C964_wWtRGY5R6hA",
+          "molecule_version": 9,
+          "source_file_name": null
+        },
+        "title": {
+          "atom_uuid": "6a6452a9131a4e44cb732c36e3d224ce5b00214699d813331c24fc9e30d0735a",
+          "has_conflicts": "unknown",
+          "molecule_uuid": "m3yzr_5xvONkXOXDU96UsD_K220GRTiRFDljQcsQPjw",
+          "source_file_name": null
+        }
+      }
+    }
+  ],
+  "returned_count": 2,
+  "tombstoned_rows": 0,
+  "total_count": null,
+  "unresolved_rows": 0
+}
