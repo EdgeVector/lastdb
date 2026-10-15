@@ -60,7 +60,7 @@ pub struct ReadCosts {
     pub shared_pages: u64,
     /// Payload block reads avoided by call-local sharing.
     pub shared_blocks: u64,
-    /// Full file extents requested, including CURRENT and part headers.
+    /// Bytes from complete successful extents, including CURRENT and part headers.
     pub file_bytes: u64,
     /// Bytes admitted against the aggregate call limit.
     pub budget_bytes: u64,
@@ -74,6 +74,9 @@ pub(super) struct Buffer {
 }
 
 impl Buffer {
+    pub(super) fn into_vec(self) -> Vec<u8> {
+        self.bytes
+    }
     pub(super) fn from_vec(bytes: Vec<u8>) -> Self {
         let charge = TemporaryBytes::new(bytes.capacity());
         Self {
@@ -93,6 +96,7 @@ pub struct ReadCall {
     pub(super) pages: HashMap<PageAddress, Arc<Page>>,
     pub(super) blocks: HashMap<(Uuid, u64, u64), Arc<Buffer>>,
     pub(super) parts: HashMap<PathBuf, (u64, u64)>,
+    pub(super) payload_class: ReadClass,
 }
 
 impl ReadCall {
@@ -131,6 +135,7 @@ impl ReadCall {
             pages: HashMap::new(),
             blocks: HashMap::new(),
             parts: HashMap::new(),
+            payload_class: ReadClass::Payload,
         })
     }
 
@@ -297,7 +302,7 @@ impl ReadCall {
         }
         let path = base.join(format!("part-{part:08x}"));
         self.verify_part(&path, location, part, ordinal)?;
-        let frame = self.read_extent(&path, offset.into(), stored, false, ReadClass::Payload)?;
+        let frame = self.read_extent(&path, offset.into(), stored, false, self.payload_class)?;
         self.charge(decoded as u64)?;
         let bytes =
             super::frame::decode(&frame.bytes, location.object, sequence, ordinal, decoded)?;

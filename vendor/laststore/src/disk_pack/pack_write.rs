@@ -20,12 +20,44 @@ pub(super) struct PackWriter {
     part_start: u64,
     part_bytes: u32,
     file: Option<File>,
+    source: Source,
+    sequence: u64,
+    logical_bytes: u64,
+    physical_bytes: u64,
+}
+
+pub(super) struct WrittenData {
+    pub(super) logical_bytes: u64,
+    pub(super) physical_bytes: u64,
 }
 
 impl PackWriter {
     pub(super) fn new(root: &Path, generation: u64) -> Result<Self> {
         let object = Uuid::new_v4();
         let path = root.join("packs").join(object.to_string());
+        Self::at(path, object, generation, Source::Pack, 0)
+    }
+
+    pub(super) fn journal(
+        root: &Path,
+        stream: Uuid,
+        sequence: u64,
+        generation: u64,
+    ) -> Result<Self> {
+        let path = root
+            .join("journal")
+            .join(stream.to_string())
+            .join(format!("batch-{sequence:016x}"));
+        Self::at(path, stream, generation, Source::Journal, sequence)
+    }
+
+    fn at(
+        path: PathBuf,
+        object: Uuid,
+        generation: u64,
+        source: Source,
+        sequence: u64,
+    ) -> Result<Self> {
         directory(&path)?;
         let map = PageWriter::new(path.join("map"), object, generation)?;
         Ok(Self {
@@ -40,6 +72,10 @@ impl PackWriter {
             part_start: 0,
             part_bytes: 128,
             file: None,
+            source,
+            sequence,
+            logical_bytes: 0,
+            physical_bytes: 0,
         })
     }
 
@@ -71,7 +107,7 @@ impl PackWriter {
         }
         let blocks = (record_bytes + u64::from(first_position)).div_ceil(BLOCK_BYTES as u64);
         Ok(Location {
-            source: Source::Pack,
+            source: self.source,
             version,
             record_bytes,
             object: self.object,
@@ -83,8 +119,20 @@ impl PackWriter {
         })
     }
 
-    fn append(&mut self, mut bytes: &[u8], hash: &mut Sha256) -> Result<()> {
+    fn append(&mut self, bytes: &[u8], hash: &mut Sha256) -> Result<()> {
         hash.update(bytes);
+        self.append_raw(bytes)
+    }
+
+    pub(super) fn position(&self) -> u64 {
+        self.logical_bytes
+    }
+
+    pub(super) fn append_raw(&mut self, mut bytes: &[u8]) -> Result<()> {
+        self.logical_bytes = self
+            .logical_bytes
+            .checked_add(bytes.len() as u64)
+            .ok_or_else(|| corrupt("data stream length overflow"))?;
         while !bytes.is_empty() {
             let take = bytes.len().min(BLOCK_BYTES - self.block.len());
             self.block.extend_from_slice(&bytes[..take]);
@@ -115,9 +163,10 @@ impl PackWriter {
         let mut header = [0; 128];
         header[..8].copy_from_slice(b"LDPART1\0");
         put16(&mut header, 8, 1);
-        header[10] = 1;
+        header[10] = if self.source == Source::Pack { 1 } else { 2 };
         put32(&mut header, 12, 128);
         header[16..32].copy_from_slice(self.object.as_bytes());
+        put64(&mut header, 32, self.sequence);
         put32(&mut header, 40, self.part);
         put32(&mut header, 44, self.part_bytes);
         put64(&mut header, 48, self.part_start);
@@ -127,14 +176,19 @@ impl PackWriter {
         header[80..112].copy_from_slice(&sum);
         file.seek(SeekFrom::Start(0))?;
         file.write_all(&header)?;
-        durability::sync_dirty_file(&file)
+        durability::sync_dirty_file(&file)?;
+        self.physical_bytes = self
+            .physical_bytes
+            .checked_add(u64::from(self.part_bytes))
+            .ok_or_else(|| corrupt("physical byte count overflow"))?;
+        Ok(())
     }
 
     fn flush_block(&mut self) -> Result<()> {
         if self.block.is_empty() {
             return Ok(());
         }
-        let frame = super::frame::encode(&self.block, self.object, 0, self.ordinal)?;
+        let frame = super::frame::encode(&self.block, self.object, self.sequence, self.ordinal)?;
         if u64::from(self.part_bytes) + frame.len() as u64 > PART_BYTES {
             self.finish_part()?;
             self.part = self
@@ -194,11 +248,23 @@ impl PackWriter {
         Ok(())
     }
 
-    pub(super) fn finish(mut self) -> Result<()> {
+    pub(super) fn finish(mut self) -> Result<WrittenData> {
         self.flush_block()?;
         self.flush_map()?;
         self.finish_part()?;
+        let map_bytes = self
+            .map
+            .next_page()
+            .checked_mul(super::PAGE_BYTES as u64)
+            .ok_or_else(|| corrupt("map byte count overflow"))?;
         self.map.finish()?;
-        durability::sync_directory(&File::open(&self.directory)?)
+        durability::sync_directory(&File::open(&self.directory)?)?;
+        Ok(WrittenData {
+            logical_bytes: self.logical_bytes,
+            physical_bytes: self
+                .physical_bytes
+                .checked_add(map_bytes)
+                .ok_or_else(|| corrupt("data byte count overflow"))?,
+        })
     }
 }

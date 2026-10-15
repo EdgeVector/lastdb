@@ -142,11 +142,16 @@ Offsets 8 through 15 use the same version, length, and flags fields as CURRENT.
 Offsets 16 through 31 contain the journal stream UUID.
 Offsets 32, 40, 48, and 56 contain `first_batch`, `last_complete_batch`, durable encoded bytes, and durable publication time.
 Offsets 64 through 95 contain the SHA-256 of the last complete batch marker.
+The encoded-byte count is the sum of complete physical data-part and map bytes in the retained interval.
+It excludes TAIL itself. Admission reserves uncompressed worst-case bytes, even when the physical files compress well.
 Offsets 96 through 127 contain the SHA-256 of the complete TAIL object.
 Offsets 128 through 143 contain the previous stream UUID, or zero for the first stream.
 Offsets 144 through 151 contain the previous stream's complete checkpoint frontier, or zero.
 Offsets 152 through 183 contain the previous stream's final durable TAIL digest, or zero. The rest is zero.
 The tail names only complete durable batches. It never names a partially written last batch.
+
+The [artifact journal implementation](lastdb-disk-journal.md) supplies complete batches and a bounded recovery reader.
+It refuses stream rotation and conversion operations and does not activate an online home writer.
 
 TAIL publication requires all named batch parts, maps, and markers to be durable first.
 Its update uses a temporary file, a file barrier, atomic rename, and a parent-directory barrier.

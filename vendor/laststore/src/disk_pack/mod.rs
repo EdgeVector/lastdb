@@ -8,6 +8,7 @@ mod bytes;
 mod call;
 mod current;
 mod frame;
+pub mod journal;
 mod location;
 mod pack_write;
 mod page;

@@ -38,6 +38,7 @@ fn receipt_json(r: fold_db::read_receipts::DiskReadReceipt, elapsed: Duration) -
         "directory_entries": r.directory_entries,
         "read_operations": r.read_operations,
         "legacy_replay_bytes": r.legacy_replay_bytes,
+        "journal_replay_bytes": r.journal_replay_bytes,
         "footer_bytes": r.footer_bytes,
         "payload_bytes": r.payload_bytes,
         "format_probe_bytes": r.format_probe_bytes,

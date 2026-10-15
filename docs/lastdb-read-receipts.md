@@ -1,5 +1,9 @@
 # LastDB read receipts
 
+The additive `journal_replay_bytes` field counts frame reads during explicit disk-pack recovery.
+An ordinary addressed payload read leaves that field at zero, including a direct journal extent.
+The [artifact journal](lastdb-disk-journal.md) uses this distinction.
+
 A read receipt measures the storage work for one query. It identifies extra
 file reads, bytes, and time before the pack file and disk directory changes.
 The receipt does not change the file format or the 10,000-record warm set cap.
