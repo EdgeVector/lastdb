@@ -13,6 +13,7 @@ mod dependency_walk;
 mod frame;
 mod generation;
 mod hash_range;
+pub mod home;
 pub mod journal;
 mod location;
 mod object;
@@ -46,7 +47,11 @@ pub const FEATURE_OBJECT_METADATA: u64 = 1;
 /// A previous generation of zero marks initial, unadmitted journal state.
 pub const FEATURE_JOURNAL_LIFECYCLE: u64 = 2;
 
-const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA | FEATURE_JOURNAL_LIFECYCLE;
+/// CURRENT feature bit: a native home descriptor controls placement and key identity.
+pub const FEATURE_NATIVE_HOME: u64 = 4;
+
+const SUPPORTED_FEATURES: u64 =
+    FEATURE_OBJECT_METADATA | FEATURE_JOURNAL_LIFECYCLE | FEATURE_NATIVE_HOME;
 
 const PAGE_BYTES: usize = 16_384;
 const HEADER_BYTES: usize = 128;
@@ -68,4 +73,14 @@ fn corrupt(reason: &'static str) -> crate::Error {
 
 fn resource() -> crate::Error {
     crate::Error::ReadBudgetExceeded
+}
+
+/// Fence artifact-only administrative commands away from native homes.
+pub fn require_artifact_path(root: &std::path::Path) -> crate::Result<()> {
+    if root.join(home::MARKER).try_exists()? {
+        return Err(crate::Error::Config(
+            "artifact-only command refuses a native pack home".into(),
+        ));
+    }
+    artifact::require_marker(root)
 }

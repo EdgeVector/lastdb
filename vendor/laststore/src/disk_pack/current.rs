@@ -26,6 +26,8 @@ pub struct Current {
     pub published_ms: u64,
     /// Mandatory format features. Unknown bits cause an early refusal.
     pub required_features: u64,
+    /// SHA-256 of the complete native home descriptor; zero for separate artifacts.
+    pub home_digest: [u8; 32],
 }
 
 impl Current {
@@ -41,7 +43,7 @@ impl Current {
             return Err(corrupt("unsupported CURRENT format or feature"));
         }
         zero(&bytes[12..16])?;
-        zero(&bytes[160..])?;
+        zero(&bytes[192..])?;
         verify_checksum(bytes, 128)?;
         let current = Self {
             generation: u64_at(bytes, 16),
@@ -61,6 +63,7 @@ impl Current {
             journal_stream: nonnil(uuid_at(bytes, 80))?,
             published_ms: u64_at(bytes, 120),
             required_features: u64_at(bytes, 112),
+            home_digest: bytes[160..192].try_into().expect("fixed home digest"),
         };
         current.validate()?;
         if u64_at(bytes, 96) != current.frontier {
@@ -90,6 +93,7 @@ impl Current {
         put64(&mut bytes, 96, self.frontier);
         put64(&mut bytes, 120, self.published_ms);
         put64(&mut bytes, 112, self.required_features);
+        bytes[160..192].copy_from_slice(&self.home_digest);
         let sum = checksum(&bytes, 128);
         bytes[128..160].copy_from_slice(&sum);
         Ok(bytes)
@@ -103,6 +107,12 @@ impl Current {
             || self.frontier > self.journal_frontier
             || self.directory.kind != TreeKind::Directory
             || self.required_features & !super::SUPPORTED_FEATURES != 0
+            || ((self.required_features & super::FEATURE_NATIVE_HOME != 0)
+                != (self.home_digest != [0; 32]))
+            || (self.required_features & super::FEATURE_NATIVE_HOME != 0
+                && self.required_features
+                    & (super::FEATURE_OBJECT_METADATA | super::FEATURE_JOURNAL_LIFECYCLE)
+                    != (super::FEATURE_OBJECT_METADATA | super::FEATURE_JOURNAL_LIFECYCLE))
             || (self.required_features & super::FEATURE_JOURNAL_LIFECYCLE != 0
                 && self.required_features & super::FEATURE_OBJECT_METADATA == 0)
             || (self.required_features & super::FEATURE_JOURNAL_LIFECYCLE != 0

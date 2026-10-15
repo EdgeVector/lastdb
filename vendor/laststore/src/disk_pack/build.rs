@@ -11,8 +11,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-/// Streaming construction of a separate immutable artifact, never a LastStore home.
-/// The artifact retains every file. No journal, online writer, or reclamation is enabled.
+/// Streaming construction core, with separate artifact and native-home entry points.
+/// Every output file remains retained. Construction does not select a node backend.
 pub struct ArtifactBuilder {
     root: PathBuf,
     directory: TreeWriter,
@@ -22,6 +22,8 @@ pub struct ArtifactBuilder {
     key_codec: u16,
     failed: bool,
     dependencies: Dependencies,
+    required_features: u64,
+    home_digest: [u8; 32],
 }
 
 /// Streaming writer for strictly ordered full keys in one collection and group.
@@ -44,16 +46,46 @@ impl ArtifactBuilder {
         generation: u64,
         frontier: u64,
     ) -> Result<Self> {
+        Self::create_inner(root, placement_codec, key_codec, generation, frontier, None)
+    }
+
+    pub(super) fn create_native(
+        root: &Path,
+        descriptor: &super::home::HomeDescriptor,
+        frontier: u64,
+    ) -> Result<Self> {
+        Self::create_inner(
+            root,
+            super::home::PLACEMENT_CODEC,
+            super::home::KEY_CODEC,
+            1,
+            frontier,
+            Some(descriptor),
+        )
+    }
+
+    fn create_inner(
+        root: &Path,
+        placement_codec: u16,
+        key_codec: u16,
+        generation: u64,
+        frontier: u64,
+        native: Option<&super::home::HomeDescriptor>,
+    ) -> Result<Self> {
         if generation == 0 {
             return Err(corrupt("artifact creation generation is zero"));
         }
         directory(root)?;
-        let mut marker = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(root.join("disk-pack-artifact-v1"))?;
-        marker.write_all(b"artifact-only=1\nformat=1\n")?;
-        durability::sync_dirty_file(&marker)?;
+        if let Some(descriptor) = native {
+            descriptor.write(root)?;
+        } else {
+            let mut marker = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(root.join("disk-pack-artifact-v1"))?;
+            marker.write_all(b"artifact-only=1\nformat=1\n")?;
+            durability::sync_dirty_file(&marker)?;
+        }
         for name in ["directory", "locator", "packs", "journal"] {
             directory(&root.join(name))?;
         }
@@ -67,6 +99,17 @@ impl ArtifactBuilder {
             key_codec,
             failed: false,
             dependencies: Dependencies::new(),
+            home_digest: match native {
+                Some(descriptor) => super::bytes::digest(&descriptor.encode()?),
+                None => [0; 32],
+            },
+            required_features: super::FEATURE_OBJECT_METADATA
+                | super::FEATURE_JOURNAL_LIFECYCLE
+                | if native.is_some() {
+                    super::FEATURE_NATIVE_HOME
+                } else {
+                    0
+                },
         })
     }
 
@@ -113,7 +156,8 @@ impl ArtifactBuilder {
             key_codec: self.key_codec,
             journal_stream: Uuid::new_v4(),
             published_ms: unix_ms(),
-            required_features: super::SUPPORTED_FEATURES,
+            required_features: self.required_features,
+            home_digest: self.home_digest,
         };
         let temporary = self.root.join("CURRENT.pending");
         super::generation::write(&self.root, &current, &self.dependencies.finish())?;

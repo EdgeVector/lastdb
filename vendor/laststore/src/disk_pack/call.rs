@@ -97,6 +97,7 @@ pub struct ReadCall {
     pub(super) blocks: HashMap<(Uuid, u64, u64), Arc<Buffer>>,
     pub(super) parts: HashMap<PathBuf, (u64, u64)>,
     pub(super) payload_class: ReadClass,
+    pub(super) native_descriptor: Option<super::home::HomeDescriptor>,
 }
 
 impl ReadCall {
@@ -123,19 +124,38 @@ impl ReadCall {
         if current.placement_codec != placement_codec || current.key_codec != key_codec {
             return Err(corrupt("CURRENT codec differs from held home descriptor"));
         }
+        let native_descriptor = if current.required_features & super::FEATURE_NATIVE_HOME != 0 {
+            if budget.bytes < 8192 {
+                return Err(resource());
+            }
+            if root.join("disk-pack-artifact-v1").try_exists()? {
+                return Err(corrupt("native home contains an artifact marker"));
+            }
+            let descriptor = super::home::HomeDescriptor::read(root)?;
+            descriptor.check_current(&current)?;
+            Some(descriptor)
+        } else {
+            None
+        };
+        let initial_bytes = if native_descriptor.is_some() {
+            8192
+        } else {
+            4096
+        };
         Ok(Self {
             root: root.to_path_buf(),
             current,
             budget,
             costs: ReadCosts {
-                file_bytes: 4096,
-                budget_bytes: 4096,
+                file_bytes: initial_bytes,
+                budget_bytes: initial_bytes,
                 ..ReadCosts::default()
             },
             pages: HashMap::new(),
             blocks: HashMap::new(),
             parts: HashMap::new(),
             payload_class: ReadClass::Payload,
+            native_descriptor,
         })
     }
 

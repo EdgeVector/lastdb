@@ -44,6 +44,7 @@ impl Stream {
             .checked_add(1)
             .ok_or_else(|| corrupt("recovery generation overflow"))?;
         let call = ReadCall {
+            native_descriptor: None,
             root: root.to_path_buf(),
             current,
             // Recovery streams blocks instead of retaining a complete batch cache.

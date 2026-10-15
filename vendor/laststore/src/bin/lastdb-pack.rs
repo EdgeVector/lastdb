@@ -125,6 +125,9 @@ fn options() -> Result<Options> {
 
 fn run() -> Result<()> {
     let options = options()?;
+    if options.command != "build" {
+        laststore::disk_pack::require_artifact_path(&options.artifact)?;
+    }
     options.budget.validate()?;
     let mut input = BufReader::new(File::open(&options.input)?);
     match options.command.as_str() {
