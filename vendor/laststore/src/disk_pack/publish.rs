@@ -58,7 +58,7 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
         return super::stream_checkpoint::publish_stream(lock, &previous, &tail);
     }
     let mut recovery = JournalRecovery::open(root)?;
-    let old_receipt = ensure_generation(root, &previous)?;
+    let old_receipt = ensure_generation(lock, &previous)?;
     if recovery.tail().last_batch == previous.frontier {
         return Ok(PublishedGeneration {
             current: previous,
@@ -83,7 +83,7 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
         pages: 0,
         parts: 0,
         mutations: 0,
-        dependencies: Dependencies::from_coordinates(old_receipt.coordinates)?,
+        dependencies: Dependencies::from_coordinates(old_receipt.coordinates.clone())?,
     };
     while let Some(batch) = recovery.next_batch()? {
         publisher.batch(recovery.tail().stream, batch.sequence, batch.mutations)?;
@@ -99,12 +99,14 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
         .dependencies
         .add_tree(&publisher.proposed.directory, parts)?;
     let dependencies = publisher.dependencies.finish();
-    let receipt = generation::write(root, &publisher.proposed, &dependencies)?;
+    let receipt =
+        generation::write_carried(root, &publisher.proposed, &dependencies, &old_receipt)?;
     // A changed CURRENT under the lock is an unsupported writer, never a merge guess.
     if artifact::current(root)? != previous {
         return Err(corrupt("CURRENT changed during publication"));
     }
     publish_current(root, &publisher.proposed)?;
+    lock.remember_checked(&publisher.proposed)?;
     Ok(PublishedGeneration {
         current: publisher.proposed,
         receipt: receipt.object,
@@ -201,16 +203,29 @@ impl Publisher<'_> {
     }
 }
 
-pub(super) fn ensure_generation(root: &Path, current: &Current) -> Result<generation::Generation> {
-    if root
+pub(super) fn ensure_generation(
+    lock: &WriteLock,
+    current: &Current,
+) -> Result<generation::Generation> {
+    let root = lock.root();
+    let checked = lock.checked(current)?;
+    let generation = if root
         .join("generations")
         .join(current.generation.to_string())
         .try_exists()?
     {
-        generation::verify(root, current)
+        if checked {
+            generation::read_receipt(root, current)?
+        } else {
+            generation::verify(root, current)?
+        }
+    } else if checked {
+        return Err(corrupt("checked generation receipt is missing"));
     } else {
-        generation::write(root, current, &dependency_walk::collect(root, current)?)
-    }
+        generation::write(root, current, &dependency_walk::collect(root, current)?)?
+    };
+    lock.remember_checked(current)?;
+    Ok(generation)
 }
 
 pub(super) fn fresh_generation(root: &Path, previous: u64) -> Result<u64> {
