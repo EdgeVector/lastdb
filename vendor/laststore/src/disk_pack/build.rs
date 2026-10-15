@@ -1,3 +1,4 @@
+use super::dependency::Dependencies;
 use super::pack_write::PackWriter;
 use super::page_write::directory;
 use super::tree_write::TreeWriter;
@@ -20,6 +21,7 @@ pub struct ArtifactBuilder {
     placement_codec: u16,
     key_codec: u16,
     failed: bool,
+    dependencies: Dependencies,
 }
 
 /// Streaming writer for strictly ordered full keys in one collection and group.
@@ -64,6 +66,7 @@ impl ArtifactBuilder {
             placement_codec,
             key_codec,
             failed: false,
+            dependencies: Dependencies::new(),
         })
     }
 
@@ -92,13 +95,14 @@ impl ArtifactBuilder {
 
     /// Finish all dependencies and publish the initial CURRENT with file and directory barriers.
     /// Failed artifacts remain separate and never replace an existing readable artifact.
-    pub fn finish(self) -> Result<Current> {
+    pub fn finish(mut self) -> Result<Current> {
         if self.failed {
             return Err(corrupt(
                 "refusing incomplete or failed artifact publication",
             ));
         }
-        let directory = self.directory.finish()?;
+        let (directory, parts) = self.directory.finish_with_parts()?;
+        self.dependencies.add_contiguous_tree(&directory, parts)?;
         let current = Current {
             generation: self.generation,
             previous_generation: 0,
@@ -112,6 +116,7 @@ impl ArtifactBuilder {
             required_features: super::FEATURE_OBJECT_METADATA,
         };
         let temporary = self.root.join("CURRENT.pending");
+        super::generation::write(&self.root, &current, &self.dependencies.finish())?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -206,8 +211,21 @@ impl GroupWriter<'_> {
         if self.owner.failed {
             return Err(corrupt("refusing failed group publication"));
         }
-        self.pack.take().expect("active group").finish()?;
-        let locator = self.locator.take().expect("active group").finish()?;
+        let data = self.pack.take().expect("active group").finish()?;
+        self.owner.dependencies.add_payload(
+            data.object,
+            data.sequence,
+            data.data_parts,
+            data.map_pages,
+        )?;
+        let (locator, parts) = self
+            .locator
+            .take()
+            .expect("active group")
+            .finish_with_parts()?;
+        self.owner
+            .dependencies
+            .add_contiguous_tree(&locator, parts)?;
         let value = DirectoryEntry {
             group: self.group,
             locator,

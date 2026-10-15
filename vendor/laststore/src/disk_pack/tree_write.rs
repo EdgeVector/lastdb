@@ -79,16 +79,14 @@ impl TreeWriter {
         Ok(())
     }
 
-    pub(super) fn finish(mut self) -> Result<TreeRoot> {
+    pub(super) fn finish(self) -> Result<TreeRoot> {
+        self.finish_with_parts().map(|(root, _)| root)
+    }
+
+    pub(super) fn finish_with_parts(mut self) -> Result<(TreeRoot, u64)> {
         self.flush_leaf()?;
         if self.levels[0].is_empty() && self.last_key.is_none() {
-            self.pages.finish()?;
-            return Ok(TreeRoot {
-                object: self.object,
-                page: 0,
-                height: 1,
-                kind: self.kind,
-            });
+            return self.finish_root(0, 1);
         }
         for level in 0..8 {
             let children = std::mem::take(&mut self.levels[level]);
@@ -99,13 +97,7 @@ impl TreeWriter {
                 .any(|children| !children.is_empty());
             if children.len() == 1 && !higher {
                 let page = children[0].number;
-                self.pages.finish()?;
-                return Ok(TreeRoot {
-                    object: self.object,
-                    page,
-                    height: (level + 1) as u8,
-                    kind: self.kind,
-                });
+                return self.finish_root(page, (level + 1) as u8);
             }
             if children.is_empty() {
                 continue;
@@ -118,5 +110,19 @@ impl TreeWriter {
             }
         }
         Err(corrupt("tree height exhausted before publication"))
+    }
+
+    fn finish_root(self, page: u64, height: u8) -> Result<(TreeRoot, u64)> {
+        let parts = self.pages.next_page().div_ceil(512);
+        self.pages.finish()?;
+        Ok((
+            TreeRoot {
+                object: self.object,
+                page,
+                height,
+                kind: self.kind,
+            },
+            parts,
+        ))
     }
 }

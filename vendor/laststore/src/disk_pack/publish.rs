@@ -1,3 +1,4 @@
+use super::dependency::Dependencies;
 use super::dependency_walk;
 use super::generation;
 use super::journal::{JournalRecovery, RecoveredMutation};
@@ -16,7 +17,7 @@ pub struct PublishedGeneration {
     pub current: Current,
     /// Immutable receipt identity that retains the complete CURRENT bytes.
     pub receipt: Uuid,
-    /// Complete live dependency parts named by the receipt.
+    /// Complete retained dependency parts, including conservative prior references.
     pub dependency_parts: u64,
     /// Operations included from complete captured journal batches.
     pub mutations: u64,
@@ -33,6 +34,7 @@ struct Publisher<'a> {
     pages: u64,
     parts: u64,
     mutations: u64,
+    dependencies: Dependencies,
 }
 
 /// Recover complete batches into immutable path copies, then atomically publish
@@ -70,9 +72,10 @@ pub fn publish_artifact_journal(root: &Path) -> Result<PublishedGeneration> {
         pages: 0,
         parts: 0,
         mutations: 0,
+        dependencies: Dependencies::from_coordinates(old_receipt.coordinates)?,
     };
     while let Some(batch) = recovery.next_batch()? {
-        publisher.batch(batch.mutations)?;
+        publisher.batch(recovery.tail().stream, batch.sequence, batch.mutations)?;
     }
     if !recovery.is_complete() {
         return Err(corrupt("publication did not reach captured TAIL"));
@@ -80,8 +83,11 @@ pub fn publish_artifact_journal(root: &Path) -> Result<PublishedGeneration> {
     let (directory, pages, parts) = publisher.directory.finish()?;
     publisher.proposed.directory = directory;
     publisher.pages += pages;
-    publisher.parts += parts;
-    let dependencies = dependency_walk::collect(root, &publisher.proposed)?;
+    publisher.parts += parts.len() as u64;
+    publisher
+        .dependencies
+        .add_tree(&publisher.proposed.directory, parts)?;
+    let dependencies = publisher.dependencies.finish();
     let receipt = generation::write(root, &publisher.proposed, &dependencies)?;
     // A changed CURRENT under the lock is an unsupported writer, never a merge guess.
     if artifact::current(root)? != previous {
@@ -99,8 +105,14 @@ pub fn publish_artifact_journal(root: &Path) -> Result<PublishedGeneration> {
 }
 
 impl Publisher<'_> {
-    fn batch(&mut self, mut mutations: Vec<RecoveredMutation>) -> Result<()> {
+    fn batch(
+        &mut self,
+        stream: Uuid,
+        sequence: u64,
+        mut mutations: Vec<RecoveredMutation>,
+    ) -> Result<()> {
         self.mutations += mutations.len() as u64;
+        self.batch_dependencies(stream, sequence)?;
         // Sorting changes only physical work order, after complete COMMIT verification.
         mutations.sort_by(|a, b| {
             a.mutation
@@ -131,6 +143,7 @@ impl Publisher<'_> {
                     .finish()?;
                 self.pages += 1;
                 self.parts += 1;
+                self.dependencies.add_contiguous_tree(&tree, 1)?;
                 tree
             };
             let mut locator = TreeEdit::new(self.root, tree, self.proposed.generation)?;
@@ -142,7 +155,8 @@ impl Publisher<'_> {
             }
             let (tree, pages, parts) = locator.finish()?;
             self.pages += pages;
-            self.parts += parts;
+            self.parts += parts.len() as u64;
+            self.dependencies.add_tree(&tree, parts)?;
             let value = DirectoryEntry {
                 group,
                 locator: tree,
@@ -161,6 +175,17 @@ impl Publisher<'_> {
             &mut call,
             item.mutation.key.as_bytes(),
             item.location.encode()?,
+        )
+    }
+
+    fn batch_dependencies(&mut self, stream: Uuid, sequence: u64) -> Result<()> {
+        let mut call = artifact::metadata_call(self.root, self.proposed.clone());
+        let object = call.journal_object_metadata(stream, sequence)?;
+        self.dependencies.add_payload(
+            stream,
+            sequence,
+            object.data_parts,
+            object.blocks.div_ceil(super::MAP_ENTRIES),
         )
     }
 }

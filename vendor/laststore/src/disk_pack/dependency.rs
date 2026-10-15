@@ -1,6 +1,6 @@
 use super::bytes::*;
 use super::page::Page;
-use super::{artifact, corrupt, Current, PAGE_BYTES, PART_BYTES};
+use super::{artifact, corrupt, Current, TreeKind, TreeRoot, PAGE_BYTES, PART_BYTES};
 use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
 use std::io::Read;
@@ -110,6 +110,73 @@ impl Dependencies {
         Self {
             entries: Vec::new(),
         }
+    }
+
+    pub(super) fn from_coordinates(entries: Vec<Coordinate>) -> Result<Self> {
+        if entries.len() > MAX_DEPENDENCIES {
+            return Err(super::resource());
+        }
+        Ok(Self { entries })
+    }
+
+    pub(super) fn add_tree(
+        &mut self,
+        tree: &TreeRoot,
+        parts: impl IntoIterator<Item = u32>,
+    ) -> Result<()> {
+        for part in parts {
+            self.add(Coordinate {
+                kind: if tree.kind == TreeKind::Directory {
+                    1
+                } else {
+                    2
+                },
+                object: tree.object,
+                batch: 0,
+                part,
+            })?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn add_contiguous_tree(&mut self, tree: &TreeRoot, parts: u64) -> Result<()> {
+        if parts > MAX_DEPENDENCIES as u64 {
+            return Err(super::resource());
+        }
+        self.add_tree(tree, (0..parts).map(|part| part as u32))
+    }
+
+    pub(super) fn add_payload(
+        &mut self,
+        object: Uuid,
+        batch: u64,
+        data_parts: u64,
+        map_pages: u64,
+    ) -> Result<()> {
+        let map_parts = map_pages.div_ceil(512);
+        if data_parts
+            .checked_add(map_parts)
+            .map_or(true, |count| count > MAX_DEPENDENCIES as u64)
+        {
+            return Err(super::resource());
+        }
+        for part in 0..map_parts {
+            self.add(Coordinate {
+                kind: 3,
+                object,
+                batch,
+                part: part as u32,
+            })?;
+        }
+        for part in 0..data_parts {
+            self.add(Coordinate {
+                kind: if batch > 0 { 4 } else { 5 },
+                object,
+                batch,
+                part: part as u32,
+            })?;
+        }
+        Ok(())
     }
 
     pub(super) fn add(&mut self, coordinate: Coordinate) -> Result<()> {

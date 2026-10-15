@@ -27,6 +27,10 @@ pub(super) struct PackWriter {
 }
 
 pub(super) struct WrittenData {
+    pub(super) object: Uuid,
+    pub(super) sequence: u64,
+    pub(super) data_parts: u64,
+    pub(super) map_pages: u64,
     pub(super) logical_bytes: u64,
     pub(super) physical_bytes: u64,
 }
@@ -257,6 +261,7 @@ impl PackWriter {
             .next_page()
             .checked_mul(super::PAGE_BYTES as u64)
             .ok_or_else(|| corrupt("map byte count overflow"))?;
+        let map_pages = self.map.next_page();
         let data_parts = if self.ordinal == 0 {
             0
         } else {
@@ -265,6 +270,10 @@ impl PackWriter {
         self.map.finish_block_map(self.logical_bytes, data_parts)?;
         durability::sync_directory(&File::open(&self.directory)?)?;
         Ok(WrittenData {
+            object: self.object,
+            sequence: self.sequence,
+            data_parts,
+            map_pages,
             logical_bytes: self.logical_bytes,
             physical_bytes: self
                 .physical_bytes

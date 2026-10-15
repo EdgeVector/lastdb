@@ -12,6 +12,7 @@ use uuid::Uuid;
 pub(super) struct Generation {
     pub(super) object: Uuid,
     pub(super) dependencies: u64,
+    pub(super) coordinates: Vec<Coordinate>,
 }
 
 pub(super) fn write(
@@ -19,6 +20,9 @@ pub(super) fn write(
     current: &Current,
     dependencies: &[Coordinate],
 ) -> Result<Generation> {
+    if dependencies.len() > super::dependency::MAX_DEPENDENCIES {
+        return Err(super::resource());
+    }
     let parent = root.join("generations");
     if !parent.try_exists()? {
         directory(&parent)?;
@@ -67,6 +71,7 @@ pub(super) fn write(
     Ok(Generation {
         object,
         dependencies: count as u64,
+        coordinates: dependencies.to_vec(),
     })
 }
 
@@ -116,6 +121,10 @@ pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
     let expected_prefix = prefix(current, count, pages, &current_bytes);
     let (mut number, mut ordinal) = (0, 0);
     let mut page = first;
+    let mut coordinates = Vec::new();
+    coordinates
+        .try_reserve_exact(count as usize)
+        .map_err(|_| super::resource())?;
     loop {
         let first_bytes = if number == 0 { 4096 } else { 0 };
         let entries = (count - ordinal).min(if number == 0 { 150 } else { 201 });
@@ -136,7 +145,7 @@ pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
             return Err(corrupt("generation receipt boundary or CURRENT mismatch"));
         }
         for entry in page.payload()[128 + first_bytes as usize..].chunks_exact(80) {
-            verify_dependency(root, current, entry)?;
+            coordinates.push(verify_dependency(root, current, entry)?);
         }
         ordinal += entries;
         if next == 0 {
@@ -162,10 +171,11 @@ pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
     Ok(Generation {
         object,
         dependencies: count,
+        coordinates,
     })
 }
 
-fn verify_dependency(root: &Path, current: &Current, entry: &[u8]) -> Result<()> {
+fn verify_dependency(root: &Path, current: &Current, entry: &[u8]) -> Result<Coordinate> {
     // This first publisher emits no whole-part hashes; unknown flags never pass.
     zero(&entry[1..4])?;
     zero(&entry[40..72])?;
@@ -178,5 +188,5 @@ fn verify_dependency(root: &Path, current: &Current, entry: &[u8]) -> Result<()>
     if coordinate.capture(root, current)? != entry {
         return Err(corrupt("generation dependency differs from immutable part"));
     }
-    Ok(())
+    Ok(coordinate)
 }

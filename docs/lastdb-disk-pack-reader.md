@@ -92,7 +92,7 @@ It also supports [bounded hash ranges](lastdb-disk-pack-ranges.md) at one captur
 The LastDB home and ack paths still require these steps:
 
 1. Map every store write and memory ack to a complete recovery-journal batch.
-2. Add incremental dependency inventory and journal resume for the online publisher.
+2. Add journal resume and the online publisher's admission and retention rules.
 3. Add the compatible bridge reader and allocate the home fence.
 4. Connect exact, batch, and hash-range LastDB reads, with protected warm-set admission.
 5. Add backup retention, source-free restore, and concurrent conversion.
