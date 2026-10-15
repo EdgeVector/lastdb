@@ -80,7 +80,10 @@ pub(super) fn write(home: &DiskHome, input: Option<&Path>, command: &str) -> Res
             };
             length = length
                 .checked_add(
-                    (160 + collection.len() + key.len() + body.as_ref().map_or(0, Vec::len)) as u64,
+                    (64 + collection.len()
+                        + key.len()
+                        + body.as_ref().map_or(0, |body| 96 + key.len() + body.len()))
+                        as u64,
                 )
                 .filter(|length| *length <= 128 * 1024 * 1024)
                 .ok_or_else(|| invalid("complete batch exceeds 128 MiB"))?;
@@ -96,6 +99,8 @@ pub(super) fn write(home: &DiskHome, input: Option<&Path>, command: &str) -> Res
     }
     let mut writer = home.journal()?;
     let recovered_frontier = writer.current().frontier;
+    let mut quote = None;
+    let mut held = None;
     let batch = if operations.is_empty() {
         None
     } else {
@@ -103,8 +108,12 @@ pub(super) fn write(home: &DiskHome, input: Option<&Path>, command: &str) -> Res
             .duration_since(std::time::UNIX_EPOCH)?
             .as_millis()
             .try_into()?;
-        Some(writer.append(operations, accepted_ms)?)
+        let reservation = writer.reserve(&operations)?;
+        quote = Some(quote_json(reservation.quote()));
+        held = Some(pressure_json(writer.pressure()?));
+        Some(writer.append_reserved(operations, accepted_ms, reservation)?)
     };
+    let after_append = pressure_json(writer.pressure()?);
     if command == "write" || command == "publish" {
         writer.publish()?;
     }
@@ -112,6 +121,56 @@ pub(super) fn write(home: &DiskHome, input: Option<&Path>, command: &str) -> Res
         json!({"recovered_frontier":recovered_frontier,"frontier":writer.current().frontier,
         "generation":writer.current().generation,"durable_batch":batch.as_ref().map(|batch|batch.sequence),
         "operations":batch.as_ref().map_or(0,|batch|batch.locations.len()),
+        "journal_quote":quote,"journal_reserved":held,"journal_after_append":after_append,
+        "journal_final":pressure_json(writer.pressure()?),
         "published":command!="append"}),
+    )
+}
+
+pub(super) fn quote_json(quote: laststore::disk_pack::journal::JournalQuote) -> Value {
+    json!({"operations":quote.operations(),"logical_bytes":quote.logical_bytes(),
+        "physical_reserve":quote.physical_reserve(),"scope":"journal_only"})
+}
+
+fn pressure_json(pressure: laststore::disk_pack::journal::JournalPressure) -> Value {
+    json!({"reserved_bytes":pressure.reserved_bytes,"durable_suffix_bytes":pressure.durable_suffix_bytes,
+        "reserved_batches":pressure.reserved_batches,"oldest_reservation_ms":pressure.oldest_reservation_ms,
+        "oldest_unpublished_ms":pressure.oldest_unpublished_ms,"should_materialize":pressure.should_materialize})
+}
+
+pub(super) fn plan(home: &DiskHome, path: &Path) -> Result<Value> {
+    use laststore::disk_pack::journal::JournalQuote;
+    let mut input = BufReader::new(File::open(path)?);
+    let mut shapes = Vec::new();
+    while let Some(row) = next_line(&mut input)? {
+        if shapes.len() == 4096 {
+            return Err(invalid("complete batch exceeds 4096 operations").into());
+        }
+        let body_bytes = if row.get("deleted").and_then(Value::as_bool) == Some(true) {
+            None
+        } else {
+            let value = text(&row, "body_hex")?;
+            if value.len() % 2 != 0
+                || value.len() > 2 * 1024 * 1024
+                || !value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            {
+                return Err(invalid(
+                    "body hex requires lowercase complete bytes and at most 1 MiB",
+                )
+                .into());
+            }
+            Some((value.len() / 2) as u64)
+        };
+        shapes.push(home.descriptor().mutation_shape(
+            text(&row, "collection")?,
+            text(&row, "key")?,
+            body_bytes,
+        )?);
+    }
+    Ok(
+        json!({"journal_quote":quote_json(JournalQuote::from_shapes(&shapes)?),
+        "directory_reserved":false,"logical_records_reserved":false,"memory_ack_allowed":false}),
     )
 }

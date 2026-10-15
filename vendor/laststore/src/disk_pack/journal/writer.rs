@@ -8,6 +8,8 @@ use crate::disk_pack::{corrupt, Current, Location, MutationVersion, PublishedGen
 use crate::Result;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Instant;
 use uuid::Uuid;
 
 /// A complete journal batch with durable recovery bytes and exact record extents.
@@ -31,6 +33,8 @@ pub struct JournalWriter {
     poisoned: bool,
     reserved_bytes: u64,
     lock: WriteLock,
+    admission: Arc<super::admission::AdmissionLedger>,
+    suffix_oldest: Option<Instant>,
 }
 
 impl JournalWriter {
@@ -66,6 +70,8 @@ impl JournalWriter {
             poisoned: false,
             reserved_bytes: 0,
             lock,
+            admission: Arc::default(),
+            suffix_oldest: None,
         }
     }
 
@@ -93,6 +99,7 @@ impl JournalWriter {
         self.current = publication.current.clone();
         self.tail = tail;
         self.reserved_bytes = 0;
+        self.suffix_oldest = None;
         self.poisoned = false;
         Ok(publication)
     }
@@ -107,6 +114,32 @@ impl JournalWriter {
         self.reserved_bytes
     }
 
+    /// Reserve a complete journal batch before its owned payloads move.
+    /// This grants no directory capacity, logical-record protection, or ack.
+    pub fn reserve(&self, mutations: &[JournalMutation]) -> Result<super::JournalReservation> {
+        self.reserve_quote(super::JournalQuote::from_plan(
+            mutations.len(),
+            &BatchPlan::new(mutations)?,
+        ))
+    }
+
+    /// Reserve checked dimensions without retaining or copying the body.
+    pub fn reserve_quote(&self, quote: super::JournalQuote) -> Result<super::JournalReservation> {
+        self.check_admission()?;
+        self.admission.reserve(
+            quote,
+            self.reserved_bytes,
+            self.tail.last_batch - (self.tail.first_batch - 1),
+            self.suffix_oldest,
+        )
+    }
+
+    /// Report live ticket capacity in addition to the durable suffix.
+    pub fn pressure(&self) -> Result<super::JournalPressure> {
+        self.admission
+            .pressure(self.reserved_bytes, self.suffix_oldest)
+    }
+
     /// Append one complete bounded batch, then publish TAIL after every file barrier.
     /// This call does not publish directory roots or release protected write records.
     pub fn append(
@@ -114,6 +147,27 @@ impl JournalWriter {
         mutations: Vec<JournalMutation>,
         accepted_ms: u64,
     ) -> Result<DurableBatch> {
+        let reservation = self.reserve(&mutations)?;
+        self.append_reserved(mutations, accepted_ms, reservation)
+    }
+
+    /// Consume only a ticket issued by this writer with sufficient dimensions.
+    pub fn append_reserved(
+        &mut self,
+        mutations: Vec<JournalMutation>,
+        accepted_ms: u64,
+        mut reservation: super::JournalReservation,
+    ) -> Result<DurableBatch> {
+        self.check_admission()?;
+        let plan = BatchPlan::new(&mutations)?;
+        reservation.validate(
+            &self.admission,
+            super::JournalQuote::from_plan(mutations.len(), &plan),
+        )?;
+        self.append_admitted(mutations, accepted_ms, &mut reservation, plan)
+    }
+
+    fn check_admission(&self) -> Result<()> {
         if self.poisoned {
             return Err(super::refuse(
                 "writer requires recovery after failed publication",
@@ -126,16 +180,16 @@ impl JournalWriter {
                 "journal admission requires a complete initial stream checkpoint",
             ));
         }
-        let plan = BatchPlan::new(&mutations)?;
-        if self.tail.last_batch - (self.tail.first_batch - 1) >= super::MAX_SUFFIX_BATCHES
-            || self
-                .reserved_bytes
-                .checked_add(plan.physical_reserve)
-                .and_then(|n| n.checked_add(8192))
-                .map_or(true, |n| n > super::MAX_SUFFIX_BYTES)
-        {
-            return Err(super::refuse("journal suffix admission limit"));
-        }
+        Ok(())
+    }
+
+    fn append_admitted(
+        &mut self,
+        mutations: Vec<JournalMutation>,
+        accepted_ms: u64,
+        reservation: &mut super::JournalReservation,
+        plan: BatchPlan,
+    ) -> Result<DurableBatch> {
         let sequence = self
             .tail
             .last_batch
@@ -156,8 +210,13 @@ impl JournalWriter {
             batch_digest: [0; 32],
         };
         self.poisoned = true;
+        reservation.begin()?;
         let result = self.append_prepared(mutations, marker, generation, &plan)?;
         self.reserved_bytes += plan.physical_reserve;
+        self.suffix_oldest = Some(self.suffix_oldest.map_or(reservation.created(), |oldest| {
+            oldest.min(reservation.created())
+        }));
+        reservation.complete()?;
         self.poisoned = false;
         Ok(result)
     }
