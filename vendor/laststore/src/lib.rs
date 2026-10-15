@@ -23,6 +23,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod disk_pack;
 mod durability;
 mod error;
 pub mod frame;

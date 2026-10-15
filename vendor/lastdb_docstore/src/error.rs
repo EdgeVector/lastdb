@@ -15,6 +15,9 @@ pub enum Error {
     Corrupt(String),
     #[error("docstore manifest: {0}")]
     Manifest(String),
+    /// The caller's explicit disk-pack work or byte budget is exhausted.
+    #[error("disk-pack v1: read resource limit exceeded")]
+    ReadBudgetExceeded,
     /// AEAD authentication failed while decrypting a frame.
     ///
     /// Deliberately **not** folded into [`Error::Corrupt`]. Corruption means the
@@ -72,6 +75,7 @@ impl From<laststore::Error> for Error {
             laststore::Error::Io(err) => Self::Io(err),
             laststore::Error::Corrupt(msg) => Self::Corrupt(msg),
             laststore::Error::Config(msg) => Self::Manifest(msg),
+            laststore::Error::ReadBudgetExceeded => Self::ReadBudgetExceeded,
             laststore::Error::AeadAuthFail => Self::AeadAuthFail,
             laststore::Error::ChunkQuarantined { chunk_uuid, path } => {
                 Self::ChunkQuarantined { chunk_uuid, path }
