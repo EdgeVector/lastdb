@@ -138,7 +138,6 @@ fn all_entries() -> Vec<Entry> {
         Entry { name: "title",             description: "a title or headline for a piece of content",                    field_type: String, sensitivity: 0, domain: "content",  interest_category: None },
         Entry { name: "description",       description: "a longer textual description of an entity or piece of content", field_type: String, sensitivity: 0, domain: "content",  interest_category: None },
         Entry { name: "summary",           description: "a short summary of a larger piece of content",                  field_type: String, sensitivity: 0, domain: "content",  interest_category: None },
-        Entry { name: "body",              description: "the main textual body of a document or message",                field_type: String, sensitivity: 1, domain: "content",  interest_category: None },
         Entry { name: "content",           description: "the primary textual content of an item",                        field_type: String, sensitivity: 1, domain: "content",  interest_category: None },
         Entry { name: "tags",              description: "a list of tag labels applied to a piece of content",            field_type: String, sensitivity: 0, domain: "content",  interest_category: None },
         Entry { name: "category",          description: "a category label classifying a piece of content",               field_type: String, sensitivity: 0, domain: "content",  interest_category: None },
@@ -193,7 +192,6 @@ fn all_entries() -> Vec<Entry> {
 
         // ==================== Communication / Messaging ====================
         Entry { name: "message_id",        description: "a unique identifier for a message",                             field_type: String, sensitivity: 1, domain: "communication", interest_category: None },
-        Entry { name: "message_text",      description: "the textual body of a message",                                 field_type: String, sensitivity: 3, domain: "communication", interest_category: None },
         Entry { name: "subject",           description: "what this record or event is about",                            field_type: String, sensitivity: 1, domain: "general",  interest_category: None },
         Entry { name: "email_subject",     description: "the subject line of an email or message",                       field_type: String, sensitivity: 2, domain: "communication", interest_category: None },
         Entry { name: "sender",            description: "the sender of a message",                                       field_type: String, sensitivity: 3, domain: "communication", interest_category: None },
