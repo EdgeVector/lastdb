@@ -189,7 +189,9 @@ impl ReadCall {
         if collection.len() > KEY_BYTES - 4 || group >= 1024 {
             return Err(corrupt("directory coordinate exceeds format limit"));
         }
-        let mut key = Vec::with_capacity(collection.len() + 4);
+        let mut key = Vec::new();
+        key.try_reserve_exact(collection.len() + 4)
+            .map_err(|_| resource())?;
         key.extend_from_slice(&(collection.len() as u16).to_le_bytes());
         key.extend_from_slice(collection.as_bytes());
         key.extend_from_slice(&group.to_le_bytes());

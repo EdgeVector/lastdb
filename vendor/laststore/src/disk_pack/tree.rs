@@ -126,7 +126,9 @@ impl ReadCall {
         let length = u32_at(entry, 0) as usize;
         let inline = u16_at(entry, 4) as usize;
         self.charge(length as u64)?;
-        let mut key = Vec::with_capacity(length);
+        let mut key = Vec::new();
+        key.try_reserve_exact(length)
+            .map_err(|_| super::resource())?;
         key.extend_from_slice(&entry[8..8 + inline]);
         let mut next = u64_at(entry, 136);
         let mut seen = HashSet::new();
