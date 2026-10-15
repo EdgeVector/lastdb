@@ -1,0 +1,343 @@
+{
+  "count": 4,
+  "ok": true,
+  "results": [
+    {
+      "read_receipt": {
+        "blocking_queue_wait_nanos": 13999,
+        "decode_nanos": 0,
+        "decoded_bytes": 0,
+        "decrypt_nanos": 591750,
+        "decrypted_bytes": 2071,
+        "directory_entries": 0,
+        "directory_reads": 0,
+        "file_open_attempts": 2,
+        "file_opens": 2,
+        "filesystem_pages": "unknown",
+        "footer_bytes": 0,
+        "format_probe_bytes": 32768,
+        "group_load_nanos": 0,
+        "group_opens": 0,
+        "journal_replay_bytes": 0,
+        "legacy_replay_bytes": 0,
+        "loader_calls": 0,
+        "lock_wait_nanos": 6165,
+        "logical_warm_hits": 26,
+        "logical_warm_misses": 0,
+        "metadata_nanos": 2000,
+        "metadata_operations": 2,
+        "open_nanos": 40333,
+        "payload_bytes": 0,
+        "query_storage_elapsed_nanos": 31439584,
+        "read_nanos": 3834,
+        "read_operations": 2,
+        "requested_keys": 26,
+        "returned_body_bytes": 1027,
+        "scope": "query_storage",
+        "socket_queue_wait_nanos": 24542,
+        "temporary_bytes_peak": 32768,
+        "temporary_bytes_scope": "instrumented_byte_buffers",
+        "version": 1
+      },
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "opaque",
+        "limit": 100,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "body": "body-0",
+              "bucket": "generated",
+              "title": "title-0"
+            },
+            "key": {
+              "hash": "generated",
+              "range": "record-0"
+            },
+            "metadata": {
+              "body": {
+                "atom_uuid": "e888e7f5fc5bb3e53e8e884d65cd7f39947d4bfd19c562c4da2d883996fec2ff",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "Mc4-XSOAl-rHNy92lAatGC1yJHJhraXIzAQ6iohyPeY",
+                "source_file_name": null
+              },
+              "bucket": {
+                "atom_uuid": "6b353cb1e53e0f924ea27f43b7932568fb2bd2ca8fe602f00462085cd5e29b8e",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "o60VVDi0B4XlkG_VaZN03GHrwC0C964_wWtRGY5R6hA",
+                "molecule_version": 8,
+                "source_file_name": null
+              },
+              "title": {
+                "atom_uuid": "cd698795787bc07dbb9e5ec3fe039ac9410ca519b902565ceeeb5d930b80f332",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "m3yzr_5xvONkXOXDU96UsD_K220GRTiRFDljQcsQPjw",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 1,
+        "tombstoned_rows": 0,
+        "total_count": null,
+        "unresolved_rows": 0
+      },
+      "status": 200
+    },
+    {
+      "read_receipt": {
+        "blocking_queue_wait_nanos": 417,
+        "decode_nanos": 0,
+        "decoded_bytes": 0,
+        "decrypt_nanos": 0,
+        "decrypted_bytes": 0,
+        "directory_entries": 0,
+        "directory_reads": 0,
+        "file_open_attempts": 1,
+        "file_opens": 1,
+        "filesystem_pages": "unknown",
+        "footer_bytes": 0,
+        "format_probe_bytes": 16384,
+        "group_load_nanos": 0,
+        "group_opens": 0,
+        "journal_replay_bytes": 0,
+        "legacy_replay_bytes": 0,
+        "loader_calls": 0,
+        "lock_wait_nanos": 250,
+        "logical_warm_hits": 0,
+        "logical_warm_misses": 1,
+        "metadata_nanos": 625,
+        "metadata_operations": 1,
+        "open_nanos": 13208,
+        "payload_bytes": 0,
+        "query_storage_elapsed_nanos": 797542,
+        "read_nanos": 2042,
+        "read_operations": 1,
+        "requested_keys": 1,
+        "returned_body_bytes": 55,
+        "scope": "query_storage",
+        "socket_queue_wait_nanos": 24542,
+        "temporary_bytes_peak": 16384,
+        "temporary_bytes_scope": "instrumented_byte_buffers",
+        "version": 1
+      },
+      "response": "Invalid data: Schema 'MissingGeneratedSchema' not found",
+      "status": 400
+    },
+    {
+      "read_receipt": {
+        "blocking_queue_wait_nanos": 7541,
+        "decode_nanos": 91709,
+        "decoded_bytes": 16384,
+        "decrypt_nanos": 557625,
+        "decrypted_bytes": 2071,
+        "directory_entries": 0,
+        "directory_reads": 0,
+        "file_open_attempts": 17,
+        "file_opens": 17,
+        "filesystem_pages": "unknown",
+        "footer_bytes": 0,
+        "format_probe_bytes": 196736,
+        "group_load_nanos": 0,
+        "group_opens": 0,
+        "journal_replay_bytes": 0,
+        "legacy_replay_bytes": 0,
+        "loader_calls": 0,
+        "lock_wait_nanos": 4165,
+        "logical_warm_hits": 14,
+        "logical_warm_misses": 12,
+        "metadata_nanos": 12958,
+        "metadata_operations": 18,
+        "open_nanos": 313082,
+        "payload_bytes": 10497,
+        "query_storage_elapsed_nanos": 37831667,
+        "read_nanos": 1397459,
+        "read_operations": 17,
+        "requested_keys": 26,
+        "returned_body_bytes": 1027,
+        "scope": "query_storage",
+        "socket_queue_wait_nanos": 24542,
+        "temporary_bytes_peak": 213469,
+        "temporary_bytes_scope": "instrumented_byte_buffers",
+        "version": 1
+      },
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "opaque",
+        "limit": 100,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "body": "body-7",
+              "bucket": "generated",
+              "title": "title-7"
+            },
+            "key": {
+              "hash": "generated",
+              "range": "record-7"
+            },
+            "metadata": {
+              "body": {
+                "atom_uuid": "810f2d9f5b9f21a509ceccf3d650ead0e2f7add6dc87e0b44766096f6fbab3c4",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "Mc4-XSOAl-rHNy92lAatGC1yJHJhraXIzAQ6iohyPeY",
+                "source_file_name": null
+              },
+              "bucket": {
+                "atom_uuid": "6b353cb1e53e0f924ea27f43b7932568fb2bd2ca8fe602f00462085cd5e29b8e",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "o60VVDi0B4XlkG_VaZN03GHrwC0C964_wWtRGY5R6hA",
+                "molecule_version": 8,
+                "source_file_name": null
+              },
+              "title": {
+                "atom_uuid": "5ca6e4f09c618821727a77f65018bf0f551b04260998ea140ecfe69794803be1",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "m3yzr_5xvONkXOXDU96UsD_K220GRTiRFDljQcsQPjw",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 1,
+        "tombstoned_rows": 0,
+        "total_count": null,
+        "unresolved_rows": 0
+      },
+      "status": 200
+    },
+    {
+      "read_receipt": {
+        "blocking_queue_wait_nanos": 14454,
+        "decode_nanos": 129583,
+        "decoded_bytes": 24576,
+        "decrypt_nanos": 1662464,
+        "decrypted_bytes": 6368,
+        "directory_entries": 0,
+        "directory_reads": 0,
+        "file_open_attempts": 35,
+        "file_opens": 35,
+        "filesystem_pages": "unknown",
+        "footer_bytes": 0,
+        "format_probe_bytes": 475136,
+        "group_load_nanos": 0,
+        "group_opens": 0,
+        "journal_replay_bytes": 0,
+        "legacy_replay_bytes": 0,
+        "loader_calls": 0,
+        "lock_wait_nanos": 5876,
+        "logical_warm_hits": 18,
+        "logical_warm_misses": 34,
+        "metadata_nanos": 20670,
+        "metadata_operations": 35,
+        "open_nanos": 560168,
+        "payload_bytes": 15872,
+        "query_storage_elapsed_nanos": 56053750,
+        "read_nanos": 2200667,
+        "read_operations": 35,
+        "requested_keys": 52,
+        "returned_body_bytes": 1832,
+        "scope": "query_storage",
+        "socket_queue_wait_nanos": 24542,
+        "temporary_bytes_peak": 500189,
+        "temporary_bytes_scope": "instrumented_byte_buffers",
+        "version": 1
+      },
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": true,
+        "key_form": "opaque",
+        "limit": 2,
+        "next_cursor": {
+          "hash": "generated",
+          "range": "record-3"
+        },
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "body": "body-2",
+              "bucket": "generated",
+              "title": "title-2"
+            },
+            "key": {
+              "hash": "generated",
+              "range": "record-2"
+            },
+            "metadata": {
+              "body": {
+                "atom_uuid": "33512bf1f912ec998bef8880665ac3f7c8541e17fecb3a7584cf030982b7a9fd",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "Mc4-XSOAl-rHNy92lAatGC1yJHJhraXIzAQ6iohyPeY",
+                "source_file_name": null
+              },
+              "bucket": {
+                "atom_uuid": "6b353cb1e53e0f924ea27f43b7932568fb2bd2ca8fe602f00462085cd5e29b8e",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "o60VVDi0B4XlkG_VaZN03GHrwC0C964_wWtRGY5R6hA",
+                "molecule_version": 8,
+                "source_file_name": null
+              },
+              "title": {
+                "atom_uuid": "2c940d8b64d41b8789e79f5ab02268efefb9a829cb38160cdb40f47eca411f69",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "m3yzr_5xvONkXOXDU96UsD_K220GRTiRFDljQcsQPjw",
+                "source_file_name": null
+              }
+            }
+          },
+          {
+            "author_pub_key": null,
+            "fields": {
+              "body": "body-3",
+              "bucket": "generated",
+              "title": "title-3"
+            },
+            "key": {
+              "hash": "generated",
+              "range": "record-3"
+            },
+            "metadata": {
+              "body": {
+                "atom_uuid": "461f9799546eff669050a9387d2d0707f7bd03c5d9acd5d744e1f119c021ca8c",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "Mc4-XSOAl-rHNy92lAatGC1yJHJhraXIzAQ6iohyPeY",
+                "source_file_name": null
+              },
+              "bucket": {
+                "atom_uuid": "6b353cb1e53e0f924ea27f43b7932568fb2bd2ca8fe602f00462085cd5e29b8e",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "o60VVDi0B4XlkG_VaZN03GHrwC0C964_wWtRGY5R6hA",
+                "molecule_version": 8,
+                "source_file_name": null
+              },
+              "title": {
+                "atom_uuid": "7e25466d868258192866c4ff1caa8b015009ac87bb16c0fce8f99799aebacd0b",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "m3yzr_5xvONkXOXDU96UsD_K220GRTiRFDljQcsQPjw",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 2,
+        "tombstoned_rows": 0,
+        "total_count": null,
+        "unresolved_rows": 0
+      },
+      "status": 200
+    }
+  ]
+}
