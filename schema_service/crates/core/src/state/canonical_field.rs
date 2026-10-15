@@ -37,6 +37,13 @@ impl SchemaServiceState {
         // similarity matching is degraded, not exact lookups.
         let embed_text = Self::build_embedding_text(&canonical.description);
         let embedding = self.embedder.embed_text(&embed_text).ok();
+        if let Some(vector) = &embedding {
+            if self.embedding_matches_anti_field(vector) {
+                return Err(FoldDbError::Schema(format!(
+                    "field '{name}' was rejected: its description matches a non-semantic field pattern"
+                )));
+            }
+        }
 
         // Insert under the write locks. Re-check in case another task
         // raced us into the registry.

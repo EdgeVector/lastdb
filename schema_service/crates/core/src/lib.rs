@@ -71,6 +71,7 @@ pub mod schema_resolver_enforce_gate;
 pub mod shared_surface;
 pub mod snapshot;
 pub mod state;
+mod state_anti_fields;
 mod state_canonicalization;
 mod state_compositional;
 mod state_expansion;
