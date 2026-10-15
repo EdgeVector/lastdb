@@ -1,0 +1,7 @@
+{"batch_durable":true,"encoded_bytes":442133,"marker_sha256":"280dc5940bdf2804d3bb2869418f1e50a7e84217a23343cbf9d8fd8ebf87c97f","operations":4096,"sequence":1}
+{"batch_durable":true,"encoded_bytes":448447,"marker_sha256":"b02bd7db4d8d01a78fc1e6de309440f3fe4335818771e7383b31152f9faf26cb","operations":4096,"sequence":2}
+{"batch_durable":true,"encoded_bytes":448723,"marker_sha256":"600aae9744496f528ffc4d3407b90365693f841db76a5708ec5f3b25a3221dfb","operations":4096,"sequence":3}
+{"batch_durable":true,"encoded_bytes":449020,"marker_sha256":"db173fb398180a469d6c5e3e3d47b912dbd740fd7b05b9fd7ac03399ca7cb442","operations":4096,"sequence":4}
+{"batch_durable":true,"encoded_bytes":449223,"marker_sha256":"c3c5386e0fe9f9ca4b251507b157de8b49ffce0253ab0c0ef9016529479b92d1","operations":4096,"sequence":5}
+{"batch_durable":true,"encoded_bytes":19974,"marker_sha256":"f5424df9e803f7c2a32db50fdf0e79a7480fbe566d20affd94a9dc0a6ec2e3f5","operations":30,"sequence":6}
+{"artifact_only":true,"batches":6,"complete":true,"elapsed_nanos":1108875291,"encoded_bytes":2257520,"first_batch":1,"last_batch":6,"mutations":20510,"reserved_suffix_bytes":7575453}
