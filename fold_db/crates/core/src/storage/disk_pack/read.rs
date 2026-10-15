@@ -26,7 +26,7 @@ impl ReadContext {
     pub(super) fn new(runtime: &Arc<PackRuntime>) -> StorageResult<Arc<Self>> {
         if runtime.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
-                "native root publication failed; complete recovery is required".into(),
+                "native disk or cache publication failed; complete recovery is required".into(),
             ));
         }
         let current = runtime

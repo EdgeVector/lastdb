@@ -1,7 +1,7 @@
 //! Multi-key coherence on schema load: bind matching fields of sibling key
 //! layouts into proteins.
 
-use super::super::locks::{lock_map, read_map};
+use super::super::locks::read_map;
 use super::super::{CoherenceBinding, SchemaCore};
 use crate::atom::deterministic_molecule_uuid;
 use crate::schema::field_hash_coherence::{
@@ -47,10 +47,7 @@ impl SchemaCore {
         // same proteins and rewrite the same breadcrumbs. See the
         // `coherence_bound` field docs for why this is safe when a new sibling
         // schema is registered later.
-        if lock_map(&self.coherence_bound, "coherence_bound")?
-            .get(schema_name)
-            .is_some_and(|prev| prev == &bindings)
-        {
+        if self.coherence_memo(schema_name)?.as_ref() == Some(&bindings) {
             return Ok(());
         }
 
@@ -63,8 +60,7 @@ impl SchemaCore {
         // permanently unbound field for the life of the process — the pass would
         // never look at it again.
         if failed == 0 {
-            lock_map(&self.coherence_bound, "coherence_bound")?
-                .insert(schema_name.to_string(), bindings);
+            self.publish_coherence_memo(schema_name, bindings)?;
         }
 
         Ok(())
@@ -87,8 +83,13 @@ impl SchemaCore {
         loaded: &Schema,
     ) -> Result<Vec<CoherenceBinding>, SchemaError> {
         let schemas = read_map(&self.schemas, "schemas")?;
+        let staged = self.staged_schemas()?;
         let mut out = Vec::new();
-        for (peer_name, peer) in schemas.iter() {
+        let committed = schemas
+            .iter()
+            .filter(|(name, _)| !staged.iter().any(|(staged_name, _)| staged_name == *name));
+        let staged = staged.iter().map(|(name, cached)| (name, &cached.schema));
+        for (peer_name, peer) in committed.chain(staged) {
             if peer_name == schema_name || !are_multi_key_siblings(peer, loaded) {
                 continue;
             }

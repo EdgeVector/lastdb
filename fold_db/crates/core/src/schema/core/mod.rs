@@ -11,6 +11,7 @@ mod declare;
 mod load;
 mod locks;
 mod replay_reload;
+mod staged_cache;
 mod state;
 
 /// Core schema management system that combines schema interpretation, validation, and management.
@@ -108,11 +109,7 @@ pub(crate) struct CoherenceBinding {
 /// schema miss loads from the catalog instead of growing a second cache.
 impl crate::resident::SchemaLoader for SchemaCore {
     fn load_schema(&self, name: &str) -> Result<Option<Schema>, String> {
-        Ok(self
-            .schemas
-            .read()
-            .map_err(|e| format!("schema catalog lock poisoned: {e}"))?
-            .get(name)
-            .cloned())
+        self.get_schema_metadata(name)
+            .map_err(|error| error.to_string())
     }
 }
