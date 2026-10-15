@@ -127,7 +127,7 @@ The durable file and the in-process readable root identify the same published ge
 | 80 | 16 | Journal stream UUID for the checkpoint boundary |
 | 96 | 8 | Checkpoint batch sequence; normally equal to `F` |
 | 104 | 8 | Conversion descriptor page, or zero |
-| 112 | 8 | Required feature bits; bit zero (`0x1`) requires complete object bounds in block maps |
+| 112 | 8 | Required feature bits; `0x1` requires complete object bounds; `0x2` requires the checkpointed journal lifecycle |
 | 120 | 8 | Publication time, Unix milliseconds |
 | 128 | 32 | SHA-256 of all 4,096 bytes |
 | 160 | 3,936 | Zero bytes |
@@ -136,6 +136,9 @@ The placement and key identifiers must equal the home descriptor. Conversion doe
 One directory root contains every collection and group root needed through `F`.
 A call never combines a tip root from one CURRENT with an atom root from another CURRENT.
 Immutable child pages can predate the current generation. Their creation generation must not exceed the held generation.
+With feature `0x2`, `previous_generation = 0` declares that this checkpoint stream admits no journal batch yet.
+A complete stream checkpoint sets a nonzero previous generation before the first append.
+Feature `0x2` requires `0x1`. New artifacts use both bits; older writers refuse them before journal admission.
 
 JOURNAL_TAIL is also exactly 4,096 bytes. Its proposed magic is `LDJTL1\0\0`.
 Offsets 8 through 15 use the same version, length, and flags fields as CURRENT.
@@ -151,7 +154,8 @@ Offsets 152 through 183 contain the previous stream's final durable TAIL digest,
 The tail names only complete durable batches. It never names a partially written last batch.
 
 The [artifact journal implementation](lastdb-disk-journal.md) supplies complete batches and a bounded recovery reader.
-It refuses stream rotation and conversion operations and does not activate an online home writer.
+The [resume implementation](lastdb-disk-journal-resume.md) adds stream changes under the same exclusive artifact lock.
+Neither implementation activates the online home writer or conversion operations.
 
 TAIL publication requires all named batch parts, maps, and markers to be durable first.
 Its update uses a temporary file, a file barrier, atomic rename, and a parent-directory barrier.
@@ -160,10 +164,15 @@ TAIL is not a record-location cache. Ordinary reads use CURRENT and its locator 
 
 A stream change requires CURRENT to reach the old stream's complete `J` first.
 The writer then publishes an empty new TAIL with `last_complete_batch = F` and `first_batch = F + 1`.
-The previous stream fields authenticate the exact change boundary.
+The previous stream fields verify the exact change boundary.
+The exact old TAIL is durable at `journal/<old-stream-uuid>/tail-<checkpoint-as-16-hex-digits>` before the new TAIL.
+The predecessor digest covers all 4,096 old published bytes, including their stored checksum.
 It next publishes CURRENT with the new checkpoint stream, then permits new admissions.
 A crash between these publications is valid only when CURRENT's `F` equals that named change boundary.
 Recovery uses the new TAIL from that boundary. A mismatch below the boundary refuses recovery.
+A new writer starts a fresh stream before admission, including its initial open and every reopen.
+An initial lifecycle checkpoint can retry initialization without reusing a frame identity.
+An admitted checkpoint with a missing TAIL refuses recovery.
 
 ## 5. Directory, locator, overflow, and block-map pages
 

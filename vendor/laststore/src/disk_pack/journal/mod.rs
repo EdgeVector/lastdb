@@ -1,18 +1,19 @@
 //! Complete immutable recovery batches for separate disk-pack artifacts.
 //!
-//! This module does not enable a home writer, change a memory ack, or publish
-//! a locator root. Recovery yields verified mutations for the artifact publisher.
+//! This module does not enable a home writer or change a memory ack.
+//! Explicit publication checkpoints the directory before a fresh stream admits work.
 
 mod batch;
 mod marker;
 mod reader;
+mod resume;
 mod stream;
 mod tail;
 mod writer;
 
 pub use batch::{JournalMutation, RecoveredBatch, RecoveredMutation};
 pub use reader::JournalRecovery;
-pub use tail::JournalTail;
+pub use tail::{JournalTail, TailPredecessor};
 pub use writer::{DurableBatch, JournalWriter};
 
 const MAX_BATCH_BYTES: u64 = 128 * 1024 * 1024;

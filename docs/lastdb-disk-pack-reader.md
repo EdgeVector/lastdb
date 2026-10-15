@@ -22,6 +22,8 @@ The reader obtains them from the map page that the read already needs.
 No extra object file or footer read is required.
 Older feature-zero artifacts remain readable.
 An older reader refuses feature `0x1` before a payload read.
+New construction also requires feature `0x2` for the checkpointed journal lifecycle.
+The reader retains feature-zero and feature-one artifact support.
 
 The reader follows exact file positions.
 It does not reconstruct a hash group or read a complete footer.
@@ -92,7 +94,7 @@ It also supports [bounded hash ranges](lastdb-disk-pack-ranges.md) at one captur
 The LastDB home and ack paths still require these steps:
 
 1. Map every store write and memory ack to a complete recovery-journal batch.
-2. Add journal resume and the online publisher's admission and retention rules.
+2. Add the online publisher's admission and retention rules.
 3. Add the compatible bridge reader and allocate the home fence.
 4. Connect exact, batch, and hash-range LastDB reads, with protected warm-set admission.
 5. Add backup retention, source-free restore, and concurrent conversion.

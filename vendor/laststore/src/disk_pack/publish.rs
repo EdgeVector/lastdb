@@ -4,6 +4,7 @@ use super::generation;
 use super::journal::{JournalRecovery, RecoveredMutation};
 use super::tree_edit::TreeEdit;
 use super::tree_write::TreeWriter;
+use super::write_lock::WriteLock;
 use super::{artifact, corrupt, Current, DirectoryEntry, TreeKind};
 use crate::{durability, Result};
 use std::fs::{self, File, OpenOptions};
@@ -41,10 +42,20 @@ struct Publisher<'a> {
 /// a separate artifact. This is not the LastStore home writer or ack path.
 /// The exclusive journal lock excludes an artifact writer for the whole command.
 pub fn publish_artifact_journal(root: &Path) -> Result<PublishedGeneration> {
-    let _lock = publication_lock(root)?;
+    let lock = WriteLock::acquire(root)?;
+    publish_locked(&lock)
+}
+
+pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
+    let root = lock.root();
     let previous = artifact::current(root)?;
     if previous.required_features & super::FEATURE_OBJECT_METADATA == 0 {
         return Err(corrupt("publication requires complete object bounds"));
+    }
+    let tail = super::journal::JournalTail::read(root)?;
+    tail.validate_for_current(root, &previous)?;
+    if tail.stream != previous.journal_stream {
+        return super::stream_checkpoint::publish_stream(lock, &previous, &tail);
     }
     let mut recovery = JournalRecovery::open(root)?;
     let old_receipt = ensure_generation(root, &previous)?;
@@ -190,19 +201,7 @@ impl Publisher<'_> {
     }
 }
 
-fn publication_lock(root: &Path) -> Result<File> {
-    artifact::current(root)?;
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(root.join("journal").join("LOCK"))?;
-    rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
-        .map_err(std::io::Error::from)?;
-    Ok(file)
-}
-
-fn ensure_generation(root: &Path, current: &Current) -> Result<generation::Generation> {
+pub(super) fn ensure_generation(root: &Path, current: &Current) -> Result<generation::Generation> {
     if root
         .join("generations")
         .join(current.generation.to_string())
@@ -214,7 +213,7 @@ fn ensure_generation(root: &Path, current: &Current) -> Result<generation::Gener
     }
 }
 
-fn fresh_generation(root: &Path, previous: u64) -> Result<u64> {
+pub(super) fn fresh_generation(root: &Path, previous: u64) -> Result<u64> {
     for attempt in 0..8 {
         let gap = if attempt == 0 {
             1
@@ -239,7 +238,7 @@ fn fresh_generation(root: &Path, previous: u64) -> Result<u64> {
     Err(corrupt("generation allocation exhausted bounded attempts"))
 }
 
-fn publish_current(root: &Path, current: &Current) -> Result<()> {
+pub(super) fn publish_current(root: &Path, current: &Current) -> Result<()> {
     let path = root.join(format!("CURRENT.pending-{}", Uuid::new_v4()));
     let mut file = OpenOptions::new()
         .write(true)

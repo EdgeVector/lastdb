@@ -36,7 +36,7 @@ impl Current {
             || u16_at(bytes, 10) != 4096
             || u16_at(bytes, 74) != 1024
             || u64_at(bytes, 104) != 0
-            || u64_at(bytes, 112) & !super::FEATURE_OBJECT_METADATA != 0
+            || u64_at(bytes, 112) & !super::SUPPORTED_FEATURES != 0
         {
             return Err(corrupt("unsupported CURRENT format or feature"));
         }
@@ -102,7 +102,12 @@ impl Current {
             || self.previous_generation >= self.generation
             || self.frontier > self.journal_frontier
             || self.directory.kind != TreeKind::Directory
-            || self.required_features & !super::FEATURE_OBJECT_METADATA != 0
+            || self.required_features & !super::SUPPORTED_FEATURES != 0
+            || (self.required_features & super::FEATURE_JOURNAL_LIFECYCLE != 0
+                && self.required_features & super::FEATURE_OBJECT_METADATA == 0)
+            || (self.required_features & super::FEATURE_JOURNAL_LIFECYCLE != 0
+                && self.previous_generation == 0
+                && self.journal_frontier != self.frontier)
         {
             return Err(corrupt("inconsistent CURRENT frontier or generation"));
         }

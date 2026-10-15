@@ -22,11 +22,13 @@ mod page_write;
 mod publish;
 mod record;
 mod sparse_pages;
+mod stream_checkpoint;
 mod tree;
 mod tree_cursor;
 mod tree_edit;
 mod tree_output;
 mod tree_write;
+mod write_lock;
 
 pub use build::{ArtifactBuilder, GroupWriter};
 pub use call::{ReadBudget, ReadCall, ReadCosts};
@@ -39,6 +41,12 @@ pub use tree::{TreeKind, TreeRoot};
 /// CURRENT feature bit: payload objects have complete immutable object metadata.
 /// Older readers refuse this bit before they trust any payload extent.
 pub const FEATURE_OBJECT_METADATA: u64 = 1;
+
+/// CURRENT feature bit: no journal admission before a complete stream checkpoint.
+/// A previous generation of zero marks initial, unadmitted journal state.
+pub const FEATURE_JOURNAL_LIFECYCLE: u64 = 2;
+
+const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA | FEATURE_JOURNAL_LIFECYCLE;
 
 const PAGE_BYTES: usize = 16_384;
 const HEADER_BYTES: usize = 128;
