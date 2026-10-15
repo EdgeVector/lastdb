@@ -1,5 +1,8 @@
 use super::{DiskHome, HomeDescriptor};
-use crate::disk_pack::journal::{DurableBatch, JournalMutation, JournalWriter};
+use crate::disk_pack::journal::{
+    DurableBatch, JournalMutation, JournalMutationShape, JournalPressure, JournalQuote,
+    JournalReservation, JournalWriter,
+};
 use crate::disk_pack::{Current, PublishedGeneration};
 use crate::Result;
 
@@ -18,6 +21,44 @@ pub struct HomeMutation {
 pub struct HomeJournal {
     descriptor: HomeDescriptor,
     writer: JournalWriter,
+}
+
+impl HomeDescriptor {
+    /// Derive the native group before a journal-only capacity calculation.
+    pub fn mutation_shape(
+        &self,
+        collection: &str,
+        key: &str,
+        body_bytes: Option<u64>,
+    ) -> Result<JournalMutationShape> {
+        Ok(JournalMutationShape::new(
+            collection.len(),
+            self.group(key)?,
+            key.len(),
+            body_bytes,
+        ))
+    }
+
+    /// Quote a complete native batch without copying or retaining its bodies.
+    pub fn quote(&self, operations: &[HomeMutation]) -> Result<JournalQuote> {
+        if operations.is_empty() || operations.len() > 4096 {
+            return Err(crate::Error::Config(
+                "native batch requires 1..4096 operations".into(),
+            ));
+        }
+        let mut shapes = Vec::new();
+        shapes
+            .try_reserve_exact(operations.len())
+            .map_err(|_| super::super::resource())?;
+        for operation in operations {
+            shapes.push(self.mutation_shape(
+                &operation.collection,
+                &operation.key,
+                operation.body.as_ref().map(|body| body.len() as u64),
+            )?);
+        }
+        JournalQuote::from_shapes(&shapes)
+    }
 }
 
 impl DiskHome {
@@ -44,11 +85,34 @@ impl HomeJournal {
         self.writer.current()
     }
 
+    /// Own journal capacity before the batch transfers its stored bodies.
+    /// This does not reserve directory space or authorize a memory ack.
+    pub fn reserve(&self, operations: &[HomeMutation]) -> Result<JournalReservation> {
+        self.writer
+            .reserve_quote(self.descriptor.quote(operations)?)
+    }
+
+    /// Include unappended reservations in the bounded suffix pressure.
+    pub fn pressure(&self) -> Result<JournalPressure> {
+        self.writer.pressure()
+    }
+
     /// Make one complete batch recoverable. It becomes readable only at publication.
     pub fn append(
         &mut self,
         operations: Vec<HomeMutation>,
         accepted_ms: u64,
+    ) -> Result<DurableBatch> {
+        let reservation = self.reserve(&operations)?;
+        self.append_reserved(operations, accepted_ms, reservation)
+    }
+
+    /// Consume only capacity owned by this exact writer instance.
+    pub fn append_reserved(
+        &mut self,
+        operations: Vec<HomeMutation>,
+        accepted_ms: u64,
+        reservation: JournalReservation,
     ) -> Result<DurableBatch> {
         if operations.is_empty() || operations.len() > 4096 {
             return Err(crate::Error::Config(
@@ -66,7 +130,8 @@ impl HomeJournal {
                 })
             })
             .collect();
-        self.writer.append(addressed?, accepted_ms)
+        self.writer
+            .append_reserved(addressed?, accepted_ms, reservation)
     }
 
     /// Commit the complete directory boundary before a caller releases write protection.

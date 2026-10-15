@@ -1,5 +1,5 @@
 use super::super::bytes::*;
-use super::super::{corrupt, record, Location, MutationVersion, ReadCosts, KEY_BYTES};
+use super::super::{corrupt, record, Location, MutationVersion, ReadCosts};
 use crate::Result;
 use sha2::{Digest, Sha256};
 
@@ -48,22 +48,10 @@ pub(super) struct BatchPlan {
 
 impl BatchPlan {
     pub(super) fn new(operations: &[JournalMutation]) -> Result<Self> {
-        if operations.is_empty() || operations.len() > super::MAX_OPERATIONS {
-            return Err(super::refuse("batch operation admission limit"));
-        }
-        let mut length = 256u64;
-        for operation in operations {
-            operation.validate()?;
-            length = length
-                .checked_add(operation.operation_bytes()?)
-                .ok_or_else(|| corrupt("batch length overflow"))?;
-        }
-        if length > super::MAX_BATCH_BYTES {
-            return Err(super::refuse("batch byte admission limit"));
-        }
+        let quote = super::JournalQuote::from_iter(operations.iter().map(JournalMutation::shape))?;
         Ok(Self {
-            logical_bytes: length,
-            physical_reserve: Self::reserve(length)?,
+            logical_bytes: quote.logical_bytes,
+            physical_reserve: quote.physical_reserve,
         })
     }
 
@@ -86,19 +74,7 @@ impl JournalMutation {
         self.operation_bytes()
     }
     pub(super) fn validate(&self) -> Result<()> {
-        if self.collection.len() > KEY_BYTES - 4
-            || self.key.len() > KEY_BYTES
-            || self.group >= 1024
-            || self
-                .body
-                .as_ref()
-                .is_some_and(|body| body.len() as u64 > u64::from(u32::MAX))
-        {
-            return Err(super::refuse(
-                "unrepresentable collection, key, group, or body",
-            ));
-        }
-        Ok(())
+        self.shape().encoded_bytes().map(|_| ())
     }
 
     pub(super) fn operation_bytes(&self) -> Result<u64> {

@@ -20,7 +20,7 @@ const LINE_BYTES: u64 = 2_200_000;
 
 fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
-        println!("usage: lastdb-disk-home <build|read|range|append|write|publish> --home PATH --input JSON [--fanout N]");
+        println!("usage: lastdb-disk-home <build|plan|read|range|append|write|publish> --home PATH --input JSON [--fanout N]");
         println!(
             "  build: ordered JSONL collection/key/body_hex or deleted; initial versions are (0,0)"
         );
@@ -29,6 +29,7 @@ fn main() -> ExitCode {
             "  range: JSON object with collection,prefix,start,end,page_size,max_pages,budget"
         );
         println!("  append/write: complete JSONL batch; write also publishes its directory");
+        println!("  plan: journal-only quote for a complete JSONL batch; no writer is opened");
         println!("  publish: no input; recover complete batches before a fresh stream admits work");
         return ExitCode::SUCCESS;
     }
@@ -48,7 +49,11 @@ fn invalid(message: &'static str) -> io::Error {
 fn options() -> Result<(String, PathBuf, Option<PathBuf>, u16)> {
     let mut args = std::env::args().skip(1);
     let command = args.next().ok_or_else(|| invalid("command required"))?;
-    if !["build", "read", "range", "append", "write", "publish"].contains(&command.as_str()) {
+    if ![
+        "build", "plan", "read", "range", "append", "write", "publish",
+    ]
+    .contains(&command.as_str())
+    {
         return Err(invalid("unknown command").into());
     }
     let (mut home, mut input, mut fanout) = (None, None, None);
@@ -84,6 +89,7 @@ fn run() -> Result<()> {
         }
         let home = DiskHome::open(&home)?;
         match command.as_str() {
+            "plan" => plan(&home, input.as_deref().expect("input")),
             "append" | "write" | "publish" => write(&home, input.as_deref(), &command),
             "read" | "range" => {
                 let request = request(input.as_deref().expect("input"))?;
