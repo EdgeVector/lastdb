@@ -3,11 +3,10 @@ use super::marker::Marker;
 use super::{JournalMutation, JournalTail};
 use crate::disk_pack::bytes::digest;
 use crate::disk_pack::pack_write::PackWriter;
-use crate::disk_pack::page_write::directory;
-use crate::disk_pack::{corrupt, Current, Location, MutationVersion, Source};
+use crate::disk_pack::write_lock::WriteLock;
+use crate::disk_pack::{corrupt, Current, Location, MutationVersion, PublishedGeneration, Source};
 use crate::Result;
 use sha2::{Digest, Sha256};
-use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -23,7 +22,7 @@ pub struct DurableBatch {
     pub marker_digest: [u8; 32],
 }
 
-/// Exclusive journal constructor for a separate artifact with no prior journal.
+/// Exclusive journal writer for a separate artifact, with bounded restart recovery.
 /// Failed file publication poisons this writer. It never reuses a partial batch.
 pub struct JournalWriter {
     root: PathBuf,
@@ -31,44 +30,71 @@ pub struct JournalWriter {
     tail: JournalTail,
     poisoned: bool,
     reserved_bytes: u64,
-    _lock: File,
+    lock: WriteLock,
 }
 
 impl JournalWriter {
-    /// Create one new stream for the artifact's CURRENT. Resume and stream rotation
-    /// require online writer coordination and are explicitly refused here.
+    /// Create the first stream only. Existing journals require `open`.
     pub fn create(root: &Path) -> Result<Self> {
-        let current = crate::disk_pack::artifact::current(root)?;
-        if current.required_features & crate::disk_pack::FEATURE_OBJECT_METADATA == 0 {
-            return Err(super::refuse(
-                "new journal writes require complete object bounds",
-            ));
-        }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(root.join("journal").join("LOCK"))?;
-        rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)
-            .map_err(std::io::Error::from)?;
-        if root.join("JOURNAL_TAIL").try_exists()? {
+        let lock = WriteLock::acquire(root)?;
+        let current = crate::disk_pack::artifact::current(lock.root())?;
+        if lock.root().join("JOURNAL_TAIL").try_exists()? {
             return Err(super::refuse("artifact already has a journal"));
         }
-        directory(
-            &root
-                .join("journal")
-                .join(current.journal_stream.to_string()),
-        )?;
-        let tail = JournalTail::initial(&current)?;
-        tail.publish(root)?;
-        Ok(Self {
-            root: root.to_path_buf(),
+        super::resume::initial(&lock, &current)?;
+        let (publication, tail) = super::resume::checkpoint(&lock)?;
+        Ok(Self::from_state(lock, publication.current, tail))
+    }
+
+    /// Recover every complete pending batch and start a fresh stream before admission.
+    /// An existing stream without TAIL is an availability error, never an empty guess.
+    pub fn open(root: &Path) -> Result<Self> {
+        let lock = WriteLock::acquire(root)?;
+        let current = crate::disk_pack::artifact::current(lock.root())?;
+        if !lock.root().join("JOURNAL_TAIL").try_exists()? {
+            super::resume::initial(&lock, &current)?;
+        }
+        let (publication, tail) = super::resume::checkpoint(&lock)?;
+        Ok(Self::from_state(lock, publication.current, tail))
+    }
+
+    fn from_state(lock: WriteLock, current: Current, tail: JournalTail) -> Self {
+        Self {
+            root: lock.root().to_path_buf(),
             current,
             tail,
             poisoned: false,
             reserved_bytes: 0,
-            _lock: lock,
-        })
+            lock,
+        }
+    }
+
+    /// Last complete directory boundary. No uncommitted suffix is represented here.
+    pub fn current(&self) -> &Current {
+        &self.current
+    }
+
+    /// Publish all complete pending batches and rotate only after a successful checkpoint.
+    /// No-op calls keep the generation. Any failure poisons write admission.
+    pub fn publish(&mut self) -> Result<PublishedGeneration> {
+        if self.poisoned {
+            return Err(super::refuse(
+                "writer requires recovery after failed publication",
+            ));
+        }
+        self.poisoned = true;
+        if self.tail.last_batch == self.current.frontier {
+            let publication = crate::disk_pack::publish::publish_locked(&self.lock)?;
+            self.current = publication.current.clone();
+            self.poisoned = false;
+            return Ok(publication);
+        }
+        let (publication, tail) = super::resume::checkpoint(&self.lock)?;
+        self.current = publication.current.clone();
+        self.tail = tail;
+        self.reserved_bytes = 0;
+        self.poisoned = false;
+        Ok(publication)
     }
 
     /// Current durable boundary; an ordinary read still uses CURRENT.
@@ -91,6 +117,13 @@ impl JournalWriter {
         if self.poisoned {
             return Err(super::refuse(
                 "writer requires recovery after failed publication",
+            ));
+        }
+        if self.current.required_features & crate::disk_pack::FEATURE_JOURNAL_LIFECYCLE == 0
+            || self.current.previous_generation == 0
+        {
+            return Err(super::refuse(
+                "journal admission requires a complete initial stream checkpoint",
             ));
         }
         let plan = BatchPlan::new(&mutations)?;
@@ -182,6 +215,7 @@ impl JournalWriter {
                 .ok_or_else(|| corrupt("TAIL byte count overflow"))?,
             published_ms: unix_ms(),
             last_marker_digest: marker_digest,
+            predecessor: None,
         };
         next.publish(&self.root)?;
         self.tail = next;

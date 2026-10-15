@@ -20,14 +20,18 @@ struct Options {
     input: Option<PathBuf>,
     batch_size: usize,
     accepted_ms: u64,
+    publish_every: u64,
 }
 
 fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
-        println!("usage: lastdb-journal <append|recover|publish> --artifact PATH [--input JSONL] [--batch-size N] [--accepted-ms N]");
+        println!("usage: lastdb-journal <append|write|recover|publish> --artifact PATH [--input JSONL] [--batch-size N] [--accepted-ms N]");
         println!("  append input: collection, group, key, body_hex (or deleted=true)");
         println!("  recover emits verified batches, then a final complete=true summary");
         println!("  publish includes the captured complete journal suffix in artifact CURRENT");
+        println!(
+            "  write resumes safely and checkpoints every --publish-every N batches (default 1)"
+        );
         println!("  separate artifacts only; no home writer or memory ack change is enabled");
         return ExitCode::SUCCESS;
     }
@@ -49,12 +53,20 @@ fn options() -> Result<Options> {
     let command = args
         .next()
         .ok_or_else(|| invalid("append, recover, or publish is required"))?;
-    if command != "append" && command != "recover" && command != "publish" {
+    if !["append", "write", "recover", "publish"].contains(&command.as_str()) {
         return Err(invalid("unknown command").into());
     }
     let mut values = BTreeMap::new();
     while let Some(name) = args.next() {
-        if !["--artifact", "--input", "--batch-size", "--accepted-ms"].contains(&name.as_str()) {
+        if ![
+            "--artifact",
+            "--input",
+            "--batch-size",
+            "--accepted-ms",
+            "--publish-every",
+        ]
+        .contains(&name.as_str())
+        {
             return Err(invalid("unknown argument").into());
         }
         let value = args
@@ -69,8 +81,11 @@ fn options() -> Result<Options> {
         .ok_or_else(|| invalid("artifact path is required"))?
         .into();
     let input = values.remove("--input").map(PathBuf::from);
-    if (command == "append") != input.is_some() {
-        return Err(invalid("only append requires an input file").into());
+    if command != "write" && values.contains_key("--publish-every") {
+        return Err(invalid("only write accepts a publication interval").into());
+    }
+    if matches!(command.as_str(), "append" | "write") != input.is_some() {
+        return Err(invalid("append and write require an input file").into());
     }
     let batch_size = values
         .remove("--batch-size")
@@ -89,18 +104,27 @@ fn options() -> Result<Options> {
         .map(|value| value.parse())
         .transpose()?
         .unwrap_or(u64::try_from(now)?);
+    let publish_every = values
+        .remove("--publish-every")
+        .map(|value| value.parse())
+        .transpose()?
+        .unwrap_or(1);
+    if !(1..=4096).contains(&publish_every) {
+        return Err(invalid("publish interval must be 1 through 4096 batches").into());
+    }
     Ok(Options {
         command,
         artifact,
         input,
         batch_size,
         accepted_ms,
+        publish_every,
     })
 }
 
 fn run() -> Result<()> {
     let options = options()?;
-    if options.command == "append" {
+    if options.command == "append" || options.command == "write" {
         append(&options)
     } else if options.command == "publish" {
         publish(&options)
@@ -135,7 +159,18 @@ fn publish(options: &Options) -> Result<()> {
 fn append(options: &Options) -> Result<()> {
     let started = Instant::now();
     let mut input = BufReader::new(File::open(options.input.as_ref().expect("append input"))?);
-    let mut writer = JournalWriter::create(&options.artifact)?;
+    let mut writer = if options.command == "write" {
+        JournalWriter::open(&options.artifact)?
+    } else {
+        JournalWriter::create(&options.artifact)?
+    };
+    if options.command == "write" {
+        println!(
+            "{}",
+            json!({"writer_opened":true,"committed_frontier":writer.current().frontier,
+            "generation":writer.current().generation,"stream_uuid":writer.tail().stream.to_string()})
+        );
+    }
     let mut pending = Vec::new();
     let (mut bytes, mut batches, mut count) = (256u64, 0u64, 0u64);
     while let Some(mutation) = next_mutation(&mut input)? {
@@ -157,6 +192,7 @@ fn append(options: &Options) -> Result<()> {
             );
             bytes = 256;
             batches += 1;
+            publish_due(options, &mut writer, batches, false)?;
         }
     }
     if !pending.is_empty() {
@@ -170,12 +206,39 @@ fn append(options: &Options) -> Result<()> {
         );
         batches += 1;
     }
+    publish_due(options, &mut writer, batches, true)?;
     println!(
         "{}",
         json!({"complete":true,"artifact_only":true,"batches":batches,"mutations":count,
         "first_batch":writer.tail().first_batch,"last_batch":writer.tail().last_batch,
         "encoded_bytes":writer.tail().encoded_bytes,"reserved_suffix_bytes":writer.reserved_suffix_bytes(),
+        "committed_frontier":writer.current().frontier,"generation":writer.current().generation,
+        "stream_uuid":writer.tail().stream.to_string(),
         "elapsed_nanos":started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64})
+    );
+    Ok(())
+}
+
+fn publish_due(
+    options: &Options,
+    writer: &mut JournalWriter,
+    batches: u64,
+    force: bool,
+) -> Result<()> {
+    if options.command != "write"
+        || (!force && batches % options.publish_every != 0)
+        || writer.tail().last_batch == writer.current().frontier
+    {
+        return Ok(());
+    }
+    let publication = writer.publish()?;
+    println!(
+        "{}",
+        json!({"root_published":true,"generation":publication.current.generation,
+        "frontier":publication.current.frontier,"receipt_uuid":publication.receipt.to_string(),
+        "stream_uuid":writer.tail().stream.to_string(),"dependency_parts":publication.dependency_parts,
+        "mutations":publication.mutations,"metadata_pages_written":publication.metadata_pages_written,
+        "metadata_parts_written":publication.metadata_parts_written})
     );
     Ok(())
 }

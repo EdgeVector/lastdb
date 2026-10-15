@@ -66,7 +66,7 @@ The journal TAIL can retain a prefix that CURRENT already includes.
 Recovery starts at `CURRENT.frontier + 1` and never replays that prefix.
 It still verifies the captured final marker and the applicable suffix byte bounds.
 When CURRENT reaches TAIL, a repeated publication verifies the generation and performs no root change.
-Journal resume and stream rotation remain unavailable.
+The [resumed writer](lastdb-disk-journal-resume.md) shares the same exclusive lock and completes the stream checkpoint before new admission.
 
 Administrative bounds are explicit:
 
@@ -83,7 +83,7 @@ That walk does not reconstruct record bodies.
 Normal publication uses the held receipt and exact new part identities.
 Its manifest work scales with retained part count, rather than stored key count.
 A future compaction must rebuild the live dependency list before retained-part growth reaches the command's explicit limit.
-Online admission, stream resume, and durability-token coverage remain necessary before activation.
+Online admission, retention rules, and durability-token coverage remain necessary before activation.
 
 The separate `lastdb-pack read-batch` command accepts exact collection, group, and key coordinates as JSONL objects.
 It uses one captured CURRENT and one shared call budget for the complete batch.

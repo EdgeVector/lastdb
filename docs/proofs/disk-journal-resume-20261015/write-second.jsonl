@@ -1,0 +1,14 @@
+{"committed_frontier":2,"generation":4,"stream_uuid":"743197de-5bb1-4abf-a7c1-ec0ad733d8b2","writer_opened":true}
+{"batch_durable":true,"encoded_bytes":18483,"marker_sha256":"94ed1629cf4b4d1425bf035b84f24ad1dc35773df285a99178493c71570fd5bc","operations":16,"sequence":3}
+{"batch_durable":true,"encoded_bytes":18481,"marker_sha256":"0f755844e1438a6d6727d0f4ed25291247f6c31cd03c657ac394dc6e7b188132","operations":16,"sequence":4}
+{"dependency_parts":18,"frontier":4,"generation":6,"metadata_pages_written":66,"metadata_parts_written":3,"mutations":32,"receipt_uuid":"f0984305-d9a7-432e-b383-a5de187b97c4","root_published":true,"stream_uuid":"dbab31be-a4bc-46ce-9a97-5e8666b50370"}
+{"batch_durable":true,"encoded_bytes":18477,"marker_sha256":"27fd2bd43e149d1ae9e05d66527ae86eae6c69fd7290b8af6501068e89382a4e","operations":16,"sequence":5}
+{"batch_durable":true,"encoded_bytes":18481,"marker_sha256":"06fd4681bb9df42742d25e7fe5426bca0bacecf11ba2f7dd89836dbc00cde3eb","operations":16,"sequence":6}
+{"dependency_parts":25,"frontier":6,"generation":8,"metadata_pages_written":66,"metadata_parts_written":3,"mutations":32,"receipt_uuid":"ad750592-91b8-4b3f-9a4a-34c93d82cee1","root_published":true,"stream_uuid":"2e4543de-c6ab-4a83-b5cf-5ee672e12ad6"}
+{"batch_durable":true,"encoded_bytes":18475,"marker_sha256":"ef58973afc52b927aa9b06e84d123226fe19f236618d4f82924cf006bcc9274e","operations":16,"sequence":7}
+{"batch_durable":true,"encoded_bytes":18477,"marker_sha256":"e74fbacae23ac82dc8b6a8ff81dc34ac1f3be75ac32c6c456bdb47ccfeef6726","operations":16,"sequence":8}
+{"dependency_parts":32,"frontier":8,"generation":10,"metadata_pages_written":66,"metadata_parts_written":3,"mutations":32,"receipt_uuid":"00e2b745-940d-4f7e-afa9-c5a55e2cd1b3","root_published":true,"stream_uuid":"c0570760-c6c9-48ca-8550-9d65da0e2ef1"}
+{"batch_durable":true,"encoded_bytes":18288,"marker_sha256":"e52ca0b6d4c5af404d64101dc96dd1ace232389ff87c020e7c2f288f7fbff730","operations":16,"sequence":9}
+{"batch_durable":true,"encoded_bytes":18332,"marker_sha256":"f688baa98af20b1e4f9b1e641a42418db6c9b6dd0e19833fed95ebd98337715c","operations":16,"sequence":10}
+{"dependency_parts":39,"frontier":10,"generation":12,"metadata_pages_written":66,"metadata_parts_written":3,"mutations":32,"receipt_uuid":"231cdb61-dd02-40c2-8e0e-f311ab7e44cf","root_published":true,"stream_uuid":"0f3e4c38-3aa1-4f0c-97e5-418f08b2cbf6"}
+{"artifact_only":true,"batches":8,"committed_frontier":10,"complete":true,"elapsed_nanos":1121165834,"encoded_bytes":0,"first_batch":11,"generation":12,"last_batch":10,"mutations":128,"reserved_suffix_bytes":0,"stream_uuid":"0f3e4c38-3aa1-4f0c-97e5-418f08b2cbf6"}

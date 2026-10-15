@@ -24,7 +24,7 @@ pub struct JournalRecovery {
 
 impl JournalRecovery {
     /// Capture the separate artifact's CURRENT and TAIL exactly once.
-    /// Checkpointed prefixes may remain on disk; stream rotation is refused.
+    /// A verified empty stream transition preserves the same committed frontier.
     pub fn open(root: &Path) -> Result<Self> {
         let current = crate::disk_pack::artifact::current(root)?;
         let tail = JournalTail::read(root)?;
@@ -32,12 +32,7 @@ impl JournalRecovery {
             .frontier
             .checked_add(1)
             .ok_or_else(|| corrupt("recovery sequence exhausted"))?;
-        if tail.stream != current.journal_stream
-            || tail.first_batch > next
-            || tail.last_batch < current.frontier
-        {
-            return Err(corrupt("journal TAIL does not extend the artifact CURRENT"));
-        }
+        tail.validate_for_current(root, &current)?;
         let complete = tail.last_batch < next;
         Ok(Self {
             root: root.to_path_buf(),

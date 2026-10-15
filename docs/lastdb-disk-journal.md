@@ -3,7 +3,7 @@
 This unit adds the recovery bytes for the disk-pack plan.
 It follows the [artifact reader and builder](lastdb-disk-pack-reader.md).
 It does not activate a LastStore home writer or change a memory ack.
-It does not publish a directory root.
+The append and recovery calls do not publish new record locations.
 The separate [artifact publisher](lastdb-disk-pack-publication.md) supplies that next step.
 
 The journal contains complete immutable batches.
@@ -49,8 +49,8 @@ The writer uses this order:
 One exclusive file lock protects the artifact writer.
 A file or publication error poisons that writer.
 It cannot reuse a partial batch path or guess an uncertain TAIL result.
-The current artifact constructor refuses an existing journal.
-Resume and stream rotation remain release dependencies for the online writer.
+The first constructor refuses an existing journal.
+The [resumed writer](lastdb-disk-journal-resume.md) recovers a complete suffix and starts a fresh stream before admission.
 
 ## Recovery
 
@@ -86,6 +86,7 @@ No primary-home default exists.
 
 ```sh
 lastdb-journal append --artifact PATH --input mutations.jsonl --batch-size 64
+lastdb-journal write --artifact PATH --input mutations.jsonl --batch-size 64 --publish-every 2
 lastdb-journal recover --artifact PATH
 lastdb-journal publish --artifact PATH
 ```
