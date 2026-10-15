@@ -87,6 +87,7 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::{SchemaCore, SchemaError};
 
+mod absent;
 mod bulk;
 mod chain_walk;
 mod converge;
@@ -103,6 +104,7 @@ mod storage_slot;
 mod storage_slot_resident;
 mod target_chain;
 
+pub(super) use absent::absent_purge_targets;
 pub(super) use bulk::{
     plan_guarded_complement_retained, purge_records_bulk, validate_purge_targets_present,
 };
@@ -239,6 +241,8 @@ pub(super) struct PurgeMode {
     pub(super) evict_resident: bool,
     pub(super) reachability: PurgeReachability,
     pub(super) precomputed_retained: Option<HashSet<String>>,
+    /// Who asked, for the delete ledger row.
+    pub(super) caller: &'static str,
 }
 
 /// A planned destructive purge, ready for [`guarded::execute_guarded_purge`].

@@ -110,11 +110,12 @@ pub fn local_retention_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         health.settled,
     )];
     lines.push(format!(
-        "  last_pass: finished_backlog={} keys_left={} cut={} schemas_failed={} schema_failures_total={}",
+        "  last_pass: finished_backlog={} keys_left={} cut={} schemas_failed={} missing_dropped={} schema_failures_total={}",
         health.last_pass.finished_backlog,
         health.last_pass.keys_left,
         health.last_pass.cut,
         health.last_pass.schemas_failed,
+        health.last_pass.missing_dropped,
         health.schema_failures,
     ));
     if let Some(error) = health.policy_error.as_deref() {

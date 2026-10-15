@@ -6,6 +6,7 @@ use super::sampler_state::{SamplerRuntimeState, MAX_DRAIN_ATTEMPTS};
 
 /// The backlog signal of the last TTL sweep pass.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TtlPassReport {
     /// True when the pass erased or dropped every key that it listed, in every
     /// schema, and no schema failed.
@@ -17,6 +18,9 @@ pub struct TtlPassReport {
     pub cut: bool,
     /// Schemas that the pass skipped because their listing or a batch failed.
     pub schemas_failed: u32,
+    /// Keys of a purge batch that were already gone. The sweep dropped them
+    /// and sent the rest of the batch.
+    pub missing_dropped: u64,
 }
 
 impl SamplerRuntimeState {

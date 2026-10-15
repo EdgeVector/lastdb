@@ -2,96 +2,21 @@
 //! its batch, one admission per batch, one batch per schema in turn, and the
 //! rest between batches.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Once;
 use std::time::{Duration, Instant};
 
 use fold_db::clock::unix_secs;
 use fold_db::request_phases::{run_with_phases, RequestPhaseTotals};
-use fold_db::schema::types::operations::{Mutation, MutationType};
 use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::KeyValue;
 
 use super::backlog::Backlog;
 use super::pace::Pace;
-use super::{backup_cut_is_held, key_is_expired, owner_context};
+use super::send::send_with_missing_retry;
+use super::verb::SweepVerb;
+use super::{backup_cut_is_held, key_is_expired};
 use crate::host::Host;
 use crate::self_metrics::TtlPassReport;
-
-/// Environment name: `delete` (default) or `purge`. See [`SweepVerb`].
-pub const TTL_SWEEP_VERB_ENV: &str = "LASTDB_TTL_SWEEP_VERB";
-
-/// The delete ledger caller of a TTL sweep `delete`. A client delete carries
-/// the caller `mutation-pipeline`.
-const LEDGER_CALLER: &str = "ttl-sweep-delete";
-
-/// How the sweep erases an expired key.
-///
-/// `delete` (default) is the ordinary delete that a client uses. It removes the
-/// tips and their tip-version chain, needs only the keys of the batch, and
-/// leaves atom bodies to garbage collection. It does not touch conflict
-/// records, and it leaves one delete barrier record per field per key. `purge`
-/// is the hard-erasure verb. It also deletes the atoms of the key that no other
-/// key references. That needs a reachability proof over the whole schema,
-/// unless every molecule has a complete reverse-reference manifest.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SweepVerb {
-    Delete,
-    Purge,
-}
-
-impl SweepVerb {
-    /// The verb that the node environment names. A value that is neither
-    /// `delete` nor `purge` gives the default, and [`warn_on_bad_verb_once`]
-    /// says so in the log.
-    fn from_env() -> Self {
-        match std::env::var(TTL_SWEEP_VERB_ENV)
-            .ok()
-            .as_deref()
-            .map(str::trim)
-        {
-            Some(raw) if raw.eq_ignore_ascii_case("purge") => Self::Purge,
-            _ => Self::Delete,
-        }
-    }
-
-    fn mutation_type(self) -> MutationType {
-        match self {
-            Self::Delete => MutationType::Delete,
-            Self::Purge => MutationType::Purge,
-        }
-    }
-
-    /// A plain delete acknowledges after its resident tombstone, and the
-    /// persist lane erases later. The sweep waits for the lane, so a batch is
-    /// done when the call returns and the pacing sees the real batch time.
-    fn waits_for_lane(self) -> bool {
-        self == Self::Delete
-    }
-}
-
-/// Log one warning, at the first sampler tick, when the node environment names
-/// a verb that the sweep does not know. The sweep then uses `delete`.
-pub(super) fn warn_on_bad_verb_once() {
-    static WARNED: Once = Once::new();
-    WARNED.call_once(|| {
-        let Ok(raw) = std::env::var(TTL_SWEEP_VERB_ENV) else {
-            return;
-        };
-        let value = raw.trim();
-        if !value.is_empty()
-            && !value.eq_ignore_ascii_case("delete")
-            && !value.eq_ignore_ascii_case("purge")
-        {
-            tracing::warn!(
-                target: "lastdbd::ttl_sweep",
-                value,
-                "unknown {TTL_SWEEP_VERB_ENV} value; the ttl sweep uses the default verb `delete` (valid: delete, purge)"
-            );
-        }
-    });
-}
 
 /// What one pass did.
 #[derive(Debug, Default, Clone, Copy)]
@@ -101,6 +26,9 @@ pub(super) struct PassTotals {
     pub(super) erased: usize,
     /// Keys that the re-check dropped because they were no longer expired.
     pub(super) dropped: usize,
+    /// Keys that a purge batch named and that were already gone. The sweep
+    /// dropped them and sent the rest of the batch.
+    pub(super) missing: usize,
     /// Keys that the pass listed and had not reached when it ended.
     pub(super) keys_left: usize,
     /// The pass ended early: the node was stopping, a backup cut was held, or
@@ -124,6 +52,7 @@ impl PassTotals {
             keys_left: u64::try_from(self.keys_left).unwrap_or(u64::MAX),
             cut: self.cut,
             schemas_failed: u32::try_from(self.schemas_failed).unwrap_or(u32::MAX),
+            missing_dropped: u64::try_from(self.missing).unwrap_or(u64::MAX),
         }
     }
 }
@@ -172,7 +101,7 @@ async fn erase_rounds(
             let Some((outcome, phases, _counts)) = admitted else {
                 return true;
             };
-            let (erased, dropped) = match outcome {
+            let done = match outcome {
                 Ok(done) => done,
                 Err(error) => {
                     tracing::warn!(
@@ -187,9 +116,10 @@ async fn erase_rounds(
                 }
             };
             let took = started.elapsed();
-            totals.erased += erased;
-            totals.dropped += dropped;
-            log_batch(&backlogs[index].schema_name, erased, dropped, took, &phases);
+            totals.erased += done.erased;
+            totals.dropped += done.dropped;
+            totals.missing += done.missing;
+            log_batch(&backlogs[index].schema_name, &done, took, &phases);
             if backlogs.iter().any(|backlog| !backlog.is_done()) {
                 rest(pace.pause_after(took), shutdown).await;
             }
@@ -198,14 +128,23 @@ async fn erase_rounds(
     false
 }
 
-/// Re-check `chunk`, then erase the keys that are still expired. Returns the
-/// count erased and the count dropped.
+/// What one batch did.
+struct Batch {
+    /// Keys that the batch sent to the erase.
+    erased: usize,
+    /// Keys that the re-check dropped because they were no longer expired.
+    dropped: usize,
+    /// Keys of a purge that were already gone and that the sweep dropped.
+    missing: usize,
+}
+
+/// Re-check `chunk`, then erase the keys that are still expired.
 async fn erase_batch(
     host: &Host,
     backlog: &mut Backlog,
     chunk: Vec<KeyValue>,
     verb: SweepVerb,
-) -> Result<(usize, usize), String> {
+) -> Result<Batch, String> {
     let listed = chunk.len();
     let Some((keys, cutoff)) = still_expired(host, backlog, chunk).await? else {
         backlog.clear();
@@ -214,21 +153,29 @@ async fn erase_batch(
             schema = %backlog.schema_name,
             "retention policy is gone; the ttl sweep drops the rest of this schema"
         );
-        return Ok((0, listed));
+        return Ok(Batch {
+            erased: 0,
+            dropped: listed,
+            missing: 0,
+        });
     };
     let dropped = listed - keys.len();
-    // A Hash or Single key ages by its tip write time, so the delete spares a
-    // tip written at or after the cutoff. A rewrite that is acked but not yet
-    // in the age index is spared this way. Range and HashRange keys age by the
-    // key, and `purge` does not read delete barriers.
-    let tip_cutoff_nanos = (verb == SweepVerb::Delete
-        && matches!(
-            backlog.schema_type,
-            DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
-        ))
+    // A Hash or Single key ages by its tip write time, so the erase spares a
+    // key with a tip written at or after the cutoff. A rewrite that is acked
+    // but not yet in the age index is spared this way. Range and HashRange keys
+    // age by the key, so a rewrite does not change their age.
+    let tip_cutoff_nanos = matches!(
+        backlog.schema_type,
+        DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
+    )
     .then(|| cutoff.saturating_mul(1_000_000_000));
-    purge_keys(host, &backlog.schema_name, &keys, verb, tip_cutoff_nanos).await?;
-    Ok((keys.len(), dropped))
+    let (erased, missing) =
+        send_with_missing_retry(host, &backlog.schema_name, keys, (verb, tip_cutoff_nanos)).await?;
+    Ok(Batch {
+        erased,
+        dropped,
+        missing,
+    })
 }
 
 /// The keys of `chunk` that are expired now, under the policy now, and the
@@ -292,13 +239,12 @@ async fn rest(pause: Duration, shutdown: &AtomicBool) {
 /// One line per batch with the erase phases, for the operator who asks where a
 /// batch spent its time. Phase times are in milliseconds. A batch that dropped
 /// keys at the re-check is logged at info.
-fn log_batch(
-    schema_name: &str,
-    erased: usize,
-    dropped: usize,
-    took: Duration,
-    phases: &RequestPhaseTotals,
-) {
+fn log_batch(schema_name: &str, batch: &Batch, took: Duration, phases: &RequestPhaseTotals) {
+    let Batch {
+        erased,
+        dropped,
+        missing,
+    } = *batch;
     if dropped > 0 {
         tracing::info!(
             target: "lastdbd::ttl_sweep",
@@ -313,6 +259,7 @@ fn log_batch(
         schema = schema_name,
         keys = erased,
         dropped,
+        missing,
         took_ms = took.as_millis() as u64,
         materialize_ms = phases.purge_materialize_us / 1000,
         trace_ms = phases.purge_trace_us / 1000,
@@ -323,42 +270,4 @@ fn log_batch(
         barrier_wait_ms = phases.purge_barrier_us / 1000,
         "ttl sweep batch erased"
     );
-}
-
-async fn purge_keys(
-    host: &Host,
-    schema_name: &str,
-    keys: &[KeyValue],
-    verb: SweepVerb,
-    tip_cutoff_nanos: Option<u64>,
-) -> Result<(), String> {
-    if keys.is_empty() {
-        return Ok(());
-    }
-    let mutations: Vec<Mutation> = keys
-        .iter()
-        .map(|key| {
-            let mut mutation = Mutation::new(
-                schema_name.to_string(),
-                HashMap::new(),
-                key.clone(),
-                host.public_key(),
-                verb.mutation_type(),
-            );
-            mutation.synchronous = verb.waits_for_lane().then_some(true);
-            if verb == SweepVerb::Delete {
-                mutation = mutation.with_erase_caller(LEDGER_CALLER);
-            }
-            if let Some(nanos) = tip_cutoff_nanos {
-                mutation = mutation.with_erase_tips_before_nanos(nanos);
-            }
-            mutation
-        })
-        .collect();
-    host.db
-        .mutation_manager()
-        .write_mutations_with_access(mutations, &owner_context(host))
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
 }

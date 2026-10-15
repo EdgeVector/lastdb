@@ -1,9 +1,9 @@
 //! Node-local TTL sweep for retained Single, Hash, Range, and HashRange series.
 //!
 //! Consumes [`fold_db::schema::SchemaRetentionPolicy`] records and erases
-//! expired keys through the audited mutation batch path: the ordinary
-//! `MutationType::Delete` by default, the hard-erasure `MutationType::Purge`
-//! when `LASTDB_TTL_SWEEP_VERB=purge` (see [`erase`]). Range
+//! expired keys through the audited mutation batch path: the hard-erasure
+//! `MutationType::Purge` by default, the ordinary `MutationType::Delete` when
+//! `LASTDB_TTL_SWEEP_VERB=delete` (see [`verb`]). Range
 //! and HashRange layouts select by their time-sortable key: the entry time at
 //! the front of the range key, written as unix seconds zero-padded to 20
 //! digits. A range key that does not start with 20 ASCII digits has no entry
@@ -39,9 +39,11 @@ use crate::host::Host;
 mod backlog;
 mod erase;
 mod pace;
+mod send;
+mod verb;
 use backlog::Backlog;
-pub use erase::TTL_SWEEP_VERB_ENV;
 pub use pace::{TTL_SWEEP_BATCH_ENV, TTL_SWEEP_DUTY_PCT_ENV, TTL_SWEEP_MIN_PAUSE_MS_ENV};
+pub use verb::TTL_SWEEP_VERB_ENV;
 
 /// Default-on kill switch. Off only for the explicit falsey values.
 pub const TTL_SWEEP_ENV: &str = "LASTDB_TTL_SWEEP";
@@ -70,7 +72,7 @@ pub fn maybe_spawn_ttl_sweep(host: &std::sync::Arc<Host>, shutdown: &std::sync::
     if !ttl_sweep_enabled() {
         return;
     }
-    erase::warn_on_bad_verb_once();
+    verb::warn_on_bad_verb_once();
     if !host.self_metrics.begin_ttl_sweep() {
         return;
     }
