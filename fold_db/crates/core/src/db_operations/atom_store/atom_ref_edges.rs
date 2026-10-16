@@ -22,6 +22,7 @@ use std::collections::{BTreeSet, HashMap};
 mod catalog_refs;
 mod counts_pending;
 mod edge_keys;
+mod manifest_seed;
 mod reindex;
 mod reindex_v1_upgrade;
 mod transitions;

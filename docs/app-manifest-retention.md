@@ -263,9 +263,10 @@ new build to bring the TTLs back.
 The sweep paces itself. It erases one batch of keys (16 by default), then rests
 so that it spends a share of wall time (25 percent by default, and at least
 25 ms). The rest is at most 10 minutes. A batch holds the local mutation
-admission while it runs, and a `purge` batch also holds the purge barrier of the
-swept schema, so writes to that schema wait for the batch. How long a batch takes
-depends on the verb and on the size of the schema. The measured numbers and the
+admission while it runs, and a `purge` batch also occupies the persist lane of the
+swept schema, so a durable write to that schema waits for the batch. How long a
+batch takes depends on the verb and on the number of keys in the batch, not on the
+size of the schema. The measured numbers and the
 knobs (`LASTDB_TTL_SWEEP_BATCH`, `LASTDB_TTL_SWEEP_DUTY_PCT`,
 `LASTDB_TTL_SWEEP_MIN_PAUSE_MS`) are in
 [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md). A log that adds more entries than
