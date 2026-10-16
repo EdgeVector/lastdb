@@ -13,9 +13,9 @@ use std::sync::{Arc, Mutex, RwLock};
 
 mod admission;
 mod kv;
+pub(crate) mod logical_paths;
 mod maintenance;
 mod namespace_delete;
-pub(crate) mod logical_paths;
 mod read;
 mod rows;
 pub(crate) mod transaction;
