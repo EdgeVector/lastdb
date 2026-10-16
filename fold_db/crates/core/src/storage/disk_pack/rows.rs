@@ -232,9 +232,7 @@ impl PackRuntime {
                 detail: "native page exceeds 10000 records".into(),
             });
         }
-        let overlay = pending
-            .map(|batch| batch.matching(collection, start, end))
-            .unwrap_or_default();
+        let overlay = context.overlay_rows(pending, collection, start, end);
         let mut overlay = overlay.into_iter().peekable();
         let mut call = crate::read_receipts::lock(&context.call);
         let mut cursor = cursor(&mut call, collection, start, end)?;
@@ -287,7 +285,9 @@ impl PackRuntime {
         let complete = exhausted && disk.is_empty() && overlay.peek().is_none();
         drop(cursor);
         let mut logical = self.logical.lock().expect("native logical cache");
-        if call.current().frontier == self.published.load(Ordering::Acquire) {
+        if context.accepted.is_none()
+            && call.current().frontier == self.published.load(Ordering::Acquire)
+        {
             for (key, body) in &out {
                 if pending.is_some_and(|batch| batch.lookup(collection, key).is_some()) {
                     continue;

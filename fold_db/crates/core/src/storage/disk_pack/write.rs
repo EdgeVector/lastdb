@@ -73,9 +73,7 @@ impl PackRuntime {
             }
         };
         protection.invalidate();
-        *self.current.write().expect("native committed root") = publication.current.clone();
-        self.published
-            .store(publication.current.frontier, Ordering::Release);
+        self.install_committed(publication.current.clone());
         self.failed.store(false, Ordering::Release);
         Ok(())
     }

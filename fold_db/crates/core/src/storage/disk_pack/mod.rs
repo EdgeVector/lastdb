@@ -16,7 +16,9 @@ mod kv;
 mod read;
 mod rows;
 pub(crate) mod transaction;
+mod view;
 mod write;
+pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
 
 const NODE_MARKER: &str = "laststore-pack-node-v1";
@@ -27,7 +29,7 @@ const NAMESPACES: &str = "namespaces\0";
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
     home: Arc<DiskHome>,
-    current: RwLock<Current>,
+    view: RwLock<view::NativeReadView>,
     journal: Mutex<HomeJournal>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
     logical: Arc<Mutex<LogicalResidentSet>>,
@@ -151,7 +153,10 @@ impl PackNamespacedStore {
         Ok(Self {
             runtime: Arc::new(PackRuntime {
                 home,
-                current: RwLock::new(current),
+                view: RwLock::new(view::NativeReadView {
+                    current,
+                    accepted: None,
+                }),
                 journal: Mutex::new(journal),
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
                 logical: Arc::new(Mutex::new(

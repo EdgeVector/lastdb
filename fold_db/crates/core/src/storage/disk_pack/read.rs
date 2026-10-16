@@ -2,12 +2,16 @@ use super::*;
 use laststore::disk_pack::home::HomeRead;
 
 mod holds;
+mod overlay;
+pub(crate) mod snapshots;
 
 pub(super) struct ReadContext {
     pub(super) call: Arc<Mutex<HomeRead>>,
     identity: uuid::Uuid,
     failure: Arc<Mutex<Option<ReadFailure>>>,
     holds: Arc<holds::CallRecordHolds>,
+    pub(super) accepted: Option<Arc<transaction::PendingBatch>>,
+    snapshots: Arc<snapshots::ReadSnapshots>,
 }
 
 struct ReadFailure {
@@ -32,18 +36,20 @@ impl ReadContext {
                 "native disk or cache publication failed; complete recovery is required".into(),
             ));
         }
-        let current = runtime
-            .current
+        let view = runtime
+            .view
             .read()
-            .expect("native committed root")
+            .expect("native complete read view")
             .clone();
         Ok(Arc::new(Self {
             call: Arc::new(Mutex::new(
                 runtime
                     .home
-                    .read_committed(current, budget())
+                    .read_committed(view.current, budget())
                     .map_err(map)?,
             )),
+            accepted: view.accepted,
+            snapshots: Arc::new(snapshots::ReadSnapshots::default()),
             identity: runtime.home.descriptor().identity,
             failure: Arc::new(Mutex::new(None)),
             holds: Arc::new(holds::CallRecordHolds::new(Arc::clone(&runtime.logical))),
@@ -63,6 +69,8 @@ impl ReadContext {
                     identity: context.identity,
                     failure,
                     holds: Arc::clone(&context.holds),
+                    accepted: context.accepted.clone(),
+                    snapshots: Arc::clone(&context.snapshots),
                 }));
             }
             return Err(StorageError::InvalidOperation(
@@ -225,13 +233,15 @@ impl PackRuntime {
         let mut logical = self.logical.lock().expect("native logical cache");
         for (slot, (collection, key)) in coordinates.iter().enumerate() {
             context.hold_record(&mut logical, collection, key)?;
-            if let Some(record) = pending.and_then(|batch| batch.lookup(collection, key)) {
+            if let Some(record) = context.overlay_record(pending, collection, key) {
                 call.account_memory_record(key.len(), record.body.as_ref().map_or(0, Vec::len))
                     .map_err(map)?;
                 out[slot] = record.body.clone();
                 continue;
             }
-            if call.current().frontier == self.published.load(Ordering::Acquire) {
+            if context.accepted.is_none()
+                && call.current().frontier == self.published.load(Ordering::Acquire)
+            {
                 if let Some(length) = logical.fetched_record_bytes(collection, key) {
                     call.account_memory_record(key.len(), length.unwrap_or(0))
                         .map_err(map)?;
@@ -254,7 +264,9 @@ impl PackRuntime {
         let mut logical = self.logical.lock().expect("native logical cache");
         for ((slot, epoch), result) in misses.into_iter().zip(results) {
             let body = result.map_err(map)?;
-            if call.current().frontier == self.published.load(Ordering::Acquire) {
+            if context.accepted.is_none()
+                && call.current().frontier == self.published.load(Ordering::Acquire)
+            {
                 let (collection, key) = &coordinates[slot];
                 logical.admit_record(collection, key, body.clone(), epoch);
             }
