@@ -11,6 +11,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
+mod admission;
 mod kv;
 mod read;
 mod rows;
@@ -32,6 +33,7 @@ pub struct PackRuntime {
     logical: Arc<Mutex<LogicalResidentSet>>,
     published: AtomicU64,
     failed: AtomicBool,
+    failed_write: Mutex<Option<admission::WriteProtection>>,
 }
 
 /// All namespaces on one native disk home.
@@ -60,6 +62,7 @@ fn map(error: laststore::Error) -> StorageError {
         laststore::Error::ReadBudgetExceeded => StorageError::ReadResourceLimit {
             detail: error.to_string(),
         },
+        laststore::Error::WriteCapacity(detail) => StorageError::WriteResourceLimit { detail },
         _ => StorageError::BackendError(error.to_string()),
     }
 }
@@ -156,6 +159,7 @@ impl PackNamespacedStore {
                 )),
                 published: AtomicU64::new(frontier),
                 failed: AtomicBool::new(false),
+                failed_write: Mutex::new(None),
             }),
         })
     }

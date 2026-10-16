@@ -133,6 +133,10 @@ impl From<SchemaError> for HostError {
                     "message":detail,"hint":"request fewer records or fields"})
                 .to_string(),
             ),
+            SchemaError::WriteResourceLimit { detail } => Self::new(
+                503,
+                serde_json::json!({"error":"write_resource_limit","retryable":true,"message":detail}).to_string(),
+            ),
             schema_err @ SchemaError::StorageFull { .. } => Self::new(
                 507,
                 schema_err
@@ -167,6 +171,9 @@ impl From<fold_db::storage::StorageError> for HostError {
         match error {
             fold_db::storage::StorageError::ReadResourceLimit { detail } => {
                 Self::from(SchemaError::ReadResourceLimit { detail })
+            }
+            fold_db::storage::StorageError::WriteResourceLimit { detail } => {
+                Self::from(SchemaError::WriteResourceLimit { detail })
             }
             error => Self::internal(error.to_string()),
         }

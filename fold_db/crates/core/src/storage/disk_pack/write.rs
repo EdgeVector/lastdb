@@ -45,10 +45,6 @@ impl PackRuntime {
                     .into(),
             ));
         }
-        let keys: Vec<_> = operations
-            .iter()
-            .map(|operation| (operation.collection.clone(), operation.key.clone()))
-            .collect();
         let mut writer = self.journal.lock().expect("native journal owner");
         let accepted_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -57,20 +53,20 @@ impl PackRuntime {
             .try_into()
             .map_err(|_| StorageError::BackendError("native accepted time overflow".into()))?;
         transaction::validate(&operations)?;
+        let reservation = writer.reserve_mutation(&operations).map_err(map)?;
+        let protection = admission::WriteProtection::reserve(self, &operations)?;
         let result = writer
-            .append(operations, accepted_ms)
+            .append_mutation(operations, accepted_ms, reservation)
             .and_then(|_| writer.publish());
         let publication = match result {
             Ok(publication) => publication,
             Err(error) => {
                 self.failed.store(true, Ordering::Release);
+                *self.failed_write.lock().expect("native failed write owner") = Some(protection);
                 return Err(map(error));
             }
         };
-        let mut logical = self.logical.lock().expect("native logical cache");
-        for (collection, key) in keys {
-            logical.forget_record(&collection, &key);
-        }
+        protection.invalidate();
         *self.current.write().expect("native committed root") = publication.current.clone();
         self.published
             .store(publication.current.frontier, Ordering::Release);

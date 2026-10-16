@@ -18,6 +18,9 @@ impl From<crate::storage::StorageError> for SchemaError {
             crate::storage::StorageError::ReadResourceLimit { detail } => {
                 Self::ReadResourceLimit { detail }
             }
+            crate::storage::StorageError::WriteResourceLimit { detail } => {
+                Self::WriteResourceLimit { detail }
+            }
             crate::storage::StorageError::CatalogMembershipDenied {
                 db_locator,
                 schema_name,

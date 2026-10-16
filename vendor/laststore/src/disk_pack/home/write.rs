@@ -19,8 +19,8 @@ pub struct HomeMutation {
 /// Exclusive native journal owner. A durable append is distinct from root publication.
 /// This API does not acknowledge a logical memory mutation or release its token.
 pub struct HomeJournal {
-    descriptor: HomeDescriptor,
-    writer: JournalWriter,
+    pub(super) descriptor: HomeDescriptor,
+    pub(super) writer: JournalWriter,
 }
 
 impl HomeDescriptor {

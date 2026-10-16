@@ -114,6 +114,30 @@ impl JournalWriter {
         self.reserved_bytes
     }
 
+    /// Validate bounded future directory growth before an accepted mutation.
+    /// A native caller owns its exclusive complete-write gate through publish.
+    pub(crate) fn check_dependency_capacity(&self, additional: u64) -> Result<()> {
+        self.check_admission()?;
+        if self.tail.last_batch != self.current.frontier {
+            return Err(super::refuse(
+                "complete admission requires a published suffix",
+            ));
+        }
+        let generation = crate::disk_pack::publish::ensure_generation(&self.lock, &self.current)?;
+        if generation
+            .dependencies
+            .checked_add(additional)
+            .map_or(true, |parts| {
+                parts > crate::disk_pack::dependency::MAX_DEPENDENCIES as u64
+            })
+        {
+            return Err(super::capacity(
+                "complete mutation exceeds dependency capacity",
+            ));
+        }
+        Ok(())
+    }
+
     /// Reserve a complete journal batch before its owned payloads move.
     /// This grants no directory capacity, logical-record protection, or ack.
     pub fn reserve(&self, mutations: &[JournalMutation]) -> Result<super::JournalReservation> {

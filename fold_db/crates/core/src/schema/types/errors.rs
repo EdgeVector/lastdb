@@ -9,6 +9,10 @@ pub enum SchemaError {
     ReadResourceLimit {
         detail: String,
     },
+    /// Complete stored-write admission failed before append.
+    WriteResourceLimit {
+        detail: String,
+    },
     /// A selected personal tip names an atom that this read cannot resolve.
     /// This is a store failure, not an absent key or an optional field.
     MissingLocalAtom,
@@ -165,6 +169,7 @@ impl fmt::Display for SchemaError {
             Self::NotFound(msg) => write!(f, "Schema not found: {msg}"),
             Self::Blocked(msg) => write!(f, "Schema blocked: {msg}"),
             Self::ReadResourceLimit {detail} => write!(f,"read resource limit exceeded: {detail}"),
+            Self::WriteResourceLimit {detail} => write!(f,"write resource limit exceeded: {detail}"),
             Self::MissingLocalAtom => write!(f, "selected local tip has no readable atom body"),
             Self::StorageRead { detail } => write!(f, "storage read failed: {detail}"),
             Self::InvalidField(msg) => write!(f, "Invalid field: {msg}"),

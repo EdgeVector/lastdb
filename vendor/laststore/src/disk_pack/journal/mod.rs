@@ -29,3 +29,7 @@ const MAX_OPERATIONS: usize = 4096;
 fn refuse(reason: &'static str) -> crate::Error {
     crate::Error::Config(format!("disk-pack journal: {reason}"))
 }
+
+fn capacity(reason: &'static str) -> crate::Error {
+    crate::Error::WriteCapacity(reason.into())
+}

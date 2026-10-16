@@ -12,6 +12,9 @@ pub enum StorageError {
     /// One bounded disk call exhausted its work limit. This is never a missing key.
     #[error("read resource limit exceeded: {detail}")]
     ReadResourceLimit { detail: String },
+    /// Complete native admission failed before any append. Retry after capacity returns.
+    #[error("write resource limit exceeded: {detail}")]
+    WriteResourceLimit { detail: String },
 
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
