@@ -6,28 +6,26 @@ use crate::atom::ImportedTip;
 
 impl FieldVariant {
     /// Writes a mutation to the field.
-    pub fn write_mutation(&mut self, key_value: &KeyValue, ctx: WriteContext) {
+    pub fn write_mutation(&mut self, key_value: &KeyValue, ctx: WriteContext) -> bool {
         self.ensure_molecule(&ctx.schema_name, &ctx.field_name);
 
-        match (&self.kind, &mut self.molecule) {
-            // Unified keyed write path: every field kind uses HashRange.
-            (
-                FieldKind::Single | FieldKind::Hash | FieldKind::Range | FieldKind::HashRange,
-                Some(molecule),
-            ) => {
-                let Some((hash_key, range_key)) = Self::molecule_keys(&self.kind, key_value, &ctx)
-                else {
-                    return;
-                };
-                Self::write_tip(molecule, ctx, hash_key, range_key);
-            }
-            _ => {
-                // kind/molecule mismatch should not happen after ensure_molecule
-                tracing::error!(
-                    kind = ?self.kind,
-                    "write_mutation: field kind / molecule data mismatch"
-                );
-            }
+        // Every field kind uses the same keyed molecule representation.
+        if let (
+            FieldKind::Single | FieldKind::Hash | FieldKind::Range | FieldKind::HashRange,
+            Some(molecule),
+        ) = (&self.kind, &mut self.molecule)
+        {
+            let Some((hash_key, range_key)) = Self::molecule_keys(&self.kind, key_value, &ctx)
+            else {
+                return false;
+            };
+            Self::write_tip(molecule, ctx, hash_key, range_key)
+        } else {
+            tracing::error!(
+                kind = ?self.kind,
+                "write_mutation: field kind / molecule data mismatch"
+            );
+            false
         }
     }
 
@@ -66,13 +64,13 @@ impl FieldVariant {
         ctx: WriteContext,
         hash_key: String,
         range_key: String,
-    ) {
+    ) -> bool {
         let meta = crate::atom::KeyMetadata {
             source_file_name: ctx.source_file_name,
             metadata: ctx.metadata,
             tombstoned: ctx.atom.is_tombstone(),
         };
-        match ctx.writer_override {
+        let accepted = match ctx.writer_override {
             Some(crate::atom::provenance::Provenance::User {
                 pubkey,
                 signature,
@@ -97,7 +95,7 @@ impl FieldVariant {
                         logical_counter: ctx.logical_counter,
                         mutation_uuid: ctx.mutation_uuid.clone(),
                     },
-                );
+                )
             }
             _ if ctx.imported_written_at.is_some() => {
                 // Mutation-log replay: keep origin written_at / writer
@@ -122,7 +120,7 @@ impl FieldVariant {
                         mutation_uuid: ctx.mutation_uuid.clone(),
                         ..ImportedTip::default()
                     },
-                );
+                )
             }
             _ => {
                 molecule.set_atom_uuid_from_values_with_author(
@@ -134,9 +132,14 @@ impl FieldVariant {
                     ctx.mutation_uuid.clone(),
                 );
                 molecule.stamp_tip_origin_device(&hash_key, &range_key, &ctx.origin_device);
+                true
             }
+        };
+        // A rejected imported atom must not alter the winning tip's metadata.
+        if accepted {
+            molecule.set_key_metadata(hash_key, range_key, meta);
         }
-        molecule.set_key_metadata(hash_key, range_key, meta);
+        accepted
     }
 
     /// Materialize this field's in-memory molecule if it is not hydrated yet.

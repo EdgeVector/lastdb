@@ -288,7 +288,7 @@ impl MoleculeHashRange {
             .and_then(|range_map| range_map.get(range))
     }
 
-    fn remove_key_metadata(&mut self, hash: &str, range: &str) {
+    pub(super) fn remove_key_metadata(&mut self, hash: &str, range: &str) {
         if let Some(range_map) = self.key_metadata.get_mut(hash) {
             range_map.remove(range);
             if range_map.is_empty() {
@@ -323,35 +323,6 @@ impl MoleculeHashRange {
             range_value,
             AtomEntry::thin_with_prev(atom_uuid, now_nanos(), String::new(), prev_tip_id),
         );
-        self.updated_at = Utc::now();
-    }
-
-    /// Force-install a resident tip's LWW identity without last-writer-wins.
-    ///
-    /// Restore uses this so a later imported apply compares against the
-    /// acknowledged T0 clocks, not a zero-clock shell or `now_nanos()`.
-    pub(crate) fn overlay_resident_atom_entry(
-        &mut self,
-        hash_value: String,
-        range_value: String,
-        entry: AtomEntry,
-    ) {
-        if let Some(existing) = self.get_atom_entry(&hash_value, &range_value) {
-            if existing.atom_uuid == entry.atom_uuid
-                && existing.written_at == entry.written_at
-                && existing.logical_counter == entry.logical_counter
-                && existing.lww_device() == entry.lww_device()
-                && existing.mutation_uuid == entry.mutation_uuid
-            {
-                return;
-            }
-        }
-        self.version += 1;
-        self.remove_key_metadata(&hash_value, &range_value);
-        self.atom_uuids
-            .entry(hash_value)
-            .or_default()
-            .insert(range_value, entry);
         self.updated_at = Utc::now();
     }
 }

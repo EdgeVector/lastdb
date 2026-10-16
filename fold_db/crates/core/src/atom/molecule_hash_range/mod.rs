@@ -75,4 +75,5 @@ mod construct;
 mod import;
 mod merge;
 mod ops;
+mod overlay;
 mod verify;

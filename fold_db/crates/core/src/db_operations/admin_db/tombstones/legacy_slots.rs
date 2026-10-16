@@ -111,7 +111,7 @@ impl AtomStore {
             .collect();
         let atoms = self.get_atoms_located(&atom_slots, storage_prefix).await?;
         scan.atoms_fetched += atoms.len() as u64;
-        for ((base_key, molecule, _), atom) in std::mem::take(pending).into_iter().zip(atoms) {
+        for ((base_key, molecule, record), atom) in std::mem::take(pending).into_iter().zip(atoms) {
             let Some(atom) = atom else {
                 scan.atoms_missing += 1;
                 continue;
@@ -129,6 +129,7 @@ impl AtomStore {
                 molecule_uuid: molecule,
                 storage_hash,
                 storage_range,
+                atom_uuid: record.entry.atom_uuid,
             });
         }
         Ok(())

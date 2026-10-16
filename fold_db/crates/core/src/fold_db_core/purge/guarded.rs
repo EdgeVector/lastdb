@@ -30,7 +30,11 @@ pub(super) async fn execute_guarded_purge(
         .collect();
     // Resolve resident aliases before the first destructive write. Encoding
     // failure must refuse the purge while every durable row is still intact.
-    let resident_api_keys = resident_api_keys_for_storage_slots(db_ops.as_ref(), &target_slot_ids)?;
+    let resident_api_keys = if purge.mode.evict_resident {
+        resident_api_keys_for_storage_slots(db_ops.as_ref(), &target_slot_ids)?
+    } else {
+        HashMap::new()
+    };
     let inputs = GuardedRemovalInputs {
         candidate_atoms: &purge.candidate_atoms,
         history_keys: &purge.history_keys,

@@ -7,6 +7,13 @@ use super::{
 use crate::atom::{ImportedTip, MoleculeHashRange};
 use chrono::Utc;
 
+pub(crate) type PreparedProteinTip = (
+    String,
+    MoleculeData,
+    HashSet<ChangedKey>,
+    Option<(AtomEntry, Option<crate::atom::KeyMetadata>)>,
+);
+
 impl AtomStore {
     pub(super) async fn protein_member_tip_update(
         &self,
@@ -16,7 +23,7 @@ impl AtomStore {
         tip: &AtomEntry,
         keypair: &Ed25519KeyPair,
         scope: ProteinTipScope<'_>,
-    ) -> Result<(String, MoleculeData, HashSet<ChangedKey>), SchemaError> {
+    ) -> Result<PreparedProteinTip, SchemaError> {
         let changed: HashSet<ChangedKey> =
             HashSet::from([ChangedKey::hash_range(hash.to_string(), range.to_string())]);
 
@@ -35,6 +42,10 @@ impl AtomStore {
                 )
             }
         };
+        let base = mol
+            .get_atom_entry(hash, range)
+            .cloned()
+            .map(|entry| (entry, mol.get_key_metadata(hash, range).cloned()));
 
         // Local folds mint a fresh clock via set_atom_uuid_from_values.
         // Imported/replay folds must keep the envelope written_at/writer and
@@ -68,6 +79,6 @@ impl AtomStore {
             );
         }
 
-        Ok((molecule_uuid.to_string(), mol, changed))
+        Ok((molecule_uuid.to_string(), mol, changed, base))
     }
 }

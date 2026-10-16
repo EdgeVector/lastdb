@@ -66,14 +66,15 @@ impl MoleculeHashRange {
     ///
     /// Last-writer-wins decides the tip. A decision between different atoms
     /// from different sync devices is also kept in `pending_tip_conflicts`.
+    /// Returns true only when the incoming tip becomes the new head.
     pub fn set_atom_uuid_from_values_imported_with_author(
         &mut self,
         hash_value: String,
         range_value: String,
         tip: ImportedTip,
-    ) {
+    ) -> bool {
         if self.get_atom_uuid(&hash_value, &range_value) == Some(&tip.atom_uuid) {
-            return;
+            return false;
         }
         let written_at = tip.written_at.unwrap_or_else(now_nanos);
         // Imported tips may carry an external signature for data_share verify.
@@ -129,7 +130,7 @@ impl MoleculeHashRange {
                     let conflict = (TipConflictKind::Dropped, existing.clone(), entry);
                     self.push_tip_conflict(&hash_value, &range_value, conflict);
                 }
-                return;
+                return false;
             }
             if queued {
                 replaced = Some(existing.clone());
@@ -146,6 +147,7 @@ impl MoleculeHashRange {
             .or_default()
             .insert(range_value, entry);
         self.updated_at = Utc::now();
+        true
     }
 
     /// Queue one pair `(kind, winner, loser)` for the recorder.
