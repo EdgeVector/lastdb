@@ -73,8 +73,9 @@ impl MutationManager {
                     require_durable,
                 )
                 .await?;
+            let storage_links = self.prepare_resident_storage_links(prepared_deltas)?;
             let phase2_start = std::time::Instant::now();
-            let outcomes = self.publish_prepared_resident_deltas(prepared_deltas);
+            let outcomes = self.publish_prepared_resident_deltas(prepared_deltas, &storage_links);
             // Resident tips are visible from this point. Capture must stage
             // even if persist-lane wait, flush, or mixed erase later returns
             // Err — otherwise RAM shows a commit the mutation log never saw.
@@ -166,17 +167,17 @@ impl MutationManager {
             } else {
                 delta.original_atom_results.clone()
             };
-            let (sibling_updates, sibling_prepared) = self
+            let (sibling_updates, sibling_prepared, sibling_origins) = self
                 .build_protein_sibling_updates(
                     &delta.schema,
                     &delta.schema_mutations,
                     &delta.mutation_key_values,
-                    &delta.atom_results,
+                    &delta.original_atom_results,
                 )
                 .await?;
             delta.sibling_prepared = sibling_prepared;
-            delta.sibling_updates =
-                self.rebase_sibling_updates_on_resident(&delta.schema, sibling_updates);
+            delta.sibling_updates = sibling_updates;
+            delta.sibling_origins = sibling_origins;
         }
         Ok(())
     }
@@ -299,9 +300,14 @@ impl MutationManager {
             }
         }
         for delta in prepared_deltas.iter_mut() {
-            delta
-                .sibling_updates
-                .retain(|(_, _, changed)| !changed.is_empty());
+            let updates = std::mem::take(&mut delta.sibling_updates);
+            let origins = std::mem::take(&mut delta.sibling_origins);
+            for (update, origin) in updates.into_iter().zip(origins) {
+                if !update.2.is_empty() {
+                    delta.sibling_updates.push(update);
+                    delta.sibling_origins.push(origin);
+                }
+            }
         }
         Ok(tip_guards)
     }

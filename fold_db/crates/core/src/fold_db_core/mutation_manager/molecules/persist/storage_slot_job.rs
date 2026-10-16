@@ -106,6 +106,18 @@ impl MutationManager {
                     acquire_start.elapsed(),
                 );
                 self.record_schema_barrier_acquisition(&job.schema_name);
+                let storage_keys: Vec<String> = chunk
+                    .iter()
+                    .map(crate::fold_db_core::purge::StorageSlotPurgeTarget::storage_record_key)
+                    .collect();
+                // Match ordinary Delete lock order. These exact guards cover
+                // fresh tip/atom validation through the destructive commit.
+                let _tip_guards = self.db_ops.atoms().lock_tip_commits(&storage_keys).await;
+                let _publication_guards = self
+                    .db_ops
+                    .atoms()
+                    .lock_tip_publications(&storage_keys)
+                    .await;
                 let held_from = std::time::Instant::now();
                 let mut acct = crate::fold_db_core::purge::PurgeCommitAccounting::default();
                 let result = match crate::fold_db_core::purge::purge_storage_slots_bulk(
