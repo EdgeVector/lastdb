@@ -29,9 +29,9 @@ impl ResidentGraph {
 
     /// Clear a tip only when its atom and resident revision are still current.
     ///
-    /// The slot read lock spans the revision check, the tip check, and both
-    /// dirty clears. A new apply must publish its revision before dirty state,
-    /// so it cannot lose its dirty marker in this critical section.
+    /// The slot write lock spans the version checks and every keyed removal.
+    /// A new apply publishes its revision before dirty state, so an older
+    /// completion cannot clear or discharge the newer write.
     pub fn clear_tip_dirty_for_revision_if_current(
         &self,
         tip: &ResidentTip,
@@ -47,15 +47,16 @@ impl ResidentGraph {
     ) -> bool {
         let map_key = tip_map_key(&tip.molecule_uuid, &tip.hash, &tip.range);
         // Lock order: slots, then tips. The revision and the atom id must
-        // still match before the body leaves. The slot number stays.
+        // still match before the body leaves. Retain slots through all keyed
+        // cleanup; the next apply cannot publish its revision in that gap.
+        let mut slots = self.slots.write().expect("resident slot lock");
+        let Some(control) = slots.get_mut(&map_key) else {
+            return false;
+        };
+        if resident_revision.is_some_and(|revision| control.resident_revision != revision) {
+            return false;
+        }
         let atom_uuid = {
-            let mut slots = self.slots.write().expect("resident slot lock");
-            let Some(control) = slots.get_mut(&map_key) else {
-                return false;
-            };
-            if resident_revision.is_some_and(|revision| control.resident_revision != revision) {
-                return false;
-            }
             let mut tips = self.tips.write().expect("tips lock");
             let Some(current) = tips.get(&map_key) else {
                 return false;
@@ -76,6 +77,9 @@ impl ResidentGraph {
         );
         self.discharge(&tip.dirty_key());
         self.remove_key_index_member(&tip.molecule_uuid, &tip.hash, &tip.range, true);
+        // Budget enforcement can reacquire slots. Atom cleanup also stays
+        // outside this short per-slot exclusion boundary.
+        drop(slots);
         self.release_unreferenced_atom(&atom_uuid);
         self.enforce_budget();
         true
