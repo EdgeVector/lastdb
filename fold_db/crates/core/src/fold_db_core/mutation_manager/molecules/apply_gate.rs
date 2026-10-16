@@ -6,9 +6,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::atom::molecule_uuid::parse_molecule_uuid_bytes;
 use crate::atom::{Atom, MutationEvent};
 use crate::db_operations::ChangedKey;
-use crate::atom::molecule_uuid::parse_molecule_uuid_bytes;
 use crate::resident::{LogicalResidentSet, MoleculeId, PersistSlotRevision};
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
