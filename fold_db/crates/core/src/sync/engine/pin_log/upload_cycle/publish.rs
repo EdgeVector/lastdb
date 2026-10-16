@@ -66,8 +66,16 @@ impl PinLog {
             mutation_log_put_concurrency_env(),
         );
         let bytes_uploaded = upload_publish_units_batched(engine, target, sealed.units).await?;
-        self.confirm_published_units(plane, sealed, report, bytes_uploaded)
-            .await
+        let units = sealed.units;
+        let advanced = self
+            .confirm_published_units(plane, sealed, report, bytes_uploaded)
+            .await?;
+        // Meter cloud uploads only after the published frontier reaches disk.
+        // The local-directory confirmation path has no cloud upload to meter.
+        for unit in units {
+            engine.meter_uploaded_log_segments(target, unit).await;
+        }
+        Ok(advanced)
     }
 
     /// Confirm sealed units whose bytes are durable on the target plane.
@@ -117,13 +125,6 @@ impl PinLog {
             .map(|(writer_id, (through, _))| (writer_id.clone(), *through))
             .collect::<BTreeMap<_, _>>();
         self.persist_published_f(target_id, &confirmed).await?;
-
-        // The meter runs after the flush. A confirm failure does not roll
-        // back published-F and does not fail this publish.
-        // sealed_units is already &[Vec<MutationLogSegment>].
-        for unit in sealed_units {
-            engine.meter_uploaded_log_segments(target, unit).await;
-        }
 
         // Local mirror is geometry/bookkeeping only. Update it only after
         // the durable Cloud HWM exists, so a failed HWM flush cannot make a
