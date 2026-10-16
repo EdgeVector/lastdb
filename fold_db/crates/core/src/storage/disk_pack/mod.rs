@@ -39,6 +39,7 @@ pub struct PackRuntime {
     logical: Arc<Mutex<LogicalResidentSet>>,
     published: AtomicU64,
     failed: AtomicBool,
+    fresh_empty: AtomicBool,
     failed_write: Mutex<Option<Arc<admission::WriteProtection>>>,
     failed_request: Mutex<Option<Arc<transaction::PendingBatch>>>,
 }
@@ -104,7 +105,8 @@ impl PackNamespacedStore {
         use std::io::{Read, Write};
         let expected = b"format=1\nhome=disk-pack\n";
         let marker = path.join(NODE_MARKER);
-        if marker.try_exists()? {
+        let created = !marker.try_exists()?;
+        if !created {
             let mut fence = std::fs::File::open(path.join("laststore-layout-v1"))?;
             let expected_fence = laststore::disk_pack::home::LEGACY_FENCE_BYTES;
             if fence.metadata()?.len() != expected_fence.len() as u64 {
@@ -157,7 +159,9 @@ impl PackNamespacedStore {
             .finish()
             .map_err(map)?;
         }
-        Self::open_home(&path.join("disk-pack"))
+        let store = Self::open_home(&path.join("disk-pack"))?;
+        store.runtime.fresh_empty.store(created, Ordering::Release);
+        Ok(store)
     }
 
     /// Open a completed converted or restored native home with its original node identity.
@@ -189,6 +193,7 @@ impl PackNamespacedStore {
                 )),
                 published: AtomicU64::new(frontier),
                 failed: AtomicBool::new(false),
+                fresh_empty: AtomicBool::new(false),
                 failed_write: Mutex::new(None),
                 failed_request: Mutex::new(None),
             }),
