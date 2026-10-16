@@ -5,16 +5,22 @@ use crate::Result;
 impl JournalWriter {
     /// Pack live stored records through the same publication lease, then reclaim safely.
     pub fn compact(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
-        self.publish()?;
-        self.poisoned = true;
-        let (current, mut receipt) =
-            crate::disk_pack::maintenance::compact_locked(&self.lock, policy)?;
-        self.current = current;
-        self.poisoned = false;
+        let mut receipt = self.pack(policy)?;
         let reclaim = crate::disk_pack::maintenance::reclaim_locked(&self.lock, policy)?;
         receipt.files_removed = reclaim.files_removed;
         receipt.bytes_removed = reclaim.bytes_removed;
         receipt.reclaim_deferred = reclaim.reclaim_deferred;
+        Ok(receipt)
+    }
+
+    /// Publish replacements without deletion. A node installs this root in its
+    /// read view before it calls `reclaim` under that view's exclusive lock.
+    pub fn pack(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
+        self.publish()?;
+        self.poisoned = true;
+        let (current, receipt) = crate::disk_pack::maintenance::compact_locked(&self.lock, policy)?;
+        self.current = current;
+        self.poisoned = false;
         Ok(receipt)
     }
 

@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 mod admission;
 mod build;
+mod maintenance;
 mod mutation_quote;
 mod read;
 mod write;

@@ -7,7 +7,7 @@ mod space;
 mod stream;
 mod visit;
 
-pub use space::{reserve_space, SpacePolicy, SpaceReservation, SpaceUsage};
+pub use space::{reserve_space, space_usage, SpacePolicy, SpaceReservation, SpaceUsage};
 pub use visit::{visit_generation, StoredRecord};
 
 /// Work performed by one complete maintenance call.

@@ -1,4 +1,5 @@
 use super::*;
+mod native;
 
 /// `POST /api/db/clear-history` — trim or purge mutation-history rows.
 ///
@@ -144,6 +145,9 @@ pub(super) async fn execute_db_compact_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    if let Some(runtime) = host.db.db_ops().namespaced_store().disk_pack_runtime() {
+        return native::execute(req, ctx, runtime).await;
+    }
     #[derive(Deserialize)]
     struct Body {
         #[serde(default)]

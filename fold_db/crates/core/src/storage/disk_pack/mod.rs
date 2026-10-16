@@ -13,11 +13,13 @@ use std::sync::{Arc, Mutex, RwLock};
 
 mod admission;
 mod kv;
+mod maintenance;
 mod read;
 mod rows;
 pub(crate) mod transaction;
 mod view;
 mod write;
+pub use maintenance::{NativeMaintenanceOptions, NativeMaintenanceReport};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
 

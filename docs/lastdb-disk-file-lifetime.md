@@ -77,3 +77,25 @@ Its commands are `compact`, `reclaim`, `inventory`, `reference`, `references`, `
 The mutation commands require the exclusive native writer lease.
 They refuse a writer that already owns that home.
 No command stops a node or activates this format on the primary.
+
+## Native node maintenance
+
+The existing owner route `POST /api/db/compact` serves native whole-home maintenance.
+The route defaults to a preview.
+Pass `{"dry_run":false}` to pack live records and reclaim eligible files.
+Pass `{"dry_run":false,"reclaim_only":true}` to reclaim without a rewrite.
+An optional `grace_ms` sets an explicit grace period.
+A named collection is refused because native parts share one committed root.
+
+The runtime waits for the complete write gate before maintenance starts.
+The long pack copy permits reads from the old root.
+After publication, the runtime takes the read-view write lock and installs the new root.
+It then attempts reclaim before it releases that lock.
+Older active calls retain their generation holds and can defer deletion.
+New calls acquire their generation hold before they release the view read lock.
+Thus no call can capture a root after its files retire.
+
+The ordinary cap-disabled space check uses filesystem capacity and active tickets only.
+It does not enumerate files for each write.
+An explicitly enabled whole-home cap still uses a bounded census.
+Its hot-path counter needs a separate accepted cap policy before activation.

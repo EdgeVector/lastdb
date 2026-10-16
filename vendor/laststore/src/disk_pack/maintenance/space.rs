@@ -78,7 +78,15 @@ fn reserve(
     replacement: bool,
 ) -> Result<SpaceReservation> {
     let root = std::fs::canonicalize(root)?;
-    let usage = usage(&root, policy.max_files)?;
+    // The ordinary unfrozen-cap path must not enumerate the home per mutation.
+    let usage = if policy.disk_cap_bytes == 0 || replacement {
+        SpaceUsage {
+            available_bytes: available(&root)?,
+            ..Default::default()
+        }
+    } else {
+        space_usage(&root, policy.max_files)?
+    };
     let mut ledger = RESERVATIONS
         .get_or_init(Mutex::default)
         .lock()
@@ -124,14 +132,19 @@ impl Drop for SpaceReservation {
     }
 }
 
-pub(super) fn usage(root: &Path, max_files: usize) -> Result<SpaceUsage> {
+/// Explicit bounded administrative inventory; ordinary uncapped writes use statvfs only.
+pub fn space_usage(root: &Path, max_files: usize) -> Result<SpaceUsage> {
     let mut out = SpaceUsage::default();
     count(root, 6, max_files, &mut out)?; // walk-ok: exact native root, depth six and finite file budget
-    let stats = rustix::fs::statvfs(root).map_err(std::io::Error::from)?;
-    out.available_bytes = (stats.f_bavail as u64)
-        .checked_mul(stats.f_frsize as u64)
-        .ok_or_else(|| corrupt("filesystem capacity overflow"))?;
+    out.available_bytes = available(root)?;
     Ok(out)
+}
+
+fn available(root: &Path) -> Result<u64> {
+    let stats = rustix::fs::statvfs(root).map_err(std::io::Error::from)?;
+    (stats.f_bavail as u64)
+        .checked_mul(stats.f_frsize as u64)
+        .ok_or_else(|| corrupt("filesystem capacity overflow"))
 }
 
 fn count(path: &Path, depth: usize, limit: usize, out: &mut SpaceUsage) -> Result<()> {
