@@ -7,7 +7,7 @@ use crate::storage::KvMutation;
 use std::collections::HashMap;
 
 use super::super::types::{MoleculeData, MoleculeHeader};
-use super::super::AtomStore;
+use super::super::{AtomStore, PerKeyRecord};
 
 type MoleculeKeyRemoval<'a> = (
     &'a str,
@@ -147,8 +147,9 @@ impl AtomStore {
             ..SlotRemovalPlan::default()
         };
 
+        let current = self.read_removed_slots(removals).await?;
         for removal in removals {
-            self.plan_molecule_removal(removal, &mut plan).await?;
+            Self::plan_molecule_removal(removal, &current, &mut plan)?;
         }
         let SlotRemovalPlan {
             mut keys,
@@ -225,10 +226,45 @@ impl AtomStore {
         Ok(count_mutations)
     }
 
-    /// Plan the key deletes and header bump for one molecule's removed slots.
-    async fn plan_molecule_removal(
+    /// The physical record of every slot the removals name, in one grouped read
+    /// per storage prefix, keyed by full storage key. A slot without a record
+    /// is absent from the map.
+    ///
+    /// This replaces one read per slot: each of those reads is a point get plus
+    /// a generation pointer read, and under a small warm set each one loads a
+    /// hash group. `load_exact_per_key_records` reads the same rows in one
+    /// `get_items` and reads each molecule's generation pointer once, with the
+    /// same merge rules as [`Self::get_per_key_unfiltered`].
+    async fn read_removed_slots(
         &self,
+        removals: &[MoleculeKeyRemoval<'_>],
+    ) -> Result<HashMap<String, PerKeyRecord>, SchemaError> {
+        let mut by_prefix: HashMap<Option<&str>, Vec<String>> = HashMap::new();
+        for (molecule_uuid, _, removed_slots, storage_prefix) in removals {
+            for (hash, range) in *removed_slots {
+                by_prefix.entry(*storage_prefix).or_default().push(
+                    molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range),
+                );
+            }
+        }
+        let mut current = HashMap::new();
+        for (storage_prefix, base_keys) in by_prefix {
+            let records = self
+                .load_exact_per_key_records(storage_prefix, &base_keys)
+                .await?;
+            for (base_key, record) in base_keys.into_iter().zip(records) {
+                if let Some(record) = record {
+                    current.insert(build_storage_key(storage_prefix, &base_key), record);
+                }
+            }
+        }
+        Ok(current)
+    }
+
+    /// Plan the key deletes and header bump for one molecule's removed slots.
+    fn plan_molecule_removal(
         removal: &MoleculeKeyRemoval<'_>,
+        current: &HashMap<String, PerKeyRecord>,
         plan: &mut SlotRemovalPlan,
     ) -> Result<(), SchemaError> {
         let (molecule_uuid, data, removed_slots, storage_prefix) = removal;
@@ -239,8 +275,7 @@ impl AtomStore {
         plan.slot_count += removed_slots.len();
         plan.keys.reserve(removed_slots.len() * 3);
         for (hash, range) in *removed_slots {
-            self.plan_slot_removal(molecule_uuid, hash, range, *storage_prefix, plan)
-                .await?;
+            Self::plan_slot_removal(molecule_uuid, hash, range, *storage_prefix, current, plan)?;
         }
 
         let header = MoleculeHeader {
@@ -261,19 +296,16 @@ impl AtomStore {
 
     /// Plan the deletes for one removed slot: its row, its generation-delete
     /// marker, its live tip edge, and its derived markers.
-    async fn plan_slot_removal(
-        &self,
+    fn plan_slot_removal(
         molecule_uuid: &str,
         hash: &str,
         range: &str,
         storage_prefix: Option<&str>,
+        current: &HashMap<String, PerKeyRecord>,
         plan: &mut SlotRemovalPlan,
     ) -> Result<(), SchemaError> {
         let base_key = molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range);
-        if let Some((_, current)) = self
-            .get_per_key_unfiltered(&base_key, storage_prefix)
-            .await?
-        {
+        if let Some(current) = current.get(&build_storage_key(storage_prefix, &base_key)) {
             let edge = Self::live_tip_ref_edge(molecule_uuid, hash, range, &current.entry);
             if let Ok(edge_key) = edge.storage_key_v2(storage_prefix) {
                 plan.trailing_keys.push(edge_key.into_bytes());
@@ -281,7 +313,7 @@ impl AtomStore {
                     .push((storage_prefix.map(str::to_string), edge));
             }
             let marker = super::super::MoleculeGenerationDelete {
-                shadow: current.entry,
+                shadow: current.entry.clone(),
             };
             plan.headers.push((
                 build_storage_key(

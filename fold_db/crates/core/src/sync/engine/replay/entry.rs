@@ -41,6 +41,7 @@ impl ReplayDeleteMarker {
             kind: DeleteKind::LegacyPhysical,
             displaced_atom_uuid: self.displaced_atom_uuid.clone(),
             cloud_sequence: Some(self.seq),
+            tip_before_nanos: None,
         })
     }
 }

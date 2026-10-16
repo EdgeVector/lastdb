@@ -23,6 +23,7 @@ pub(super) async fn execute_guarded_purge(
         schema_name,
     } = scope;
     let precomputed_retained = purge.mode.precomputed_retained.take();
+    let caller = purge.mode.caller;
     let target_slot_ids: HashSet<StorageSlotIdentity> = storage_slots
         .iter()
         .map(PlannedStorageSlot::identity)
@@ -59,7 +60,7 @@ pub(super) async fn execute_guarded_purge(
     .await?;
 
     let ledger_entry = build_erasure_ledger_entry(
-        verb,
+        (verb, caller),
         schema_name,
         ledger_descriptor,
         &report,
