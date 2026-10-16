@@ -54,6 +54,11 @@ impl LastStoreNamespacedStore {
             .map_err(LastStoreKvStore::map_error)
     }
 
+    /// Spill open store buffers after a restore install or a replay flush.
+    pub fn flush_installed(&self) -> StorageResult<()> {
+        self.store.flush().map_err(LastStoreKvStore::map_error)
+    }
+
     /// Force-seal a local Last Store snapshot and build the authenticated cloud
     /// backup manifest for it, without uploading anything.
     ///

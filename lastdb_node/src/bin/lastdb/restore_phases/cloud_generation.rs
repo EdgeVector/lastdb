@@ -336,6 +336,12 @@ async fn replay(
         )
     })?;
     flush.map_err(|_| io_failure(Stage::FlushDestination, "flush current generation restore"))?;
+    store.verify_integrity().map_err(|error| {
+        io_failure(
+            Stage::FlushDestination,
+            format!("integrity check after generation flush: {error}"),
+        )
+    })?;
     Ok(replay)
 }
 
