@@ -1,3 +1,4 @@
+// lint:file-size-ok origin_device stays with the other tip fields
 //! Shared types for the resident graph (full ladder).
 
 use serde::{Deserialize, Serialize};
