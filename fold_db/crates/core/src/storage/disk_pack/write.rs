@@ -54,7 +54,13 @@ impl PackRuntime {
             .map_err(|_| StorageError::BackendError("native accepted time overflow".into()))?;
         transaction::validate(&operations)?;
         let reservation = writer.reserve_mutation(&operations).map_err(map)?;
-        let protection = admission::WriteProtection::reserve(self, &operations)?;
+        let space = writer
+            .reserve_space(
+                reservation.quote().physical_bytes(),
+                &laststore::disk_pack::maintenance::SpacePolicy::default(),
+            )
+            .map_err(map)?;
+        let protection = admission::WriteProtection::reserve(self, &operations)?.with_space(space);
         let result = writer
             .append_mutation(operations, accepted_ms, reservation)
             .and_then(|_| writer.publish());

@@ -2,6 +2,7 @@ use super::*;
 use std::collections::BTreeMap;
 
 pub(crate) mod publication;
+type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
 
 pub(super) struct PendingRecord {
     pub(super) collection: String,
@@ -20,6 +21,8 @@ pub(super) struct PendingBatch {
     identity: uuid::Uuid,
     data: Mutex<PendingData>,
     publications: publication::PendingPublications,
+    retained: Mutex<Vec<Box<dyn Send>>>,
+    after_commit: Mutex<Vec<AfterCommit>>,
 }
 
 tokio::task_local! {
@@ -27,6 +30,15 @@ tokio::task_local! {
 }
 
 impl PendingBatch {
+    fn new(runtime: &PackRuntime) -> Self {
+        Self {
+            identity: runtime.home.descriptor().identity,
+            data: Mutex::new(PendingData::default()),
+            publications: publication::PendingPublications::default(),
+            retained: Mutex::new(Vec::new()),
+            after_commit: Mutex::new(Vec::new()),
+        }
+    }
     pub(super) fn current(runtime: &PackRuntime) -> Option<Arc<Self>> {
         WRITE
             .try_with(Arc::clone)
@@ -170,11 +182,7 @@ where
         return future.await;
     }
     let gate = Arc::clone(&runtime.write_gate).lock_owned().await;
-    let pending = Arc::new(PendingBatch {
-        identity: runtime.home.descriptor().identity,
-        data: Mutex::new(PendingData::default()),
-        publications: publication::PendingPublications::default(),
-    });
+    let pending = Arc::new(PendingBatch::new(&runtime));
     let result = read::write_scope(
         Arc::clone(&runtime),
         WRITE.scope(Arc::clone(&pending), future),
@@ -183,6 +191,7 @@ where
     let operations = pending.take_operations();
     // Once submitted, cancellation must not release the exclusive gate or drop
     // cache publication while the blocking disk commit continues independently.
+    let committed = Arc::clone(&pending);
     super::super::laststore::LastStoreKvStore::run_blocking(move || {
         let _gate = gate;
         if !operations.is_empty() {
@@ -195,5 +204,47 @@ where
         Ok(())
     })
     .await?;
+    let actions = std::mem::take(
+        &mut *committed
+            .after_commit
+            .lock()
+            .expect("native post-commit work"),
+    );
+    for action in actions {
+        action.await?;
+    }
     Ok(result)
+}
+
+/// Keep the request's shutdown/defer resource with its complete stored batch.
+pub(crate) fn retain(runtime: &PackRuntime, value: impl Send + 'static) -> StorageResult<()> {
+    let pending = PendingBatch::current(runtime).ok_or_else(|| {
+        StorageError::InvalidOperation(
+            "native request resource requires one complete preparation scope".into(),
+        )
+    })?;
+    pending
+        .retained
+        .lock()
+        .expect("native request resources")
+        .push(Box::new(value));
+    Ok(())
+}
+
+/// External consumers see changes only after the complete root is durable.
+pub(crate) fn after_commit(
+    runtime: &PackRuntime,
+    action: impl std::future::Future<Output = StorageResult<()>> + Send + 'static,
+) -> StorageResult<()> {
+    let pending = PendingBatch::current(runtime).ok_or_else(|| {
+        StorageError::InvalidOperation(
+            "native post-commit work requires one complete preparation scope".into(),
+        )
+    })?;
+    pending
+        .after_commit
+        .lock()
+        .expect("native post-commit work")
+        .push(Box::pin(action));
+    Ok(())
 }

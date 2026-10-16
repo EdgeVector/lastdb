@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 pub(super) struct WriteProtection {
     logical: Arc<Mutex<LogicalResidentSet>>,
     keys: BTreeSet<(String, String)>,
+    _space: Option<laststore::disk_pack::maintenance::SpaceReservation>,
 }
 
 impl WriteProtection {
@@ -18,6 +19,7 @@ impl WriteProtection {
         let mut protection = Self {
             logical: Arc::clone(&runtime.logical),
             keys: BTreeSet::new(),
+            _space: None,
         };
         {
             let mut logical = runtime
@@ -40,6 +42,14 @@ impl WriteProtection {
             }
         }
         Ok(protection)
+    }
+
+    pub(super) fn with_space(
+        mut self,
+        space: laststore::disk_pack::maintenance::SpaceReservation,
+    ) -> Self {
+        self._space = Some(space);
+        self
     }
 
     /// Invalidate the old fetched bytes while this owner still protects every key.

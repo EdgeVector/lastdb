@@ -23,10 +23,21 @@ The journal keeps its existing uncertain quota after a failed append.
 Capacity failures have a distinct retryable write-resource result.
 
 This is the stored-batch admission boundary.
-It does not yet reserve filesystem space or prepare all schema envelopes before graph publication.
-It does not permit a memory-first success reply.
-The native resident-mode refusal remains in place until the request owner and consistent accepted-write read view exist.
+The node now also owns a filesystem-space ticket through the complete publication.
+It retains that ticket with logical protection after a failed append or publication.
+
+Native Create and Update requests now prepare private schema copies under one native write gate.
+Every schema's atoms, tips, sibling records, schema data, and side records enter one complete stored batch.
+This path does not publish a live graph tip or split the request across schema lanes.
+It rechecks idempotency and preconditions after it acquires the native gate.
+It completes the author-clock barrier before that gate, because the clock queue also needs native storage.
+Search delivery starts only after the complete disk root succeeds.
+Shutdown and defer resources stay with the complete request owner through its disk commit.
+
+This change does not yet permit a memory-first success reply.
+The native resident-mode refusal remains in place until the accepted-write read view and flush owner exist.
 
 LastStore library and binary Clippy passes with warnings denied.
 Format and changed function, file, and allow checks pass.
-Integrated product compilation and generated-data admission evidence remain required.
+Core and host library compilation passes.
+Generated-data admission evidence remains required.
