@@ -5,6 +5,9 @@ use crate::schema::types::Schema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod read;
+pub(crate) use read::admit_query_results;
+
 /// A memory identity, never a physical collection or a stored key.
 pub(crate) const PATH_COLLECTION: &str = "__native_logical_paths_v1";
 const MAX_PATH_BATCH_BYTES: usize = 128 * 1024 * 1024;

@@ -264,19 +264,9 @@ impl PackRuntime {
                     disk.pop_front();
                 }
                 if let Some(body) = &memory.body {
-                    context.hold_record(
-                        &mut self.logical.lock().expect("native logical cache"),
-                        collection,
-                        &memory.key,
-                    )?;
                     out.push((memory.key.clone(), body.clone()));
                 }
             } else if let Some(record) = disk.pop_front() {
-                context.hold_record(
-                    &mut self.logical.lock().expect("native logical cache"),
-                    collection,
-                    &record.key,
-                )?;
                 out.push((record.key, record.body));
             } else if exhausted {
                 break;
@@ -284,18 +274,6 @@ impl PackRuntime {
         }
         let complete = exhausted && disk.is_empty() && overlay.peek().is_none();
         drop(cursor);
-        let mut logical = self.logical.lock().expect("native logical cache");
-        if context.accepted.is_none()
-            && call.current().frontier == self.published.load(Ordering::Acquire)
-        {
-            for (key, body) in &out {
-                if pending.is_some_and(|batch| batch.lookup(collection, key).is_some()) {
-                    continue;
-                }
-                let epoch = logical.record_epoch(key);
-                logical.admit_record(collection, key, Some(body.clone()), epoch);
-            }
-        }
         Ok((out, complete))
     }
 }

@@ -25,6 +25,12 @@ tokio::task_local! {
 }
 
 impl ReadContext {
+    pub(super) fn captured(runtime: &PackRuntime) -> Option<Arc<Self>> {
+        READ.try_with(Arc::clone)
+            .ok()
+            .filter(|context| context.identity == runtime.home.descriptor().identity)
+    }
+
     pub(super) fn active(runtime: &PackRuntime) -> bool {
         READ.try_with(|context| context.identity == runtime.home.descriptor().identity)
             .unwrap_or(false)
@@ -229,47 +235,22 @@ impl PackRuntime {
         let mut call = crate::read_receipts::lock(&context.call);
         let mut out = vec![None; coordinates.len()];
         let mut misses = Vec::new();
-        let mut logical = self.logical.lock().expect("native logical cache");
         for (slot, (collection, key)) in coordinates.iter().enumerate() {
-            context.hold_record(&mut logical, collection, key)?;
             if let Some(record) = context.overlay_record(pending, collection, key) {
                 call.account_memory_record(key.len(), record.body.as_ref().map_or(0, Vec::len))
                     .map_err(map)?;
                 out[slot] = record.body.clone();
-                continue;
+            } else {
+                misses.push(slot);
             }
-            if context.accepted.is_none()
-                && call.current().frontier == self.published.load(Ordering::Acquire)
-            {
-                if let Some(length) = logical.fetched_record_bytes(collection, key) {
-                    call.account_memory_record(key.len(), length.unwrap_or(0))
-                        .map_err(map)?;
-                    laststore::record_logical_warm_hits(1);
-                    out[slot] = logical
-                        .fetched_record(collection, key)
-                        .expect("known fetched record");
-                    continue;
-                }
-            }
-            misses.push((slot, logical.record_epoch(key)));
         }
-        drop(logical);
-        laststore::record_logical_warm_misses(misses.len() as u64);
         let addresses: Vec<_> = misses
             .iter()
-            .map(|(slot, _)| coordinates[*slot].clone())
+            .map(|slot| coordinates[*slot].clone())
             .collect();
         let results = call.get_many(&addresses).map_err(map)?;
-        let mut logical = self.logical.lock().expect("native logical cache");
-        for ((slot, epoch), result) in misses.into_iter().zip(results) {
-            let body = result.map_err(map)?;
-            if context.accepted.is_none()
-                && call.current().frontier == self.published.load(Ordering::Acquire)
-            {
-                let (collection, key) = &coordinates[slot];
-                logical.admit_record(collection, key, body.clone(), epoch);
-            }
-            out[slot] = body;
+        for (slot, result) in misses.into_iter().zip(results) {
+            out[slot] = result.map_err(map)?;
         }
         Ok(out)
     }
