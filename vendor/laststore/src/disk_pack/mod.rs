@@ -4,6 +4,7 @@
 //! the format in a LastStore home or bypass the legacy home descriptor fence.
 
 mod artifact;
+pub mod backup;
 mod batch;
 mod batch_error;
 mod batch_io;
@@ -12,6 +13,7 @@ mod build;
 mod bytes;
 mod call;
 mod call_io;
+pub mod conversion;
 mod current;
 mod dependency;
 mod dependency_walk;

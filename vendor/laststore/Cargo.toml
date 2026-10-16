@@ -62,3 +62,9 @@ bench = false
 test = false
 name = "lastdb-disk-home"
 path = "src/bin/lastdb-disk-home.rs"
+
+[[bin]]
+bench = false
+test = false
+name = "lastdb-disk-recovery"
+path = "src/bin/lastdb-disk-recovery.rs"

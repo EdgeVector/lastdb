@@ -218,6 +218,9 @@ impl DiskHome {
 
     /// Read the exact descriptor and root without opening a writer.
     pub fn open(root: &Path) -> Result<Self> {
+        if root.join(super::conversion::REVERSE_FENCE).try_exists()? {
+            return Err(crate::Error::Config("native source is sealed after explicit reverse conversion; use the new legacy destination".into()));
+        }
         let descriptor = HomeDescriptor::read(root)?;
         let current = super::artifact::current(root)?;
         descriptor.check_current(&current)?;

@@ -64,6 +64,15 @@ impl HomeDescriptor {
 impl DiskHome {
     /// Recover complete pending work and checkpoint a fresh stream before admission.
     pub fn journal(&self) -> Result<HomeJournal> {
+        if self
+            .root
+            .join(crate::disk_pack::conversion::REVERSE_FENCE)
+            .try_exists()?
+        {
+            return Err(crate::Error::Config(
+                "native source is sealed after reverse conversion".into(),
+            ));
+        }
         let on_disk = HomeDescriptor::read(&self.root)?;
         if on_disk != self.descriptor {
             return Err(crate::disk_pack::corrupt(

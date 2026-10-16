@@ -208,6 +208,11 @@ impl LastStore {
         previous_len: Option<u64>,
         enforce_threshold: bool,
     ) -> Result<Loc> {
+        if self.conversion_sealed.load(Ordering::Acquire) {
+            return Err(Error::Config(
+                "legacy source is sealed after native conversion".into(),
+            ));
+        }
         if sh.uses_sorted_index() && sh.sorted_legacy_encrypted {
             Self::compact_sorted_shard(sh)?;
         }

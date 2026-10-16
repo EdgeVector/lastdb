@@ -10,6 +10,7 @@ pub(super) fn copy(error: &Error) -> Error {
         }),
         Error::Corrupt(message) => Error::Corrupt(message.clone()),
         Error::Config(message) => Error::Config(message.clone()),
+        Error::WriteCapacity(message) => Error::WriteCapacity(message.clone()),
         Error::ReadBudgetExceeded => Error::ReadBudgetExceeded,
         Error::AeadAuthFail => Error::AeadAuthFail,
         Error::ChunkQuarantined { chunk_uuid, path } => Error::ChunkQuarantined {

@@ -29,6 +29,20 @@ impl LastStore {
     }
 
     pub(super) fn open_resolved(root: PathBuf, mut opts: LastStoreOptions) -> Result<Self> {
+        fs::create_dir_all(&root)?;
+        let process_lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(root.join("STORE_LOCK"))?;
+        rustix::fs::flock(
+            &process_lock,
+            rustix::fs::FlockOperation::NonBlockingLockExclusive,
+        )
+        .map_err(std::io::Error::from)?;
+        if root.join(native_conversion::SOURCE_FENCE).try_exists()? {
+            return Err(Error::Config("legacy source is sealed after explicit native conversion; use its destination or create a reverse conversion".into()));
+        }
         // Backward compatible: a present data_key implies frame-AEAD packaging
         // even when callers only set the key (pre-packaging-mode tests/APIs).
         if opts.data_key.is_some() {
@@ -40,6 +54,8 @@ impl LastStore {
         let next_csn = opts.csn_floor.saturating_add(1);
         let configured_warm_bytes = opts.hash_group_warm_bytes;
         Ok(Self {
+            _process_lock: process_lock,
+            conversion_sealed: AtomicBool::new(false),
             root,
             opts,
             shards: Mutex::new(ShardWarmSet::default()),
