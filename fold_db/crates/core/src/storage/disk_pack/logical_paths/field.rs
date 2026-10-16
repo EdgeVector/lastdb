@@ -17,12 +17,8 @@ tokio::task_local! {
 }
 
 impl FieldScope {
-    pub(crate) fn for_runtime(
-        runtime: Option<Arc<PackRuntime>>,
-        schema: &Schema,
-        name: &str,
-    ) -> StorageResult<Self> {
-        if runtime.is_none() {
+    pub(crate) fn for_runtime(native: bool, schema: &Schema, name: &str) -> StorageResult<Self> {
+        if !native {
             return Ok(Self {
                 schema: String::new(),
                 field: String::new(),

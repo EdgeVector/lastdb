@@ -224,16 +224,14 @@ impl DiskHome {
     }
 
     pub(crate) fn open_conversion(root: &Path) -> Result<Self> {
+        let root = root.canonicalize()?;
         if root.join(super::conversion::REVERSE_FENCE).try_exists()? {
             return Err(crate::Error::Config("native source is sealed after explicit reverse conversion; use the new legacy destination".into()));
         }
-        let descriptor = HomeDescriptor::read(root)?;
-        let current = super::artifact::current(root)?;
+        let descriptor = HomeDescriptor::read(&root)?;
+        let current = super::artifact::current(&root)?;
         descriptor.check_current(&current)?;
-        Ok(Self {
-            root: root.to_path_buf(),
-            descriptor,
-        })
+        Ok(Self { root, descriptor })
     }
 
     /// The immutable placement/key identity held by this home handle.
@@ -246,6 +244,19 @@ impl DiskHome {
     /// This avoids reopening CURRENT for a memory-only or request-shared read.
     pub fn read_committed(&self, current: Current, budget: ReadBudget) -> Result<HomeRead> {
         let call = ReadCall::from_committed(&self.root, current, self.descriptor.clone(), budget)?;
+        Ok(HomeRead::new(self.descriptor.clone(), call))
+    }
+
+    /// Capture a reader under this home's already held exclusive writer lease.
+    /// The guard performs no file reads and retains the writer until this call ends.
+    pub fn read_from_writer(
+        &self,
+        current: Current,
+        budget: ReadBudget,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<HomeRead> {
+        let call =
+            ReadCall::from_writer(&self.root, current, self.descriptor.clone(), budget, lease)?;
         Ok(HomeRead::new(self.descriptor.clone(), call))
     }
 

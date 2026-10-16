@@ -32,7 +32,7 @@ impl HashRangeQueryProcessor {
         let requested_window = window.clone();
         let window = window.filter(|_| received_from_namespaces.is_empty());
         let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
+            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
             schema,
             primary_name,
         )?;

@@ -107,6 +107,32 @@ pub struct ReadCall {
 }
 
 impl ReadCall {
+    pub(super) fn from_writer(
+        root: &Path,
+        current: Current,
+        descriptor: super::home::HomeDescriptor,
+        budget: ReadBudget,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<Self> {
+        budget.validate()?;
+        current.encode()?;
+        descriptor.check_current(&current)?;
+        let hold = super::lifetime::GenerationHold::from_writer(lease, root, &current)?;
+        Ok(Self {
+            root: root.to_path_buf(),
+            current,
+            budget,
+            costs: ReadCosts::default(),
+            pages: HashMap::new(),
+            blocks: HashMap::new(),
+            parts: HashMap::new(),
+            files: super::call_io::CallFiles::default(),
+            payload_class: ReadClass::Payload,
+            native_descriptor: Some(descriptor),
+            _generation_hold: Some(hold),
+        })
+    }
+
     pub(super) fn from_committed(
         root: &Path,
         current: Current,

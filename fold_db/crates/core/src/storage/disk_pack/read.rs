@@ -48,7 +48,7 @@ impl ReadContext {
         let view = runtime.view.read().expect("native complete read view");
         let call = runtime
             .home
-            .read_committed(view.current.clone(), budget())
+            .read_from_writer(view.current.clone(), budget(), &runtime.read_lease)
             .map_err(map)?;
         let accepted = view.accepted.clone();
         let version = logical_paths::body::ReadVersion {

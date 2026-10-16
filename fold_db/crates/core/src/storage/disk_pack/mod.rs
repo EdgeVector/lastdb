@@ -35,6 +35,7 @@ pub struct PackRuntime {
     home: Arc<DiskHome>,
     view: RwLock<view::NativeReadView>,
     journal: Mutex<HomeJournal>,
+    read_lease: laststore::disk_pack::lifetime::WriterReadLease,
     write_gate: Arc<tokio::sync::Mutex<()>>,
     flush_notify: tokio::sync::Notify,
     logical: Arc<Mutex<LogicalResidentSet>>,
@@ -178,6 +179,7 @@ impl PackNamespacedStore {
         }
         let home = Arc::new(DiskHome::open(path).map_err(map)?);
         let journal = home.journal().map_err(map)?;
+        let read_lease = journal.read_lease();
         let current = journal.current().clone();
         let frontier = current.frontier;
         Ok(Self {
@@ -188,6 +190,7 @@ impl PackNamespacedStore {
                     accepted: None,
                 }),
                 journal: Mutex::new(journal),
+                read_lease,
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
                 flush_notify: tokio::sync::Notify::new(),
                 logical: Arc::new(Mutex::new(
