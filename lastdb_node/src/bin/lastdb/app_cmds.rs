@@ -6,6 +6,9 @@ pub(crate) use self::arg_groups::*;
 #[path = "app_cmds/check.rs"]
 mod check;
 pub(crate) use self::check::*;
+#[path = "app_cmds/check_retention.rs"]
+mod check_retention;
+pub(crate) use self::check_retention::*;
 #[path = "app_cmds/index.rs"]
 mod index;
 pub(crate) use self::index::*;
@@ -45,8 +48,9 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             manifest,
             json,
             sync,
+            confirm_expire_existing,
             schema_url: _,
-        } => app_check_command(&home, &manifest, json, sync),
+        } => app_check_command(&home, &manifest, json, sync, confirm_expire_existing),
         AppCommand::RegisterSchemas { manifest, .. } => app_register_schemas(&home, &manifest),
         AppCommand::Publish {
             manifest,

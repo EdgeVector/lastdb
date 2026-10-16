@@ -210,6 +210,10 @@ pub(crate) async fn execute_catalog_schema_sync(
             ctx,
         );
     }
+    // Refuse a retention the layout cannot carry before anything is written.
+    if let Err(e) = validate_declare_retention(&declare) {
+        return error_response(409, &e, ctx);
+    }
 
     let mut audit = SchemaSyncAuditEvent::new(
         route,
@@ -261,12 +265,31 @@ pub(crate) async fn execute_catalog_schema_sync(
     let mut payload = sync_response_payload(&declare, &resolution, &audit);
     retire_superseded_claims_into_payload(host, &declare, &mut payload).await;
 
+    // The policy must exist before the first write, so it is applied before
+    // this declare returns. Every refusal that can be known from the catalog
+    // schema already happened before the bind. The named-db membership comes
+    // first so a late failure leaves the declare complete: bound, a member,
+    // and the retention step to repeat (it is idempotent).
+    let retention = finish_declare_retention(host, req, ctx, &declare, &resolution).await;
+
     if let Err(e) = insert_declare_catalog_membership(host, ctx, &declare.local_schema_id).await {
         return error_response(
             500,
             &format!("schema declared but named-db catalog membership failed: {e}"),
             ctx,
         );
+    }
+
+    match retention {
+        Ok(Some(retention)) => payload["retention"] = retention,
+        Ok(None) => {}
+        Err(e) => {
+            return error_response(
+                409,
+                &format!("schema declared and bound, but its retention step failed: {e}"),
+                ctx,
+            )
+        }
     }
 
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
@@ -350,6 +373,9 @@ async fn retire_superseded_claims_into_payload(
 /// 409 with the same error text. Nothing is written: no Schema Service
 /// registration, no schema load or bind, no alias row, no name-claim
 /// retirement, no named-db membership, and no schema-sync audit event.
+///
+/// A declared `retention` is previewed in the `retention` object: the TTL a
+/// sync would apply, the policy in force now, and any layout warning.
 pub(crate) async fn execute_catalog_schema_check(
     ctx: &AccessContext,
     host: &Host,
@@ -372,6 +398,11 @@ pub(crate) async fn execute_catalog_schema_check(
         if !hash.is_null() {
             payload["canonical"] = hash;
         }
+    }
+    match preview_declare_retention(host, &declare, &plan.resolution).await {
+        Ok(Some(retention)) => payload["retention"] = retention,
+        Ok(None) => {}
+        Err(e) => return error_response(409, &e, ctx),
     }
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
 }

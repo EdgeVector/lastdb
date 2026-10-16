@@ -138,6 +138,9 @@ pub(crate) enum SchemaNameClaimCommand {
 #[derive(Subcommand, Debug)]
 pub(crate) enum SchemaRetentionCommand {
     /// Read the current policy for one installed schema.
+    ///
+    /// Prints the TTL and its source: `manifest` (declared by an app manifest)
+    /// or `operator` (set with `set`).
     Get {
         #[arg(long)]
         schema: String,
@@ -146,11 +149,21 @@ pub(crate) enum SchemaRetentionCommand {
     },
     /// Set a positive human-readable duration such as `15m`, `24h`, or `7d`.
     ///
-    /// Range and HashRange records expire by the entry time at the front of
-    /// the range key: unix seconds, zero-padded to 20 digits. A range key
-    /// without that prefix never expires. Hash and Single records expire by
-    /// the time since the last write. The policy covers writes made after it
-    /// is set, through the schema name given here.
+    /// A policy deletes records for good. Range and HashRange records expire
+    /// by the entry time at the front of the range key: unix seconds,
+    /// zero-padded to 20 digits. A range key without that prefix never
+    /// expires. A Range schema loses every old record at the next sweep, those
+    /// written before the policy included. A HashRange schema does the same in
+    /// each partition that receives a later write. Hash and Single records
+    /// expire by the time since the last write after the policy is set; older
+    /// records are not tracked.
+    ///
+    /// This sets an OPERATOR policy. It wins over a TTL that an app manifest
+    /// declared (`retention` key) until `clear` removes it. A schema declared
+    /// from a manifest with `retention` has two installed names that share one
+    /// policy: setting it through either name covers both. For any other
+    /// schema the policy covers only the schema name given here. Every change
+    /// writes a row to `<home>/logs/retention-audit.jsonl`.
     Set {
         #[arg(long)]
         schema: String,
@@ -163,9 +176,20 @@ pub(crate) enum SchemaRetentionCommand {
         json: bool,
     },
     /// Clear the current policy for one installed schema.
+    ///
+    /// An operator policy that overrides a manifest policy is removed and the
+    /// manifest policy is back in force. When the manifest TTL is shorter, the
+    /// clear needs `--confirm-expire-existing`: records between the two TTLs
+    /// expire for good. Any other policy is removed with its age tracking and
+    /// the manifest-name aliases; a manifest policy then returns at the next
+    /// declare.
     Clear {
         #[arg(long)]
         schema: String,
+        /// Confirm that clearing puts a SHORTER manifest TTL in force, so that
+        /// records between the two TTLs expire for good.
+        #[arg(long)]
+        confirm_expire_existing: bool,
         #[arg(long)]
         json: bool,
     },

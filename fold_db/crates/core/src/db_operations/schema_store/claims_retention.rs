@@ -1,107 +1,40 @@
-//! Name-claim and retention-policy methods of [`SchemaStore`].
+//! Retention-policy methods of [`SchemaStore`].
+//!
+//! Each method takes the schema name the caller used and resolves it to the
+//! retention anchor first (see `retention_layers`), so an app schema with two
+//! installed names has one policy, one age index and one HashRange registry.
 
 use super::catalog_keys::*;
 use super::SchemaStore;
 use crate::schema::types::KeyValue;
-use crate::schema::{SchemaError, SchemaNameClaim, SchemaRetentionPolicy};
+use crate::schema::{SchemaError, SchemaRetentionPolicy};
 
 impl SchemaStore {
-    /// Read the node-local name-claim record for an installed schema.
-    ///
-    /// `None` means the schema has never had its claim retired — the default,
-    /// and the only shape a pre-existing home carries.
-    pub async fn get_schema_name_claim(
-        &self,
-        schema_name: &str,
-    ) -> Result<Option<SchemaNameClaim>, SchemaError> {
-        Ok(self
-            .schema_states_store
-            .get_item(&name_claim_key(schema_name))
-            .await?)
-    }
-
-    /// Retire or restore an installed schema's claim on its `descriptive_name`.
-    ///
-    /// Returns `true` when the durable record changed, so a caller can report
-    /// an idempotent no-op honestly instead of claiming it retired something.
-    ///
-    /// This never touches the schema artifact, its `identity_hash`, or its
-    /// [`SchemaState`]. A retired claimant stays readable by canonical name and
-    /// by identity hash; it just stops answering `descriptive_name` lookups.
-    pub async fn set_schema_name_claim_retired(
-        &self,
-        schema_name: &str,
-        retired: bool,
-    ) -> Result<bool, SchemaError> {
-        self.require_installed_schema(schema_name).await?;
-        let key = name_claim_key(schema_name);
-        let claim = SchemaNameClaim { retired };
-        if self
-            .schema_states_store
-            .get_item::<SchemaNameClaim>(&key)
-            .await
-            .unwrap_or(None)
-            == Some(claim)
-        {
-            return Ok(false);
-        }
-        self.schema_states_store.put_item(&key, &claim).await?;
-        self.schema_states_store.inner().flush().await?;
-        Ok(true)
-    }
-
-    /// Every installed schema whose name claim is retired, sorted.
-    ///
-    /// Read once at boot by `SchemaCore::new`, exactly like the schema-state
-    /// and superseded-by maps.
-    pub async fn list_retired_name_claims(&self) -> Result<Vec<String>, SchemaError> {
-        let scan = self
-            .schema_states_store
-            .scan_items_with_prefix_partition_undecodable::<SchemaNameClaim>(NAME_CLAIM_KEY_PREFIX)
-            .await?;
-        for (key, error) in &scan.undecodable {
-            tracing::warn!(
-                key = %key,
-                error = %error,
-                "unreadable schema name-claim row; skipping"
-            );
-        }
-        let mut out = Vec::new();
-        for (key, claim) in scan.items {
-            if !claim.retired {
-                continue;
-            }
-            let Some(schema_name) = key.strip_prefix(NAME_CLAIM_KEY_PREFIX) else {
-                continue;
-            };
-            if schema_name.is_empty() {
-                continue;
-            }
-            out.push(schema_name.to_string());
-        }
-        out.sort();
-        Ok(out)
-    }
-
     /// Read the node-local retention policy for an installed schema.
     pub async fn get_schema_retention_policy(
         &self,
         schema_name: &str,
     ) -> Result<Option<SchemaRetentionPolicy>, SchemaError> {
         self.require_installed_schema(schema_name).await?;
+        let anchor = self.retention_anchor(schema_name).await?;
         Ok(self
             .schema_states_store
-            .get_item(&retention_policy_key(schema_name))
+            .get_item(&retention_policy_key(&anchor))
             .await?)
     }
 
-    /// Set the node-local retention policy for an installed schema.
+    /// Set the operator retention policy for an installed schema.
+    ///
+    /// An operator policy wins over a manifest policy. The manifest TTL is
+    /// kept in `overridden_manifest_ttl_seconds` and returns on clear.
     pub async fn set_schema_retention_policy(
         &self,
         schema_name: &str,
-        mut policy: SchemaRetentionPolicy,
+        policy: SchemaRetentionPolicy,
     ) -> Result<(), SchemaError> {
         self.require_installed_schema(schema_name).await?;
+        let anchor = self.retention_anchor(schema_name).await?;
+        let schema_name = anchor.as_str();
         if policy.ttl_seconds == 0 {
             return Err(SchemaError::InvalidData(
                 "schema retention ttl_seconds must be greater than zero".to_string(),
@@ -112,16 +45,18 @@ impl SchemaStore {
                 "schema retention hash partitions must not be empty".to_string(),
             ));
         }
-        policy.hash_partitions.sort();
-        policy.hash_partitions.dedup();
-
         let key = retention_policy_key(schema_name);
-        if self
+        let current = self
             .schema_states_store
             .get_item::<SchemaRetentionPolicy>(&key)
-            .await?
-            == Some(policy.clone())
-        {
+            .await?;
+        // An operator policy keeps the manifest TTL it shadows.
+        let policy = SchemaRetentionPolicy::operator_over(
+            current.as_ref(),
+            policy.ttl_seconds,
+            policy.hash_partitions,
+        );
+        if current.as_ref() == Some(&policy) {
             return Ok(());
         }
         self.schema_states_store.put_item(&key, &policy).await?;
@@ -129,12 +64,21 @@ impl SchemaStore {
         Ok(())
     }
 
-    /// Clear the node-local retention policy for an installed schema.
+    /// Clear the operator retention policy for an installed schema.
+    ///
+    /// An operator policy over a manifest policy gives way to it. Any other
+    /// policy is removed with its age index, its partition registry and the
+    /// manifest-name aliases that pointed at it.
     pub async fn clear_schema_retention_policy(
         &self,
         schema_name: &str,
     ) -> Result<(), SchemaError> {
         self.require_installed_schema(schema_name).await?;
+        let anchor = self.retention_anchor(schema_name).await?;
+        let schema_name = anchor.as_str();
+        if self.restore_shadowed_manifest_policy(schema_name).await? {
+            return Ok(());
+        }
         let mut keys = vec![retention_policy_key(schema_name)];
         keys.extend(
             self.schema_states_store
@@ -151,6 +95,15 @@ impl SchemaStore {
                 .list_keys_with_prefix(&retention_hash_partition_prefix(schema_name))
                 .await?,
         );
+        // No policy is left, so the manifest names that pointed here have
+        // nothing to share. Dropping the alias rows also leaves the plane with
+        // nothing an older build cannot read.
+        keys.extend(
+            self.retention_aliases_of(schema_name)
+                .await?
+                .iter()
+                .map(|name| retention_anchor_key(name)),
+        );
         self.schema_states_store.batch_delete_keys(keys).await?;
         self.schema_states_store.inner().flush().await?;
         Ok(())
@@ -166,12 +119,16 @@ impl SchemaStore {
         keys: &[KeyValue],
         written_at: u64,
     ) -> Result<(), SchemaError> {
-        if keys.is_empty()
-            || self
-                .schema_states_store
-                .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
-                .await?
-                .is_none()
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let anchor = self.retention_anchor(schema_name).await?;
+        let schema_name = anchor.as_str();
+        if self
+            .schema_states_store
+            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
+            .await?
+            .is_none()
         {
             return Ok(());
         }
@@ -219,6 +176,8 @@ impl SchemaStore {
         if keys.is_empty() {
             return Ok(());
         }
+        let anchor = self.retention_anchor(schema_name).await?;
+        let schema_name = anchor.as_str();
         let latest_keys: Vec<_> = keys
             .iter()
             .map(|key| retention_age_latest_key(schema_name, key))
@@ -246,12 +205,16 @@ impl SchemaStore {
         schema_name: &str,
         keys: &[KeyValue],
     ) -> Result<(), SchemaError> {
-        if keys.is_empty()
-            || self
-                .schema_states_store
-                .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
-                .await?
-                .is_none()
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let anchor = self.retention_anchor(schema_name).await?;
+        let schema_name = anchor.as_str();
+        if self
+            .schema_states_store
+            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
+            .await?
+            .is_none()
         {
             return Ok(());
         }
@@ -283,10 +246,11 @@ impl SchemaStore {
         &self,
         schema_name: &str,
     ) -> Result<Vec<String>, SchemaError> {
+        let anchor = self.retention_anchor(schema_name).await?;
         let scan = self
             .schema_states_store
             .scan_items_with_prefix_partition_undecodable::<SchemaRetentionHashPartition>(
-                &retention_hash_partition_prefix(schema_name),
+                &retention_hash_partition_prefix(&anchor),
             )
             .await?;
         for (key, error) in &scan.undecodable {
@@ -313,6 +277,8 @@ impl SchemaStore {
         schema_name: &str,
         cutoff: u64,
     ) -> Result<Vec<KeyValue>, SchemaError> {
+        let anchor = self.retention_anchor(schema_name).await?;
+        let schema_name = anchor.as_str();
         let prefix = retention_age_prefix(schema_name);
         let rows = self
             .schema_states_store

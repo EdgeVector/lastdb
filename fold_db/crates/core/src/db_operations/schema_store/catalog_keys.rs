@@ -18,6 +18,12 @@ pub(super) const REPAIR_SCHEMA_SCAN_END: &[u8] = &[0xff];
 /// framed prefix keeps policy records disjoint from valid schema names while
 /// retaining one node-local storage namespace.
 pub(super) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
+/// Reserved internal key prefix for retention anchors in `schema_states`.
+///
+/// One row names the schema that holds the retention state (policy, age index,
+/// HashRange partition registry) for an app-qualified schema name. Same
+/// framing and rationale as [`RETENTION_POLICY_KEY_PREFIX`].
+pub(super) const RETENTION_ANCHOR_KEY_PREFIX: &str = "\0retention_anchor\0";
 /// Node-local HashRange partition registry for retained schemas.
 ///
 /// A retention policy does not define the data partitions. Successful writes
@@ -47,6 +53,16 @@ pub(super) struct SchemaRetentionAgeEntry {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(super) struct SchemaRetentionHashPartition {
     pub(super) hash: String,
+}
+
+/// The schema that holds the retention state for the name the row is keyed by.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub(super) struct SchemaRetentionAnchor {
+    pub(super) anchor: String,
+}
+
+pub(super) fn retention_anchor_key(schema_name: &str) -> String {
+    format!("{RETENTION_ANCHOR_KEY_PREFIX}{schema_name}")
 }
 
 pub(super) fn retention_policy_key(schema_name: &str) -> String {
