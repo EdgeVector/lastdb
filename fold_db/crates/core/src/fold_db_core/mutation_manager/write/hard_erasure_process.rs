@@ -98,17 +98,21 @@ impl MutationManager {
         // `DeleteMustExist` are untouched below: compliance erasure
         // still wants the full atom sweep and the loud not-found
         // contract this converge path does not attempt.
+        let caller = chunk
+            .iter()
+            .find_map(|m| m.erase_caller)
+            .unwrap_or("mutation-pipeline");
         let outcome = if verb == super::super::super::purge::HardEraseVerb::Delete {
             self.converge_delete_chunk(schema_name, chunk, options.storage_prefix)
                 .await?
         } else if atom_ref_cutover {
             Some(
-                self.purge_chunk_by_atom_refs(schema_name, &keys, options)
+                self.purge_chunk_by_atom_refs(schema_name, &keys, options, caller)
                     .await?,
             )
         } else {
             Some(
-                self.purge_chunk_guarded(schema_name, &keys, options)
+                self.purge_chunk_guarded(schema_name, &keys, options, caller)
                     .await?,
             )
         };
@@ -200,6 +204,7 @@ impl MutationManager {
         schema_name: &str,
         keys: &[crate::schema::types::KeyValue],
         options: &HardErasureOptions<'_>,
+        caller: &'static str,
     ) -> Result<(HardErasureReport, std::time::Duration), SchemaError> {
         let started = std::time::Instant::now();
         let mut acct = super::super::super::purge::PurgeCommitAccounting::default();
@@ -217,6 +222,7 @@ impl MutationManager {
                 evict_resident: options.evict_resident,
                 reachability: super::super::super::purge::PurgeReachability::AtomRefEdges,
                 precomputed_retained: None,
+                caller,
             },
         )
         .await;
@@ -237,6 +243,7 @@ impl MutationManager {
         schema_name: &str,
         keys: &[crate::schema::types::KeyValue],
         options: &HardErasureOptions<'_>,
+        caller: &'static str,
     ) -> Result<(HardErasureReport, std::time::Duration), SchemaError> {
         // LEGACY-SUNSET: class=residue; remove this ordinary-purge
         // fallback after the open cutover records a clean real-data
@@ -267,6 +274,7 @@ impl MutationManager {
                 evict_resident: options.evict_resident,
                 reachability: super::super::super::purge::PurgeReachability::GuardedComplement,
                 precomputed_retained: options.precomputed_retained.clone(),
+                caller,
             },
         )
         .await;

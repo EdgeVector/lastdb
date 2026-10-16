@@ -10,11 +10,29 @@ use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 
 use super::super::MutationManager;
+use super::scoped_gate::schema_is_scoped;
 
 /// Field name, molecule uuid, storage prefix and the changed keys to hydrate.
 type FieldLoadPlan = (String, String, Option<String>, HashSet<ChangedKey>);
 
 impl MutationManager {
+    /// Capture revisions before graph/warm/disk reads. A retry discards its
+    /// prior molecule so a graph miss cannot retain an obsolete write base.
+    pub(in crate::fold_db_core::mutation_manager) async fn reload_changed_for_prepare(
+        &self,
+        schema: &mut Schema,
+        changed_keys: &HashMap<String, HashSet<ChangedKey>>,
+    ) -> Result<Vec<super::PreparedSlotRevision>, SchemaError> {
+        let prepared = self.prepared_slot_revisions(schema, changed_keys);
+        for name in changed_keys.keys() {
+            if let Some(field) = schema.runtime_fields.get_mut(name) {
+                field.molecule = None;
+            }
+        }
+        self.restore_missing_molecules(schema, changed_keys).await?;
+        Ok(prepared)
+    }
+
     pub(in crate::fold_db_core::mutation_manager) async fn restore_missing_molecules(
         &self,
         schema: &mut Schema,
@@ -48,11 +66,12 @@ impl MutationManager {
         }
 
         let need_full = self.load_fields_for_write(schema, need_store).await?;
-        if need_full.is_empty() {
-            return Ok(());
+        if !need_full.is_empty() {
+            self.load_fields_full(schema, need_full).await?;
         }
-
-        self.load_fields_full(schema, need_full).await?;
+        // A batch can mix dirty graph hits with cold keys. Overlay after the
+        // cold load as well so one miss cannot discard the other dirty heads.
+        self.overlay_resident_changed_keys(schema, changed_keys);
         Ok(())
     }
 
@@ -62,7 +81,7 @@ impl MutationManager {
         schema: &mut Schema,
         changed_keys: &HashMap<String, HashSet<ChangedKey>>,
     ) {
-        if self.acks_on_resident() {
+        if !schema_is_scoped(schema) {
             let overlay: Vec<(String, String, HashSet<ChangedKey>)> = schema
                 .runtime_fields
                 .iter()
@@ -124,7 +143,7 @@ impl MutationManager {
     ) -> Result<Vec<FieldLoadPlan>, SchemaError> {
         let mut need_store: Vec<FieldLoadPlan> = Vec::new();
         for (field_name, uuid, storage_prefix, keys) in plans {
-            if self.acks_on_resident() {
+            if storage_prefix.is_none() {
                 if let Some(data) = self.try_seed_molecule_from_resident(&uuid, &keys) {
                     if let Some(field) = schema.runtime_fields.get_mut(&field_name) {
                         field.set_molecule_data(data)?;

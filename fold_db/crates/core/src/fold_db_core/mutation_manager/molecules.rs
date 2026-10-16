@@ -5,14 +5,19 @@ mod apply_gate;
 mod field_atom;
 mod persist;
 mod prepare;
+mod prepared;
 mod protein_batch;
 mod restore;
 mod scoped_gate;
+mod warm_release;
 
 pub(in crate::fold_db_core::mutation_manager) use apply_gate::{
-    ApplyGateOutcome, PreparedSchemaDelta, PreparedSlotRevision,
+    ApplyGateOutcome, PreparedSchemaDelta,
 };
 pub(in crate::fold_db_core::mutation_manager) use persist::{
     DeferredLaneWriter, DeferredPersistJob, LanePersistJob, MoleculeGateGuard, PurgeCompletion,
     PurgeEnvelope, ResidentPurgeSlot, StorageSlotPurgeEnvelope,
+};
+pub(in crate::fold_db_core::mutation_manager) use prepared::{
+    PreparedSiblingUpdates, PreparedSlotRevision,
 };

@@ -1,7 +1,11 @@
 use super::*;
 
+mod directory;
 mod pending;
 mod publish;
+
+pub(super) use directory::validated_relative_key;
+pub use directory::MutationLogDirectoryExport;
 
 /// Output of the scan and materialize phase of one upload cycle.
 struct ScannedPage {
@@ -140,8 +144,10 @@ impl PinLog {
         max_segments: usize,
     ) -> Result<ScannedPage, String> {
         // Only the flushed durable map may classify a row as confirmed and
-        // authorize its deletion; volatile process state cannot.
-        let durable_per_writer_before = self.read_published_f(target_id).await;
+        // authorize its deletion; volatile process state cannot. A failed
+        // read stays an error. It must not become an empty map and a read
+        // from the start of the prefix.
+        let durable_per_writer_before = self.read_published_f_strict(target_id).await?;
         let scan_started = std::time::Instant::now();
         let page = self
             .scan_pending_records_for_upload(
@@ -152,9 +158,9 @@ impl PinLog {
             )
             .await?;
         // A prior cloud publish can succeed while its best-effort local delete
-        // fails. Those rows are no longer pending, so retry their exact deletes
-        // while the bounded scan has them in hand. Without this retry they stay
-        // at the front of the log forever and every cycle pays to skip them.
+        // fails. Rows above the flushed cursor that this map already covers
+        // are still in the range, so retry those exact deletes. Rows at or
+        // below the cursor are outside this read and are not walked from zero.
         let retry_confirmed = page.not_pending_frontiers.clone();
         // Quarantine drops are deliberately NOT added here. `records_truncated`
         // is documented as "records deleted this cycle because cloud confirmed

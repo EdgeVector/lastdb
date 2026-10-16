@@ -17,6 +17,11 @@ pub(crate) struct DeleteBarrier {
     /// The physical-log sequence is only a duplicate tie for legacy deletes.
     /// It must not outrank the original device's write time.
     pub cloud_sequence: Option<u64>,
+    /// A job Delete on a key whose age is its write time (the TTL sweep) spares
+    /// a tip written at or after this time, in unix nanoseconds. `None` is an
+    /// ordinary Delete: the order key alone decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tip_before_nanos: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,8 +69,14 @@ impl DeleteBarrier {
         )
     }
 
+    /// True when a tip written at `written_at` is inside what this barrier may
+    /// erase. A tip at or after `tip_before_nanos` is outside it.
+    fn covers_write_time(&self, written_at: u64) -> bool {
+        self.tip_before_nanos.is_none_or(|limit| written_at < limit)
+    }
+
     pub(crate) fn blocks_tip(&self, tip: &AtomEntry) -> bool {
-        self.order_key() >= tip_order_key(tip)
+        self.covers_write_time(tip.written_at) && self.order_key() >= tip_order_key(tip)
     }
 
     pub(crate) fn blocks_resident_tip(&self, tip: &crate::resident::ResidentTip) -> bool {
@@ -74,14 +85,15 @@ impl DeleteBarrier {
         } else {
             tip.device_id.as_str()
         };
-        self.order_key()
-            >= (
-                tip.written_at,
-                tip.logical_counter,
-                writer,
-                tip.mutation_uuid.as_str(),
-                0,
-            )
+        self.covers_write_time(tip.written_at)
+            && self.order_key()
+                >= (
+                    tip.written_at,
+                    tip.logical_counter,
+                    writer,
+                    tip.mutation_uuid.as_str(),
+                    0,
+                )
     }
 
     pub(crate) fn is_newer_than(&self, other: &Self) -> bool {

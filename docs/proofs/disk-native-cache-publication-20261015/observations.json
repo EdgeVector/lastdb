@@ -1,0 +1,35 @@
+{
+  "before_statuses": [
+    200,
+    200,
+    200,
+    200
+  ],
+  "after_statuses": [
+    200,
+    200,
+    200,
+    200
+  ],
+  "reopen_statuses": [
+    200,
+    200,
+    200,
+    200
+  ],
+  "before_exact_body_matches": true,
+  "batch_bodies_match": true,
+  "range_bodies_match": true,
+  "before_seven_matches": true,
+  "updated_zero_matches": true,
+  "deleted_seven_absent": true,
+  "repeat_fields_match": true,
+  "reopen_fields_match": true,
+  "range_has_more": true,
+  "range_next": {
+    "hash": "generated",
+    "range": "record-3"
+  },
+  "reopen_all_record_count": 7,
+  "reopen_all_bodies_match": true
+}

@@ -55,6 +55,42 @@ impl PinLog {
         sealed: SealedCycle<'_>,
         report: &mut MutationLogUploadReport,
     ) -> Result<HashMap<String, (u64, u64)>, String> {
+        if sealed.units.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let objects_in_cycle: usize = sealed.units.iter().map(Vec::len).sum();
+        let policy_concurrency = engine.active_upload_caps().await.concurrency;
+        report.put_concurrency = mutation_log_put_concurrency(
+            policy_concurrency,
+            objects_in_cycle,
+            mutation_log_put_concurrency_env(),
+        );
+        let bytes_uploaded = upload_publish_units_batched(engine, target, sealed.units).await?;
+        let metered_units = sealed.units;
+        let advanced = self
+            .confirm_published_units(plane, sealed, report, bytes_uploaded)
+            .await?;
+        // The meter runs after the flush. A meter failure warns and does not
+        // roll back published-F. The local-directory sink does not reach this
+        // call. It has no cloud target.
+        for unit in metered_units {
+            engine.meter_uploaded_log_segments(target, unit).await;
+        }
+        Ok(advanced)
+    }
+
+    /// Confirm sealed units whose bytes are durable on the target plane.
+    ///
+    /// Flush the per-writer HWM, mirror to the local plane, and truncate the
+    /// confirmed rows. The cloud cycle calls this after its PUTs; the
+    /// local-directory sink calls it after its file writes.
+    pub(super) async fn confirm_published_units(
+        &self,
+        plane: &mut MutationLogLocalCloud,
+        sealed: SealedCycle<'_>,
+        report: &mut MutationLogUploadReport,
+        bytes_uploaded: u64,
+    ) -> Result<HashMap<String, (u64, u64)>, String> {
         let SealedCycle {
             units: sealed_units,
             record_batches,
@@ -63,18 +99,6 @@ impl PinLog {
         let target_id = &report.target_id.clone();
         // writer_id → (through, record timestamp) confirmed this cycle.
         let mut advanced: HashMap<String, (u64, u64)> = HashMap::new();
-        if sealed_units.is_empty() {
-            return Ok(advanced);
-        }
-        let objects_in_cycle: usize = sealed_units.iter().map(Vec::len).sum();
-        let policy_concurrency = engine.active_upload_caps().await.concurrency;
-        report.put_concurrency = mutation_log_put_concurrency(
-            policy_concurrency,
-            objects_in_cycle,
-            mutation_log_put_concurrency_env(),
-        );
-        let bytes_uploaded = upload_publish_units_batched(engine, target, sealed_units).await?;
-
         for (unit, records) in sealed_units.iter().zip(record_batches) {
             let last = records
                 .last()

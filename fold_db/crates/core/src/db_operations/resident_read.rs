@@ -4,33 +4,29 @@
 //! with a per-uuid resident check. Atoms are content-addressed, so serving a
 //! known uuid from resident can never return a different answer than storage —
 //! there is no completeness problem the way there is for tip/range sets. Hits
-//! skip storage entirely; misses batch through the normal located load and
-//! install into resident for next time.
+//! skip storage entirely; misses batch through the normal located load into
+//! the warm set.
 //!
-//! Gating: only unprefixed reads (`storage_prefix: None` — resident does not
-//! model share namespaces) and only when `LASTDB_RESIDENT_MODE` enables
-//! resident-first reads. Mode off = byte-identical passthrough.
-
-use std::sync::Arc;
-use std::sync::OnceLock;
+//! Only legacy unprefixed reads consult the live graph. Native pack reads
+//! retain their captured committed root and native warm-record holds. A local
+//! selected tip with no atom is an integrity failure, never record absence.
 
 use crate::atom::{Atom, AtomPartition};
 use crate::db_operations::DbOperations;
-use crate::resident::{ResidentAtom, ResidentMode, ResidentPolicy};
 use crate::schema::types::SchemaError;
+use std::sync::Arc;
 
-/// Process-resolved resident mode (env is stable for the process lifetime).
-fn resident_mode() -> ResidentMode {
-    static MODE: OnceLock<ResidentMode> = OnceLock::new();
-    *MODE.get_or_init(|| ResidentPolicy::from_env().mode)
+/// Live graph state is not versioned with a native pack read root.
+pub(crate) fn graph_reads_enabled(db_ops: &DbOperations) -> bool {
+    db_ops.namespaced_store().disk_pack_runtime().is_none()
 }
 
-/// Whether an unprefixed tip lookup may consult resident before durable
-/// storage. Tip probes use the current process env directly so tests that
-/// exercise this narrow path do not inherit the atom-batch OnceLock's first
-/// reader.
-pub(crate) fn tip_reads_resident_first(storage_prefix: Option<&str>) -> bool {
-    storage_prefix.is_none() && ResidentPolicy::from_env().mode.reads_resident_first()
+/// Legacy unprefixed reads consult the graph in every acknowledgement mode.
+pub(crate) fn tip_reads_resident_first(
+    db_ops: &DbOperations,
+    storage_prefix: Option<&str>,
+) -> bool {
+    storage_prefix.is_none() && graph_reads_enabled(db_ops)
 }
 
 /// Resident-first counterpart of
@@ -41,24 +37,13 @@ pub async fn get_atoms_located_resident_first(
     slots: &[(&str, Option<AtomPartition>)],
     storage_prefix: Option<&str>,
 ) -> Result<Vec<Option<Atom>>, SchemaError> {
-    get_atoms_located_with_mode(db_ops, slots, storage_prefix, resident_mode()).await
-}
-
-/// Mode-explicit body ([`get_atoms_located_resident_first`] passes the
-/// process-resolved mode; tests pass one directly — env vars race across
-/// parallel test threads and the OnceLock pins first-read-wins).
-pub(crate) async fn get_atoms_located_with_mode(
-    db_ops: &Arc<DbOperations>,
-    slots: &[(&str, Option<AtomPartition>)],
-    storage_prefix: Option<&str>,
-    mode: ResidentMode,
-) -> Result<Vec<Option<Atom>>, SchemaError> {
-    if storage_prefix.is_some() || !mode.reads_resident_first() {
-        return db_ops
+    if !tip_reads_resident_first(db_ops, storage_prefix) {
+        let atoms = db_ops
             .atoms()
             .get_atoms_located(slots, storage_prefix)
             .await
-            .map_err(|e| SchemaError::InvalidField(format!("Failed to fetch atom batch: {e}")));
+            .map_err(SchemaError::read_failure)?;
+        return require_tip_atoms(atoms, storage_prefix);
     }
 
     let resident = db_ops.resident();
@@ -91,11 +76,10 @@ pub(crate) async fn get_atoms_located_with_mode(
             .atoms()
             .get_atoms_located(&miss_slots, None)
             .await
-            .map_err(|e| SchemaError::InvalidField(format!("Failed to fetch atom batch: {e}")))?;
+            .map_err(SchemaError::read_failure)?;
         for (i, atom) in miss_idx.into_iter().zip(fetched) {
-            if let Some(ref a) = atom {
-                resident.rehydrate_atom(ResidentAtom::from_atom(a));
-            }
+            // A disk load admits the body on the storage path, into the warm
+            // set only. The graph keeps an atom only while that write is dirty.
             out[i] = atom;
         }
     }
@@ -103,5 +87,39 @@ pub(crate) async fn get_atoms_located_with_mode(
     for (duplicate, first) in duplicates {
         out[duplicate] = out[first].clone();
     }
-    Ok(out)
+    require_tip_atoms(out, storage_prefix)
+}
+
+/// These slots come from selected tips. A missing key produces no slot;
+/// missing scoped bodies remain an intentional filter.
+fn require_tip_atoms(
+    atoms: Vec<Option<Atom>>,
+    storage_prefix: Option<&str>,
+) -> Result<Vec<Option<Atom>>, SchemaError> {
+    if storage_prefix.is_none() && atoms.iter().any(Option::is_none) {
+        return Err(SchemaError::MissingLocalAtom);
+    }
+    Ok(atoms)
+}
+
+/// Single selected-tip counterpart, including the document-envelope path.
+pub(crate) async fn get_atom_for_tip(
+    db_ops: &DbOperations,
+    atom_uuid: &str,
+) -> Result<Atom, SchemaError> {
+    if tip_reads_resident_first(db_ops, None) {
+        if let Some(atom) = db_ops
+            .resident()
+            .resolve_atom(atom_uuid)
+            .and_then(|hit| hit.value.into_atom())
+        {
+            return Ok(atom);
+        }
+    }
+    db_ops
+        .atoms()
+        .get_atom_by_uuid(atom_uuid, None)
+        .await
+        .map_err(SchemaError::read_failure)?
+        .ok_or(SchemaError::MissingLocalAtom)
 }

@@ -431,6 +431,16 @@ pub enum DataRoute {
     /// durable published-F high-water marks. Never deletes. Body:
     /// `{ max_keys?: usize, after_key?: string }`.
     DbPinLogAudit,
+    /// `POST /api/db/export-mutation-log` — proof tooling. Seal this home's
+    /// pending mutation-log records and write the segments to a local
+    /// directory. Refuses unless the daemon booted with the local proof engine
+    /// on a synthetic home (`LASTDB_PROOF_REPLAY=1` plus a `.synthetic-home`
+    /// marker). Body: `{ dir: string }`.
+    DbExportMutationLog,
+    /// `POST /api/db/replay-mutation-log` — proof tooling. Apply the sealed
+    /// segments in a local directory through the live peer-apply path. Same
+    /// refusal rules as [`Self::DbExportMutationLog`]. Body: `{ dir: string }`.
+    DbReplayMutationLog,
     /// `POST /api/db/order-log-bloat-audit` — measure append-only order-log
     /// excess (stale entries + zero-live residue) with exact stored bytes.
     /// Read-only. Body: `{ max_keys?: usize, after_key?: string }`.

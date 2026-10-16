@@ -3,6 +3,26 @@
 use super::*;
 
 impl LogicalResidentSet {
+    /// Make a slot before a read admission, never after the 10,001st record.
+    /// If every record is protected, the caller returns its temporary body without admission.
+    pub(super) fn make_read_room(&mut self) -> bool {
+        let mut purged = 0u64;
+        while self.logical_record_count() >= resident_key_cap() {
+            let Some(key) = self.oldest_purgeable_key() else {
+                self.publish_occupancy();
+                return false;
+            };
+            self.drop_used_record(key);
+            purged += 1;
+        }
+        if let Some(metrics) = &self.metrics {
+            metrics.record_purged_keys(purged);
+            metrics.record_purge_pass(purged, 0);
+        }
+        self.publish_occupancy();
+        true
+    }
+
     /// Drop least-recently-used clean unheld records until the used-record
     /// count is at most [`resident_key_cap`]. A skip of a held or dirty
     /// record does not change that record's recency tick.
@@ -61,10 +81,13 @@ impl LogicalResidentSet {
                 self.atom_bodies.contains_key(id)
                     && self.atom_tips.get(id).is_none_or(HashSet::is_empty)
             }
-            ResidentKey::Record { collection, id } => self.records.contains_key(&RecordKey {
-                collection: collection.clone(),
-                id: id.clone(),
-            }),
+            ResidentKey::Record { collection, id } => {
+                let key = RecordKey {
+                    collection: collection.clone(),
+                    id: id.clone(),
+                };
+                self.records.contains_key(&key) && !self.record_is_held(&key)
+            }
             ResidentKey::Tombstone {
                 molecule,
                 hash,
@@ -191,6 +214,23 @@ impl LogicalResidentSet {
     /// A later put of the same key supersedes a delete overlay.
     pub(super) fn clear_tombstone(&mut self, key: &TipKey) {
         self.drop_tombstone_record(key);
+    }
+
+    /// Drop one warm tip. The graph holds that record while the write is dirty.
+    pub fn take_tip_for_graph(&mut self, molecule: MoleculeId, hash: &str, range: &str) {
+        self.advance_read_epochs();
+        self.drop_tip(&tip_key(molecule, hash, range));
+        self.publish_occupancy();
+    }
+
+    /// A direct write supersedes this exact cached tip and delete overlay.
+    pub fn invalidate_tip(&mut self, molecule: MoleculeId, hash: &str, range: &str) {
+        let key = tip_key(molecule, hash, range);
+        self.drop_tip(&key);
+        self.tip_bodies.remove(&key);
+        self.clear_tombstone(&key);
+        self.demote_hash(molecule, hash);
+        self.publish_occupancy();
     }
 
     pub(super) fn drop_tip(&mut self, key: &TipKey) {

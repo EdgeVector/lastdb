@@ -31,6 +31,7 @@ impl PinLog {
         let page = self
             .read_pending_pin_log_records_paged(
                 target,
+                published_f_upload_cursor(durable_per_writer_before),
                 &is_pending,
                 record_cap,
                 self.config.max_upload_bytes_per_cycle,

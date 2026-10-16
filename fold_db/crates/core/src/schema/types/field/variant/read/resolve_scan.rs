@@ -256,13 +256,6 @@ impl FieldVariant {
                 Some(rec.entry.writer_pubkey)
             };
 
-            // Install the atom already fetched with its tip-derived partition.
-            if storage_prefix.is_none() {
-                db_ops
-                    .resident()
-                    .rehydrate_atom(crate::resident::ResidentAtom::from_atom(&atom));
-            }
-
             resolved.insert(
                 key,
                 FieldValue {

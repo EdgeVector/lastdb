@@ -33,6 +33,8 @@ pub struct DiskReadReceipt {
     pub read_operations: u64,
     /// Bytes read to reconstruct legacy group state or replay append tails.
     pub legacy_replay_bytes: u64,
+    /// Frame bytes read during explicit recovery of complete disk-pack journal batches.
+    pub journal_replay_bytes: u64,
     /// Bytes read for sorted footers and key sidecars.
     pub footer_bytes: u64,
     /// Bytes read from addressed record or sorted-block extents.

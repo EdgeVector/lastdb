@@ -258,11 +258,12 @@ impl KvStore for LastStoreKvStore {
         let collection = self.collection.clone();
         let logical = Arc::clone(&self.logical);
         Self::run_blocking(move || {
-            let entries = items
+            let entries: Vec<_> = items
                 .into_iter()
                 .map(|(key, value)| (collection.clone(), Self::encode_key(&key), value))
                 .collect();
-            direct_write_invalidation::after_direct_write(&logical, || {
+            let ids: Vec<_> = entries.iter().map(|(_, id, _)| id.clone()).collect();
+            direct_write_invalidation::after_direct_write(&logical, &ids, || {
                 store
                     .restore_put_many_deferred(entries, 16)
                     .map_err(Self::map_error)

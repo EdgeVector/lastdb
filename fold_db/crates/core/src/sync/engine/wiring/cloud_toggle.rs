@@ -105,14 +105,11 @@ impl SyncEngine {
     ///
     /// - **Within grace:** clear disabled stamp, keep any short staging buffer,
     ///   wake the sync coordinator for incremental drain (`incremental`).
-    /// - **Past grace:** attempt download/apply of cloud logs first, then force
-    ///   a local snapshot publish (`snapshot_reconcile`). Residual outbox /
-    ///   pending are cleared **only when that snapshot succeeds** — same rule
-    ///   as overflow capture (`NEVER clear outbox if snapshot failed`). On
-    ///   snapshot failure the residual staging is left in place so grace-window
-    ///   mutations are not abandoned while capture default Off would fail to
-    ///   re-export them. Never blocks local R/W; pull/snapshot failures are
-    ///   reported on the outcome and recording still resumes.
+    /// - **Past grace:** download and apply cloud logs. This path does not
+    ///   publish a snapshot. The paused-home cut stays on
+    ///   `prepare_primary_authoritative_cloud_resume` plus publish. Residual
+    ///   staging stays. Never blocks local R/W. Pull failures are reported
+    ///   on the outcome and recording still resumes.
     pub async fn reenable_cloud_sync(&self) -> CloudSyncReenableOutcome {
         // An explicit operator re-enable is a request to re-evaluate, not to
         // inherit a previous run's verdict. Drop any latched bootstrap block so
@@ -160,13 +157,15 @@ impl SyncEngine {
     }
 
     /// `snapshot_reconcile` branch of [`Self::reenable_cloud_sync`].
+    ///
+    /// The name is historical. Re-enable pulls peer logs and does not cut a
+    /// snapshot. `snapshot_attempted` stays false so a missing cut is not a
+    /// failed snapshot, and residual staging is left in place.
     async fn reenable_snapshot_reconcile(&self, outcome: &mut CloudSyncReenableOutcome) {
-        // Pull first so multi-device / prior cloud state is applied before
-        // we pin a new local snapshot base.
         outcome.pull_attempted = true;
-        // Default to not-ok until a snapshot actually succeeds. Non-legacy
-        // path never attempts snapshot and must not clear residual staging.
-        outcome.snapshot_ok = false;
+        outcome.snapshot_attempted = false;
+        outcome.snapshot_ok = true;
+        outcome.snapshot_seq = None;
         let personal = self.targets.lock().await.first().cloned();
         if let Some(target) = personal {
             match self.download_with_auth_retry(&target).await {
@@ -179,49 +178,6 @@ impl SyncEngine {
         } else {
             outcome.pull_ok = false;
             outcome.errors.push("no personal sync target".to_string());
-        }
-
-        if self.config.legacy_personal_cloud_sync {
-            outcome.snapshot_attempted = true;
-            match self.backup_snapshot().await {
-                Ok(seq) => {
-                    outcome.snapshot_ok = true;
-                    outcome.snapshot_seq = Some(seq);
-                }
-                Err(e) => {
-                    outcome.snapshot_ok = false;
-                    outcome.errors.push(format!("snapshot failed: {e}"));
-                }
-            }
-        }
-
-        // Clear residual staging only after a successful snapshot publish.
-        // Unconditionally dropping on re-enable abandoned grace-window
-        // mutations when snapshot (and capture re-export) failed.
-        if outcome.snapshot_ok {
-            match self.maybe_clear_staging_for_sync_off_past_grace().await {
-                Ok(n) => outcome.staging_cleared = n,
-                Err(e) => outcome.errors.push(format!("staging clear failed: {e}")),
-            }
-            // Force-clear residual staging after re-enable decision even if
-            // grace stamp still marks past-grace (we clear disabled next).
-            let residual = self.outbox_count().await.unwrap_or(0);
-            if residual > 0 {
-                if let Ok(n) = self.drop_oldest_outbox_entries(residual).await {
-                    outcome.staging_cleared = outcome.staging_cleared.saturating_add(n);
-                }
-                self.pending.lock().await.clear();
-            }
-        } else if outcome.snapshot_attempted {
-            // Count first. An `.await` inside `tracing::warn!` keeps
-            // `Arguments` and a tracing value live across the await, and
-            // that future is then not `Send`.
-            let residual_outbox = self.outbox_count().await.unwrap_or(0);
-            tracing::warn!(
-                target: "fold_db::sync",
-                residual_outbox,
-                "snapshot_reconcile: snapshot failed; keeping residual staging"
-            );
         }
     }
 

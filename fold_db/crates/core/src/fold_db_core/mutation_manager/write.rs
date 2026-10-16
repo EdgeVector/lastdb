@@ -23,6 +23,7 @@ mod batch_inner;
 mod cloud_entry;
 mod create_update_batch;
 mod delete_winners;
+mod erase_guards;
 mod erasure;
 mod hard_erasure;
 mod hard_erasure_process;

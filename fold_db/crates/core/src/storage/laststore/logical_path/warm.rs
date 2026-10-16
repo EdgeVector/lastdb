@@ -97,19 +97,12 @@ pub(super) fn store_warm_body(
     if let Some(coords) = parse_tip_coords(id) {
         if let Ok(tip) = tip_from_body(value, coords.scope.as_deref()) {
             guard.store_tip_body(coords.molecule, &coords.hash, &coords.range, value.to_vec());
-            if guard
-                .tip(coords.molecule, &coords.hash, &coords.range)
-                .is_some()
-            {
-                guard.hold_tip(coords.molecule, &coords.hash, &coords.range);
-            } else {
-                guard.admit_tip(
-                    coords.molecule,
-                    coords.hash.clone(),
-                    coords.range.clone(),
-                    tip,
-                );
-            }
+            guard.admit_tip(
+                coords.molecule,
+                coords.hash.clone(),
+                coords.range.clone(),
+                tip,
+            );
             if let Some(token) = token {
                 guard.mark_dirty(coords.molecule, &coords.hash, &coords.range, token);
             }
@@ -121,15 +114,20 @@ pub(super) fn store_warm_body(
     }
 }
 
-pub(super) fn admit_loaded_body(set: &Mutex<LogicalResidentSet>, id: &str, body: &[u8]) {
+pub(super) fn admit_loaded_body(
+    set: &Mutex<LogicalResidentSet>,
+    id: &str,
+    body: &[u8],
+    epochs: ReadEpochs,
+) {
     if let Some(coords) = parse_tip_coords(id) {
-        admit_loaded_tip(set, &coords, body);
+        admit_loaded_tip(set, &coords, body, epochs);
         return;
     }
     if let Some(atom) = parse_atom_id(id) {
         if admit_raw_body(body) {
             let mut guard = crate::read_receipts::lock(set);
-            if guard.atom_body(&atom).is_some() {
+            if !guard.read_epochs_match(epochs) || guard.atom_body(&atom).is_some() {
                 return;
             }
             guard.admit_atom_body(atom, body.to_vec());
@@ -152,40 +150,35 @@ pub(super) fn admit_returned_tip(
         return;
     };
     set.store_tip_body(coords.molecule, &coords.hash, range, body.to_vec());
-    if set.tip(coords.molecule, &coords.hash, range).is_some() {
-        set.hold_tip(coords.molecule, &coords.hash, range);
-    } else {
-        set.admit_tip(coords.molecule, coords.hash.clone(), range.to_string(), tip);
-    }
+    set.admit_tip(coords.molecule, coords.hash.clone(), range.to_string(), tip);
     set.release_tip(coords.molecule, &coords.hash, range);
 }
 
-pub(super) fn admit_loaded_tip(set: &Mutex<LogicalResidentSet>, coords: &TipCoords, body: &[u8]) {
+pub(super) fn admit_loaded_tip(
+    set: &Mutex<LogicalResidentSet>,
+    coords: &TipCoords,
+    body: &[u8],
+    epochs: ReadEpochs,
+) {
     if !admit_raw_body(body) {
         return;
     }
     let mut guard = crate::read_receipts::lock(set);
-    if guard
-        .tip_body(coords.molecule, &coords.hash, &coords.range)
-        .is_some()
+    if !guard.read_epochs_match(epochs)
+        || guard
+            .tip_body(coords.molecule, &coords.hash, &coords.range)
+            .is_some()
     {
         return;
     }
     if let Ok(tip) = tip_from_body(body, coords.scope.as_deref()) {
         guard.store_tip_body(coords.molecule, &coords.hash, &coords.range, body.to_vec());
-        if guard
-            .tip(coords.molecule, &coords.hash, &coords.range)
-            .is_some()
-        {
-            guard.hold_tip(coords.molecule, &coords.hash, &coords.range);
-        } else {
-            guard.admit_tip(
-                coords.molecule,
-                coords.hash.clone(),
-                coords.range.clone(),
-                tip,
-            );
-        }
+        guard.admit_tip(
+            coords.molecule,
+            coords.hash.clone(),
+            coords.range.clone(),
+            tip,
+        );
         guard.release_tip(coords.molecule, &coords.hash, &coords.range);
     }
 }

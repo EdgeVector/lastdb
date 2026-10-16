@@ -1,0 +1,20 @@
+{
+  "native": {
+    "sync_enabled": false,
+    "resident": {
+      "resident_key_budget": 10000,
+      "resident_key_count": 10000,
+      "resident_held_keys": 0,
+      "resident_over_cap_keys": 0
+    }
+  },
+  "legacy": {
+    "sync_enabled": false,
+    "resident": {
+      "resident_key_budget": 10000,
+      "resident_key_count": 10000,
+      "resident_held_keys": 0,
+      "resident_over_cap_keys": 0
+    }
+  }
+}

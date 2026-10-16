@@ -114,6 +114,9 @@ pub struct Host {
     /// append a newer row there
     /// (papercut-lastdb-primary-boot-identity-stale-phantom-pid-20260927).
     pub own_boot_identity: OnceLock<crate::session_ledger::SessionRecord>,
+    /// True when this boot built the local proof engine for a synthetic home
+    /// (see [`crate::proof_replay`]). Never true on a cloud or primary home.
+    pub proof_replay_engine: bool,
 }
 
 /// Derive the canonical user hash from a base64 Ed25519 public key. Canonical
@@ -447,6 +450,8 @@ impl Host {
             resume_required,
         )
         .await?;
+        // No cloud config, yet an engine: only the local proof engine does that.
+        let proof_replay_engine = !sync_configured && db.sync_engine().is_some();
         // The one path that creates a brand-new home: this boot minted the
         // identity over a store that did not exist. A restored identity or an
         // existing store never stamps. Best effort; the call cannot fail boot.
@@ -499,6 +504,7 @@ impl Host {
             atom_ref_health: Arc::new(crate::atom_ref_health::AtomRefHealthRuntime::default()),
             primary_resume_job_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             own_boot_identity: OnceLock::new(),
+            proof_replay_engine,
         })
     }
 

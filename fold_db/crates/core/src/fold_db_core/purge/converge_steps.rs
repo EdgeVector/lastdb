@@ -62,13 +62,14 @@ pub(super) async fn converge_extra_and_trailing_keys(
 /// node whose live delete path is this function, which is the shape that
 /// let a dangling-tip investigation read a dead instrument as evidence.
 pub(super) fn build_converge_ledger_entry(
+    caller: &str,
     schema_name: &str,
     plan: &ConvergePlan,
     extra_key_count: usize,
     trailing_key_count: usize,
 ) -> crate::db_operations::AtomDeleteLedgerEntry {
     let mut ledger_entry = crate::db_operations::AtomDeleteLedgerEntry::delete_converge(
-        "mutation-pipeline",
+        caller,
         schema_name,
         &plan.ledger_descriptor,
     );

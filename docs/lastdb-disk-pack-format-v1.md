@@ -4,6 +4,12 @@ Draft, October 14, 2026. This document completes the format part of Stage 1.
 It does not enable a reader, writer, converter, or primary upgrade.
 All new numeric values below are proposals. Stage 2 must freeze them before it writes this format.
 
+The [first Stage 2 implementation](lastdb-disk-pack-reader.md) freezes the local page,
+key, record, and plain-frame bytes for separate immutable artifacts.
+The [native home API](lastdb-disk-native-home.md) allocates a separate home fence and codec identities.
+It does not select the node backend or change the memory ack boundary.
+The journal, bridge, encrypted-frame, conversion, and retention rules below remain release prerequisites.
+
 Source: [Draft LastDB pack files and bounded disk lookup](https://chatgpt.com/space/page_dac3cffa86f08191b9fe60c47d7477a9).
 The canonical model and access requirement remain authoritative:
 `lastdb-canonical-model.md`, `lastdb-agent-access-model.md`, and
@@ -122,26 +128,36 @@ The durable file and the in-process readable root identify the same published ge
 | 80 | 16 | Journal stream UUID for the checkpoint boundary |
 | 96 | 8 | Checkpoint batch sequence; normally equal to `F` |
 | 104 | 8 | Conversion descriptor page, or zero |
-| 112 | 8 | Required feature bits |
+| 112 | 8 | Required feature bits; `0x1` requires complete object bounds; `0x2` requires the checkpointed journal lifecycle; `0x4` requires the native home descriptor |
 | 120 | 8 | Publication time, Unix milliseconds |
 | 128 | 32 | SHA-256 of all 4,096 bytes |
-| 160 | 3,936 | Zero bytes |
+| 160 | 32 | SHA-256 of the complete native home descriptor with feature `0x4`; otherwise zero |
+| 192 | 3,904 | Zero bytes |
 
 The placement and key identifiers must equal the home descriptor. Conversion does not change either codec.
 One directory root contains every collection and group root needed through `F`.
 A call never combines a tip root from one CURRENT with an atom root from another CURRENT.
 Immutable child pages can predate the current generation. Their creation generation must not exceed the held generation.
+With feature `0x2`, `previous_generation = 0` declares that this checkpoint stream admits no journal batch yet.
+A complete stream checkpoint sets a nonzero previous generation before the first append.
+Feature `0x2` requires `0x1`. New artifacts use both bits; older writers refuse them before journal admission.
 
 JOURNAL_TAIL is also exactly 4,096 bytes. Its proposed magic is `LDJTL1\0\0`.
 Offsets 8 through 15 use the same version, length, and flags fields as CURRENT.
 Offsets 16 through 31 contain the journal stream UUID.
 Offsets 32, 40, 48, and 56 contain `first_batch`, `last_complete_batch`, durable encoded bytes, and durable publication time.
 Offsets 64 through 95 contain the SHA-256 of the last complete batch marker.
+The encoded-byte count is the sum of complete physical data-part and map bytes in the retained interval.
+It excludes TAIL itself. Admission reserves uncompressed worst-case bytes, even when the physical files compress well.
 Offsets 96 through 127 contain the SHA-256 of the complete TAIL object.
 Offsets 128 through 143 contain the previous stream UUID, or zero for the first stream.
 Offsets 144 through 151 contain the previous stream's complete checkpoint frontier, or zero.
 Offsets 152 through 183 contain the previous stream's final durable TAIL digest, or zero. The rest is zero.
 The tail names only complete durable batches. It never names a partially written last batch.
+
+The [artifact journal implementation](lastdb-disk-journal.md) supplies complete batches and a bounded recovery reader.
+The [resume implementation](lastdb-disk-journal-resume.md) adds stream changes under the same exclusive artifact lock.
+Neither implementation activates the online home writer or conversion operations.
 
 TAIL publication requires all named batch parts, maps, and markers to be durable first.
 Its update uses a temporary file, a file barrier, atomic rename, and a parent-directory barrier.
@@ -150,10 +166,15 @@ TAIL is not a record-location cache. Ordinary reads use CURRENT and its locator 
 
 A stream change requires CURRENT to reach the old stream's complete `J` first.
 The writer then publishes an empty new TAIL with `last_complete_batch = F` and `first_batch = F + 1`.
-The previous stream fields authenticate the exact change boundary.
+The previous stream fields verify the exact change boundary.
+The exact old TAIL is durable at `journal/<old-stream-uuid>/tail-<checkpoint-as-16-hex-digits>` before the new TAIL.
+The predecessor digest covers all 4,096 old published bytes, including their stored checksum.
 It next publishes CURRENT with the new checkpoint stream, then permits new admissions.
 A crash between these publications is valid only when CURRENT's `F` equals that named change boundary.
 Recovery uses the new TAIL from that boundary. A mismatch below the boundary refuses recovery.
+A new writer starts a fresh stream before admission, including its initial open and every reopen.
+An initial lifecycle checkpoint can retry initialization without reusing a frame identity.
+An admitted checkpoint with a missing TAIL refuses recovery.
 
 ## 5. Directory, locator, overflow, and block-map pages
 
@@ -173,7 +194,7 @@ Exhaustion requires a bounded tree rewrite under a fresh UUID before the next ad
 | 0 | 8 | Magic `LDPAGE1\0` |
 | 8 | 2 | Format version, 1 |
 | 10 | 1 | Kind: internal 1, locator leaf 2, directory leaf 3, key overflow 4, block map 5; metadata kinds in Appendix A |
-| 11 | 1 | Flags, zero |
+| 11 | 1 | Flags: bit zero only for a block map with complete object bounds; otherwise zero |
 | 12 | 2 | Header length, 128 |
 | 14 | 1 | Tree level; zero for a leaf or non-tree page |
 | 15 | 1 | Zero |
@@ -187,7 +208,7 @@ Exhaustion requires a bounded tree rewrite under a fresh UUID before the next ad
 | 64 | 8 | Next page: key overflow 4, source descriptor 9, or generation receipt 11; otherwise zero |
 | 72 | 8 | Auxiliary total: overflow suffix bytes for kind 4, first block ordinal for kind 5, chain page count for kinds 9 and 11; otherwise zero |
 | 80 | 32 | SHA-256 of the complete page |
-| 112 | 16 | Zero |
+| 112 | 16 | A flagged block map uses logical object bytes `u64`, then complete data-part count `u64`; otherwise zero |
 | 128 | 16,256 | Payload and zero slack |
 
 The next-page field is a `u64` page number in the same object UUID.
@@ -297,6 +318,24 @@ A valid tombstone returns absence at that version. It does not authorize atom-hi
 A cloud-only entry has no local payload fields. It must contain a valid cloud descriptor and complete record length and digest.
 
 ### Block map
+
+New artifacts require CURRENT feature `0x1`.
+Every block-map page sets flag bit zero and repeats the complete object's logical byte count and data-part count.
+These values occupy common-header bytes 112 through 127 and receive the page checksum.
+The full block count is `ceil(logical_object_bytes / 4,096)`.
+The complete map-page count is `ceil(block_count / 677)`; map-part count is `ceil(map_page_count / 512)`.
+Data parts use exact consecutive numbers starting at zero.
+These fields let a backup enumerate the complete object without a directory walk or footer.
+
+The reader validates complete record extents, selected map counts, final-block lengths, data-part bounds, and creation generations.
+The values must agree across all map pages used by a call.
+The writer finalizes and checksums only its private, unpublished map pages before the file and directory barriers.
+It never changes a published map part.
+
+Readers retain feature-zero artifact support with the original zero header bytes.
+New journal construction refuses those older artifacts instead of mixing map formats.
+Readers from before feature `0x1` refuse the new CURRENT before any payload read.
+This artifact feature does not activate the production home fence or a LastDB query route.
 
 A block-map page has 24-byte entries, at most 677 per page, and zero slack.
 The page for block ordinal `b` is `floor(b / 677)`; the entry is `b mod 677`.
@@ -946,6 +985,9 @@ The descriptor supplies the validated existing path. Its captured length supplie
 For every other local dependency, the UUID, kind, batch, and part number determine the exact new-format path.
 The checksum-present flag distinguishes a verified whole-part digest from zero.
 This receipt is operational metadata. An ordinary read does not enumerate its dependency entries.
+An incremental receipt may conservatively retain prior dependency parts and private intermediate tree parts.
+These extra references prevent premature deletion. They do not change the committed directory's readable keys.
+A compaction can rebuild the live dependency closure under the required generation and durable-reference rules.
 
 The first receipt page contains at most 150 dependency entries.
 Every later page contains at most 201 entries. The exact used payload length follows its prefix and count.

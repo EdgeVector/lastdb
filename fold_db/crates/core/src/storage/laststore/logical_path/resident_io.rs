@@ -82,11 +82,19 @@ pub(crate) fn body_digest(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
-/// Admit a body that a read decrypted. A read never replaces a resident
-/// body: a write admitted that body, and it is at least as new as the read.
-pub(crate) fn admit_plaintext(set: &Mutex<LogicalResidentSet>, key: &[u8], value: &[u8]) {
+/// Admit a decrypted read only when no write changed its captured generation.
+/// A delayed read cannot refill a purged entry from an older disk value.
+pub(crate) fn admit_plaintext(
+    set: &Mutex<LogicalResidentSet>,
+    key: &[u8],
+    value: &[u8],
+    epochs: ReadEpochs,
+) {
     let id = LastStoreKvStore::encode_key(key);
     let mut guard = crate::read_receipts::lock(set);
+    if !guard.read_epochs_match(epochs) {
+        return;
+    }
     if let Some(coords) = parse_tip_coords(&id) {
         if guard.has_tombstone(coords.molecule, &coords.hash, &coords.range)
             || guard
@@ -114,8 +122,11 @@ pub(crate) fn admit_written_plaintext(
     value: &[u8],
 ) {
     let id = LastStoreKvStore::encode_key(key);
+    let Some(cache_key) = logical_cache_key(&id) else {
+        return;
+    };
     let mut guard = crate::read_receipts::lock(set);
-    let Some(token) = guard.take_write_token_for(key, stored_digest) else {
+    let Some(token) = guard.take_write_token_for(&cache_key, stored_digest) else {
         return;
     };
     if superseded_tip(&guard, &id, token) {

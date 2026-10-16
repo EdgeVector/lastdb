@@ -33,6 +33,7 @@ use append_marker_records::{build_capture_marker_records, check_existing_capture
 mod audit;
 mod cloud_generation;
 mod compaction;
+mod directory_replay;
 mod fresh_seed;
 mod frontier;
 mod keys;
@@ -64,4 +65,5 @@ pub(crate) use retired_source::ReplayEntryOutcome;
 pub use retired_source::{AuthenticatedReplayObject, RetiredReplaySource};
 pub use seal::*;
 pub(crate) use state::*;
+pub use upload_cycle::MutationLogDirectoryExport;
 use wire::*;

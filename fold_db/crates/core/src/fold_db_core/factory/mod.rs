@@ -126,6 +126,42 @@ pub async fn create_fold_db_with_pool_auth_refresh_and_search_outbox(
     Ok(db)
 }
 
+/// Build a FoldDB with a local proof engine: the sync engine is wired for
+/// mutation-log capture and for replay of segments from a local directory,
+/// and nothing contacts a cloud (no bootstrap, no uploader, no sync loop).
+///
+/// This exists for two-home proofs only. The node calls it behind its own
+/// guard (`lastdb_node::proof_replay`); `config.cloud_sync` must be `None`.
+pub async fn create_fold_db_with_local_proof_engine(
+    config: &DatabaseConfig,
+    e2e_keys: &E2eKeys,
+    signer: Arc<Ed25519KeyPair>,
+    search_outbox_inbox: Option<PathBuf>,
+) -> FoldDbResult<Arc<FoldDB>> {
+    if config.cloud_sync.is_some() {
+        return Err(FoldDbError::Config(
+            "a local proof engine cannot run beside a cloud sync config".into(),
+        ));
+    }
+    let path_str = config
+        .path
+        .to_str()
+        .ok_or_else(|| FoldDbError::Config("Invalid storage path".to_string()))?;
+    create_local_fold_db(
+        &config.path,
+        e2e_keys,
+        signer,
+        LocalFoldDbOptions {
+            sync_setup: Some(crate::sync::SyncSetup::local_proof(path_str)),
+            at_rest_keyring: None,
+            storage_engine: resolve_storage_engine(config)?,
+            search_outbox_inbox,
+            defer_cloud_workers: false,
+        },
+    )
+    .await
+}
+
 fn resolve_storage_engine(config: &DatabaseConfig) -> FoldDbResult<StorageEngine> {
     StorageEngine::from_env()
         .map_err(FoldDbError::Config)

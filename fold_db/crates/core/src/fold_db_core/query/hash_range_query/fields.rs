@@ -140,10 +140,7 @@ impl HashRangeQueryProcessor {
             return Ok(result);
         }
 
-        let atoms = self
-            .resolve_pending_atoms(&pending)
-            .await
-            .map_err(|e| SchemaError::InvalidField(format!("exact-key atom batch: {e}")))?;
+        let atoms = self.resolve_pending_atoms(&pending).await?;
 
         for (entry, atom) in pending.into_iter().zip(atoms) {
             if let Some((fname, kv, fv)) =

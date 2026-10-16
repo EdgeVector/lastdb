@@ -88,10 +88,7 @@ impl HashRangeQueryProcessor {
         include_tombstones: bool,
         result: &mut HashMap<String, HashMap<KeyValue, FieldValue>>,
     ) -> Result<(), SchemaError> {
-        let resolved = self
-            .resolve_pending_atoms(&pending)
-            .await
-            .map_err(|e| SchemaError::InvalidField(format!("co-key secondary atom batch: {e}")))?;
+        let resolved = self.resolve_pending_atoms(&pending).await?;
 
         for ((fname, kv, atom_uuid, key_meta, writer_pubkey, prefix, partition), atom) in
             pending.into_iter().zip(resolved)

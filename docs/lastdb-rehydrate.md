@@ -9,13 +9,14 @@ persist path. T2 cloud sync remains downstream of durable storage.
 `LASTDB_RESIDENT_MODE` defaults to `off`, but that is a rollout default, not a
 sign the subsystem is unused. The live node has run `write` mode, and the
 restore CLI forces `off` only because a one-shot process has no persist worker.
-In every mode the ResidentGraph is the mutation concurrency gate (per-slot
-revisions) and the persist lane owns mutation persistence. Only resident-first
-reads and acknowledge-on-apply depend on the mode.
+In every mode the ResidentGraph is the mutation concurrency gate (per-key
+revisions), and the persist lane owns the disk writes. Legacy unprefixed reads
+check the graph in every mode. Only acknowledge-on-apply depends on write mode.
+Native pack reads keep one committed disk root and exclude the live graph.
 
 Three caches exist and are not duplicates:
 
-- ResidentGraph: mutation ordering, dirty tracking, deferred acknowledgment.
+- ResidentGraph: dirty tips and atoms, write order, and deferred acknowledgment.
 - LogicalResidentSet: always-on read cache for tips and atoms inside LastStore,
   capped by `RESIDENT_KEY_CAP`.
 - Hash-group warm set: byte-budgeted cache for non-logical collections.
@@ -31,10 +32,14 @@ molecule keys, then fetches only the required atoms. A cold read stops at the
 atom. A file result contains the file reference and access metadata. The query
 does not open the file or load CAS bytes into memory.
 
+One tip has one normal memory home: the graph while dirty, then the warm set
+after its disk write. A disk read admits a clean record only to the warm set.
+Schemas, proteins, and pending delete marks remain graph metadata.
+
 T1 is the node-local durable store. Deferred resident writes are acknowledged
 only after the mutation has installed the exact ladder objects in T0 and marked
 them dirty. The background persist worker later writes those objects to T1 and
-clears the dirty markers.
+removes the matching graph tips and clean atom bodies.
 
 T2 is cloud backup and sync. It sees durable T1 state, not speculative memory.
 Resident mode must therefore never treat a T2 upload as evidence that a dirty T0
@@ -57,7 +62,7 @@ keeps memory from becoming an unbounded write-ahead store.
 or read-only rehydrate, and write mode for deferred durable persists.
 
 The memory limit for logical keys (tips and atoms) is the used-record cap
-`RESIDENT_KEY_CAP = 10000`. Tests may lower it with `LASTDB_RESIDENT_KEY_CAP`.
+`RESIDENT_KEY_CAP = 10000`. `LASTDB_RESIDENT_KEY_CAP` can lower that cap.
 Do not tune a byte setting to size that set.
 
 `LASTDB_RESIDENT_BYTES` sets the ResidentGraph byte budget
@@ -75,11 +80,14 @@ write mode falls back to synchronous persistence.
 
 ## Eviction Invariants
 
-The local schema catalog stays resident. Clean molecule and atom entries leave
-in LRU order when the resident graph exceeds its byte budget. The byte count
-includes the catalog. Thus a catalog larger than the budget sets a fixed floor.
-Each eviction pass copies only enough candidate keys to cover the excess bytes.
-Persist completion also enforces the budget; it does not need a subsequent write.
+The local schema catalog stays resident. A confirmed disk write removes a graph
+tip only when its atom and revision still match. Atom reference counts share
+the tip lock, so atom cleanup needs no walk of the other tips.
+
+A cold read or prepared write holds a revision lease. An absent, fully durable
+key revision leaves after its final lease. Unique revision identities prevent
+an old prepared write from accepting a later key state as its original state.
+Revision records do not accumulate for every key that the process wrote.
 
 Dirty entries are never evicted. If every eviction candidate is dirty, the graph
 stays over budget and increments `evict_refused_dirty`; the persist worker must
@@ -103,6 +111,8 @@ rehydrate counters are grouped by schema, molecule, atom, file blob, and
 protein. Persist counters show enqueued, flushed, and failed deferred batches.
 Eviction counters separate clean ResidentGraph evictions from dirty-budget
 refusals.
+`revision_slots` reports the key revisions retained by graph state, active
+calls, or pending writes. It is separate from the warm-set record count.
 The legacy file-blob counters remain present for status compatibility. They
 stay at zero because the resident graph cannot hold CAS bytes.
 

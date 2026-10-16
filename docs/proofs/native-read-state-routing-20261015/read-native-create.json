@@ -1,0 +1,10 @@
+{
+  "batches": 4,
+  "all_accepted": true,
+  "durability": [
+    "queued",
+    "queued",
+    "queued",
+    "queued"
+  ]
+}

@@ -3,6 +3,43 @@
 use super::*;
 
 impl ResidentGraph {
+    /// Per-key controls retained by active tips, persist turns, or observers.
+    pub fn revision_slot_count(&self) -> usize {
+        self.slots.read().expect("resident slot lock").len()
+    }
+
+    pub fn revision_observer_count(&self) -> usize {
+        self.slot_readers
+            .lock()
+            .expect("resident slot reader lock")
+            .values()
+            .sum()
+    }
+
+    pub(super) fn next_revision(&self) -> u64 {
+        self.next_slot_revision
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |revision| revision.checked_add(1),
+            )
+            .expect("resident slot revision identity exhausted")
+    }
+
+    /// Call only with the observer registry locked and no observer for `key`.
+    pub(super) fn reclaim_idle_slot(
+        &self,
+        slots: &mut HashMap<String, ResidentSlotControl>,
+        key: &str,
+    ) {
+        if slots.get(key).is_some_and(|control| {
+            control.state == ResidentSlotState::Absent
+                && control.resident_revision == control.durable_revision
+        }) {
+            slots.remove(key);
+        }
+    }
+
     /// Control state for one slot. Missing entry is [`ResidentSlotState::Absent`].
     pub fn slot_control(
         &self,
@@ -139,12 +176,17 @@ impl ResidentGraph {
         Ok(turns)
     }
 
-    pub(super) fn bump_resident_revision(&self, molecule_uuid: &str, hash: &str, range: &str) {
+    pub(super) fn bump_resident_revision(
+        &self,
+        slots: &mut HashMap<String, ResidentSlotControl>,
+        molecule_uuid: &str,
+        hash: &str,
+        range: &str,
+    ) {
         let k = tip_map_key(molecule_uuid, hash, range);
-        let mut slots = self.slots.write().expect("resident slot lock");
         self.invalidate_partition(molecule_uuid, hash);
         let control = slots.entry(k).or_default();
-        control.resident_revision = control.resident_revision.saturating_add(1);
+        control.resident_revision = self.next_revision();
         control.state = ResidentSlotState::Ready;
     }
 }

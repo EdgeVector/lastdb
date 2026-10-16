@@ -19,6 +19,7 @@ pub(super) fn hash_range_rows(
         }
     }
 
+    let epochs = set.lock().expect("poison").read_epochs();
     let loaded = match store.load_hash(collection, prefix) {
         Ok(rows) => rows,
         Err(err) => return Err(LastStoreKvStore::map_error(err)),
@@ -27,7 +28,8 @@ pub(super) fn hash_range_rows(
     let mut guard = set.lock().expect("poison");
     if let Ok(text) = std::str::from_utf8(prefix) {
         if let Some(coords) = parse_hash_scan_prefix(text) {
-            return Ok(admit_hash_rows(&mut guard, &coords, loaded, limit));
+            let admit = guard.read_epochs_match(epochs);
+            return Ok(admit_hash_rows(&mut guard, &coords, loaded, limit, admit));
         }
     }
     let mut rows = Vec::new();
@@ -78,6 +80,7 @@ pub(super) fn admit_hash_rows(
     coords: &HashCoords,
     loaded: Vec<LoadedTip>,
     limit: usize,
+    admit: bool,
 ) -> Vec<(Vec<u8>, Vec<u8>)> {
     let spelling = coords.storage_molecule.storage_spelling();
     let record_prefix = scoped_storage_key(
@@ -122,7 +125,9 @@ pub(super) fn admit_hash_rows(
         );
         rows.push((storage_key.into_bytes(), body.clone()));
         returned.push(range.clone());
-        admit_returned_tip(set, coords, range, body);
+        if admit {
+            admit_returned_tip(set, coords, range, body);
+        }
     }
 
     // Complete means a later read can skip the hash group. That is true only
@@ -137,7 +142,7 @@ pub(super) fn admit_hash_rows(
                 .tip_body(coords.molecule, &coords.hash, range)
                 .is_some_and(|warm| warm == merged[range].as_slice())
     });
-    if returned_every_live_key && every_returned_key_stays {
+    if admit && returned_every_live_key && every_returned_key_stays {
         set.mark_hash_complete(coords.molecule, &coords.hash, returned);
     }
     rows

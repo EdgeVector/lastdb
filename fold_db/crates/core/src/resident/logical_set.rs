@@ -31,10 +31,13 @@ mod bodies;
 mod durability;
 mod negative_barrier_cache;
 mod purge;
+mod read_epochs;
+mod record_holds;
 mod records;
 mod tips;
 mod tombstones;
 use negative_barrier_cache::NegativeBarrierCache;
+pub use read_epochs::ReadEpochs;
 
 /// Used-record cap for the logical resident set.
 ///
@@ -43,15 +46,7 @@ use negative_barrier_cache::NegativeBarrierCache;
 /// record. The budget is this count, not a byte ledger.
 pub const RESIDENT_KEY_CAP: usize = 10_000;
 
-/// Lowers [`RESIDENT_KEY_CAP`] for a test node.
-///
-/// At 10000 records the purge never runs inside a short proof window on a
-/// copy, so a gate cannot see it work. A probe sets this far lower (for
-/// example 100) so the purge must run, then checks that
-/// `resident_key_count` stays at or under `resident_key_budget` and that
-/// `resident_purged_keys` rose. It only lowers: a value of 0 or above the
-/// default is refused, and boot stops, so a mistyped limit cannot run a
-/// proof on a cap nobody asked for.
+/// Optional lower operational cap. Zero and values above 10,000 are refused.
 pub const RESIDENT_KEY_CAP_ENV: &str = "LASTDB_RESIDENT_KEY_CAP";
 
 static RESIDENT_KEY_CAP_IN_FORCE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
@@ -374,7 +369,7 @@ pub struct LogicalResidentSet {
     /// Newest append per storage key, for the encrypting layer after put.
     /// The digest names the stored bytes of that append, so only the put
     /// that wrote them can admit its plaintext.
-    pending_write_tokens: HashMap<Vec<u8>, PendingWrite>,
+    pending_write_tokens: HashMap<ResidentKey, PendingWrite>,
     tombstones: HashMap<TipKey, Held<()>>,
     /// Per-hash ordered molecule view. Completeness is this hash only.
     hash_views: HashMap<(MoleculeId, String), HashView>,
@@ -390,6 +385,8 @@ pub struct LogicalResidentSet {
     /// and fetched ids that were absent (`None`). Keyed by the exact
     /// `(collection, id)` a loader read. Each entry is one used record.
     records: HashMap<RecordKey, Option<Vec<u8>>>,
+    /// Calls hold exact records, including slots reserved before their fetch.
+    record_holds: record_holds::RecordHolds,
     /// Exact absent Delete markers; separate from the logical-record budget.
     negative_barriers: NegativeBarrierCache,
     /// Write epochs for [`Self::records`], striped by id. A write bumps the

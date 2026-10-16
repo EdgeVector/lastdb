@@ -405,7 +405,7 @@ impl MutationManager {
 
     /// Resident graph handle. Named so the apply-gate module can read slot
     /// revisions without naming `db_ops` in that file (structural test).
-    pub(crate) fn resident_graph(&self) -> &crate::resident::ResidentGraph {
+    pub(crate) fn resident_graph(&self) -> &Arc<crate::resident::ResidentGraph> {
         self.db_ops.resident()
     }
 
