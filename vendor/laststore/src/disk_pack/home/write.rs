@@ -80,6 +80,31 @@ impl DiskHome {
 }
 
 impl HomeJournal {
+    /// Pack live records without a logical mutation; retain held and grace-period files.
+    pub fn compact(
+        &mut self,
+        policy: &crate::disk_pack::maintenance::SpacePolicy,
+    ) -> Result<crate::disk_pack::maintenance::MaintenanceReceipt> {
+        self.writer.compact(policy)
+    }
+
+    /// Reclaim only the exact files no retained generation still needs.
+    pub fn reclaim(
+        &mut self,
+        policy: &crate::disk_pack::maintenance::SpacePolicy,
+    ) -> Result<crate::disk_pack::maintenance::MaintenanceReceipt> {
+        self.writer.reclaim(policy)
+    }
+
+    /// Reserve all native output bytes under the same exclusive writer lease.
+    pub fn reserve_space(
+        &self,
+        bytes: u64,
+        policy: &crate::disk_pack::maintenance::SpacePolicy,
+    ) -> Result<crate::disk_pack::maintenance::SpaceReservation> {
+        self.writer.reserve_space(bytes, policy)
+    }
+
     /// Last complete readable directory boundary.
     pub fn current(&self) -> &Current {
         self.writer.current()

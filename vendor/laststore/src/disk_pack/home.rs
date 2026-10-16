@@ -211,6 +211,11 @@ pub struct DiskHome {
 }
 
 impl DiskHome {
+    /// Exact explicitly selected native root, for supported backup and maintenance.
+    pub fn path(&self) -> &Path {
+        &self.root
+    }
+
     /// Read the exact descriptor and root without opening a writer.
     pub fn open(root: &Path) -> Result<Self> {
         let descriptor = HomeDescriptor::read(root)?;

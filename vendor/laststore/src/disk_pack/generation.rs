@@ -15,7 +15,7 @@ pub(super) struct Generation {
     pub(super) object: Uuid,
     pub(super) dependencies: u64,
     pub(super) coordinates: Vec<Coordinate>,
-    records: Vec<[u8; 80]>,
+    pub(super) records: Vec<[u8; 80]>,
 }
 
 pub(super) fn write(
@@ -131,6 +131,23 @@ fn prefix(current: &Current, count: u64, pages: u64, bytes: &[u8; 4096]) -> Vec<
 
 pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
     read(root, current, true)
+}
+
+/// Read only the root identity first; callers validate its receipt or hold it.
+pub(super) fn load_current(root: &Path, number: u64) -> Result<Current> {
+    use std::io::Read;
+    let path = root
+        .join("generations")
+        .join(number.to_string())
+        .join("part-00000000");
+    let mut file = std::fs::File::open(path)?;
+    let mut prefix = [0; 4352];
+    file.read_exact(&mut prefix)?;
+    let current = Current::decode(prefix[256..4352].try_into().expect("embedded CURRENT"))?;
+    if current.generation != number {
+        return Err(corrupt("generation number differs from root"));
+    }
+    Ok(current)
 }
 
 /// Read checksummed receipt bytes for an already verified generation under the

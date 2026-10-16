@@ -20,7 +20,9 @@ mod generation;
 mod hash_range;
 pub mod home;
 pub mod journal;
+pub mod lifetime;
 mod location;
+pub mod maintenance;
 mod object;
 mod pack_write;
 mod page;
@@ -55,8 +57,14 @@ pub const FEATURE_JOURNAL_LIFECYCLE: u64 = 2;
 /// CURRENT feature bit: a native home descriptor controls placement and key identity.
 pub const FEATURE_NATIVE_HOME: u64 = 4;
 
-const SUPPORTED_FEATURES: u64 =
-    FEATURE_OBJECT_METADATA | FEATURE_JOURNAL_LIFECYCLE | FEATURE_NATIVE_HOME;
+/// Mandatory protocol: every active reader holds LIFETIME_LOCK against reclamation.
+/// Homes without this bit retain all files because older readers have no such hold.
+pub const FEATURE_FILE_LIFETIME: u64 = 8;
+
+const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
+    | FEATURE_JOURNAL_LIFECYCLE
+    | FEATURE_NATIVE_HOME
+    | FEATURE_FILE_LIFETIME;
 
 const PAGE_BYTES: usize = 16_384;
 const HEADER_BYTES: usize = 128;
