@@ -5,6 +5,8 @@ use crate::schema::types::Schema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub(super) mod body;
+pub(crate) mod field;
 mod read;
 pub(crate) use read::admit_query_results;
 
@@ -65,7 +67,8 @@ impl LogicalPathRecord {
     pub(crate) fn from_value(path: LogicalPath, value: &serde_json::Value) -> StorageResult<Self> {
         Ok(Self {
             path,
-            body: serde_json::to_vec(value).map_err(|error| serialization(&error))?,
+            body: serde_json::to_vec(&body::PathBody::content(value))
+                .map_err(|error| serialization(&error))?,
         })
     }
 }

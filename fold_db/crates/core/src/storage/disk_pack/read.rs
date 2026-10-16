@@ -12,6 +12,7 @@ pub(super) struct ReadContext {
     holds: Arc<holds::CallRecordHolds>,
     pub(super) accepted: Option<Arc<transaction::PendingBatch>>,
     snapshots: Arc<snapshots::ReadSnapshots>,
+    pub(super) version: logical_paths::body::ReadVersion,
 }
 
 struct ReadFailure {
@@ -50,10 +51,17 @@ impl ReadContext {
             .read_committed(view.current.clone(), budget())
             .map_err(map)?;
         let accepted = view.accepted.clone();
+        let version = logical_paths::body::ReadVersion {
+            generation: view.current.generation,
+            accepted: accepted
+                .as_ref()
+                .map_or(0, |batch| Arc::as_ptr(batch) as usize),
+        };
         drop(view);
         Ok(Arc::new(Self {
             call: Arc::new(Mutex::new(call)),
             accepted,
+            version,
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
             identity: runtime.home.descriptor().identity,
             failure: Arc::new(Mutex::new(None)),
@@ -76,6 +84,7 @@ impl ReadContext {
                     holds: Arc::clone(&context.holds),
                     accepted: context.accepted.clone(),
                     snapshots: Arc::clone(&context.snapshots),
+                    version: context.version,
                 }));
             }
             return Err(StorageError::InvalidOperation(

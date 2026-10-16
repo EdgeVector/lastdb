@@ -161,31 +161,6 @@ impl FieldVariant {
         visible_matches
     }
 
-    /// Count and log a tip whose atom body could not be resolved.
-    pub(super) fn record_unresolved_tip_atom(
-        db_ops: &Arc<DbOperations>,
-        molecule_uuid: &str,
-        atom_uuid: &str,
-        key: &KeyValue,
-        tip_key: &str,
-    ) {
-        db_ops.record_unresolved_atom_skip(
-            atom_uuid,
-            key,
-            crate::db_operations::core::UnresolvedAtomContext {
-                molecule_uuid: Some(molecule_uuid),
-                atom_partition: crate::atom::AtomPartition::from_record_key(tip_key).as_ref(),
-                tip_storage_key: Some(tip_key),
-                ..Default::default()
-            },
-        );
-        tracing::warn!(
-            atom_uuid = %atom_uuid,
-            key = %key,
-            "Skipping unresolved atom ref from hash-key query result"
-        );
-    }
-
     /// Hydrate atoms for the selected tips into field values.
     pub(super) async fn materialize_tip_matches(
         db_ops: &Arc<DbOperations>,
@@ -194,81 +169,37 @@ impl FieldVariant {
         include_tombstones: bool,
         visible_matches: Vec<TipMatch>,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
-        // Tip base key → partition (cannot disagree with the tip walk). Fall
-        // back to for_slot only if the tip key is unparseable.
-        let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = visible_matches
-            .iter()
-            .map(|(key, rec, tip_key)| {
-                let partition =
-                    crate::atom::AtomPartition::from_record_key(tip_key).or_else(|| {
-                        Some(crate::atom::AtomPartition::for_slot(
-                            molecule_uuid,
-                            key.hash.as_deref().unwrap_or(""),
-                        ))
-                    });
-                (rec.entry.atom_uuid.as_str(), partition)
-            })
-            .collect();
-        let atoms = crate::db_operations::resident_read::get_atoms_located_resident_first(
-            db_ops,
-            &slots,
-            storage_prefix,
-        )
-        .await?;
-
-        let mut resolved = HashMap::with_capacity(visible_matches.len());
-        for ((key, rec, tip_key), atom) in visible_matches.into_iter().zip(atoms) {
-            let atom_uuid = rec.entry.atom_uuid.clone();
-            let Some(atom) = atom else {
-                if storage_prefix.is_some() {
-                    // Expected org-scope filtering, not an integrity fault —
-                    // deliberately not counted as an unresolved skip.
-                    tracing::warn!("Filtering orphan atom ref from org-scoped hash-key read");
-                    continue;
+        let matches = visible_matches.into_iter().map(|(key, rec, tip_key)| {
+            let partition = crate::atom::AtomPartition::from_record_key(&tip_key).or_else(|| {
+                Some(crate::atom::AtomPartition::for_slot(
+                    molecule_uuid,
+                    key.hash.as_deref().unwrap_or(""),
+                ))
+            });
+            let writer = (!rec.entry.writer_pubkey.is_empty()).then_some(rec.entry.writer_pubkey);
+            (key, rec.entry.atom_uuid, rec.meta, writer, partition)
+        });
+        let mut resolved =
+            crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix(
+                db_ops,
+                matches,
+                storage_prefix,
+                Some(molecule_uuid),
+                None,
+                None,
+            )
+            .await?;
+        for value in resolved.values_mut() {
+            value.molecule_uuid = Some(molecule_uuid.to_string());
+        }
+        if !include_tombstones {
+            resolved.retain(|_, value| {
+                let live = !crate::atom::is_tombstone_value(&value.value);
+                if !live {
+                    crate::db_operations::note_tombstoned_row();
                 }
-                Self::record_unresolved_tip_atom(db_ops, molecule_uuid, &atom_uuid, &key, &tip_key);
-                continue;
-            };
-
-            if !include_tombstones && crate::atom::is_tombstone_value(atom.content()) {
-                // Same accounting as the windowed path above: the window (line
-                // ~483) already spent a slot on this row, so the drop has to be
-                // reported or the page silently comes up short.
-                crate::db_operations::note_tombstoned_row();
-                continue;
-            }
-
-            let (source_file_name, metadata) = match rec.meta {
-                Some(km) => (
-                    km.source_file_name
-                        .or_else(|| atom.source_file_name().cloned()),
-                    km.metadata.or_else(|| atom.metadata().cloned()),
-                ),
-                None => (atom.source_file_name().cloned(), atom.metadata().cloned()),
-            };
-            let written_at = atom
-                .created_at()
-                .timestamp_nanos_opt()
-                .and_then(|ns| u64::try_from(ns).ok());
-            let writer_pubkey = if rec.entry.writer_pubkey.is_empty() {
-                None
-            } else {
-                Some(rec.entry.writer_pubkey)
-            };
-
-            resolved.insert(
-                key,
-                FieldValue {
-                    value: atom.content().clone(),
-                    atom_uuid,
-                    source_file_name,
-                    metadata,
-                    molecule_uuid: Some(molecule_uuid.to_string()),
-                    molecule_version: None,
-                    writer_pubkey,
-                    written_at,
-                },
-            );
+                live
+            });
         }
         Ok(resolved)
     }

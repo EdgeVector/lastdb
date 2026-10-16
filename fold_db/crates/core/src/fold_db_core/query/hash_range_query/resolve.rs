@@ -31,6 +31,11 @@ impl HashRangeQueryProcessor {
         // `PageAfter` arm already does for its shape.
         let requested_window = window.clone();
         let window = window.filter(|_| received_from_namespaces.is_empty());
+        let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
+            self.db_ops.namespaced_store().disk_pack_runtime(),
+            schema,
+            primary_name,
+        )?;
         let field = schema.runtime_fields.get_mut(primary_name).ok_or_else(|| {
             SchemaError::InvalidField(format!(
                 "co-key primary field '{primary_name}' missing from schema runtime"
@@ -46,38 +51,42 @@ impl HashRangeQueryProcessor {
         // later pages were a per-namespace union (duplicates, holes, extra
         // rows). Offset `Page` and key-restricted windows stay on their
         // existing arms.
-        let primary_vals = match filter.as_ref() {
-            Some(HashRangeFilter::Page { .. } | HashRangeFilter::PageAfter { .. })
-                if !received_from_namespaces.is_empty() =>
-            {
-                self.resolve_primary_merged_page(
-                    field,
-                    primary_name,
-                    filter.as_ref(),
-                    received_from_namespaces,
-                    as_of,
-                    include_tombstones,
-                    own_prefix,
-                    &mut sources,
-                )
-                .await?
-            }
-            _ => {
-                self.resolve_primary_windowed(
-                    field,
-                    primary_name,
-                    filter,
-                    window,
-                    requested_window,
-                    received_from_namespaces,
-                    as_of,
-                    include_tombstones,
-                    own_prefix,
-                    &mut sources,
-                )
-                .await?
-            }
-        };
+        let primary_vals = binding
+            .run(async {
+                match filter.as_ref() {
+                    Some(HashRangeFilter::Page { .. } | HashRangeFilter::PageAfter { .. })
+                        if !received_from_namespaces.is_empty() =>
+                    {
+                        self.resolve_primary_merged_page(
+                            field,
+                            primary_name,
+                            filter.as_ref(),
+                            received_from_namespaces,
+                            as_of,
+                            include_tombstones,
+                            own_prefix,
+                            &mut sources,
+                        )
+                        .await
+                    }
+                    _ => {
+                        self.resolve_primary_windowed(
+                            field,
+                            primary_name,
+                            filter,
+                            window,
+                            requested_window,
+                            received_from_namespaces,
+                            as_of,
+                            include_tombstones,
+                            own_prefix,
+                            &mut sources,
+                        )
+                        .await
+                    }
+                }
+            })
+            .await?;
 
         Ok((primary_vals, sources))
     }
@@ -243,37 +252,5 @@ impl HashRangeQueryProcessor {
         };
         own.retain(|k, _| bounded.contains_key(k));
         sources.retain(|k, _| bounded.contains_key(k));
-    }
-
-    /// Batch-resolve pending secondary bodies via
-    /// [`crate::db_operations::atom_store::AtomStore::get_atoms_located`],
-    /// grouped by storage prefix (share namespaces). Preserves pending order.
-    pub(super) async fn resolve_pending_atoms(
-        &self,
-        pending: &[SecondaryPending],
-    ) -> Result<Vec<Option<crate::atom::Atom>>, SchemaError> {
-        // Group indexes that share a storage prefix so each get_atoms_located
-        // call gets one prefix for the whole batch.
-        let mut by_prefix: HashMap<Option<String>, Vec<usize>> = HashMap::new();
-        for (i, item) in pending.iter().enumerate() {
-            by_prefix.entry(item.5.clone()).or_default().push(i);
-        }
-        let mut out: Vec<Option<crate::atom::Atom>> = (0..pending.len()).map(|_| None).collect();
-        for (prefix, idxs) in by_prefix {
-            let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = idxs
-                .iter()
-                .map(|&i| (pending[i].2.as_str(), pending[i].6.clone()))
-                .collect();
-            let atoms = crate::db_operations::resident_read::get_atoms_located_resident_first(
-                &self.db_ops,
-                &slots,
-                prefix.as_deref(),
-            )
-            .await?;
-            for (i, atom) in idxs.into_iter().zip(atoms) {
-                out[i] = atom;
-            }
-        }
-        Ok(out)
     }
 }

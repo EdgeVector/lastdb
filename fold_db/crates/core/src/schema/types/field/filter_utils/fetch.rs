@@ -40,8 +40,22 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
 ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
     let mut resolved_values: HashMap<KeyValue, FieldValue> = HashMap::new();
 
-    let matches: Vec<_> = matches.into_iter().collect();
-    let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = matches
+    let runtime = db_ops.namespaced_store().disk_pack_runtime();
+    let mut misses = Vec::new();
+    for entry in matches {
+        if let Some(value) = crate::storage::disk_pack::logical_paths::field::lookup(
+            runtime.clone(),
+            storage_prefix,
+            molecule_uuid,
+            &entry.0,
+            &entry.1,
+        )? {
+            resolved_values.insert(entry.0, value);
+        } else {
+            misses.push(entry);
+        }
+    }
+    let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = misses
         .iter()
         .map(|(_, atom_uuid, _, _, partition)| (atom_uuid.as_str(), partition.clone()))
         .collect();
@@ -53,10 +67,17 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
     .await?;
 
     for ((key, atom_uuid, key_meta, writer_pubkey, partition), atom) in
-        matches.into_iter().zip(atoms)
+        misses.into_iter().zip(atoms)
     {
         if let Some(atom) = atom {
             let value = field_value_from_atom(&atom, atom_uuid, key_meta, writer_pubkey);
+            crate::storage::disk_pack::logical_paths::field::admit(
+                runtime.clone(),
+                storage_prefix,
+                molecule_uuid,
+                &key,
+                &value,
+            )?;
             resolved_values.insert(key, value);
         } else {
             let miss = UnresolvedMatch {

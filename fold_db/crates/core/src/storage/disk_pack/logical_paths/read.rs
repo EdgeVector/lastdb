@@ -54,37 +54,32 @@ pub(crate) fn admit_query_results(
                 range: key.range.clone().unwrap_or_default(),
                 atom: value.atom_uuid.clone(),
             };
-            runtime.admit_read_path(&context, path, value)?;
+            runtime.admit_field_path(&context, &path, value)?;
         }
     }
     Ok(())
 }
 
 impl PackRuntime {
-    fn admit_read_path(
+    pub(super) fn admit_field_path(
         &self,
         context: &Arc<ReadContext>,
-        path: LogicalPath,
-        value: &mut FieldValue,
+        path: &LogicalPath,
+        value: &FieldValue,
     ) -> StorageResult<()> {
         let id = path.id()?;
-        let body = serde_json::to_vec(&value.value).map_err(serialization)?;
+        let body = serde_json::to_vec(&body::PathBody::from_field(context.version, value))
+            .map_err(|error| serialization(&error))?;
         let mut call = crate::read_receipts::lock(&context.call);
         call.account_memory_record(id.len(), body.len())
             .map_err(map)?;
         let mut logical = self.logical.lock().expect("native complete logical paths");
         context.hold_record(&mut logical, PATH_COLLECTION, &id)?;
-        if let Some(Some(cached)) = logical.fetched_record(PATH_COLLECTION, &id) {
-            value.value = serde_json::from_slice(&cached).map_err(serialization)?;
-            laststore::record_logical_warm_hits(1);
-        } else {
-            let epoch = logical.record_epoch(&id);
-            if !logical.admit_record(PATH_COLLECTION, &id, Some(body), epoch) {
-                return Err(StorageError::ReadResourceLimit {
-                    detail: "native logical read lost its protected path slot".into(),
-                });
-            }
-            laststore::record_logical_warm_misses(1);
+        let epoch = logical.record_epoch(&id);
+        if !logical.admit_record(PATH_COLLECTION, &id, Some(body), epoch) {
+            return Err(StorageError::ReadResourceLimit {
+                detail: "native logical read lost its protected path slot".into(),
+            });
         }
         Ok(())
     }
