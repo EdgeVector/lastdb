@@ -20,9 +20,10 @@ use crate::schema::types::Schema;
 mod coverage;
 #[path = "page_coverage.rs"]
 mod page_coverage;
+#[allow(dead_code)]
 #[path = "slot_reads.rs"]
 mod slot_reads;
-pub(crate) use slot_reads::SlotRead;
+
 #[path = "overlay_page.rs"]
 mod overlay_page;
 pub(crate) use overlay_page::ResidentOverlayEntry;

@@ -79,7 +79,7 @@ pub use config::{
     RESIDENT_MAX_DEFERRED_ENV, RESIDENT_MODE_ENV, RESIDENT_PERSIST_MS_ENV,
 };
 pub use graph::{ResidentGraph, SchemaLoader};
-pub(crate) use graph::{ResidentOverlayEntry, SlotRead};
+pub(crate) use graph::ResidentOverlayEntry;
 pub use lane::{
     PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneOccupancy,
     PersistLanePressure, PersistLaneSet, PersistLaneWriter, PersistReservation,

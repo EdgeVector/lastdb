@@ -174,52 +174,10 @@ impl ResidentGraph {
         Some(tips)
     }
 
-    pub(crate) fn finish_page_read(&self, read: &PageRead, mut tips: Vec<ResidentTip>) -> bool {
-        let limit = match read.window {
-            KeyWindow::Offset { limit, .. } | KeyWindow::After { limit, .. } => limit,
-        };
-        if !read.valid.load(Ordering::Acquire)
-            || tips.len() > limit
-            || tips.iter().any(|tip| {
-                tip.molecule_uuid != read.molecule
-                    || tip.hash != read.hash
-                    || tip.range.len() > MAX_KEY_BYTES
-                    || (!read.include_tombstones
-                        && tip
-                            .key_metadata
-                            .as_ref()
-                            .is_some_and(|meta| meta.tombstoned))
-            })
-        {
-            return false;
-        }
-        tips.sort_by(|a, b| a.range.cmp(&b.range));
-        if tips.windows(2).any(|pair| pair[0].range == pair[1].range) {
-            return false;
-        }
-        for tip in &tips {
-            let observed = self.observe_slot(&read.molecule, &read.hash, &tip.range);
-            if !read.valid.load(Ordering::Acquire)
-                || self
-                    .rehydrate_tip_at(tip.clone(), Some(observed.revisions()))
-                    .is_none_or(|hit| hit.value != *tip)
-            {
-                return false;
-            }
-        }
-        let bounds = PageBounds {
-            first: tips.first().map(|tip| tip.range.clone()),
-            last: tips.last().map(|tip| tip.range.clone()),
-            count: tips.len(),
-        };
-        if self.page_tips(read, &bounds).as_ref() != Some(&tips)
-            || !read.valid.load(Ordering::Acquire)
-        {
-            return false;
-        }
-        *read.bounds.lock().expect("page bounds lock") = Some(bounds);
-        self.touch_page(read);
-        read.valid.load(Ordering::Acquire)
+    pub(crate) fn finish_page_read(&self, read: &PageRead, tips: Vec<ResidentTip>) -> bool {
+        // One home: a disk page does not install clean tips into the graph.
+        let _ = (read, tips);
+        false
     }
 
     fn touch_page(&self, read: &PageRead) {

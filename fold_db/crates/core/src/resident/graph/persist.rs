@@ -20,6 +20,9 @@ impl ResidentGraph {
                 continue;
             }
             self.clear_dirty(&key);
+            if let DirtyKey::Atom(uuid) = &key {
+                self.release_unreferenced_atom(uuid);
+            }
         }
         self.enforce_budget();
     }
@@ -43,30 +46,65 @@ impl ResidentGraph {
         resident_revision: Option<u64>,
     ) -> bool {
         let map_key = tip_map_key(&tip.molecule_uuid, &tip.hash, &tip.range);
-        let slots = self.slots.read().expect("resident slot lock");
-        let Some(control) = slots.get(&map_key) else {
-            return false;
+        // Lock order: slots, then tips. The revision and the atom id must
+        // still match before the body leaves. The slot number stays.
+        let atom_uuid = {
+            let mut slots = self.slots.write().expect("resident slot lock");
+            let Some(control) = slots.get_mut(&map_key) else {
+                return false;
+            };
+            if resident_revision.is_some_and(|revision| control.resident_revision != revision) {
+                return false;
+            }
+            let mut tips = self.tips.write().expect("tips lock");
+            let Some(current) = tips.get(&map_key) else {
+                return false;
+            };
+            if current.atom_uuid != tip.atom_uuid {
+                return false;
+            }
+            let atom_uuid = current.atom_uuid.clone();
+            tips.remove(&map_key);
+            control.state = ResidentSlotState::Absent;
+            atom_uuid
         };
-        if resident_revision.is_some_and(|revision| control.resident_revision != revision) {
-            return false;
-        }
-        let tips = self.tips.read().expect("tips lock");
-        if tips
-            .get(&map_key)
-            .is_none_or(|current| current.atom_uuid != tip.atom_uuid)
-        {
-            return false;
-        }
         self.invalidate_partition(&tip.molecule_uuid, &tip.hash);
         self.clear_dirty(&tip.dirty_key());
         self.clear_dirty(
             &ResidentMoleculeKey::new(tip.hash.clone(), tip.range.clone())
                 .dirty_key(&tip.molecule_uuid),
         );
-        drop(tips);
-        drop(slots);
+        self.discharge(&tip.dirty_key());
+        self.remove_key_index_member(&tip.molecule_uuid, &tip.hash, &tip.range, true);
+        self.release_unreferenced_atom(&atom_uuid);
         self.enforce_budget();
         true
+    }
+
+    /// Drop an atom body once no graph tip names it and the body is clean.
+    pub(super) fn release_unreferenced_atom(&self, uuid: &str) {
+        let key = DirtyKey::Atom(uuid.to_string());
+        if self.is_dirty(&key) {
+            return;
+        }
+        let referenced = self
+            .tips
+            .read()
+            .expect("tips lock")
+            .values()
+            .any(|tip| tip.atom_uuid == uuid);
+        if referenced {
+            return;
+        }
+        let removed = self
+            .atoms
+            .write()
+            .expect("atoms lock")
+            .remove(uuid)
+            .is_some();
+        if removed {
+            self.discharge(&key);
+        }
     }
 
     pub(super) fn clear_dirty(&self, key: &DirtyKey) {

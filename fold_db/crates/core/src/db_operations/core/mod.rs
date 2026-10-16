@@ -135,6 +135,14 @@ impl DbOperations {
         &self.resident
     }
 
+    /// The warm set for this store. A write drops a clean tip here before
+    /// the graph holds the dirty copy.
+    pub fn logical_resident_set(
+        &self,
+    ) -> Option<Arc<Mutex<crate::resident::LogicalResidentSet>>> {
+        self.store.logical_resident_set()
+    }
+
     /// Override the atom body key encoding for the whole node.
     ///
     /// Production reads the encoding from the environment once, when the atom

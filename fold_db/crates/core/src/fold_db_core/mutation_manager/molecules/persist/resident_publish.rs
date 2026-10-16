@@ -39,9 +39,10 @@ impl MutationManager {
             };
             if dirty {
                 resident.apply_tip(tip);
-            } else {
-                resident.publish_tip_after_store(tip);
             }
+            // A durable tip does not re-enter the graph. The logical put
+            // admits that clean record to the warm set, and the flush
+            // removes the dirty copy.
         }
     }
 
