@@ -36,23 +36,27 @@ older than the TTL. **A TTL deletes records for good.** A schema with no
 ## What a TTL deletes
 
 A TTL is **not** limited to records written after the declare. The sweep runs
-every 60 seconds (`LASTDB_TTL_SWEEP=0` turns it off).
+every 60 seconds (`LASTDB_TTL_SWEEP=0` turns it off). How a pass erases, the
+verbs and the knobs are in [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md).
 
 | Layout | What expires | Records written before the declare |
 |---|---|---|
 | Range | Every record whose range key starts with 20 digits of unix seconds older than the TTL, whichever name wrote it. | **Deleted at the next sweep.** |
 | HashRange | In each hash partition the node has seen written since the policy exists, every record whose range key is older than the TTL. A partition that gets no write after the declare is not swept. | **Deleted in any partition that receives a later write.** |
-| Hash, Single | A record whose last write through the policy is older than the TTL. A rewrite resets the age (see the note below). | Kept. There is no backfill: only writes after the declare are tracked. |
+| Hash, Single | A record whose last write through the policy is older than the TTL. A rewrite resets the age (see below). | Kept. There is no backfill: only writes after the declare are tracked. |
 
 A range key that does not begin with 20 digits is never expired.
 
-**A rewrite resets the age of a Hash or Single record only if the sweep checks
-the age again before it removes a batch.** The sweep reads the expired keys
-first and removes them in batches. A build that does not re-check the age
-before each batch (lastdb#177 adds the re-check) can remove a record that was
-rewritten after the sweep read its key. On such a build, do not rely on a
-rewrite to keep a Hash or Single record alive. A Range or HashRange record is
-never kept alive by a rewrite: its age is the time in its range key.
+**A rewrite resets the age of a Hash or Single record.** The sweep re-reads the
+age of its keys before each batch and drops a key that a client rewrote since
+the pass listed it. The erase then compares the write time of the tip with the
+cutoff under the tip lock, so a rewrite that was acked and not yet indexed is
+spared too. The limits are in
+[`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md) (What a pass does, The write-time
+guard). For a schema with a manifest `retention`, a write through either installed
+name is tracked (see "Both installed names share one policy"). A Range or
+HashRange record is never kept alive by a rewrite: its age is the time in its
+range key.
 
 ## Guards at declare time
 
@@ -192,8 +196,7 @@ read error is never treated as "no policy".
   registry entry for each hash it has seen, and every sweep queries all of
   them. A finer slice makes each sweep slower.
 - **Hash and Single.** Nothing. A record expires by the time since its last
-  write, and a rewrite resets the age on a build that re-checks the age before
-  each batch (see "What a TTL deletes").
+  write, and a rewrite resets the age.
 - **One record for each entry.** A rewrite of a Range or HashRange record does
   not reset its age. Never edit an entry to keep it alive.
 - **Different shapes for different lifecycles.** A log with a TTL and a ledger
@@ -205,19 +208,21 @@ read error is never treated as "no policy".
   data applies the TTL when it declares the schema, so every device must run
   `lastdb app check --manifest ... --sync` with the same manifest. A device
   that did not declare it expires nothing by itself.
-- **The sweep verb.** The sweep removes a record with a mutation verb. The
-  default verb is being changed from `purge` to `delete` (lastdb#177 and a
-  follow-up). The two differ:
-  - `delete` skips a missing target, cleans protein siblings, keeps the author
-    clock, leaves atom bodies to garbage collection, and leaves history and
-    conflict records.
-  - `purge` hard-erases the value and the history rows, and refuses a missing
-    target. It does not erase `conflict:` rows.
-
-  The database layer keeps conflicts, and the app owns the shape of its data.
-- A TTL erase syncs to the peers as an erase of that key, whichever verb is
-  used, and **a peer that never declared the TTL still applies it**. A peer that
-  never held the record skips it without an error.
+- **The sweep verb.** `purge` is the default. `delete` is opt-in with
+  `LASTDB_TTL_SWEEP_VERB=delete`. `delete` leaves two `rdel:v2:` barrier rows
+  for each field of each key, about 3,170 B for each key and field, and nothing
+  prunes them. What each verb erases and leaves is in
+  [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md) (Verbs, Records that stay).
+  Both verbs leave the conflict records: the database layer keeps conflicts, and
+  the app owns the shape of its data.
+- A TTL erase syncs to the peers as an erase of that key, whichever verb runs,
+  and **a peer that never declared the TTL still applies it**. A peer that never
+  held the record skips it without an error.
+- An erase is ordered by write clock like any other write, and the sweep stamps
+  it at the time of the sweep. A peer rewrite with an older author clock can
+  lose to that stamp, on both verbs. Without the barrier (`purge`) an older write
+  that arrives later can also bring the key back. See Last writer wins in
+  [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md).
 - A synced device that is not told about a manifest still loses the expired
   records, because the erase arrives from the device that has the TTL.
 - **The collision guard sees only the schemas loaded on the node that declares.**
@@ -255,7 +260,14 @@ new build to bring the TTLs back.
 
 ## Cost
 
-The sweep removes records in batches. A batch holds the write lock while it
-runs, so writes wait during a batch. How long a batch takes depends on the build
-and on the sweep verb. A log that adds more entries than the sweep can remove is
-not kept down by a TTL. `LASTDB_TTL_SWEEP=0` turns the sweep off.
+The sweep paces itself. It erases one batch of keys (16 by default), then rests
+so that it spends a share of wall time (25 percent by default, and at least
+25 ms). The rest is at most 10 minutes. A batch holds the local mutation
+admission while it runs, and a `purge` batch also holds the purge barrier of the
+swept schema, so writes to that schema wait for the batch. How long a batch takes
+depends on the verb and on the size of the schema. The measured numbers and the
+knobs (`LASTDB_TTL_SWEEP_BATCH`, `LASTDB_TTL_SWEEP_DUTY_PCT`,
+`LASTDB_TTL_SWEEP_MIN_PAUSE_MS`) are in
+[`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md). A log that adds more entries than
+the sweep can erase is not kept down by a TTL. `LASTDB_TTL_SWEEP=0` turns the
+sweep off.
