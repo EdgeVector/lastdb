@@ -104,9 +104,10 @@ fn is_other_schema_metadata(key: &str) -> bool {
         .any(|prefix| key.starts_with(prefix))
 }
 
-fn other_schema_metadata_prefixes() -> [&'static str; 5] {
+fn other_schema_metadata_prefixes() -> [&'static str; 6] {
     [
         RETENTION_POLICY_KEY_PREFIX,
+        RETENTION_ANCHOR_KEY_PREFIX,
         RETENTION_HASH_PARTITION_KEY_PREFIX,
         RETENTION_AGE_KEY_PREFIX,
         RETENTION_AGE_LATEST_PREFIX,

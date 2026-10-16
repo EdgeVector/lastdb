@@ -281,12 +281,19 @@ pub async fn execute_apps_declare_schema_route(
             )
         }
     };
-    let declare = match normalize_direct_declare_proposal("app_id", &body.app_id, body.schema) {
+    let retention = match prepare_declare_retention(ctx, &req.body, body.retention) {
+        Ok(retention) => retention,
+        Err((status, e)) => {
+            return reject_schema_sync_request(req, ctx, host, "apps_declare_schema", status, &e)
+        }
+    };
+    let mut declare = match normalize_direct_declare_proposal("app_id", &body.app_id, body.schema) {
         Ok(declare) => declare,
         Err(e) => {
             return reject_schema_sync_request(req, ctx, host, "apps_declare_schema", 400, &e)
         }
     };
+    declare.retention = retention;
     match body.intent {
         SchemaSyncIntent::CatalogSync => {
             execute_catalog_schema_sync(req, ctx, host, "apps_declare_schema", declare).await

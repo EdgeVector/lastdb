@@ -1,10 +1,55 @@
 //! App manifest loading.
 
 use super::*;
+use fold_db::schema::ManifestRetention;
 
 /// App manifest consumed by `lastdb app …` (JSON file, conventionally
 /// `lastdb-app.json`). `schemas` entries are declarative schema definitions
 /// (`{ "name", "descriptive_name"?, "schema_type", "fields": [...] }`).
+///
+/// A schema entry may also carry a TTL for its records:
+///
+/// ```json
+/// { "name": "myapp/DayLog", "schema_type": "HashRange",
+///   "key": { "hash_field": "day", "range_field": "at" },
+///   "fields": ["day", "at", "text"],
+///   "retention": { "ttl_days": 90 } }
+/// ```
+///
+/// A TTL deletes records for good. `retention` takes `ttl_days` or
+/// `ttl_seconds` (not both; at least one hour by default, at most 3650 days),
+/// and `confirm_expire_existing`. It is node-local policy: `lastdb app check`
+/// sends it beside the schema, never inside it, so it cannot change the schema
+/// identity hash. An entry with no `retention` gets no policy.
+///
+/// The node applies the TTL when the schema is declared (`lastdb app check
+/// --sync`), before the first write, and it covers both installed names of the
+/// schema. It refuses the TTL when another schema is bound to the same catalog
+/// schema (`shared_with`) or another app owns it. It also refuses a new TTL on
+/// a Range or HashRange schema that already holds data, and a shorter TTL than
+/// the one running, unless `--confirm-expire-existing` says the records may
+/// expire. On a Range schema every old record expires at the next sweep, those
+/// written before the declare included. Hash and Single schemas track only
+/// later writes. A synced second device must declare the same manifest: the
+/// policy is not synced, and a TTL erase syncs to the peers as an erase of the key. The
+/// full contract is in `docs/app-manifest-retention.md`.
+///
+/// What the app author must do:
+///
+/// - Range and HashRange: begin every range key with the entry time as unix
+///   seconds zero-padded to 20 digits, for example
+///   `00000000001791863226-0007`. A key that does not begin with 20 digits is
+///   never expired. A manifest cannot show the values, so `lastdb app check`
+///   warns only when `field_types` makes the range field a non-String type.
+/// - Use a day slice (or coarser) as the HashRange hash. The node keeps one
+///   registry entry for each hash it has ever seen, and every sweep queries
+///   them all.
+/// - Hash and Single: nothing. A record expires by the time since its last
+///   write.
+/// - Write one record for each entry and never edit it: a rewrite of a
+///   HashRange or Range record does not reset its age.
+/// - Give schemas with different lifecycles different shapes: two schemas of
+///   one shape can resolve to one catalog schema and then share one dataset.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppManifest {
     pub app_id: String,
@@ -49,7 +94,23 @@ pub fn load_manifest(path: &Path) -> Result<AppManifest, String> {
                 .into(),
         );
     }
+    for schema in &manifest.schemas {
+        manifest_schema_retention(schema)?;
+    }
     Ok(manifest)
+}
+
+/// The validated `retention` of one manifest schema entry, if it has one.
+pub fn manifest_schema_retention(schema: &Value) -> Result<Option<ManifestRetention>, String> {
+    let name = schema
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("<unnamed>");
+    schema
+        .get("retention")
+        .map(ManifestRetention::from_value)
+        .transpose()
+        .map_err(|e| format!("manifest schema '{name}': {e}"))
 }
 
 // ─── Step 1: check (declare on the local Mini) ────────────────────────────
