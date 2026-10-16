@@ -149,7 +149,7 @@ impl FieldVariant {
         // Pages merge bounded resident and durable tip windows before counting
         // visible rows. Hash fields remain true point reads below.
         if matches!(self.kind, FieldKind::HashRange)
-            && crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix)
+            && crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix)
         {
             let authoritative = matches!(
                 db_ops.resident().key_set_completeness_for(&molecule_uuid),
@@ -233,7 +233,7 @@ impl FieldVariant {
         // so any window past the first row is empty and a window that includes
         // it changes nothing.
         if matches!(self.kind, FieldKind::Hash)
-            && storage_prefix.is_none()
+            && crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix)
             && window
                 .as_ref()
                 .is_none_or(|window| matches!(window, KeyWindow::Offset { offset: 0, .. }))
@@ -319,7 +319,7 @@ impl FieldVariant {
         include_tombstones: bool,
     ) -> Result<(Vec<TipMatch>, bool), SchemaError> {
         let use_resident =
-            crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix);
+            crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix);
         let cached = use_resident
             .then(|| {
                 if let Some(window) = &window {

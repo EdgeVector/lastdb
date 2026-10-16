@@ -53,16 +53,15 @@ impl FieldVariant {
             return Ok(());
         }
         let partition_read =
-            Self::partition_interval_for_read(self.kind, storage_prefix.as_deref(), filter).map(
-                |(hash, start, end)| {
+            Self::partition_interval_for_read(db_ops, self.kind, storage_prefix.as_deref(), filter)
+                .map(|(hash, start, end)| {
                     db_ops.resident().begin_partition_interval_read(
                         &molecule_uuid,
                         hash,
                         &start,
                         end.as_deref(),
                     )
-                },
-            );
+                });
 
         let resident_overlay = Self::resident_overlay_for_read(
             db_ops,
@@ -93,12 +92,13 @@ impl FieldVariant {
 
     /// The partition interval a hash-range read may serve from resident tips.
     fn partition_interval_for_read<'f>(
+        db_ops: &DbOperations,
         kind: FieldKind,
         storage_prefix: Option<&str>,
         filter: &'f HashRangeFilter,
     ) -> Option<(&'f str, String, Option<String>)> {
         if matches!(kind, FieldKind::HashRange)
-            && crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix)
+            && crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix)
         {
             partition_interval(filter)
         } else {
@@ -116,7 +116,7 @@ impl FieldVariant {
         filter: &HashRangeFilter,
     ) -> Result<bool, SchemaError> {
         let Some((hash, start, end)) =
-            Self::partition_interval_for_read(self.kind, storage_prefix, filter)
+            Self::partition_interval_for_read(db_ops, self.kind, storage_prefix, filter)
         else {
             return Ok(false);
         };
@@ -169,7 +169,7 @@ impl FieldVariant {
         filter: &HashRangeFilter,
         kind: FieldKind,
     ) -> Result<Option<ResidentOverlay>, SchemaError> {
-        if !crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix) {
+        if !crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix) {
             return Ok(None);
         }
         let snapshot = if matches!(kind, FieldKind::HashRange) {
