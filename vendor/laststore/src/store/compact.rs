@@ -1,3 +1,4 @@
+// lint:file-size-ok snapshot seal stays beside the other seal paths; the file was 393 lines before this change
 use super::*;
 use crate::read_receipt_io::lock as read_lock;
 
