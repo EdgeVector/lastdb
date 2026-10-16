@@ -1,6 +1,5 @@
-use super::bytes::u32_at;
 use super::page::{Page, PageAddress};
-use super::{corrupt, resource, Current, DirectoryEntry, Location, Source, BLOCK_BYTES, KEY_BYTES};
+use super::{corrupt, resource, Current, DirectoryEntry, Location, Source, KEY_BYTES};
 use crate::read_receipt::TemporaryBytes;
 use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
@@ -70,6 +69,8 @@ pub struct ReadCosts {
     pub file_handles_peak: u64,
     /// Extent reads that reuse a descriptor already owned by this call.
     pub file_handle_reuses: u64,
+    /// Bounded physical payload reads after adjacent-frame coalescing.
+    pub batch_read_runs: u64,
 }
 
 pub(super) struct Buffer {
@@ -201,6 +202,18 @@ impl ReadCall {
     /// Resolve one exact storage key in an explicitly addressed group.
     /// The integration must compute this group with the held placement codec.
     pub fn get(&mut self, collection: &str, group: u16, key: &str) -> Result<Option<Vec<u8>>> {
+        let Some(location) = self.locate(collection, group, key)? else {
+            return Ok(None);
+        };
+        self.read_record(collection, key, &location).map(Some)
+    }
+
+    pub(super) fn locate(
+        &mut self,
+        collection: &str,
+        group: u16,
+        key: &str,
+    ) -> Result<Option<Location>> {
         self.examine()?;
         if key.len() > KEY_BYTES {
             return Err(corrupt("storage key exceeds format limit"));
@@ -224,7 +237,7 @@ impl ReadCall {
         if location.source == Source::Tombstone {
             return Ok(None);
         }
-        self.read_record(collection, key, &location).map(Some)
+        Ok(Some(location))
     }
 
     /// Resolve all supplied exact coordinates in order with one shared call cache.
@@ -234,9 +247,12 @@ impl ReadCall {
         if count > self.budget.keys.saturating_sub(self.costs.examined_keys) {
             return Err(resource());
         }
-        keys.iter()
-            .map(|(collection, group, key)| self.get(collection, *group, key))
-            .collect()
+        self.batch_get(
+            keys.iter()
+                .map(|(collection, group, key)| (*collection, Ok(*group), *key)),
+        )?
+        .into_iter()
+        .collect()
     }
 
     pub(super) fn directory_key(collection: &str, group: u16) -> Result<Vec<u8>> {
@@ -286,18 +302,7 @@ impl ReadCall {
     }
 
     pub(super) fn read_block(&mut self, location: &Location, ordinal: u64) -> Result<Arc<Buffer>> {
-        let object = self.object_metadata(location)?;
-        if let Some(object) = &object {
-            if ordinal >= object.blocks {
-                return Err(corrupt("block outside published object length"));
-            }
-        }
-        let sequence = if location.source == Source::Journal {
-            location.version.batch
-        } else {
-            0
-        };
-        let identity = (location.object, sequence, ordinal);
+        let identity = super::block_plan::block_id(location, ordinal);
         if let Some(block) = self.blocks.get(&identity) {
             self.costs.shared_blocks += 1;
             return Ok(Arc::clone(block));
@@ -305,44 +310,14 @@ impl ReadCall {
         if self.costs.payload_blocks >= self.budget.blocks {
             return Err(resource());
         }
-        let base = self.data_path(location);
-        let map = self.map_page(&base, location.object, ordinal / super::MAP_ENTRIES)?;
-        if let Some(object) = &object {
-            if map.object_bounds() != Some((object.logical_bytes, object.data_parts))
-                || map.generation() != object.generation
-            {
-                return Err(corrupt("block-map object bounds differ across pages"));
-            }
-        }
-        let index = (ordinal % super::MAP_ENTRIES) as usize;
-        if index >= map.count() {
-            return Err(corrupt("block outside map"));
-        }
-        let entry = &map.payload()[index * 24..index * 24 + 24];
-        let part = u32_at(entry, 0);
-        let offset = u32_at(entry, 4);
-        let stored = u32_at(entry, 8) as usize;
-        let decoded = u32_at(entry, 12) as usize;
-        if let Some(object) = &object {
-            object.check_block(ordinal, part, decoded, map.count())?;
-        }
-        if u32_at(entry, 16) != 0
-            || u32_at(entry, 20) != 0
-            || offset < 128
-            || !(81..=4192).contains(&stored)
-            || !(1..=BLOCK_BYTES).contains(&decoded)
-        {
-            return Err(corrupt("invalid block map extent"));
-        }
-        let path = base.join(format!("part-{part:08x}"));
-        self.verify_part(&path, location, part, ordinal)?;
-        let frame = self.read_extent(&path, offset.into(), stored, false, self.payload_class)?;
-        self.charge(decoded as u64)?;
-        let bytes =
-            super::frame::decode(&frame.bytes, location.object, sequence, ordinal, decoded)?;
-        let block = Arc::new(Buffer::from_vec(bytes));
-        self.costs.payload_blocks += 1;
-        self.blocks.insert(identity, Arc::clone(&block));
-        Ok(block)
+        let plan = self.plan_block(location, ordinal)?;
+        let frame = self.read_extent(
+            &plan.path,
+            plan.offset,
+            plan.stored,
+            false,
+            self.payload_class,
+        )?;
+        self.decode_planned(&plan, &frame.bytes)
     }
 }

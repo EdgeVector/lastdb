@@ -175,7 +175,7 @@ fn budget(request: &Value) -> Result<ReadBudget> {
 }
 
 fn costs(cost: ReadCosts) -> Value {
-    json!({"file_handles_peak":cost.file_handles_peak,"file_handle_reuses":cost.file_handle_reuses,
+    json!({"batch_read_runs":cost.batch_read_runs,"file_handles_peak":cost.file_handles_peak,"file_handle_reuses":cost.file_handle_reuses,
         "file_bytes":cost.file_bytes,"budget_bytes":cost.budget_bytes,
         "directory_pages":cost.directory_pages,"locator_pages":cost.locator_pages,
         "map_pages":cost.map_pages,"overflow_pages":cost.overflow_pages,

@@ -4,6 +4,10 @@
 //! the format in a LastStore home or bypass the legacy home descriptor fence.
 
 mod artifact;
+mod batch;
+mod batch_error;
+mod batch_io;
+mod block_plan;
 mod build;
 mod bytes;
 mod call;

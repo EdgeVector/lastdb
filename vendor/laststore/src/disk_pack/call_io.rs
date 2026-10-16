@@ -24,9 +24,12 @@ pub(super) struct CallFiles {
 }
 
 impl CallFiles {
-    fn get(&mut self, path: &Path) -> Result<(&mut OpenPart, bool)> {
+    fn get(&mut self, path: &Path) -> Result<(&mut OpenPart, bool, u64)> {
         let reused = if let Some(at) = self.parts.iter().position(|part| part.path == path) {
-            let part = self.parts.remove(at).expect("known call-local handle");
+            let mut part = self.parts.remove(at).expect("known call-local handle");
+            // Internal writer calls can also address fresh private parts as
+            // they grow. Reuse the descriptor, never a stale length bound.
+            part.length = part.file.metadata()?.len();
             self.parts.push_front(part);
             true
         } else {
@@ -51,6 +54,7 @@ impl CallFiles {
         Ok((
             self.parts.front_mut().expect("opened call-local handle"),
             reused,
+            peak,
         ))
     }
 }
@@ -65,8 +69,9 @@ impl ReadCall {
         class: ReadClass,
     ) -> Result<Buffer> {
         self.charge(length as u64)?;
-        let (part, reused) = self.files.get(path)?;
+        let (part, reused, peak) = self.files.get(path)?;
         self.costs.file_handle_reuses += u64::from(reused);
+        self.costs.file_handles_peak = self.costs.file_handles_peak.max(peak);
         let end = offset
             .checked_add(length as u64)
             .ok_or_else(|| corrupt("file offset overflow"))?;
@@ -86,10 +91,6 @@ impl ReadCall {
         let _class = class.enter();
         part.file.read_exact(&mut buffer.bytes)?;
         self.costs.file_bytes = self.costs.file_bytes.saturating_add(length as u64);
-        self.costs.file_handles_peak = self
-            .costs
-            .file_handles_peak
-            .max(self.files.parts.len() as u64);
         Ok(buffer)
     }
 }

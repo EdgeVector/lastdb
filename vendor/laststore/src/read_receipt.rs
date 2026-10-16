@@ -27,6 +27,10 @@ pub struct DiskReadReceipt {
     pub pack_file_handles_peak: u64,
     /// Disk-pack extent reads served by a call-owned open descriptor.
     pub pack_file_handle_reuses: u64,
+    /// Bounded payload file reads issued by a collected disk-pack batch.
+    pub pack_batch_read_runs: u64,
+    /// Distinct frames addressed by those batch read runs.
+    pub pack_batch_frames: u64,
     /// File status, existence, and directory-entry status operations.
     pub metadata_operations: u64,
     /// Directory enumeration attempts.
