@@ -44,7 +44,7 @@ impl LogicalResidentSet {
     /// A concurrent older put must not store its body when this returns false.
     pub fn record_write_token(
         &mut self,
-        key: Vec<u8>,
+        key: ResidentKey,
         token: DurabilityToken,
         body_digest: u64,
     ) -> bool {
@@ -63,7 +63,7 @@ impl LogicalResidentSet {
     /// the newer put's entry in place.
     pub fn take_write_token_for(
         &mut self,
-        key: &[u8],
+        key: &ResidentKey,
         body_digest: u64,
     ) -> Option<DurabilityToken> {
         match self.pending_write_tokens.get(key) {
@@ -78,7 +78,7 @@ impl LogicalResidentSet {
 
     /// Drop the pending write token for `key`. A delete must not leave a
     /// token for a later put to consume.
-    pub fn clear_write_tokens(&mut self, key: &[u8]) {
+    pub fn clear_write_tokens(&mut self, key: &ResidentKey) {
         self.pending_write_tokens.remove(key);
     }
 }

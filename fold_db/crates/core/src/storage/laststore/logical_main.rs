@@ -423,7 +423,8 @@ impl KvStore for LogicalMainLastStoreKvStore {
                         .map(|collection| (collection, id.clone())),
                 );
             }
-            direct_write_invalidation::after_direct_write(&logical, || {
+            let ids: Vec<_> = puts.iter().map(|(_, id, _)| id.clone()).collect();
+            direct_write_invalidation::after_direct_write(&logical, &ids, || {
                 store
                     .restore_put_many_deferred(puts, 16)
                     .map_err(Self::map_error)?;

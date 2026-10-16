@@ -5,11 +5,16 @@ use super::*;
 impl ResidentGraph {
     /// Charge `key` at `bytes`, then evict clean LRU entries if over budget.
     pub(super) fn charge_and_enforce(&self, key: DirtyKey, bytes: u64) {
+        self.charge_without_enforce(key, bytes);
+        self.enforce_budget();
+    }
+
+    /// Publish a charge under slot exclusion; enforce after releasing slots.
+    pub(super) fn charge_without_enforce(&self, key: DirtyKey, bytes: u64) {
         self.ledger
             .lock()
             .expect("resident ledger lock")
             .charge(key, bytes);
-        self.enforce_budget();
     }
 
     /// Mark `key` recently used (resolve hits).

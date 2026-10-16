@@ -137,9 +137,7 @@ impl LastStoreNamespacedStore {
             }
 
             if options.execute && !ops.is_empty() {
-                direct_write_invalidation::after_direct_write(&logical, || {
-                    store.transaction(ops).map_err(LastStoreKvStore::map_error)
-                })?;
+                direct_write_invalidation::after_transaction(&logical, &store, ops)?;
                 LastStoreKvStore::record_high_water(high_water.as_ref(), &store)?;
             }
 

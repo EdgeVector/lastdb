@@ -56,8 +56,8 @@ impl MutationManager {
             }) {
                 drop(molecule_write_guards);
                 // A concurrent same-key writer moved these slot revisions out
-                // from under this batch's prepare snapshot. Reseed from fresh
-                // resident state and retry — the next loop iteration's CAS
+                // from under this batch's prepare snapshot. Reload the current
+                // graph/warm/disk base and retry — the next iteration's CAS
                 // recheck above re-validates any surviving CAS mutation
                 // against that fresh state before this attempts to apply again.
                 self.reseed_stale_deltas(prepared_deltas).await?;
@@ -153,9 +153,20 @@ impl MutationManager {
         prepared_deltas: &mut [PreparedSchemaDelta],
     ) -> Result<(), SchemaError> {
         for delta in prepared_deltas {
-            self.reseed_changed_from_resident(&mut delta.schema, &delta.changed_keys)?;
-            delta.prepared = self.prepared_slot_revisions(&delta.schema, &delta.changed_keys);
-            let sibling_updates = self
+            delta.prepared = self
+                .reload_changed_for_prepare(&mut delta.schema, &delta.changed_keys)
+                .await?;
+            delta.atom_results = if self.write_dedupe_enabled() {
+                Self::drop_unchanged_field_writes(
+                    &delta.schema,
+                    &delta.schema_mutations,
+                    &delta.mutation_key_values,
+                    delta.original_atom_results.clone(),
+                )
+            } else {
+                delta.original_atom_results.clone()
+            };
+            let (sibling_updates, sibling_prepared) = self
                 .build_protein_sibling_updates(
                     &delta.schema,
                     &delta.schema_mutations,
@@ -163,10 +174,7 @@ impl MutationManager {
                     &delta.atom_results,
                 )
                 .await?;
-            // Capture before the resident rebase. A sibling change
-            // during either step invalidates this preparation under
-            // the gates on the next attempt.
-            delta.sibling_prepared = self.prepared_sibling_slot_revisions(&sibling_updates);
+            delta.sibling_prepared = sibling_prepared;
             delta.sibling_updates =
                 self.rebase_sibling_updates_on_resident(&delta.schema, sibling_updates);
         }

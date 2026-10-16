@@ -46,15 +46,22 @@ pub(super) fn write_put(
         let ack = ack?;
         return Ok(ack.previous);
     }
+    let epochs = set.lock().expect("poison").read_epochs();
     let ack = store
         .append_for_resident(collection, &id, Some(value))
         .map_err(LastStoreKvStore::map_error)?;
     let previous = ack.previous;
     let token = DurabilityToken::new(ack.token.as_u64());
     let mut guard = set.lock().expect("poison");
+    let admissible = guard.read_epochs_match(epochs);
     guard.forget_record(collection, &id);
+    invalidate_written_id(&mut guard, &id);
+    if !admissible {
+        return Ok(previous);
+    }
     let digest = body_digest(value);
-    let newest = guard.record_write_token(key.to_vec(), token, digest);
+    let cache_key = logical_cache_key(&id).expect("logical storage key");
+    let newest = guard.record_write_token(cache_key.clone(), token, digest);
     if newest && !superseded_tip(&guard, &id, token) {
         // The put supersedes a delete overlay even when the stored bytes are
         // ciphertext and no body is admitted here. A later read then loads
@@ -66,7 +73,7 @@ pub(super) fn write_put(
             store_warm_body(&mut guard, &id, value, Some(token));
             // The body is resident, so no admit follows. Drop the entry; the
             // resident tip token stops an older put that records late.
-            guard.take_write_token_for(key, digest);
+            guard.take_write_token_for(&cache_key, digest);
         }
     }
     drop(guard);
@@ -133,14 +140,19 @@ pub(super) fn write_delete(
         write?;
         return Ok((previous.is_some(), previous));
     }
+    let epochs = set.lock().expect("poison").read_epochs();
     let ack = store
         .append_for_resident(collection, &id, None)
         .map_err(LastStoreKvStore::map_error)?;
     let previous = ack.previous;
     let token = DurabilityToken::new(ack.token.as_u64());
     let mut guard = set.lock().expect("poison");
+    let admissible = guard.read_epochs_match(epochs);
     guard.forget_record(collection, &id);
-    guard.clear_write_tokens(key);
+    invalidate_written_id(&mut guard, &id);
+    if !admissible {
+        return Ok((previous.is_some(), previous));
+    }
     if let Some(coords) = parse_tip_coords(&id) {
         guard.delete_resident(
             coords.molecule,

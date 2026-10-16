@@ -10,11 +10,12 @@ impl KvStore for EncryptingKvStore {
             Some(logical_path::ResidentLookup::Absent) => return Ok(None),
             Some(logical_path::ResidentLookup::Miss) | None => {}
         }
+        let epochs = self.read_epochs();
         match self.inner.get(key).await? {
             Some(stored) => {
                 let opened = self.open_or_discard(key, stored).await?;
                 if let Some(ref plain) = opened {
-                    self.admit_plain(key, plain);
+                    self.admit_plain(key, plain, epochs);
                 }
                 Ok(opened)
             }
@@ -48,6 +49,7 @@ impl KvStore for EncryptingKvStore {
             return Ok(values);
         }
         let miss_keys: Vec<Vec<u8>> = miss.iter().map(|&slot| keys[slot].clone()).collect();
+        let epochs = self.read_epochs();
         let stored = self.inner.get_many(miss_keys).await?;
         for (slot, stored) in miss.into_iter().zip(stored) {
             let Some(stored) = stored else {
@@ -57,7 +59,7 @@ impl KvStore for EncryptingKvStore {
             match self.open_or_discard(key, stored).await {
                 Ok(opened) => {
                     if let Some(ref plain) = opened {
-                        self.admit_plain(key, plain);
+                        self.admit_plain(key, plain, epochs);
                     }
                     values[slot] = opened;
                 }
@@ -109,8 +111,9 @@ impl KvStore for EncryptingKvStore {
     }
 
     async fn scan_prefix(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+        let epochs = self.read_epochs();
         let results = self.inner.scan_prefix(prefix).await?;
-        self.decrypt_rows(results).await
+        self.decrypt_rows(results, epochs).await
     }
 
     async fn scan_prefix_keys(&self, prefix: &[u8]) -> StorageResult<Vec<Vec<u8>>> {
@@ -127,16 +130,18 @@ impl KvStore for EncryptingKvStore {
         // prefix bound applies before decryption. Forward to the inner store's
         // paged scan so its native lazy bound (Sled) holds — we then decrypt only
         // the page's rows, not the whole prefix.
+        let epochs = self.read_epochs();
         let results = self.inner.scan_prefix_paged(prefix, limit).await?;
-        self.decrypt_rows(results).await
+        self.decrypt_rows(results, epochs).await
     }
 
     async fn scan_range(&self, start: &[u8], end: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         // Keep the range path symmetric with the explicit prefix/paged range
         // overrides: bounds apply to plaintext keys at the inner layer, then
         // this decorator decrypts only the matching rows.
+        let epochs = self.read_epochs();
         let results = self.inner.scan_range(start, end).await?;
-        self.decrypt_rows(results).await
+        self.decrypt_rows(results, epochs).await
     }
 
     async fn scan_range_paged(
@@ -148,8 +153,9 @@ impl KvStore for EncryptingKvStore {
         // Keys are plaintext at this layer (only values are encrypted), so the
         // range bound applies before decryption. Forward to the inner store's
         // paged range scan so native lazy bounds hold.
+        let epochs = self.read_epochs();
         let results = self.inner.scan_range_paged(start, end, limit).await?;
-        self.decrypt_rows(results).await
+        self.decrypt_rows(results, epochs).await
     }
 
     async fn max_key_u64_after_marker(
@@ -170,12 +176,13 @@ impl KvStore for EncryptingKvStore {
         limit: usize,
         max_handles: usize,
     ) -> StorageResult<PhysicalScanPage> {
+        let epochs = self.read_epochs();
         let page = self
             .inner
             .scan_range_physical_paged(start, end, cursor, limit, max_handles)
             .await?;
         Ok(PhysicalScanPage {
-            rows: self.decrypt_rows(page.rows).await?,
+            rows: self.decrypt_rows(page.rows, epochs).await?,
             next_cursor: page.next_cursor,
             row_handle: page.row_handle,
             handles_visited: page.handles_visited,
@@ -193,6 +200,7 @@ impl KvStore for EncryptingKvStore {
     // `fold_db_node`'s `RevocationStore::read_all`). See the trait-level note on
     // `KvStore::scan_prefix_lossy` for the allow-list rule.
     async fn scan_prefix_lossy(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+        let epochs = self.read_epochs();
         let results = self.inner.scan_prefix(prefix).await?;
         let mut decrypted_results = Vec::with_capacity(results.len());
         let mut skipped = 0usize;
@@ -200,7 +208,7 @@ impl KvStore for EncryptingKvStore {
         for (key, stored) in results {
             match self.open_or_discard(&key, stored).await {
                 Ok(Some(plaintext)) => {
-                    self.admit_plain(&key, &plaintext);
+                    self.admit_plain(&key, &plaintext, epochs);
                     decrypted_results.push((key, plaintext));
                 }
                 // No envelope: absent, already counted and warned once.
@@ -244,6 +252,7 @@ impl KvStore for EncryptingKvStore {
         // (boot decrypt proof, snapshot scrub). Product `scan_prefix("")`
         // still goes through the LastStore partition guard and rejects.
         // Page the explicit all-groups primitive instead.
+        let epochs = self.read_epochs();
         let results = if prefix.is_empty() {
             let mut rows = Vec::new();
             let mut cursor = None;
@@ -274,7 +283,7 @@ impl KvStore for EncryptingKvStore {
         for (key, stored) in results {
             match self.open_or_discard(&key, stored).await {
                 Ok(Some(plaintext)) => {
-                    self.admit_plain(&key, &plaintext);
+                    self.admit_plain(&key, &plaintext, epochs);
                     rows.push((key, plaintext));
                 }
                 // An un-enveloped row is absent, not undecryptable: it is not a

@@ -10,22 +10,11 @@ use crate::atom::{Atom, MutationEvent};
 use crate::db_operations::ChangedKey;
 use crate::resident::PersistSlotRevision;
 use crate::schema::types::{KeyValue, Mutation, Schema};
-use crate::schema::SchemaError;
 
 use super::super::helpers::ModifiedFieldKeys;
 use super::super::MutationManager;
 use super::scoped_gate::schema_is_scoped;
-use super::LanePersistJob;
-
-/// Prepared resident revision for one slot, recorded after restore and
-/// checked again under the gates.
-#[derive(Debug, Clone)]
-pub(in crate::fold_db_core::mutation_manager) struct PreparedSlotRevision {
-    pub molecule_uuid: String,
-    pub disk_hash: String,
-    pub disk_range: String,
-    pub resident_revision: u64,
-}
+use super::{LanePersistJob, PreparedSlotRevision};
 
 /// One schema group's prepared resident delta. Built for every schema in the
 /// batch before any slot gate is acquired or any tip is published.
@@ -37,6 +26,8 @@ pub(in crate::fold_db_core::mutation_manager) struct PreparedSchemaDelta {
     pub schema_mutations: Vec<Mutation>,
     pub mutation_key_values: Vec<KeyValue>,
     pub atom_results: Vec<(usize, String, Atom)>,
+    /// Retain caller atoms so a retry can undo a stale dedupe decision.
+    pub original_atom_results: Vec<(usize, String, Atom)>,
     pub deferred_atoms: Option<Vec<(Atom, Option<crate::atom::AtomPartition>)>>,
     pub search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
     pub share_prefixes: Vec<String>,
@@ -132,136 +123,6 @@ fn advanced_persist_slot_revisions(
 }
 
 impl MutationManager {
-    pub(in crate::fold_db_core::mutation_manager) fn prepared_slot_revisions(
-        &self,
-        schema: &Schema,
-        changed_keys: &HashMap<String, HashSet<ChangedKey>>,
-    ) -> Vec<PreparedSlotRevision> {
-        if schema_is_scoped(schema) {
-            return Vec::new();
-        }
-        let graph = self.resident_graph();
-        let mut out = Vec::new();
-        for (field_name, keys) in changed_keys {
-            let Some(field) = schema.runtime_fields.get(field_name) else {
-                continue;
-            };
-            let Some(uuid) = field.common().molecule_uuid() else {
-                continue;
-            };
-            if keys.is_empty() {
-                out.push(PreparedSlotRevision {
-                    molecule_uuid: uuid.clone(),
-                    disk_hash: String::new(),
-                    disk_range: String::new(),
-                    resident_revision: graph.slot_resident_revision(uuid, "", ""),
-                });
-                continue;
-            }
-            for ck in keys {
-                let hash = ck.disk_hash();
-                let range = ck.disk_range();
-                out.push(PreparedSlotRevision {
-                    molecule_uuid: uuid.clone(),
-                    disk_hash: hash.to_string(),
-                    disk_range: range.to_string(),
-                    resident_revision: graph.slot_resident_revision(uuid, hash, range),
-                });
-            }
-        }
-        out
-    }
-
-    pub(in crate::fold_db_core::mutation_manager) fn prepared_revisions_match(
-        &self,
-        prepared: &[PreparedSlotRevision],
-    ) -> bool {
-        let graph = self.resident_graph();
-        prepared.iter().all(|slot| {
-            graph.slot_resident_revision(&slot.molecule_uuid, &slot.disk_hash, &slot.disk_range)
-                == slot.resident_revision
-        })
-    }
-
-    /// Record the resident revisions used by prepared protein sibling tips.
-    pub(in crate::fold_db_core::mutation_manager) fn prepared_sibling_slot_revisions(
-        &self,
-        sibling_updates: &[(
-            String,
-            crate::db_operations::MoleculeData,
-            HashSet<ChangedKey>,
-        )],
-    ) -> Vec<PreparedSlotRevision> {
-        let graph = self.resident_graph();
-        let mut out = Vec::new();
-        for (molecule_uuid, _data, changed) in sibling_updates {
-            if changed.is_empty() {
-                out.push(PreparedSlotRevision {
-                    molecule_uuid: molecule_uuid.clone(),
-                    disk_hash: String::new(),
-                    disk_range: String::new(),
-                    resident_revision: graph.slot_resident_revision(molecule_uuid, "", ""),
-                });
-                continue;
-            }
-            for key in changed {
-                let hash = key.disk_hash();
-                let range = key.disk_range();
-                out.push(PreparedSlotRevision {
-                    molecule_uuid: molecule_uuid.clone(),
-                    disk_hash: hash.to_string(),
-                    disk_range: range.to_string(),
-                    resident_revision: graph.slot_resident_revision(molecule_uuid, hash, range),
-                });
-            }
-        }
-        out.sort_unstable_by(|left, right| {
-            (
-                left.molecule_uuid.as_str(),
-                left.disk_hash.as_str(),
-                left.disk_range.as_str(),
-            )
-                .cmp(&(
-                    right.molecule_uuid.as_str(),
-                    right.disk_hash.as_str(),
-                    right.disk_range.as_str(),
-                ))
-        });
-        out.dedup_by(|left, right| {
-            left.molecule_uuid == right.molecule_uuid
-                && left.disk_hash == right.disk_hash
-                && left.disk_range == right.disk_range
-        });
-        out
-    }
-
-    /// Rebuild in-memory molecules from resident tips after a revision
-    /// mismatch. No storage read.
-    pub(in crate::fold_db_core::mutation_manager) fn reseed_changed_from_resident(
-        &self,
-        schema: &mut Schema,
-        changed_keys: &HashMap<String, HashSet<ChangedKey>>,
-    ) -> Result<(), SchemaError> {
-        for (field_name, keys) in changed_keys {
-            let Some(field) = schema.runtime_fields.get_mut(field_name) else {
-                continue;
-            };
-            if field.common().storage_prefix().is_some() {
-                continue;
-            }
-            let Some(uuid) = field.common().molecule_uuid().cloned() else {
-                continue;
-            };
-            if keys.is_empty() {
-                continue;
-            }
-            if let Some(data) = self.try_seed_molecule_from_resident(&uuid, keys) {
-                field.set_molecule_data(data)?;
-            }
-        }
-        Ok(())
-    }
-
     /// Apply mutations, publish resident tips, bump slot revisions.
     ///
     /// Callers hold sorted apply gates around this function. Do not add
@@ -422,7 +283,12 @@ impl MutationManager {
                 if !slot_predecessors.contains_key(&slot_key) {
                     slot_predecessors.insert(
                         slot_key.clone(),
-                        resident.slot_resident_revision(molecule_uuid, &slot_hash, &slot_range),
+                        PreparedSlotRevision::capture(
+                            resident,
+                            molecule_uuid,
+                            &slot_hash,
+                            &slot_range,
+                        ),
                     );
                     slots.push(super::ResidentPurgeSlot {
                         molecule_uuid: molecule_uuid.clone(),
@@ -454,19 +320,7 @@ impl MutationManager {
         }
         schema_tombstones.sort_unstable();
         schema_tombstones.dedup();
-        let predecessor_revisions = slot_predecessors
-            .into_iter()
-            .map(
-                |((molecule_uuid, disk_hash, disk_range), resident_revision)| {
-                    PreparedSlotRevision {
-                        molecule_uuid,
-                        disk_hash,
-                        disk_range,
-                        resident_revision,
-                    }
-                },
-            )
-            .collect();
+        let predecessor_revisions = slot_predecessors.into_values().collect();
         let predecessor_revisions = unique_prepared_slot_revisions(predecessor_revisions);
         let slot_revisions =
             advanced_persist_slot_revisions(self.resident_graph(), predecessor_revisions);

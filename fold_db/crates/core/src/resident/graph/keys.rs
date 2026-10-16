@@ -123,6 +123,16 @@ impl ResidentGraph {
     }
 
     pub(super) fn install_key_index_member(&self, molecule_uuid: &str, hash: &str, range: &str) {
+        self.install_key_index_member_without_enforce(molecule_uuid, hash, range);
+        self.enforce_budget();
+    }
+
+    fn install_key_index_member_without_enforce(
+        &self,
+        molecule_uuid: &str,
+        hash: &str,
+        range: &str,
+    ) {
         let key = ResidentMoleculeKey::new(hash, range);
         self.key_index
             .write()
@@ -131,35 +141,43 @@ impl ResidentGraph {
             .or_default()
             .insert(key.clone());
         self.remove_key_tombstone(molecule_uuid, hash, range, false);
-        self.charge_and_enforce(
+        self.charge_without_enforce(
             key.dirty_key(molecule_uuid),
             key.approx_bytes(molecule_uuid),
         );
     }
 
     pub fn install_tip(&self, tip: ResidentTip) {
+        self.install_tip_without_enforce(tip);
+        self.enforce_budget();
+    }
+
+    fn install_tip_without_enforce(&self, tip: ResidentTip) {
         self.invalidate_partition(&tip.molecule_uuid, &tip.hash);
         let partition = (tip.molecule_uuid.clone(), tip.hash.clone());
         let k = tip_map_key(&tip.molecule_uuid, &tip.hash, &tip.range);
         let charge_key = tip.dirty_key();
         let bytes = tip.approx_bytes();
-        self.install_key_index_member(&tip.molecule_uuid, &tip.hash, &tip.range);
+        self.install_key_index_member_without_enforce(&tip.molecule_uuid, &tip.hash, &tip.range);
         self.tips.write().expect("tips lock").insert(k, tip);
-        self.charge_and_enforce(charge_key, bytes);
+        self.charge_without_enforce(charge_key, bytes);
         self.invalidate_partition(&partition.0, &partition.1);
     }
 
     pub fn apply_tip(&self, tip: ResidentTip) {
-        // Publish the revision before dirty state. An exact persist completion
-        // holds the slot read lock while it checks and clears dirty state.
-        self.bump_resident_revision(&tip.molecule_uuid, &tip.hash, &tip.range);
+        // Observers cannot capture the new revision before its tip is visible.
+        // Budget eviction can reacquire slots, so enforce only after publication.
+        let mut slots = self.slots.write().expect("resident slot lock");
+        self.bump_resident_revision(&mut slots, &tip.molecule_uuid, &tip.hash, &tip.range);
         // Dirty BEFORE install — see `apply_schema` for why.
         self.mark_dirty(
             ResidentMoleculeKey::new(tip.hash.clone(), tip.range.clone())
                 .dirty_key(&tip.molecule_uuid),
         );
         self.mark_dirty(tip.dirty_key());
-        self.install_tip(tip);
+        self.install_tip_without_enforce(tip);
+        drop(slots);
+        self.enforce_budget();
     }
 
     /// True when [`apply_key_tombstone`] marked this slot deleted and the
@@ -244,8 +262,9 @@ impl ResidentGraph {
         range: &str,
         tombstone_id: u64,
     ) {
-        // Use the same revision-first publication rule as `apply_tip`.
-        self.bump_resident_revision(molecule_uuid, hash, range);
+        // Publish the revision and delete overlay under the same slot lock.
+        let mut slots = self.slots.write().expect("resident slot lock");
+        self.bump_resident_revision(&mut slots, molecule_uuid, hash, range);
         let key = ResidentMoleculeKey::new(hash, range);
         // This delete is visible before its durable erase. Eviction must not
         // discard the overlay and expose the old disk tip in that interval.
@@ -272,11 +291,13 @@ impl ResidentGraph {
             .entry(molecule_uuid.to_string())
             .or_default()
             .insert(key.clone(), tombstone_id);
-        self.charge_and_enforce(
+        self.charge_without_enforce(
             key.tombstone_dirty_key(molecule_uuid),
             key.approx_bytes(molecule_uuid),
         );
         self.invalidate_partition(molecule_uuid, hash);
+        drop(slots);
+        self.enforce_budget();
     }
 
     pub fn forget_key_tombstone_if_current(
