@@ -7,6 +7,7 @@ use super::tree_write::TreeWriter;
 use super::write_lock::WriteLock;
 use super::{artifact, corrupt, Current, DirectoryEntry, TreeKind};
 use crate::{durability, Result};
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -137,9 +138,18 @@ impl Publisher<'_> {
                 .then(a.location.version.cmp(&b.location.version))
         });
         let mut items = mutations.into_iter().peekable();
+        let mut directory_changes = BTreeMap::new();
         while let Some(first) = items.next() {
             let collection = first.mutation.collection.clone();
             let group = first.mutation.group;
+            let mut changes = BTreeMap::new();
+            changes.insert(first.mutation.key.into_bytes(), first.location.encode()?);
+            while items.peek().is_some_and(|item| {
+                item.mutation.collection == collection && item.mutation.group == group
+            }) {
+                let item = items.next().expect("peeked operation");
+                changes.insert(item.mutation.key.into_bytes(), item.location.encode()?);
+            }
             let key = super::ReadCall::directory_key(&collection, group)?;
             let mut call = artifact::metadata_call(self.root, self.proposed.clone());
             let entry = call
@@ -160,12 +170,8 @@ impl Publisher<'_> {
                 tree
             };
             let mut locator = TreeEdit::new(self.root, tree, self.proposed.generation)?;
-            self.mutation(&mut locator, first)?;
-            while items.peek().is_some_and(|item| {
-                item.mutation.collection == collection && item.mutation.group == group
-            }) {
-                self.mutation(&mut locator, items.next().expect("peeked operation"))?;
-            }
+            let changes: Vec<_> = changes.into_iter().collect();
+            locator.put_many(&mut call, &changes)?;
             let (tree, pages, parts) = locator.finish()?;
             self.pages += pages;
             self.parts += parts.len() as u64;
@@ -176,18 +182,12 @@ impl Publisher<'_> {
                 converted_frontier: entry.map_or(0, |entry| entry.converted_frontier),
             }
             .encode()?;
-            let mut call = artifact::metadata_call(self.root, self.proposed.clone());
-            self.directory.put(&mut call, &key, value)?;
+            directory_changes.insert(key, value);
         }
-        Ok(())
-    }
-
-    fn mutation(&self, locator: &mut TreeEdit, item: RecoveredMutation) -> Result<()> {
         let mut call = artifact::metadata_call(self.root, self.proposed.clone());
-        locator.put(
+        self.directory.put_many(
             &mut call,
-            item.mutation.key.as_bytes(),
-            item.location.encode()?,
+            &directory_changes.into_iter().collect::<Vec<_>>(),
         )
     }
 
