@@ -148,7 +148,8 @@ impl FieldVariant {
                 tip.device_id,
                 tip.mutation_uuid,
                 String::new(),
-            );
+            )
+            .with_origin_device(tip.origin_device);
             entry.writer_pubkey = tip.writer_pubkey;
             entries.push(OverlayEntry {
                 hash,
