@@ -42,6 +42,20 @@ impl SchemaCore {
             return Ok(snapshot);
         }
         let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
+        if let Some(canonical) = snapshot
+            .schema
+            .as_ref()
+            .map(|schema| &schema.name)
+            .filter(|canonical| canonical.as_str() != name)
+        {
+            // Query execution checks the returned schema's own name. Read
+            // that exact state from the same held view, never copy alias state.
+            if read_snapshot_get::<SchemaReadSnapshot>(runtime.clone(), cache, canonical)?.is_none()
+            {
+                let value = self.db_ops.schemas().read_snapshot(canonical).await?;
+                read_snapshot_insert(runtime.clone(), cache, canonical.clone(), value)?;
+            }
+        }
         Ok(read_snapshot_insert(
             runtime,
             cache,

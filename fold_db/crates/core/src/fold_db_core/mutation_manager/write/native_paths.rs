@@ -96,6 +96,11 @@ impl MutationManager {
         job: &DeferredPersistJob,
         molecule: &str,
     ) -> Result<Option<Vec<Binding>>, SchemaError> {
+        // The older completeness meaning omitted shared record-molecule
+        // roots. Keep R writes durable until exact versioned sources exist.
+        if job.schema.molecule_uuid.as_deref() == Some(molecule) {
+            return Ok(None);
+        }
         let mut bindings = schema_bindings(&job.schema, molecule)?;
         let edges = self
             .db_ops
@@ -103,6 +108,13 @@ impl MutationManager {
             .molecule_ref_edges_for_molecule(molecule, None)
             .await?;
         if !edges.complete {
+            return Ok(None);
+        }
+        if edges
+            .edges
+            .iter()
+            .any(|edge| !matches!(edge.edge_type.as_str(), "schema-field" | "protein-member"))
+        {
             return Ok(None);
         }
         let sources = edges
