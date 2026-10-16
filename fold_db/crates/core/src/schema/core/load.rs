@@ -173,7 +173,7 @@ impl SchemaCore {
     /// When `for_read` is set, the in-memory hit is returned molecule-stripped
     /// via [`Schema::clone_for_read`] (the hot query path); otherwise the full
     /// hydrated schema is cloned.
-    fn get_schema_resolved(
+    pub(super) fn get_schema_resolved(
         &self,
         schema_name: &str,
         depth: usize,
@@ -188,6 +188,12 @@ impl SchemaCore {
                 return Err(SchemaError::InvalidData(format!(
                     "Superseded-by chain for schema '{schema_name}' exceeds maximum depth of {MAX_REDIRECT_HOPS}"
                 )));
+            }
+
+            if self.native_read_snapshot_active() {
+                return self
+                    .resolve_native_schema(schema_name, depth, for_read)
+                    .await;
             }
 
             // Check if this schema is blocked and has a successor

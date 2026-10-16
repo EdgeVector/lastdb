@@ -1,5 +1,12 @@
 use super::*;
 
+pub(super) struct PreparedCommit {
+    operations: Vec<HomeMutation>,
+    reservation: laststore::disk_pack::home::MutationReservation,
+    pub(super) protection: Arc<admission::WriteProtection>,
+    accepted_ms: u64,
+}
+
 impl PackRuntime {
     pub(super) async fn ensure_namespace(self: &Arc<Self>, name: &str) -> StorageResult<()> {
         let key = format!("{NAMESPACES}{name}");
@@ -39,13 +46,20 @@ impl PackRuntime {
         if operations.is_empty() {
             return Ok(());
         }
+        self.commit_prepared(self.prepare_commit(operations)?)
+    }
+
+    pub(super) fn prepare_commit(
+        &self,
+        operations: Vec<HomeMutation>,
+    ) -> StorageResult<PreparedCommit> {
         if self.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
                 "native writer requires complete journal recovery after a failed publication"
                     .into(),
             ));
         }
-        let mut writer = self.journal.lock().expect("native journal owner");
+        let writer = self.journal.lock().expect("native journal owner");
         let accepted_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|error| StorageError::BackendError(error.to_string()))?
@@ -60,7 +74,24 @@ impl PackRuntime {
                 &laststore::disk_pack::maintenance::SpacePolicy::default(),
             )
             .map_err(map)?;
-        let protection = admission::WriteProtection::reserve(self, &operations)?.with_space(space);
+        let protection =
+            Arc::new(admission::WriteProtection::reserve(self, &operations)?.with_space(space));
+        Ok(PreparedCommit {
+            operations,
+            reservation,
+            protection,
+            accepted_ms,
+        })
+    }
+
+    pub(super) fn commit_prepared(&self, prepared: PreparedCommit) -> StorageResult<()> {
+        let PreparedCommit {
+            operations,
+            reservation,
+            protection,
+            accepted_ms,
+        } = prepared;
+        let mut writer = self.journal.lock().expect("native journal owner");
         let result = writer
             .append_mutation(operations, accepted_ms, reservation)
             .and_then(|_| writer.publish());
@@ -73,7 +104,8 @@ impl PackRuntime {
             }
         };
         protection.invalidate();
-        self.install_committed(publication.current.clone());
+        self.install_committed(publication.current);
+        protection.release_space();
         self.failed.store(false, Ordering::Release);
         Ok(())
     }
@@ -81,6 +113,15 @@ impl PackRuntime {
     pub(super) async fn flush(self: &Arc<Self>) -> StorageResult<()> {
         if transaction::PendingBatch::current(self).is_some() {
             return Ok(());
+        }
+        if self
+            .view
+            .read()
+            .expect("native complete read view")
+            .accepted
+            .is_some()
+        {
+            self.flush_notify.notify_one();
         }
         let _gate = Arc::clone(&self.write_gate).lock_owned().await;
         if self.failed.load(Ordering::Acquire) {

@@ -24,34 +24,38 @@ impl MutationManager {
         if let Some(clock) = request.author_clock {
             clock.wait().await?;
         }
-        let ids = transaction::scope(Some(Arc::clone(&request.runtime)), async {
-            // Recheck inside the exclusive native gate. A prior native request
-            // can commit while this request waits to enter preparation.
-            let ids: Vec<_> = request
-                .mutations
-                .iter()
-                .map(|mutation| mutation.uuid.clone())
-                .collect();
-            let (_, mutations, hashes) = self
-                .filter_idempotent_mutations(request.mutations, request.storage_prefix)
-                .await?;
-            self.check_batch_preconditions(&mutations, request.storage_prefix)
-                .await?;
-            let mut deltas = self
-                .prepare_grouped_deltas(
-                    mutations,
-                    hashes,
-                    request.storage_prefix,
-                    state.force_durable,
-                    &mut state.timing_breakdown,
-                    &mut state.stages,
-                )
-                .await?;
-            self.commit_native_deltas(&mut deltas, &request.runtime)
-                .await?;
-            Ok::<_, SchemaError>(ids)
-        })
-        .await?;
+        let memory_ack = self.resident_mode.acks_on_resident()
+            && !state.force_durable
+            && !crate::fold_db_core::mutation_sync_flush_enabled();
+        let ids =
+            transaction::request_scope(Some(Arc::clone(&request.runtime)), memory_ack, async {
+                // Recheck inside the exclusive native gate. A prior native request
+                // can commit while this request waits to enter preparation.
+                let ids: Vec<_> = request
+                    .mutations
+                    .iter()
+                    .map(|mutation| mutation.uuid.clone())
+                    .collect();
+                let (_, mutations, hashes) = self
+                    .filter_idempotent_mutations(request.mutations, request.storage_prefix)
+                    .await?;
+                self.check_batch_preconditions(&mutations, request.storage_prefix)
+                    .await?;
+                let mut deltas = self
+                    .prepare_grouped_deltas(
+                        mutations,
+                        hashes,
+                        request.storage_prefix,
+                        state.force_durable,
+                        &mut state.timing_breakdown,
+                        &mut state.stages,
+                    )
+                    .await?;
+                self.commit_native_deltas(&mut deltas, &request.runtime)
+                    .await?;
+                Ok::<_, SchemaError>(ids)
+            })
+            .await?;
         crate::sync::capture::mark_logical_commit_published();
         self.finalize_batch(&mut state.timing_breakdown, state.force_durable)
             .await?;

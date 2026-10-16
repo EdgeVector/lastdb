@@ -1,0 +1,76 @@
+//! Native queries use their own catalog values, never a live shared cache.
+
+use super::{Schema, SchemaCore, SchemaState};
+use crate::db_operations::schema_store::SchemaReadSnapshot;
+use crate::schema::SchemaError;
+use crate::storage::disk_pack::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
+use std::sync::Arc;
+
+impl SchemaCore {
+    pub(super) async fn resolve_native_schema(
+        &self,
+        name: &str,
+        depth: usize,
+        for_read: bool,
+    ) -> Result<Option<Schema>, SchemaError> {
+        let snapshot = self.native_schema_snapshot(name).await?;
+        if let Some(successor) = &snapshot.successor {
+            return self
+                .get_schema_resolved(successor, depth + 1, for_read)
+                .await;
+        }
+        Ok(snapshot.schema.as_ref().map(|schema| {
+            if for_read {
+                schema.clone_for_read_shared()
+            } else {
+                schema.clone()
+            }
+        }))
+    }
+
+    pub(super) fn native_read_snapshot_active(&self) -> bool {
+        read_snapshot_active(self.db_ops.namespaced_store().disk_pack_runtime())
+    }
+
+    pub(super) async fn native_schema_snapshot(
+        &self,
+        name: &str,
+    ) -> Result<Arc<SchemaReadSnapshot>, SchemaError> {
+        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
+        let cache = Arc::as_ptr(&self.schemas) as usize;
+        if let Some(snapshot) = read_snapshot_get(runtime.clone(), cache, name)? {
+            return Ok(snapshot);
+        }
+        let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
+        Ok(read_snapshot_insert(
+            runtime,
+            cache,
+            name.to_string(),
+            snapshot,
+        )?)
+    }
+
+    pub(super) fn captured_schema_metadata(
+        &self,
+        name: &str,
+    ) -> Result<Option<Option<Schema>>, SchemaError> {
+        let snapshot = read_snapshot_get::<SchemaReadSnapshot>(
+            self.db_ops.namespaced_store().disk_pack_runtime(),
+            Arc::as_ptr(&self.schemas) as usize,
+            name,
+        )?;
+        Ok(snapshot.map(|snapshot| snapshot.schema.clone()))
+    }
+
+    pub(super) fn captured_schema_state(
+        &self,
+        name: &str,
+    ) -> Result<Option<SchemaState>, SchemaError> {
+        Ok(read_snapshot_get::<SchemaReadSnapshot>(
+            self.db_ops.namespaced_store().disk_pack_runtime(),
+            Arc::as_ptr(&self.schemas) as usize,
+            name,
+        )?
+        .map(|snapshot| snapshot.state))
+    }
+}

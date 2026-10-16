@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, RwLock};
 mod admission;
 mod kv;
 mod maintenance;
+mod namespace_delete;
 mod read;
 mod rows;
 pub(crate) mod transaction;
@@ -34,10 +35,12 @@ pub struct PackRuntime {
     view: RwLock<view::NativeReadView>,
     journal: Mutex<HomeJournal>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
+    flush_notify: tokio::sync::Notify,
     logical: Arc<Mutex<LogicalResidentSet>>,
     published: AtomicU64,
     failed: AtomicBool,
-    failed_write: Mutex<Option<admission::WriteProtection>>,
+    failed_write: Mutex<Option<Arc<admission::WriteProtection>>>,
+    failed_request: Mutex<Option<Arc<transaction::PendingBatch>>>,
 }
 
 /// All namespaces on one native disk home.
@@ -180,12 +183,14 @@ impl PackNamespacedStore {
                 }),
                 journal: Mutex::new(journal),
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
+                flush_notify: tokio::sync::Notify::new(),
                 logical: Arc::new(Mutex::new(
                     LogicalResidentSet::new().with_metrics(Arc::new(ResidentMetrics::new())),
                 )),
                 published: AtomicU64::new(frontier),
                 failed: AtomicBool::new(false),
                 failed_write: Mutex::new(None),
+                failed_request: Mutex::new(None),
             }),
         })
     }
@@ -242,10 +247,8 @@ impl NamespacedStore for PackNamespacedStore {
         .await
     }
 
-    async fn delete_namespace(&self, _name: &str) -> StorageResult<bool> {
-        Err(StorageError::InvalidOperation(
-            "native namespace removal requires a complete named-key plan".into(),
-        ))
+    async fn delete_namespace(&self, name: &str) -> StorageResult<bool> {
+        self.runtime.delete_namespace(name).await
     }
 
     async fn restore_durability_barrier(&self) -> StorageResult<()> {

@@ -140,6 +140,11 @@ impl SchemaCore {
     /// [`Self::get_schema_following_supersession`] so the gate and the
     /// executor agree on which schema's fields/owner are authoritative.
     pub fn get_schema_metadata(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
+        if self.native_read_snapshot_active() {
+            if let Some(schema) = self.captured_schema_metadata(schema_name)? {
+                return Ok(schema);
+            }
+        }
         if let Some(staged) = self.staged_schema(schema_name)? {
             return Ok(Some(staged.schema.clone()));
         }
