@@ -118,6 +118,13 @@ impl PinLog {
             .collect::<BTreeMap<_, _>>();
         self.persist_published_f(target_id, &confirmed).await?;
 
+        // The meter runs after the flush. A confirm failure does not roll
+        // back published-F and does not fail this publish.
+        // sealed_units is already &[Vec<MutationLogSegment>].
+        for unit in sealed_units {
+            engine.meter_uploaded_log_segments(target, unit).await;
+        }
+
         // Local mirror is geometry/bookkeeping only. Update it only after
         // the durable Cloud HWM exists, so a failed HWM flush cannot make a
         // later cycle suppress an unconfirmed local row.
