@@ -71,8 +71,10 @@ impl HashRangeQueryProcessor {
         // `disk_slot_for_key` returns API-form `(hash, range)`, durable
         // storage encodes on lookup, and resident probes use the same API
         // slot. This avoids blinding an already-blinded co-key page key.
-        let use_resident_tips =
-            crate::db_operations::resident_read::tip_reads_resident_first(prefix.as_deref());
+        let use_resident_tips = crate::db_operations::resident_read::tip_reads_resident_first(
+            &self.db_ops,
+            prefix.as_deref(),
+        );
         let mut storage_slots = Vec::with_capacity(slots.len());
         let mut storage_kv_for_slots = Vec::with_capacity(kv_for_slots.len());
         for ((h, r), kv) in slots.iter().zip(kv_for_slots.iter()) {

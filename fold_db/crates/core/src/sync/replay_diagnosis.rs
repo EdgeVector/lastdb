@@ -51,6 +51,8 @@ pub enum ReplayCause {
     InvalidCursor,
     StorageFull,
     ReadResourceLimit,
+    MissingLocalAtom,
+    StorageRead,
     PersistQueueFull,
     CaptureQueueFull,
     MaterializationFailed,
@@ -123,6 +125,8 @@ impl From<SchemaError> for MutationIntentReplayError {
             SchemaError::InvalidCursor(_) => ReplayCause::InvalidCursor,
             SchemaError::StorageFull { .. } => ReplayCause::StorageFull,
             SchemaError::ReadResourceLimit { .. } => ReplayCause::ReadResourceLimit,
+            SchemaError::MissingLocalAtom => ReplayCause::MissingLocalAtom,
+            SchemaError::StorageRead { .. } => ReplayCause::StorageRead,
             SchemaError::PersistQueueFull { .. } => ReplayCause::PersistQueueFull,
             SchemaError::CaptureQueueFull { .. } => ReplayCause::CaptureQueueFull,
         };

@@ -157,9 +157,11 @@ pub(super) async fn load_record_tip_atom(
     }
     let mut atom_uuid = None;
     for (h, r) in &candidates {
-        if let Some(tip) = db_ops.resident().resolve_tip(record_uuid, h, r) {
-            atom_uuid = Some(tip.value.atom_uuid);
-            break;
+        if crate::db_operations::resident_read::tip_reads_resident_first(db_ops, None) {
+            if let Some(tip) = db_ops.resident().resolve_tip(record_uuid, h, r) {
+                atom_uuid = Some(tip.value.atom_uuid);
+                break;
+            }
         }
         let record_key = crate::atom::molecule_key_codec::hash_range_record_key(record_uuid, h, r);
         if let Some(rec) = db_ops
@@ -167,7 +169,8 @@ pub(super) async fn load_record_tip_atom(
             .raw()
             .get_item::<crate::db_operations::atom_store::PerKeyRecord>(&record_key)
             .await
-            .map_err(|e| SchemaError::InvalidData(format!("read record-molecule tip: {e}")))?
+            .map_err(SchemaError::from)
+            .map_err(SchemaError::read_failure)?
         {
             atom_uuid = Some(rec.entry.atom_uuid);
             break;
@@ -176,5 +179,7 @@ pub(super) async fn load_record_tip_atom(
     let Some(atom_uuid) = atom_uuid else {
         return Ok(None);
     };
-    db_ops.atoms().get_atom_by_uuid(&atom_uuid, None).await
+    crate::db_operations::resident_read::get_atom_for_tip(db_ops, &atom_uuid)
+        .await
+        .map(Some)
 }

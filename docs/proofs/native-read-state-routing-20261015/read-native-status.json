@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "sync_enabled": false,
+  "resident": {
+    "resident_key_budget": 10000,
+    "resident_key_count": 10000,
+    "resident_over_cap_keys": 0,
+    "resident_held_keys": 0,
+    "resident_dirty_keys": 0,
+    "persist_lane_depth": 0,
+    "persist_lane_failures": 0
+  }
+}
