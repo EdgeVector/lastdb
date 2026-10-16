@@ -109,6 +109,21 @@ fn stopped(home: &std::path::Path) -> Result<()> {
         if root.join("current-session.json").try_exists()? {
             return Err("source has a current node session; use a clean stopped source".into());
         }
+        if root.join("sessions.jsonl").try_exists()? {
+            let file = std::fs::File::open(root.join(".shutdown_flush_ready"))?;
+            if file.metadata()?.len() > 4096 {
+                return Err("shutdown flush receipt exceeds limit".into());
+            }
+            let value: serde_json::Value =
+                serde_json::from_reader(std::io::Read::take(file, 4097))?;
+            if value["version"] != 1
+                || value["flush_ok"] != true
+                || value["pid"].as_u64().unwrap_or(0) == 0
+                || value["start_ts"].as_u64().unwrap_or(0) == 0
+            {
+                return Err("source has no valid final shutdown flush receipt".into());
+            }
+        }
         for name in ["folddb.sock", "folddb-full.sock"] {
             if std::os::unix::net::UnixStream::connect(root.join(name)).is_ok() {
                 return Err("source database socket is active".into());
