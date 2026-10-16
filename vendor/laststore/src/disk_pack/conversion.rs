@@ -125,7 +125,11 @@ pub fn finish_conversion(source: &Path, destination: &Path) -> Result<()> {
                 "pending native boundary differs from source fence".into(),
             ));
         }
-        let current = super::Current::decode(&raw)?;
+        let fixed: &[u8; 4096] = raw
+            .as_slice()
+            .try_into()
+            .map_err(|_| crate::Error::Corrupt("pending CURRENT length".into()))?;
+        let current = super::Current::decode(fixed)?;
         super::home::HomeDescriptor::read(&destination)?.check_current(&current)?;
         let _inventory = super::lifetime::generation_inventory(&destination, &current)?;
         super::journal::JournalTail::read(&destination)?

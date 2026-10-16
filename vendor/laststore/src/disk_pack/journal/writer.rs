@@ -12,6 +12,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
+#[path = "writer_maintenance.rs"]
+mod maintenance;
+
 /// A complete journal batch with durable recovery bytes and exact record extents.
 pub struct DurableBatch {
     /// Complete mutation batch sequence.
@@ -38,43 +41,6 @@ pub struct JournalWriter {
 }
 
 impl JournalWriter {
-    /// Pack live stored records through the same publication lease, then reclaim safely.
-    pub fn compact(
-        &mut self,
-        policy: &crate::disk_pack::maintenance::SpacePolicy,
-    ) -> Result<crate::disk_pack::maintenance::MaintenanceReceipt> {
-        self.publish()?;
-        self.poisoned = true;
-        let (current, mut receipt) =
-            crate::disk_pack::maintenance::compact_locked(&self.lock, policy)?;
-        self.current = current;
-        self.poisoned = false;
-        let reclaim = crate::disk_pack::maintenance::reclaim_locked(&self.lock, policy)?;
-        receipt.files_removed = reclaim.files_removed;
-        receipt.bytes_removed = reclaim.bytes_removed;
-        receipt.reclaim_deferred = reclaim.reclaim_deferred;
-        Ok(receipt)
-    }
-
-    /// Release only obsolete unreferenced parts; never implicitly perform a rewrite.
-    pub fn reclaim(
-        &mut self,
-        policy: &crate::disk_pack::maintenance::SpacePolicy,
-    ) -> Result<crate::disk_pack::maintenance::MaintenanceReceipt> {
-        self.publish()?;
-        crate::disk_pack::maintenance::reclaim_locked(&self.lock, policy)
-    }
-
-    /// Reserve all native output bytes while this handle owns the writer lease.
-    pub fn reserve_space(
-        &self,
-        bytes: u64,
-        policy: &crate::disk_pack::maintenance::SpacePolicy,
-    ) -> Result<crate::disk_pack::maintenance::SpaceReservation> {
-        self.check_admission()?;
-        crate::disk_pack::maintenance::reserve_space(&self.root, policy, bytes)
-    }
-
     /// Create the first stream only. Existing journals require `open`.
     pub fn create(root: &Path) -> Result<Self> {
         let lock = WriteLock::acquire(root)?;
