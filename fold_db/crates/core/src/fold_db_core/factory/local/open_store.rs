@@ -1,6 +1,15 @@
 //! Local physical store selection and legacy layout detection.
 use super::*;
 
+pub(super) fn native_selection(path: &std::path::Path) -> FoldDbResult<bool> {
+    let converted = laststore::disk_pack::resolve_conversion(path)
+        .map_err(|error| FoldDbError::Config(format!("storage conversion: {error}")))?;
+    Ok(converted.map_or_else(
+        || crate::storage::disk_pack::requested(path),
+        |selected| selected.native,
+    ))
+}
+
 pub(super) fn open_primary_store(
     path: &std::path::Path,
     e2e_keys: &E2eKeys,

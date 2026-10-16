@@ -138,7 +138,7 @@ async fn create_local_fold_db_inner(
         && !local_proof_engine
         && laststore_is_empty_home(path);
 
-    if crate::storage::disk_pack::requested(path) && sync_setup.is_some() {
+    if open_store::native_selection(path)? && sync_setup.is_some() {
         return Err(FoldDbError::Config(
             "native disk homes require their complete backup and cloud-sync gate before activation"
                 .into(),

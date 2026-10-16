@@ -25,7 +25,7 @@ pub fn resolve_conversion(root: &Path) -> Result<Option<ResolvedStore>> {
     let mut path = std::fs::canonicalize(initial)?;
     let mut visited = BTreeSet::new();
     let mut selected = None;
-    for _ in 0..8 {
+    for handoffs in 0..=8 {
         if !visited.insert(path.clone()) {
             return Err(Error::Corrupt("conversion selection cycle".into()));
         }
@@ -36,6 +36,11 @@ pub fn resolve_conversion(root: &Path) -> Result<Option<ResolvedStore>> {
         } else {
             return Ok(selected);
         };
+        if handoffs == 8 {
+            return Err(Error::Corrupt(
+                "conversion selection exceeds eight handoffs".into(),
+            ));
+        }
         if value["format"] != 1 {
             return Err(Error::Corrupt("conversion selection format".into()));
         }
