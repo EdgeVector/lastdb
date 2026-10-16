@@ -1,11 +1,11 @@
 //! Reverse conversion uses the latest complete native generation, not an old copy.
 
+use super::conversion_fence as fence;
 use super::home::DiskHome;
 use super::lifetime::{DurableReference, ReferencePurpose};
 use super::maintenance::visit_generation;
 use crate::{durability, HashGroupKey, LastStore, LastStoreOptions, Result, TxnOp};
-use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::fs::File;
 use std::path::Path;
 
 pub(super) const REVERSE_FENCE: &str = "laststore-legacy-source-sealed-v1";
@@ -42,6 +42,7 @@ pub fn reverse_to_legacy(home: &DiskHome, destination: &Path) -> Result<ReverseR
     options.hash_group_partition_fanout = u32::from(home.descriptor().hash_fanout);
     options.layout_epoch = home.descriptor().layout_epoch;
     let target = LastStore::open_with(destination, options)?;
+    let token = fence::pending(destination)?;
     let mut operations = Vec::new();
     let (mut bytes, mut records, mut stored_bytes) = (0u64, 0u64, 0u64);
     visit_generation(home.path(), &current, |record| {
@@ -76,16 +77,12 @@ pub fn reverse_to_legacy(home: &DiskHome, destination: &Path) -> Result<ReverseR
     target.flush()?;
     durability::sync_directory(&File::open(destination)?)?;
     let destination = std::fs::canonicalize(destination)?;
-    let mut fence = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(home.path().join(REVERSE_FENCE))?;
-    let bytes = serde_json::to_vec(&serde_json::json!({"format":1,"destination":destination,
-        "generation":current.generation,"frontier":current.frontier}))
-    .map_err(|error| crate::Error::Config(error.to_string()))?;
-    fence.write_all(&bytes)?;
-    durability::sync_dirty_file(&fence)?;
-    durability::sync_directory(&File::open(home.path())?)?;
+    let value = serde_json::json!({"format":1,"destination":destination,
+        "generation":current.generation,"frontier":current.frontier,"token":token.to_string(),
+        "reference":reference.info().identity.to_string(),
+        "layout_digest":fence::digest(&fence::bounded_file(&destination.join("laststore-layout-v1"), 4096)?)});
+    fence::publish(home.path(), REVERSE_FENCE, &value)?;
+    fence::finish(&destination, token)?;
     reference.release()?;
     Ok(ReverseReceipt {
         generation: current.generation,
@@ -93,4 +90,66 @@ pub fn reverse_to_legacy(home: &DiskHome, destination: &Path) -> Result<ReverseR
         records,
         stored_bytes,
     })
+}
+
+/// Complete an interrupted cutover only after its durable source fence identifies
+/// this exact pending target. A target without a source fence stays dormant.
+/// No source data is opened as a database, overwritten, or deleted.
+pub fn finish_conversion(source: &Path, destination: &Path) -> Result<()> {
+    let forward = source.join(fence::FORWARD_FENCE).try_exists()?;
+    let name = if forward {
+        fence::FORWARD_FENCE
+    } else {
+        REVERSE_FENCE
+    };
+    let value = fence::read(source, name)?;
+    let destination = std::fs::canonicalize(destination)?;
+    if value["format"] != 1
+        || value["destination"].as_str().map(Path::new) != Some(destination.as_path())
+    {
+        return Err(crate::Error::Corrupt(
+            "conversion source fence destination differs".into(),
+        ));
+    }
+    let token = conversion_uuid(&value, "token")?;
+    let reference = conversion_uuid(&value, "reference")?;
+    if !destination.join(fence::PENDING).try_exists()? {
+        return Ok(());
+    }
+    fence::validate(&destination, token)?;
+    if forward {
+        let _writer = super::write_lock::WriteLock::acquire_conversion(&destination, token)?;
+        let raw = fence::bounded_file(&destination.join("CURRENT"), 4096)?;
+        if raw.len() != 4096 || value["current_digest"] != fence::digest(&raw) {
+            return Err(crate::Error::Corrupt(
+                "pending native boundary differs from source fence".into(),
+            ));
+        }
+        let current = super::Current::decode(&raw)?;
+        super::home::HomeDescriptor::read(&destination)?.check_current(&current)?;
+        let _inventory = super::lifetime::generation_inventory(&destination, &current)?;
+        super::journal::JournalTail::read(&destination)?
+            .validate_for_current(&destination, &current)?;
+        fence::finish(&destination, token)?;
+        super::lifetime::release_reference(&destination, reference)?;
+    } else {
+        let _target = LastStore::open_pending_conversion(&destination)?;
+        fence::validate(&destination, token)?;
+        let layout = fence::bounded_file(&destination.join("laststore-layout-v1"), 4096)?;
+        if value["layout_digest"] != fence::digest(&layout) {
+            return Err(crate::Error::Corrupt(
+                "pending legacy layout differs from source fence".into(),
+            ));
+        }
+        fence::finish(&destination, token)?;
+        super::lifetime::release_reference(source, reference)?;
+    }
+    Ok(())
+}
+
+fn conversion_uuid(value: &serde_json::Value, field: &str) -> Result<uuid::Uuid> {
+    value[field]
+        .as_str()
+        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+        .ok_or_else(|| crate::Error::Corrupt("conversion fence UUID".into()))
 }

@@ -1,12 +1,13 @@
 //! Explicit conversion, with a short final source-write freeze and a durable fence.
 
 use super::*;
+use crate::disk_pack::conversion_fence as fence;
 use crate::disk_pack::home::{DiskHome, HomeBuilder, HomeDescriptor, HomeMutation};
 use crate::disk_pack::lifetime::{DurableReference, ReferencePurpose};
 use crate::disk_pack::MutationVersion;
 use std::sync::MutexGuard;
 
-pub(super) const SOURCE_FENCE: &str = "laststore-native-source-sealed-v1";
+pub(super) const SOURCE_FENCE: &str = fence::FORWARD_FENCE;
 const COPY_PAGE: usize = 16;
 const MAX_RECORDS: u64 = 1_000_000;
 const MAX_CATCHUP_KEYS: usize = 10_000;
@@ -33,6 +34,9 @@ pub struct ConversionCutover<'a> {
     destination: PathBuf,
     receipt: ConversionReceipt,
     reference: DurableReference,
+    token: Uuid,
+    _writer: crate::disk_pack::home::HomeJournal,
+    _conversion: MutexGuard<'a, ()>,
     _guards: Vec<MutexGuard<'a, ()>>,
 }
 
@@ -41,9 +45,11 @@ impl LastStore {
     /// Capture changed keys, freeze all mutation stripes, then publish their final
     /// values in complete batches. Caller owns source-process and admin exclusion.
     pub fn prepare_native_conversion(&self, destination: &Path) -> Result<ConversionCutover<'_>> {
-        if self.conversion_sealed.load(Ordering::Acquire) {
-            return Err(Error::Config("conversion source is sealed".into()));
-        }
+        let conversion = self
+            .conversion_gate
+            .try_lock()
+            .map_err(|_| Error::Config("source conversion already active".into()))?;
+        self.check_conversion_write()?;
         let layout = crate::describe_home(&self.root)?.ok_or_else(|| {
             Error::Config("conversion requires a durable layout descriptor".into())
         })?;
@@ -56,6 +62,7 @@ impl LastStore {
         let floor = self.csn_high_water();
         drop(start_guards);
         let mut builder = HomeBuilder::create(destination, descriptor, 0)?;
+        let token = fence::pending(destination)?;
         let copied_records = self.copy_native(&mut builder)?;
         builder.finish()?;
         let guards = self
@@ -63,10 +70,11 @@ impl LastStore {
             .iter()
             .map(|gate| gate.lock().expect("poison"))
             .collect();
+        self.check_conversion_write()?;
         let changed = self.conversion_changes(floor)?;
         self.flush()?;
-        let home = DiskHome::open(destination)?;
-        let mut writer = home.journal()?;
+        let home = DiskHome::open_conversion(destination)?;
+        let mut writer = home.journal_conversion(token)?;
         let mut batch = Vec::new();
         let mut batch_bytes = 0usize;
         for (collection, key) in &changed {
@@ -102,8 +110,25 @@ impl LastStore {
             destination: std::fs::canonicalize(destination)?,
             receipt,
             reference,
+            token,
+            _writer: writer,
+            _conversion: conversion,
             _guards: guards,
         })
+    }
+
+    pub(super) fn check_conversion_write(&self) -> Result<()> {
+        if self.conversion_sealed.load(Ordering::Acquire) {
+            return Err(Error::Config(
+                "legacy source is sealed after native conversion".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn open_pending_conversion(root: &Path) -> Result<Self> {
+        let options = resolve_layout_options(root, LastStoreOptions::default(), false)?;
+        Self::open_conversion(root.to_path_buf(), options, true)
     }
 
     fn conversion_changes(&self, floor: u64) -> Result<BTreeSet<(String, String)>> {
@@ -194,16 +219,14 @@ impl ConversionCutover<'_> {
     /// a new legacy home from the latest native generation.
     pub fn commit(self) -> Result<ConversionReceipt> {
         self.source.conversion_sealed.store(true, Ordering::Release);
-        let path = self.source.root.join(SOURCE_FENCE);
-        let mut file = OpenOptions::new().create_new(true).write(true).open(path)?;
-        let bytes = serde_json::to_vec(&serde_json::json!({
+        let value = serde_json::json!({
             "format":1,"destination":self.destination,"source_csn":self.receipt.source_csn,
-            "generation":self.receipt.generation,"frontier":self.receipt.frontier
-        }))
-        .map_err(|error| Error::Config(error.to_string()))?;
-        file.write_all(&bytes)?;
-        durability::sync_dirty_file(&file)?;
-        sync_dir(&self.source.root)?;
+            "generation":self.receipt.generation,"frontier":self.receipt.frontier,
+            "token":self.token.to_string(),"reference":self.reference.info().identity.to_string(),
+            "current_digest":fence::digest(&self._writer.current().encode()?)
+        });
+        fence::publish(&self.source.root, SOURCE_FENCE, &value)?;
+        fence::finish(&self.destination, self.token)?;
         self.reference.release()?;
         Ok(self.receipt)
     }

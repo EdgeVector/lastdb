@@ -12,7 +12,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
         println!("usage: lastdb-disk-recovery <backup|restore> --home PATH --backup PATH");
-        println!("       lastdb-disk-recovery <convert|reverse> --home PATH --target PATH");
+        println!("       lastdb-disk-recovery <convert|reverse|finish-conversion> --home PATH --target PATH");
         println!("backup: explicit native root; checkpoint and export to a new bundle");
         println!("restore: verify the bundle and create a new native root; no source required");
         println!("convert/reverse: stopped source only; create a new destination and seal the old source");
@@ -31,7 +31,15 @@ fn options() -> Result<(String, PathBuf, PathBuf)> {
     let invalid = |message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
     let mut args = std::env::args().skip(1);
     let command = args.next().ok_or_else(|| invalid("command required"))?;
-    if !["backup", "restore", "convert", "reverse"].contains(&command.as_str()) {
+    if ![
+        "backup",
+        "restore",
+        "convert",
+        "reverse",
+        "finish-conversion",
+    ]
+    .contains(&command.as_str())
+    {
         return Err(invalid("unknown command").into());
     }
     let (mut home, mut backup) = (None, None);
@@ -54,6 +62,11 @@ fn options() -> Result<(String, PathBuf, PathBuf)> {
 fn run() -> Result<()> {
     let (command, home, backup) = options()?;
     let started = Instant::now();
+    if command == "finish-conversion" {
+        laststore::disk_pack::conversion::finish_conversion(&home, &backup)?;
+        println!("{}", json!({"command":command,"complete":true}));
+        return Ok(());
+    }
     if command == "convert" || command == "reverse" {
         stopped(&home)?;
         let output = if command == "convert" {

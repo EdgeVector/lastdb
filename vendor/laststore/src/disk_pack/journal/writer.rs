@@ -91,6 +91,14 @@ impl JournalWriter {
     /// An existing stream without TAIL is an availability error, never an empty guess.
     pub fn open(root: &Path) -> Result<Self> {
         let lock = WriteLock::acquire(root)?;
+        Self::open_locked(lock)
+    }
+
+    pub(crate) fn open_conversion(root: &Path, token: Uuid) -> Result<Self> {
+        Self::open_locked(WriteLock::acquire_conversion(root, token)?)
+    }
+
+    fn open_locked(lock: WriteLock) -> Result<Self> {
         let current = crate::disk_pack::artifact::current(lock.root())?;
         if !lock.root().join("JOURNAL_TAIL").try_exists()? {
             super::resume::initial(&lock, &current)?;

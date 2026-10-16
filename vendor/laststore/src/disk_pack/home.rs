@@ -218,6 +218,11 @@ impl DiskHome {
 
     /// Read the exact descriptor and root without opening a writer.
     pub fn open(root: &Path) -> Result<Self> {
+        super::conversion_fence::refuse_pending(root)?;
+        Self::open_conversion(root)
+    }
+
+    pub(crate) fn open_conversion(root: &Path) -> Result<Self> {
         if root.join(super::conversion::REVERSE_FENCE).try_exists()? {
             return Err(crate::Error::Config("native source is sealed after explicit reverse conversion; use the new legacy destination".into()));
         }

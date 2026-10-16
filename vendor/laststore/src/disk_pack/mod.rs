@@ -14,6 +14,7 @@ mod bytes;
 mod call;
 mod call_io;
 pub mod conversion;
+pub(crate) mod conversion_fence;
 mod current;
 mod dependency;
 mod dependency_walk;

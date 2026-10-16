@@ -102,6 +102,7 @@ struct StoreMeta {
 pub struct LastStore {
     _process_lock: File,
     conversion_sealed: AtomicBool,
+    conversion_gate: Mutex<()>,
     root: PathBuf,
     opts: LastStoreOptions,
     shards: Mutex<ShardWarmSet>,

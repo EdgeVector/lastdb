@@ -28,7 +28,16 @@ impl LastStore {
         Self::open_resolved(root, opts)
     }
 
-    pub(super) fn open_resolved(root: PathBuf, mut opts: LastStoreOptions) -> Result<Self> {
+    pub(super) fn open_resolved(root: PathBuf, opts: LastStoreOptions) -> Result<Self> {
+        crate::disk_pack::conversion_fence::refuse_pending(&root)?;
+        Self::open_conversion(root, opts, false)
+    }
+
+    pub(super) fn open_conversion(
+        root: PathBuf,
+        mut opts: LastStoreOptions,
+        pending: bool,
+    ) -> Result<Self> {
         fs::create_dir_all(&root)?;
         let process_lock = OpenOptions::new()
             .create(true)
@@ -40,6 +49,9 @@ impl LastStore {
             rustix::fs::FlockOperation::NonBlockingLockExclusive,
         )
         .map_err(std::io::Error::from)?;
+        if !pending {
+            crate::disk_pack::conversion_fence::refuse_pending(&root)?;
+        }
         if root.join(native_conversion::SOURCE_FENCE).try_exists()? {
             return Err(Error::Config("legacy source is sealed after explicit native conversion; use its destination or create a reverse conversion".into()));
         }
@@ -56,6 +68,7 @@ impl LastStore {
         Ok(Self {
             _process_lock: process_lock,
             conversion_sealed: AtomicBool::new(false),
+            conversion_gate: Mutex::new(()),
             root,
             opts,
             shards: Mutex::new(ShardWarmSet::default()),

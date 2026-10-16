@@ -13,13 +13,15 @@ pub(super) struct WriteLock {
 
 impl WriteLock {
     pub(super) fn acquire(root: &Path) -> Result<Self> {
+        Self::acquire_inner(root, None)
+    }
+
+    pub(super) fn acquire_conversion(root: &Path, token: uuid::Uuid) -> Result<Self> {
+        Self::acquire_inner(root, Some(token))
+    }
+
+    fn acquire_inner(root: &Path, conversion: Option<uuid::Uuid>) -> Result<Self> {
         let root = std::fs::canonicalize(root)?;
-        let current = artifact::current(&root)?;
-        if current.required_features & super::FEATURE_OBJECT_METADATA == 0 {
-            return Err(crate::Error::Config(
-                "disk-pack writes require complete object bounds".into(),
-            ));
-        }
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -27,6 +29,22 @@ impl WriteLock {
             .open(root.join("journal").join("LOCK"))?;
         rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
             .map_err(std::io::Error::from)?;
+        if root.join(super::conversion::REVERSE_FENCE).try_exists()? {
+            return Err(crate::Error::Config(
+                "native source is sealed after reverse conversion".into(),
+            ));
+        }
+        if let Some(token) = conversion {
+            super::conversion_fence::validate(&root, token)?;
+        } else {
+            super::conversion_fence::refuse_pending(&root)?;
+        }
+        let current = artifact::current(&root)?;
+        if current.required_features & super::FEATURE_OBJECT_METADATA == 0 {
+            return Err(crate::Error::Config(
+                "disk-pack writes require complete object bounds".into(),
+            ));
+        }
         Ok(Self {
             root,
             _file: file,

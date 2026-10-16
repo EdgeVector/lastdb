@@ -62,6 +62,15 @@ impl HomeDescriptor {
 }
 
 impl DiskHome {
+    pub(crate) fn journal_conversion(&self, token: uuid::Uuid) -> Result<HomeJournal> {
+        let writer = JournalWriter::open_conversion(&self.root, token)?;
+        self.descriptor.check_current(writer.current())?;
+        Ok(HomeJournal {
+            descriptor: self.descriptor.clone(),
+            writer,
+        })
+    }
+
     /// Recover complete pending work and checkpoint a fresh stream before admission.
     pub fn journal(&self) -> Result<HomeJournal> {
         if self
