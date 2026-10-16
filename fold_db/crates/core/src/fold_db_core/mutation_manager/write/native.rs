@@ -53,6 +53,14 @@ impl MutationManager {
                     .await?;
                 self.commit_native_deltas(&mut deltas, &request.runtime)
                     .await?;
+                if memory_ack {
+                    let bytes = transaction::memory_quote(&request.runtime)?;
+                    if let Some(reservation) = self.try_reserve_defer(bytes) {
+                        transaction::retain(&request.runtime, reservation)?;
+                    } else {
+                        transaction::require_durable(&request.runtime)?;
+                    }
+                }
                 Ok::<_, SchemaError>(ids)
             })
             .await?;
@@ -78,6 +86,7 @@ impl MutationManager {
             );
             let mut job = private_job(delta, schema, mutation_events, modified_fields);
             self.stage_native_job(&mut job).await?;
+            self.stage_native_paths(&job, runtime).await?;
             if let Some(batch) = job.search_batch.take() {
                 let inbox = self.search_outbox_inbox.clone();
                 transaction::after_commit(runtime, async move {

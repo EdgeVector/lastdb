@@ -30,7 +30,7 @@ where
     } else {
         None
     };
-    let gate = Arc::clone(&runtime.write_gate).lock_owned().await;
+    let gate = runtime.enter_write().await;
     let pending = Arc::new(PendingBatch::new(&runtime));
     let result = read::write_scope(
         Arc::clone(&runtime),
@@ -38,6 +38,7 @@ where
     )
     .await??;
     let operations = pending.freeze_operations();
+    let delay = delay.filter(|_| !pending.durable_only.load(Ordering::Acquire));
     let owner = Arc::clone(&runtime);
     // Preparation owns the gate even if the caller stops while disk capacity
     // is checked. No accepted view exists until all reservations succeed.
@@ -58,6 +59,8 @@ where
             .push(Box::new(Arc::clone(&prepared.protection)));
     }
     let delay = delay.filter(|_| prepared.is_some());
+    let delay = protect_paths(&runtime, &pending, delay)?;
+    let memory_ack = delay.is_some();
     if delay.is_some() {
         runtime.install_accepted(Arc::clone(&pending))?;
     }
@@ -89,6 +92,29 @@ where
         })??;
     }
     Ok(result)
+}
+
+fn protect_paths(
+    runtime: &PackRuntime,
+    pending: &PendingBatch,
+    delay: Option<std::time::Duration>,
+) -> StorageResult<Option<std::time::Duration>> {
+    let paths = std::mem::take(&mut *pending.paths.lock().expect("native private paths"));
+    if delay.is_none() {
+        return Ok(None);
+    }
+    let protection = match super::super::logical_paths::PathProtection::reserve(runtime, &paths) {
+        Ok(protection) => protection,
+        Err(StorageError::WriteResourceLimit { .. }) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    protection.publish()?;
+    pending
+        .retained
+        .lock()
+        .expect("native request resources")
+        .push(Box::new(protection));
+    Ok(delay)
 }
 
 async fn finish(

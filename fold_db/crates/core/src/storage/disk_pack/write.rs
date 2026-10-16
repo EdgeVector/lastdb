@@ -33,7 +33,7 @@ impl PackRuntime {
         if let Some(pending) = transaction::PendingBatch::current(self) {
             return pending.stage(operations);
         }
-        let gate = Arc::clone(&self.write_gate).lock_owned().await;
+        let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
             let _gate = gate;
@@ -75,7 +75,7 @@ impl PackRuntime {
             )
             .map_err(map)?;
         let protection =
-            Arc::new(admission::WriteProtection::reserve(self, &operations)?.with_space(space));
+            Arc::new(admission::WriteProtection::reserve(self, &operations).with_space(space));
         Ok(PreparedCommit {
             operations,
             reservation,
@@ -114,22 +114,22 @@ impl PackRuntime {
         if transaction::PendingBatch::current(self).is_some() {
             return Ok(());
         }
-        if self
-            .view
-            .read()
-            .expect("native complete read view")
-            .accepted
-            .is_some()
-        {
-            self.flush_notify.notify_one();
-        }
-        let _gate = Arc::clone(&self.write_gate).lock_owned().await;
+        let _gate = self.enter_write().await;
         if self.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
                 "native flush cannot cover a failed directory publication".into(),
             ));
         }
-        // Each ordinary batch returns only after the complete root barrier.
         Ok(())
+    }
+
+    pub(super) async fn enter_write(self: &Arc<Self>) -> tokio::sync::OwnedMutexGuard<()> {
+        if let Ok(gate) = Arc::clone(&self.write_gate).try_lock_owned() {
+            return gate;
+        }
+        // A request that arrives during preparation also leaves a wake permit
+        // for that owner's eventual accepted worker; it cannot miss the handoff.
+        self.flush_notify.notify_one();
+        Arc::clone(&self.write_gate).lock_owned().await
     }
 }

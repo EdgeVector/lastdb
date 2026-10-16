@@ -26,6 +26,8 @@ pub(super) struct PendingBatch {
     retained: Mutex<Vec<Box<dyn Send>>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
+    durable_only: AtomicBool,
+    paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
 }
 
 tokio::task_local! {
@@ -41,6 +43,8 @@ impl PendingBatch {
             retained: Mutex::new(Vec::new()),
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
+            durable_only: AtomicBool::new(false),
+            paths: Mutex::new(Vec::new()),
         }
     }
     pub(super) fn current(runtime: &PackRuntime) -> Option<Arc<Self>> {
@@ -138,6 +142,64 @@ impl PendingBatch {
             })
             .collect()
     }
+}
+
+/// An unsupported memory mapping still completes its complete disk batch.
+pub(crate) fn require_durable(runtime: &PackRuntime) -> StorageResult<()> {
+    let pending = PendingBatch::current(runtime).ok_or_else(|| {
+        StorageError::InvalidOperation("native durability choice requires a write scope".into())
+    })?;
+    pending.durable_only.store(true, Ordering::Release);
+    Ok(())
+}
+
+/// Stage actual path content privately. Metadata and absences do not count.
+pub(crate) fn stage_paths(
+    runtime: &PackRuntime,
+    records: Vec<super::logical_paths::LogicalPathRecord>,
+) -> StorageResult<()> {
+    let pending = PendingBatch::current(runtime).ok_or_else(|| {
+        StorageError::InvalidOperation("native paths require a complete write scope".into())
+    })?;
+    let mut paths = pending.paths.lock().expect("native private paths");
+    let bytes = paths
+        .iter()
+        .chain(&records)
+        .try_fold(0usize, |total, record| {
+            total
+                .checked_add(record.body.len())
+                .and_then(|n| n.checked_add(record.path.id().ok()?.len()))
+                .filter(|n| *n <= 128 * 1024 * 1024)
+                .ok_or_else(|| StorageError::WriteResourceLimit {
+                    detail: "native private paths exceed 128 MiB".into(),
+                })
+        })?;
+    if paths.len().saturating_add(records.len()) > 10_000 || bytes > 128 * 1024 * 1024 {
+        return Err(StorageError::WriteResourceLimit {
+            detail: "native private paths exceed their key cap".into(),
+        });
+    }
+    paths.extend(records);
+    Ok(())
+}
+
+/// Include owned stored bytes, publication copies, and canonical body copies.
+pub(crate) fn memory_quote(runtime: &PackRuntime) -> StorageResult<u64> {
+    let pending = PendingBatch::current(runtime).ok_or_else(|| {
+        StorageError::InvalidOperation("native memory quote requires a write scope".into())
+    })?;
+    let stored = pending.data.lock().expect("native pending batch").bytes;
+    let paths = pending
+        .paths
+        .lock()
+        .expect("native private paths")
+        .iter()
+        .fold(0u64, |sum, record| {
+            sum.saturating_add(record.body.len() as u64 + 1024)
+        });
+    Ok(stored
+        .saturating_mul(4)
+        .saturating_add(paths.saturating_mul(2)))
 }
 
 pub(super) fn validate(operations: &[HomeMutation]) -> StorageResult<()> {

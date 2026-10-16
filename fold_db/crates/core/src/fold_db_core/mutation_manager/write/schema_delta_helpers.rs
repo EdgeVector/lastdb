@@ -11,11 +11,13 @@ impl MutationManager {
         storage_prefix: Option<&str>,
     ) -> Result<crate::schema::types::Schema, SchemaError> {
         let mut schema = if self.db_ops.namespaced_store().disk_pack_runtime().is_some() {
-            self.db_ops
-                .schemas()
-                .read_snapshot(schema_name)
-                .await?
-                .schema
+            let snapshot = self.db_ops.schemas().read_snapshot(schema_name).await?;
+            if snapshot.state == SchemaState::Blocked {
+                return Err(SchemaError::Blocked(format!(
+                    "Schema '{schema_name}' is blocked and cannot be mutated"
+                )));
+            }
+            snapshot.schema
         } else {
             self.schema_manager.get_schema_metadata(schema_name)?
         }

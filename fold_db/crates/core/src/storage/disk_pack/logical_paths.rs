@@ -45,12 +45,13 @@ impl LogicalPath {
             &self.range,
             &self.atom,
         ))
-        .map_err(serialization)
+        .map_err(|error| serialization(&error))
     }
 }
 
 pub(crate) fn schema_identity(schema: &Schema) -> StorageResult<String> {
-    serde_json::to_string(&(&schema.name, &schema.identity_hash)).map_err(serialization)
+    serde_json::to_string(&(&schema.name, &schema.identity_hash))
+        .map_err(|error| serialization(&error))
 }
 
 #[derive(Clone)]
@@ -64,7 +65,7 @@ impl LogicalPathRecord {
     pub(crate) fn from_value(path: LogicalPath, value: &serde_json::Value) -> StorageResult<Self> {
         Ok(Self {
             path,
-            body: serde_json::to_vec(value).map_err(serialization)?,
+            body: serde_json::to_vec(value).map_err(|error| serialization(&error))?,
         })
     }
 }
@@ -167,6 +168,6 @@ fn capacity() -> StorageError {
     }
 }
 
-fn serialization(error: serde_json::Error) -> StorageError {
+fn serialization(error: &serde_json::Error) -> StorageError {
     StorageError::BackendError(format!("native logical path encoding: {error}"))
 }

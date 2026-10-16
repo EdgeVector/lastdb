@@ -29,6 +29,7 @@ mod hard_erasure;
 mod hard_erasure_process;
 mod molecule_keys;
 mod native;
+mod native_paths;
 use attribution::{attribution_scopes, attribution_source_events_enabled};
 use erasure::estimate_retained_atom_set_bytes;
 mod replay;

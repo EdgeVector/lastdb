@@ -13,9 +13,13 @@ The retained-part check rejects a batch before append if its conservative output
 An owned mutation ticket binds the journal quota and map dimensions to the current generation.
 A changed root refuses the ticket before append.
 The exclusive native write gate stays owned through the complete publication.
-The node currently holds every unique stored coordinate within the existing record budget before append.
-This includes atoms, tips, schema data, side records, and protein sibling records that the complete stored batch contains.
-Partial logical reservations return their capacity on refusal.
+Stored coordinates no longer consume the logical path budget.
+The memory path reserves exact schema, canonical field, molecule, hash, range, and selected atom identities.
+Each path owns that field's content in the existing warm set.
+Metadata and absences do not count as logical paths.
+Protein sibling paths use target-addressed schema-field reverse edges and exact catalog checks.
+Document-envelope paths reserve each selected declared field under the actual record molecule and atom.
+Partial path reservations return their capacity on refusal.
 
 Successful publication invalidates earlier fetched values before it releases the logical holds.
 A failed append or publication stops native writes and retains the logical holds in the failed runtime.
@@ -38,9 +42,13 @@ The request now owns an immutable accepted batch and an independent flush worker
 The worker uses the 500 ms default flush interval.
 An explicit flush wakes the worker and waits for its complete root.
 The exclusive writer gate permits one accepted batch at a time.
+A later write or an explicit flush wakes the owner for an earlier complete disk publication.
+The idle deadline stays at the configured flush interval, which defaults to 500 ms.
 A cancelled caller cannot cancel the accepted batch or release its reservations.
 An older query keeps the same accepted bytes after the worker publishes the disk root.
-The physical-space ticket returns after that root; protected records stay until the last query releases its accepted batch.
+The physical-space ticket returns after that root; protected paths stay until the last query releases its accepted batch.
+The existing defer-byte gauge reserves a conservative complete request quote until that same boundary.
+This byte reservation is separate from the 10000-path budget.
 Failed publication keeps the request and its reservations, and stops later native writes.
 
 Native queries now load schema data, state, and successor from their captured storage view.
@@ -49,9 +57,9 @@ Native write preparation reads its schema from the current private storage scope
 Bounded namespace removal names at most 4095 records plus its registry record before it changes any bytes.
 Larger namespace removal refuses the complete request.
 
-The native resident-mode refusal remains in place.
-Stored coordinates and metadata are not the user's schema-to-atom logical paths.
-The canonical path and body bridge, alias-directory view, and generated-data evidence must complete before that refusal can change.
+Incomplete reverse metadata, ambiguous source names, share fan-out, or unavailable path or byte capacity makes a request complete disk before its reply.
+This fallback does not publish an incomplete memory view.
+The native resident-mode refusal remains in place until the read bridge, alias-directory view, and generated-data evidence complete.
 
 LastStore library and binary Clippy passes with warnings denied.
 Format and changed function, file, and allow checks pass.
