@@ -30,14 +30,7 @@ pub(in crate::disk_pack) fn compact_locked(
         return Err(corrupt("compaction requires a complete journal checkpoint"));
     }
     let old = publish::ensure_generation(lock, &previous)?;
-    let source_bytes = old.records.iter().try_fold(0u64, |sum, record| {
-        sum.checked_add(crate::disk_pack::bytes::u64_at(record, 32))
-            .ok_or_else(|| corrupt("compaction reserve overflow"))
-    })?;
-    let reserve = source_bytes
-        .checked_mul(2)
-        .and_then(|n| n.checked_add(8 * 1024 * 1024))
-        .ok_or_else(|| corrupt("compaction reserve overflow"))?;
+    let reserve = super::quote::replacement_bytes(root, &previous)?;
     let _space = reserve_replacement(root, policy, reserve)?;
     let mut current = previous.clone();
     current.generation = publish::fresh_generation(root, previous.generation)?;

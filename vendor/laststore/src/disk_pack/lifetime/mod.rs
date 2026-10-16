@@ -3,6 +3,7 @@
 //! for every active read, including readers in other processes.
 
 use super::{artifact, corrupt, Current};
+use crate::read_receipt_io::MeasuredFile;
 use crate::{durability, Result};
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -21,7 +22,7 @@ pub use reference::{
 pub struct GenerationHold {
     current: Current,
     root: PathBuf,
-    _file: File,
+    _file: MeasuredFile,
 }
 
 impl GenerationHold {
@@ -62,8 +63,13 @@ impl GenerationHold {
     }
 }
 
-fn lock_file(root: &Path) -> Result<File> {
+fn lock_file(root: &Path) -> Result<MeasuredFile> {
     let path = root.join("LIFETIME_LOCK");
+    match crate::read_receipt_io::open(&path) {
+        Ok(file) => return Ok(file),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     match OpenOptions::new()
         .read(true)
         .write(true)
@@ -73,26 +79,31 @@ fn lock_file(root: &Path) -> Result<File> {
         Ok(file) => {
             durability::sync_dirty_file(&file)?;
             durability::sync_directory(&File::open(root)?)?;
-            Ok(file)
+            Ok(crate::read_receipt_io::open(path)?)
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            Ok(OpenOptions::new().read(true).write(true).open(path)?)
+            Ok(crate::read_receipt_io::open(path)?)
         }
         Err(error) => Err(error.into()),
     }
 }
 
-pub(super) fn shared(root: &Path) -> Result<File> {
+pub(super) fn initialize(root: &Path) -> Result<()> {
+    drop(lock_file(root)?);
+    Ok(())
+}
+
+pub(super) fn shared(root: &Path) -> Result<MeasuredFile> {
     let file = lock_file(root)?;
-    rustix::fs::flock(&file, rustix::fs::FlockOperation::LockShared)
+    rustix::fs::flock(&*file, rustix::fs::FlockOperation::LockShared)
         .map_err(std::io::Error::from)?;
     Ok(file)
 }
 
 /// The writer already owns the publication lease. Readers make reclaim defer.
-pub(super) fn exclusive(root: &Path) -> Result<Option<File>> {
+pub(super) fn exclusive(root: &Path) -> Result<Option<MeasuredFile>> {
     let file = lock_file(root)?;
-    match rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
+    match rustix::fs::flock(&*file, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => Ok(Some(file)),
         Err(error) if error == rustix::io::Errno::WOULDBLOCK => Ok(None),
         Err(error) => Err(std::io::Error::from(error).into()),

@@ -76,6 +76,7 @@ impl ArtifactBuilder {
             return Err(corrupt("artifact creation generation is zero"));
         }
         directory(root)?;
+        super::lifetime::initialize(root)?;
         if let Some(descriptor) = native {
             descriptor.write(root)?;
         } else {

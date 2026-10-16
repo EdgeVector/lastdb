@@ -1,0 +1,59 @@
+use crate::disk_pack::tree_cursor::TreeCursor;
+use crate::disk_pack::{artifact, corrupt, Current, DirectoryEntry, Location, Source, PAGE_BYTES};
+use crate::Result;
+use std::path::Path;
+
+/// Worst-case uncompressed output, calculated from exact live locator entries.
+/// Compression can never reduce this reservation and then enlarge its output beyond it.
+pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
+    // Complete receipt, its private publication, empty-tree floors, and checkpoint slack.
+    let mut bytes = 8 * 1024 * 1024u64;
+    let mut records = 0u64;
+    let mut groups = 0u64;
+    let mut call = artifact::metadata_call(root, current.clone());
+    let mut directory = TreeCursor::seek(&mut call, current.directory.clone(), b"")?;
+    while let Some((key, value)) = directory.next(&mut call)? {
+        groups += 1;
+        if groups > 65_536 {
+            return Err(crate::disk_pack::resource());
+        }
+        let entry = DirectoryEntry::decode(&value)?;
+        super::compact::collection(&key, entry.group)?;
+        let mut cursor = TreeCursor::seek(&mut call, entry.locator, b"")?;
+        // Include directory long-key overflow, initial tree pages, part headers, map tails.
+        add(&mut bytes, 128 * 1024 + key.len() as u64)?;
+        while let Some((key, value)) = cursor.next(&mut call)? {
+            records += 1;
+            if records > 1_000_000 {
+                return Err(crate::disk_pack::resource());
+            }
+            let location = Location::decode(&value)?;
+            if location.version.batch > current.frontier {
+                return Err(corrupt("compaction quote frontier"));
+            }
+            let overflow = key.len().saturating_sub(128).div_ceil(PAGE_BYTES - 128) as u64;
+            add(&mut bytes, overflow * PAGE_BYTES as u64 + 1024)?;
+            if location.source != Source::Tombstone {
+                // Each record can straddle one initial block. Include frames and block map entries.
+                let blocks = location.record_bytes.div_ceil(4096) + 1;
+                add(&mut bytes, location.record_bytes)?;
+                add(
+                    &mut bytes,
+                    blocks
+                        .checked_mul(104)
+                        .ok_or_else(|| corrupt("compaction block reserve overflow"))?,
+                )?;
+            }
+            call = artifact::metadata_call(root, current.clone());
+        }
+        call = artifact::metadata_call(root, current.clone());
+    }
+    Ok(bytes)
+}
+
+fn add(total: &mut u64, bytes: u64) -> Result<()> {
+    *total = total
+        .checked_add(bytes)
+        .ok_or_else(|| corrupt("compaction reserve overflow"))?;
+    Ok(())
+}

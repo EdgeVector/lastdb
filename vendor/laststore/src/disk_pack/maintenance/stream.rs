@@ -79,7 +79,7 @@ impl Read for RecordBody<'_> {
             .len()
             .min(block.bytes.len() - start)
             .min((self.location.record_bytes - self.position) as usize);
-        if self.position + (count as u64) < self.location.record_bytes
+        if self.position + ((block.bytes.len() - start) as u64) < self.location.record_bytes
             && block.bytes.len() != BLOCK_BYTES
         {
             return Err(io::Error::new(

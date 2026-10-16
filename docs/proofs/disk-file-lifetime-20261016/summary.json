@@ -1,0 +1,47 @@
+{
+  "source": "fresh generated native home; fanout=1; 1024 keys; initial body=768 bytes; three complete rewrite batches; 256 final tombstones",
+  "records": 1024,
+  "opaque_body_hash_key_and_version_digest_before": "054262eb99918d4f5fdb98ddf4874777fd67d73bd5cca11dfb6b472c798fbc66",
+  "digest_after_compact_with_reference": "054262eb99918d4f5fdb98ddf4874777fd67d73bd5cca11dfb6b472c798fbc66",
+  "digest_after_release_and_reclaim": "054262eb99918d4f5fdb98ddf4874777fd67d73bd5cca11dfb6b472c798fbc66",
+  "records_equal": true,
+  "held_compaction": {
+    "elapsed_nanos": 196175584,
+    "result": {
+      "bytes_removed": 0,
+      "files_removed": 0,
+      "generation": 12,
+      "parts_after": 4,
+      "parts_before": 25,
+      "reclaim_deferred": true,
+      "records_copied": 768,
+      "tombstones_copied": 256
+    }
+  },
+  "reclaim_with_backup_reference": {
+    "elapsed_nanos": 279759958,
+    "result": {
+      "bytes_removed": 180224,
+      "files_removed": 11,
+      "generation": 13,
+      "parts_after": 0,
+      "parts_before": 0,
+      "reclaim_deferred": false,
+      "records_copied": 0,
+      "tombstones_copied": 0
+    }
+  },
+  "reclaim_after_explicit_reference_release": {
+    "elapsed_nanos": 283553167,
+    "result": {
+      "bytes_removed": 104586728,
+      "files_removed": 27,
+      "generation": 14,
+      "parts_after": 0,
+      "parts_before": 0,
+      "reclaim_deferred": false,
+      "records_copied": 0,
+      "tombstones_copied": 0
+    }
+  }
+}

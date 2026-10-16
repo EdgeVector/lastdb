@@ -1,6 +1,7 @@
 //! Bounded same-home compaction and exact-reference reclaim under the writer lease.
 
 mod compact;
+mod quote;
 mod reclaim;
 mod space;
 mod stream;

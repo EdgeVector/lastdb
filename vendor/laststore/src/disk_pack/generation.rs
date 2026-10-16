@@ -140,7 +140,8 @@ pub(super) fn load_current(root: &Path, number: u64) -> Result<Current> {
         .join("generations")
         .join(number.to_string())
         .join("part-00000000");
-    let mut file = std::fs::File::open(path)?;
+    let _class = ReadClass::FormatProbe.enter();
+    let mut file = crate::read_receipt_io::open(path)?;
     let mut prefix = [0; 4352];
     file.read_exact(&mut prefix)?;
     let current = Current::decode(prefix[256..4352].try_into().expect("embedded CURRENT"))?;

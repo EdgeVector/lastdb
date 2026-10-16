@@ -30,6 +30,7 @@ pub(in crate::disk_pack) fn reclaim_locked(
         receipt.reclaim_deferred = true;
         return Ok(receipt);
     };
+    validate_roots(root)?;
     cleanup_retired(root, &mut receipt)?;
     let tail = crate::disk_pack::journal::JournalTail::read(root)?;
     if tail.stream != current.journal_stream || tail.last_batch != current.frontier {
@@ -71,9 +72,13 @@ pub(in crate::disk_pack) fn reclaim_locked(
         for coordinate in &generation.coordinates {
             if !live.contains(coordinate) {
                 candidates.insert(*coordinate, coordinate.path(root)?);
+                if candidates.len() > MAX_RETAINED_PARTS {
+                    return Err(crate::disk_pack::resource());
+                }
             }
         }
-        old.push((held, generation));
+        // Retain root identities only; old conservative receipts can overlap heavily.
+        old.push(held);
     }
     let mut removals = Vec::new();
     for (coordinate, path) in candidates {
@@ -89,7 +94,8 @@ pub(in crate::disk_pack) fn reclaim_locked(
         receipt.bytes_removed += bytes;
         remove_empty_parents(root, &path)?;
     }
-    for (held, generation) in old {
+    for held in old {
+        let generation = generation::read_receipt(root, &held)?;
         if generation.coordinates.iter().any(|coordinate| {
             !live.contains(coordinate) && coordinate.path(root).map_or(true, |path| path.exists())
         }) {
@@ -98,6 +104,26 @@ pub(in crate::disk_pack) fn reclaim_locked(
         remove_receipt(root, &held, &generation, &mut receipt)?;
     }
     Ok(receipt)
+}
+
+fn validate_roots(root: &Path) -> Result<()> {
+    for name in [
+        "generations",
+        "references",
+        "retired-generations",
+        "directory",
+        "locator",
+        "packs",
+        "journal",
+    ] {
+        match std::fs::symlink_metadata(root.join(name)) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => return Err(corrupt("reclaim root namespace is not a regular directory")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 fn generations(root: &Path) -> Result<Vec<u64>> {
@@ -126,6 +152,7 @@ fn removable(
     path: &Path,
     cutoff: u64,
 ) -> Result<Option<u64>> {
+    validate_parents(root, path)?;
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -146,6 +173,26 @@ fn removable(
     let current = artifact::current(root)?;
     coordinate.capture(root, &current)?;
     Ok(Some(metadata.len()))
+}
+
+fn validate_parents(root: &Path, path: &Path) -> Result<()> {
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|_| corrupt("reclaim path escaped root"))?;
+    let mut parent = root.to_path_buf();
+    for component in relative.parent().expect("part has parent").components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err(corrupt("unsupported reclaim path component"));
+        }
+        parent.push(component);
+        match std::fs::symlink_metadata(&parent) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => return Err(corrupt("reclaim refuses a symlink or non-directory parent")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 fn remove_receipt(
