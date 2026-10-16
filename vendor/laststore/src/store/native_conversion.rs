@@ -75,6 +75,7 @@ impl LastStore {
         self.flush()?;
         let home = DiskHome::open_conversion(destination)?;
         let mut writer = home.journal_conversion(token)?;
+        self.register_native_namespaces(&mut writer)?;
         let mut batch = Vec::new();
         let mut batch_bytes = 0usize;
         for (collection, key) in &changed {
@@ -129,6 +130,34 @@ impl LastStore {
     pub(crate) fn open_pending_conversion(root: &Path) -> Result<Self> {
         let options = resolve_layout_options(root, LastStoreOptions::default(), false)?;
         Self::open_conversion(root.to_path_buf(), options, true)
+    }
+
+    fn register_native_namespaces(
+        &self,
+        writer: &mut crate::disk_pack::home::HomeJournal,
+    ) -> Result<()> {
+        let mut names = self.collections_on_disk()?;
+        names.push("main".into());
+        names.sort();
+        names.dedup();
+        if names.len() > 10_000 {
+            return Err(Error::WriteCapacity("conversion namespace limit".into()));
+        }
+        for names in names.chunks(4096) {
+            let operations = names
+                .iter()
+                .filter(|name| name.as_str() != "__native_home")
+                .map(|name| HomeMutation {
+                    collection: "__native_home".into(),
+                    key: format!("namespaces\0{name}"),
+                    body: Some(vec![1]),
+                })
+                .collect::<Vec<_>>();
+            if !operations.is_empty() {
+                append(writer, operations)?;
+            }
+        }
+        Ok(())
     }
 
     fn conversion_changes(&self, floor: u64) -> Result<BTreeSet<(String, String)>> {
@@ -225,6 +254,7 @@ impl ConversionCutover<'_> {
             "token":self.token.to_string(),"reference":self.reference.info().identity.to_string(),
             "current_digest":fence::digest(&self._writer.current().encode()?)
         });
+        fence::legacy_downgrade_fence(&self.source.root, &value)?;
         fence::publish(&self.source.root, SOURCE_FENCE, &value)?;
         fence::finish(&self.destination, self.token)?;
         self.reference.release()?;

@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 pub(crate) const PENDING: &str = "laststore-conversion-pending-v1";
 pub(crate) const FORWARD_FENCE: &str = "laststore-native-source-sealed-v1";
+pub(crate) const COMPLETE: &str = "laststore-conversion-complete-v1";
 
 pub(crate) fn pending(root: &Path) -> Result<Uuid> {
     let token = Uuid::new_v4();
@@ -34,6 +35,18 @@ pub(crate) fn refuse_pending(root: &Path) -> Result<()> {
 
 pub(crate) fn finish(root: &Path, token: Uuid) -> Result<()> {
     validate(root, token)?;
+    if root.join(COMPLETE).try_exists()? {
+        if bounded_file(&root.join(COMPLETE), 36)? != token.to_string().as_bytes() {
+            return Err(Error::Corrupt("conversion completion token differs".into()));
+        }
+    } else {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(root.join(COMPLETE))?;
+        file.write_all(token.to_string().as_bytes())?;
+        durability::sync_dirty_file(&file)?;
+    }
     std::fs::remove_file(root.join(PENDING))?;
     durability::sync_directory(&File::open(root)?)
 }
@@ -97,4 +110,48 @@ pub(crate) fn bounded_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
         return Err(Error::Corrupt("conversion metadata grew".into()));
     }
     Ok(bytes)
+}
+
+pub(crate) fn forward_value(root: &Path) -> Result<Option<Value>> {
+    if root.join(FORWARD_FENCE).try_exists()? {
+        return read(root, FORWARD_FENCE).map(Some);
+    }
+    let path = root.join("laststore-layout-v1");
+    if !path.try_exists()? {
+        return Ok(None);
+    }
+    let raw = bounded_file(&path, 65_536)?;
+    let text =
+        std::str::from_utf8(&raw).map_err(|_| Error::Corrupt("conversion layout UTF-8".into()))?;
+    let Some(value) = text
+        .lines()
+        .find_map(|line| line.strip_prefix("native_conversion="))
+    else {
+        return Ok(None);
+    };
+    serde_json::from_str(value)
+        .map(Some)
+        .map_err(|_| Error::Corrupt("conversion layout intent".into()))
+}
+
+pub(crate) fn legacy_downgrade_fence(root: &Path, value: &Value) -> Result<()> {
+    let original = bounded_file(&root.join("laststore-layout-v1"), 4096)?;
+    let backup = root.join("laststore-layout-before-native-v1");
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(backup)?;
+    file.write_all(&original)?;
+    durability::sync_dirty_file(&file)?;
+    let temporary = root.join(format!(".native-layout-{}", Uuid::new_v4()));
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary)?;
+    file.write_all(super::home::LEGACY_FENCE_BYTES)?;
+    let json = serde_json::to_string(value).map_err(|error| Error::Config(error.to_string()))?;
+    writeln!(file, "native_conversion={json}")?;
+    durability::sync_dirty_file(&file)?;
+    std::fs::rename(temporary, root.join("laststore-layout-v1"))?;
+    durability::sync_directory(&File::open(root)?)
 }

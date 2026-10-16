@@ -69,6 +69,18 @@ pub(super) fn held_inventory(root: &Path, current: &Current) -> Result<Generatio
             creation_generation: 1,
         });
     }
+    let complete = crate::disk_pack::conversion_fence::COMPLETE;
+    if root.join(complete).try_exists()? {
+        let metadata = std::fs::symlink_metadata(root.join(complete))?;
+        if !metadata.is_file() || metadata.len() != 36 {
+            return Err(corrupt("conversion completion marker length or type"));
+        }
+        files.push(GenerationFile {
+            path: PathBuf::from(complete),
+            bytes: 36,
+            creation_generation: 1,
+        });
+    }
     Ok(GenerationInventory {
         current: current.clone(),
         receipt: generation.object,

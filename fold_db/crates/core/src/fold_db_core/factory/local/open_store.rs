@@ -5,7 +5,21 @@ pub(super) fn open_primary_store(
     path: &std::path::Path,
     e2e_keys: &E2eKeys,
 ) -> FoldDbResult<OpenPrimaryStore> {
-    if crate::storage::disk_pack::requested(path) {
+    let high_water_path = laststore_high_water_path(path);
+    let converted = laststore::disk_pack::resolve_conversion(path)
+        .map_err(|error| FoldDbError::Config(format!("storage conversion: {error}")))?;
+    if let Some(selected) = converted.as_ref().filter(|selected| selected.native) {
+        let store = crate::storage::disk_pack::PackNamespacedStore::open_home(&selected.path)?;
+        return Ok(OpenPrimaryStore {
+            store: Arc::new(store),
+            laststore: None,
+            wrap_at_rest_seam: true,
+        });
+    }
+    let path = converted
+        .as_ref()
+        .map_or(path, |selected| selected.path.as_path());
+    if converted.is_none() && crate::storage::disk_pack::requested(path) {
         return open_native_store(path);
     }
     // Packaging modes:
@@ -14,7 +28,6 @@ pub(super) fn open_primary_store(
     //   frame AEAD → restart-safe open tails.
     // - **frame_aead** (legacy LSF1): keep data_key; no nested ENC seam.
     // - **segment_log** keyless: value-level ENC seam for legacy homes.
-    let high_water_path = laststore_high_water_path(path);
     // Product runtime defaults always include the hash-group warm budget
     // (256 MiB). Durable layout descriptor / detect still override layout_mode,
     // packaging, and group bits via `open_existing_or_with` — so legacy

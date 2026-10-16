@@ -15,6 +15,7 @@ mod call;
 mod call_io;
 pub mod conversion;
 pub(crate) mod conversion_fence;
+mod conversion_select;
 mod current;
 mod dependency;
 mod dependency_walk;
@@ -43,6 +44,7 @@ mod write_lock;
 
 pub use build::{ArtifactBuilder, GroupWriter};
 pub use call::{ReadBudget, ReadCall, ReadCosts};
+pub use conversion_select::{resolve_conversion, ResolvedStore};
 pub use current::Current;
 pub use hash_range::{HashRangeCursor, HashScope, RangeBounds, RangePage, RangeRecord};
 pub use location::{DirectoryEntry, Location, MutationVersion, Source};

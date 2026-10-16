@@ -52,7 +52,10 @@ struct PackKvStore {
 }
 
 pub(crate) fn requested(path: &Path) -> bool {
-    path.join(NODE_MARKER).exists() || env_flag::var_parse("LASTDB_DISK_PACK").unwrap_or(false)
+    path.join(NODE_MARKER).exists()
+        || path.join("laststore-pack-home-v1").exists()
+        || path.join("laststore-native-source-sealed-v1").exists()
+        || env_flag::var_parse("LASTDB_DISK_PACK").unwrap_or(false)
 }
 
 fn map(error: laststore::Error) -> StorageError {
@@ -84,6 +87,9 @@ impl PackNamespacedStore {
     /// Open an explicitly fenced native node store, or create an empty requested home.
     /// The caller must reject cloud sync and memory acknowledgements until their native gates are wired.
     pub fn open(path: &Path) -> StorageResult<Self> {
+        if path.join("laststore-pack-home-v1").try_exists()? {
+            return Self::open_home(path);
+        }
         if crate::resident::ResidentPolicy::from_env()
             .mode
             .reads_resident_first()
@@ -148,7 +154,20 @@ impl PackNamespacedStore {
             .finish()
             .map_err(map)?;
         }
-        let home = Arc::new(DiskHome::open(&path.join("disk-pack")).map_err(map)?);
+        Self::open_home(&path.join("disk-pack"))
+    }
+
+    /// Open a completed converted or restored native home with its original node identity.
+    pub(crate) fn open_home(path: &Path) -> StorageResult<Self> {
+        if crate::resident::ResidentPolicy::from_env()
+            .mode
+            .reads_resident_first()
+        {
+            return Err(StorageError::ConfigurationError(
+                "native resident routing requires complete logical record ownership".into(),
+            ));
+        }
+        let home = Arc::new(DiskHome::open(path).map_err(map)?);
         let journal = home.journal().map_err(map)?;
         let current = journal.current().clone();
         let frontier = current.frontier;

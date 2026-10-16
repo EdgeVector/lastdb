@@ -96,13 +96,13 @@ pub fn reverse_to_legacy(home: &DiskHome, destination: &Path) -> Result<ReverseR
 /// this exact pending target. A target without a source fence stays dormant.
 /// No source data is opened as a database, overwritten, or deleted.
 pub fn finish_conversion(source: &Path, destination: &Path) -> Result<()> {
-    let forward = source.join(fence::FORWARD_FENCE).try_exists()?;
-    let name = if forward {
-        fence::FORWARD_FENCE
+    let prepared = fence::forward_value(source)?;
+    let forward = prepared.is_some();
+    let value = if let Some(value) = prepared {
+        value
     } else {
-        REVERSE_FENCE
+        fence::read(source, REVERSE_FENCE)?
     };
-    let value = fence::read(source, name)?;
     let destination = std::fs::canonicalize(destination)?;
     if value["format"] != 1
         || value["destination"].as_str().map(Path::new) != Some(destination.as_path())
@@ -134,6 +134,9 @@ pub fn finish_conversion(source: &Path, destination: &Path) -> Result<()> {
         let _inventory = super::lifetime::generation_inventory(&destination, &current)?;
         super::journal::JournalTail::read(&destination)?
             .validate_for_current(&destination, &current)?;
+        if !source.join(fence::FORWARD_FENCE).try_exists()? {
+            fence::publish(source, fence::FORWARD_FENCE, &value)?;
+        }
         fence::finish(&destination, token)?;
         super::lifetime::release_reference(&destination, reference)?;
     } else {
