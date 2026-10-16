@@ -8,15 +8,16 @@
 //! install into resident for next time.
 //!
 //! Gating: only unprefixed reads (`storage_prefix: None` — resident does not
-//! model share namespaces) and only when `LASTDB_RESIDENT_MODE` enables
-//! resident-first reads. Mode off = byte-identical passthrough.
+//! model share namespaces). Every ack mode checks the graph first. A hit
+//! returns the dirty record and does not copy it into the warm set. A miss
+//! loads from storage, which admits one clean record to the warm set only.
 
 use std::sync::Arc;
 use std::sync::OnceLock;
 
 use crate::atom::{Atom, AtomPartition};
 use crate::db_operations::DbOperations;
-use crate::resident::{ResidentAtom, ResidentMode, ResidentPolicy};
+use crate::resident::{ResidentMode, ResidentPolicy};
 use crate::schema::types::SchemaError;
 
 /// Process-resolved resident mode (env is stable for the process lifetime).
@@ -25,12 +26,11 @@ fn resident_mode() -> ResidentMode {
     *MODE.get_or_init(|| ResidentPolicy::from_env().mode)
 }
 
-/// Whether an unprefixed tip lookup may consult resident before durable
-/// storage. Tip probes use the current process env directly so tests that
-/// exercise this narrow path do not inherit the atom-batch OnceLock's first
-/// reader.
+/// Whether an unprefixed tip lookup consults the graph before the warm set
+/// and disk. Share prefixes stay on the storage path. Ack mode does not
+/// change this order.
 pub(crate) fn tip_reads_resident_first(storage_prefix: Option<&str>) -> bool {
-    storage_prefix.is_none() && ResidentPolicy::from_env().mode.reads_resident_first()
+    storage_prefix.is_none()
 }
 
 /// Resident-first counterpart of
@@ -53,7 +53,10 @@ pub(crate) async fn get_atoms_located_with_mode(
     storage_prefix: Option<&str>,
     mode: ResidentMode,
 ) -> Result<Vec<Option<Atom>>, SchemaError> {
-    if storage_prefix.is_some() || !mode.reads_resident_first() {
+    // Ack mode no longer selects the read order. The parameter stays so
+    // callers that pass an explicit mode keep the same signature.
+    let _ = mode;
+    if storage_prefix.is_some() {
         return db_ops
             .atoms()
             .get_atoms_located(slots, storage_prefix)
@@ -93,9 +96,8 @@ pub(crate) async fn get_atoms_located_with_mode(
             .await
             .map_err(|e| SchemaError::InvalidField(format!("Failed to fetch atom batch: {e}")))?;
         for (i, atom) in miss_idx.into_iter().zip(fetched) {
-            if let Some(ref a) = atom {
-                resident.rehydrate_atom(ResidentAtom::from_atom(a));
-            }
+            // A disk load admits the body on the storage path, into the warm
+            // set only. The graph keeps an atom only while that write is dirty.
             out[i] = atom;
         }
     }

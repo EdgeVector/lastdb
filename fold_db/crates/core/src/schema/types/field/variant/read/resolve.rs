@@ -292,7 +292,6 @@ impl FieldVariant {
         hash: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<TipMatch>, SchemaError> {
-        let observed = db_ops.resident().observe_slot(molecule_uuid, hash, "");
         let Some((base_key, rec)) = db_ops
             .atoms()
             .get_per_key_1d(molecule_uuid, hash, "", storage_prefix)
@@ -300,27 +299,8 @@ impl FieldVariant {
         else {
             return Ok(Vec::new());
         };
-        if storage_prefix.is_none() {
-            // The keyed read already supplied the tip. Reusing it
-            // avoids a second tip read and a premature atom fetch
-            // without a partition hint. Keep API coordinates in T0;
-            // get_per_key_1d owns blind-hash / encoded-range storage.
-            db_ops.resident().rehydrate_tip_at(
-                crate::resident::ResidentTip {
-                    molecule_uuid: molecule_uuid.to_string(),
-                    hash: hash.to_string(),
-                    range: String::new(),
-                    atom_uuid: rec.entry.atom_uuid.clone(),
-                    written_at: rec.entry.written_at,
-                    logical_counter: rec.entry.logical_counter,
-                    device_id: rec.entry.lww_device().to_string(),
-                    mutation_uuid: rec.entry.mutation_uuid.clone(),
-                    key_metadata: rec.meta.clone(),
-                    writer_pubkey: rec.entry.writer_pubkey.clone(),
-                },
-                Some((observed.resident_revision, observed.durable_revision)),
-            );
-        }
+        // One home: this disk tip stays out of the graph. The storage read
+        // admits it to the warm set.
         Ok(vec![(
             KeyValue::new(Some(hash.to_string()), None),
             rec,

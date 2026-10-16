@@ -8,6 +8,7 @@ mod prepare;
 mod protein_batch;
 mod restore;
 mod scoped_gate;
+mod warm_release;
 
 pub(in crate::fold_db_core::mutation_manager) use apply_gate::{
     ApplyGateOutcome, PreparedSchemaDelta, PreparedSlotRevision,

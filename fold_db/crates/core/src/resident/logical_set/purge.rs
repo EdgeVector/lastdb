@@ -216,6 +216,11 @@ impl LogicalResidentSet {
         self.drop_tombstone_record(key);
     }
 
+    /// Drop one warm tip. The graph holds that record while the write is dirty.
+    pub fn take_tip_for_graph(&mut self, molecule: MoleculeId, hash: &str, range: &str) {
+        self.drop_tip(&tip_key(molecule, hash, range));
+    }
+
     pub(super) fn drop_tip(&mut self, key: &TipKey) {
         let Some(entry) = self.tips.remove(key) else {
             return;

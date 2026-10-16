@@ -38,10 +38,13 @@ impl Drop for SlotRead<'_> {
         }
         readers.remove(&self.key);
         let mut slots = self.graph.slots.write().expect("resident slot lock");
-        if slots
-            .get(&self.key)
-            .is_some_and(|slot| slot.state != ResidentSlotState::Ready)
-        {
+        // A cold observe creates a zero slot. Drop that empty slot. A flushed
+        // tip keeps its revision after the body leaves, so a non-zero slot stays.
+        if slots.get(&self.key).is_some_and(|slot| {
+            slot.state != ResidentSlotState::Ready
+                && slot.resident_revision == 0
+                && slot.durable_revision == 0
+        }) {
             slots.remove(&self.key);
         }
     }

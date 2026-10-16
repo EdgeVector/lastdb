@@ -289,6 +289,9 @@ impl MutationManager {
                 atom_results,
             );
         }
+        // The warm set drops these tips before the graph holds the dirty
+        // copies. The lock is the warm set only. This function does no disk I/O.
+        self.release_warm_tips(schema, mutation_key_values, sibling_updates);
         if let Some(located_atoms) = located_atoms {
             let resident = self.resident_graph();
             for (atom, partition) in located_atoms {
