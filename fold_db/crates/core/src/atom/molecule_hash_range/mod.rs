@@ -67,4 +67,5 @@ pub struct MoleculeHashRange {
 mod construct;
 mod merge;
 mod ops;
+mod overlay;
 mod verify;

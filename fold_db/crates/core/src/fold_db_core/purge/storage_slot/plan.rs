@@ -64,7 +64,8 @@ pub(super) async fn plan_storage_slot_targets(
     };
     let mut seen: HashSet<(String, String, String)> = HashSet::new();
 
-    for target in targets {
+    let current = super::current::current_storage_slot_targets(db_ops, schema, targets).await?;
+    for target in current {
         let (disk_hash, disk_range) = validate_slot_target(schema, schema_name, target)?;
         let identity = (
             target.molecule_uuid.clone(),

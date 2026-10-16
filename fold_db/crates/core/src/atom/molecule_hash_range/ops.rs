@@ -282,7 +282,7 @@ impl MoleculeHashRange {
             .and_then(|range_map| range_map.get(range))
     }
 
-    fn remove_key_metadata(&mut self, hash: &str, range: &str) {
+    pub(super) fn remove_key_metadata(&mut self, hash: &str, range: &str) {
         if let Some(range_map) = self.key_metadata.get_mut(hash) {
             range_map.remove(range);
             if range_map.is_empty() {
@@ -292,6 +292,7 @@ impl MoleculeHashRange {
     }
 
     /// Import a tip while preserving its signed author-clock identity.
+    /// Returns true only when the incoming tip becomes the new head.
     #[allow(clippy::too_many_arguments)]
     pub fn set_atom_uuid_from_values_imported_with_author(
         &mut self,
@@ -305,9 +306,9 @@ impl MoleculeHashRange {
         written_at: Option<u64>,
         logical_counter: u64,
         mutation_uuid: String,
-    ) {
+    ) -> bool {
         if self.get_atom_uuid(&hash_value, &range_value) == Some(&atom_uuid) {
-            return;
+            return false;
         }
         let written_at = written_at.unwrap_or_else(now_nanos);
         if let Some(existing) = self.get_atom_entry(&hash_value, &range_value) {
@@ -319,7 +320,7 @@ impl MoleculeHashRange {
                 written_at == 0 && logical_counter == 0 && mutation_uuid.is_empty();
             if legacy_zero_clock {
                 if existing.written_at > 0 {
-                    return;
+                    return false;
                 }
             } else if !crate::atom::incoming_wins_lww(
                 crate::atom::lww_order_key(
@@ -331,7 +332,7 @@ impl MoleculeHashRange {
                 ),
                 existing.lww_key(),
             ) {
-                return;
+                return false;
             }
         }
         let prev_tip_id = self.archive_current_tip(&hash_value, &range_value, &atom_uuid);
@@ -363,6 +364,7 @@ impl MoleculeHashRange {
             },
         );
         self.updated_at = Utc::now();
+        true
     }
 
     /// Updates a key WITHOUT signing. Only for ephemeral in-memory operations (rewind).
@@ -391,35 +393,6 @@ impl MoleculeHashRange {
             range_value,
             AtomEntry::thin_with_prev(atom_uuid, now_nanos(), String::new(), prev_tip_id),
         );
-        self.updated_at = Utc::now();
-    }
-
-    /// Force-install a resident tip's LWW identity without last-writer-wins.
-    ///
-    /// Restore uses this so a later imported apply compares against the
-    /// acknowledged T0 clocks, not a zero-clock shell or `now_nanos()`.
-    pub(crate) fn overlay_resident_atom_entry(
-        &mut self,
-        hash_value: String,
-        range_value: String,
-        entry: AtomEntry,
-    ) {
-        if let Some(existing) = self.get_atom_entry(&hash_value, &range_value) {
-            if existing.atom_uuid == entry.atom_uuid
-                && existing.written_at == entry.written_at
-                && existing.logical_counter == entry.logical_counter
-                && existing.lww_device() == entry.lww_device()
-                && existing.mutation_uuid == entry.mutation_uuid
-            {
-                return;
-            }
-        }
-        self.version += 1;
-        self.remove_key_metadata(&hash_value, &range_value);
-        self.atom_uuids
-            .entry(hash_value)
-            .or_default()
-            .insert(range_value, entry);
         self.updated_at = Utc::now();
     }
 }

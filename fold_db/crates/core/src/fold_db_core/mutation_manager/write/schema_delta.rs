@@ -121,7 +121,7 @@ impl MutationManager {
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
     ) -> Result<super::super::molecules::PreparedSiblingUpdates, SchemaError> {
         let fold_start = std::time::Instant::now();
-        let (sibling_updates, sibling_prepared) = self
+        let (sibling_updates, sibling_prepared, sibling_origins) = self
             .build_protein_sibling_updates(
                 schema,
                 schema_mutations,
@@ -129,14 +129,12 @@ impl MutationManager {
                 atom_results,
             )
             .await?;
-        // The sibling planner captures slot identities before its cold reads.
-        let sibling_updates = self.rebase_sibling_updates_on_resident(schema, sibling_updates);
         Self::add_timing(
             timing_breakdown,
             "  - protein_sibling_fold",
             fold_start.elapsed(),
         );
-        Ok((sibling_updates, sibling_prepared))
+        Ok((sibling_updates, sibling_prepared, sibling_origins))
     }
 
     /// Prepare one schema group's atoms, restored tips, and persist capacity.
@@ -181,12 +179,12 @@ impl MutationManager {
                 timing_breakdown,
             )
             .await?;
-        let (sibling_updates, sibling_prepared) = self
+        let (sibling_updates, sibling_prepared, sibling_origins) = self
             .prepare_sibling_phase(
                 &schema,
                 &schema_mutations,
                 &mutation_key_values,
-                &atom_results,
+                &original_atom_results,
                 timing_breakdown,
             )
             .await?;
@@ -220,6 +218,7 @@ impl MutationManager {
             search_batch,
             share_prefixes,
             sibling_updates,
+            sibling_origins,
             sibling_prepared,
             idempotency_entries,
             changed_keys,

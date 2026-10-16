@@ -74,15 +74,17 @@ impl ResidentGraph {
         let key = ResidentMoleculeKey::new(hash, range);
         let removed = {
             let mut index = self.key_index.write().expect("key index lock");
-            let Some(keys) = index.get_mut(molecule_uuid) else {
-                return false;
-            };
-            let removed = keys.remove(&key);
-            if keys.is_empty() {
+            let removed = index
+                .get_mut(molecule_uuid)
+                .is_some_and(|keys| keys.remove(&key));
+            if index.get(molecule_uuid).is_some_and(BTreeSet::is_empty) {
                 index.remove(molecule_uuid);
             }
             removed
         };
+        // The slot gate owns removal. A superseding Delete also retires the
+        // pending Put's member obligation, even if its older completion skips.
+        self.forget_dirty(&key.dirty_key(molecule_uuid));
         if removed {
             self.invalidate_partition(molecule_uuid, hash);
             self.discharge(&key.dirty_key(molecule_uuid));
@@ -148,23 +150,30 @@ impl ResidentGraph {
     }
 
     pub fn install_tip(&self, tip: ResidentTip) {
-        self.install_tip_without_enforce(tip);
+        self.install_tip_without_enforce(tip, Vec::new());
         self.enforce_budget();
     }
 
-    fn install_tip_without_enforce(&self, tip: ResidentTip) {
+    fn install_tip_without_enforce(&self, tip: ResidentTip, storage_aliases: Vec<String>) {
         self.invalidate_partition(&tip.molecule_uuid, &tip.hash);
         let partition = (tip.molecule_uuid.clone(), tip.hash.clone());
         let k = tip_map_key(&tip.molecule_uuid, &tip.hash, &tip.range);
         let charge_key = tip.dirty_key();
-        let bytes = tip.approx_bytes();
+        let bytes = tip.approx_bytes() + tip_map::TipMap::storage_alias_bytes(&k, &storage_aliases);
         self.install_key_index_member_without_enforce(&tip.molecule_uuid, &tip.hash, &tip.range);
-        self.tips.write().expect("tips lock").insert(k, tip);
+        self.tips
+            .write()
+            .expect("tips lock")
+            .insert_with_storage_aliases(k, tip, storage_aliases);
         self.charge_without_enforce(charge_key, bytes);
         self.invalidate_partition(&partition.0, &partition.1);
     }
 
     pub fn apply_tip(&self, tip: ResidentTip) {
+        self.apply_tip_with_storage_aliases(tip, Vec::new());
+    }
+
+    pub(crate) fn apply_tip_with_storage_aliases(&self, tip: ResidentTip, aliases: Vec<String>) {
         // Observers cannot capture the new revision before its tip is visible.
         // Budget eviction can reacquire slots, so enforce only after publication.
         let mut slots = self.slots.write().expect("resident slot lock");
@@ -175,7 +184,7 @@ impl ResidentGraph {
                 .dirty_key(&tip.molecule_uuid),
         );
         self.mark_dirty(tip.dirty_key());
-        self.install_tip_without_enforce(tip);
+        self.install_tip_without_enforce(tip, aliases);
         drop(slots);
         self.enforce_budget();
     }

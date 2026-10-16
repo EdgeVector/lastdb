@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod current;
 mod plan;
 use plan::{checkpoint_slot_evidence, plan_storage_slot_targets, slot_ledger_descriptor};
 
@@ -16,6 +17,7 @@ pub struct StorageSlotPurgeTarget {
     field_name: String,
     molecule_uuid: String,
     storage_key: KeyValue,
+    expected_tombstone: Option<String>,
 }
 
 impl StorageSlotPurgeTarget {
@@ -29,7 +31,21 @@ impl StorageSlotPurgeTarget {
             field_name: field_name.into(),
             molecule_uuid: molecule_uuid.into(),
             storage_key: KeyValue::new(Some(storage_hash.into()), Some(storage_range.into())),
+            expected_tombstone: None,
         }
+    }
+
+    pub(in crate::fold_db_core) fn with_expected_tombstone(mut self, atom_uuid: String) -> Self {
+        self.expected_tombstone = Some(atom_uuid);
+        self
+    }
+
+    pub(in crate::fold_db_core) fn storage_record_key(&self) -> String {
+        crate::atom::molecule_key_codec::hash_range_record_key(
+            &self.molecule_uuid,
+            self.storage_key.hash.as_deref().unwrap_or_default(),
+            self.storage_key.range.as_deref().unwrap_or_default(),
+        )
     }
 
     /// Approximate heap bytes retained by one persist-lane envelope.
@@ -42,6 +58,11 @@ impl StorageSlotPurgeTarget {
                 .saturating_add(self.storage_key.range.as_deref().map_or(0, str::len)),
         )
         .unwrap_or(u64::MAX)
+        .saturating_add(
+            self.expected_tombstone
+                .as_ref()
+                .map_or(0, |uuid| uuid.len() as u64),
+        )
     }
 }
 
@@ -265,7 +286,9 @@ pub(in crate::fold_db_core) async fn purge_storage_slots_bulk(
         history_referenced_by_retained,
         records_purged: plan.planned.len(),
         mode: PurgeMode {
-            evict_resident: true,
+            // This maintenance job owns durable tombstone slots only. Dirty
+            // graph values and turns belong to later request envelopes.
+            evict_resident: false,
             reachability: PurgeReachability::GuardedComplement,
             precomputed_retained: None,
             caller: "mutation-pipeline",

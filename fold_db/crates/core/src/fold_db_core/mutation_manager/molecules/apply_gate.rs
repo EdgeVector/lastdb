@@ -14,6 +14,7 @@ use crate::schema::types::{KeyValue, Mutation, Schema};
 use super::super::helpers::ModifiedFieldKeys;
 use super::super::MutationManager;
 use super::scoped_gate::schema_is_scoped;
+use super::storage_links::StorageTipAliases;
 use super::{LanePersistJob, PreparedSlotRevision};
 
 /// One schema group's prepared resident delta. Built for every schema in the
@@ -36,6 +37,7 @@ pub(in crate::fold_db_core::mutation_manager) struct PreparedSchemaDelta {
         crate::db_operations::MoleculeData,
         HashSet<ChangedKey>,
     )>,
+    pub sibling_origins: Vec<super::prepared::SiblingOrigin>,
     /// Resident revisions used to prepare the protein sibling updates.
     ///
     /// Sibling molecules can belong to another schema lane. Their revisions
@@ -127,33 +129,33 @@ impl MutationManager {
     ///
     /// Callers hold sorted apply gates around this function. Do not add
     /// storage IO or an async wait here.
-    #[allow(clippy::too_many_arguments)]
     pub(in crate::fold_db_core::mutation_manager) fn apply_gate_transaction(
         &self,
-        schema: &mut Schema,
-        schema_mutations: &[Mutation],
-        mutation_key_values: &[KeyValue],
-        atom_results: Vec<(usize, String, Atom)>,
-        located_atoms: Option<&[(Atom, Option<crate::atom::AtomPartition>)]>,
-        sibling_updates: &[(
-            String,
-            crate::db_operations::MoleculeData,
-            HashSet<ChangedKey>,
-        )],
-        changed_keys: &HashMap<String, HashSet<ChangedKey>>,
+        delta: &mut PreparedSchemaDelta,
+        applied: (Vec<MutationEvent>, ModifiedFieldKeys),
+        storage_links: &StorageTipAliases,
     ) -> ApplyGateOutcome {
-        if schema_is_scoped(schema) {
-            return self.scoped_apply_gate(
-                schema,
-                schema_mutations,
-                mutation_key_values,
-                atom_results,
-            );
+        let (mutation_events, modified_fields) = applied;
+        if schema_is_scoped(&delta.schema) {
+            return ApplyGateOutcome {
+                mutation_events,
+                modified_fields,
+                slot_revisions: Vec::new(),
+            };
         }
+        let PreparedSchemaDelta {
+            schema,
+            schema_mutations,
+            mutation_key_values,
+            deferred_atoms,
+            sibling_updates,
+            changed_keys,
+            ..
+        } = delta;
         // The warm set drops these tips before the graph holds the dirty
         // copies. The lock is the warm set only. This function does no disk I/O.
         self.release_warm_tips(schema, mutation_key_values, sibling_updates);
-        if let Some(located_atoms) = located_atoms {
+        if let Some(located_atoms) = deferred_atoms.as_deref() {
             let resident = self.resident_graph();
             for (atom, partition) in located_atoms {
                 resident.apply_atom(
@@ -162,36 +164,9 @@ impl MutationManager {
                 );
             }
         }
-        // Overlay is serving truth: a restored catalog head on a tombstoned
-        // key must not make a byte-identical Create a same-uuid no-op.
-        // Drop that catalog entry so apply writes a real tip again.
         {
             let resident = self.resident_graph();
-            for key_value in mutation_key_values {
-                for field in schema.runtime_fields.values_mut() {
-                    let Some(molecule_uuid) = field.common().molecule_uuid().cloned() else {
-                        continue;
-                    };
-                    let Some((slot_hash, slot_range)) = field.disk_slot_for_key(key_value) else {
-                        continue;
-                    };
-                    if resident.is_key_tombstoned(&molecule_uuid, &slot_hash, &slot_range) {
-                        if let Some(molecule) = field.molecule.as_mut() {
-                            molecule.remove_atom_uuid(&slot_hash, &slot_range);
-                        }
-                    }
-                }
-            }
-        }
-        let (mutation_events, modified_fields) = self.apply_mutations_to_molecules(
-            schema,
-            schema_mutations,
-            mutation_key_values,
-            atom_results,
-        );
-        {
-            let resident = self.resident_graph();
-            for (mutation, key_value) in schema_mutations.iter().zip(mutation_key_values) {
+            for (mutation, key_value) in schema_mutations.iter().zip(mutation_key_values.iter()) {
                 let hash = key_value.hash.as_deref().unwrap_or("");
                 let range = key_value.range.as_deref().unwrap_or("");
                 resident.forget_schema_key_tombstone(&mutation.schema_name, hash, range);
@@ -215,8 +190,8 @@ impl MutationManager {
         let mut predecessor_revisions = self.prepared_slot_revisions(schema, changed_keys);
         predecessor_revisions.extend(self.prepared_sibling_slot_revisions(sibling_updates));
         let predecessor_revisions = unique_prepared_slot_revisions(predecessor_revisions);
-        self.publish_modified_tips_to_resident(schema, &modified_fields, true);
-        self.publish_sibling_tips_to_resident(sibling_updates, true);
+        self.publish_modified_tips_to_resident(schema, &modified_fields, true, storage_links);
+        self.publish_sibling_tips_to_resident(sibling_updates, true, storage_links);
         let slot_revisions =
             advanced_persist_slot_revisions(self.resident_graph(), predecessor_revisions);
         ApplyGateOutcome {
@@ -231,18 +206,14 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) fn publish_prepared_resident_deltas(
         &self,
         prepared: &mut [PreparedSchemaDelta],
+        storage_links: &[StorageTipAliases],
     ) -> Vec<ApplyGateOutcome> {
         let mut outcomes = Vec::with_capacity(prepared.len());
-        for delta in prepared.iter_mut() {
-            outcomes.push(self.apply_gate_transaction(
-                &mut delta.schema,
-                &delta.schema_mutations,
-                &delta.mutation_key_values,
-                delta.atom_results.clone(),
-                delta.deferred_atoms.as_deref(),
-                &delta.sibling_updates,
-                &delta.changed_keys,
-            ));
+        let mut heads = super::batch_rebase::BatchSlotHeads::default();
+        for (delta, storage_links) in prepared.iter_mut().zip(storage_links) {
+            let applied = self.rebase_delta_for_publish(delta, &mut heads);
+            outcomes.push(self.apply_gate_transaction(delta, applied, storage_links));
+            heads.record(delta);
         }
         outcomes
     }

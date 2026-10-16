@@ -233,15 +233,15 @@ fn group_slots_by_schema(
             report.unowned_tombstones += 1;
             continue;
         };
-        by_schema
-            .entry(schema_name.clone())
-            .or_default()
-            .push(StorageSlotPurgeTarget::new(
+        by_schema.entry(schema_name.clone()).or_default().push(
+            StorageSlotPurgeTarget::new(
                 field_name,
                 &slot.molecule_uuid,
                 slot.storage_hash,
                 slot.storage_range,
-            ));
+            )
+            .with_expected_tombstone(slot.atom_uuid),
+        );
     }
     by_schema
 }
