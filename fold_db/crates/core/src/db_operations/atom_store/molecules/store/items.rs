@@ -6,10 +6,13 @@ type CollapsedTips = (Vec<(String, Value)>, HashMap<String, PerKeyRecord>);
 impl AtomStore {
     /// Keep one maximum-version value per exact `mk:` key, then compare it
     /// with the durable value while the caller holds that key's tip lock.
+    ///
+    /// Returns each decision between the pending tip and a durable tip that
+    /// holds a different atom. The caller records them before it writes the tips.
     pub(in super::super) async fn retain_durable_tip_winners(
         &self,
         items: &mut Vec<(String, Value)>,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<Vec<crate::db_operations::atom_store::DurableTipDecision>, SchemaError> {
         let (mut ordinary, mut tips) = Self::collapse_pending_tips(items)?;
         let tip_keys: Vec<String> = tips.keys().cloned().collect();
         let barriers = self.winning_delete_barriers(&tip_keys).await?;
@@ -26,17 +29,28 @@ impl AtomStore {
         let durable_tips = self.delete_target_tips(&eligible_keys).await?;
         let mut accepted_slots = std::collections::HashSet::new();
         let mut accepted_tip_edges = std::collections::HashSet::new();
+        let mut decisions = Vec::new();
         for (key, durable) in eligible_keys.into_iter().zip(durable_tips) {
             let incoming = tips.remove(&key).expect("eligible tip must exist");
-            if durable.as_ref().is_some_and(|current| {
+            let mut incoming_loses = false;
+            if let Some(current) = durable.as_ref() {
                 let legacy_last_write =
                     is_legacy_zero_clock(&incoming.entry) && is_legacy_zero_clock(&current.entry);
-                !legacy_last_write
+                incoming_loses = !legacy_last_write
                     && !crate::atom::incoming_wins_lww(
                         incoming.entry.lww_key(),
                         current.entry.lww_key(),
-                    )
-            }) {
+                    );
+                if !legacy_last_write {
+                    decisions.extend(self.durable_tip_decision(
+                        &key,
+                        &incoming.entry,
+                        &current.entry,
+                        !incoming_loses,
+                    ));
+                }
+            }
+            if incoming_loses {
                 continue;
             }
             let value = serde_json::to_value(&incoming).map_err(|error| {
@@ -66,7 +80,7 @@ impl AtomStore {
         }
         Self::retain_accepted_tip_edges(&mut ordinary, &accepted_slots, &accepted_tip_edges);
         *items = ordinary;
-        Ok(())
+        Ok(decisions)
     }
 
     /// Split pending items into ordinary rows and one LWW winner per `mk:` tip key.

@@ -189,36 +189,66 @@ impl SyncEngine {
                     incoming.entry.lww_key(),
                     local.entry.lww_key(),
                 ) {
-                    let field_key = Self::field_key_for_record_key(key_bytes, mol_uuid);
-                    let conflict = MergeConflict {
-                        key: MergeConflict::display_key(&field_key),
-                        field_key,
-                        winner_atom: incoming.entry.atom_uuid.clone(),
-                        loser_atom: local.entry.atom_uuid.clone(),
-                        winner_written_at: incoming.entry.written_at,
-                        loser_written_at: local.entry.written_at,
-                    };
+                    // The conflict rows reach disk before the tip. A crash
+                    // between the two leaves the old tip, and a retry
+                    // records the same keys again.
+                    self.record_replaced_tip(kv, key_bytes, mol_uuid, incoming, &local)
+                        .await?;
                     let stored = self
                         .stored_replay_value(namespace, key_bytes, crypto, value_bytes)
                         .await?;
                     kv.put(key_bytes, stored).await?;
                     accepted_incoming = true;
-                    let storage_prefix = std::str::from_utf8(key_bytes)
-                        .ok()
-                        .and_then(|key| storage_scope_for_key_marker(key, "mk:"));
-                    let atoms = self.automatic_gc_atom_store.lock().await.clone();
-                    Self::store_merge_conflicts(
-                        kv,
-                        atoms.as_ref(),
-                        mol_uuid,
-                        storage_prefix,
-                        &[conflict],
-                    )
-                    .await?;
                 }
             }
         }
         Ok(accepted_incoming)
+    }
+
+    /// Record the conflict of a legacy `mk:` tip that replaces a different
+    /// atom, before the caller writes the tip. The incoming row is from a
+    /// peer by construction, so no peer test applies. The recorder skips the
+    /// pair only when both tips name one device.
+    async fn record_replaced_tip(
+        &self,
+        kv: &Arc<dyn crate::storage::traits::KvStore>,
+        key_bytes: &[u8],
+        mol_uuid: &str,
+        incoming: &crate::db_operations::atom_store::PerKeyRecord,
+        local: &crate::db_operations::atom_store::PerKeyRecord,
+    ) -> SyncResult<()> {
+        let field_key = Self::field_key_for_record_key(key_bytes, mol_uuid);
+        let storage_prefix = std::str::from_utf8(key_bytes)
+            .ok()
+            .and_then(|key| storage_scope_for_key_marker(key, "mk:"));
+        let atoms = self.automatic_gc_atom_store.lock().await.clone();
+        let Some(atoms) = atoms else {
+            // No atom store is attached: keep the raw v1 rows, written first.
+            let conflict = MergeConflict {
+                key: MergeConflict::display_key(&field_key),
+                field_key,
+                winner_atom: incoming.entry.atom_uuid.clone(),
+                loser_atom: local.entry.atom_uuid.clone(),
+                winner_written_at: incoming.entry.written_at,
+                loser_written_at: local.entry.written_at,
+            };
+            return Self::store_merge_conflicts(kv, None, mol_uuid, storage_prefix, &[conflict])
+                .await;
+        };
+        let conflict = crate::db_operations::atom_store::TipConflict {
+            molecule_uuid: mol_uuid.to_string(),
+            storage_hash: field_key.hash.clone().unwrap_or_default(),
+            storage_range: field_key.range.clone().unwrap_or_default(),
+            field_key,
+            kind: crate::atom::TipConflictKind::Replaced,
+            winner: incoming.entry.clone(),
+            loser: local.entry.clone(),
+        };
+        // Boxed: the replay future is already deep in the node's async graph.
+        Box::pin(atoms.record_tip_conflicts(vec![conflict], storage_prefix))
+            .await
+            .map(|_| ())
+            .map_err(|error| SyncError::Storage(error.to_string()))
     }
 
     /// Merge an incoming molecule header (`mh:{M}`) field-wise: `version = max`,

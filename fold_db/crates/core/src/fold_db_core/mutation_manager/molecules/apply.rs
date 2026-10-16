@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::atom::{Atom, MutationEvent};
+use crate::atom::{Atom, MutationEvent, TipAuthor};
 use crate::db_operations::ChangedKey;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
@@ -120,6 +120,7 @@ impl MutationManager {
                 logical_counter: mutation.logical_counter,
                 author_clock_writer_id: mutation.author_clock_writer_id.clone(),
                 mutation_uuid: mutation.uuid.clone(),
+                origin_device: mutation.origin_device.clone(),
                 imported_version: mutation.imported_version,
             },
         )
@@ -271,8 +272,8 @@ pub(super) fn sibling_key_fields(
     fields
 }
 
-/// The imported author clock `(written_at, counter, writer, uuid)` of a mutation.
-fn mutation_author_clock(mutation: &Mutation) -> Option<(u64, u64, String, String)> {
+/// The imported author clock of a mutation, with the sync device that wrote it.
+fn mutation_author_clock(mutation: &Mutation) -> Option<TipAuthor> {
     mutation.imported_written_at.map(|written_at| {
         let device_id = if mutation.author_clock_writer_id.is_empty() {
             match &mutation.provenance {
@@ -282,11 +283,12 @@ fn mutation_author_clock(mutation: &Mutation) -> Option<(u64, u64, String, Strin
         } else {
             mutation.author_clock_writer_id.clone()
         };
-        (
+        TipAuthor {
             written_at,
-            mutation.logical_counter,
+            logical_counter: mutation.logical_counter,
             device_id,
-            mutation.uuid.clone(),
-        )
+            mutation_uuid: mutation.uuid.clone(),
+            origin_device: mutation.origin_device.clone(),
+        }
     })
 }

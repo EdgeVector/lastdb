@@ -16,10 +16,12 @@ pub type SchemaReloadCallback = ReloadCallback;
 pub type EmbeddingReloadCallback = ReloadCallback;
 
 /// Apply a captured [`crate::sync::log::MutationEnvelope`] batch on a peer.
-/// Capture must stay suppressed inside the callback.
+/// Capture must stay suppressed inside the callback. The second argument is the
+/// sync device id of the log entry that carried the batch (its writer).
 pub type MutationIntentApplier = std::sync::Arc<
     dyn Fn(
             Vec<crate::sync::log::MutationEnvelope>,
+            String,
         ) -> std::pin::Pin<
             Box<
                 dyn std::future::Future<Output = Result<(), crate::sync::MutationIntentReplayError>>

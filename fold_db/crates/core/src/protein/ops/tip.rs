@@ -4,7 +4,7 @@ use super::{
     AtomEntry, AtomStore, ChangedKey, Ed25519KeyPair, HashSet, MoleculeData, ProteinTipScope,
     SchemaError,
 };
-use crate::atom::MoleculeHashRange;
+use crate::atom::{ImportedTip, MoleculeHashRange};
 use chrono::Utc;
 
 pub(crate) type PreparedProteinTip = (
@@ -59,14 +59,16 @@ impl AtomStore {
             mol.set_atom_uuid_from_values_imported_with_author(
                 hash.to_string(),
                 range.to_string(),
-                tip.atom_uuid.clone(),
-                writer,
-                tip.writer_pubkey.clone(),
-                String::new(),
-                0,
-                Some(tip.written_at),
-                tip.logical_counter,
-                tip.mutation_uuid.clone(),
+                ImportedTip {
+                    atom_uuid: tip.atom_uuid.clone(),
+                    device_id: writer,
+                    origin_device: tip.origin_device.clone(),
+                    writer_pubkey: tip.writer_pubkey.clone(),
+                    written_at: Some(tip.written_at),
+                    logical_counter: tip.logical_counter,
+                    mutation_uuid: tip.mutation_uuid.clone(),
+                    ..ImportedTip::default()
+                },
             );
         } else {
             mol.set_atom_uuid_from_values(

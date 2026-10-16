@@ -6,6 +6,7 @@ pub mod db_catalog_store;
 pub mod admin_db;
 pub mod atom_store;
 pub mod attribution_ledger;
+mod conflict_index_heal;
 mod conflict_metadata;
 mod conflict_operations;
 pub mod delete_ledger;

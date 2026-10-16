@@ -281,6 +281,7 @@ impl FieldVariant {
                     tip.mutation_uuid.clone(),
                     String::new(),
                 )
+                .with_origin_device(tip.origin_device.clone())
             } else {
                 let entry = self
                     .atom_entry_at_key(&storage_key)

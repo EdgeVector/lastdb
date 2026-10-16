@@ -2,6 +2,7 @@ use crate::schema::types::field::WriteContext;
 use crate::schema::types::key_value::KeyValue;
 
 use super::{FieldKind, FieldVariant};
+use crate::atom::ImportedTip;
 
 impl FieldVariant {
     /// Writes a mutation to the field.
@@ -83,14 +84,17 @@ impl FieldVariant {
                 molecule.set_atom_uuid_from_values_imported_with_author(
                     hash_key.clone(),
                     range_key.clone(),
-                    ctx.atom.uuid().to_string(),
-                    device_id,
-                    pubkey,
-                    signature,
-                    signature_version,
-                    ctx.imported_written_at,
-                    ctx.logical_counter,
-                    ctx.mutation_uuid.clone(),
+                    ImportedTip {
+                        atom_uuid: ctx.atom.uuid().to_string(),
+                        device_id,
+                        origin_device: ctx.origin_device,
+                        writer_pubkey: pubkey,
+                        signature,
+                        signature_version,
+                        written_at: ctx.imported_written_at,
+                        logical_counter: ctx.logical_counter,
+                        mutation_uuid: ctx.mutation_uuid.clone(),
+                    },
                 )
             }
             _ if ctx.imported_written_at.is_some() => {
@@ -101,20 +105,21 @@ impl FieldVariant {
                 } else {
                     ctx.author_clock_writer_id.clone()
                 };
+                // The author-clock writer lives in `device_id`. Without signed
+                // per-tip provenance, the legacy crypto payload stays empty
+                // and the tip stays thin.
                 molecule.set_atom_uuid_from_values_imported_with_author(
                     hash_key.clone(),
                     range_key.clone(),
-                    ctx.atom.uuid().to_string(),
-                    device_id,
-                    // The author-clock writer lives in `device_id`.
-                    // Without signed per-tip provenance, keep the
-                    // legacy crypto payload empty and the tip thin.
-                    String::new(),
-                    String::new(),
-                    0,
-                    ctx.imported_written_at,
-                    ctx.logical_counter,
-                    ctx.mutation_uuid.clone(),
+                    ImportedTip {
+                        atom_uuid: ctx.atom.uuid().to_string(),
+                        device_id,
+                        origin_device: ctx.origin_device,
+                        written_at: ctx.imported_written_at,
+                        logical_counter: ctx.logical_counter,
+                        mutation_uuid: ctx.mutation_uuid.clone(),
+                        ..ImportedTip::default()
+                    },
                 )
             }
             _ => {
@@ -126,6 +131,7 @@ impl FieldVariant {
                     ctx.logical_counter,
                     ctx.mutation_uuid.clone(),
                 );
+                molecule.stamp_tip_origin_device(&hash_key, &range_key, &ctx.origin_device);
                 true
             }
         };

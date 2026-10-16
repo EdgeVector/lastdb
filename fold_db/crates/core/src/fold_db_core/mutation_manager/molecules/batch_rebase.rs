@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::atom::{AtomEntry, KeyMetadata, MoleculeHashRange};
+use crate::atom::{AtomEntry, ImportedTip, KeyMetadata, MoleculeHashRange};
 use crate::db_operations::ChangedKey;
 use crate::schema::types::Schema;
 
@@ -285,14 +285,17 @@ impl MutationManager {
         let accepted = data.set_atom_uuid_from_values_imported_with_author(
             hash.to_string(),
             range.to_string(),
-            entry.atom_uuid.clone(),
-            entry.lww_device().to_string(),
-            entry.writer_pubkey.clone(),
-            entry.signature.clone(),
-            entry.signature_version,
-            Some(entry.written_at),
-            entry.logical_counter,
-            entry.mutation_uuid.clone(),
+            ImportedTip {
+                atom_uuid: entry.atom_uuid.clone(),
+                device_id: entry.lww_device().to_string(),
+                origin_device: entry.origin_device.clone(),
+                writer_pubkey: entry.writer_pubkey.clone(),
+                signature: entry.signature.clone(),
+                signature_version: entry.signature_version,
+                written_at: Some(entry.written_at),
+                logical_counter: entry.logical_counter,
+                mutation_uuid: entry.mutation_uuid.clone(),
+            },
         );
         if accepted {
             let winner = data

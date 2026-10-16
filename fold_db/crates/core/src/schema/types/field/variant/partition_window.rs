@@ -94,6 +94,7 @@ fn overlay_into_union(
                 String::new(),
             );
             atom.writer_pubkey = tip.writer_pubkey;
+            atom.origin_device = tip.origin_device;
             let record = PerKeyRecord {
                 entry: atom,
                 meta: tip.key_metadata,

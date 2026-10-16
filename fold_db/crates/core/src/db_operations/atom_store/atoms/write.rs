@@ -119,7 +119,9 @@ impl AtomStore {
     /// An atom that a tip took already has its count from the tip phase and is
     /// skipped by the same probe that the birth path uses. An atom that no tip
     /// took (a lost last-writer-wins race, a same-content rewrite) gets a zero
-    /// count and a GC candidate pair now, so it stays reclaimable.
+    /// count and a GC candidate pair now, so it stays reclaimable. The loser of
+    /// a recorded conflict also holds a history edge, written before this
+    /// step (`record_tip_conflicts`), and the delete gate keeps such an atom.
     pub(crate) async fn settle_atom_births(
         &self,
         atoms: &[(Atom, Option<crate::atom::AtomPartition>)],

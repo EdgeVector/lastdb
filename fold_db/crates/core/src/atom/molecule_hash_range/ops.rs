@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use std::collections::BTreeMap;
 
 use super::MoleculeHashRange;
-use crate::atom::{now_nanos, AtomEntry, Provenance};
+use crate::atom::{now_nanos, AtomEntry};
 
 impl MoleculeHashRange {
     /// Returns the unique identifier of this molecule.
@@ -98,7 +98,12 @@ impl MoleculeHashRange {
     /// tip-version node and return its id for the new head's `prev_tip_id` when
     /// point-in-time history was explicitly enabled. Thin tips are the default,
     /// so ordinary Mini writes replace the head without growing `tv:` forever.
-    fn archive_current_tip(&mut self, hash: &str, range: &str, new_atom_uuid: &str) -> String {
+    pub(super) fn archive_current_tip(
+        &mut self,
+        hash: &str,
+        range: &str,
+        new_atom_uuid: &str,
+    ) -> String {
         let Some(old) = self.get_atom_entry(hash, range).cloned() else {
             return String::new();
         };
@@ -135,6 +140,7 @@ impl MoleculeHashRange {
     /// Drain tip versions archived since the last persist (to write as `tv:`).
     pub(crate) fn take_pending_tip_versions(&mut self) -> Vec<(String, AtomEntry)> {
         self.pending_replaced_tips.clear();
+        self.pending_tip_conflicts.clear();
         std::mem::take(&mut self.pending_tip_versions)
     }
 
@@ -289,82 +295,6 @@ impl MoleculeHashRange {
                 self.key_metadata.remove(hash);
             }
         }
-    }
-
-    /// Import a tip while preserving its signed author-clock identity.
-    /// Returns true only when the incoming tip becomes the new head.
-    #[allow(clippy::too_many_arguments)]
-    pub fn set_atom_uuid_from_values_imported_with_author(
-        &mut self,
-        hash_value: String,
-        range_value: String,
-        atom_uuid: String,
-        device_id: String,
-        writer_pubkey: String,
-        signature: String,
-        signature_version: u8,
-        written_at: Option<u64>,
-        logical_counter: u64,
-        mutation_uuid: String,
-    ) -> bool {
-        if self.get_atom_uuid(&hash_value, &range_value) == Some(&atom_uuid) {
-            return false;
-        }
-        let written_at = written_at.unwrap_or_else(now_nanos);
-        if let Some(existing) = self.get_atom_entry(&hash_value, &range_value) {
-            // Pre-clock #1556 envelopes deserialize written_at=0. Treat that as
-            // "no origin clock": last-write-wins among zeros so bootstrap of
-            // several updates to one key cannot lose on atom-uuid lex order,
-            // but still lose to any real (non-zero) tip.
-            let legacy_zero_clock =
-                written_at == 0 && logical_counter == 0 && mutation_uuid.is_empty();
-            if legacy_zero_clock {
-                if existing.written_at > 0 {
-                    return false;
-                }
-            } else if !crate::atom::incoming_wins_lww(
-                crate::atom::lww_order_key(
-                    written_at,
-                    logical_counter,
-                    device_id.as_str(),
-                    mutation_uuid.as_str(),
-                    atom_uuid.as_str(),
-                ),
-                existing.lww_key(),
-            ) {
-                return false;
-            }
-        }
-        let prev_tip_id = self.archive_current_tip(&hash_value, &range_value, &atom_uuid);
-        self.version += 1;
-        // Imported tips may carry an external signature for data_share verify.
-        // Local mutation path uses AtomEntry::thin only (no per-tip crypto).
-        let provenance = if signature_version > 0 {
-            Some(Provenance::User {
-                pubkey: writer_pubkey.clone(),
-                signature: signature.clone(),
-                signature_version,
-            })
-        } else {
-            None
-        };
-        self.atom_uuids.entry(hash_value).or_default().insert(
-            range_value,
-            AtomEntry {
-                atom_uuid,
-                written_at,
-                logical_counter,
-                mutation_uuid,
-                writer_pubkey,
-                signature,
-                signature_version,
-                provenance,
-                device_id,
-                prev_tip_id,
-            },
-        );
-        self.updated_at = Utc::now();
-        true
     }
 
     /// Updates a key WITHOUT signing. Only for ephemeral in-memory operations (rewind).
