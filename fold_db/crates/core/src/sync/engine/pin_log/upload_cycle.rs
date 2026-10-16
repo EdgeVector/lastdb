@@ -1,7 +1,11 @@
 use super::*;
 
+mod directory;
 mod pending;
 mod publish;
+
+pub(super) use directory::validated_relative_key;
+pub use directory::MutationLogDirectoryExport;
 
 /// Output of the scan and materialize phase of one upload cycle.
 struct ScannedPage {

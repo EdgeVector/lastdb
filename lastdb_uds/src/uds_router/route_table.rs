@@ -79,6 +79,8 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/db/legacy-key-fork-audit", Scope::Owner, "POST", DataRoute::DbLegacyKeyForkAudit),
     row("/api/db/order-log-audit", Scope::Owner, "POST", DataRoute::DbOrderLogAudit),
     row("/api/db/pin-log-audit", Scope::Owner, "POST", DataRoute::DbPinLogAudit),
+    row("/api/db/export-mutation-log", Scope::Owner, "POST", DataRoute::DbExportMutationLog),
+    row("/api/db/replay-mutation-log", Scope::Owner, "POST", DataRoute::DbReplayMutationLog),
     row("/api/db/order-log-bloat-audit", Scope::Owner, "POST", DataRoute::DbOrderLogBloatAudit),
     row("/api/db/compact-order-log", Scope::Owner, "POST", DataRoute::DbCompactOrderLog),
     row("/api/db/repair-order-log-shortfall", Scope::Owner, "POST", DataRoute::DbRepairOrderLogShortfall),

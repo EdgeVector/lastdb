@@ -141,6 +141,9 @@ pub struct SyncSetup {
     /// When provided, the sync engine will attempt to refresh credentials
     /// and retry once before giving up.
     pub auth_refresh: Option<AuthRefreshCallback>,
+    /// True only for the local proof engine ([`SyncSetup::local_proof`]):
+    /// capture and replay are wired, but nothing contacts a cloud.
+    pub local_proof_engine: bool,
 }
 
 impl std::fmt::Debug for SyncSetup {
@@ -174,9 +177,28 @@ impl SyncSetup {
             device_id,
             config: None,
             auth_refresh: None,
+            local_proof_engine: false,
         }
     }
+
+    /// Setup for the local proof engine: a sync engine that captures writes
+    /// into the durable mutation log and replays segments, with no cloud.
+    ///
+    /// The auth URL is an unresolvable reserved name and the transport is
+    /// HTTPS only, so no call can leave the machine. The device id comes
+    /// from `FOLD_SYNC_DEVICE_ID`, else the `.device_id` file in `data_dir`.
+    pub fn local_proof(data_dir: &str) -> Self {
+        let mut setup = Self::from_exemem(LOCAL_PROOF_AUTH_URL, LOCAL_PROOF_API_KEY, data_dir);
+        setup.local_proof_engine = true;
+        setup
+    }
 }
+
+/// Reserved `.invalid` name (RFC 2606): never resolves, so the local proof
+/// engine cannot reach any service.
+const LOCAL_PROOF_AUTH_URL: &str = "https://local-proof-no-cloud.invalid";
+/// Placeholder credential. The local proof engine never presents it.
+const LOCAL_PROOF_API_KEY: &str = "local-proof-no-credential";
 
 /// Read a persisted device ID from `<data_dir>/.device_id`, or generate a new
 /// UUID and write it there so the same ID is used across restarts.
