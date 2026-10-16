@@ -106,8 +106,9 @@ impl PackNamespacedStore {
         use std::io::{Read, Write};
         let expected = b"format=1\nhome=disk-pack\n";
         let marker = path.join(NODE_MARKER);
-        let created = !marker.try_exists()?;
-        if !created {
+        let exists = marker.try_exists()?;
+        let created = !exists;
+        if exists {
             let mut fence = std::fs::File::open(path.join("laststore-layout-v1"))?;
             let expected_fence = laststore::disk_pack::home::LEGACY_FENCE_BYTES;
             if fence.metadata()?.len() != expected_fence.len() as u64 {

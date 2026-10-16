@@ -8,6 +8,15 @@ pub(super) struct PreparedCommit {
 }
 
 impl PackRuntime {
+    /// Consume only a constructor-proven empty boundary under the native gate.
+    pub(crate) fn claim_fresh_empty_boundary(&self) -> bool {
+        transaction::PendingBatch::current(self).is_some()
+            && self
+                .fresh_empty
+                .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+    }
+
     pub(super) async fn ensure_namespace(self: &Arc<Self>, name: &str) -> StorageResult<()> {
         let key = format!("{NAMESPACES}{name}");
         let context = read::ReadContext::current(self).await?;

@@ -258,6 +258,7 @@ impl DbOperations {
         .with_keep_small_persist(Arc::new(TypedKvStore::new(keep_small_kv)))
         .resolve_boot_encoding()
         .await?;
+        Self::initialize_fresh_native_refs(store, &atom_store).await?;
         atom_store
             .recover_catalog_atom_ref_transitions(db_catalog)
             .await
@@ -289,5 +290,31 @@ impl DbOperations {
             }
         }
         Ok((atom_store, resident))
+    }
+
+    async fn initialize_fresh_native_refs(
+        store: &Arc<dyn NamespacedStore>,
+        atoms: &AtomStore,
+    ) -> Result<(), crate::storage::StorageError> {
+        let Some(runtime) = store.disk_pack_runtime() else {
+            return Ok(());
+        };
+        crate::storage::disk_pack::transaction::scope(Some(Arc::clone(&runtime)), async {
+            if runtime.claim_fresh_empty_boundary() {
+                // The native constructor proves that no atom or molecule
+                // exists. Use the normal typed/encrypted store and complete
+                // publication; never infer completeness from an absent marker.
+                atoms
+                    .bootstrap_molecule_ref_edges_on_isolated_copy(&[], 0, 0, None)
+                    .await
+                    .map_err(|error| {
+                        crate::storage::StorageError::BackendError(format!(
+                            "initialize known empty native molecule references: {error}"
+                        ))
+                    })?;
+            }
+            Ok(())
+        })
+        .await
     }
 }
