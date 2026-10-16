@@ -227,12 +227,13 @@ pub(super) fn resident_status_line(r: &ResidentHealth) -> String {
         )
     };
     format!(
-        "Resident: entries={} bytes={} graph_budget={} hits schema/molecule/atom/blob/protein={}/{}/{}/{}/{} \
+        "Resident: entries={} revision_slots={} bytes={} graph_budget={} hits schema/molecule/atom/blob/protein={}/{}/{}/{}/{} \
          rehydrates={}/{}/{}/{}/{} {key_set} \
          persist enqueued/flushed/failed={}/{}/{} \
          lanes depth/age_ms/fail/lag={}/{}/{}/{} \
          {deferred} evicted={} dirty_refused={}",
         r.resident_entries,
+        r.revision_slots,
         format_bytes(r.resident_bytes),
         graph_budget,
         r.schema_hits,

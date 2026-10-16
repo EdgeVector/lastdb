@@ -218,7 +218,19 @@ impl LogicalResidentSet {
 
     /// Drop one warm tip. The graph holds that record while the write is dirty.
     pub fn take_tip_for_graph(&mut self, molecule: MoleculeId, hash: &str, range: &str) {
+        self.advance_read_epochs();
         self.drop_tip(&tip_key(molecule, hash, range));
+        self.publish_occupancy();
+    }
+
+    /// A direct write supersedes this exact cached tip and delete overlay.
+    pub fn invalidate_tip(&mut self, molecule: MoleculeId, hash: &str, range: &str) {
+        let key = tip_key(molecule, hash, range);
+        self.drop_tip(&key);
+        self.tip_bodies.remove(&key);
+        self.clear_tombstone(&key);
+        self.demote_hash(molecule, hash);
+        self.publish_occupancy();
     }
 
     pub(super) fn drop_tip(&mut self, key: &TipKey) {

@@ -46,9 +46,10 @@ impl ResidentGraph {
         resident_revision: Option<u64>,
     ) -> bool {
         let map_key = tip_map_key(&tip.molecule_uuid, &tip.hash, &tip.range);
-        // Lock order: slots, then tips. The revision and the atom id must
+        // Lock order: observers, slots, then tips. The revision and atom id must
         // still match before the body leaves. Retain slots through all keyed
         // cleanup; the next apply cannot publish its revision in that gap.
+        let readers = self.slot_readers.lock().expect("resident slot reader lock");
         let mut slots = self.slots.write().expect("resident slot lock");
         let Some(control) = slots.get_mut(&map_key) else {
             return false;
@@ -77,9 +78,13 @@ impl ResidentGraph {
         );
         self.discharge(&tip.dirty_key());
         self.remove_key_index_member(&tip.molecule_uuid, &tip.hash, &tip.range, true);
+        if !readers.contains_key(&map_key) {
+            self.reclaim_idle_slot(&mut slots, &map_key);
+        }
         // Budget enforcement can reacquire slots. Atom cleanup also stays
         // outside this short per-slot exclusion boundary.
         drop(slots);
+        drop(readers);
         self.release_unreferenced_atom(&atom_uuid);
         self.enforce_budget();
         true
@@ -88,24 +93,20 @@ impl ResidentGraph {
     /// Drop an atom body once no graph tip names it and the body is clean.
     pub(super) fn release_unreferenced_atom(&self, uuid: &str) {
         let key = DirtyKey::Atom(uuid.to_string());
-        if self.is_dirty(&key) {
+        // The reference count shares the tip lock. Retain it through removal
+        // so a new tip cannot acquire this body between the check and delete.
+        // Atom installs pin dirty before acquiring atoms, matching eviction's
+        // atoms -> dirty order for the final check.
+        let tips = self.tips.read().expect("tips lock");
+        if tips.references_atom(uuid) {
             return;
         }
-        let referenced = self
-            .tips
-            .read()
-            .expect("tips lock")
-            .values()
-            .any(|tip| tip.atom_uuid == uuid);
-        if referenced {
+        let mut atoms = self.atoms.write().expect("atoms lock");
+        let dirty = self.dirty.read().expect("resident dirty lock");
+        if dirty.contains(&key) {
             return;
         }
-        let removed = self
-            .atoms
-            .write()
-            .expect("atoms lock")
-            .remove(uuid)
-            .is_some();
+        let removed = atoms.remove(uuid).is_some();
         if removed {
             self.discharge(&key);
         }

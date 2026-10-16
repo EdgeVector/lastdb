@@ -135,7 +135,9 @@ pub(super) fn restore_applied(
                 previous: Some(body),
             } => put(store, set, &collection, &key, &body).map(|()| {
                 // No admit follows an undo write, so drop its pending entry.
-                set.lock().expect("poison").clear_write_tokens(&key);
+                if let Some(key) = logical_cache_key(&LastStoreKvStore::encode_key(&key)) {
+                    set.lock().expect("poison").clear_write_tokens(&key);
+                }
             }),
             UndoOp::Put {
                 collection,

@@ -125,9 +125,8 @@ impl LogicalResidentSet {
     /// Drop every fetched record. An admin rewrite that writes the store
     /// directly (restore, residue drain) calls this after its write.
     pub fn forget_all_records(&mut self) {
-        for epoch in &mut self.record_epochs {
-            *epoch = epoch.wrapping_add(1);
-        }
+        self.advance_read_epochs();
+        self.pending_write_tokens.clear();
         self.negative_barriers.clear();
         let keys: Vec<RecordKey> = self.records.drain().map(|(key, _)| key).collect();
         for key in keys {

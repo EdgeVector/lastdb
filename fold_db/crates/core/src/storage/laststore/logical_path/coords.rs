@@ -164,12 +164,14 @@ pub(super) fn write_molecule_header(
 ) -> StorageResult<Option<Vec<u8>>> {
     // The append copies the previous body from the pin. Do not `load_point`
     // first. The hash group does not stay. The header body does.
+    let epoch = set.lock().expect("poison").record_epoch(id);
     let ack = store
         .append_for_resident(collection, id, Some(value))
         .map_err(LastStoreKvStore::map_error)?;
     let mut guard = set.lock().expect("poison");
+    let admissible = guard.record_epoch(id) == epoch;
     guard.forget_record(collection, id);
-    if admit_raw_body(value) {
+    if admissible && admit_raw_body(value) {
         let epoch = guard.record_epoch(id);
         guard.admit_record(collection, id, Some(value.to_vec()), epoch);
     }
@@ -211,13 +213,17 @@ pub(super) fn delete_molecule_header(
     if previous.is_none() {
         return Ok((false, None));
     }
+    let epoch = set.lock().expect("poison").record_epoch(id);
     store
         .append_for_resident(collection, id, None)
         .map_err(LastStoreKvStore::map_error)?;
     let mut guard = set.lock().expect("poison");
+    let admissible = guard.record_epoch(id) == epoch;
     guard.forget_record(collection, id);
     let epoch = guard.record_epoch(id);
-    guard.admit_record(collection, id, None, epoch);
+    if admissible {
+        guard.admit_record(collection, id, None, epoch);
+    }
     drop(guard);
     publish_loader_measurements(store, set);
     Ok((true, previous))
