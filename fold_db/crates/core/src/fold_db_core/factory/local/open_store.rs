@@ -22,6 +22,14 @@ pub(super) fn open_primary_store(
     if converted.is_none() && crate::storage::disk_pack::requested(path) {
         return open_native_store(path);
     }
+    open_legacy_store(path, e2e_keys, high_water_path)
+}
+
+fn open_legacy_store(
+    path: &std::path::Path,
+    e2e_keys: &E2eKeys,
+    high_water_path: std::path::PathBuf,
+) -> FoldDbResult<OpenPrimaryStore> {
     // Packaging modes:
     // - **plain** (default new hash-group): structural group files are
     //   plaintext; atom *content* is field-sealed. No LastStore data_key /
