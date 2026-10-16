@@ -130,9 +130,29 @@ impl MutationManager {
         mutation_key_values: &[KeyValue],
         atom_results: Vec<(usize, String, Atom)>,
     ) -> Vec<(usize, String, Atom)> {
+        // Every occurrence of a repeated physical slot stays in order. A
+        // baseline A followed by B -> A must not drop the final A merely
+        // because it equals the baseline before B applies.
+        let slot_for = |idx: usize, name: &str| {
+            let field = schema.runtime_fields.get(name)?;
+            let (hash, range) = field.disk_slot_for_key(mutation_key_values.get(idx)?)?;
+            Some((field.common().molecule_uuid()?.clone(), hash, range))
+        };
+        let mut slot_counts = std::collections::HashMap::new();
+        for (idx, name, _) in &atom_results {
+            if let Some(slot) = slot_for(*idx, name) {
+                *slot_counts.entry(slot).or_insert(0usize) += 1;
+            }
+        }
         atom_results
             .into_iter()
             .filter(|(idx, field_name, atom)| {
+                if slot_for(*idx, field_name)
+                    .and_then(|slot| slot_counts.get(&slot))
+                    .is_some_and(|count| *count > 1)
+                {
+                    return true;
+                }
                 let Some(mutation) = schema_mutations.get(*idx) else {
                     return true;
                 };

@@ -1,8 +1,8 @@
 //! Batched protein reads and loaded-protein sibling plan.
 
 use super::{
-    member_backref_key, protein_record_key, AtomEntry, AtomStore, ChangedKey, Ed25519KeyPair,
-    HashMap, HashSet, MoleculeData, Protein, SchemaError,
+    member_backref_key, protein_record_key, AtomEntry, AtomStore, Ed25519KeyPair, HashMap,
+    PreparedProteinTip, Protein, SchemaError,
 };
 
 impl AtomStore {
@@ -60,7 +60,7 @@ impl AtomStore {
         keypair: &Ed25519KeyPair,
         author_clock: Option<(u64, u64, String, String)>,
         storage_prefix: Option<&str>,
-    ) -> Result<Vec<(String, MoleculeData, HashSet<ChangedKey>)>, SchemaError> {
+    ) -> Result<Vec<PreparedProteinTip>, SchemaError> {
         let honor_tip_lww = author_clock.is_some();
         let tip = match author_clock {
             Some((written_at, logical_counter, device_id, mutation_uuid)) => {
@@ -79,7 +79,7 @@ impl AtomStore {
                 keypair.public_key_base64(),
             ),
         };
-        let mut sibling_updates: Vec<(String, MoleculeData, HashSet<ChangedKey>)> = Vec::new();
+        let mut sibling_updates = Vec::new();
         for member in &protein.members {
             let is_entry = member.molecule_uuid == entry_molecule_uuid
                 && entry_layout.is_none_or(|(hash_field, range_field)| {

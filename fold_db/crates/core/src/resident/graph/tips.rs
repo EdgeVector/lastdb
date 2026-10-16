@@ -3,6 +3,14 @@
 use super::*;
 
 impl ResidentGraph {
+    /// Exact storage lookup for maintenance. Links leave with their dirty tip.
+    pub(crate) fn has_tip_for_storage_key(&self, storage_key: &str) -> bool {
+        self.tips
+            .read()
+            .expect("tips lock")
+            .has_storage_alias(storage_key)
+    }
+
     pub fn resolve_tip(
         &self,
         molecule_uuid: &str,

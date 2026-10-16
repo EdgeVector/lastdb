@@ -21,12 +21,18 @@ impl MutationManager {
         schema_mutations: &[Mutation],
         mutation_key_values: &[KeyValue],
         atom_results: Vec<(usize, String, Atom)>,
-    ) -> (Vec<MutationEvent>, ModifiedFieldKeys) {
+    ) -> (
+        Vec<MutationEvent>,
+        ModifiedFieldKeys,
+        super::prepared::AcceptedSources,
+    ) {
         // field_name -> the keys touched on that field's molecule this batch.
         // A field present with an empty ChangedKey set still persists (e.g. Single empty slot).
         let mut modified_fields: HashMap<String, HashSet<ChangedKey>> = HashMap::new();
         // History-off: always empty. Previous version is tip `prev_atom_uuid`.
         let mutation_events: Vec<MutationEvent> = Vec::new();
+        let mut accepted_sources = HashMap::new();
+        let mut slot_heads = super::batch_rebase::BatchSlotHeads::default();
 
         for (idx, field_name, atom) in atom_results {
             let mutation = &schema_mutations[idx];
@@ -38,36 +44,19 @@ impl MutationManager {
                 continue;
             };
 
-            if self.tip_history_enabled_for_writes() {
-                if let Some(molecule) = schema_field.molecule.as_mut() {
-                    molecule.set_tip_history_enabled(true);
+            slot_heads.overlay_field(schema_field, key_value);
+            let accepted =
+                self.write_field_atom(schema_field, key_value, mutation, &field_name, &atom);
+            slot_heads.record_field(schema_field, key_value);
+            if accepted {
+                if let (Some(uuid), Some(entry)) = (
+                    schema_field.common().molecule_uuid(),
+                    schema_field.atom_entry_at_key(key_value),
+                ) {
+                    accepted_sources
+                        .insert((idx, uuid.clone(), atom.uuid().to_string()), entry.clone());
                 }
             }
-
-            // Write mutation to memory. When the mutation carries a
-            // `Provenance::User` (e.g. inbound `data_share` replay), pass it
-            // through as `writer_override` so the per-key signing layer
-            // preserves the original author's `writer_pubkey` on the
-            // `AtomEntry` instead of overwriting via the local signer.
-            // Molecule set_* records previous content as tip `prev_atom_uuid`.
-            schema_field.write_mutation(
-                key_value,
-                crate::schema::types::field::WriteContext {
-                    atom: atom.clone(),
-                    pub_key: mutation.pub_key.clone(),
-                    source_file_name: mutation.source_file_name.clone(),
-                    metadata: mutation.metadata.clone(),
-                    schema_name: mutation.schema_name.clone(),
-                    field_name: field_name.clone(),
-                    signer: Arc::clone(&self.signer),
-                    writer_override: mutation.provenance.clone(),
-                    imported_written_at: mutation.imported_written_at,
-                    logical_counter: mutation.logical_counter,
-                    author_clock_writer_id: mutation.author_clock_writer_id.clone(),
-                    mutation_uuid: mutation.uuid.clone(),
-                    imported_version: mutation.imported_version,
-                },
-            );
             // Torn-apply check: a plain local write always becomes the tip.
             // An imported write (mutation-log replay or `Provenance::User`
             // data_share) goes through last-writer-wins in the molecule and
@@ -99,106 +88,41 @@ impl MutationManager {
             }
         }
 
-        (mutation_events, modified_fields)
+        slot_heads.overlay_changed_schema(schema, &modified_fields);
+        (mutation_events, modified_fields, accepted_sources)
     }
 
-    /// Rebase prepared protein sibling updates on the current resident tips.
-    ///
-    /// Protein preparation reads durable molecule rows before apply-gate
-    /// acquisition. A prior acknowledged sibling update can still be dirty at
-    /// that point. Use that resident tip as the LWW base, while the sibling
-    /// revision snapshot detects a change after this preparation starts.
-    pub(in crate::fold_db_core::mutation_manager) fn rebase_sibling_updates_on_resident(
+    fn write_field_atom(
         &self,
-        schema: &Schema,
-        sibling_updates: Vec<(
-            String,
-            crate::db_operations::MoleculeData,
-            HashSet<ChangedKey>,
-        )>,
-    ) -> Vec<(
-        String,
-        crate::db_operations::MoleculeData,
-        HashSet<ChangedKey>,
-    )> {
-        use crate::atom::{AtomEntry, MoleculeHashRange};
-
-        if schema
-            .runtime_fields
-            .values()
-            .any(|field| field.common().storage_prefix().is_some())
-        {
-            return sibling_updates;
+        field: &mut crate::schema::types::field::FieldVariant,
+        key: &KeyValue,
+        mutation: &Mutation,
+        field_name: &str,
+        atom: &Atom,
+    ) -> bool {
+        if self.tip_history_enabled_for_writes() {
+            if let Some(molecule) = field.molecule.as_mut() {
+                molecule.set_tip_history_enabled(true);
+            }
         }
-
-        let resident = self.resident_graph();
-        let mut slot_heads: HashMap<(String, String, String), Option<AtomEntry>> = HashMap::new();
-        let mut rebased_updates = Vec::with_capacity(sibling_updates.len());
-
-        for (molecule_uuid, data, changed) in sibling_updates {
-            // The protein planner emits one tuple for one member slot. Keep a
-            // defensive fallback so a future multi-slot planner stays correct
-            // until it gets an equivalent per-slot rebase.
-            let Some(changed_key) = (changed.len() == 1)
-                .then(|| changed.iter().next())
-                .flatten()
-            else {
-                rebased_updates.push((molecule_uuid, data, changed));
-                continue;
-            };
-            let hash = changed_key.disk_hash().to_string();
-            let range = changed_key.disk_range().to_string();
-            let Some(proposed) = data.get_atom_entry(&hash, &range).cloned() else {
-                rebased_updates.push((molecule_uuid, data, changed));
-                continue;
-            };
-
-            let slot = (molecule_uuid.clone(), hash.clone(), range.clone());
-            let current = slot_heads.entry(slot).or_insert_with(|| {
-                resident
-                    .resolve_tip(&molecule_uuid, &hash, &range)
-                    .map(|tip| {
-                        let tip = tip.value;
-                        AtomEntry::thin_with_author(
-                            tip.atom_uuid,
-                            tip.written_at,
-                            tip.logical_counter,
-                            tip.device_id,
-                            tip.mutation_uuid,
-                            String::new(),
-                        )
-                    })
-            });
-
-            let rebased = if let Some(base) = current.as_ref() {
-                let metadata = data.get_key_metadata(&hash, &range).cloned();
-                let mut rebased = MoleculeHashRange::from_write_records(
-                    molecule_uuid.clone(),
-                    data.version(),
-                    chrono::Utc::now(),
-                    vec![(hash.clone(), range.clone(), base.clone(), metadata)],
-                );
-                rebased.set_atom_uuid_from_values_imported_with_author(
-                    hash.clone(),
-                    range.clone(),
-                    proposed.atom_uuid.clone(),
-                    proposed.lww_device().to_string(),
-                    proposed.writer_pubkey.clone(),
-                    proposed.signature.clone(),
-                    proposed.signature_version,
-                    Some(proposed.written_at),
-                    proposed.logical_counter,
-                    proposed.mutation_uuid.clone(),
-                );
-                rebased
-            } else {
-                data
-            };
-            *current = rebased.get_atom_entry(&hash, &range).cloned();
-            rebased_updates.push((molecule_uuid, rebased, changed));
-        }
-
-        rebased_updates
+        field.write_mutation(
+            key,
+            crate::schema::types::field::WriteContext {
+                atom: atom.clone(),
+                pub_key: mutation.pub_key.clone(),
+                source_file_name: mutation.source_file_name.clone(),
+                metadata: mutation.metadata.clone(),
+                schema_name: mutation.schema_name.clone(),
+                field_name: field_name.to_string(),
+                signer: Arc::clone(&self.signer),
+                writer_override: mutation.provenance.clone(),
+                imported_written_at: mutation.imported_written_at,
+                logical_counter: mutation.logical_counter,
+                author_clock_writer_id: mutation.author_clock_writer_id.clone(),
+                mutation_uuid: mutation.uuid.clone(),
+                imported_version: mutation.imported_version,
+            },
+        )
     }
 
     /// Bind cross-key record proteins against every peer schema when this batch
@@ -246,13 +170,7 @@ impl MutationManager {
         let store = self.db_ops.atoms();
         let keypair = self.signer.as_ref();
         let mut sibling_updates = Vec::new();
-        // A schema can declare one key layout while the API supplies another
-        // compatible KeyValue. A shared field molecule can carry both layouts
-        // in one protein. The layout-based planner cannot identify the actual
-        // entry slot from field names alone, so exclude every slot this batch
-        // writes directly. Publishing an entry twice lets a stale sibling
-        // plan replace the fresh resident tip even when durable LWW rejects it.
-        let entry_slots = direct_entry_slots(schema, mutation_key_values, atom_results);
+        let mut sibling_origins = Vec::new();
 
         self.bind_peer_record_proteins(schema, atom_results).await?;
 
@@ -309,38 +227,18 @@ impl MutationManager {
                     schema_storage_prefix(schema, Some(mol_uuid)),
                 )
                 .await?;
-            for (sibling_molecule, data, mut changed) in updates {
-                changed.retain(|key| {
-                    !entry_slots.contains(&(
-                        sibling_molecule.clone(),
-                        key.disk_hash().to_string(),
-                        key.disk_range().to_string(),
-                    ))
-                });
+            for (sibling_molecule, data, changed, base) in updates {
                 if !changed.is_empty() {
                     sibling_updates.push((sibling_molecule, data, changed));
+                    sibling_origins.push(super::prepared::SiblingOrigin {
+                        source: (idx, mol_uuid.to_string(), atom.uuid().to_string()),
+                        base,
+                    });
                 }
             }
         }
-        Ok((sibling_updates, prepared))
+        Ok((sibling_updates, prepared, sibling_origins))
     }
-}
-
-/// Every `(molecule, hash, range)` slot this batch writes directly.
-fn direct_entry_slots(
-    schema: &Schema,
-    mutation_key_values: &[KeyValue],
-    atom_results: &[(usize, String, crate::atom::Atom)],
-) -> HashSet<(String, String, String)> {
-    atom_results
-        .iter()
-        .filter_map(|(idx, field_name, _)| {
-            let field = schema.runtime_fields.get(field_name)?;
-            let molecule_uuid = field.common().molecule_uuid()?.clone();
-            let (hash, range) = field.disk_slot_for_key(&mutation_key_values[*idx])?;
-            Some((molecule_uuid, hash, range))
-        })
-        .collect()
 }
 
 /// Key fields of the entry plus any string-like payload fields (multi-key fold

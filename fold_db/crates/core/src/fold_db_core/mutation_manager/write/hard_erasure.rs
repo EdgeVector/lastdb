@@ -153,9 +153,10 @@ impl MutationManager {
             purge_bytes,
         );
         envelope.slot_revisions = slot_revisions;
+        // Enqueue under the slot gates so successors cannot precede this revision.
+        reservation.fill(envelope);
         drop(delete_publication);
         drop(guards);
-        reservation.fill(envelope);
         Ok(PurgeEnqueue::Queued(receiver))
     }
 

@@ -89,13 +89,25 @@ key revision leaves after its final lease. Unique revision identities prevent
 an old prepared write from accepting a later key state as its original state.
 Revision records do not accumulate for every key that the process wrote.
 
+Delete enters its flush queue before its slot gates release. A later write
+cannot enter that queue ahead of the revision it needs.
+
+A batch can name two schemas that share one molecule key. Each later schema
+delta uses the earlier delta's published winner, including its metadata.
+An imported write that loses cannot change the winner's metadata or protein
+siblings.
+
+An admin tombstone drain holds the exact storage-key gates. It skips a key
+with a pending graph write and checks the current atom before disk erasure.
+The drain does not own the graph revisions of later writes.
+
 Dirty entries are never evicted. If every eviction candidate is dirty, the graph
 stays over budget and increments `evict_refused_dirty`; the persist worker must
 drain the dirty set before budget enforcement can make progress.
 
-Purges must remove both durable rows and any resident tips or atoms that could
-answer a read. Eviction helpers that refuse dirty entries are not purge helpers:
-purge is erasure, not memory pressure.
+A logical purge removes disk records and the graph state that its completed
+revision owns. It preserves any newer write. An admin storage purge removes
+only current disk tombstones; it cannot remove a pending graph write.
 
 ## Telemetry
 

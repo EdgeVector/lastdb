@@ -296,6 +296,7 @@ pub(crate) struct LegacyTombstoneSlot {
     pub molecule_uuid: String,
     pub storage_hash: String,
     pub storage_range: String,
+    pub atom_uuid: String,
 }
 
 /// Internal result of one bounded storage-cursor tombstone discovery pass.
