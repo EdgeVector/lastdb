@@ -102,8 +102,8 @@ pub(super) struct Shard {
     /// sidecar writers compare against it and skip a group whose sidecar is
     /// already valid: [`LastStore::persist_key_sidecars`] so repeat calls cost
     /// a readdir per group instead of rewriting every id list, and eviction so
-    /// a group cycling through the warm set does not rewrite identical bytes —
-    /// with an fsync — on what is otherwise a pure read path.
+    /// a group cycling through the warm set does not rewrite identical bytes
+    /// on what is otherwise a pure read path.
     pub(super) sidecar_stamps: Option<Vec<keysidecar::SegmentStamp>>,
     pub(super) frame_compression_stats: Arc<Mutex<BTreeMap<String, FrameCompressionStats>>>,
 }

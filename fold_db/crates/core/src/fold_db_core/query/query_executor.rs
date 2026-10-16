@@ -160,6 +160,21 @@ impl QueryExecutor {
         query: &Query,
         access_context: &AccessContext,
     ) -> Result<Option<usize>, SchemaError> {
+        let scope =
+            crate::storage::disk_pack::PackReadScope::for_store(&self.db_ops.namespaced_store())
+                .await?;
+        let future = Box::pin(self.count_query_rows_scoped(query, access_context));
+        match scope {
+            Some(scope) => scope.run_result(future).await,
+            None => future.await,
+        }
+    }
+
+    async fn count_query_rows_scoped(
+        &self,
+        query: &Query,
+        access_context: &AccessContext,
+    ) -> Result<Option<usize>, SchemaError> {
         // App reads are unrestricted once the app is approved
         // (decision-2026-07-10-apps-read-all-write-own-namespace): no per-read
         // namespace gate. Multi-DB storage_prefix still scopes the count.
@@ -261,6 +276,22 @@ impl QueryExecutor {
     }
 
     async fn query_internal(
+        &self,
+        query: Query,
+        window: Option<KeyWindow>,
+        access_context: Option<&AccessContext>,
+    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+        let scope =
+            crate::storage::disk_pack::PackReadScope::for_store(&self.db_ops.namespaced_store())
+                .await?;
+        let future = Box::pin(self.query_internal_scoped(query, window, access_context));
+        match scope {
+            Some(scope) => scope.run_result(future).await,
+            None => future.await,
+        }
+    }
+
+    async fn query_internal_scoped(
         &self,
         query: Query,
         window: Option<KeyWindow>,

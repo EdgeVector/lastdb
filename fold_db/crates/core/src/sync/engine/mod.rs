@@ -98,9 +98,9 @@ pub use pin_log::{
     audit_pin_log_plane, prepare_offline_s0_restore_marker, replay_mutation_log_segments,
     require_offline_s0_restore_marker, restore_mutation_log_after_s0,
     restore_mutation_log_after_s0_from_plane, seal_mutation_log_segment, BackupRestoreMode,
-    MutationLogLocalCloud, MutationLogReplayReport, MutationLogSegment, MutationLogUploadReport,
-    PinLogPlaneReport, PinLogRecord, PinLogTargetStatus, PinLogWriterStat, SealedBaseMember,
-    PIN_LOG_NAMESPACE, PIN_LOG_OPERATOR_KEYS_PER_CALL,
+    MutationLogDirectoryExport, MutationLogLocalCloud, MutationLogReplayReport, MutationLogSegment,
+    MutationLogUploadReport, PinLogPlaneReport, PinLogRecord, PinLogTargetStatus, PinLogWriterStat,
+    SealedBaseMember, PIN_LOG_NAMESPACE, PIN_LOG_OPERATOR_KEYS_PER_CALL,
 };
 pub use pin_log::{AuthenticatedReplayObject, RetiredReplaySource};
 pub(crate) use pin_log::{MutationLogAppendReceipt, MutationPublicationWait};

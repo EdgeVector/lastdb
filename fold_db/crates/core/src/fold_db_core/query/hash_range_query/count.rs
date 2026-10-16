@@ -91,13 +91,15 @@ impl HashRangeQueryProcessor {
 
         // Skip Deletes ack by stamping a resident schema-key tombstone and
         // flushing the hard erase later. Count must match query_internal.
-        let resident = self.db_ops.resident();
-        let schema_name = schema.name.as_str();
-        keys.retain(|kv| {
-            let hash = kv.hash.as_deref().unwrap_or("");
-            let range = kv.range.as_deref().unwrap_or("");
-            !resident.is_schema_key_tombstoned(schema_name, hash, range)
-        });
+        if crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            let resident = self.db_ops.resident();
+            let schema_name = schema.name.as_str();
+            keys.retain(|kv| {
+                let hash = kv.hash.as_deref().unwrap_or("");
+                let range = kv.range.as_deref().unwrap_or("");
+                !resident.is_schema_key_tombstoned(schema_name, hash, range)
+            });
+        }
 
         // Mirror the page path's named-layout retain. Shared-molecule
         // graph-edge schemas union inbound and outbound tips under one
@@ -166,7 +168,7 @@ impl HashRangeQueryProcessor {
     /// incomplete. `brain reindex --child-task-index` refuses outright on that
     /// mismatch, which is the check working.
     ///
-    /// The test is the inverse of the one `recover_api_page_keys` already runs
+    /// The check is the inverse of the one `recover_api_page_keys` already runs
     /// and needs no atom bodies: a key is a legacy twin when blinding its own
     /// hash yields a *different* hash that the key set also holds under the
     /// same range. One HMAC per key, and it can only collapse a pair the read

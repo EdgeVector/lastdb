@@ -79,6 +79,7 @@ pub(crate) fn plan_normal_delete_barriers(
                     kind: DeleteKind::Normal,
                     displaced_atom_uuid: None,
                     cloud_sequence: None,
+                    tip_before_nanos: mutation.erase_tips_before_nanos,
                 };
                 match by_key.entry(candidate.mk_key) {
                     std::collections::hash_map::Entry::Vacant(slot) => {

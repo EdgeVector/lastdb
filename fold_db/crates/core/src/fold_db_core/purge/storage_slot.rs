@@ -268,6 +268,7 @@ pub(in crate::fold_db_core) async fn purge_storage_slots_bulk(
             evict_resident: true,
             reachability: PurgeReachability::GuardedComplement,
             precomputed_retained: None,
+            caller: "mutation-pipeline",
         },
     };
     let report = execute_guarded_purge(

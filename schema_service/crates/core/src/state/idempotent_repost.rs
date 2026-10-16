@@ -50,7 +50,7 @@ impl SchemaServiceState {
         let incoming_dn = probe.descriptive_name.clone().unwrap_or_default();
 
         validate_repost_probe(&probe, &incoming_owner, &incoming_dn)?;
-        self.canonicalize_repost_probe(&mut probe, mutation_mappers);
+        self.canonicalize_repost_probe(&mut probe, mutation_mappers)?;
         probe.dedup_fields();
         probe.compute_identity_hash();
         let identity_hash = probe.get_identity_hash()?.clone();
@@ -92,15 +92,19 @@ impl SchemaServiceState {
         &self,
         probe: &mut Schema,
         mutation_mappers: &HashMap<String, String>,
-    ) {
+    ) -> Option<()> {
         if let Some(fields) = probe.fields.clone() {
             let mut mappers = mutation_mappers.clone();
-            let rename_map = self.canonicalize_fields(&fields, probe, &mut mappers);
+            // A reject is not a repost hit. The write path returns the error.
+            let rename_map = self
+                .canonicalize_fields(&fields, probe, &mut mappers)
+                .ok()?;
             if !rename_map.is_empty() {
                 Self::apply_field_renames(probe, &rename_map, &mut mappers);
                 probe.identity_hash = None;
             }
         }
+        Some(())
     }
 
     /// Locate the registered schema the probe would resolve to: the identity

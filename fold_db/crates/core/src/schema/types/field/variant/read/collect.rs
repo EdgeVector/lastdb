@@ -161,7 +161,7 @@ impl FieldVariant {
         // must retain each resident tip's real convergence winner separately.
         let mut resident_live: HashMap<KeyValue, crate::resident::ResidentTip> = HashMap::new();
         let mut resident_tombstones = HashSet::new();
-        if crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix) {
+        if crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix) {
             let start = crate::resident::ResidentMoleculeKey::new(hash.to_string(), String::new());
             let end = crate::resident::ResidentMoleculeKey::new(format!("{hash}\0"), String::new());
             let snapshot =

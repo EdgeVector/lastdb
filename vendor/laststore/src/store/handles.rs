@@ -176,6 +176,14 @@ impl LastStore {
             && self.opts.data_key.is_none()
     }
 
+    /// Stamped group bytes from which a sidecar write flushes its file before
+    /// the rename: half the cold-load cap. A bigger group may be too large to
+    /// load, so its sidecar has to survive power loss. `0` (no cap) flushes
+    /// every sidecar.
+    pub(super) fn sidecar_flush_floor(&self) -> u64 {
+        self.opts.effective_max_cold_group_load_bytes() / 2
+    }
+
     /// In-memory hash groups for `collection` that a walk must still visit.
     ///
     /// `handles_on_disk` / `handle_dir.exists()` only see directories

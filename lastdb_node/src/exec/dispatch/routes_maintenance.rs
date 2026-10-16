@@ -108,6 +108,12 @@ pub(super) async fn dispatch_maintenance_repair(
         DataRoute::DbPinLogAudit => {
             heap_route!(execute_db_pin_log_audit_route, req, ctx, host).await
         }
+        DataRoute::DbExportMutationLog => {
+            heap_route!(execute_db_export_mutation_log_route, req, ctx, host).await
+        }
+        DataRoute::DbReplayMutationLog => {
+            heap_route!(execute_db_replay_mutation_log_route, req, ctx, host).await
+        }
         DataRoute::DbOrderLogBloatAudit => {
             heap_route!(execute_db_order_log_bloat_audit_route, req, ctx, host).await
         }

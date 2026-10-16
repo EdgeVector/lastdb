@@ -371,23 +371,30 @@ fn decode_ids(
 
 /// Write `ids` and `residue` for the group in `dir`, valid as of `stamps`.
 ///
-/// Atomic: a torn write leaves the previous sidecar intact rather than a
-/// half-file. `stamps` must have been taken while holding the shard lock, in
-/// the same critical section as `ids` and `residue` — if the group is appended
-/// to afterwards the reader detects the longer segment and replays the
-/// difference.
+/// Atomic against a process kill: the file is written aside and renamed, so a
+/// reader sees the old sidecar or the new one, never a half-file. Against power
+/// loss it is only as strong as the flush. A group below `flush_floor` stamped
+/// bytes is not flushed first, so the rename can persist without the bytes and
+/// leave a missing, empty, torn or stale file; readers reject it (checksum,
+/// stamps) and load the group. At or above the floor the file is flushed first,
+/// because that group may be too big to load. `stamps` must have been taken
+/// while holding the shard lock, in the same critical section as `ids` and
+/// `residue` — if the group is appended to afterwards the reader detects the
+/// longer segment and replays the difference.
 pub(crate) fn write(
     dir: &Path,
     stamps: &[SegmentStamp],
     residue: GroupResidue,
     ids: &BTreeSet<String>,
+    flush_floor: u64,
 ) -> Result<()> {
     let encoded = encode(stamps, residue, ids);
     let tmp = dir.join(SIDECAR_TMP);
     fs::write(&tmp, &encoded)?;
-    let file = OpenOptions::new().write(true).open(&tmp)?;
-    crate::durability::sync_sidecar_file(&file)?;
-    drop(file);
+    if stamps.iter().map(|s| s.len).sum::<u64>() >= flush_floor {
+        let file = OpenOptions::new().write(true).open(&tmp)?;
+        crate::durability::sync_sidecar_file(&file)?;
+    }
     fs::rename(&tmp, sidecar_path(dir))?;
     Ok(())
 }

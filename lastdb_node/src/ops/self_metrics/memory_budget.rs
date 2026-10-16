@@ -143,7 +143,7 @@ pub struct StoreFlushHealth {
     /// Total microseconds in data-file barriers.
     #[serde(default)]
     pub fsync_data_micros: u64,
-    /// Key sidecar barriers.
+    /// Key sidecar barriers (big groups only: a small group is not flushed).
     #[serde(default)]
     pub fsync_sidecar_calls: u64,
     /// Total microseconds in sidecar barriers.

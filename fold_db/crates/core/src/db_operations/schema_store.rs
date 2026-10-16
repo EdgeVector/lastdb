@@ -29,6 +29,7 @@ mod replay_catalog;
 mod replay_probe;
 mod retention_layers;
 mod retention_move;
+mod retention_recheck;
 mod retention_sharing;
 mod retired_replay;
 

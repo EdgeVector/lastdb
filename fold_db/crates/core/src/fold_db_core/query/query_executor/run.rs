@@ -59,8 +59,11 @@ impl QueryExecutor {
         // durable erase is queued. It must never reveal the old body.
         // Overlay stamps cover personal and org-prefix erasures;
         // count already filters both, so the page must too.
-        let results =
-            filter_schema_key_tombstones(results, self.db_ops.resident(), &query.schema_name);
+        let results = if crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            filter_schema_key_tombstones(results, self.db_ops.resident(), &query.schema_name)
+        } else {
+            results
+        };
 
         Ok(results)
     }

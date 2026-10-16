@@ -268,6 +268,8 @@ pub struct LastStoreOptions {
     /// Strictly an advisory cache. It is validated against the group's segment
     /// files on every read and any mismatch falls back to a full load, so a
     /// stale, truncated, or corrupt sidecar costs time, never correctness.
+    /// A group too big to load has no such fallback, so a sidecar for a group
+    /// near the load cap is flushed before its rename; a smaller one is not.
     ///
     /// Ignored unless [`LayoutMode::HashGroup`] **and**
     /// [`PackagingMode::Plain`]: plain packaging already stores ids readably in

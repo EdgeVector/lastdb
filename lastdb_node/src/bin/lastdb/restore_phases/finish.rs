@@ -13,6 +13,13 @@ pub(crate) fn finalize_destination(
     remote_descriptor: Option<&RemoteRecovery>,
     source_db_hash: &str,
 ) -> Phase<Option<serde_json::Value>> {
+    if !applied.report.remote_read_only {
+        return Err(RestoreFailure::new(
+            Stage::CompletionMarker,
+            Code::OperationFailed,
+            "restore serve stays closed until integrity and the flush",
+        ));
+    }
     let target = &homes.target;
     let bootstrap_done = target.join(lastdb_node::cloud::BOOTSTRAP_DONE_FILE);
     write_owner_only_local(&bootstrap_done, b"ok\n").map_err(|detail| {

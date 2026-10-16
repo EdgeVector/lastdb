@@ -52,12 +52,16 @@ impl Apply<'_> {
             report.mutation_log_snapshot_frontier = Some(frontier.clone());
             let mode = self.resolve_mode(stored_mode, &report)?;
             if mode == BackupRestoreMode::S0Only {
+                // The snapshot-only path does not replay. Serve stays closed
+                // until this flush and the integrity check both succeed.
+                self.open_serve_after_integrity_and_flush()?;
                 report.remote_read_only = true;
                 return Ok(Applied { report, mode });
             }
             self.check_replay_allowed()?;
             reset_continuation_seed(&self, &frontier).await?;
             self.replay_tail(&mut report, &frontier).await?;
+            self.open_serve_after_integrity_and_flush()?;
             report.remote_read_only = true;
             Ok(Applied { report, mode })
         })
@@ -180,6 +184,26 @@ impl Apply<'_> {
                 .map_err(|detail| io_failure(Stage::CompletionMarker, detail))?;
         }
         Ok(report)
+    }
+
+    /// Flush the restored store, then check integrity. The caller sets the
+    /// serve flag only after this returns.
+    fn open_serve_after_integrity_and_flush(&self) -> Phase<()> {
+        self.store.flush_installed().map_err(|error| {
+            RestoreFailure::new(
+                Stage::FlushDestination,
+                Code::OperationFailed,
+                format!("flush restored store: {error}"),
+            )
+        })?;
+        self.store.verify_integrity().map_err(|error| {
+            RestoreFailure::new(
+                Stage::FlushDestination,
+                Code::OperationFailed,
+                format!("integrity check after flush: {error}"),
+            )
+        })?;
+        Ok(())
     }
 
     fn verify_installed_scope(&self, report: &LastStoreCloudRestoreReport) -> Phase<()> {

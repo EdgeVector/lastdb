@@ -205,6 +205,7 @@ impl ResidentGraph {
         }
     }
 
+    #[allow(dead_code)]
     fn partition_interval_has_dirty(&self, read: &PartitionRead) -> bool {
         let start = ResidentMoleculeKey::new(&read.hash, &read.start);
         let end = read.end.as_ref().map_or_else(
@@ -234,66 +235,18 @@ impl ResidentGraph {
             .is_some_and(|keys| keys.range(start..end).next().is_some())
     }
 
-    /// Install exactly the tips from an uncapped read, then certify coverage.
-    /// Slot revisions guard every install. A mutation, durable completion, or
-    /// eviction invalidates the read ticket and prevents certification.
+    /// A disk page does not install clean tips into the graph.
+    ///
+    /// Dirty tips are already in the graph. The warm set holds the clean
+    /// records. Certification would copy the page into the graph, so this
+    /// returns false and the caller keeps the storage result.
     pub(crate) fn finish_partition_read(
         &self,
         read: &PartitionRead,
         tips: Vec<ResidentTip>,
     ) -> bool {
-        if tips.iter().any(|tip| {
-            tip.molecule_uuid != read.molecule
-                || tip.hash != read.hash
-                || tip.range < read.start
-                || read.end.as_ref().is_some_and(|end| &tip.range >= end)
-        }) {
-            return false;
-        }
-        if !read.valid.load(Ordering::Acquire) || self.partition_interval_has_dirty(read) {
-            return false;
-        }
-        let mut expected = Vec::with_capacity(tips.len());
-        for tip in tips {
-            if tip.molecule_uuid != read.molecule || tip.hash != read.hash {
-                return false;
-            }
-            let observed = self.observe_slot(&tip.molecule_uuid, &tip.hash, &tip.range);
-            // A write after the durable read invalidates the partition ticket.
-            // The scoped slot lease prevents eviction from recycling identity
-            // between this check and the conditional install.
-            if !read.valid.load(Ordering::Acquire) {
-                return false;
-            }
-            expected.push(ResidentMoleculeKey::new(&tip.hash, &tip.range));
-            if self
-                .rehydrate_tip_at(tip.clone(), Some(observed.revisions()))
-                .is_none_or(|hit| hit.value != tip)
-            {
-                return false;
-            }
-        }
-        let start = ResidentMoleculeKey::new(&read.hash, &read.start);
-        let end = read.end.as_ref().map_or_else(
-            || ResidentMoleculeKey::new(format!("{}\0", read.hash), ""),
-            |end| ResidentMoleculeKey::new(&read.hash, end),
-        );
-        let snapshot = self.resident_key_set_range(&read.molecule, Some(&start), Some(&end));
-        expected.sort_unstable();
-        expected.dedup();
-        if !snapshot.tombstones.is_empty() || snapshot.keys != expected {
-            return false;
-        }
-        let _slots = self.slots.read().expect("resident slot lock");
-        if !read.valid.load(Ordering::Acquire) || self.partition_interval_has_dirty(read) {
-            return false;
-        }
-        read.complete.store(true, Ordering::Release);
-        let complete = read.valid.load(Ordering::Acquire);
-        if complete {
-            self.metrics.record_key_set_complete();
-        }
-        complete
+        let _ = (read, tips);
+        false
     }
 
     /// Return a consistent cached partition. Atom bodies are resolved later.

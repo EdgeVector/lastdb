@@ -198,9 +198,7 @@ impl AtomStore {
             .inner()
             .get_many(lookup)
             .await
-            .map_err(|e| {
-                crate::schema::SchemaError::InvalidData(format!("Failed to fetch atom batch: {e}"))
-            })?;
+            .map_err(crate::schema::SchemaError::from)?;
         let mut raw_iter = raw.into_iter();
         let mut out = Vec::with_capacity(keys.len());
         for key_forms in forms {

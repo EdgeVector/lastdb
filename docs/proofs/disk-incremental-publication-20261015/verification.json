@@ -1,0 +1,63 @@
+{
+  "small-old": {
+    "values_match": true,
+    "coordinates": 65,
+    "old_parts_unchanged": 4,
+    "initial_receipt_exact": true,
+    "final_dependency_count": 7,
+    "receipt_pages": 1,
+    "all_created_parts_named": false,
+    "initial_parts_retained": false
+  },
+  "small-new": {
+    "values_match": true,
+    "coordinates": 65,
+    "old_parts_unchanged": 4,
+    "initial_receipt_exact": true,
+    "final_dependency_count": 8,
+    "receipt_pages": 1,
+    "all_created_parts_named": true,
+    "initial_parts_retained": true
+  },
+  "large-old": {
+    "values_match": true,
+    "coordinates": 20001,
+    "old_parts_unchanged": 4,
+    "initial_receipt_exact": true,
+    "final_dependency_count": 7,
+    "receipt_pages": 1,
+    "all_created_parts_named": false,
+    "initial_parts_retained": false
+  },
+  "large-new": {
+    "values_match": true,
+    "coordinates": 20001,
+    "old_parts_unchanged": 4,
+    "initial_receipt_exact": true,
+    "final_dependency_count": 8,
+    "receipt_pages": 1,
+    "all_created_parts_named": true,
+    "initial_parts_retained": true
+  },
+  "deletes": {
+    "values_match": true,
+    "coordinates": 65,
+    "old_parts_unchanged": 4,
+    "initial_receipt_exact": true,
+    "final_dependency_count": 8,
+    "receipt_pages": 1,
+    "all_created_parts_named": true,
+    "initial_parts_retained": true
+  },
+  "groups": {
+    "values_match": true,
+    "coordinates": 112,
+    "old_parts_unchanged": 2,
+    "initial_receipt_exact": true,
+    "final_dependency_count": 225,
+    "receipt_pages": 2,
+    "all_created_parts_named": true,
+    "initial_parts_retained": true
+  },
+  "repeat_groups_unchanged": true
+}

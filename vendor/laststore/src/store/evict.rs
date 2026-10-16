@@ -226,7 +226,7 @@ impl LastStore {
             // Matching stamps mean the file on disk already describes exactly
             // these segments, so it already holds these ids: the sidecar is
             // only ever written together with the stamps it is valid for.
-            // Rewriting it would burn an encode, an fsync and a rename to
+            // Rewriting it would burn an encode, a write and a rename to
             // reproduce bytes that are already there. Anything else — a roll,
             // an append, no sidecar at all, a corrupt one — leaves
             // `sidecar_stamps` unequal and falls through to the write.
@@ -270,9 +270,10 @@ impl LastStore {
         }
         if let Some((dir, stamps, residue)) = ids.sidecar {
             // Advisory cache: failing to persist it costs the next cold walk
-            // one segment read and nothing else, so a write error must not
-            // fail the eviction that already succeeded.
-            let _ = keysidecar::write(&dir, &stamps, residue, &ids.keys);
+            // one segment read (a group near the load cap is flushed first),
+            // so a write error must not fail the eviction that succeeded.
+            let floor = self.sidecar_flush_floor();
+            let _ = keysidecar::write(&dir, &stamps, residue, &ids.keys, floor);
         }
         let budget = self.opts.hash_group_key_cache_bytes;
         // Lock order: shards -> key_index. Publishing forgets the entry under

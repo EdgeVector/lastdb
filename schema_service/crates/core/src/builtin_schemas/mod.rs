@@ -1,18 +1,11 @@
-//! SystemSeed schemas that every schema service ships with.
+//! Schema constructors that used to ship as boot seeds.
 //!
+//! Cold start does not install TriggerFiring or the starter templates.
+//! Canonical field seed is separate and still runs. The constructors stay
+//! so a caller can build one of these schemas. Tom, 2026-10-14.
 //!
-//! The service keeps a tiny set of system-owned schemas for platform
-//! observability. Product feature schemas should be declared by apps or users,
-//! not preloaded here.
-//!
-//! ## Seeding is idempotent
-//!
-//! `seed(&state)` iterates every built-in schema. For each, it
-//! computes the identity_hash and checks whether the schema service
-//! already has a schema by that hash. If present: no-op. If absent:
-//! add. This makes seeding safe to re-run across restarts, against
-//! fresh Sled stores, and against existing stores that may have
-//! picked up the same schemas via the legacy propose flow.
+//! `seed(&state)` still walks `all_phase_1_schemas()`. That list is empty,
+//! so boot adds nothing. An identity that is already stored stays stored.
 
 mod builder;
 mod seed;
@@ -75,13 +68,10 @@ pub fn is_schema_org_leftover(schema: &Schema) -> bool {
 //  Registration order
 // ────────────────────────────────────────────────────────────────────
 
-/// Return every service-owned seed schema that should be installed at boot.
+/// Schemas installed at boot. Empty: cold start adds no schema.
 pub fn all_phase_1_schemas() -> Vec<Schema> {
-    let mut schemas = vec![trigger_firing_schema()];
-    schemas.extend(app_starter_template_schemas());
-    schemas
+    Vec::new()
 }
 
-/// The list of all descriptive names for the built-in schemas. Clients
-/// use this list to identify service-owned schemas.
-pub const PHASE_1_DESCRIPTIVE_NAMES: &[&str] = &[TRIGGER_FIRING];
+/// Descriptive names of schemas installed at boot. Empty.
+pub const PHASE_1_DESCRIPTIVE_NAMES: &[&str] = &[];

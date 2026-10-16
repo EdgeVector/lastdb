@@ -286,6 +286,11 @@ needs its own explicit option (below).
   the offline `lastdb_local_maintain atom-gc` reap (removes redundant storage
   copies of a body that survives), and `gc-file-blobs` (blob rows).
 
+The TTL sweep purges by default, so it frees atom bytes at once, also on a node that has applied
+a peer mutation. With `LASTDB_TTL_SWEEP_VERB=delete` it leaves the atoms of the expired keys to this
+garbage collection and frees no atom bytes there until the override above is set. See
+`docs/lastdb-ttl-sweep.md`.
+
 **Later (not built).** O1: record a history entry on replay when a tip is
 replaced or a peer atom is dropped, with a retention window, then lift the
 interlock for nodes that record it. O2: carry the replaced tip (causal context)

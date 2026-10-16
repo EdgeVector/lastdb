@@ -9,6 +9,10 @@ pub enum StorageError {
     #[error("Storage backend error: {0}")]
     BackendError(String),
 
+    /// One bounded disk call exhausted its work limit. This is never a missing key.
+    #[error("read resource limit exceeded: {detail}")]
+    ReadResourceLimit { detail: String },
+
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 

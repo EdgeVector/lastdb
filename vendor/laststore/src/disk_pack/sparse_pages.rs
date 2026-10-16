@@ -1,0 +1,113 @@
+use super::page_write::{encode_page, PageFields};
+use super::tree_output::TreePages;
+use super::{corrupt, TreeRoot};
+use crate::{durability, Result};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use uuid::Uuid;
+
+/// Only fresh, private parts. Published parts are never opened for writes.
+pub(super) struct SparsePages {
+    directory: PathBuf,
+    object: Uuid,
+    generation: u64,
+    next: u64,
+    file: Option<File>,
+    pub(super) written_pages: u64,
+    part_numbers: Vec<u32>,
+}
+
+impl SparsePages {
+    pub(super) fn new(root: &Path, tree: &TreeRoot, generation: u64) -> Result<Self> {
+        tree.validate()?;
+        let directory = root
+            .join(tree.kind.directory())
+            .join(tree.object.to_string());
+        if generation == 0 || !directory.is_dir() {
+            return Err(corrupt("tree edit namespace or generation"));
+        }
+        Ok(Self {
+            directory,
+            object: tree.object,
+            generation,
+            next: 0,
+            file: None,
+            written_pages: 0,
+            part_numbers: Vec::new(),
+        })
+    }
+
+    fn allocate(&mut self) -> Result<()> {
+        self.sync_part()?;
+        self.part_numbers
+            .try_reserve(1)
+            .map_err(|_| super::resource())?;
+        // Exact create-new attempts replace a directory walk and never reuse an identity.
+        for _ in 0..8 {
+            let part = u32::from_le_bytes(
+                Uuid::new_v4().as_bytes()[..4]
+                    .try_into()
+                    .expect("UUID prefix"),
+            );
+            if part == 0 {
+                continue;
+            }
+            let path = self.directory.join(format!("part-{part:08x}"));
+            match OpenOptions::new().write(true).create_new(true).open(path) {
+                Ok(file) => {
+                    self.file = Some(file);
+                    self.next = u64::from(part) * 512;
+                    self.part_numbers.push(part);
+                    return Ok(());
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(crate::Error::Config(
+            "disk-pack metadata part allocation exhausted its bounded attempts".into(),
+        ))
+    }
+
+    fn sync_part(&mut self) -> Result<()> {
+        if let Some(file) = self.file.take() {
+            durability::sync_dirty_file(&file)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn finish(mut self) -> Result<Vec<u32>> {
+        self.sync_part()?;
+        durability::sync_directory(&File::open(&self.directory)?)?;
+        Ok(self.part_numbers)
+    }
+}
+
+impl TreePages for SparsePages {
+    fn reserve(&mut self, count: usize) -> Result<u64> {
+        if !(1..=512).contains(&count) {
+            return Err(corrupt("invalid contiguous metadata reservation"));
+        }
+        if self.file.is_none() || self.next % 512 + count as u64 > 512 {
+            self.allocate()?;
+        }
+        Ok(self.next)
+    }
+
+    fn append(&mut self, fields: PageFields, payload: &[u8]) -> Result<u64> {
+        self.reserve(1)?;
+        let number = self.next;
+        let bytes = encode_page(self.object, self.generation, number, fields, payload)?;
+        self.file
+            .as_mut()
+            .expect("private metadata part")
+            .write_all(&bytes)?;
+        self.written_pages += 1;
+        self.next += 1;
+        if self.next % 512 == 0 {
+            self.sync_part()?;
+        }
+        Ok(number)
+    }
+}

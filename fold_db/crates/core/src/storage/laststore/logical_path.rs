@@ -14,7 +14,7 @@ use crate::atom::molecule_uuid::parse_molecule_uuid_bytes;
 use crate::atom::AtomEntry;
 use crate::crypto::is_sealed_at_rest;
 use crate::resident::{
-    AtomId, DurabilityToken, HashCompleteness, LogicalResidentSet, MoleculeId, Tip,
+    AtomId, DurabilityToken, HashCompleteness, LogicalResidentSet, MoleculeId, ReadEpochs, Tip,
 };
 use crate::storage::error::{StorageError, StorageResult};
 use laststore::{LastStore, LoadedTip, ShardKey};
@@ -48,6 +48,7 @@ pub(super) fn get(
     key: &[u8],
 ) -> StorageResult<Option<Vec<u8>>> {
     laststore::record_requested_keys(1);
+    let read_epochs = crate::read_receipts::lock(set).read_epochs();
     let id = LastStoreKvStore::encode_key(key);
     if let Some(coords) = parse_tip_coords(&id) {
         let epoch = {
@@ -76,7 +77,7 @@ pub(super) fn get(
             admit_absent(set, collection, &id, epoch);
             return Ok(None);
         };
-        admit_loaded_tip(set, &coords, &body);
+        admit_loaded_tip(set, &coords, &body, read_epochs);
         return Ok(Some(body));
     }
 
@@ -100,7 +101,10 @@ pub(super) fn get(
             return Ok(None);
         };
         if admit_raw_body(&body) {
-            crate::read_receipts::lock(set).admit_atom_body(atom, body.clone());
+            let mut guard = crate::read_receipts::lock(set);
+            if guard.read_epochs_match(read_epochs) {
+                guard.admit_atom_body(atom, body.clone());
+            }
         }
         return Ok(Some(body));
     }
@@ -164,6 +168,7 @@ pub(super) fn get_many(
     if keys.is_empty() {
         return Ok(Vec::new());
     }
+    let read_epochs = crate::read_receipts::lock(set).read_epochs();
     let mut out = vec![None; keys.len()];
     let mut miss = Vec::new();
     let mut epochs = Vec::new();
@@ -215,7 +220,7 @@ pub(super) fn get_many(
                 );
             }
         } else if is_logical_storage_key(&id) {
-            admit_loaded_body(set, &id, &body);
+            admit_loaded_body(set, &id, &body, read_epochs);
         }
         out[slot] = Some(body);
     }
@@ -334,6 +339,7 @@ pub(super) fn scan_prefix_keys(
 mod batch;
 mod coords;
 mod hash_rows;
+mod invalidation;
 mod resident_io;
 mod warm;
 mod write;
@@ -341,6 +347,7 @@ mod write;
 pub(super) use batch::*;
 pub(super) use coords::*;
 use hash_rows::*;
+pub(super) use invalidation::*;
 pub(crate) use resident_io::*;
 use warm::*;
 pub(super) use write::*;

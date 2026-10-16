@@ -71,8 +71,10 @@ impl HashRangeQueryProcessor {
         // `disk_slot_for_key` returns API-form `(hash, range)`, durable
         // storage encodes on lookup, and resident probes use the same API
         // slot. This avoids blinding an already-blinded co-key page key.
-        let use_resident_tips =
-            crate::db_operations::resident_read::tip_reads_resident_first(prefix.as_deref());
+        let use_resident_tips = crate::db_operations::resident_read::tip_reads_resident_first(
+            &self.db_ops,
+            prefix.as_deref(),
+        );
         let mut storage_slots = Vec::with_capacity(slots.len());
         let mut storage_kv_for_slots = Vec::with_capacity(kv_for_slots.len());
         for ((h, r), kv) in slots.iter().zip(kv_for_slots.iter()) {
@@ -114,7 +116,6 @@ impl HashRangeQueryProcessor {
             fname,
             mol_uuid,
             &prefix,
-            use_resident_tips,
             include_tombstones,
             &storage_slots,
             &storage_kv_for_slots,
@@ -131,19 +132,11 @@ impl HashRangeQueryProcessor {
         fname: &str,
         mol_uuid: &str,
         prefix: &KeySource,
-        use_resident_tips: bool,
         include_tombstones: bool,
         storage_slots: &[(String, String)],
         storage_kv_for_slots: &[KeyValue],
         pending: &mut Vec<SecondaryPending>,
     ) -> Result<(), SchemaError> {
-        let observed: HashMap<_, _> = storage_slots
-            .iter()
-            .map(|(h, r)| {
-                let control = self.db_ops.resident().observe_slot(mol_uuid, h, r);
-                ((h.clone(), r.clone()), control)
-            })
-            .collect();
         let records = self
             .db_ops
             .atoms()
@@ -162,25 +155,6 @@ impl HashRangeQueryProcessor {
             };
             if !include_tombstones && rec.meta.as_ref().is_some_and(|m| m.tombstoned) {
                 continue;
-            }
-            if use_resident_tips {
-                self.db_ops.resident().rehydrate_tip_at(
-                    crate::resident::ResidentTip {
-                        molecule_uuid: mol_uuid.to_string(),
-                        hash: h.clone(),
-                        range: r.clone(),
-                        atom_uuid: rec.entry.atom_uuid.clone(),
-                        written_at: rec.entry.written_at,
-                        logical_counter: rec.entry.logical_counter,
-                        device_id: rec.entry.lww_device().to_string(),
-                        mutation_uuid: rec.entry.mutation_uuid.clone(),
-                        key_metadata: rec.meta.clone(),
-                        writer_pubkey: rec.entry.writer_pubkey.clone(),
-                    },
-                    observed
-                        .get(&(h.clone(), r.clone()))
-                        .map(crate::resident::SlotRead::revisions),
-                );
             }
             let writer = {
                 let pk = rec.entry.writer_pubkey.clone();

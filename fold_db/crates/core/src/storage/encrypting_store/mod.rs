@@ -25,7 +25,7 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use std::sync::{Arc, Mutex};
 
-use crate::resident::LogicalResidentSet;
+use crate::resident::{LogicalResidentSet, ReadEpochs};
 use crate::storage::laststore::logical_path;
 
 /// Prefix marker for encrypted values.
@@ -121,9 +121,15 @@ impl EncryptingKvStore {
         self
     }
 
-    fn admit_plain(&self, key: &[u8], plaintext: &[u8]) {
-        if let Some(set) = &self.logical {
-            logical_path::admit_plaintext(set, key, plaintext);
+    fn read_epochs(&self) -> Option<ReadEpochs> {
+        self.logical
+            .as_ref()
+            .map(|set| crate::read_receipts::lock(set).read_epochs())
+    }
+
+    fn admit_plain(&self, key: &[u8], plaintext: &[u8], epochs: Option<ReadEpochs>) {
+        if let (Some(set), Some(epochs)) = (&self.logical, epochs) {
+            logical_path::admit_plaintext(set, key, plaintext, epochs);
         }
     }
 
@@ -289,12 +295,13 @@ impl EncryptingKvStore {
     async fn decrypt_rows(
         &self,
         rows: Vec<(Vec<u8>, Vec<u8>)>,
+        epochs: Option<ReadEpochs>,
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         let mut decrypted_rows = Vec::with_capacity(rows.len());
         for (key, stored) in rows {
             // A row with no envelope is absent, so it is simply not in the scan.
             if let Some(plaintext) = self.open_or_discard(&key, stored).await? {
-                self.admit_plain(&key, &plaintext);
+                self.admit_plain(&key, &plaintext, epochs);
                 decrypted_rows.push((key, plaintext));
             }
         }

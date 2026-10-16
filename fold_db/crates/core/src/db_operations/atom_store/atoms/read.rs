@@ -179,7 +179,7 @@ impl AtomStore {
             .main_store
             .get_items::<Value>(&locator_keys)
             .await
-            .map_err(|e| SchemaError::InvalidData(format!("Failed to fetch atom locators: {e}")))?;
+            .map_err(SchemaError::from)?;
 
         // Only the rows that named a readable partition are worth a third read.
         let mut located_idx: Vec<usize> = Vec::new();
@@ -215,7 +215,7 @@ impl AtomStore {
             .inner()
             .get(key.as_bytes())
             .await
-            .map_err(|e| SchemaError::InvalidData(format!("Failed to fetch atom: {e}")))
+            .map_err(SchemaError::from)
     }
 
     /// The partition a body was written under, from its locator row.
@@ -230,10 +230,11 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Option<crate::atom::AtomPartition>, SchemaError> {
         let key = build_storage_key(storage_prefix, &atom_locator_codec::locator_key(atom_uuid));
-        let raw =
-            self.main_store.get_item::<Value>(&key).await.map_err(|e| {
-                SchemaError::InvalidData(format!("Failed to fetch atom locator: {e}"))
-            })?;
+        let raw = self
+            .main_store
+            .get_item::<Value>(&key)
+            .await
+            .map_err(SchemaError::from)?;
         let Some(raw) = raw else {
             return Ok(None);
         };

@@ -1,0 +1,35 @@
+{
+  "items": 256,
+  "statuses": [
+    {
+      "status": 200,
+      "count": 40
+    },
+    {
+      "status": 503,
+      "count": 216
+    }
+  ],
+  "held_capacity_errors": 216,
+  "successful_empty_items": 0,
+  "examples": [
+    {
+      "status": 503,
+      "response": {
+        "error": "read_resource_limit",
+        "hint": "request fewer records or fields",
+        "message": "read resource limit exceeded: native logical-record capacity is held by active calls",
+        "retryable": false
+      }
+    },
+    {
+      "status": 503,
+      "response": {
+        "error": "read_resource_limit",
+        "hint": "request fewer records or fields",
+        "message": "read resource limit exceeded: native logical-record capacity is held by active calls",
+        "retryable": false
+      }
+    }
+  ]
+}

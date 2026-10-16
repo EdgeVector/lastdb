@@ -221,8 +221,9 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Presign, PUT and meter one chunk of mutation-log segments. Returns the
-    /// payload bytes confirmed uploaded (zero if the chunk did not fully land).
+    /// Presign and PUT one chunk of mutation-log segments. Returns the payload
+    /// bytes that landed. The meter runs only after the caller flushes
+    /// published-F.
     async fn upload_log_segment_chunk(
         &self,
         target: &SyncTarget,
@@ -300,15 +301,24 @@ impl SyncEngine {
         if let Some(e) = first_err {
             return Err(e);
         }
-        // Only confirm a fully-landed chunk. Metering confirm is
-        // best-effort (absolute reconcile heals drift) and must never fail
-        // the publish that already succeeded.
         if ok == chunk.len() {
             bytes_uploaded = bytes_uploaded
                 .saturating_add(chunk.iter().map(|s| s.payload.len() as u64).sum::<u64>());
-            Box::pin(self.confirm_log_chunk_upload(target, chunk)).await;
         }
         Ok(bytes_uploaded)
+    }
+
+    /// Meter one fully uploaded batch. A failure warns and does not move the
+    /// published-F cursor. Call this only after that cursor has been flushed.
+    pub(crate) async fn meter_uploaded_log_segments(
+        &self,
+        target: &SyncTarget,
+        segments: &[crate::sync::engine::MutationLogSegment],
+    ) {
+        if segments.is_empty() {
+            return;
+        }
+        self.confirm_log_chunk_upload(target, segments).await;
     }
 
     /// Best-effort metering confirm for a fully uploaded chunk; reconcile heals

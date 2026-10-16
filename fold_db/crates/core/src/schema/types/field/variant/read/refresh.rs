@@ -1,3 +1,4 @@
+use super::resident_overlay::ResidentOverlay;
 use super::*;
 
 impl FieldVariant {
@@ -53,16 +54,15 @@ impl FieldVariant {
             return Ok(());
         }
         let partition_read =
-            Self::partition_interval_for_read(self.kind, storage_prefix.as_deref(), filter).map(
-                |(hash, start, end)| {
+            Self::partition_interval_for_read(db_ops, self.kind, storage_prefix.as_deref(), filter)
+                .map(|(hash, start, end)| {
                     db_ops.resident().begin_partition_interval_read(
                         &molecule_uuid,
                         hash,
                         &start,
                         end.as_deref(),
                     )
-                },
-            );
+                });
 
         let resident_overlay = Self::resident_overlay_for_read(
             db_ops,
@@ -93,12 +93,13 @@ impl FieldVariant {
 
     /// The partition interval a hash-range read may serve from resident tips.
     fn partition_interval_for_read<'f>(
+        db_ops: &DbOperations,
         kind: FieldKind,
         storage_prefix: Option<&str>,
         filter: &'f HashRangeFilter,
     ) -> Option<(&'f str, String, Option<String>)> {
         if matches!(kind, FieldKind::HashRange)
-            && crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix)
+            && crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix)
         {
             partition_interval(filter)
         } else {
@@ -116,7 +117,7 @@ impl FieldVariant {
         filter: &HashRangeFilter,
     ) -> Result<bool, SchemaError> {
         let Some((hash, start, end)) =
-            Self::partition_interval_for_read(self.kind, storage_prefix, filter)
+            Self::partition_interval_for_read(db_ops, self.kind, storage_prefix, filter)
         else {
             return Ok(false);
         };
@@ -156,91 +157,6 @@ impl FieldVariant {
         Ok(true)
     }
 
-    /// Build the resident key-set overlay for a read.
-    ///
-    /// Resident key-set members use API-form hash/range values. Molecules
-    /// loaded from `mk:` use storage-form values (blind hash + OPE range),
-    /// so convert once at this seam before either building an authoritative
-    /// resident molecule or overlaying a durable one.
-    fn resident_overlay_for_read(
-        db_ops: &DbOperations,
-        molecule_uuid: &str,
-        storage_prefix: Option<&str>,
-        filter: &HashRangeFilter,
-        kind: FieldKind,
-    ) -> Result<Option<ResidentOverlay>, SchemaError> {
-        if !crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix) {
-            return Ok(None);
-        }
-        let snapshot = if matches!(kind, FieldKind::HashRange) {
-            resident_keys_for_filter(db_ops.resident(), molecule_uuid, filter)
-        } else {
-            // Hash/Range fields accept compatibility filter variants with
-            // different semantics (a Hash field ignores the range half).
-            // Only apply two-dimensional bounds to a two-dimensional field.
-            db_ops
-                .resident()
-                .resident_key_set_range(molecule_uuid, None, None)
-        };
-        // The durable load of a HashRange field builds a molecule whose hash
-        // slots are API form for every filter. Its range slots are API form for
-        // a point or multi-get filter (the load remaps them, see
-        // `expand_filter_range_bounds_for_apply`) and storage form (OPE) for
-        // every other filter. A dirty overlay entry must use the same form as
-        // the molecule it joins, or the filter never matches it and a read after
-        // an ack misses the write.
-        let is_hash_range = matches!(kind, FieldKind::HashRange);
-        let api_range = is_hash_range
-            && matches!(
-                filter,
-                HashRangeFilter::HashRangeKey { .. } | HashRangeFilter::HashRangeKeys(_)
-            );
-        let molecule_key = |key: &crate::resident::ResidentMoleculeKey| {
-            let hash = if is_hash_range {
-                key.hash.clone()
-            } else {
-                db_ops
-                    .atoms()
-                    .key_codec()
-                    .storage_hash(molecule_uuid, &key.hash)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?
-            };
-            let range = if api_range {
-                key.range.clone()
-            } else {
-                db_ops
-                    .atoms()
-                    .key_codec()
-                    .storage_range(molecule_uuid, &key.range)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?
-            };
-            Ok::<_, SchemaError>((hash, range))
-        };
-        let mut entries = Vec::with_capacity(snapshot.keys.len());
-        for key in &snapshot.keys {
-            let Some(tip) = db_ops
-                .resident()
-                .resolve_tip(molecule_uuid, &key.hash, &key.range)
-            else {
-                continue;
-            };
-            let (hash, range) = molecule_key(key)?;
-            entries.push((hash, range, tip.value.atom_uuid));
-        }
-        let mut tombstones = Vec::with_capacity(snapshot.tombstones.len());
-        for key in &snapshot.tombstones {
-            tombstones.push(molecule_key(key)?);
-        }
-        let authoritative = matches!(
-            snapshot.completeness,
-            ResidentKeySetCompleteness::Complete { .. }
-        ) && entries.len() == snapshot.keys.len();
-        let active = authoritative
-            || (db_ops.resident().molecule_has_dirty(molecule_uuid)
-                && (!entries.is_empty() || !tombstones.is_empty()));
-        Ok(active.then_some((authoritative, entries, tombstones)))
-    }
-
     /// Load the durable molecule (or an empty authoritative one) for a read.
     async fn hydrate_molecule_for_read(
         &mut self,
@@ -252,7 +168,7 @@ impl FieldVariant {
         resident_overlay: Option<&ResidentOverlay>,
     ) -> Result<(), SchemaError> {
         let layout = self.kind.filter_layout();
-        if resident_overlay.is_some_and(|(authoritative, ..)| *authoritative) {
+        if resident_overlay.is_some_and(|overlay| overlay.authoritative) {
             self.molecule = Some(crate::atom::MoleculeHashRange::from_per_key_records(
                 molecule_uuid.to_string(),
                 0,
@@ -260,7 +176,7 @@ impl FieldVariant {
                 Vec::new(),
             ));
         } else if matches!(filter, HashRangeFilter::SampleN(_))
-            && resident_overlay.is_some_and(|(authoritative, ..)| !*authoritative)
+            && resident_overlay.is_some_and(|overlay| !overlay.authoritative)
         {
             // A dirty key or a resident tombstone can sort into the first n.
             // The page of the first durable keys cannot backfill past that,
@@ -337,43 +253,4 @@ impl FieldVariant {
             })
             .collect()
     }
-
-    /// A mutation acknowledged in resident-write mode has published its
-    /// atom and tip to T0, while the durable per-key records used to
-    /// discover an enumeration's key set may still be pending. Overlay the
-    /// molecule's resident generation before applying the existing filter;
-    /// using the whole resident generation avoids mixing fields as a batch's
-    /// individual dirty tips become durable one by one. This is intentionally
-    /// personal-namespace only: share reads
-    /// have their own storage prefix and resident writes are not published
-    /// under that namespace.
-    fn apply_resident_overlay(
-        &mut self,
-        molecule_uuid: &str,
-        resident_overlay: Option<ResidentOverlay>,
-    ) {
-        let Some((_authoritative, entries, tombstones)) = resident_overlay else {
-            return;
-        };
-        if entries.is_empty() && tombstones.is_empty() {
-            return;
-        }
-        let molecule = self.molecule.get_or_insert_with(|| {
-            crate::atom::MoleculeHashRange::from_per_key_records(
-                molecule_uuid.to_string(),
-                0,
-                Utc::now(),
-                Vec::new(),
-            )
-        });
-        for (hash, range) in tombstones {
-            molecule.remove_atom_uuid(&hash, &range);
-        }
-        for (hash, range, atom_uuid) in entries {
-            molecule.set_atom_uuid_from_values_unsigned(hash, range, atom_uuid);
-        }
-    }
 }
-
-/// `(authoritative, entries(hash, range, atom_uuid), tombstones(hash, range))`.
-type ResidentOverlay = (bool, Vec<(String, String, String)>, Vec<(String, String)>);

@@ -1,0 +1,25 @@
+{
+  "background_tasks_drained": true,
+  "convergence_pending": false,
+  "count": 1,
+  "durability": "queued",
+  "mutation_ids": [
+    "120ae031-4f80-47b6-ba09-c9922017ec18"
+  ],
+  "ok": true,
+  "operations": {
+    "created": 0,
+    "deleted": 0,
+    "no_op": 0,
+    "total": 1,
+    "updated": 1
+  },
+  "resident_stages_us": {
+    "ack": 5082169,
+    "gate_wait": 611,
+    "prepare": 115874,
+    "publish": 1292
+  },
+  "revision": 4,
+  "touched_group_ids": []
+}

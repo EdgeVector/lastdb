@@ -21,6 +21,7 @@ impl LogicalResidentSet {
             + self.schemas.len()
             + self.fields.len()
             + self.records.len()
+            + self.record_holds.unfetched
     }
 
     /// A fetched record for exactly `(collection, id)`, and mark it most
@@ -37,6 +38,16 @@ impl LogicalResidentSet {
             id: key.id,
         });
         Some(body)
+    }
+
+    /// Inspect a fetched body size before a bounded reader copies it.
+    pub fn fetched_record_bytes(&self, collection: &str, id: &str) -> Option<Option<usize>> {
+        self.records
+            .get(&RecordKey {
+                collection: collection.to_string(),
+                id: id.to_string(),
+            })
+            .map(|body| body.as_ref().map(Vec::len))
     }
 
     /// True when the set holds a fetched record (present or absent) for the id.
@@ -72,6 +83,13 @@ impl LogicalResidentSet {
             collection: collection.to_string(),
             id: id.to_string(),
         };
+        if !self.records.contains_key(&key) {
+            if self.record_is_held(&key) {
+                self.record_holds.unfetched -= 1;
+            } else if !self.make_read_room() {
+                return false;
+            }
+        }
         self.records.insert(key.clone(), body);
         self.touch(ResidentKey::Record {
             collection: key.collection,
@@ -92,10 +110,14 @@ impl LogicalResidentSet {
             id: id.to_string(),
         };
         if self.records.remove(&key).is_some() {
-            self.forget_key(&ResidentKey::Record {
-                collection: key.collection,
-                id: key.id,
-            });
+            if self.record_is_held(&key) {
+                self.record_holds.unfetched += 1;
+            } else {
+                self.forget_key(&ResidentKey::Record {
+                    collection: key.collection,
+                    id: key.id,
+                });
+            }
             self.publish_occupancy();
         }
     }
@@ -103,16 +125,19 @@ impl LogicalResidentSet {
     /// Drop every fetched record. An admin rewrite that writes the store
     /// directly (restore, residue drain) calls this after its write.
     pub fn forget_all_records(&mut self) {
-        for epoch in &mut self.record_epochs {
-            *epoch = epoch.wrapping_add(1);
-        }
+        self.advance_read_epochs();
+        self.pending_write_tokens.clear();
         self.negative_barriers.clear();
         let keys: Vec<RecordKey> = self.records.drain().map(|(key, _)| key).collect();
         for key in keys {
-            self.forget_key(&ResidentKey::Record {
-                collection: key.collection,
-                id: key.id,
-            });
+            if self.record_is_held(&key) {
+                self.record_holds.unfetched += 1;
+            } else {
+                self.forget_key(&ResidentKey::Record {
+                    collection: key.collection,
+                    id: key.id,
+                });
+            }
         }
         self.publish_occupancy();
     }

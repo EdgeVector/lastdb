@@ -20,9 +20,11 @@ use crate::schema::types::Schema;
 mod coverage;
 #[path = "page_coverage.rs"]
 mod page_coverage;
+#[allow(dead_code)]
 #[path = "slot_reads.rs"]
 mod slot_reads;
-pub(crate) use slot_reads::SlotRead;
+pub(crate) use slot_reads::OwnedSlotRead;
+
 #[path = "overlay_page.rs"]
 mod overlay_page;
 pub(crate) use overlay_page::ResidentOverlayEntry;
@@ -34,6 +36,7 @@ mod persist;
 mod purge;
 mod schemas;
 mod slots;
+mod tip_map;
 mod tips;
 
 /// Loader used on schema rehydrate miss (typically SchemaCore / db_ops).
@@ -51,10 +54,10 @@ fn tip_map_key(molecule_uuid: &str, hash: &str, range: &str) -> String {
 /// `budget_bytes`; going over evicts **clean** entries LRU-first. Dirty
 /// entries are never evicted — the budget can be exceeded by dirty state
 /// until the persist worker drains it (counted, not silent).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ResidentGraph {
     schemas: RwLock<HashMap<String, Schema>>,
-    tips: RwLock<HashMap<String, ResidentTip>>,
+    tips: RwLock<tip_map::TipMap>,
     key_index: RwLock<BTreeMap<String, BTreeSet<ResidentMoleculeKey>>>,
     key_tombstones: RwLock<BTreeMap<String, BTreeMap<ResidentMoleculeKey, u64>>>,
     /// Schema-name × API (hash, range) overlay for Skip Deletes acked before
@@ -74,16 +77,24 @@ pub struct ResidentGraph {
     ledger: Mutex<ResidentLedger>,
     /// Per-slot revision + Ready flag. Missing == Absent.
     slots: RwLock<HashMap<String, ResidentSlotControl>>,
+    /// Process-unique revision identities never repeat after slot reclamation.
+    next_slot_revision: std::sync::atomic::AtomicU64,
     /// Wakes persist envelopes after an exact predecessor revision completes.
     persist_turn_changed: Notify,
     slot_readers: Mutex<HashMap<String, usize>>,
+}
+
+impl Default for ResidentGraph {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ResidentGraph {
     pub fn new() -> Self {
         Self {
             schemas: RwLock::new(HashMap::new()),
-            tips: RwLock::new(HashMap::new()),
+            tips: RwLock::new(tip_map::TipMap::default()),
             key_index: RwLock::new(BTreeMap::new()),
             key_tombstones: RwLock::new(BTreeMap::new()),
             schema_key_tombstones: RwLock::new(HashMap::new()),
@@ -98,6 +109,7 @@ impl ResidentGraph {
             budget_bytes: ResidentPolicy::from_env().budget_bytes,
             ledger: Mutex::new(ResidentLedger::default()),
             slots: RwLock::new(HashMap::new()),
+            next_slot_revision: std::sync::atomic::AtomicU64::new(1),
             persist_turn_changed: Notify::new(),
             slot_readers: Mutex::new(HashMap::new()),
         }
