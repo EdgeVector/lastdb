@@ -18,6 +18,8 @@ The default new-node backend remains the legacy format.
 The native node path requires explicit selection and refuses an existing legacy home.
 Only `LASTDB_RESIDENT_MODE=off` is supported. Resident-first reads and memory-first acknowledgements remain refused.
 Cloud-connected native homes also remain refused.
+The [native read-state policy](lastdb-disk-read-state-routing.md) excludes live graph tips, atoms, and deletion marks from a captured native root.
+Selected local tips without atoms now return an explicit server error instead of successful partial fields.
 All generation files remain retained. The conservative inventory limit remains 65,536 parts.
 
 The small debug node read is slower than the legacy path; it does not pass the final speed gate.
