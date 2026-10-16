@@ -18,6 +18,14 @@ The lock works across processes and retains no pages or dependency arrays.
 Reclaim takes the same lock exclusively without a wait; active calls cause a defer result.
 Internal metadata calls run under the writer lease or an outer generation hold.
 
+A native runtime read uses a typed capability from its exclusive writer.
+The call registers under the read-view lock and performs no file access for that protection.
+The capability retains the operating-system writer lease through the last read scope.
+A separate process cannot acquire the writer lease while that call exists.
+An atomic local gate makes internal reclaim defer while any such call exists.
+The gate also refuses new holds during reclaim and refuses roots below its retained generation floor.
+Standalone reads keep the cross-process `LIFETIME_LOCK` protocol.
+
 Named references use a checksummed kind-12 page and a directory barrier.
 The purposes are backup 1, rollback 2, cloud recovery 4, and conversion source 5.
 Purpose 5 retains an already published source generation.
@@ -71,9 +79,10 @@ Unknown files and failed private outputs remain retained; this command does not 
 ## Product commands
 
 `lastdb-pack-maintain` requires an explicit native `--home`.
-Its commands are `compact`, `reclaim`, `inventory`, `reference`, `references`, `release`, `hold`, and `records`.
+Its commands are `compact`, `reclaim`, `inventory`, `reference`, `references`, `release`, `hold`, `hold-writer`, and `records`.
 `records` prints body hashes and original mutation versions through the supported administrative stream.
 `hold` retains a read generation for a bounded period.
+`hold-writer` reports the local hold costs and retains the writer lease after the journal handle ends.
 The mutation commands require the exclusive native writer lease.
 They refuse a writer that already owns that home.
 No command stops a node or activates this format on the primary.

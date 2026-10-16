@@ -18,10 +18,10 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
-        println!("usage: lastdb-pack-maintain <compact|reclaim|inventory|reference|references|release|hold|records> --home PATH [options]");
+        println!("usage: lastdb-pack-maintain <compact|reclaim|inventory|reference|references|release|hold|hold-writer|records> --home PATH [options]");
         println!("  compact/reclaim: --grace-ms N (default 86400000), --free-reserve-bytes N, --replacement-reserve-bytes N");
         println!("  reference: --purpose backup|rollback|conversion-source|cloud-recovery [--expiry-ms N]");
-        println!("  release: --reference UUID; hold: --hold-seconds N (1..3600)");
+        println!("  release: --reference UUID; hold/hold-writer: --hold-seconds N (1..3600)");
         println!("  records prints original versions and body hashes through the supported administrative stream");
         return ExitCode::SUCCESS;
     }
@@ -113,6 +113,7 @@ fn run() -> Result<()> {
             json!({"released":true,"generation":current.generation})
         }
         "records" => records(&path)?,
+        "hold-writer" => hold_writer(&home, &policy, number("--hold-seconds", 1)?)?,
         _ => return Err(invalid("unknown command").into()),
     };
     println!(
@@ -120,6 +121,33 @@ fn run() -> Result<()> {
         json!({"result":output,"elapsed_nanos":started.elapsed().as_nanos()})
     );
     Ok(())
+}
+
+fn hold_writer(home: &DiskHome, policy: &SpacePolicy, seconds: u64) -> Result<Value> {
+    if !(1..=3600).contains(&seconds) {
+        return Err(invalid("hold seconds require 1..3600").into());
+    }
+    let root = std::fs::canonicalize(home.path())?;
+    let mut journal = home.journal()?;
+    let current = journal.current().clone();
+    let lease = journal.read_lease();
+    let (hold, reads) =
+        laststore::observe_disk_reads(|| GenerationHold::from_writer(&lease, &root, &current));
+    let _hold = hold?;
+    let reclaim = journal.reclaim(policy)?;
+    // The hold alone retains the operating-system writer lease after these drops.
+    drop(lease);
+    drop(journal);
+    println!(
+        "{}",
+        json!({"held":true,"generation":current.generation,
+        "writer_dropped":true,"reclaim_deferred":reclaim.reclaim_deferred,
+        "hold_file_opens":reads.file_open_attempts,"hold_read_operations":reads.read_operations,
+        "hold_format_probe_bytes":reads.format_probe_bytes,"hold_metadata_operations":reads.metadata_operations})
+    );
+    io::stdout().flush()?;
+    std::thread::sleep(std::time::Duration::from_secs(seconds));
+    Ok(json!({"released":true,"generation":current.generation}))
 }
 
 fn maintenance(receipt: MaintenanceReceipt) -> Value {

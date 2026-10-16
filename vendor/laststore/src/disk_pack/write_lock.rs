@@ -9,6 +9,7 @@ pub(super) struct WriteLock {
     root: PathBuf,
     _file: File,
     checked_current: Mutex<Option<[u8; 32]>>,
+    pub(super) read_state: Mutex<super::lifetime::WriterReadState>,
 }
 
 impl WriteLock {
@@ -49,6 +50,7 @@ impl WriteLock {
             root,
             _file: file,
             checked_current: Mutex::new(None),
+            read_state: Mutex::new(super::lifetime::WriterReadState::new(current.generation)),
         })
     }
 

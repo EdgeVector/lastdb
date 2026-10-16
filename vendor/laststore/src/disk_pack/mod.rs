@@ -62,7 +62,8 @@ pub const FEATURE_JOURNAL_LIFECYCLE: u64 = 2;
 /// CURRENT feature bit: a native home descriptor controls placement and key identity.
 pub const FEATURE_NATIVE_HOME: u64 = 4;
 
-/// Mandatory protocol: every active reader holds LIFETIME_LOCK against reclamation.
+/// Mandatory protocol: every active reader holds LIFETIME_LOCK or a writer-owned
+/// read capability whose in-process gate excludes reclamation.
 /// Homes without this bit retain all files because older readers have no such hold.
 pub const FEATURE_FILE_LIFETIME: u64 = 8;
 

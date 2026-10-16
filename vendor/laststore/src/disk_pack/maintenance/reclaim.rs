@@ -26,6 +26,10 @@ pub(in crate::disk_pack) fn reclaim_locked(
         receipt.reclaim_deferred = true;
         return Ok(receipt);
     }
+    let Some(_local) = lock.exclude_local_reads(&current)? else {
+        receipt.reclaim_deferred = true;
+        return Ok(receipt);
+    };
     let Some(_exclusive) = lifetime::exclusive(root)? else {
         receipt.reclaim_deferred = true;
         return Ok(receipt);

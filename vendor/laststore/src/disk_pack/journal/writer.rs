@@ -35,7 +35,7 @@ pub struct JournalWriter {
     tail: JournalTail,
     poisoned: bool,
     reserved_bytes: u64,
-    lock: WriteLock,
+    lock: Arc<WriteLock>,
     admission: Arc<super::admission::AdmissionLedger>,
     suffix_oldest: Option<Instant>,
 }
@@ -80,7 +80,7 @@ impl JournalWriter {
             tail,
             poisoned: false,
             reserved_bytes: 0,
-            lock,
+            lock: Arc::new(lock),
             admission: Arc::default(),
             suffix_oldest: None,
         }

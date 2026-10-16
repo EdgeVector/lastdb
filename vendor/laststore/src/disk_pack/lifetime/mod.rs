@@ -1,6 +1,6 @@
 //! Atomic generation capture and durable references for bounded file reclamation.
-//! The separate writer lease serializes publications; this lock excludes deletion
-//! for every active read, including readers in other processes.
+//! Standalone reads use a shared deletion lock. Writer-owned read capabilities
+//! retain the exclusive writer lease and an atomic local read/reclaim gate.
 
 use super::{artifact, corrupt, Current};
 use crate::read_receipt_io::MeasuredFile;
@@ -10,19 +10,27 @@ use std::path::{Path, PathBuf};
 
 mod inventory;
 mod reference;
+mod writer_read;
 
 pub use inventory::{generation_inventory, GenerationFile, GenerationInventory};
 pub(super) use reference::list_unlocked;
 pub use reference::{
     list_references, release_reference, DurableReference, ReferenceInfo, ReferencePurpose,
 };
+pub use writer_read::WriterReadLease;
+pub(in crate::disk_pack) use writer_read::WriterReadState;
 
 /// One active call's protection. It holds no map pages, data, or dependency list.
 /// Release occurs on drop, after all file access in that call ends.
 pub struct GenerationHold {
     current: Current,
     root: PathBuf,
-    _file: MeasuredFile,
+    _guard: HoldGuard,
+}
+
+enum HoldGuard {
+    File { _file: MeasuredFile },
+    Writer { _read: writer_read::WriterReadGuard },
 }
 
 impl GenerationHold {
@@ -33,7 +41,7 @@ impl GenerationHold {
         let hold = Self {
             current: current.clone(),
             root: root.to_path_buf(),
-            _file: file,
+            _guard: HoldGuard::File { _file: file },
         };
         Ok((current, hold))
     }
@@ -48,7 +56,18 @@ impl GenerationHold {
         Ok(Self {
             current: current.clone(),
             root: root.to_path_buf(),
-            _file: file,
+            _guard: HoldGuard::File { _file: file },
+        })
+    }
+
+    /// Protect a writer-selected root without file access. The caller captures
+    /// its root under the same view lock that excludes maintenance handoff.
+    pub fn from_writer(lease: &WriterReadLease, root: &Path, current: &Current) -> Result<Self> {
+        let read = lease.hold(root, current)?;
+        Ok(Self {
+            current: current.clone(),
+            root: root.to_path_buf(),
+            _guard: HoldGuard::Writer { _read: read },
         })
     }
 

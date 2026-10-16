@@ -3,6 +3,11 @@ use crate::disk_pack::maintenance::{MaintenanceReceipt, SpacePolicy, SpaceReserv
 use crate::Result;
 
 impl JournalWriter {
+    /// Retain this writer's lease and its read/reclaim gate, without file access.
+    pub fn read_lease(&self) -> crate::disk_pack::lifetime::WriterReadLease {
+        crate::disk_pack::lifetime::WriterReadLease::new(std::sync::Arc::clone(&self.lock))
+    }
+
     /// Pack live stored records through the same publication lease, then reclaim safely.
     pub fn compact(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
         let mut receipt = self.pack(policy)?;
