@@ -21,6 +21,7 @@ impl LogicalResidentSet {
             + self.schemas.len()
             + self.fields.len()
             + self.records.len()
+            + self.record_holds.unfetched
     }
 
     /// A fetched record for exactly `(collection, id)`, and mark it most
@@ -82,8 +83,12 @@ impl LogicalResidentSet {
             collection: collection.to_string(),
             id: id.to_string(),
         };
-        if !self.records.contains_key(&key) && !self.make_read_room() {
-            return false;
+        if !self.records.contains_key(&key) {
+            if self.record_is_held(&key) {
+                self.record_holds.unfetched -= 1;
+            } else if !self.make_read_room() {
+                return false;
+            }
         }
         self.records.insert(key.clone(), body);
         self.touch(ResidentKey::Record {
@@ -105,10 +110,14 @@ impl LogicalResidentSet {
             id: id.to_string(),
         };
         if self.records.remove(&key).is_some() {
-            self.forget_key(&ResidentKey::Record {
-                collection: key.collection,
-                id: key.id,
-            });
+            if self.record_is_held(&key) {
+                self.record_holds.unfetched += 1;
+            } else {
+                self.forget_key(&ResidentKey::Record {
+                    collection: key.collection,
+                    id: key.id,
+                });
+            }
             self.publish_occupancy();
         }
     }
@@ -122,10 +131,14 @@ impl LogicalResidentSet {
         self.negative_barriers.clear();
         let keys: Vec<RecordKey> = self.records.drain().map(|(key, _)| key).collect();
         for key in keys {
-            self.forget_key(&ResidentKey::Record {
-                collection: key.collection,
-                id: key.id,
-            });
+            if self.record_is_held(&key) {
+                self.record_holds.unfetched += 1;
+            } else {
+                self.forget_key(&ResidentKey::Record {
+                    collection: key.collection,
+                    id: key.id,
+                });
+            }
         }
         self.publish_occupancy();
     }

@@ -1,10 +1,13 @@
 use super::*;
 use laststore::disk_pack::home::HomeRead;
 
+mod holds;
+
 pub(super) struct ReadContext {
     pub(super) call: Arc<Mutex<HomeRead>>,
     identity: uuid::Uuid,
     failure: Arc<Mutex<Option<ReadFailure>>>,
+    holds: Arc<holds::CallRecordHolds>,
 }
 
 struct ReadFailure {
@@ -43,6 +46,7 @@ impl ReadContext {
             )),
             identity: runtime.home.descriptor().identity,
             failure: Arc::new(Mutex::new(None)),
+            holds: Arc::new(holds::CallRecordHolds::new(Arc::clone(&runtime.logical))),
         }))
     }
 
@@ -58,6 +62,7 @@ impl ReadContext {
                     call: Arc::clone(&context.call),
                     identity: context.identity,
                     failure,
+                    holds: Arc::clone(&context.holds),
                 }));
             }
             return Err(StorageError::InvalidOperation(
@@ -78,6 +83,15 @@ impl ReadContext {
                 });
             }
         }
+    }
+
+    pub(super) fn hold_record(
+        &self,
+        logical: &mut LogicalResidentSet,
+        collection: &str,
+        key: &str,
+    ) -> StorageResult<()> {
+        self.holds.hold(logical, collection, key)
     }
 
     fn error(&self) -> Option<StorageError> {
@@ -210,6 +224,7 @@ impl PackRuntime {
         let mut misses = Vec::new();
         let mut logical = self.logical.lock().expect("native logical cache");
         for (slot, (collection, key)) in coordinates.iter().enumerate() {
+            context.hold_record(&mut logical, collection, key)?;
             if let Some(record) = pending.and_then(|batch| batch.lookup(collection, key)) {
                 call.account_memory_record(key.len(), record.body.as_ref().map_or(0, Vec::len))
                     .map_err(map)?;

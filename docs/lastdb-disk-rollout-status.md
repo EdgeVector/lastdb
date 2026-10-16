@@ -22,6 +22,8 @@ All generation files remain retained. The conservative inventory limit remains 6
 
 The small debug node read is slower than the legacy path; it does not pass the final speed gate.
 The generation-carry change reduces repeated writer metadata reads, but it does not complete the read performance work.
+An [optimized 2,048-record observation](proofs/disk-native-read-holds-20261015/report.md) reduces native read bytes and improves the first query and median.
+Its native batch p95 remains slightly slower. Native load convergence also remains pending and needs investigation.
 
 ## Next implementation boundary
 
@@ -29,6 +31,7 @@ Reserve the complete native store mutation, its physical capacity, and protected
 The existing schema-lane reservation covers deferred work; it does not yet cover the native journal and directory limits.
 The [journal quote and owned quota](lastdb-disk-journal-reservations.md) now cover a complete journal batch; the actor still needs the complete preparation and protection boundary.
 The [native schema reload cache](lastdb-disk-native-cache-publication.md) now stays private until its complete disk root succeeds.
+The [native fetched-record holds](lastdb-disk-native-read-holds.md) now reserve keys within the shared budget until the read scope closes.
 Preparation must include atoms, tips, schema, side records, and protein siblings.
 A retry or cancellation must keep each accepted write protected until its complete native root reaches disk.
 The normal 500 ms flush policy and read-after-ack behavior must remain intact.

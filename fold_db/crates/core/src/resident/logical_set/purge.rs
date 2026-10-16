@@ -81,10 +81,13 @@ impl LogicalResidentSet {
                 self.atom_bodies.contains_key(id)
                     && self.atom_tips.get(id).is_none_or(HashSet::is_empty)
             }
-            ResidentKey::Record { collection, id } => self.records.contains_key(&RecordKey {
-                collection: collection.clone(),
-                id: id.clone(),
-            }),
+            ResidentKey::Record { collection, id } => {
+                let key = RecordKey {
+                    collection: collection.clone(),
+                    id: id.clone(),
+                };
+                self.records.contains_key(&key) && !self.record_is_held(&key)
+            }
             ResidentKey::Tombstone {
                 molecule,
                 hash,

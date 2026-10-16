@@ -266,9 +266,19 @@ impl PackRuntime {
                     disk.pop_front();
                 }
                 if let Some(body) = &memory.body {
+                    context.hold_record(
+                        &mut self.logical.lock().expect("native logical cache"),
+                        collection,
+                        &memory.key,
+                    )?;
                     out.push((memory.key.clone(), body.clone()));
                 }
             } else if let Some(record) = disk.pop_front() {
+                context.hold_record(
+                    &mut self.logical.lock().expect("native logical cache"),
+                    collection,
+                    &record.key,
+                )?;
                 out.push((record.key, record.body));
             } else if exhausted {
                 break;
