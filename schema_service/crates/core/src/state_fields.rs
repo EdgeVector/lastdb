@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::embedder::cosine_similarity;
 use crate::lock_helpers::{read_lock, write_lock};
 use schema_types::FieldValueType;
+use schema_types::FoldDbError;
 use schema_types::FoldDbResult;
 use schema_types::Schema;
 use schema_types::{DataClassification, INTERNAL};
@@ -122,6 +123,13 @@ impl SchemaServiceState {
 
             let embed_text = Self::build_embedding_text(desc);
             let embedding = self.embedder.embed_text(&embed_text).ok();
+            if let Some(vector) = &embedding {
+                if self.embedding_matches_anti_field(vector) {
+                    return Err(FoldDbError::Schema(format!(
+                        "field '{field_name}' was rejected: its description matches a non-semantic field pattern"
+                    )));
+                }
+            }
 
             entries.push((
                 field_name.clone(),
@@ -170,23 +178,26 @@ impl SchemaServiceState {
 
     /// Canonicalize incoming field names against the global canonical field registry.
     /// Returns a rename map: incoming_field -> canonical_field.
-    /// Uses the same bidirectional best-match + threshold approach as semantic_field_rename_map.
-    /// Embeds "field_name: description" for richer semantic matching.
+    /// A description that matches an anti-field sentence is rejected.
     pub(super) fn canonicalize_fields(
         &self,
         incoming_fields: &[String],
         schema: &Schema,
         mutation_mappers: &mut HashMap<String, String>,
-    ) -> HashMap<String, String> {
+    ) -> FoldDbResult<HashMap<String, String>> {
+        // Reject before the rename. An existing canonical name is not a
+        // pass: the match is the description, not the name.
+        self.reject_non_semantic_fields(incoming_fields, schema)?;
+
         let Ok(canonical) = self.canonical_fields.read() else {
-            return HashMap::new();
+            return Ok(HashMap::new());
         };
         let Ok(embeddings) = self.canonical_field_embeddings.read() else {
-            return HashMap::new();
+            return Ok(HashMap::new());
         };
 
         if canonical.is_empty() {
-            return HashMap::new();
+            return Ok(HashMap::new());
         }
 
         let mut rename_map: HashMap<String, String> = HashMap::new();
@@ -257,7 +268,7 @@ impl SchemaServiceState {
             }
         }
 
-        rename_map
+        Ok(rename_map)
     }
 
     /// Persist a canonical field to the active storage backend.

@@ -74,6 +74,9 @@ impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
         match &err {
             SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
+            SchemaError::MissingLocalAtom | SchemaError::StorageRead { .. } => {
+                Self::internal(err.to_string())
+            }
             // Blocked and cross-app/isolation ACL denials (I3c) both map to a
             // content-free 400 for a non-owner, matching the full node's
             // HandlerError::BadRequest arm.
@@ -124,6 +127,12 @@ impl From<SchemaError> for HostError {
             // the writer to audit a payload that was never wrong; `507` names
             // the condition and `storage_full_body` says the same write will
             // succeed once space is freed.
+            SchemaError::ReadResourceLimit { detail } => Self::new(
+                503,
+                serde_json::json!({"error":"read_resource_limit","retryable":false,
+                    "message":detail,"hint":"request fewer records or fields"})
+                .to_string(),
+            ),
             schema_err @ SchemaError::StorageFull { .. } => Self::new(
                 507,
                 schema_err
@@ -149,6 +158,17 @@ impl From<SchemaError> for HostError {
                     .to_string(),
             ),
             other => Self::new(400, other.to_string()),
+        }
+    }
+}
+
+impl From<fold_db::storage::StorageError> for HostError {
+    fn from(error: fold_db::storage::StorageError) -> Self {
+        match error {
+            fold_db::storage::StorageError::ReadResourceLimit { detail } => {
+                Self::from(SchemaError::ReadResourceLimit { detail })
+            }
+            error => Self::internal(error.to_string()),
         }
     }
 }

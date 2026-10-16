@@ -1,0 +1,39 @@
+{
+  "costs": {
+    "budget_bytes": 446142,
+    "directory_pages": 1,
+    "examined_keys": 25,
+    "file_bytes": 410295,
+    "locator_pages": 16,
+    "map_pages": 7,
+    "overflow_pages": 0,
+    "payload_blocks": 7,
+    "shared_blocks": 0,
+    "shared_pages": 36
+  },
+  "disk": {
+    "directory_reads": 0,
+    "file_opens": 43,
+    "footer_bytes": 0,
+    "format_probe_bytes": 414592,
+    "group_opens": 0,
+    "journal_replay_bytes": 0,
+    "legacy_replay_bytes": 0,
+    "payload_bytes": 7991,
+    "read_operations": 43,
+    "temporary_bytes_peak": 421593
+  },
+  "elapsed_nanos": 1979000,
+  "exhausted": false,
+  "frontier": 0,
+  "generation": 1,
+  "pages": [
+    {
+      "exhausted": false,
+      "records": {
+        "count": 7,
+        "ordered_values_sha256": "701ca2ce6f95048caaa369571cd8df155ed5ce25b464b34acae6eda5658915be"
+      }
+    }
+  ]
+}

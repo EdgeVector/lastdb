@@ -153,6 +153,16 @@ impl AtomStore {
         }
     }
 
+    /// Remove every pending Delete barrier that the named mutations registered,
+    /// for a Delete that failed before its own release. A later Delete for the
+    /// same key has another mutation uuid, so it stays.
+    pub(crate) fn clear_pending_delete_barriers_of(&self, mutation_uuids: &[&str]) {
+        self.pending_delete_barriers
+            .lock()
+            .expect("pending_delete_barriers poisoned")
+            .retain(|_, barrier| !mutation_uuids.contains(&barrier.mutation_uuid.as_str()));
+    }
+
     pub(crate) fn pending_delete_barrier(
         &self,
         mk_key: &str,

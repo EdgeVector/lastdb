@@ -306,8 +306,13 @@ async fn recover_api_hash_range(
     let api_range = crate::crypto::E2eKeys::ope_decode_range_plaintext(range)
         .unwrap_or_else(|| range.to_string());
 
-    if let Some(tip) = db.resident().resolve_tip(hash_molecule, hash, range) {
-        if let Some(atom) = atoms.get_atom_by_uuid(&tip.value.atom_uuid, None).await? {
+    if crate::db_operations::resident_read::tip_reads_resident_first(db.db_ops(), None) {
+        if let Some(tip) = db.resident().resolve_tip(hash_molecule, hash, range) {
+            let atom = crate::db_operations::resident_read::get_atom_for_tip(
+                db.db_ops(),
+                &tip.value.atom_uuid,
+            )
+            .await?;
             if let Some(api_hash) = atom.content().as_str().filter(|s| !s.is_empty()) {
                 return Ok((api_hash.to_string(), api_range));
             }
@@ -346,13 +351,16 @@ async fn recover_api_hash_range(
             .raw()
             .get_item(rec_key)
             .await
-            .map_err(|e| SchemaError::InvalidData(format!("hash-field tip: {e}")))?;
+            .map_err(SchemaError::from)
+            .map_err(SchemaError::read_failure)?;
         let Some(rec) = rec else {
             continue;
         };
-        let Some(atom) = atoms.get_atom_by_uuid(&rec.entry.atom_uuid, None).await? else {
-            continue;
-        };
+        let atom = crate::db_operations::resident_read::get_atom_for_tip(
+            db.db_ops(),
+            &rec.entry.atom_uuid,
+        )
+        .await?;
         if let Some(api_hash) = atom.content().as_str().filter(|s| !s.is_empty()) {
             return Ok((api_hash.to_string(), api_range));
         }

@@ -76,7 +76,11 @@ impl SchemaCore {
     }
 
     pub fn get_schemas(&self) -> Result<HashMap<String, Schema>, SchemaError> {
-        Ok(read_map(&self.schemas, "schemas")?.clone())
+        let mut schemas = read_map(&self.schemas, "schemas")?.clone();
+        for (name, staged) in self.staged_schemas()? {
+            schemas.insert(name, staged.schema.clone());
+        }
+        Ok(schemas)
     }
 
     pub fn get_schemas_with_states(&self) -> Result<Vec<SchemaWithState>, SchemaError> {
@@ -136,6 +140,9 @@ impl SchemaCore {
     /// [`Self::get_schema_following_supersession`] so the gate and the
     /// executor agree on which schema's fields/owner are authoritative.
     pub fn get_schema_metadata(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
+        if let Some(staged) = self.staged_schema(schema_name)? {
+            return Ok(Some(staged.schema.clone()));
+        }
         Ok(read_map(&self.schemas, "schemas")?
             .get(schema_name)
             .cloned())
@@ -147,10 +154,13 @@ impl SchemaCore {
     /// path to stamp the `schema_versions` audit-row field without
     /// recomputing the hash on every fire (TH6a spec §7).
     pub fn get_identity_hash(&self, schema_name: &str) -> Option<String> {
+        if let Some(staged) = self.staged_schema(schema_name).ok()? {
+            return staged.schema.get_identity_hash().cloned();
+        }
         read_map(&self.schemas, "schemas")
             .ok()?
             .get(schema_name)
-            .and_then(|s| s.get_identity_hash().cloned())
+            .and_then(|schema| schema.get_identity_hash().cloned())
     }
 
     /// Names of cached schemas whose `identity_hash` was minted by an algorithm

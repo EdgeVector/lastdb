@@ -247,14 +247,7 @@ impl MutationManager {
         schema_mutations: &[Mutation],
         mutation_key_values: &[KeyValue],
         atom_results: &[(usize, String, crate::atom::Atom)],
-    ) -> Result<
-        Vec<(
-            String,
-            crate::db_operations::MoleculeData,
-            std::collections::HashSet<crate::db_operations::ChangedKey>,
-        )>,
-        SchemaError,
-    > {
+    ) -> Result<super::PreparedSiblingUpdates, SchemaError> {
         let store = self.db_ops.atoms();
         let keypair = self.signer.as_ref();
         let mut sibling_updates = Vec::new();
@@ -271,9 +264,17 @@ impl MutationManager {
         let eligible =
             eligible_protein_atoms(schema, schema_mutations, mutation_key_values, atom_results);
         let member_uuids: Vec<&str> = eligible.iter().map(|(_, _, mol_uuid)| *mol_uuid).collect();
-        let (owners_by_molecule, proteins_by_uuid) =
+        let metadata =
             load_protein_fold_metadata(store, &member_uuids, schema_storage_prefix(schema, None))
                 .await?;
+        let prepared = self.prepare_protein_sibling_slots(
+            schema,
+            schema_mutations,
+            mutation_key_values,
+            &eligible,
+            &metadata,
+        );
+        let (owners_by_molecule, proteins_by_uuid) = metadata;
 
         // Keep the atom order. Two fields can target the same sibling slot,
         // and the later tip must still observe the earlier update.
@@ -326,7 +327,7 @@ impl MutationManager {
                 }
             }
         }
-        Ok(sibling_updates)
+        Ok((sibling_updates, prepared))
     }
 }
 
@@ -349,7 +350,7 @@ fn direct_entry_slots(
 
 /// Key fields of the entry plus any string-like payload fields (multi-key fold
 /// needs both board and milestone in the field map).
-fn sibling_key_fields(
+pub(super) fn sibling_key_fields(
     schema: &Schema,
     key_value: &KeyValue,
     mutation: &Mutation,

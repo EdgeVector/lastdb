@@ -4,10 +4,11 @@ use std::pin::Pin;
 
 use sha2::{Digest, Sha256};
 
-use super::locks::{lock_map, read_map, write_map};
+use super::locks::{lock_map, write_map};
 use super::SchemaCore;
 
 mod coherence;
+mod install;
 mod predecessor;
 use crate::schema::types::{Schema, SchemaError};
 use crate::schema::SchemaState;
@@ -96,6 +97,13 @@ impl SchemaCore {
     /// which re-reads the durable row and repopulates the cache from it,
     /// instead of drifting until the next full reload or process restart.
     pub fn evict_stale_schema_cache(&self, schema_name: &str) -> Result<(), SchemaError> {
+        // A failed native scope discards its pending row and cache overlay.
+        // The shared cache still describes the previous complete root.
+        if crate::storage::disk_pack::transaction::publication::active(
+            self.db_ops.namespaced_store().disk_pack_runtime(),
+        ) {
+            return Ok(());
+        }
         write_map(&self.schemas, "schemas")?.remove(schema_name);
         Ok(())
     }
@@ -184,10 +192,8 @@ impl SchemaCore {
 
             // Check if this schema is blocked and has a successor
             let successor = {
-                let state = lock_map(&self.schema_states, "schema_states")?
-                    .get(schema_name)
-                    .copied();
-                if state == Some(SchemaState::Blocked) {
+                let state = self.get_schema_state_cached(schema_name)?;
+                if state == SchemaState::Blocked {
                     lock_map(&self.superseded_by, "superseded_by")?
                         .get(schema_name)
                         .cloned()
@@ -215,10 +221,7 @@ impl SchemaCore {
                 // so this runs under a SHARED read lock — N concurrent readers
                 // resolve their schema in parallel instead of serializing
                 // through one exclusive lock (the convoy this card fixed).
-                let stripped = {
-                    let schemas = read_map(&self.schemas, "schemas")?;
-                    schemas.get(schema_name).map(Schema::clone_for_read_shared)
-                };
+                let stripped = self.cached_schema_for_read(schema_name)?;
                 if let Some(schema) = stripped {
                     return Ok(Some(schema));
                 }
@@ -245,10 +248,7 @@ impl SchemaCore {
                     // with the in-memory hot path. `load_schema_internal`
                     // populated runtime_fields on the cache entry. Shared read
                     // lock + `&self` clone, same as the in-memory hot path above.
-                    let stripped = {
-                        let schemas = read_map(&self.schemas, "schemas")?;
-                        schemas.get(&cached_name).map(Schema::clone_for_read_shared)
-                    };
+                    let stripped = self.cached_schema_for_read(&cached_name)?;
                     if let Some(stripped) = stripped {
                         return Ok(Some(stripped));
                     }
@@ -374,74 +374,5 @@ impl SchemaCore {
                 schema.identity_hash_algo_version = stored_row.identity_hash_algo_version;
             }
         }
-    }
-
-    /// Reload over a stored row: merge molecule maps, persist, cache, and keep
-    /// the stored schema state.
-    async fn refresh_existing_schema(
-        &self,
-        name: &str,
-        mut schema: Schema,
-        mut existing_schema: Schema,
-    ) -> Result<(), SchemaError> {
-        // A same-hash load is a metadata refresh, not a no-op. This matters
-        // when a local/older definition was cached before the catalog
-        // identity gained field_mappers: keeping the mapper-less copy makes
-        // an expansion look empty even though the identity hash matches.
-        //
-        // Preserve molecule UUIDs for fields owned by this schema, but let
-        // incoming catalog mappers win for mapped fields. Otherwise a UUID
-        // created by a premature local mint would override the mapper and
-        // keep reads pointed at the wrong molecule.
-        let mapped_fields: std::collections::HashSet<String> = schema
-            .field_mappers
-            .as_ref()
-            .map(|m| m.keys().cloned().collect())
-            .unwrap_or_default();
-        let mut merged_molecules = schema.field_molecule_uuids.take().unwrap_or_default();
-        if let Some(existing_molecules) = existing_schema.field_molecule_uuids.take() {
-            for (field, molecule_uuid) in existing_molecules {
-                if !mapped_fields.contains(&field) {
-                    merged_molecules.entry(field).or_insert(molecule_uuid);
-                }
-            }
-        }
-        schema.field_molecule_uuids = (!merged_molecules.is_empty()).then_some(merged_molecules);
-        schema.populate_runtime_fields()?;
-        schema.sync_molecule_uuids();
-        schema.clear_runtime_molecules();
-
-        // Persist the refreshed catalog metadata as well as caching it so
-        // mapper repair survives a daemon restart.
-        self.db_ops.store_schema(name, &schema).await?;
-        write_map(&self.schemas, "schemas")?.insert(name.to_string(), schema);
-
-        // Preserve existing state from database
-        // `get_schema_state` reports an unreadable durable row as missing.
-        // Keep the state boot already cached for this schema in that case,
-        // so a reload cannot silently turn a Blocked schema Available.
-        let existing_state = self.db_ops.get_schema_state(name).await?;
-        let state = match existing_state {
-            Some(state) => state,
-            None => lock_map(&self.schema_states, "schema_states")?
-                .get(name)
-                .copied()
-                .unwrap_or(SchemaState::Available),
-        };
-        lock_map(&self.schema_states, "schema_states")?.insert(name.to_string(), state);
-        Ok(())
-    }
-
-    /// New schema - persist to database and update in-memory caches.
-    async fn install_new_schema(&self, name: &str, schema: Schema) -> Result<(), SchemaError> {
-        self.db_ops.store_schema(name, &schema).await?;
-        self.db_ops
-            .store_schema_state(name, &SchemaState::Available)
-            .await?;
-
-        write_map(&self.schemas, "schemas")?.insert(name.to_string(), schema);
-        lock_map(&self.schema_states, "schema_states")?
-            .insert(name.to_string(), SchemaState::Available);
-        Ok(())
     }
 }

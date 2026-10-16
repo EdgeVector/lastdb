@@ -24,6 +24,9 @@ pub enum Error {
     },
     /// Invalid configuration (e.g. `shard_bits` out of range).
     Config(String),
+    /// A disk-pack call exhausted its explicit work/byte budget or could not
+    /// reserve its bounded buffer. This is never an absent-key result.
+    ReadBudgetExceeded,
     /// A cold hash group is larger than the store will load whole.
     ///
     /// `shard_handle_at` reads, decrypts and parses every segment of a group
@@ -66,6 +69,7 @@ impl fmt::Display for Error {
                 write!(f, "chunk {chunk_uuid} quarantined at {}", path.display())
             }
             Self::Config(s) => write!(f, "config: {s}"),
+            Self::ReadBudgetExceeded => write!(f, "disk-pack v1: read resource limit exceeded"),
             Self::ColdGroupTooLarge {
                 collection,
                 shard,

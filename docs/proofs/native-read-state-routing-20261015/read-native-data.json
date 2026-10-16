@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "all_status_200": true,
+  "counts": [
+    1,
+    1,
+    1,
+    0,
+    255
+  ],
+  "point_correct": true,
+  "optional_field_valid": true,
+  "hash_fields_correct": true,
+  "deleted_key_absent": true,
+  "range_full_match": true,
+  "unresolved_rows": 0
+}

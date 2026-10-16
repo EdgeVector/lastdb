@@ -227,11 +227,14 @@ impl ResidentTip {
     /// Approximate resident memory charge (see [`approx_json_bytes`]).
     pub(crate) fn approx_bytes(&self) -> u64 {
         PER_ENTRY_OVERHEAD_BYTES
-            // The revision-control map retains a separate slot key and value
-            // for this tip. It follows the tip's eviction lifetime.
+            // Active revisions and reverse atom references leave with the tip
+            // or the final call observation. Shared atoms are overcharged here.
             + PER_ENTRY_OVERHEAD_BYTES
             + std::mem::size_of::<ResidentSlotControl>() as u64
             + (self.molecule_uuid.len() + self.hash.len() + self.range.len() + 2) as u64
+            + PER_ENTRY_OVERHEAD_BYTES
+            + self.atom_uuid.len() as u64
+            + std::mem::size_of::<usize>() as u64
             + (self.molecule_uuid.len()
                 + self.hash.len()
                 + self.range.len()

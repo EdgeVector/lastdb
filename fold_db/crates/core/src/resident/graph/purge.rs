@@ -57,7 +57,7 @@ impl ResidentGraph {
         if readers.contains_key(&k) {
             let control = slots.entry(k.clone()).or_default();
             let was_clean = control.resident_revision == control.durable_revision;
-            control.resident_revision = control.resident_revision.saturating_add(1);
+            control.resident_revision = self.next_revision();
             if was_clean {
                 control.durable_revision = control.resident_revision;
             }
@@ -133,7 +133,7 @@ impl ResidentGraph {
         self.invalidate_partition(molecule_uuid, hash);
         if readers.contains_key(&k) {
             let control = slots.entry(k.clone()).or_default();
-            control.resident_revision = control.resident_revision.saturating_add(1);
+            control.resident_revision = self.next_revision();
             // This is a clean invalidation, with no outstanding persist turn.
             // Keep both clocks equal so a later rehydrate stays evictable.
             control.durable_revision = control.resident_revision;

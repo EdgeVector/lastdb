@@ -1,5 +1,6 @@
 //! Moved verbatim out of the parent module; see the parent for context.
 
+use super::erase_guards::PurgeEnqueue;
 use super::*;
 
 impl MutationManager {
@@ -32,12 +33,11 @@ impl MutationManager {
                 .remove(&schema_name)
                 .expect("schema order came from grouped erasures");
             let receiver = self
-                .enqueue_schema_purge_envelope(
+                .enqueue_schema_purge_checked(
                     schema_name,
                     schema_erasures,
                     storage_prefix,
-                    missing,
-                    verb,
+                    (missing, verb),
                     wait_for_durable,
                     author_clock_barrier.clone(),
                 )
@@ -61,7 +61,7 @@ impl MutationManager {
     /// resident tombstones under the apply gate and fill the lane envelope.
     /// Returns the completion receiver when the caller waits for durability.
     #[allow(clippy::too_many_arguments)]
-    async fn enqueue_schema_purge_envelope(
+    pub(super) async fn enqueue_schema_purge_envelope(
         &self,
         schema_name: String,
         schema_erasures: Vec<Mutation>,
@@ -70,19 +70,11 @@ impl MutationManager {
         verb: super::super::super::purge::HardEraseVerb,
         wait_for_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
-    ) -> Result<
-        Option<tokio::sync::oneshot::Receiver<super::super::molecules::PurgeCompletion>>,
-        SchemaError,
-    > {
+    ) -> Result<PurgeEnqueue, SchemaError> {
         let (schema, plan) = self
             .plan_schema_purge(&schema_name, &schema_erasures, storage_prefix, verb)
             .await?;
-        let SchemaPurgePlan {
-            search_batch,
-            retention_keys,
-            guarded_complement_retained,
-            purge_bytes,
-        } = plan;
+        let purge_bytes = plan.purge_bytes;
         let lane_key =
             crate::resident::PersistLaneKey::new(storage_prefix.unwrap_or(""), schema_name.clone());
         let reservation = self
@@ -100,6 +92,13 @@ impl MutationManager {
         let guards = self
             .acquire_purge_apply_guards(&schema, &schema_name, &schema_erasures)
             .await?;
+
+        if let Some(spared) = self
+            .spared_erasures(&schema, &schema_erasures, (storage_prefix, verb))
+            .await?
+        {
+            return Ok(PurgeEnqueue::Spared(spared, schema_erasures));
+        }
 
         let delete_publication = if verb == super::super::super::purge::HardEraseVerb::Delete {
             Some(
@@ -136,13 +135,13 @@ impl MutationManager {
             missing,
             validated_present: false,
             retry_requires_finalize: false,
-            search_batch,
-            retention_keys,
+            search_batch: plan.search_batch,
+            retention_keys: plan.retention_keys,
             verb,
             tombstone_id,
             schema_tombstones,
             slots,
-            guarded_complement_retained,
+            guarded_complement_retained: plan.guarded_complement_retained,
             completion,
             pending_completion: None,
         };
@@ -157,7 +156,7 @@ impl MutationManager {
         drop(delete_publication);
         drop(guards);
         reservation.fill(envelope);
-        Ok(receiver)
+        Ok(PurgeEnqueue::Queued(receiver))
     }
 
     /// Load and validate the schema, then compute everything the purge

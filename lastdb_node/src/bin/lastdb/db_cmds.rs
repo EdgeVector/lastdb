@@ -27,6 +27,9 @@ pub(crate) use db_order_log_bloat_cmds::*;
 #[path = "db_order_log_repair_cmds.rs"]
 mod db_order_log_repair_cmds;
 pub(crate) use db_order_log_repair_cmds::*;
+#[path = "db_proof_cmds.rs"]
+mod db_proof_cmds;
+use db_proof_cmds::*;
 #[path = "db_put_blob_local_cmds.rs"]
 mod db_put_blob_local_cmds;
 pub(crate) use db_put_blob_local_cmds::*;
@@ -86,6 +89,7 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
         DbCommand::Repair(action) => db_repair_command(&socket, action),
         DbCommand::Seal(action) => db_seal_command(&socket, action),
         DbCommand::Blob(action) => db_blob_command(&socket, action),
+        DbCommand::Proof(action) => db_proof_command(&socket, action),
     }
 }
 

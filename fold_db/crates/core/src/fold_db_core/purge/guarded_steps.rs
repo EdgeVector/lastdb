@@ -352,7 +352,7 @@ pub(super) async fn finalize_schema_after_purge(
 
 /// Build the audit-ledger entry for a guarded erasure.
 pub(super) fn build_erasure_ledger_entry(
-    verb: HardEraseVerb,
+    (verb, caller): (HardEraseVerb, &str),
     schema_name: &str,
     ledger_descriptor: &str,
     counts: &BulkPurgeReport,
@@ -361,7 +361,7 @@ pub(super) fn build_erasure_ledger_entry(
 ) -> crate::db_operations::AtomDeleteLedgerEntry {
     let mut ledger_entry = crate::db_operations::AtomDeleteLedgerEntry::erasure(
         verb.ledger_verb(),
-        "mutation-pipeline",
+        caller,
         schema_name,
         ledger_descriptor,
     );

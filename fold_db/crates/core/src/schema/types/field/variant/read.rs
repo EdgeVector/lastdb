@@ -17,6 +17,7 @@ mod collect;
 #[path = "partition_window.rs"]
 mod partition_window;
 mod refresh;
+mod resident_overlay;
 mod resolve;
 mod resolve_scan;
 

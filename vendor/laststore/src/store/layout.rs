@@ -101,6 +101,15 @@ pub(super) fn resolve_layout_options(
     mut requested: LastStoreOptions,
     explicit: bool,
 ) -> Result<LastStoreOptions> {
+    if root.join("disk-pack-artifact-v1").try_exists()?
+        || root.join("laststore-pack-home-v1").try_exists()?
+        || root.join("laststore-pack-node-v1").try_exists()?
+        || root.join("CURRENT").try_exists()?
+    {
+        return Err(Error::Config(
+            "disk-pack data requires its dedicated home opener".into(),
+        ));
+    }
     apply_legacy_data_key_packaging(&mut requested);
     if let Some(recorded) = read_layout_descriptor(root)? {
         if explicit && !recorded.matches(&requested) {

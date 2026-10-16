@@ -149,7 +149,7 @@ impl FieldVariant {
         // Pages merge bounded resident and durable tip windows before counting
         // visible rows. Hash fields remain true point reads below.
         if matches!(self.kind, FieldKind::HashRange)
-            && crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix)
+            && crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix)
         {
             let authoritative = matches!(
                 db_ops.resident().key_set_completeness_for(&molecule_uuid),
@@ -233,7 +233,7 @@ impl FieldVariant {
         // so any window past the first row is empty and a window that includes
         // it changes nothing.
         if matches!(self.kind, FieldKind::Hash)
-            && storage_prefix.is_none()
+            && crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix)
             && window
                 .as_ref()
                 .is_none_or(|window| matches!(window, KeyWindow::Offset { offset: 0, .. }))
@@ -292,7 +292,6 @@ impl FieldVariant {
         hash: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<TipMatch>, SchemaError> {
-        let observed = db_ops.resident().observe_slot(molecule_uuid, hash, "");
         let Some((base_key, rec)) = db_ops
             .atoms()
             .get_per_key_1d(molecule_uuid, hash, "", storage_prefix)
@@ -300,28 +299,8 @@ impl FieldVariant {
         else {
             return Ok(Vec::new());
         };
-        if storage_prefix.is_none() {
-            // The keyed read already supplied the tip. Reusing it
-            // avoids a second tip read and a premature atom fetch
-            // without a partition hint. Keep API coordinates in T0;
-            // get_per_key_1d owns blind-hash / encoded-range storage.
-            db_ops.resident().rehydrate_tip_at(
-                crate::resident::ResidentTip {
-                    molecule_uuid: molecule_uuid.to_string(),
-                    hash: hash.to_string(),
-                    range: String::new(),
-                    atom_uuid: rec.entry.atom_uuid.clone(),
-                    written_at: rec.entry.written_at,
-                    logical_counter: rec.entry.logical_counter,
-                    device_id: rec.entry.lww_device().to_string(),
-                    mutation_uuid: rec.entry.mutation_uuid.clone(),
-                    origin_device: rec.entry.origin_device.clone(),
-                    key_metadata: rec.meta.clone(),
-                    writer_pubkey: rec.entry.writer_pubkey.clone(),
-                },
-                Some((observed.resident_revision, observed.durable_revision)),
-            );
-        }
+        // One home: this disk tip stays out of the graph. The storage read
+        // admits it to the warm set.
         Ok(vec![(
             KeyValue::new(Some(hash.to_string()), None),
             rec,
@@ -340,7 +319,7 @@ impl FieldVariant {
         include_tombstones: bool,
     ) -> Result<(Vec<TipMatch>, bool), SchemaError> {
         let use_resident =
-            crate::db_operations::resident_read::tip_reads_resident_first(storage_prefix);
+            crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix);
         let cached = use_resident
             .then(|| {
                 if let Some(window) = &window {

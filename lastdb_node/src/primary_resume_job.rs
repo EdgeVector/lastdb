@@ -308,6 +308,7 @@ async fn run<O: PrimaryResumeOps>(
     receipt.phase = "verified_backup".into();
     receipt.error = None;
     write_receipt(home, receipt)?;
+    // Finish stays out of this pair. The owner calls it after a restore proof.
     Ok(())
 }
 

@@ -12,15 +12,35 @@ impl MutationManager {
         &self,
         job: &mut StorageSlotPurgeEnvelope,
     ) -> Result<(), SchemaError> {
+        let native = self.db_ops.namespaced_store().disk_pack_runtime();
+        let original = native.as_ref().map(|_| {
+            (
+                job.evidence_checkpoint.clone(),
+                job.search_batch.clone(),
+                job.durable_complete,
+                job.retry_requires_finalize,
+            )
+        });
         let attempt = self.attempt_storage_slot_purge_stages(job);
 
         let attempt = async {
             let _kv_suppress = self
                 .capture_router()
                 .map(|router| router.enter_kv_suppress());
-            crate::sync::capture::with_capture_suppressed(attempt).await
+            crate::sync::capture::with_capture_suppressed(
+                crate::storage::disk_pack::transaction::scope(native, attempt),
+            )
+            .await
         };
         let (result, phases, _) = crate::request_phases::run_with_phases(attempt).await;
+        if result.is_err() {
+            if let Some((evidence, search, complete, finalize)) = original {
+                job.evidence_checkpoint = evidence;
+                job.search_batch = search;
+                job.durable_complete = complete;
+                job.retry_requires_finalize = finalize;
+            }
+        }
         result?;
         if job.completion.is_some() {
             job.pending_completion = Some(StorageSlotPurgeCompletion {

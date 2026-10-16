@@ -281,9 +281,7 @@ impl NamespacedStore for LastStoreNamespacedStore {
                 .into_iter()
                 .map(|id| TxnOp::delete(&collection, &id))
                 .collect();
-            direct_write_invalidation::after_direct_write(&logical, || {
-                store.transaction(ops).map_err(LastStoreKvStore::map_error)
-            })?;
+            direct_write_invalidation::after_transaction(&logical, &store, ops)?;
             Ok(true)
         })
         .await

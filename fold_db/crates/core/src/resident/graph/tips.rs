@@ -31,6 +31,9 @@ impl ResidentGraph {
     ///
     /// `None` keeps the legacy overwrite rule (tests / persist-plan round-trip).
     /// Cold rehydrate passes the revision observed before the disk read.
+    /// Kept for a disk tip that must enter the graph before a write.
+    /// Read paths no longer call this.
+    #[allow(dead_code)]
     pub(crate) fn rehydrate_tip_at(
         &self,
         tip: ResidentTip,

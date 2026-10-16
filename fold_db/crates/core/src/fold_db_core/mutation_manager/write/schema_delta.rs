@@ -2,6 +2,15 @@
 
 use super::*;
 
+struct PreparedAtomPhase {
+    mutation_key_values: Vec<crate::schema::types::KeyValue>,
+    atom_results: Vec<(usize, String, crate::atom::Atom)>,
+    original_atom_results: Vec<(usize, String, crate::atom::Atom)>,
+    deferred_atoms: Option<Vec<(crate::atom::Atom, Option<crate::atom::AtomPartition>)>>,
+    changed_keys: HashMap<String, HashSet<crate::db_operations::ChangedKey>>,
+    prepared: Vec<super::super::molecules::PreparedSlotRevision>,
+}
+
 impl MutationManager {
     /// Build protein sibling tips from the current entry-schema base.
     ///
@@ -13,14 +22,7 @@ impl MutationManager {
         schema_mutations: &[Mutation],
         mutation_key_values: &[crate::schema::types::KeyValue],
         atom_results: &[(usize, String, crate::atom::Atom)],
-    ) -> Result<
-        Vec<(
-            String,
-            crate::db_operations::MoleculeData,
-            HashSet<crate::db_operations::ChangedKey>,
-        )>,
-        SchemaError,
-    > {
+    ) -> Result<super::super::molecules::PreparedSiblingUpdates, SchemaError> {
         let sibling_schema = if schema_mutations
             .iter()
             .any(|mutation| mutation.imported_written_at.is_some())
@@ -59,7 +61,6 @@ impl MutationManager {
     }
 
     /// Create atoms and key values, restore missing molecules, and dedupe.
-    #[allow(clippy::type_complexity)]
     async fn prepare_atom_phase(
         &self,
         schema_name: &str,
@@ -67,15 +68,7 @@ impl MutationManager {
         schema_mutations: &mut [Mutation],
         storage_prefix: Option<&str>,
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
-    ) -> Result<
-        (
-            Vec<crate::schema::types::KeyValue>,
-            Vec<(usize, String, crate::atom::Atom)>,
-            Option<Vec<(crate::atom::Atom, Option<crate::atom::AtomPartition>)>>,
-            HashMap<String, HashSet<crate::db_operations::ChangedKey>>,
-        ),
-        SchemaError,
-    > {
+    ) -> Result<PreparedAtomPhase, SchemaError> {
         let phase1_start = std::time::Instant::now();
         let (mutation_key_values, atom_results, deferred_atoms) = self
             .prepare_atoms_and_key_values(schema_name, schema, schema_mutations, storage_prefix)?;
@@ -88,7 +81,8 @@ impl MutationManager {
         let changed_keys =
             Self::changed_keys_by_field(schema, schema_mutations, &mutation_key_values);
         let restore_start = std::time::Instant::now();
-        self.restore_missing_molecules(schema, &changed_keys)
+        let prepared = self
+            .reload_changed_for_prepare(schema, &changed_keys)
             .await?;
         Self::add_timing(
             timing_breakdown,
@@ -96,6 +90,7 @@ impl MutationManager {
             restore_start.elapsed(),
         );
 
+        let original_atom_results = atom_results.clone();
         let atom_results = self.dedupe_atom_results(
             schema_name,
             schema,
@@ -104,12 +99,14 @@ impl MutationManager {
             atom_results,
             timing_breakdown,
         );
-        Ok((
+        Ok(PreparedAtomPhase {
             mutation_key_values,
             atom_results,
+            original_atom_results,
             deferred_atoms,
             changed_keys,
-        ))
+            prepared,
+        })
     }
 
     /// Prepare sibling tip data before resident apply. There must be no await
@@ -122,19 +119,9 @@ impl MutationManager {
         mutation_key_values: &[crate::schema::types::KeyValue],
         atom_results: &[(usize, String, crate::atom::Atom)],
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
-    ) -> Result<
-        (
-            Vec<(
-                String,
-                crate::db_operations::MoleculeData,
-                HashSet<crate::db_operations::ChangedKey>,
-            )>,
-            Vec<super::super::molecules::PreparedSlotRevision>,
-        ),
-        SchemaError,
-    > {
+    ) -> Result<super::super::molecules::PreparedSiblingUpdates, SchemaError> {
         let fold_start = std::time::Instant::now();
-        let sibling_updates = self
+        let (sibling_updates, sibling_prepared) = self
             .build_protein_sibling_updates(
                 schema,
                 schema_mutations,
@@ -142,9 +129,7 @@ impl MutationManager {
                 atom_results,
             )
             .await?;
-        // Capture before the resident rebase. The gate check rejects a
-        // sibling change that overlaps either preparation step.
-        let sibling_prepared = self.prepared_sibling_slot_revisions(&sibling_updates);
+        // The sibling planner captures slot identities before its cold reads.
         let sibling_updates = self.rebase_sibling_updates_on_resident(schema, sibling_updates);
         Self::add_timing(
             timing_breakdown,
@@ -180,7 +165,14 @@ impl MutationManager {
             Self::retention_tracking(&schema, storage_prefix);
         Self::add_timing(timing_breakdown, "schema_load", load_start.elapsed());
 
-        let (mutation_key_values, atom_results, deferred_atoms, changed_keys) = self
+        let PreparedAtomPhase {
+            mutation_key_values,
+            atom_results,
+            original_atom_results,
+            deferred_atoms,
+            changed_keys,
+            prepared,
+        } = self
             .prepare_atom_phase(
                 &schema_name,
                 &mut schema,
@@ -216,7 +208,6 @@ impl MutationManager {
                 &share_prefixes,
             )?;
 
-        let prepared = self.prepared_slot_revisions(&schema, &changed_keys);
         Ok(super::super::molecules::PreparedSchemaDelta {
             pending_persist_task,
             schema_name,
@@ -224,6 +215,7 @@ impl MutationManager {
             schema_mutations,
             mutation_key_values,
             atom_results,
+            original_atom_results,
             deferred_atoms,
             search_batch,
             share_prefixes,

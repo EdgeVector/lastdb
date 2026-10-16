@@ -80,6 +80,8 @@ pub(crate) fn flush_database(runtime: &tokio::runtime::Runtime, host: &Host) -> 
             errors.push(error);
             true
         });
+    // The local proof engine has no cloud: a final remote sync cannot finish.
+    let local_only = local_only || host.proof_replay_engine;
     let flush = runtime.block_on(async {
         if local_only {
             host.db.shutdown_local_only().await

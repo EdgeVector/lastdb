@@ -78,10 +78,17 @@ impl SchemaCore {
     pub fn get_schema_states(
         &self,
     ) -> Result<std::collections::HashMap<String, SchemaState>, SchemaError> {
-        Ok(lock_map(&self.schema_states, "schema_states")?.clone())
+        let mut states = lock_map(&self.schema_states, "schema_states")?.clone();
+        for (name, staged) in self.staged_schemas()? {
+            states.insert(name, staged.state);
+        }
+        Ok(states)
     }
 
     pub fn get_schema_state_cached(&self, schema_name: &str) -> Result<SchemaState, SchemaError> {
+        if let Some(staged) = self.staged_schema(schema_name)? {
+            return Ok(staged.state);
+        }
         Ok(lock_map(&self.schema_states, "schema_states")?
             .get(schema_name)
             .copied()

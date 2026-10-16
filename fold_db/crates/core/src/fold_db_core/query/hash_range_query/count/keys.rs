@@ -95,6 +95,7 @@ impl HashRangeQueryProcessor {
         ) {
             let resident = self.db_ops.resident();
             if crate::db_operations::resident_read::tip_reads_resident_first(
+                &self.db_ops,
                 key_field_storage_prefix,
             ) {
                 let start_key = crate::resident::ResidentMoleculeKey::new(&hash, &start);

@@ -1,0 +1,21 @@
+{
+  "disk": {
+    "directory_reads": 0,
+    "file_opens": 711,
+    "footer_bytes": 0,
+    "format_probe_bytes": 5073408,
+    "group_opens": 0,
+    "journal_replay_bytes": 0,
+    "legacy_replay_bytes": 0,
+    "payload_bytes": 0,
+    "read_operations": 411,
+    "temporary_bytes_peak": 32768
+  },
+  "durable_batch": null,
+  "elapsed_nanos": 61562667,
+  "frontier": 2,
+  "generation": 7,
+  "operations": 0,
+  "published": true,
+  "recovered_frontier": 2
+}

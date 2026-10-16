@@ -240,6 +240,8 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbLegacyKeyForkAudit
         | DataRoute::DbOrderLogAudit
         | DataRoute::DbPinLogAudit
+        | DataRoute::DbExportMutationLog
+        | DataRoute::DbReplayMutationLog
         | DataRoute::DbOrderLogBloatAudit
         | DataRoute::DbCompactOrderLog
         | DataRoute::DbRepairOrderLogShortfall

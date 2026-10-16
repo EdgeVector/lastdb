@@ -1,0 +1,3 @@
+{"batch_durable":true,"encoded_bytes":18490,"marker_sha256":"e8d2688db3fd365166f8e4eff29b619b8f79b9074a553fefc21f4c9d38b831a5","operations":16,"sequence":1}
+{"batch_durable":true,"encoded_bytes":17493,"marker_sha256":"3b9bd42c8b9f34428e949b29624bc19b0d0de1ac33e1e0a7b41b8eb8313a0350","operations":16,"sequence":2}
+{"artifact_only":true,"batches":2,"committed_frontier":0,"complete":true,"elapsed_nanos":116648333,"encoded_bytes":35983,"first_batch":1,"generation":2,"last_batch":2,"mutations":32,"reserved_suffix_bytes":41926,"stream_uuid":"6087c249-18f8-4ffc-908f-89dec6d9d56c"}
