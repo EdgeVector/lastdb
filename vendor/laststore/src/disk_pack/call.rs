@@ -4,7 +4,6 @@ use crate::read_receipt::TemporaryBytes;
 use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
 use std::collections::HashMap;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -102,6 +101,7 @@ pub struct ReadCall {
     pub(super) blocks: HashMap<(Uuid, u64, u64), Arc<Buffer>>,
     pub(super) parts: HashMap<PathBuf, (u64, u64)>,
     pub(super) files: super::call_io::CallFiles,
+    pub(super) _generation_hold: Option<super::lifetime::GenerationHold>,
     pub(super) payload_class: ReadClass,
     pub(super) native_descriptor: Option<super::home::HomeDescriptor>,
 }
@@ -116,17 +116,26 @@ impl ReadCall {
         budget.validate()?;
         current.encode()?;
         descriptor.check_current(&current)?;
+        if budget.bytes < 4352 {
+            return Err(resource());
+        }
+        let hold = super::lifetime::GenerationHold::acquire(root, &current)?;
         Ok(Self {
             root: root.to_path_buf(),
             current,
             budget,
-            costs: ReadCosts::default(),
+            costs: ReadCosts {
+                file_bytes: 4352,
+                budget_bytes: 4352,
+                ..ReadCosts::default()
+            },
             pages: HashMap::new(),
             blocks: HashMap::new(),
             parts: HashMap::new(),
             files: super::call_io::CallFiles::default(),
             payload_class: ReadClass::Payload,
             native_descriptor: Some(descriptor),
+            _generation_hold: Some(hold),
         })
     }
 
@@ -139,17 +148,16 @@ impl ReadCall {
         budget: ReadBudget,
     ) -> Result<Self> {
         budget.validate()?;
-        let mut file = measured::open(root.join("CURRENT"))?;
-        if file.metadata()?.len() != 4096 {
-            return Err(corrupt("CURRENT length"));
-        }
-        if budget.bytes < 4096 {
+        let native = measured::try_exists(root.join(super::home::MARKER))?;
+        let initial_bytes = if native {
+            12_288
+        } else {
+            4096 + b"artifact-only=1\nformat=1\n".len() as u64
+        };
+        if budget.bytes < initial_bytes {
             return Err(resource());
         }
-        let mut bytes = [0; 4096];
-        let _class = ReadClass::FormatProbe.enter();
-        file.read_exact(&mut bytes)?;
-        let current = Current::decode(&bytes)?;
+        let (current, hold) = super::lifetime::GenerationHold::capture(root)?;
         if current.placement_codec != placement_codec || current.key_codec != key_codec {
             return Err(corrupt("CURRENT codec differs from held home descriptor"));
         }
@@ -166,11 +174,6 @@ impl ReadCall {
         } else {
             None
         };
-        let initial_bytes = if native_descriptor.is_some() {
-            8192
-        } else {
-            4096
-        };
         Ok(Self {
             root: root.to_path_buf(),
             current,
@@ -186,6 +189,7 @@ impl ReadCall {
             files: super::call_io::CallFiles::default(),
             payload_class: ReadClass::Payload,
             native_descriptor,
+            _generation_hold: Some(hold),
         })
     }
 

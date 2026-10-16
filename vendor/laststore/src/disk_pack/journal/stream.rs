@@ -60,6 +60,7 @@ impl Stream {
             blocks: HashMap::new(),
             parts: HashMap::new(),
             files: crate::disk_pack::call_io::CallFiles::default(),
+            _generation_hold: None,
             payload_class: ReadClass::JournalReplay,
         };
         Ok(Self {
