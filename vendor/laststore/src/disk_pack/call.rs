@@ -5,7 +5,7 @@ use crate::read_receipt::TemporaryBytes;
 use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
 use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -66,6 +66,10 @@ pub struct ReadCosts {
     pub budget_bytes: u64,
     /// Exact keys or ordered entries examined, including tombstones.
     pub examined_keys: u64,
+    /// Largest descriptor pool within this read call; at most 32.
+    pub file_handles_peak: u64,
+    /// Extent reads that reuse a descriptor already owned by this call.
+    pub file_handle_reuses: u64,
 }
 
 pub(super) struct Buffer {
@@ -96,6 +100,7 @@ pub struct ReadCall {
     pub(super) pages: HashMap<PageAddress, Arc<Page>>,
     pub(super) blocks: HashMap<(Uuid, u64, u64), Arc<Buffer>>,
     pub(super) parts: HashMap<PathBuf, (u64, u64)>,
+    pub(super) files: super::call_io::CallFiles,
     pub(super) payload_class: ReadClass,
     pub(super) native_descriptor: Option<super::home::HomeDescriptor>,
 }
@@ -118,6 +123,7 @@ impl ReadCall {
             pages: HashMap::new(),
             blocks: HashMap::new(),
             parts: HashMap::new(),
+            files: super::call_io::CallFiles::default(),
             payload_class: ReadClass::Payload,
             native_descriptor: Some(descriptor),
         })
@@ -176,6 +182,7 @@ impl ReadCall {
             pages: HashMap::new(),
             blocks: HashMap::new(),
             parts: HashMap::new(),
+            files: super::call_io::CallFiles::default(),
             payload_class: ReadClass::Payload,
             native_descriptor,
         })
@@ -264,37 +271,6 @@ impl ReadCall {
         }
         self.costs.examined_keys += 1;
         Ok(())
-    }
-
-    pub(super) fn read_extent(
-        &mut self,
-        path: &Path,
-        offset: u64,
-        length: usize,
-        page_part: bool,
-        class: ReadClass,
-    ) -> Result<Buffer> {
-        self.charge(length as u64)?;
-        let mut file = measured::open(path)?;
-        let file_bytes = file.metadata()?.len();
-        let end = offset
-            .checked_add(length as u64)
-            .ok_or_else(|| corrupt("file offset overflow"))?;
-        if end > file_bytes
-            || file_bytes > super::PART_BYTES
-            || (page_part && file_bytes % super::PAGE_BYTES as u64 != 0)
-        {
-            return Err(corrupt("extent outside immutable part"));
-        }
-        let mut bytes = Vec::new();
-        bytes.try_reserve_exact(length).map_err(|_| resource())?;
-        bytes.resize(length, 0);
-        let mut buffer = Buffer::from_vec(bytes);
-        file.seek(SeekFrom::Start(offset))?;
-        let _class = class.enter();
-        file.read_exact(&mut buffer.bytes)?;
-        self.costs.file_bytes = self.costs.file_bytes.saturating_add(length as u64);
-        Ok(buffer)
     }
 
     pub(super) fn data_path(&self, location: &Location) -> PathBuf {

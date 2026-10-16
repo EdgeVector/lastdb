@@ -32,6 +32,8 @@ fn receipt_json(r: fold_db::read_receipts::DiskReadReceipt, elapsed: Duration) -
         "group_opens": r.group_opens,
         "group_load_nanos": r.group_load_nanos,
         "file_open_attempts": r.file_open_attempts,
+        "pack_file_handles_peak": r.pack_file_handles_peak,
+        "pack_file_handle_reuses": r.pack_file_handle_reuses,
         "file_opens": r.file_opens,
         "metadata_operations": r.metadata_operations,
         "directory_reads": r.directory_reads,

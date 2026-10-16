@@ -7,6 +7,7 @@ mod artifact;
 mod build;
 mod bytes;
 mod call;
+mod call_io;
 mod current;
 mod dependency;
 mod dependency_walk;

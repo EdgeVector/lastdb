@@ -59,6 +59,7 @@ impl Stream {
             pages: HashMap::new(),
             blocks: HashMap::new(),
             parts: HashMap::new(),
+            files: crate::disk_pack::call_io::CallFiles::default(),
             payload_class: ReadClass::JournalReplay,
         };
         Ok(Self {
