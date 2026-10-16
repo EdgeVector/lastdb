@@ -36,19 +36,18 @@ impl ReadContext {
                 "native disk or cache publication failed; complete recovery is required".into(),
             ));
         }
-        let view = runtime
-            .view
-            .read()
-            .expect("native complete read view")
-            .clone();
+        // Keep the root selector locked until its file lifetime hold exists.
+        // Runtime maintenance must replace this selector before reclaim.
+        let view = runtime.view.read().expect("native complete read view");
+        let call = runtime
+            .home
+            .read_committed(view.current.clone(), budget())
+            .map_err(map)?;
+        let accepted = view.accepted.clone();
+        drop(view);
         Ok(Arc::new(Self {
-            call: Arc::new(Mutex::new(
-                runtime
-                    .home
-                    .read_committed(view.current, budget())
-                    .map_err(map)?,
-            )),
-            accepted: view.accepted,
+            call: Arc::new(Mutex::new(call)),
+            accepted,
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
             identity: runtime.home.descriptor().identity,
             failure: Arc::new(Mutex::new(None)),
