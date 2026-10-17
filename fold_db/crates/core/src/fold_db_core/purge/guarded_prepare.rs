@@ -130,6 +130,10 @@ pub(super) struct GuardedErasure {
     pub(super) tip_debits: Vec<(String, u64)>,
     pub(super) live_head_debits: Vec<(String, String, u64)>,
     pub(super) file_pointer_atoms_purged: u64,
+    /// Rows that the exact-edge purge deletes inside the molecule batch. The
+    /// guarded purge deletes them in its final batch and counts them in
+    /// `keys_to_delete`, so the ledger adds them for both modes.
+    pub(super) derived_keys_deleted: usize,
 }
 
 /// Collect every storage key the final batch delete removes.
@@ -205,6 +209,11 @@ pub(super) async fn prepare_guarded_erasure(
     )
     .await?;
 
+    let derived_keys_deleted = if inputs.reachability == PurgeReachability::AtomRefEdges {
+        inputs.history_keys.len() + inputs.tip_version_keys.len() + tip_version_backref_keys.len()
+    } else {
+        0
+    };
     let mut reverse_edge_reads = 0;
     if inputs.reachability == PurgeReachability::AtomRefEdges {
         reverse_edge_reads = collect_unreferenced_by_reverse_edges(
@@ -243,6 +252,7 @@ pub(super) async fn prepare_guarded_erasure(
         tip_debits,
         live_head_debits,
         file_pointer_atoms_purged,
+        derived_keys_deleted,
     })
 }
 

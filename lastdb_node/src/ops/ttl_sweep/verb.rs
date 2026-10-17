@@ -16,9 +16,12 @@ const PURGE_CALLER: &str = "ttl-sweep-purge";
 ///
 /// `purge` (default) is the hard-erasure verb. It deletes the tips, their
 /// tip-version chain and the atoms of the key that no other key references,
-/// and it leaves no delete barrier. That needs a reachability proof over the
-/// whole schema, unless every molecule has a complete reverse-reference
-/// manifest, so a batch holds the schema purge barrier while it runs.
+/// and it leaves no delete barrier. Its proof that no other key references an
+/// atom reads the reverse-reference edges of that atom, so a batch reads only
+/// the rows of its own keys. That needs a complete reverse-reference manifest
+/// for every molecule. A home that the daemon created gets the manifests at
+/// its first purge. Without them the batch falls back to a proof over the
+/// whole schema and holds the schema purge barrier while it runs.
 /// `delete` is the ordinary delete that a client uses. It needs only the keys
 /// of the batch and leaves atom bodies to garbage collection. It also leaves
 /// two delete barrier records per field per key that nothing prunes (about

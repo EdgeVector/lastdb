@@ -52,6 +52,7 @@ pub(super) async fn execute_guarded_purge(
         tip_debits,
         live_head_debits,
         file_pointer_atoms_purged,
+        derived_keys_deleted,
     } = prepare_guarded_erasure(
         scope,
         &mut schema,
@@ -68,7 +69,7 @@ pub(super) async fn execute_guarded_purge(
         schema_name,
         ledger_descriptor,
         &report,
-        keys_to_delete.len(),
+        keys_to_delete.len() + derived_keys_deleted,
         file_pointer_atoms_purged,
     );
     let ledger_handle = db_ops

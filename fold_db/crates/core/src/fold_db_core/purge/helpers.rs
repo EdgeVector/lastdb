@@ -219,45 +219,60 @@ pub(crate) async fn refresh_runtime_field_molecules_for_purge_keys(
 ///
 /// Every molecule that can reference a same-schema content-addressed atom must
 /// have a replay-complete manifest that includes mutation-history edges.
-/// A v1 tip-only manifest advances one bounded, molecule-keyed history page.
-/// Incomplete work keeps the guarded path for this purge and resumes later.
+/// The manifests of all fields come in one batch read. A molecule with no
+/// manifest gets a tip-complete one when the home proves its edge plane
+/// complete (see `manifest_seed`). A v1 tip-only manifest advances one bounded,
+/// molecule-keyed history page. Incomplete work keeps the guarded path for
+/// this purge and resumes later.
 pub(crate) async fn atom_ref_cutover_ready(
     db_ops: &Arc<DbOperations>,
     schema: &Schema,
 ) -> Result<bool, SchemaError> {
+    use crate::db_operations::atom_store::{
+        ATOM_REF_MANIFEST_VERSION_HISTORY, ATOM_REF_MANIFEST_VERSION_TIPS,
+    };
+
     if !barrierless_purge_enabled_from(std::env::var("LASTDB_BARRIERLESS_PURGE").ok().as_deref()) {
         return Ok(false);
     }
 
-    let mut saw_molecule = false;
-    for field in schema.runtime_fields.values() {
-        let Some(molecule_uuid) = field.common().molecule_uuid() else {
-            continue;
-        };
-        saw_molecule = true;
-        let prefix = field.common().storage_prefix();
-        let Some(manifest) = db_ops
-            .atoms()
-            .atom_ref_molecule_manifest(molecule_uuid, prefix)
-            .await?
-        else {
+    let molecules: Vec<(&str, Option<&str>)> = schema
+        .runtime_fields
+        .values()
+        .filter_map(|field| {
+            let molecule_uuid = field.common().molecule_uuid()?;
+            Some((molecule_uuid.as_str(), field.common().storage_prefix()))
+        })
+        .collect();
+    if molecules.is_empty() {
+        return Ok(false);
+    }
+    let manifests = db_ops
+        .atoms()
+        .atom_ref_molecule_manifests_seeding_current(&molecules)
+        .await?;
+
+    let mut history_pending = Vec::new();
+    for ((molecule_uuid, prefix), manifest) in molecules.iter().zip(manifests) {
+        let Some(manifest) = manifest else {
             return Ok(false);
         };
         match (manifest.version, manifest.replay_complete) {
-            (crate::db_operations::atom_store::ATOM_REF_MANIFEST_VERSION_HISTORY, true) => {}
-            (crate::db_operations::atom_store::ATOM_REF_MANIFEST_VERSION_TIPS, true) => {
-                let upgrade = db_ops
-                    .atoms()
-                    .upgrade_atom_ref_molecule_history_page(molecule_uuid, prefix, 256)
-                    .await?;
-                if !upgrade.complete {
-                    return Ok(false);
-                }
+            (ATOM_REF_MANIFEST_VERSION_HISTORY, true) => {}
+            (ATOM_REF_MANIFEST_VERSION_TIPS, true) => {
+                history_pending.push((*molecule_uuid, *prefix));
             }
             _ => return Ok(false),
         }
     }
-    Ok(saw_molecule)
+    let upgrades =
+        futures::future::try_join_all(history_pending.iter().map(|(molecule_uuid, prefix)| {
+            db_ops
+                .atoms()
+                .upgrade_atom_ref_molecule_history_page(molecule_uuid, *prefix, 256)
+        }))
+        .await?;
+    Ok(upgrades.iter().all(|upgrade| upgrade.complete))
 }
 
 fn barrierless_purge_enabled_from(raw: Option<&str>) -> bool {
