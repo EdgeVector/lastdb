@@ -6,6 +6,9 @@ This recipe describes the saved performance calls. It is not a test suite or a f
 The input records contain no user data.
 The receipts contain exact binary hashes, input hashes, sample counts, and timestamps.
 Use the binary with the recorded hash for each result.
+The final source is `7110c7f54ea005e33678b5c93e89353d6117b41f`.
+The final physical homes require feature mask 47; the final node homes require 63.
+Both include feature 0x20, with a fixed 16384-operation batch limit.
 
 ## Physical engine inputs
 
@@ -109,9 +112,10 @@ Do not include journal payloads, generation receipts, or markers in that page co
 Record file count, logical file bytes, and allocated file bytes before and after each write case.
 Keep the inventory within the exact owned home, depth six, and 262144 files.
 
-The focused follow-up uses a fresh pair of 1024-byte homes.
+The archived 08409 focused follow-up uses a fresh pair of 1024-byte homes.
 It runs only distinct batches of 16 writes, with 101 alternating rounds per program.
 Its final full-key verification uses the same rule.
+The final 7110 matrix uses 31 rounds and does not repeat that focused workload.
 
 ## Node setup and requests
 
@@ -119,7 +123,7 @@ Use separate generated identities and homes. Disable cloud configuration.
 Start the recorded node with short absolute socket paths:
 
 ```bash
-env -u LASTDB_DISK_CAP_BYTES -u SENTRY_DSN -u FOLD_SENTRY_DSN \
+env -u LASTDB_DISK_CAP_BYTES -u SENTRY_DSN -u FOLD_SENTRY_DSN -u RUST_LOG \
   LASTDB_ISOLATED_COPY=1 LASTDB_SUPPRESS_RECOVERY_PHRASE=1 \
   LASTDB_DISK_PACK=1 LASTDB_RESIDENT_MODE=off \
   LASTDB_HOME="$generated_home" FOLDDB_HOME="$generated_home" \
@@ -141,7 +145,8 @@ Seed this schema through `POST /api/schemas/seed-system`:
 Create 320 records through five batches of 64, with `POST /api/mutations/batch`.
 Use normal async convergence and per-mutation `durability:"durable"`.
 The preserved old seed uses this normal async setup.
-The first final off-mode preparation requests synchronous convergence; the report excludes its optional wait cost.
+The superseded 08409 preparation requests synchronous convergence; its optional wait cost is excluded.
+Every final 7110 seed uses normal async convergence.
 No setup duration contributes to the timed comparison.
 
 Record N uses bucket `generated`, id `record-NNNNNN`, and title `title-N-revision-V`.
@@ -192,7 +197,9 @@ The steady measurement repeats that identical positive query after its prime.
 A new key combination or a range still uses the normal fetch path.
 
 Send header `x-lastdb-read-receipt: true` for the read receipts.
-Check logical values, result count, range order, required fields, and complete response equality against the prime.
+Check logical values, result count, range order, and required fields on every read.
+Check complete response equality against the prime only for repeated-query samples.
+Post-write and reopen samples must match the current generated values; their prior response digest can change.
 An unavailable old receipt counter remains null, never zero.
 The final candidate requires all file-work counters before a zero-I/O claim.
 
@@ -210,6 +217,9 @@ Retain the ack time, forced-flush time, and complete request-start-to-durable-re
 Do not treat a queued ack as a durable completion.
 For candidate counts 64 and 256, read native status before and after the timed update, outside its timer.
 Those status calls do not request a flush.
+The typed fields are under the response's `native_disk` object.
+Save each mutation response before any optional status parse.
+After durable writes and queued drain, reopen normally and verify all 320 current keys.
 
 For the normal flush observation, start from one explicit flush.
 Use queued counts 1 and 256, with three rounds per size.
@@ -227,11 +237,21 @@ Use resident mode `write` for the separate intended memory-first profile.
 Keep durable-request results separate from queued ack and normal automatic flush results.
 Use an additional fresh generated candidate for the separate 8589934592-byte cap measurement.
 Record that profile explicitly; do not mix it with the unset-cap comparison.
+The cap profile uses the writes-only sequence and first verifies all 320 keys in its write process.
+The uncapped full profile reopens between its read and write phases.
+This warmup difference prevents an isolated cap-cost claim.
+
+The separate final large-batch diagnostic uses a fresh home and the same five 64-record seed batches.
+It then sends one 64 update and the first 256 update, without the smaller write rounds.
+It checks all 320 current values, stops normally, reopens, and checks them again.
+Its environment adds `RUST_LOG=lastdb::native_read_budget=debug,lastdb::native_write_budget=debug`.
+Its numeric stages show 5382 unique internal operations. Its debug timings do not enter the headline results.
 
 ## Current-engine maintenance
 
-Use the final 1024-byte candidate home after its 31 distinct 256-write rounds.
-The home contains only generated physical records and has no active node.
+Use the final off-mode node's `data/disk-pack` home after the successful expanded 256-write batch.
+It contains the same 320 generated records and has no active node.
+The exact expected values are saved in `node-final-off-expected-values.json`.
 
 ```bash
 "$maintain" records --home "$home"
@@ -247,6 +267,31 @@ Record command time, file counts, logical bytes, and allocated bytes after each 
 Record separate totals for packs, maps, journals, and other top-level file kinds.
 Compare the ordered record digest before and after the commands.
 This is a current-engine maintenance measurement, not a false old-to-new compaction comparison.
+Maintenance follows the quiet latency matrices. Its command deadline is 600 seconds.
+The same stopped node home then goes to the separate backup/source-free restore proof.
+
+## Ancillary earlier format check
+
+This earlier check precedes the user's later instruction to use fresh generated data only.
+It is not part of the requested benchmark or a completion requirement. Do not repeat it for that request.
+
+Use the preserved 9a disk-home command, which supports feature mask 31.
+Read real keys in the final 47-feature physical home with its existing generated request:
+
+```bash
+"$pre_0x20_engine" read --home "$new_physical_home" --input "$generated_read_request"
+```
+
+This command must refuse CURRENT. The unsupported feature difference is exactly 0x20.
+Then use the current administrative reader on the retained 9a 31-feature home:
+
+```bash
+"$current_maintain" records --home "$old_native_home"
+```
+
+Capture exit status, stdout hash, stderr, and original record count.
+Compare CURRENT and descriptor hashes before and after both read-only calls.
+The old home must remain at feature mask 31. No node start or automatic upgrade occurs.
 
 ## Clocks, summaries, and retained limits
 

@@ -1,17 +1,23 @@
 # Native disk work status, October 16, 2026
 
+The local engine work is complete within the limits below.
+Both benchmark versions start with empty homes, write the same synthetic input, and read it back.
+
 Tom selected completion of the original native LastStore packed-file engine.
 R5′ finds file positions through directory and locator pages.
 R6′ reads the required bytes from packed files.
 The candidate keeps existing atom and tip records, with complete batches as the write boundary.
 It does not implement the later direct-position tip format or a new body-key codec.
 
-The final product source revision is `9a1c6a94`, before the final receipts and status documents.
+The final product source revision is `7110c7f5`, before the final receipts and status documents.
 The daemon, CLI, disk-home, recovery, and maintenance programs use that same clean source.
 The [completion receipts](proofs/layer2-completion-20261016/) identify each exact executable and configuration.
-The [final batch report](proofs/layer2-completion-20261016/batch-semantics.md) records complete responses, partial memory results, ordered change entries, flush, and reopen.
-The [earlier component report](proofs/layer2-completion-20261016/semantics.md) records memory ack, conditions, delete, and restore of a deleted record.
-The [recovery report](proofs/layer2-completion-20261016/recovery.md) records shared atoms, local backup, restore, and conversion.
+The [final fresh-data report](proofs/layer2-completion-20261016/semantics-7110.md) records a new 256-record write, reads, updates, conditions, delete, recreate, and flush.
+That final check uses one empty home, with no import, copy, restore, or reopen.
+
+The [earlier batch component report](proofs/layer2-completion-20261016/batch-semantics.md) records full responses, partial memory results, and ordered change entries on `b47`.
+The [earlier record component report](proofs/layer2-completion-20261016/semantics.md) retains its original memory ack, condition, delete, and recreate results.
+The [earlier recovery component report](proofs/layer2-completion-20261016/recovery.md) records shared atoms, local backup, restore, and conversion on its stated source.
 The [benchmark report](proofs/layer2-completion-20261016/benchmarks.md) separates physical engine costs from node costs and memory acknowledgements.
 
 ## Candidate source
@@ -60,6 +66,13 @@ It requires replacement space under a configured disk cap.
 Payload files share packed data; each hash group retains its locator files.
 The engine preserves opaque field bytes but refuses the separate physical encrypted-frame format.
 The small generated homes do not establish behavior at the full warm-set cap.
+
+The final compaction receipt reports 2 payload files, with 4,019,991 bytes.
+It also reports 2,662 locator files, with 109,920,256 bytes.
+The receipt reports 2,772 total files and 115,459,898 bytes after release and reclaim.
+Payload packing succeeds, but locator metadata dominates this dataset.
+The whole-home compaction takes 40.801 seconds; the benchmark report separates this operation from quiet latency measurements.
+Large durable writes still take seconds, and the final node range measurements remain slower than the earlier native baseline.
 
 ## Adoption boundary
 

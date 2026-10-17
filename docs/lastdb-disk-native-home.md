@@ -3,7 +3,7 @@
 CAUTION: This page records the October 15 implementation step.
 Its limits and unfinished-work statements describe that step, not the current candidate.
 Use the [current source status](lastdb-disk-rollout-status.md) for the present boundaries and receipt links.
-Final candidate measurements remain pending.
+The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-summary.json) report the later candidate's measured costs.
 
 This change binds the disk reader and journal to saved LastStore placement and key identities.
 It does not select a native node backend, change the memory ack, or activate a primary home.

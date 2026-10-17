@@ -1,4 +1,8 @@
-The final generated-data proof uses source `b47eb21cc20bf1363482e386c2e79b320f0c9bac`.
+# Batch semantics: b47 component evidence
+
+This historical component proof uses source `b47eb21cc20bf1363482e386c2e79b320f0c9bac`.
+It does not establish the final candidate's complete write or recovery result.
+The final source uses a separate `semantics-7110.md` report after its product checks complete.
 The daemon version is `0.23.4-pre.0-244-gb47eb21cc`.
 Its SHA-256 is `37c362262c5ac2854ec2143278dc7df31fc32936a72abdbdc643b7b216d79880`.
 The node uses native write mode, a 500 ms flush interval, and a 10,000 logical-record cap.
@@ -32,8 +36,8 @@ This sample does not prove behavior at a full cap.
 The earlier source `511b8982848fddf62457ce5953a57ee80fa6e4d0` exposes a real defect.
 Its first post-update 256-key response returns HTTP 503 with `read resource limit exceeded`.
 Optional copies of request descriptors and wire metadata consume the same cumulative call budget as the necessary data read.
-The final source checks complete warm coverage before it copies field data. It declines optional metadata when the remaining budget cannot hold it.
-The final source also removes prior optional metadata copies from required field admission. The real data-read limits remain strict.
+The b47 source checks complete warm coverage before it copies field data. It declines optional metadata when the remaining budget cannot hold it.
+The b47 source also removes prior optional metadata copies from required field admission. The real data-read limits remain strict.
 The refused response and its complete read receipt remain under `batch-511b-post-update-256-refused.*`.
 
 The earlier 511b component run also checks mutation behavior. A conditional write succeeds; the stale condition returns HTTP 409 with `cas_conflict`.
@@ -43,13 +47,15 @@ A queued write returns while native status reports an accepted batch. An immedia
 The full 256-key response remains equal after flush and normal reopen. These receipts retain their earlier component label.
 
 `batch-semantics-summary.json` contains the comparison results and exact values.
-The final and earlier receipt manifests contain response hashes and complete read-cost receipts for each saved call.
-Selected complete responses and all final HTTP headers use the `batch-final-` prefix.
+The b47 and earlier receipt manifests contain response hashes and complete read-cost receipts for each saved call.
+Selected complete responses and b47 HTTP headers retain the historical `batch-final-` filename prefix.
 The input requests are under `requests/batch-final-*.json`; the earlier mutation requests use `requests/batch-511b-*.json`.
 Documentation copies of HTTP headers use LF and one final newline. The scratch keeps the original header bytes until cleanup.
 No tests, fixtures, failure injection, primary operations, or source changes occur during this product proof.
 
-All owned nodes are stopped. Scratch cleanup waits for the benchmark interval to end.
-The owned roots are `/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-batch-proof.laajmb`
+All owned nodes are stopped. The supported `lastdb-dev reclaim --home` command removed both owned scratch roots after the benchmark interval.
+The roots were `/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-batch-proof.laajmb`
 and `/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-batch-final.QKboR6`.
-The supported exact-path cleanup result will record each realpath, owner, and stopped process state.
+Both commands return zero, and both paths are absent after the command.
+`batch-cleanup-results.json` records the exact paths, ownership, stopped process state, and helper receipts.
+`batch-scratch-receipts-511b-b47.tar.gz` preserves every raw request, response, header, and log from those roots, excluding the generated database homes.

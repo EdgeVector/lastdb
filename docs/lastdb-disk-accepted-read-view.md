@@ -1,5 +1,9 @@
 # Complete native query views
 
+CAUTION: This page records the accepted-view interface before its complete node integration.
+Its final integration requirements describe that earlier step.
+Use the [current source status](lastdb-disk-rollout-status.md) for the present boundaries and receipt links.
+
 A native query captures one complete disk root and one optional accepted batch together.
 The runtime publishes that pair under one lock.
 Every child query shares the same root, accepted batch, read budget, and metadata snapshots.

@@ -53,6 +53,6 @@
   <rect x="40" y="820" width="1200" height="132" rx="10" class="box"/>
   <text x="64" y="856" class="heading">Implementation state</text>
   <text x="64" y="892" class="small">Source exists: batch reads, ranges, native read views, maintenance, and recovery parts.</text>
-  <text x="64" y="925" class="small">Selected: original native engine. Final generated-data measurements remain pending.</text>
+  <text x="64" y="925" class="small">Source 7110c7f5 uses generated data. Durable writes still take seconds; see the final report.</text>
   <text x="40" y="982" class="small">Native LastStore engine selected · 16 October 2026 · Existing record bytes · Primary unchanged</text>
 </svg>

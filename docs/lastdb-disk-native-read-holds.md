@@ -3,7 +3,7 @@
 CAUTION: This page records the October 15 implementation step.
 Its fetched-storage-record cache and unfinished-work statements describe that step, not the current logical-path warm set.
 Use the [current source status](lastdb-disk-rollout-status.md) for the present boundaries and receipt links.
-Final candidate measurements remain pending.
+The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-summary.json) report the later candidate's measured costs.
 
 The native fetched-record cache uses the existing 10,000-key budget.
 The previous path could purge a fetched record while another call still held its returned bytes.

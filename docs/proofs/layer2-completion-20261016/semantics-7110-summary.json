@@ -1,0 +1,72 @@
+{
+  "source": "7110c7f54ea005e33678b5c93e89353d6117b41f",
+  "node_sha256": "5a7b18dcb206e46711a07dc497edebdb267867b9073fc4d516518056c82b6244",
+  "version": "0.23.4-pre.0-249-g7110c7f54",
+  "scope": "one brand-new empty home; fresh synthetic writes and reads only",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-synthetic-7110.d_r4y1ca/home",
+  "home_uid": 501,
+  "synthetic_records": 256,
+  "schema": "Layer2FinalBenchmark",
+  "imports": 0,
+  "home_copies": 0,
+  "restores": 0,
+  "reopens": 0,
+  "created": {
+    "create_count": 256,
+    "created_values_equal": true,
+    "created_full_json_repeat_equal": true
+  },
+  "updated": {
+    "records": 256,
+    "post_update_values_equal": true,
+    "post_update_first_attempt_pass": true,
+    "post_update_full_json_repeat_equal": true
+  },
+  "condition_ok": true,
+  "stale_condition_http": 409,
+  "stale_condition_error": "cas_conflict",
+  "deleted_query_records": 0,
+  "recreated_body_matches": true,
+  "queued_read_matches": true,
+  "queued_status_after_read": {
+    "accepted_batch": false,
+    "frontier": 57,
+    "generation": 116,
+    "writer_failed": false
+  },
+  "preflush_visibility_claim": false,
+  "final": {
+    "records": 256,
+    "final_values_match": true,
+    "final_full_json_repeat_equal": true,
+    "full_json_sha256": "690fb9af65f1f9c6aa1d1bd3a5dce48e5c3dea2884b1ffd16aa2006fc8754377",
+    "flush": {
+      "durable": true,
+      "native_flush": {
+        "frontier": 57,
+        "generation": 116
+      },
+      "ok": true,
+      "user_hash": "4150e6422807ab5c5f9f852a19d74f6b"
+    }
+  },
+  "logical_records": 899,
+  "logical_record_cap": 10000,
+  "held_records": 0,
+  "excess_records": 0,
+  "normal_stop_exit": 0,
+  "node_pid": 54175,
+  "node_pid_exists_after_stop": false,
+  "read_cost_headers_requested": false,
+  "timing_scope": "No new performance measurements. Final quiet benchmarks use separate fresh generated homes.",
+  "raw_receipts_archive": {
+    "path": "semantics-7110-raw.tar.gz",
+    "sha256": "8fcb09e43dc39d422b50405dbad3ab8bc98dffcdeb21644913f7ff3b019e33a7",
+    "bytes": 1491958
+  },
+  "earlier_extra_archive": {
+    "path": "semantics-7110-earlier-extra.tar.gz",
+    "sha256": "a429a63c6a81f849a69a1b492d0c400739bd01fd2a565336156b74c1f437134a",
+    "bytes": 865598
+  }
+}

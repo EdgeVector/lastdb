@@ -7,7 +7,8 @@ R5′ finds file positions through directory and locator pages.
 R6′ reads the required bytes from journal or packed files.
 The final node work reuses these parts and preserves existing atom and tip records.
 The default backend and primary remain separate adoption decisions.
-Final generated-data measurements remain pending. See the [current source status](lastdb-disk-rollout-status.md).
+The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-summary.json) include complete 256-record durable writes and normal reopen.
+See the [current source status](lastdb-disk-rollout-status.md) for the supported boundaries.
 
 LastDB decides what a record means and whether it must remain.
 LastStore stores exact keys and bytes, then manages their disk space.

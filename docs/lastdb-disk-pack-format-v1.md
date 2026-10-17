@@ -148,6 +148,9 @@ Older programs refuse this bit before a schema write.
 The bit alone does not prove completeness.
 A memory ack also requires the decoded version-2 proof and each exact authoritative schema path.
 Generic conversion never grants `0x10`; imported proof bytes can be stale after a legacy writer.
+Converted homes use the durable fallback until a separate complete-source bootstrap and writer fence.
+Local backups preserve the original complete root and its feature bits.
+A missing, old, or unreadable proof keeps the durable fallback.
 
 Native bit `0x20` also requires native bit `0x4`.
 It permits one complete ordered batch of at most 16,384 storage operations.
@@ -163,10 +166,7 @@ The 128 MiB batch cap, suffix limits, part sizes, and dependency bounds remain u
 The extension neither splits a logical batch nor removes ordered operations.
 The `lastdb-disk-home` JSON command retains its separate 4,096-operation input limit.
 The node can produce more stored operations from one logical request through the native capability.
-Final generated-data evidence for the larger batch remains pending.
-Converted homes use the durable fallback until a separate complete-source bootstrap and writer fence.
-Local backups preserve the original complete root and its feature bits.
-A missing, old, or unreadable proof keeps the durable fallback.
+The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-receipts.jsonl) record a complete 256-record durable update and normal reopen.
 
 JOURNAL_TAIL is also exactly 4,096 bytes. Its proposed magic is `LDJTL1\0\0`.
 Offsets 8 through 15 use the same version, length, and flags fields as CURRENT.

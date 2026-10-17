@@ -1,0 +1,47 @@
+[
+  {
+    "path": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-synthetic-7110.d_r4y1ca",
+    "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-synthetic-7110.d_r4y1ca",
+    "uid": 501,
+    "current_uid": 501,
+    "nodes": [
+      {
+        "pid": 54175,
+        "pid_exists": false,
+        "owned_node_running": false
+      }
+    ],
+    "proof_receipts_preserved": true,
+    "cleanup": "Supported exact-path reclaim succeeded.",
+    "command": "lastdb-dev reclaim --home /var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-synthetic-7110.d_r4y1ca",
+    "exit_code": 0,
+    "path_exists_after": false,
+    "stdout": "semantics-7110-cleanup-fresh.stdout.txt",
+    "stderr": "semantics-7110-cleanup-fresh.stderr.txt"
+  },
+  {
+    "path": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics-7110.n4189hth",
+    "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics-7110.n4189hth",
+    "uid": 501,
+    "current_uid": 501,
+    "nodes": [
+      {
+        "pid": 47428,
+        "pid_exists": false,
+        "owned_node_running": false
+      },
+      {
+        "pid": 50721,
+        "pid_exists": false,
+        "owned_node_running": false
+      }
+    ],
+    "proof_receipts_preserved": true,
+    "cleanup": "Supported exact-path reclaim succeeded.",
+    "command": "lastdb-dev reclaim --home /var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics-7110.n4189hth",
+    "exit_code": 0,
+    "path_exists_after": false,
+    "stdout": "semantics-7110-cleanup-extra.stdout.txt",
+    "stderr": "semantics-7110-cleanup-extra.stderr.txt"
+  }
+]
