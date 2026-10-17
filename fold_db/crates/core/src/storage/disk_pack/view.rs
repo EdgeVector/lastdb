@@ -42,6 +42,7 @@ impl PackRuntime {
         &self,
         batch: Arc<transaction::PendingBatch>,
     ) -> StorageResult<()> {
+        let changes = batch.changed_coordinates();
         let mut view = self.view.write().expect("native complete read view");
         if self.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
@@ -52,7 +53,7 @@ impl PackRuntime {
         self.validity
             .lock()
             .expect("native dependency validity")
-            .record(revision, batch.changed_coordinates());
+            .record(revision, changes);
         let mut accepted = view.accepted.as_ref().clone();
         accepted.push(batch);
         view.accepted = Arc::new(accepted);
