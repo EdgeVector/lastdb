@@ -25,6 +25,7 @@ impl LogicalResidentSet {
     /// namespace and alias must include every scope; the caller validates its
     /// captured view before it uses the body.
     /// The set permits at most 10,000 links and four aliases per owner.
+    /// A full cap replaces this owner's oldest admitted alias when one exists.
     /// Capacity refusal leaves an existing alias unchanged.
     pub fn link_record(
         &mut self,
@@ -44,6 +45,15 @@ impl LogicalResidentSet {
             return false;
         }
         self.record_links.link(link_key(namespace, alias), owner)
+    }
+
+    /// Remove one exact alias and its inverse owner entry. The fetched record
+    /// and its recency are unchanged.
+    pub fn unlink_record(&mut self, namespace: &str, alias: &str) -> bool {
+        if namespace.len().saturating_add(alias.len()) > MAX_LINK_KEY_BYTES {
+            return false;
+        }
+        self.record_links.unlink(&link_key(namespace, alias))
     }
 
     /// Inspect the linked owner before byte admission. This method copies no
@@ -80,18 +90,33 @@ impl RecordLinks {
                 .get(&owner)
                 .is_some_and(|links| links.len() >= MAX_OWNER_LINKS)
         {
-            return false;
+            let Some(victim) = self
+                .owners
+                .get(&owner)
+                .and_then(|links| links.first())
+                .cloned()
+            else {
+                return false;
+            };
+            self.unlink(&victim);
         }
-        if let Some(previous) = self.targets.insert(link.clone(), owner.clone()) {
-            let empty = self.owners.get_mut(&previous).is_some_and(|links| {
-                links.retain(|old| old != &link);
-                links.is_empty()
-            });
-            if empty {
-                self.owners.remove(&previous);
-            }
-        }
+        self.unlink(&link);
+        self.targets.insert(link.clone(), owner.clone());
         self.owners.entry(owner).or_default().push(link);
+        true
+    }
+
+    fn unlink(&mut self, link: &LinkKey) -> bool {
+        let Some(owner) = self.targets.remove(link) else {
+            return false;
+        };
+        let empty = self.owners.get_mut(&owner).is_some_and(|links| {
+            links.retain(|old| old != link);
+            links.is_empty()
+        });
+        if empty {
+            self.owners.remove(&owner);
+        }
         true
     }
 

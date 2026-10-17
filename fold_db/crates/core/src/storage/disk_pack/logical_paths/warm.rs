@@ -8,14 +8,18 @@ use crate::schema::types::{key_value::KeyValue, Query};
 use crate::storage::disk_pack::read::ReadContext;
 use std::collections::{BTreeSet, HashMap};
 
+mod keys;
+mod lookup;
 mod projection;
 mod wire;
+pub(crate) use keys::covers_window;
+use keys::keys;
 pub use wire::{remember_wire_query, warm_wire_query, WarmQueryFields};
 
 pub(super) const LINKS: &str = "native_complete_query_fields_v1";
 pub(super) type FieldResults = HashMap<String, HashMap<KeyValue, FieldValue>>;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct WireMetadata {
     #[serde(default)]
     pub query: String,
@@ -49,32 +53,6 @@ fn path_key(field: &str, key: &KeyValue, atom: &str) -> String {
     serde_json::to_string(&(field, &key.hash, &key.range, atom)).expect("string tuple")
 }
 
-pub(super) fn key(query: &Query) -> Option<KeyValue> {
-    if query.fields.is_empty()
-        || query.as_of.is_some()
-        || query.rehydrate_depth.is_some()
-        || query.include_tombstones
-        || query.expected_total_count.is_some()
-        || query.value_filters.is_some()
-        || query.field_predicates.is_some()
-        || query.order_by.is_some()
-        || query.predicate_limit.is_some()
-    {
-        return None;
-    }
-    match query.filter.as_ref()? {
-        HashRangeFilter::HashRangeKey { hash, range } => {
-            Some(KeyValue::new(Some(hash.clone()), Some(range.clone())))
-        }
-        // A hash/range-only field returns this exact public key shape. A
-        // multi-key group cannot create this alias: its result keys contain
-        // both components and therefore do not match the key below.
-        HashRangeFilter::HashKey(hash) => Some(KeyValue::new(Some(hash.clone()), None)),
-        HashRangeFilter::RangeKey(range) => Some(KeyValue::new(None, Some(range.clone()))),
-        _ => None,
-    }
-}
-
 fn owner_context(access: Option<&AccessContext>) -> bool {
     match access {
         Some(access) => access.is_owner,
@@ -98,6 +76,12 @@ fn alias(query: &str, field: &str) -> String {
     crate::hex::sha256_hex([query.as_bytes(), field.as_bytes()].concat())
 }
 
+fn row_alias(query: &str, key: &KeyValue) -> String {
+    crate::hex::sha256_hex(
+        serde_json::to_string(&(query, &key.hash, &key.range)).expect("public key tuple"),
+    )
+}
+
 pub(crate) fn lookup(
     runtime: Option<Arc<PackRuntime>>,
     query: &Query,
@@ -106,7 +90,7 @@ pub(crate) fn lookup(
     if !owner_context(access) {
         return Ok(None);
     }
-    let Some(key) = key(query) else {
+    let Some(keys) = keys(query) else {
         return Ok(None);
     };
     let Some(runtime) = runtime else {
@@ -122,47 +106,48 @@ pub(crate) fn lookup(
         .logical
         .lock()
         .expect("native complete query fields");
-    let mut fields = HashMap::new();
-    let mut wire = HashMap::new();
-    let anchor = &query.fields[0];
-    let Some((id, body)) =
-        projection::linked_body(&context, &mut call, &mut logical, &query_alias, anchor)?
-    else {
-        return Ok(None);
+    call.account_memory_record(
+        0,
+        keys.iter()
+            .map(|key| {
+                key.hash.as_ref().map_or(0, String::len) + key.range.as_ref().map_or(0, String::len)
+            })
+            .sum(),
+    )
+    .map_err(map)?;
+    let mut result = WarmQueryFields {
+        fields: HashMap::new(),
+        wire: HashMap::new(),
     };
-    let Some(selected) = body.projections.get(&query_alias).cloned() else {
-        return Ok(None);
-    };
-    if query.fields.iter().any(|field| !selected.contains(field)) {
-        return Ok(None);
-    }
-    let mut first = Some((id, body));
-    for field in &selected {
-        let found = if field == anchor {
-            first.take()
-        } else {
-            projection::linked_body(&context, &mut call, &mut logical, &query_alias, field)?
-        };
-        let Some((id, body)) = found else {
+    let mut paths = 0usize;
+    for key in keys {
+        let Some(row) = lookup::row(&context, &mut call, &mut logical, query, &query_alias, &key)?
+        else {
             return Ok(None);
         };
-        let flags = body.wire.clone().filter(|wire| wire.query == query_alias);
-        let Some(value) = body.field(context.version) else {
+        paths += row.fields.len();
+        if paths > 10_000 {
             return Ok(None);
-        };
-        context.paths.lock().expect("native resolved paths").note(
-            field,
-            &key,
-            &value.atom_uuid,
-            id,
-        );
-        fields.insert(field.clone(), HashMap::from([(key.clone(), value)]));
-        if let Some(flags) = flags {
-            wire.insert(field.clone(), flags);
+        }
+        for (field, values) in row.fields {
+            result.fields.entry(field).or_default().extend(values);
+        }
+        for (field, flags) in row.wire {
+            if result
+                .wire
+                .get(&field)
+                .is_some_and(|previous| previous != &flags)
+            {
+                return Ok(None);
+            }
+            result.wire.insert(field, flags);
         }
     }
-    laststore::record_logical_warm_hits(fields.len() as u64);
-    Ok(Some(WarmQueryFields { fields, wire }))
+    if !result.complete_wire_metadata() {
+        return Ok(None);
+    }
+    laststore::record_logical_warm_hits(paths as u64);
+    Ok(Some(result))
 }
 
 pub(crate) fn remember(
@@ -174,12 +159,14 @@ pub(crate) fn remember(
     if !owner_context(access) {
         return Ok(());
     }
-    let Some(key) = key(query) else { return Ok(()) };
+    let Some(keys) = keys(query) else {
+        return Ok(());
+    };
     let Some(runtime) = runtime else {
         return Ok(());
     };
     let Some(context) = ReadContext::captured(&runtime) else {
         return Ok(());
     };
-    projection::remember(&runtime, &context, query, access, &key, results)
+    projection::remember(&runtime, &context, query, access, &keys, results)
 }

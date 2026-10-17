@@ -20,13 +20,8 @@ impl QueryExecutor {
         window: Option<KeyWindow>,
         access_context: Option<&AccessContext>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let can_use_exact = matches!(
-            window,
-            None | Some(KeyWindow::Offset {
-                offset: 0,
-                limit: 1..
-            })
-        );
+        let can_use_exact =
+            crate::storage::disk_pack::logical_paths::warm::covers_window(&query, window.as_ref());
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
         if can_use_exact {
             if let Some(warm) = crate::storage::disk_pack::logical_paths::warm::lookup(

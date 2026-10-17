@@ -3,7 +3,7 @@
 Date: 16 October 2026, local time. Raw timestamps use UTC.
 
 The final physical batch changes reduce large-batch time, file opens, and map output.
-One-key reads become slower. Some small-call medians or p 95 values also increase.
+One-key reads become slower. Some small-call medians or p95 values also increase.
 The node calls found a separate change-feed batch gap; the final node measurements remain pending.
 
 ## Scope and provenance
@@ -25,21 +25,21 @@ Each physical time uses the command's internal clock before its final output pri
 The operating system cache state remains unknown.
 A fresh process does not establish a physical cold-device read.
 File bytes and calls measure instrumented userspace work, not device traffic.
-The p 95 uses the nearest rank; these samples do not establish a production tail guarantee.
+The p95 uses the nearest rank; these samples do not establish a production tail guarantee.
 
 ## Generated workload
 
-Each physical home starts with 4096 explicit keys in `Layer 2 Receipt`.
+Each physical home starts with 4096 explicit keys in `Layer2Receipt`.
 Each key contains `generated`, a NUL separator, and `record-N` with six decimal digits.
 Bodies contain distinct SHA-256 byte chunks for each record and chunk.
 Updates contain distinct chunks for each repeat, slot, and chunk.
 The physical bodies use no repeated text.
-Every 997 th initial body is empty. Every 251 st key is a tombstone.
+Every 997th initial body is empty. Every 251st key is a tombstone.
 
-Body sizes are 128,1024, and 16384 bytes.
+Body sizes are 128, 1024, and 16384 bytes.
 Read shapes use contiguous keys, scattered keys, duplicate keys with absence, and one bounded range page.
 Write shapes use distinct keys or one repeated key within a complete batch.
-Batches contain 1,16,64, or 256 supplied operations.
+Batches contain 1, 16, 64, or 256 supplied operations.
 Rates count supplied keys or writes, including absent read slots and repeated writes.
 The 1 KiB matrix uses 31 alternating rounds per program; the other sizes use 11 rounds.
 
@@ -48,11 +48,11 @@ Normal reopen reads verify all known keys after each write case.
 The 16 KiB proof uses 1024-key verification calls within its normal read budget.
 Independent baseline and candidate verification calls run in parallel after the timed work.
 
-## Main physical results:1 KiB bodies
+## Main physical results: 1 KiB bodies
 
 Times use milliseconds. An arrow means baseline to candidate.
 
-| Operation | Median ms | p 95 ms | File opens | File read calls |
+| Operation | Median ms | p95 ms | File opens | File read calls |
 |---|---:|---:|---:|---:|
 | One exact key | 0.399 → 0.439 | 0.487 → 0.551 | 11 → 11 | 11 → 12 |
 | 16 contiguous keys | 0.579 → 0.574 | 0.700 → 0.704 | 15 → 11 | 15 → 12 |
@@ -67,20 +67,20 @@ Times use milliseconds. An arrow means baseline to candidate.
 
 The 256-key contiguous median decreases by 22.9 percent.
 The scattered median decreases by 39.5 percent. The 256-write median decreases by 30.0 percent.
-Their median rates change from 75315 to 97691,27300 to 45161, and 1107 to 1582 operations per second.
+Their median rates change from 75315 to 97691, 27300 to 45161, and 1107 to 1582 operations per second.
 The contiguous call reads 286041 payload bytes in both programs; the scattered call reads 1314582 in both.
 The gain includes fewer opens and combined reads, rather than fewer payload bytes.
 The range path uses fewer opens while its read-call count increases by one.
 
 The one-key read median increases from 0.399 to 0.439 ms, with one extra 4096-byte format read.
-The one-write median increases by 2.3 percent; its p 95 decreases.
-The appendix retains every measured median or p 95 increase.
+The one-write median increases by 2.3 percent; its p95 decreases.
+The appendix retains every measured median or p95 increase.
 
 ## Other body sizes
 
 These cases use 11 rounds per program.
 
-| Body size and operation | Median ms | p 95 ms |
+| Body size and operation | Median ms | p95 ms |
 |---|---:|---:|
 | 128 bytes, 256 contiguous reads | 2.420 → 2.144 | 2.549 → 2.357 |
 | 128 bytes, 256 distinct writes | 219.083 → 161.500 | 230.103 → 188.607 |
@@ -93,10 +93,10 @@ Do not interpret a nominal body size as physical-device traffic.
 
 ## Focused 16-write follow-up
 
-An earlier candidate run shows a 16-write p 95 regression.
+An earlier candidate run shows a 16-write p95 regression.
 That [historical run](historical-d1fae6469/report.md) remains separate from the final binary results.
-The final 31-round matrix gives 237.556→233.480 ms for this p 95.
-The independent 101-round final follow-up gives a 174.856→168.482 ms median and 234.169→221.546 ms p 95.
+The final 31-round matrix gives 237.556→233.480 ms for this p95.
+The independent 101-round final follow-up gives a 174.856→168.482 ms median and 234.169→221.546 ms p95.
 Both final runs verify complete counts and current bytes after normal reopen.
 The different tail results do not justify a universal small-write tail claim.
 
@@ -120,13 +120,16 @@ These different scopes do not establish the node's 10000-key memory cap.
 The intermediate node run uses frozen 08409, native storage, and resident mode `off` in both programs.
 The old node uses fanout 16; the candidate uses fanout 1 and its new complete schema-record edges.
 These geometry and feature changes are included in the node result.
-The old home reopens after its earlier drain exit 1. Every 320 generated value matches.
-Each program's 189 steady responses match its prime, including all response metadata.
+The old home reopens after its earlier drain exit 1. All 320 generated values match.
+All 189 steady responses per program match the corresponding prime, including all response metadata.
+
+The exact 256 case sends one query with 256 explicit keys, not 256 queries in a batch.
+The range case uses a separate bounded range query.
 
 The intermediate off-mode repeated exact 256 median is 39.422→73.774 ms; range 256 is 52.531→66.590 ms.
 Exact 256 payload bytes are 0→685452. These are actual regressions, not a claim of faster complete-node reads.
-Durable update medians are 617.187→587.991 ms for one,4518.667→4730.005 ms for 16, and 13508.347→14023.942 ms for 64.
-The first two sizes use three samples per program;64 uses one. No p 95 is supplied for these counts.
+Durable update medians are 617.187→587.991 ms for one, 4518.667→4730.005 ms for 16, and 13508.347→14023.942 ms for 64.
+The first two sizes use three samples per program; 64 uses one. No p95 is supplied for these counts.
 Every timed write uses the same normal async convergence and requested durable guarantee.
 
 The old 256 call fails to finish after its reverse-edge read budget refusal.
@@ -147,10 +150,10 @@ A 500 ms idle delay does not promise durable completion within 500 ms; page outp
 
 ## Physical regressions appendix
 
-Each row below has a higher final median, p 95, or both.
+Each row below has a higher final median, p95, or both.
 Small differences can reflect host timing variation; the complete raw calls retain all values.
 
-| Body size | Operation, shape, batch | Median ms | p 95 ms |
+| Body size | Operation, shape, batch | Median ms | p95 ms |
 |---|---|---:|---:|
 | 128 bytes | read contiguous 1 | 0.443 → 0.496 | 0.476 → 0.522 |
 | 128 bytes | read contiguous 16 | 0.581 → 0.607 | 0.602 → 0.707 |

@@ -10,20 +10,31 @@ pub(super) async fn read<H: HostNode>(
     cursor: Option<&KeyValue>,
     ctx: &AccessContext,
 ) -> Result<Option<Value>, HostError> {
-    if offset.unwrap_or(0) != 0 || cursor.is_some() {
+    if !ctx.is_owner || offset.unwrap_or(0) != 0 || cursor.is_some() {
         return Ok(None);
     }
-    let runtime = host
+    let Some(count) = fold_db::storage::disk_pack::WarmQueryFields::requested_key_count(query)
+    else {
+        return Ok(None);
+    };
+    let limit = clamp_request_limit(limit);
+    if limit < count {
+        return Ok(None);
+    }
+    let Some(runtime) = host
         .fold_db()
         .db_ops()
         .namespaced_store()
-        .disk_pack_runtime();
-    let Some(warm) = fold_db::storage::disk_pack::warm_wire_query(runtime, query, ctx)
+        .disk_pack_runtime()
+    else {
+        return Ok(None);
+    };
+    let _permit = acquire_read_permit(host, Lane::for_read_rows(count)).await?;
+    let Some(warm) = fold_db::storage::disk_pack::warm_wire_query(Some(runtime), query, ctx)
         .map_err(|error| HostError::new(503, error.to_string()))?
     else {
         return Ok(None);
     };
-    let _permit = acquire_read_permit(host, Lane::for_read_rows(1)).await?;
     let mut rows = format_rows(&warm.fields, query.sort_order.as_ref(), None, None);
     let flags = warm.field_flags();
     for row in &mut rows {
@@ -51,8 +62,8 @@ pub(super) async fn read<H: HostNode>(
     };
     Ok(Some(cursor_payload(
         rows,
-        matches!(query.sort_order.as_ref(), Some(SortOrder::Desc)).then_some(1),
-        clamp_request_limit(limit),
+        matches!(query.sort_order.as_ref(), Some(SortOrder::Desc)).then_some(count),
+        limit,
         0,
         drops,
     )))
