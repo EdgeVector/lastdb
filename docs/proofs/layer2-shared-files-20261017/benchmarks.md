@@ -168,6 +168,10 @@ Bounded warm history removal can cause a correct fallback to files.
 - [Complete comparison recipe](benchmark-recipe.md).
 - [Source and program provenance](provenance.json) and [non-test checks](checks.json).
 - [Final node request recipe](drivers/node_compare.py).
+- [Owned temporary-data cleanup](cleanup.json).
 - [Failed intermediate run](intermediate-a1d03310/status.json) and [first diagnostic](diagnostic-eed8b2cc/status.json).
 
 Earlier incomplete and debug measurements remain separate from the final comparison.
+
+All owned nodes and maintenance commands stop before cleanup.
+The supported cleanup command removes the temporary generated homes and saved programs after receipt preservation.

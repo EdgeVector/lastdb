@@ -19,7 +19,8 @@
     "app_registry_shelf": "pass",
     "no_build_artifacts_tree_HEAD": "pass",
     "vendor_code_equal_a1d03310": "pass",
-    "release_five_programs": "pass"
+    "release_five_programs": "pass",
+    "no_build_artifacts_final_receipts_commit": "pass"
   },
   "tests": "not run: retired by user instruction",
   "scope_note": "Final format, package Clippy, file/function/allow, logging/security source gates passed. Other source guards retain their earlier unchanged-site results."

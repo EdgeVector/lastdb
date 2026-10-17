@@ -1,5 +1,5 @@
 {
-  "created_utc": "2026-10-17T08:09:25.131925+00:00",
+  "created_utc": "2026-10-17T08:10:39.819875+00:00",
   "files": [
     {
       "path": "benchmark-recipe.md",
@@ -8,13 +8,23 @@
     },
     {
       "path": "benchmarks.md",
-      "bytes": 9394,
-      "sha256": "a9d6de57525018acbe4673161c739beb9b45f0798028e7f02989a608c2958824"
+      "bytes": 9620,
+      "sha256": "cdbe11d2a2509ff5f47d6458389a01716158baf1f8d3fafbb98d5e31a41d5e4c"
     },
     {
       "path": "checks.json",
-      "bytes": 1142,
-      "sha256": "2bbc48307f8762dfc45dc1ee8ec5c33343750d513efb10ceefd68bde0d3db69d"
+      "bytes": 1198,
+      "sha256": "d70355636e2ea4775c7b247762cc0550aa9ba5d7e7ffcb23158d505038820eef"
+    },
+    {
+      "path": "cleanup-preflight.json",
+      "bytes": 3136,
+      "sha256": "c0baa53451e489ab9f0a09d1fbaab863180e53305e595152251c1edce985b6c0"
+    },
+    {
+      "path": "cleanup.json",
+      "bytes": 547,
+      "sha256": "79d6da34c1092036cabff05913659e9b82c8b68d3f16de5ba59729ba17f3fc35"
     },
     {
       "path": "diagnostic-a90e381e/binary.json",
