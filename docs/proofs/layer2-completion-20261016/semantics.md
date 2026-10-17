@@ -1,5 +1,6 @@
-The native node checks use generated data only. The final product source is `08409a220e57364052d2eca030eafd12006e6bc4`.
-The final daemon SHA-256 is `a350ae68759889e5e55c8b3251abe77226e18d4e4706bd4ab77a374f4e053417`.
+These earlier component checks use generated data only. Their last source is `08409a220e57364052d2eca030eafd12006e6bc4`.
+The [final batch report](batch-semantics.md) covers the later completed node source.
+This component daemon SHA-256 is `a350ae68759889e5e55c8b3251abe77226e18d4e4706bd4ab77a374f4e053417`.
 The daemon reports `0.23.4-pre.0-239-g08409a220-dirty`. The suffix reflects receipt and document edits during the build.
 
 The node uses native write mode, a 500 ms flush interval, and a 10,000 logical-record cap.

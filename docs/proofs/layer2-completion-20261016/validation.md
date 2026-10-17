@@ -1,6 +1,8 @@
 # Local candidate checks
 
-Final node source: `511b8982`, including event batches and complete explicit-key warm reads.
+Final node source: `b47eb21c`, including event batches and complete explicit-key warm reads.
+Optional query metadata stays within the call budget and can decline admission.
+The required data read retains its strict limits.
 The physical engine source and exact tool hashes remain unchanged from `08409a22`.
 Later receipt and status documents do not change the product binaries.
 The receipts identify each exact executable by SHA-256.

@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 626, in <module>
+    write_measurements()
+  File "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 434, in write_measurements
+    result, elapsed = node.mutate(numbers, revision, 'update', 'durable')
+  File "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 288, in mutate
+    result, elapsed, _ = self.request('/api/mutations/batch', payload)
+  File "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 139, in request
+    raise RuntimeError(f'{self.variant} {path} returned {response.status}: {str(result)[:500]}')
+RuntimeError: candidate /api/mutations/batch returned 503: {'error': 'read_resource_limit', 'hint': 'request fewer records or fields', 'message': 'read resource limit exceeded: disk-pack v1: read resource limit exceeded', 'retryable': False}

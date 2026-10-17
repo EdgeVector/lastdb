@@ -159,23 +159,32 @@ impl Publisher<'_> {
             if entry.as_ref().is_some_and(|entry| entry.group != group) {
                 return Err(corrupt("publication directory coordinate mismatch"));
             }
+            let changes: Vec<_> = changes.into_iter().collect();
             let tree = if let Some(entry) = &entry {
-                entry.locator.clone()
+                let mut locator =
+                    TreeEdit::new(self.root, entry.locator.clone(), self.proposed.generation)?;
+                locator.put_many(&mut call, &changes)?;
+                let (tree, pages, parts) = locator.finish()?;
+                self.pages += pages;
+                self.parts += parts.len() as u64;
+                self.dependencies.add_tree(&tree, parts)?;
+                tree
             } else {
-                let tree = TreeWriter::new(self.root, TreeKind::Locator, self.proposed.generation)?
-                    .finish()?;
-                self.pages += 1;
-                self.parts += 1;
-                self.dependencies.add_contiguous_tree(&tree, 1)?;
+                if changes.len() > 4096 {
+                    return Err(corrupt("invalid new locator change count"));
+                }
+                let mut locator =
+                    TreeWriter::new(self.root, TreeKind::Locator, self.proposed.generation)?;
+                for (key, value) in &changes {
+                    locator.add(key, *value)?;
+                }
+                let (tree, parts) = locator.finish_with_parts()?;
+                // TreeWriter starts at page zero and emits the final root last.
+                self.pages += tree.page + 1;
+                self.parts += parts;
+                self.dependencies.add_contiguous_tree(&tree, parts)?;
                 tree
             };
-            let mut locator = TreeEdit::new(self.root, tree, self.proposed.generation)?;
-            let changes: Vec<_> = changes.into_iter().collect();
-            locator.put_many(&mut call, &changes)?;
-            let (tree, pages, parts) = locator.finish()?;
-            self.pages += pages;
-            self.parts += parts.len() as u64;
-            self.dependencies.add_tree(&tree, parts)?;
             let value = DirectoryEntry {
                 group,
                 locator: tree,

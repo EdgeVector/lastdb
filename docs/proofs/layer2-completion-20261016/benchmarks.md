@@ -4,7 +4,7 @@ Date: 16 October 2026, local time. Raw timestamps use UTC.
 
 The final physical batch changes reduce large-batch time, file opens, and map output.
 One-key reads become slower. Some small-call medians or p95 values also increase.
-The node calls found a separate change-feed batch gap; the final node measurements remain pending.
+The node calls found a change-feed batch gap and a later 256-write refusal; final node measurements remain pending.
 
 ## Scope and provenance
 
@@ -148,6 +148,30 @@ Older [excluded preparations](excluded-node-preparations.json) retain the initia
 The final node-only change-feed batch fix, queued ack, explicit flush, normal flush, cap, and maintenance results remain pending.
 A 500 ms idle delay does not promise durable completion within 500 ms; page output and file barriers add their actual time.
 
+## Intermediate b47 node result and 256-write refusal
+
+The b47 node read phase passes all full-response checks.
+Repeated identical exact-key calls use zero file I/O for batches 1, 16, 64, and 256.
+Their medians are 0.247, 0.794, 2.695, and 10.615 ms, with 21 samples each.
+Range 256 remains a normal fetch: median 65.427 ms, p95 66.966 ms, 34 opens, and 1078 read calls.
+The captured old range median is 52.531 ms. The two programs use separate measurement windows and different native geometry.
+
+The durable 64-write call takes 7589.598 ms, with one sample.
+Its receipt reports 28.747 ms preparation and 6961.206 ms ack time; gate and publish values are zero.
+The native frontier changes from 74 to 77; the generation changes from 152 to 158.
+The frontier includes the clock, data, and change feed. It does not measure data publication alone.
+HTTP write file-open and file-barrier counts are unavailable.
+
+The planned durable 256-write call returns HTTP 503 `read_resource_limit`, with `retryable: false`.
+The writer log names the atom live-reference count load before the transition.
+The node stops normally with exit 0. No 256 latency sample exists.
+One normal reopen returns all 320 exact post-64 values; the refused 256 call changes none of those values.
+That node also stops with exit 0. Its generated home remains intact for review.
+
+This product refusal blocks final completion until the targeted fix and its product proof pass.
+The [status](node-b47-off-intermediate-status.json), [refusal](node-b47-256-refusal.txt), [writer log](node-b47-256-writer-limit.txt), and [reopen result](node-b47-after-refusal-reopen.json) preserve the result.
+The earlier status-parser error and path preflight are excluded driver attempts, not product refusals.
+
 ## Physical regressions appendix
 
 Each row below has a higher final median, p95, or both.
@@ -197,3 +221,5 @@ Small differences can reflect host timing variation; the complete raw calls reta
 |16 KiB|[Inputs](physical-16k-inputs.json)|[Summary](physical-16k-summary.json)|[Calls](physical-16k-receipts.jsonl)|
 |Focused 16|[Inputs](focused-16-inputs.json)|[Summary](focused-16-summary.json)|[Calls](focused-16-receipts.jsonl)|
 |Intermediate nodeoff|[Inputs](node-off-08409-intermediate-inputs.json)|[Summary](node-off-08409-intermediate-summary.json)|[Calls](node-off-08409-intermediate-receipts.jsonl)|
+
+The b47 intermediate node [inputs](node-b47-off-intermediate-inputs.json), [summary](node-b47-off-intermediate-summary.json), and [raw calls](node-b47-off-intermediate-receipts.jsonl) retain successful calls separately from the refusal.

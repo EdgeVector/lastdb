@@ -1,0 +1,40 @@
+[
+  {
+    "path": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-batch-proof.laajmb",
+    "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-batch-proof.laajmb",
+    "uid": 501,
+    "current_uid": 501,
+    "owned_nodes": [
+      {
+        "pid": 89932,
+        "pid_exists": false,
+        "currently_uses_owned_root": false
+      },
+      {
+        "pid": 96632,
+        "pid_exists": false,
+        "currently_uses_owned_root": false
+      }
+    ],
+    "cleanup": "Deferred during benchmark timing."
+  },
+  {
+    "path": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-batch-final.QKboR6",
+    "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-batch-final.QKboR6",
+    "uid": 501,
+    "current_uid": 501,
+    "owned_nodes": [
+      {
+        "pid": 15889,
+        "pid_exists": false,
+        "currently_uses_owned_root": false
+      },
+      {
+        "pid": 19395,
+        "pid_exists": false,
+        "currently_uses_owned_root": false
+      }
+    ],
+    "cleanup": "Deferred during benchmark timing."
+  }
+]

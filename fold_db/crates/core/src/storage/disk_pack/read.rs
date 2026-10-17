@@ -250,7 +250,7 @@ impl PackRuntime {
         for (slot, (collection, key)) in coordinates.iter().enumerate() {
             if let Some(record) = context.overlay_record(pending, collection, key) {
                 call.account_memory_record(key.len(), record.body.as_ref().map_or(0, Vec::len))
-                    .map_err(map)?;
+                    .map_err(|error| call_error(error, &call))?;
                 out[slot] = record.body.clone();
             } else {
                 misses.push(slot);
@@ -260,10 +260,29 @@ impl PackRuntime {
             .iter()
             .map(|slot| coordinates[*slot].clone())
             .collect();
-        let results = call.get_many(&addresses).map_err(map)?;
+        let results = call
+            .get_many(&addresses)
+            .map_err(|error| call_error(error, &call))?;
         for (slot, result) in misses.into_iter().zip(results) {
-            out[slot] = result.map_err(map)?;
+            out[slot] = result.map_err(|error| call_error(error, &call))?;
         }
         Ok(out)
+    }
+}
+
+fn call_error(error: laststore::Error, call: &HomeRead) -> StorageError {
+    if !matches!(error, laststore::Error::ReadBudgetExceeded) {
+        return map(error);
+    }
+    let costs = call.costs();
+    let limits = budget();
+    let pages =
+        costs.directory_pages + costs.locator_pages + costs.overflow_pages + costs.map_pages;
+    StorageError::ReadResourceLimit {
+        detail: format!(
+            "native call: examined_keys={}/{}, metadata_pages={}/{}, payload_blocks={}/{}, charged_bytes={}/{}",
+            costs.examined_keys, limits.keys, pages, limits.pages,
+            costs.payload_blocks, limits.blocks, costs.budget_bytes, limits.bytes,
+        ),
     }
 }

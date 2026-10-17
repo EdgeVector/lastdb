@@ -6,10 +6,11 @@ R6′ reads the required bytes from packed files.
 The candidate keeps existing atom and tip records, with complete batches as the write boundary.
 It does not implement the later direct-position tip format or a new body-key codec.
 
-The final node source revision is `511b8982`, before the final receipts and status documents.
+The final node source revision is `b47eb21c`, before the final receipts and status documents.
 The physical tools keep the exact `08409a22` executable hashes after the final node changes.
 The [completion receipts](proofs/layer2-completion-20261016/) identify each exact executable and configuration.
-The [read and write report](proofs/layer2-completion-20261016/semantics.md) records complete responses, memory ack, conditions, delete, flush, and reopen.
+The [final batch report](proofs/layer2-completion-20261016/batch-semantics.md) records complete responses, partial memory results, ordered change entries, flush, and reopen.
+The [earlier component report](proofs/layer2-completion-20261016/semantics.md) records memory ack, conditions, delete, and restore of a deleted record.
 The [recovery report](proofs/layer2-completion-20261016/recovery.md) records shared atoms, local backup, restore, and conversion.
 The [benchmark report](proofs/layer2-completion-20261016/benchmarks.md) separates physical engine costs from node costs and memory acknowledgements.
 
@@ -22,6 +23,7 @@ The [benchmark report](proofs/layer2-completion-20261016/benchmarks.md) separate
 | Memory ack | Explicit write mode accepts eligible complete batches in memory. The idle flush delay defaults to 500 ms and cannot exceed 500 ms. |
 | Captured reads | One disk root and accepted memory view, including schema names and field metadata. Native data choices bypass the legacy memory graph. |
 | Warm set | Complete logical field paths, with a 10000-record cap. Repeated complete owner queries can reuse one key or an explicit key batch. |
+| Optional metadata | Complete memory coverage precedes value copies. Optional request metadata can decline admission without a failed data read. |
 | Change list | One ordered event vector uses bounded event-and-position writes, rather than a separate write for each event. |
 | File lifetime | Read and backup holds protect required files. Compaction and reclaim remain inside LastStore. |
 | Packed payloads | Conversion and compaction share one payload writer across hash groups. Per-group locator trees remain separate. |

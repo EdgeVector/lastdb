@@ -1,0 +1,241 @@
+{
+  "final_source": "b47eb21cc20bf1363482e386c2e79b320f0c9bac",
+  "daemon_sha256": "37c362262c5ac2854ec2143278dc7df31fc32936a72abdbdc643b7b216d79880",
+  "version": "0.23.4-pre.0-244-gb47eb21cc",
+  "configuration": {
+    "resident_mode": "write",
+    "flush_ms": 500,
+    "logical_record_cap": 10000,
+    "generated_record_count": 256,
+    "body_bytes_approx": 1036
+  },
+  "warm_comparisons": [
+    {
+      "shape": "keys-001",
+      "equal_full_json": true,
+      "returned_count": 1,
+      "canonical_json_sha256": "af7df4bb1acc43495a7e8da9c3eb4fde98f11ab42844142543187a91ae5cd673",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "keys-016",
+      "equal_full_json": true,
+      "returned_count": 16,
+      "canonical_json_sha256": "ba26bcd954a4e257a2bd35f03775c13c3e9ea195014dba3a61843352e997f2e0",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "keys-064",
+      "equal_full_json": true,
+      "returned_count": 64,
+      "canonical_json_sha256": "d529f289cb7c26e369fff8149faa332d479755f71018900355d5f04c02bb0a8c",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "keys-256",
+      "equal_full_json": true,
+      "returned_count": 256,
+      "canonical_json_sha256": "e86b6ee61688ab1aaba48a31c92297532f0a65ac1a09a8edb63c72bc22226ae1",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "scatter-256",
+      "equal_full_json": true,
+      "returned_count": 256,
+      "canonical_json_sha256": "e86b6ee61688ab1aaba48a31c92297532f0a65ac1a09a8edb63c72bc22226ae1",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "projection-256",
+      "equal_full_json": true,
+      "returned_count": 256,
+      "canonical_json_sha256": "a99c43ed8e83e3315e056d6c199f0ee6d299884d5abb4f67a02ae51164d8719c",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "desc-256",
+      "equal_full_json": true,
+      "returned_count": 256,
+      "canonical_json_sha256": "39fe3d0bb92a3b62349a145e67857e89027569366d5c0e7494f889d1b1e52b49",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "alias-256",
+      "equal_full_json": true,
+      "returned_count": 256,
+      "canonical_json_sha256": "e86b6ee61688ab1aaba48a31c92297532f0a65ac1a09a8edb63c72bc22226ae1",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "post-update-alias-256",
+      "equal_full_json": true,
+      "returned_count": 256,
+      "canonical_json_sha256": "f1a1a834096b5b7a3817fa064e5a62ae085d2d9490e2824c3ad186293be0fd87",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "post-update-projection-256",
+      "equal_full_json": true,
+      "returned_count": 256,
+      "canonical_json_sha256": "7907dc2f1a971712ace638e21ac68e1eb65af2130404662bbbeb1943a605cd61",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "post-update-desc-256",
+      "equal_full_json": true,
+      "returned_count": 256,
+      "canonical_json_sha256": "f9c297af00737f7a73b5b1bdefce45d26fac4bf5e351488d76d2352782f10f9e",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "shape": "post-update-keys-256",
+      "equal_full_json": true,
+      "returned_count": 256,
+      "canonical_json_sha256": "f1a1a834096b5b7a3817fa064e5a62ae085d2d9490e2824c3ad186293be0fd87",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    }
+  ],
+  "partial_overlap": {
+    "partial_positive_keys": 16,
+    "first_full_status": "HTTP/1.1 200 OK",
+    "first_full_count": 256,
+    "first_full_equals_repeat": true,
+    "all_updated_titles_correct": true,
+    "repeat_read_receipt": {
+      "blocking_queue_wait_nanos": 1041,
+      "decode_nanos": 0,
+      "decoded_bytes": 0,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 0,
+      "file_opens": 0,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 0,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 709,
+      "logical_warm_hits": 0,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 0,
+      "metadata_operations": 0,
+      "open_nanos": 0,
+      "pack_batch_frames": 0,
+      "pack_batch_read_runs": 0,
+      "pack_file_handle_reuses": 0,
+      "pack_file_handles_peak": 0,
+      "payload_bytes": 0,
+      "query_storage_elapsed_nanos": 9525375,
+      "read_nanos": 0,
+      "read_operations": 0,
+      "requested_keys": 0,
+      "returned_body_bytes": 465536,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 34042,
+      "temporary_bytes_peak": 0,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  },
+  "guards": {
+    "absent_key_returned_count": 255,
+    "partial_page_returned_count": 64,
+    "partial_page_has_more": true,
+    "full_after_partial_page_equal": true
+  },
+  "feed": {
+    "count": 64,
+    "ids_match_input_order": true,
+    "keys_match_input_order": true,
+    "sequences_contiguous": true,
+    "frontier_before": 50,
+    "frontier_after": 53,
+    "frontier_delta": 3,
+    "generation_before": 102,
+    "generation_after": 108,
+    "next_cursor": "v1-0000000000000140",
+    "has_more": false
+  },
+  "update64_component_stages_us": {
+    "ack": 7185682,
+    "gate_wait": 0,
+    "prepare": 24572,
+    "publish": 0
+  },
+  "reopen": {
+    "full_256_json_equal": true,
+    "feed_json_equal": true,
+    "feed_count": 320,
+    "flush": {
+      "durable": true,
+      "native_flush": {
+        "frontier": 53,
+        "generation": 108
+      },
+      "ok": true,
+      "user_hash": "67f73f46b4d170978d8bcb769b574c25"
+    },
+    "first_stop_exit": 0,
+    "reopen_stop_exit": 0
+  },
+  "ordinary_occupancy": {
+    "resident_key_count": 1024,
+    "resident_key_budget": 10000,
+    "resident_held_keys": 0,
+    "resident_over_cap_keys": 0
+  },
+  "earlier_511_source": "511b8982848fddf62457ce5953a57ee80fa6e4d0",
+  "earlier_refusal": "First post-update256 response503; optional descriptor/wire copies exhausted the cumulative call budget. Preserved as a defect, not successful proof.",
+  "earlier_component_semantics": {
+    "cas_expected_succeeds": true,
+    "stale_cas_error": "cas_conflict",
+    "repeated_winner": "repeat-B",
+    "repeated_uuid_max": "a81fcb17-c03f-42d0-b58e-c610d33603c1",
+    "after_delete_count": 255,
+    "queued_ack_accepted": true,
+    "queued_value_visible": true,
+    "full_256_reopen_equal": true
+  },
+  "cleanup": "Deferred during benchmark timing; all owned nodes stopped."
+}

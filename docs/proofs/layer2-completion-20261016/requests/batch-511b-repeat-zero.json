@@ -1,0 +1,46 @@
+{
+  "mutations": [
+    {
+      "type": "mutation",
+      "schema": "NativeWarmProof",
+      "mutation_type": "update",
+      "convergence": "async",
+      "key_value": {
+        "hash": "generated",
+        "range": "record-000000"
+      },
+      "fields_and_values": {
+        "title": "repeat-A"
+      },
+      "durability": "durable"
+    },
+    {
+      "type": "mutation",
+      "schema": "NativeWarmProof",
+      "mutation_type": "update",
+      "convergence": "async",
+      "key_value": {
+        "hash": "generated",
+        "range": "record-000000"
+      },
+      "fields_and_values": {
+        "title": "repeat-B"
+      },
+      "durability": "durable"
+    },
+    {
+      "type": "mutation",
+      "schema": "NativeWarmProof",
+      "mutation_type": "update",
+      "convergence": "async",
+      "key_value": {
+        "hash": "generated",
+        "range": "record-000000"
+      },
+      "fields_and_values": {
+        "title": "repeat-C"
+      },
+      "durability": "durable"
+    }
+  ]
+}
