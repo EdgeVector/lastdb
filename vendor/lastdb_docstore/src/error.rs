@@ -18,6 +18,9 @@ pub enum Error {
     /// The caller's explicit disk-pack work or byte budget is exhausted.
     #[error("disk-pack v1: read resource limit exceeded")]
     ReadBudgetExceeded,
+    /// A complete write could not reserve its resources before append.
+    #[error("disk-pack v1: write capacity unavailable: {0}")]
+    WriteCapacity(String),
     /// AEAD authentication failed while decrypting a frame.
     ///
     /// Deliberately **not** folded into [`Error::Corrupt`]. Corruption means the
@@ -76,6 +79,7 @@ impl From<laststore::Error> for Error {
             laststore::Error::Corrupt(msg) => Self::Corrupt(msg),
             laststore::Error::Config(msg) => Self::Manifest(msg),
             laststore::Error::ReadBudgetExceeded => Self::ReadBudgetExceeded,
+            laststore::Error::WriteCapacity(reason) => Self::WriteCapacity(reason),
             laststore::Error::AeadAuthFail => Self::AeadAuthFail,
             laststore::Error::ChunkQuarantined { chunk_uuid, path } => {
                 Self::ChunkQuarantined { chunk_uuid, path }
