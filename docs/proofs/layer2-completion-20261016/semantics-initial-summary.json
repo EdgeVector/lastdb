@@ -1,0 +1,93 @@
+{
+  "source": "d1fae6469",
+  "binary_sha256": "bd18e500cd961a1867664ed843c16389921bb44a8e8cd8d2adadeee192e5a2d6",
+  "native_accepted_after_ack": {
+    "accepted_batch": true,
+    "frontier": 39,
+    "generation": 80,
+    "writer_failed": false
+  },
+  "config_cases": [
+    {
+      "case": "refusal-persist-zero",
+      "exit": 1,
+      "native_format_files": false,
+      "files": [
+        "crash-reports/.last-clean-start",
+        "sessions.jsonl",
+        "identity.key",
+        ".metadata_never_index",
+        "last_boot_error.txt"
+      ]
+    },
+    {
+      "case": "refusal-persist-501",
+      "exit": 1,
+      "native_format_files": false,
+      "files": [
+        "crash-reports/.last-clean-start",
+        "sessions.jsonl",
+        "identity.key",
+        ".metadata_never_index",
+        "last_boot_error.txt"
+      ]
+    },
+    {
+      "case": "refusal-cap-small",
+      "exit": 1,
+      "native_format_files": false,
+      "files": [
+        "crash-reports/.last-clean-start",
+        "sessions.jsonl",
+        "identity.key",
+        ".metadata_never_index",
+        "last_boot_error.txt"
+      ]
+    },
+    {
+      "case": "refusal-cap-zero",
+      "exit": 1,
+      "native_format_files": false,
+      "files": [
+        "crash-reports/.last-clean-start",
+        "sessions.jsonl",
+        "identity.key",
+        ".metadata_never_index",
+        "last_boot_error.txt"
+      ]
+    },
+    {
+      "case": "refusal-cap-invalid",
+      "exit": 1,
+      "native_format_files": false,
+      "files": [
+        "crash-reports/.last-clean-start",
+        "sessions.jsonl",
+        "identity.key",
+        ".metadata_never_index",
+        "last_boot_error.txt"
+      ]
+    }
+  ],
+  "repeated_key": {
+    "input_order": [
+      "repeat-A",
+      "repeat-B",
+      "repeat-C"
+    ],
+    "mutation_ids": [
+      "0ea980db-abf8-45ec-b8d9-f77e810fbfcc",
+      "4a4013b2-50e2-4f59-b5ba-434d6002720f",
+      "0d1f088d-e78f-4d2e-ab6f-34594722c5df"
+    ],
+    "expected_winner": "repeat-B",
+    "reason": "One local author clock for the batch; greatest mutation UUID wins the tie."
+  },
+  "ordinary_occupancy": {
+    "resident_key_count": 34,
+    "resident_key_budget": 10000,
+    "resident_held_keys": 0,
+    "resident_over_cap_keys": 0,
+    "resident_purged_keys": 0
+  }
+}

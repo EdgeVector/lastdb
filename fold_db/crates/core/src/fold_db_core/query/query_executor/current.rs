@@ -33,7 +33,9 @@ impl QueryExecutor {
                 runtime.clone(),
                 &query,
                 access_context,
-            )? {
+            )?
+            .filter(crate::storage::disk_pack::WarmQueryFields::complete_wire_metadata)
+            {
                 return Ok(warm.fields);
             }
         }
