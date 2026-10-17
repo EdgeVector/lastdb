@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::storage::laststore::LastStoreKvStore;
+use tracing::Instrument;
 
 pub(crate) async fn request_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
@@ -58,24 +59,27 @@ where
     }
     let (sent, received) = tokio::sync::oneshot::channel();
     // No await separates accepted publication from the owned worker transfer.
-    tokio::spawn(async move {
-        let outcome = finish(
-            Arc::clone(&runtime),
-            Arc::clone(&pending),
-            prepared,
-            gate,
-            delay,
-        )
-        .await;
-        if outcome.is_err() {
-            runtime.failed.store(true, Ordering::Release);
-            *runtime
-                .failed_request
-                .lock()
-                .expect("native failed request") = Some(pending);
+    tokio::spawn(
+        async move {
+            let outcome = finish(
+                Arc::clone(&runtime),
+                Arc::clone(&pending),
+                prepared,
+                gate,
+                delay,
+            )
+            .await;
+            if outcome.is_err() {
+                runtime.failed.store(true, Ordering::Release);
+                *runtime
+                    .failed_request
+                    .lock()
+                    .expect("native failed request") = Some(pending);
+            }
+            let _ = sent.send(outcome);
         }
-        let _ = sent.send(outcome);
-    });
+        .in_current_span(),
+    );
     if !memory_ack {
         received.await.map_err(|_| {
             StorageError::BackendError(
