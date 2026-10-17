@@ -134,6 +134,7 @@ async fn stopped_engine(
     )
     .map_err(message)?;
     peer.bind_local_account(&plan.account).map_err(message)?;
+    // trace-egress: skip-3p (stopped archive engine; no endpoint or workers)
     let http = Arc::new(reqwest::Client::new());
     let auth = AuthClient::new(
         Arc::clone(&http),

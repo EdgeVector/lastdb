@@ -67,6 +67,7 @@ impl IndexLocation {
                 Ok((index, sig))
             }
             Self::Url(base) => {
+                // trace-egress: propagate (anonymous static index endpoint)
                 let client = reqwest::Client::builder()
                     .timeout(HTTP_TIMEOUT)
                     .no_proxy()
