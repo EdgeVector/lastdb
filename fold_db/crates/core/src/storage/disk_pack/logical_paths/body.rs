@@ -14,6 +14,9 @@ pub(super) struct PathBody {
     pub provenance: Option<(ReadVersion, FieldValue)>,
     #[serde(default)]
     pub wire: Option<super::warm::WireMetadata>,
+    /// Query descriptors name other already-used paths; they contain no values.
+    #[serde(default)]
+    pub projections: BTreeMap<String, Vec<String>>,
 }
 
 impl PathBody {
@@ -22,6 +25,7 @@ impl PathBody {
             content: value.clone(),
             provenance: None,
             wire: None,
+            projections: BTreeMap::new(),
         }
     }
 
@@ -32,6 +36,7 @@ impl PathBody {
             content: value.value.clone(),
             provenance: Some((version, provenance)),
             wire: None,
+            projections: BTreeMap::new(),
         }
     }
 

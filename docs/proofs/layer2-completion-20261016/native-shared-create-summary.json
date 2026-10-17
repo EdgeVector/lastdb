@@ -1,0 +1,176 @@
+{
+  "items": [
+    {
+      "status": 200,
+      "count": 24,
+      "ids": [
+        "id-000",
+        "id-001",
+        "id-002",
+        "id-003",
+        "id-004",
+        "id-005",
+        "id-006",
+        "id-007",
+        "id-008",
+        "id-009",
+        "id-010",
+        "id-011",
+        "id-012",
+        "id-013",
+        "id-014",
+        "id-015",
+        "id-016",
+        "id-017",
+        "id-018",
+        "id-019",
+        "id-020",
+        "id-021",
+        "id-022",
+        "id-023"
+      ],
+      "has_more": false,
+      "next_cursor": null
+    },
+    {
+      "status": 200,
+      "count": 24,
+      "ids": [
+        "id-000",
+        "id-001",
+        "id-002",
+        "id-003",
+        "id-004",
+        "id-005",
+        "id-006",
+        "id-007",
+        "id-008",
+        "id-009",
+        "id-010",
+        "id-011",
+        "id-012",
+        "id-013",
+        "id-014",
+        "id-015",
+        "id-016",
+        "id-017",
+        "id-018",
+        "id-019",
+        "id-020",
+        "id-021",
+        "id-022",
+        "id-023"
+      ],
+      "has_more": false,
+      "next_cursor": null
+    },
+    {
+      "status": 200,
+      "count": 2,
+      "ids": [
+        "id-010",
+        "id-011"
+      ],
+      "has_more": true,
+      "next_cursor": {
+        "hash": "generated-recovery",
+        "range": "id-011"
+      }
+    },
+    {
+      "status": 200,
+      "count": 2,
+      "ids": [
+        "id-010",
+        "id-011"
+      ],
+      "has_more": true,
+      "next_cursor": {
+        "hash": "generated-recovery",
+        "range": "alt-011"
+      }
+    },
+    {
+      "status": 200,
+      "count": 0,
+      "ids": [],
+      "has_more": false,
+      "next_cursor": null
+    },
+    {
+      "status": 200,
+      "count": 0,
+      "ids": [],
+      "has_more": false,
+      "next_cursor": null
+    }
+  ],
+  "shared_record_000": {
+    "id_key": {
+      "alias": {
+        "atom_uuid": "40e1bbedbb937750e2ac84ee62807fb7a486ad8d7ec43c14bdb0630826aa2e00",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "-1mACP26uH1L-KoSe7pEXBK0oS32hhbdVkuKuw3kHyQ",
+        "source_file_name": null
+      },
+      "body": {
+        "atom_uuid": "80c4bfbd78704fe9e9bc6891094c56675b927eb1b59b36e35d020b9149a9286c",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "NYuUDOMicEB-QFwTQWW3W6su3S0zQ_koGBu8zlMAbBY",
+        "source_file_name": null
+      },
+      "bucket": {
+        "atom_uuid": "d705f3ce0586daa22f4edd3e3082d9e0944403c0560a5d27b63e2cb1585d5791",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "mAFPc-5YByGwKoBHbXDkaDv9z2sMMLjzLHHZEKAb9fA",
+        "molecule_version": 24,
+        "source_file_name": null
+      },
+      "id": {
+        "atom_uuid": "05370bd82803bec150ebcdc906647de1b8c1fa39b6228bab7ebbfbfca649778d",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "5q-Y8E0cv5IsdF5WzbcvRC6Plq9abeCCTFU9UHIIlOM",
+        "source_file_name": null
+      },
+      "title": {
+        "atom_uuid": "3b0a701e96dd4c6b78031c38f89243edcb3a1df66f0d693ee10ebffd247a24e3",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "jbbb0ru4QOqHfxfvzpDrWXPPKgBSBJCA-J5bvza1wsE",
+        "source_file_name": null
+      }
+    },
+    "alias_key": {
+      "alias": {
+        "atom_uuid": "40e1bbedbb937750e2ac84ee62807fb7a486ad8d7ec43c14bdb0630826aa2e00",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "qAOH8Lc5ehf6xMZQPPlMR5-ZWSSvBJonAyGWt0OjzoU",
+        "source_file_name": null
+      },
+      "body": {
+        "atom_uuid": "80c4bfbd78704fe9e9bc6891094c56675b927eb1b59b36e35d020b9149a9286c",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "NFcJ_jBzWUYMbqG_cjZDRtkNXnIb16QAehiY9ENv1U0",
+        "source_file_name": null
+      },
+      "bucket": {
+        "atom_uuid": "d705f3ce0586daa22f4edd3e3082d9e0944403c0560a5d27b63e2cb1585d5791",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "4TYpXFto2Ggx6z8Rps7QbdlmE9Czpidj_QgYJLY94JI",
+        "molecule_version": 1,
+        "source_file_name": null
+      },
+      "id": {
+        "atom_uuid": "05370bd82803bec150ebcdc906647de1b8c1fa39b6228bab7ebbfbfca649778d",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "mrgcpKqwXcVRW8tWQEAQCTJaBhC27TK_CtTdSpYFxfs",
+        "source_file_name": null
+      },
+      "title": {
+        "atom_uuid": "3b0a701e96dd4c6b78031c38f89243edcb3a1df66f0d693ee10ebffd247a24e3",
+        "has_conflicts": "unknown",
+        "molecule_uuid": "5lZ_QGvP_fPkhRIx04G4FKJle7lAN_k_GhdjdoD-mTs",
+        "source_file_name": null
+      }
+    }
+  }
+}

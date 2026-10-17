@@ -8,6 +8,7 @@ use crate::schema::types::{key_value::KeyValue, Query};
 use crate::storage::disk_pack::read::ReadContext;
 use std::collections::{BTreeSet, HashMap};
 
+mod projection;
 mod wire;
 pub use wire::{remember_wire_query, warm_wire_query, WarmQueryFields};
 
@@ -16,6 +17,8 @@ pub(super) type FieldResults = HashMap<String, HashMap<KeyValue, FieldValue>>;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct WireMetadata {
+    #[serde(default)]
+    pub query: String,
     pub conflict_flags: String,
     pub key_form: Option<String>,
     pub field_flag: Option<serde_json::Value>,
@@ -121,21 +124,29 @@ pub(crate) fn lookup(
         .expect("native complete query fields");
     let mut fields = HashMap::new();
     let mut wire = HashMap::new();
-    for field in &query.fields {
-        let alias = alias(&query_alias, field);
-        let Some((collection, id)) = logical.linked_record_target(LINKS, &alias) else {
+    let anchor = &query.fields[0];
+    let Some((id, body)) =
+        projection::linked_body(&context, &mut call, &mut logical, &query_alias, anchor)?
+    else {
+        return Ok(None);
+    };
+    let Some(selected) = body.projections.get(&query_alias).cloned() else {
+        return Ok(None);
+    };
+    if query.fields.iter().any(|field| !selected.contains(field)) {
+        return Ok(None);
+    }
+    let mut first = Some((id, body));
+    for field in &selected {
+        let found = if field == anchor {
+            first.take()
+        } else {
+            projection::linked_body(&context, &mut call, &mut logical, &query_alias, field)?
+        };
+        let Some((id, body)) = found else {
             return Ok(None);
         };
-        let Some(Some(length)) = logical.fetched_record_bytes(&collection, &id) else {
-            return Ok(None);
-        };
-        context.hold_record(&mut logical, &collection, &id)?;
-        call.account_memory_record(id.len(), length).map_err(map)?;
-        let Some(Some(bytes)) = logical.fetched_record(&collection, &id) else {
-            return Ok(None);
-        };
-        let body: PathBody = serde_json::from_slice(&bytes).map_err(|e| serialization(&e))?;
-        let flags = body.wire.clone();
+        let flags = body.wire.clone().filter(|wire| wire.query == query_alias);
         let Some(value) = body.field(context.version) else {
             return Ok(None);
         };
@@ -170,24 +181,5 @@ pub(crate) fn remember(
     let Some(context) = ReadContext::captured(&runtime) else {
         return Ok(());
     };
-    let query_alias = query_alias(query, access)?;
-    let mut logical = runtime
-        .logical
-        .lock()
-        .expect("native complete query fields");
-    for field in &query.fields {
-        let Some(value) = results.get(field).and_then(|values| values.get(&key)) else {
-            continue;
-        };
-        let id =
-            context
-                .paths
-                .lock()
-                .expect("native resolved paths")
-                .one(field, &key, &value.atom_uuid);
-        if let Some(id) = id {
-            logical.link_record(LINKS, &alias(&query_alias, field), PATH_COLLECTION, &id);
-        }
-    }
-    Ok(())
+    projection::remember(&runtime, &context, query, access, &key, results)
 }

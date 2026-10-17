@@ -92,17 +92,32 @@ impl PackRuntime {
         id: &str,
         value: &FieldValue,
     ) -> StorageResult<()> {
-        let value = if field::provenance_current() {
+        let mut value = if field::provenance_current() {
             body::PathBody::from_field(context.version, value)
         } else {
             body::PathBody::content(&value.value)
         };
-        let body = serde_json::to_vec(&value).map_err(|error| serialization(&error))?;
         let mut call = crate::read_receipts::lock(&context.call);
-        call.account_memory_record(id.len(), body.len())
-            .map_err(map)?;
         let mut logical = self.logical.lock().expect("native complete logical paths");
         context.hold_record(&mut logical, PATH_COLLECTION, id)?;
+        if field::provenance_current() {
+            if let Some(Some(length)) = logical.fetched_record_bytes(PATH_COLLECTION, id) {
+                call.account_memory_record(id.len(), length).map_err(map)?;
+                if let Some(Some(bytes)) = logical.fetched_record(PATH_COLLECTION, id) {
+                    let previous: body::PathBody =
+                        serde_json::from_slice(&bytes).map_err(|error| serialization(&error))?;
+                    if previous.provenance.as_ref().map(|(version, _)| *version)
+                        == Some(context.version)
+                    {
+                        value.projections = previous.projections;
+                        value.wire = previous.wire;
+                    }
+                }
+            }
+        }
+        let body = serde_json::to_vec(&value).map_err(|error| serialization(&error))?;
+        call.account_memory_record(id.len(), body.len())
+            .map_err(map)?;
         let epoch = logical.record_epoch(id);
         if !logical.admit_record(PATH_COLLECTION, id, Some(body), epoch) {
             return Err(StorageError::ReadResourceLimit {

@@ -154,6 +154,13 @@ fn snapshot_tail(current: &Current) -> Result<JournalTail> {
 }
 
 fn snapshot_directories(root: &Path, current: &Current) -> Result<()> {
+    // A journal-only snapshot has no pack dependency, but its first compaction
+    // still needs the complete native writer layout before the root is exposed.
+    for name in ["directory", "locator", "packs", "journal"] {
+        let path = root.join(name);
+        std::fs::create_dir_all(&path)?;
+        crate::durability::sync_directory(&std::fs::File::open(path)?)?;
+    }
     let journal = root.join("journal");
     let stream = journal.join(current.journal_stream.to_string());
     std::fs::create_dir_all(&stream)?;

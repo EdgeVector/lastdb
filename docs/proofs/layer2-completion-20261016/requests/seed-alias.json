@@ -1,0 +1,27 @@
+{
+  "isolated_copy": true,
+  "schema": {
+    "source": "system_seed",
+    "name": "Layer2ByAlias",
+    "descriptive_name": "Layer 2 by Alias",
+    "schema_type": "HashRange",
+    "key": {
+      "hash_field": "bucket",
+      "range_field": "alias"
+    },
+    "fields": [
+      "bucket",
+      "id",
+      "alias",
+      "title",
+      "body"
+    ],
+    "field_descriptions": {
+      "bucket": "generated local recovery hash",
+      "id": "generated local recovery identifier",
+      "alias": "generated local recovery alternate identifier",
+      "title": "generated local recovery title",
+      "body": "generated local recovery body"
+    }
+  }
+}

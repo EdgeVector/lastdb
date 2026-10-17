@@ -30,6 +30,8 @@ pub(super) async fn open_db_operations(
         (Some(laststore::PackagingMode::Plain), Some(laststore::LayoutMode::HashGroup)) => {
             Some(e2e_keys.encryption_key())
         }
+        // Native frames stay plain; retain the field codec and copied ENC reads.
+        _ if primary_store.store.disk_pack_runtime().is_some() => Some(e2e_keys.encryption_key()),
         _ => None,
     };
     // HashKey blind + RangeKey OPE (design-lastdb-hashkey-blind-v1 /

@@ -60,8 +60,9 @@ impl Manifest {
 
     pub(super) fn output_bytes(&self) -> Result<u64> {
         let mut directories = BTreeSet::new();
-        // The root plus the empty checkpoint stream directories also need space.
-        let mut bytes = 3 * 4096u64;
+        // The root, four writer namespaces and empty checkpoint stream need space,
+        // even when no live file currently depends on one of those namespaces.
+        let mut bytes = 6 * 4096u64;
         for entry in &self.entries {
             super::files::validate_path(&entry.path)?;
             bytes = allocated_add(bytes, entry.bytes)?;

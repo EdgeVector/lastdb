@@ -92,7 +92,11 @@ pub fn remember_wire_query(
         .logical
         .lock()
         .expect("native complete query field metadata");
-    for field in &query.fields {
+    let Some(fields) = rows[0].get("fields").and_then(serde_json::Value::as_object) else {
+        return Ok(());
+    };
+    let mut ids = BTreeMap::new();
+    for field in fields.keys() {
         let Some(metadata) = rows[0].get("metadata").and_then(|m| m.get(field)) else {
             continue;
         };
@@ -118,6 +122,7 @@ pub fn remember_wire_query(
             continue;
         }
         body.wire = Some(WireMetadata {
+            query: query_alias.clone(),
             conflict_flags: flags.to_string(),
             key_form: payload
                 .get("key_form")
@@ -130,8 +135,18 @@ pub fn remember_wire_query(
             .map_err(map)?;
         let epoch = logical.record_epoch(&id);
         if logical.admit_record(PATH_COLLECTION, &id, Some(bytes), epoch) {
-            logical.link_record(LINKS, &alias(&query_alias, field), PATH_COLLECTION, &id);
+            ids.insert(field.clone(), id);
         }
+    }
+    if ids.len() == fields.len() {
+        projection::save(
+            &context,
+            &mut call,
+            &mut logical,
+            &query_alias,
+            &query.fields,
+            &ids,
+        )?;
     }
     Ok(())
 }
