@@ -2,10 +2,9 @@
 
 ## Status
 
-This note describes source at `eed8b2cc`, plus the native mixed-request flush fix in the current worktree.
-The native atom batch deduplication fix remains under review.
-The final source needs fresh product measurements before a performance claim.
-This note contains no new latency, throughput, or disk-size result.
+This note describes the measured node source `5b9183550151b3887df73be1b044aa121c101f7a`.
+The physical command source is `a1d03310`; its vendor storage tree matches the measured node source.
+The benchmark report contains the product results and their limits.
 
 ## Shared locator files
 
@@ -90,6 +89,24 @@ It refreshes retained provenance to the captured revision.
 It does not expand the 10,000 logical-record warm set.
 Older query results retain their earlier provenance; later queries must validate that provenance before reuse.
 
+## Native atom reuse
+
+The [native batch helper](../../../fold_db/crates/core/src/db_operations/atom_store/atoms/write/dedup.rs) reads all exact scoped atom keys under the existing atom locks.
+An ordinary batch uses one read call. Larger batches split only at the native 10,000-key call limit.
+The private and accepted views include earlier complete writes.
+An existing atom retains its original bytes, creation time, source filename, and metadata.
+This matches the single-atom write and the canonical immutable-atom contract.
+
+The stored atom supplies blob references, locks, and size contributions.
+Only a missing body receives encryption, a body write, and new appended-byte accounting.
+The schema, locator, reference, GC, and tip steps remain in use.
+Strict byte dependencies remain in use; no content-only validity exception exists.
+
+Global and schema aggregate size estimates become incomplete after atom reuse.
+The trust cause is `reused_atom_live_transition_requires_repair`.
+The counters skip an unsupported old-body debit for a reused target.
+Per-molecule contribution evidence and authoritative disk-cap accounting remain unchanged.
+
 ## Native Delete reply
 
 The older native Delete reply published a resident tombstone before its erasure lane reached disk.
@@ -111,5 +128,5 @@ This stronger reply includes disk completion, so its latency has a different bou
 - A replacement briefly reserves both old and new output. A hard disk cap can therefore cause a conservative refusal.
 - Exact warm reads can miss after bounded history removal, witness removal, or dependency-cap exhaustion.
 - Optional renewal adds bounded serialization and copy work.
-- The pending atom batch fix aims to preserve existing native atom bytes when the same atom identity appears again.
-- The final source requires fresh product receipts. Intermediate measurements do not establish the final source's result.
+- Atom reuse marks global and schema aggregate size estimates incomplete. Their repair remains separate work.
+- Earlier incomplete and debug runs remain separate from the final comparison.

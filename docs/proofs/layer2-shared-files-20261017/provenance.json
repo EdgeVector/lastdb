@@ -1,0 +1,59 @@
+{
+  "before_source": "7110c7f54ea005e33678b5c93e89353d6117b41f",
+  "final_node": {
+    "source": "5b9183550151b3887df73be1b044aa121c101f7a",
+    "source_clean": true,
+    "frozen_utc": "2026-10-17T07:55:49.782743+00:00",
+    "node_version": "lastdbd 0.23.4-pre.0-256-g5b9183550",
+    "binaries": {
+      "lastdbd": {
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/after-5b918355/lastdbd",
+        "sha256": "c429ebf3c2bfab7069ab5aef29d8e004f1763673635c317a572d5e42ab7f4314"
+      },
+      "lastdb": {
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/after-5b918355/lastdb",
+        "sha256": "8985babfaa714a42036f481c8f8cec7fecc3a6719c09c3247b4ec12ed1fd1a0a"
+      },
+      "lastdb-disk-home": {
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/after-5b918355/lastdb-disk-home",
+        "sha256": "2f34db84f9f2c52500938c5c28cdaa687a7489d7fc81650c7b3dfbb8c743fd49"
+      },
+      "lastdb-disk-recovery": {
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/after-5b918355/lastdb-disk-recovery",
+        "sha256": "fcc4f104bb56709f7e271825c5876867451525dd8c2020fa02d3c8097dd1bff6"
+      },
+      "lastdb-pack-maintain": {
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/after-5b918355/lastdb-pack-maintain",
+        "sha256": "1efdd2c8beb6d28080b10fa7d3ab9c2e7c684d16b0f6970eb3434e323d466dfc"
+      }
+    },
+    "vendor_tree_equal_physical_a1d03310": true
+  },
+  "before_binaries": {
+    "lastdbd": {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/before-7110c7f54/lastdbd",
+      "sha256": "5a7b18dcb206e46711a07dc497edebdb267867b9073fc4d516518056c82b6244"
+    },
+    "lastdb": {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/before-7110c7f54/lastdb",
+      "sha256": "1b6bc0dff637059478c760e81f4468615f35ac6550c969ec6c77919e8c06b942"
+    },
+    "lastdb-disk-home": {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/before-7110c7f54/lastdb-disk-home",
+      "sha256": "01a55295dc8a914d931747eff1e2725f59cd9091d48aca11cc99244de0c652ce"
+    },
+    "lastdb-disk-recovery": {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/before-7110c7f54/lastdb-disk-recovery",
+      "sha256": "43b32657b631a0afd5e0cd9ae2c2357cd7e110e0d9a43e7ab16b365f2bd34b9f"
+    },
+    "lastdb-pack-maintain": {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-queue-bench.pdvKVa/binaries/before-7110c7f54/lastdb-pack-maintain",
+      "sha256": "ef8efb9fc8bee9bd98a00749a06c3280a3dfccfe2c632b5caaf98bd56c1f67c5"
+    }
+  },
+  "physical_after_source": "a1d03310e433b99c788657ef149193776bf5aff6",
+  "final_driver_sha256": "50b161360f6c439e42dd8886cb333c30e72aa69882ed45bf91b4d63ce8ce5f00",
+  "fresh_synthetic_data_only": true,
+  "cloud_transfer_measured": false,
+  "node_expected_final_values_equal": true
+}

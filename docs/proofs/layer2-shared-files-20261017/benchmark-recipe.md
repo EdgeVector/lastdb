@@ -72,8 +72,9 @@ Record the complete wall time separately.
 
 Delete 16 keys through one durable request in both programs, then read the affected keys.
 Flush and read the bounded range. Recreate those keys and repeat the reads.
-The new program also receives one queued Delete request.
-Its reply states the stronger durable guarantee. The next read must show the deletion.
+Both programs also receive one queued Delete request and the same recreate request.
+The new program reports a stronger durable guarantee. Its immediate read must show the deletion.
+The baseline read waits for an explicit flush, due to the earlier queued-delete visibility failure.
 Read all 320 explicit keys after the complete change.
 The other records still reference shared field atoms during this operation.
 
@@ -82,6 +83,7 @@ After each response, poll native status every 20 ms. Do not request a flush duri
 The first queue-empty observation gives an upper bound on disk completion after the acknowledgement.
 Later feed work can extend this bound.
 Stop each owned node normally, reopen its generated home, and check all 320 known keys.
+Read the app-storage report after reopen. Record its trust state separately from file-size evidence.
 
 ## Disk commands
 

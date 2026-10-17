@@ -1,0 +1,26 @@
+{
+  "source": "5b9183550151b3887df73be1b044aa121c101f7a",
+  "recorded_utc": "2026-10-17T08:08:55.319316+00:00",
+  "checks": {
+    "cargo_fmt_all_check": "pass",
+    "cargo_clippy_node_lib_bins_host_core_laststore_warnings_denied": "pass",
+    "diff_file_size_base_71b16302": "pass",
+    "diff_function_size_base_71b16302": "pass",
+    "diff_new_allows_base_71b16302": "pass",
+    "spawn_instrument_core_host_node": "pass",
+    "redaction_core_host_node": "pass",
+    "byte_slice_core_host_node": "pass",
+    "tracing_egress_core_host_node_strict": "pass",
+    "no_hardcoded_urls": "pass",
+    "git_diff_check": "pass",
+    "no_write_path_syncing_store": "pass",
+    "workspace_fastembed_unification": "pass",
+    "heavy_clippy_workspace_coverage": "pass",
+    "app_registry_shelf": "pass",
+    "no_build_artifacts_tree_HEAD": "pass",
+    "vendor_code_equal_a1d03310": "pass",
+    "release_five_programs": "pass"
+  },
+  "tests": "not run: retired by user instruction",
+  "scope_note": "Final format, package Clippy, file/function/allow, logging/security source gates passed. Other source guards retain their earlier unchanged-site results."
+}

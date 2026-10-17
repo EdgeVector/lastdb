@@ -1,0 +1,7 @@
+{
+  "purpose": "Confirm atom immutability preserves strict warm validity",
+  "performance_excluded_from_final": true,
+  "zero_file_work_all_three_mixed_rounds": true,
+  "source_at_build_start": "a90e381e0e4a360656aa7c8b9294949ea17472b9",
+  "later_source_changes": "Aggregate meter trust and a type name only"
+}
