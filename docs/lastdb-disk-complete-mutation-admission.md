@@ -43,7 +43,9 @@ The worker uses the 500 ms default flush interval.
 An explicit flush wakes the worker and waits for its complete root.
 The exclusive writer gate permits one accepted batch at a time.
 A later write or an explicit flush wakes the owner for an earlier complete disk publication.
-The idle deadline stays at the configured flush interval, which defaults to 500 ms.
+The idle delay uses the configured flush interval, which defaults to 500 ms.
+Native write mode refuses an interval outside 1 through 500 ms.
+The interval starts disk work; disk completion also includes the publication cost.
 A cancelled caller cannot cancel the accepted batch or release its reservations.
 An older query keeps the same accepted bytes after the worker publishes the disk root.
 The physical-space ticket returns after that root; protected paths stay until the last query releases its accepted batch.
@@ -59,7 +61,13 @@ Larger namespace removal refuses the complete request.
 
 Incomplete reverse metadata, ambiguous source names, share fan-out, or unavailable path or byte capacity makes a request complete disk before its reply.
 This fallback does not publish an incomplete memory view.
-The native resident-mode refusal remains in place until the read bridge, alias-directory view, and generated-data evidence complete.
+The native read bridge and captured schema-name directory now permit explicit resident read and write modes.
+Eligible complete writes can receive a memory ack.
+The owner can request a durable receipt with `POST /api/db/flush`.
+The read-only `GET /api/db/native-status` reports accepted work and the durable frontier without a forced flush.
+Fresh native homes use the version-2 schema-reference proof and required feature bit `0x10`.
+Opaque conversions do not gain this authority from copied proof bytes.
+The default backend remains legacy, and native cloud configurations remain refused.
 
 LastStore library and binary Clippy passes with warnings denied.
 Format and changed function, file, and allow checks pass.

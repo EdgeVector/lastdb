@@ -128,7 +128,7 @@ The durable file and the in-process readable root identify the same published ge
 | 80 | 16 | Journal stream UUID for the checkpoint boundary |
 | 96 | 8 | Checkpoint batch sequence; normally equal to `F` |
 | 104 | 8 | Conversion descriptor page, or zero |
-| 112 | 8 | Required feature bits; `0x1` requires complete object bounds; `0x2` requires the checkpointed journal lifecycle; `0x4` requires the native home descriptor |
+| 112 | 8 | Required feature bits: complete object bounds `0x1`, checkpointed journal lifecycle `0x2`, native home descriptor `0x4`, file lifetime protocol `0x8`, schema-record reverse edges `0x10` |
 | 120 | 8 | Publication time, Unix milliseconds |
 | 128 | 32 | SHA-256 of all 4,096 bytes |
 | 160 | 32 | SHA-256 of the complete native home descriptor with feature `0x4`; otherwise zero |
@@ -141,6 +141,16 @@ Immutable child pages can predate the current generation. Their creation generat
 With feature `0x2`, `previous_generation = 0` declares that this checkpoint stream admits no journal batch yet.
 A complete stream checkpoint sets a nonzero previous generation before the first append.
 Feature `0x2` requires `0x1`. New artifacts use both bits; older writers refuse them before journal admission.
+
+Native bit `0x10` requires native bit `0x4`.
+Fresh empty LastDB homes publish `0x10` before the version-2 molecule-reference completeness record.
+Older programs refuse this bit before a schema write.
+The bit alone does not prove completeness.
+A memory ack also requires the decoded version-2 proof and each exact authoritative schema path.
+Generic conversion never grants `0x10`; imported proof bytes can be stale after a legacy writer.
+Converted homes use the durable fallback until a separate complete-source bootstrap and writer fence.
+Local backups preserve the original complete root and its feature bits.
+A missing, old, or unreadable proof keeps the durable fallback.
 
 JOURNAL_TAIL is also exactly 4,096 bytes. Its proposed magic is `LDJTL1\0\0`.
 Offsets 8 through 15 use the same version, length, and flags fields as CURRENT.

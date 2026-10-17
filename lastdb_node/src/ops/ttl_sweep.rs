@@ -26,6 +26,7 @@
 
 use fold_db::clock::unix_secs;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tracing::Instrument;
 
 use fold_db::access::{AccessContext, CallerTransport};
 use fold_db::schema::types::field::HashRangeFilter;
@@ -52,17 +53,11 @@ pub const TTL_SWEEP_ENV: &str = "LASTDB_TTL_SWEEP";
 /// seconds, zero-padded to 20 digits (the width of `u64::MAX`).
 const AGE_KEY_DIGITS: usize = 20;
 
-static TEST_BACKUP_CUT_HELD: AtomicBool = AtomicBool::new(false);
-
 pub fn ttl_sweep_enabled() -> bool {
     !matches!(
         std::env::var(TTL_SWEEP_ENV).ok().as_deref().map(str::trim),
         Some("0" | "false" | "no" | "off")
     )
-}
-
-fn test_backup_cut_held() -> bool {
-    TEST_BACKUP_CUT_HELD.load(Ordering::SeqCst)
 }
 
 /// Spawn the TTL sweep off the sampler tick, at most one at a time. The pass
@@ -78,17 +73,19 @@ pub fn maybe_spawn_ttl_sweep(host: &std::sync::Arc<Host>, shutdown: &std::sync::
     }
     let host = std::sync::Arc::clone(host);
     let shutdown = std::sync::Arc::clone(shutdown);
-    tokio::spawn(async move {
-        // The admission is taken per batch inside the pass, not for the whole
-        // pass. A snapshot cut waits for every held admission, and a waiting
-        // cut blocks every later writer.
-        sweep_ttl(&host, &shutdown).await;
-        host.self_metrics.end_ttl_sweep();
-    });
+    tokio::spawn(
+        async move {
+            // The admission is taken per batch inside the pass, not for the whole
+            // pass. A snapshot cut waits for every held admission, and a waiting
+            // cut blocks every later writer.
+            sweep_ttl(&host, &shutdown).await;
+            host.self_metrics.end_ttl_sweep();
+        }
+        .in_current_span(),
+    );
 }
 
-/// Run one TTL sweep pass. Tests call this directly so they do not race the
-/// sampler task.
+/// Run one bounded TTL sweep pass.
 pub async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
     if !ttl_sweep_enabled() {
         return;
@@ -155,9 +152,6 @@ fn finish_pass(host: &Host, totals: &erase::PassTotals, started: std::time::Inst
 }
 
 async fn backup_cut_is_held(host: &Host) -> bool {
-    if test_backup_cut_held() {
-        return true;
-    }
     host.db.backup_publish_target_is_held().await
 }
 
