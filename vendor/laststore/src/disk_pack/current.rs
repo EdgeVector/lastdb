@@ -107,6 +107,8 @@ impl Current {
             || self.frontier > self.journal_frontier
             || self.directory.kind != TreeKind::Directory
             || self.required_features & !super::SUPPORTED_FEATURES != 0
+            || (self.required_features & super::FEATURE_SCHEMA_RECORD_REFS != 0
+                && self.required_features & super::FEATURE_NATIVE_HOME == 0)
             || ((self.required_features & super::FEATURE_NATIVE_HOME != 0)
                 != (self.home_digest != [0; 32]))
             || (self.required_features & super::FEATURE_NATIVE_HOME != 0

@@ -2,6 +2,9 @@
 
 use super::*;
 
+mod read;
+pub(in crate::handlers) use read::resolve_schema_name_for_read;
+
 // ---------------------------------------------------------------------------
 // Schema resolution (shared)
 // ---------------------------------------------------------------------------

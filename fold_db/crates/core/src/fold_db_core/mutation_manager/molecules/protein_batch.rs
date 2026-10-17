@@ -104,7 +104,9 @@ impl MutationManager {
         eligible: &[(usize, &Atom, &str)],
         metadata: &ProteinFoldMetadata,
     ) -> Vec<PreparedSlotRevision> {
-        if schema_is_scoped(schema) {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
+            || schema_is_scoped(schema)
+        {
             return Vec::new();
         }
         let entry_layout = schema.key.as_ref().and_then(|key| {

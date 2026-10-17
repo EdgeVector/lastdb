@@ -22,6 +22,18 @@ impl MutationReservation {
 }
 
 impl HomeJournal {
+    /// Complete the reserved stored batch and publish its durable read boundary.
+    /// Failure retains the journal's existing uncertain state for recovery.
+    pub fn commit_mutation(
+        &mut self,
+        operations: Vec<HomeMutation>,
+        accepted_ms: u64,
+        reservation: MutationReservation,
+    ) -> Result<crate::disk_pack::PublishedGeneration> {
+        self.append_mutation(operations, accepted_ms, reservation)?;
+        self.publish()
+    }
+
     /// Reserve journal and directory dependency capacity for all stored parts.
     /// This method does not authorize memory publication or a success ack.
     pub fn reserve_mutation(&self, operations: &[HomeMutation]) -> Result<MutationReservation> {

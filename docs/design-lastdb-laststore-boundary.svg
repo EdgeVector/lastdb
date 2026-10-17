@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1000" viewBox="0 0 1280 1000" role="img" aria-labelledby="title description">
+  <title id="title">LastDB and LastStore storage boundary</title>
+  <desc id="description">LastDB owns schemas, molecules, proteins, current tips, memory, and cloud meaning. LastStore owns batches of keys and bytes, read views, file pages, physical deletes, and compaction. Tips contain stable atom references, never file positions. Existing code supplies part of the target contract.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#244f69"/></marker>
+    <style>
+      text { font-family: system-ui, -apple-system, sans-serif; fill: #172b38; }
+      .title { font-size: 32px; font-weight: 700; }
+      .heading { font-size: 25px; font-weight: 700; }
+      .body { font-size: 21px; }
+      .small { font-size: 18px; fill: #405765; }
+      .box { fill: #fff; stroke: #b8c9d3; stroke-width: 2; }
+      .arrow { stroke: #244f69; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="1280" height="1000" fill="#f8fafb"/>
+  <text x="40" y="54" class="title">LastDB decides what. LastStore manages disk bytes.</text>
+  <text x="40" y="91" class="body">One process is enough. The contract separates responsibilities.</text>
+
+  <rect x="40" y="126" width="575" height="255" rx="12" fill="#edf3f8" stroke="#b8c9d3" stroke-width="2"/>
+  <text x="64" y="169" class="heading">LastDB</text>
+  <text x="64" y="210" class="body">Schemas · fields · molecules · proteins</text>
+  <text x="64" y="249" class="body">Current tips · write order · shared atoms</text>
+  <text x="64" y="288" class="body">Memory ack · warm set · 500 ms flush</text>
+  <text x="64" y="327" class="body">Cloud work · permission to delete an atom</text>
+  <text x="64" y="359" class="small">Owns the meaning of every stored record.</text>
+
+  <rect x="655" y="126" width="585" height="255" rx="12" fill="#edf5ef" stroke="#b8cdbd" stroke-width="2"/>
+  <text x="679" y="169" class="heading">LastStore</text>
+  <text x="679" y="210" class="body">Exact keys + exact bytes · complete batches</text>
+  <text x="679" y="249" class="body">File pages · positions · free-space reuse</text>
+  <text x="679" y="288" class="body">Captured read views · recovery · export holds</text>
+  <text x="679" y="327" class="body">Physical deletes · compaction · resource limits</text>
+  <text x="679" y="359" class="small">Owns file movement. Tips keep the same references.</text>
+
+  <rect x="40" y="412" width="1200" height="104" rx="10" class="box"/>
+  <text x="64" y="450" class="heading">The boundary</text>
+  <text x="64" y="487" class="body">Batch keys and bytes · one read view · a durable receipt · explicit limits</text>
+
+  <text x="40" y="562" class="heading">Two molecule keys can share one stored atom</text>
+  <rect x="40" y="588" width="330" height="67" rx="8" class="box"/>
+  <text x="61" y="630" class="body">Tip for the key by ID</text>
+  <rect x="40" y="677" width="330" height="67" rx="8" class="box"/>
+  <text x="61" y="719" class="body">Tip for the key by email</text>
+  <path d="M375 622 L477 622 L477 665 L532 665" class="arrow"/>
+  <path d="M375 710 L477 710 L477 665" fill="none" stroke="#244f69" stroke-width="3"/>
+  <rect x="545" y="605" width="695" height="125" rx="10" fill="#edf5ef" stroke="#b8cdbd" stroke-width="2"/>
+  <text x="569" y="645" class="heading">Stable atom reference → stored bytes</text>
+  <text x="569" y="683" class="body">Small atom bytes sit beside their key.</text>
+  <text x="569" y="714" class="small">Larger atoms use more pages inside LastStore.</text>
+  <text x="40" y="785" class="body">A tip has no physical position. Compaction does not change its atom reference.</text>
+
+  <rect x="40" y="820" width="1200" height="132" rx="10" class="box"/>
+  <text x="64" y="856" class="heading">Implementation state</text>
+  <text x="64" y="892" class="small">Source exists: batch reads, ranges, native read views, maintenance, and recovery parts.</text>
+  <text x="64" y="925" class="small">Selected: original native engine. Local completion and measurements use generated data.</text>
+  <text x="40" y="982" class="small">Native LastStore engine selected · 16 October 2026 · Current values only · Primary unchanged</text>
+</svg>

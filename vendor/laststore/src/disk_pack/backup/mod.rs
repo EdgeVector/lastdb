@@ -3,6 +3,9 @@
 
 mod files;
 mod manifest;
+mod prepare;
+
+pub use prepare::{prepare_referenced_backup, PreparedBackup, ReservedBackup};
 
 use super::home::DiskHome;
 use super::journal::JournalTail;
@@ -31,28 +34,13 @@ pub fn create_backup(home: &DiskHome, destination: &Path) -> Result<BackupReceip
     let writer = home.journal()?;
     let current = writer.current().clone();
     let reference = DurableReference::create(home.path(), &current, ReferencePurpose::Backup, 0)?;
-    let hold = reference.hold()?;
-    let inventory = hold.inventory()?;
+    let prepared = prepare_referenced_backup(home, reference, destination)?;
+    let reserved = prepared.reserve(&writer, &super::maintenance::SpacePolicy::default())?;
     drop(writer);
-    let staging = files::staging(destination)?;
-    let result = export(home.path(), &staging, &current, inventory.files);
-    let receipt = match result {
-        Ok(receipt) => receipt,
-        Err(error) => {
-            return Err(crate::Error::Config(format!(
-                "backup incomplete at {}; retained reference {}: {error}",
-                staging.display(),
-                reference.info().identity
-            )))
-        }
-    };
-    files::publish(&staging, destination)?;
-    drop(hold);
-    reference.release()?;
-    Ok(receipt)
+    reserved.create()
 }
 
-fn export(
+pub(super) fn export(
     source: &Path,
     staging: &Path,
     current: &Current,
@@ -87,10 +75,20 @@ fn export(
 /// write journal are not required. No existing home is overwritten.
 pub fn restore_backup(backup: &Path, destination: &Path) -> Result<BackupReceipt> {
     let manifest = manifest::Manifest::read(backup)?;
-    let staging = files::staging(destination)?;
+    let destination = files::destination(destination)?;
+    let backup = std::fs::canonicalize(backup)?;
+    if destination.starts_with(&backup) {
+        return Err(corrupt("restore destination is inside its backup"));
+    }
+    files::reserve_output(
+        &destination,
+        manifest.output_bytes()?,
+        super::maintenance::SpacePolicy::default().free_space_reserve_bytes,
+    )?;
+    let staging = files::staging(&destination)?;
     for entry in &manifest.entries {
         files::copy(
-            backup,
+            &backup,
             &staging,
             &entry.path,
             entry.bytes,
@@ -131,7 +129,7 @@ pub fn restore_backup(backup: &Path, destination: &Path) -> Result<BackupReceipt
         manifest.entries.iter().map(|entry| entry.path.as_path()),
     )?;
     drop(home);
-    files::publish(&staging, destination)?;
+    files::publish(&staging, &destination)?;
     Ok(manifest.receipt())
 }
 

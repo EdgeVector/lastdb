@@ -23,6 +23,9 @@ fn schema_molecule_ref_edges(schema_name: &str, schema: &Schema) -> Vec<Molecule
         .flat_map(|molecules| molecules.iter())
         .map(|(field, molecule)| MoleculeRefEdge::schema_field(schema_name, field, molecule))
         .collect();
+    if let Some(record) = schema.molecule_uuid.as_deref() {
+        fields.push(MoleculeRefEdge::schema_record(schema_name, record));
+    }
     fields.sort_by(|left, right| left.source.cmp(&right.source));
     fields
 }
@@ -62,9 +65,13 @@ impl DbOperations {
         // Retain first. Schema rows and liveness edges live in separate
         // namespaces, so an interrupted write may leave an extra edge but can
         // never publish a catalog binding without its retaining edge.
-        self.atoms()
+        let retained = self
+            .atoms()
             .put_molecule_ref_edges_if_changed(&new_edges, None)
             .await?;
+        if retained != 0 {
+            self.atoms().flush().await?;
+        }
         self.schemas().store_schema(schema_name, schema).await?;
         for edge in &new_edges {
             self.atoms()

@@ -146,11 +146,12 @@ impl MutationManager {
             return Ok(spared);
         }
         for (index, cutoff, _, (uuid, hash, range)) in &slots {
-            let newer = self
-                .db_ops
-                .resident()
-                .resolve_tip(uuid, hash, range)
-                .is_some_and(|tip| tip.value.written_at >= *cutoff);
+            let newer = crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
+                && self
+                    .db_ops
+                    .resident()
+                    .resolve_tip(uuid, hash, range)
+                    .is_some_and(|tip| tip.value.written_at >= *cutoff);
             if newer {
                 spared.insert(*index);
             }

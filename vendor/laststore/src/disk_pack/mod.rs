@@ -67,10 +67,15 @@ pub const FEATURE_NATIVE_HOME: u64 = 4;
 /// Homes without this bit retain all files because older readers have no such hold.
 pub const FEATURE_FILE_LIFETIME: u64 = 8;
 
+/// Native schema writers maintain runtime record-R reverse edges. Version-2
+/// completeness is valid only after this bit is durably published in CURRENT.
+pub const FEATURE_SCHEMA_RECORD_REFS: u64 = 16;
+
 const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
     | FEATURE_JOURNAL_LIFECYCLE
     | FEATURE_NATIVE_HOME
-    | FEATURE_FILE_LIFETIME;
+    | FEATURE_FILE_LIFETIME
+    | FEATURE_SCHEMA_RECORD_REFS;
 
 const PAGE_BYTES: usize = 16_384;
 const HEADER_BYTES: usize = 128;

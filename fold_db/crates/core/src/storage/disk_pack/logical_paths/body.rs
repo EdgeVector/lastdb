@@ -12,6 +12,8 @@ pub(crate) struct ReadVersion {
 pub(super) struct PathBody {
     pub content: serde_json::Value,
     pub provenance: Option<(ReadVersion, FieldValue)>,
+    #[serde(default)]
+    pub wire: Option<super::warm::WireMetadata>,
 }
 
 impl PathBody {
@@ -19,6 +21,7 @@ impl PathBody {
         Self {
             content: value.clone(),
             provenance: None,
+            wire: None,
         }
     }
 
@@ -28,6 +31,7 @@ impl PathBody {
         Self {
             content: value.value.clone(),
             provenance: Some((version, provenance)),
+            wire: None,
         }
     }
 

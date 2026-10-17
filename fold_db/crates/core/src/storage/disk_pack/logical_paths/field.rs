@@ -10,10 +10,25 @@ use crate::storage::disk_pack::read::ReadContext;
 pub(crate) struct FieldScope {
     schema: String,
     field: String,
+    name: String,
 }
 
 tokio::task_local! {
     static FIELD: FieldScope;
+    static CURRENT_PROVENANCE: bool;
+}
+
+pub(crate) async fn query_scope<T>(
+    current: bool,
+    future: impl std::future::Future<Output = T>,
+) -> T {
+    CURRENT_PROVENANCE.scope(current, future).await
+}
+
+pub(super) fn provenance_current() -> bool {
+    CURRENT_PROVENANCE
+        .try_with(|current| *current)
+        .unwrap_or(false)
 }
 
 impl FieldScope {
@@ -22,6 +37,7 @@ impl FieldScope {
             return Ok(Self {
                 schema: String::new(),
                 field: String::new(),
+                name: String::new(),
             });
         }
         Self::new(schema, name)
@@ -33,6 +49,7 @@ impl FieldScope {
             field: schema.field_hashes.get(name).cloned().ok_or_else(|| {
                 StorageError::BackendError("native read field has no canonical identity".into())
             })?,
+            name: name.to_string(),
         })
     }
 
@@ -69,6 +86,11 @@ pub(crate) fn lookup(
     };
     let context = ReadContext::captured(&runtime).ok_or_else(missing_context)?;
     let id = binding.path(scope, &molecule, key, atom).id()?;
+    context
+        .paths
+        .lock()
+        .expect("native resolved paths")
+        .note(&binding.name, key, atom, id.clone());
     let mut call = crate::read_receipts::lock(&context.call);
     let mut logical = runtime
         .logical
@@ -79,9 +101,11 @@ pub(crate) fn lookup(
         Some(bytes) => {
             call.account_memory_record(id.len(), bytes.len())
                 .map_err(map)?;
-            serde_json::from_slice::<PathBody>(&bytes)
-                .map_err(|error| serialization(&error))?
-                .field(context.version)
+            let body = serde_json::from_slice::<PathBody>(&bytes)
+                .map_err(|error| serialization(&error))?;
+            provenance_current()
+                .then(|| body.field(context.version))
+                .flatten()
         }
         None => None,
     };
@@ -106,7 +130,14 @@ pub(crate) fn admit(
     };
     let context = ReadContext::captured(&runtime).ok_or_else(missing_context)?;
     let path = binding.path(scope, &molecule, key, &value.atom_uuid);
-    runtime.admit_field_path(&context, &path, value)
+    runtime.admit_field_path(&context, &path, value)?;
+    context.paths.lock().expect("native resolved paths").note(
+        &binding.name,
+        key,
+        &value.atom_uuid,
+        path.id()?,
+    );
+    Ok(())
 }
 
 fn active(

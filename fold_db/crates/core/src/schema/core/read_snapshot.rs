@@ -7,6 +7,45 @@ use crate::storage::disk_pack::{read_snapshot_active, read_snapshot_get, read_sn
 use std::sync::Arc;
 
 impl SchemaCore {
+    /// Native name resolution reads only the caller's captured root and overlay.
+    /// `None` selects the existing non-native name-resolution policy.
+    ///
+    /// # Errors
+    /// Returns an error for unreadable metadata or an exhausted call budget.
+    pub async fn captured_name_exists(&self, name: &str) -> Result<Option<bool>, SchemaError> {
+        if !self.native_read_snapshot_active() {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.native_schema_snapshot(name).await?.schema.is_some(),
+        ))
+    }
+
+    /// The directory is read on an exact-name miss and expires with this call.
+    ///
+    /// # Errors
+    /// Returns an error for an incomplete or unreadable captured directory.
+    pub async fn captured_name_candidates(
+        &self,
+    ) -> Result<Option<Arc<Vec<crate::schema::SchemaWithState>>>, SchemaError> {
+        if !self.native_read_snapshot_active() {
+            return Ok(None);
+        }
+        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
+        let cache = Arc::as_ptr(&self.schemas) as usize;
+        let key = "\0native_schema_name_directory";
+        if let Some(directory) = read_snapshot_get(runtime.clone(), cache, key)? {
+            return Ok(Some(directory));
+        }
+        let directory = self.db_ops.schemas().read_name_directory().await?;
+        Ok(Some(read_snapshot_insert(
+            runtime,
+            cache,
+            key.into(),
+            directory,
+        )?))
+    }
+
     pub(super) async fn resolve_native_schema(
         &self,
         name: &str,

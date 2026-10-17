@@ -109,6 +109,7 @@ impl LogicalResidentSet {
             collection: collection.to_string(),
             id: id.to_string(),
         };
+        self.record_links.forget_owner(&key);
         if self.records.remove(&key).is_some() {
             if self.record_is_held(&key) {
                 self.record_holds.unfetched += 1;
@@ -128,6 +129,7 @@ impl LogicalResidentSet {
         self.advance_read_epochs();
         self.pending_write_tokens.clear();
         self.negative_barriers.clear();
+        self.record_links.clear();
         let keys: Vec<RecordKey> = self.records.drain().map(|(key, _)| key).collect();
         for key in keys {
             if self.record_is_held(&key) {

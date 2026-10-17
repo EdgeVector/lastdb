@@ -15,6 +15,7 @@ fn main() -> ExitCode {
         println!("       lastdb-disk-recovery <convert|reverse|finish-conversion> --home PATH --target PATH");
         println!("backup: explicit native root; checkpoint and export to a new bundle");
         println!("restore: verify the bundle and create a new native root; no source required");
+        println!("backup/restore include data only; retain the original node identity and encryption keys separately");
         println!("convert/reverse: stopped source only; create a new destination and seal the old source");
         return ExitCode::SUCCESS;
     }
@@ -98,7 +99,7 @@ fn run() -> Result<()> {
         "{}",
         json!({"command":command,"generation":receipt.generation,
         "frontier":receipt.frontier,"files":receipt.files,"bytes":receipt.bytes,
-        "elapsed_nanos":started.elapsed().as_nanos(),"complete":true})
+        "elapsed_nanos":started.elapsed().as_nanos(),"complete":true,"includes_identity":false})
     );
     Ok(())
 }

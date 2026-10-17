@@ -215,6 +215,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbSchemas
         | DataRoute::DbClearHistory
         | DataRoute::DbCompact
+        | DataRoute::DbNativeBackup
         | DataRoute::DbStampPurgedAtomRetirements
         | DataRoute::CompactRecord
         | DataRoute::DbPurgeSchemaIdx
@@ -275,6 +276,8 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
 
         // Bounded per-request work: one key, one page, one blob, one watch.
         DataRoute::Query
+        | DataRoute::DbFlush
+        | DataRoute::DbNativeStatus
         | DataRoute::Mutation
         | DataRoute::AggregateFinalize
         | DataRoute::MutationBatch

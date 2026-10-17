@@ -51,7 +51,9 @@ impl MutationManager {
         schema: &Schema,
         changed_keys: &HashMap<String, HashSet<ChangedKey>>,
     ) -> Vec<PreparedSlotRevision> {
-        if schema_is_scoped(schema) {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
+            || schema_is_scoped(schema)
+        {
             return Vec::new();
         }
         let graph = self.resident_graph();
@@ -80,6 +82,9 @@ impl MutationManager {
         &self,
         prepared: &[PreparedSlotRevision],
     ) -> bool {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            return true;
+        }
         let graph = self.resident_graph();
         prepared.iter().all(|slot| {
             let current =
@@ -98,6 +103,9 @@ impl MutationManager {
             HashSet<ChangedKey>,
         )],
     ) -> Vec<PreparedSlotRevision> {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            return Vec::new();
+        }
         let graph = self.resident_graph();
         let mut out = Vec::new();
         for (molecule_uuid, _data, changed) in sibling_updates {

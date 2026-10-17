@@ -7,6 +7,9 @@ use crate::schema::types::SchemaError;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod batch;
+pub(crate) use batch::{fetch_field_atom_batches, FieldAtomBatch};
+
 /// One filtered match, carried from tip scan to body hydrate:
 /// `(key, atom_uuid, key_metadata, writer_pubkey, partition_hint)`.
 ///

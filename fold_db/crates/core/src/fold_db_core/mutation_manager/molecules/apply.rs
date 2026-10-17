@@ -123,10 +123,11 @@ impl MutationManager {
     )> {
         use crate::atom::{AtomEntry, MoleculeHashRange};
 
-        if schema
-            .runtime_fields
-            .values()
-            .any(|field| field.common().storage_prefix().is_some())
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
+            || schema
+                .runtime_fields
+                .values()
+                .any(|field| field.common().storage_prefix().is_some())
         {
             return sibling_updates;
         }

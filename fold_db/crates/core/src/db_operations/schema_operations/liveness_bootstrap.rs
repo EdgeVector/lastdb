@@ -234,7 +234,7 @@ impl DbOperations {
     }
 }
 
-/// Molecule ref edges for every catalog schema, the molecule-to-schema map, and the field edge count.
+/// Schema field and record-R edges, the molecule-to-schema map, and the schema root count.
 fn collect_schema_molecule_edges(
     schemas: &HashMap<String, Schema>,
 ) -> (Vec<MoleculeRefEdge>, HashMap<String, String>, u64) {

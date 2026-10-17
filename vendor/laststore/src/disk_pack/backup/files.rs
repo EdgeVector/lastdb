@@ -96,11 +96,7 @@ pub(super) fn write(root: &Path, name: &str, bytes: &[u8]) -> Result<Entry> {
 }
 
 pub(super) fn staging(destination: &Path) -> Result<PathBuf> {
-    if destination.try_exists()? {
-        return Err(crate::Error::Config(
-            "backup destination already exists".into(),
-        ));
-    }
+    let destination = self::destination(destination)?;
     let parent = destination
         .parent()
         .ok_or_else(|| corrupt("backup destination needs a parent"))?;
@@ -108,6 +104,42 @@ pub(super) fn staging(destination: &Path) -> Result<PathBuf> {
     let path = parent.join(format!(".disk-backup-pending-{}", uuid::Uuid::new_v4()));
     fs::create_dir(&path)?;
     Ok(path)
+}
+
+pub(super) fn destination(destination: &Path) -> Result<PathBuf> {
+    let name = destination
+        .file_name()
+        .ok_or_else(|| corrupt("backup destination needs a file name"))?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| corrupt("backup destination needs a parent"))?;
+    let path = fs::canonicalize(parent)?.join(name);
+    match fs::symlink_metadata(&path) {
+        Ok(_) => Err(crate::Error::Config(
+            "backup destination already exists".into(),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(path),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(super) fn reserve_output(destination: &Path, bytes: u64, reserve: u64) -> Result<()> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| corrupt("backup destination needs a parent"))?;
+    let available = rustix::fs::statvfs(parent).map_err(std::io::Error::from)?;
+    let available = (available.f_bavail as u64)
+        .checked_mul(available.f_frsize as u64)
+        .ok_or_else(|| corrupt("backup filesystem capacity overflow"))?;
+    let required = bytes
+        .checked_add(reserve)
+        .ok_or_else(|| corrupt("backup capacity quote overflow"))?;
+    if available < required {
+        return Err(crate::Error::WriteCapacity(
+            "backup output exceeds destination filesystem capacity".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn sync_tree<'a>(root: &Path, paths: impl Iterator<Item = &'a Path>) -> Result<()> {
@@ -130,10 +162,14 @@ pub(super) fn sync_tree<'a>(root: &Path, paths: impl Iterator<Item = &'a Path>) 
 }
 
 pub(super) fn publish(staging: &Path, destination: &Path) -> Result<()> {
-    if destination.try_exists()? {
-        return Err(crate::Error::Config("backup destination appeared".into()));
-    }
-    fs::rename(staging, destination)?;
+    rustix::fs::renameat_with(
+        rustix::fs::CWD,
+        staging,
+        rustix::fs::CWD,
+        destination,
+        rustix::fs::RenameFlags::NOREPLACE,
+    )
+    .map_err(std::io::Error::from)?;
     durability::sync_directory(&File::open(
         destination
             .parent()

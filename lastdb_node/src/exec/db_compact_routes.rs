@@ -1,5 +1,12 @@
 use super::*;
+mod backup;
+mod flush;
 mod native;
+mod status;
+
+pub(super) use backup::execute as execute_db_native_backup_route;
+pub(super) use flush::execute as execute_db_flush_route;
+pub(super) use status::execute as execute_db_native_status_route;
 
 /// `POST /api/db/clear-history` — trim or purge mutation-history rows.
 ///

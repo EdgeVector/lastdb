@@ -79,7 +79,7 @@ fn reserve(
 ) -> Result<SpaceReservation> {
     let root = std::fs::canonicalize(root)?;
     // The ordinary unfrozen-cap path must not enumerate the home per mutation.
-    let usage = if policy.disk_cap_bytes == 0 || replacement {
+    let usage = if policy.disk_cap_bytes == 0 {
         SpaceUsage {
             available_bytes: available(&root)?,
             ..Default::default()
@@ -104,11 +104,17 @@ fn reserve(
         })
         .and_then(|n| n.checked_add(required))
         .ok_or_else(|| corrupt("space headroom overflow"))?;
-    let cap_exceeded = !replacement
-        && policy.disk_cap_bytes != 0
+    let cap_required = required
+        .checked_add(if replacement {
+            0
+        } else {
+            policy.replacement_reserve_bytes
+        })
+        .ok_or_else(|| corrupt("space cap headroom overflow"))?;
+    let cap_exceeded = policy.disk_cap_bytes != 0
         && usage
             .bytes
-            .checked_add(required)
+            .checked_add(cap_required)
             .map_or(true, |n| n > policy.disk_cap_bytes);
     if usage.available_bytes < headroom || cap_exceeded {
         return Err(crate::Error::Io(std::io::Error::from_raw_os_error(

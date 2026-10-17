@@ -13,6 +13,7 @@ pub(super) struct ReadContext {
     pub(super) accepted: Option<Arc<transaction::PendingBatch>>,
     snapshots: Arc<snapshots::ReadSnapshots>,
     pub(super) version: logical_paths::body::ReadVersion,
+    pub(super) paths: Arc<Mutex<logical_paths::warm::ResolvedPaths>>,
 }
 
 struct ReadFailure {
@@ -62,6 +63,7 @@ impl ReadContext {
             call: Arc::new(Mutex::new(call)),
             accepted,
             version,
+            paths: Arc::new(Mutex::new(logical_paths::warm::ResolvedPaths::default())),
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
             identity: runtime.home.descriptor().identity,
             failure: Arc::new(Mutex::new(None)),
@@ -85,6 +87,7 @@ impl ReadContext {
                     accepted: context.accepted.clone(),
                     snapshots: Arc::clone(&context.snapshots),
                     version: context.version,
+                    paths: Arc::clone(&context.paths),
                 }));
             }
             return Err(StorageError::InvalidOperation(

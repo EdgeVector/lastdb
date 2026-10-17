@@ -23,7 +23,7 @@ pub(super) struct Manifest {
 }
 
 impl Manifest {
-    pub(super) fn write(&self, root: &Path) -> Result<()> {
+    fn encode(&self) -> Result<Vec<u8>> {
         if self.entries.len() > MAX_FILES {
             return Err(crate::disk_pack::resource());
         }
@@ -44,6 +44,11 @@ impl Manifest {
         if bytes.len() as u64 > MANIFEST_BYTES {
             return Err(crate::disk_pack::resource());
         }
+        Ok(bytes)
+    }
+
+    pub(super) fn write(&self, root: &Path) -> Result<()> {
+        let bytes = self.encode()?;
         super::files::write(root, "BACKUP.json", &bytes)?;
         super::files::write(
             root,
@@ -51,6 +56,26 @@ impl Manifest {
             hex(&Sha256::digest(&bytes)).as_bytes(),
         )?;
         Ok(())
+    }
+
+    pub(super) fn output_bytes(&self) -> Result<u64> {
+        let mut directories = BTreeSet::new();
+        // The root plus the empty checkpoint stream directories also need space.
+        let mut bytes = 3 * 4096u64;
+        for entry in &self.entries {
+            super::files::validate_path(&entry.path)?;
+            bytes = allocated_add(bytes, entry.bytes)?;
+            let mut parent = entry.path.parent();
+            while let Some(path) = parent.filter(|path| !path.as_os_str().is_empty()) {
+                directories.insert(path.to_path_buf());
+                parent = path.parent();
+            }
+        }
+        bytes = allocated_add(bytes, self.encode()?.len() as u64)?;
+        bytes = allocated_add(bytes, 64)?;
+        bytes
+            .checked_add(directories.len() as u64 * 4096)
+            .ok_or_else(|| corrupt("backup output quote overflow"))
     }
 
     pub(super) fn read(root: &Path) -> Result<Self> {
@@ -124,6 +149,17 @@ impl Manifest {
             bytes: self.entries.iter().map(|entry| entry.bytes).sum(),
         }
     }
+}
+
+fn allocated_add(total: u64, bytes: u64) -> Result<u64> {
+    total
+        .checked_add(
+            bytes
+                .div_ceil(4096)
+                .checked_mul(4096)
+                .ok_or_else(|| corrupt("backup allocation quote overflow"))?,
+        )
+        .ok_or_else(|| corrupt("backup output quote overflow"))
 }
 
 fn number(value: &Value, field: &str) -> Result<u64> {

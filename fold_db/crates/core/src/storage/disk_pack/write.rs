@@ -7,7 +7,37 @@ pub(super) struct PreparedCommit {
     accepted_ms: u64,
 }
 
+/// Durable native boundary after all earlier accepted batches finish.
+#[derive(serde::Serialize)]
+pub struct NativeFlushReceipt {
+    pub generation: u64,
+    pub frontier: u64,
+}
+
 impl PackRuntime {
+    /// The exclusive request gate fixes this complete root during preparation.
+    pub(crate) fn write_has_feature(&self, feature: u64) -> bool {
+        transaction::PendingBatch::current(self).is_some()
+            && self
+                .view
+                .read()
+                .expect("native complete write view")
+                .current
+                .required_features
+                & feature
+                == feature
+    }
+
+    /// Wake an accepted owner and capture the durable boundary after its flush.
+    pub async fn flush_native(self: &Arc<Self>) -> StorageResult<NativeFlushReceipt> {
+        self.flush().await?;
+        let view = self.view.read().expect("native durable flush view");
+        Ok(NativeFlushReceipt {
+            generation: view.current.generation,
+            frontier: view.current.frontier,
+        })
+    }
+
     /// Consume only a constructor-proven empty boundary under the native gate.
     pub(crate) fn claim_fresh_empty_boundary(&self) -> bool {
         transaction::PendingBatch::current(self).is_some()
@@ -78,10 +108,7 @@ impl PackRuntime {
         transaction::validate(&operations)?;
         let reservation = writer.reserve_mutation(&operations).map_err(map)?;
         let space = writer
-            .reserve_space(
-                reservation.quote().physical_bytes(),
-                &laststore::disk_pack::maintenance::SpacePolicy::default(),
-            )
+            .reserve_space(reservation.quote().physical_bytes(), &self.space_policy)
             .map_err(map)?;
         let protection =
             Arc::new(admission::WriteProtection::reserve(self, &operations).with_space(space));
@@ -101,9 +128,7 @@ impl PackRuntime {
             accepted_ms,
         } = prepared;
         let mut writer = self.journal.lock().expect("native journal owner");
-        let result = writer
-            .append_mutation(operations, accepted_ms, reservation)
-            .and_then(|_| writer.publish());
+        let result = writer.commit_mutation(operations, accepted_ms, reservation);
         let publication = match result {
             Ok(publication) => publication,
             Err(error) => {

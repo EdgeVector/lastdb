@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod names;
+
 pub(crate) struct SchemaReadSnapshot {
     pub(crate) schema: Option<Schema>,
     pub(crate) state: SchemaState,

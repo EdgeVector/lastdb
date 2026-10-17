@@ -22,7 +22,7 @@ pub struct ArtifactBuilder {
     key_codec: u16,
     failed: bool,
     dependencies: Dependencies,
-    required_features: u64,
+    pub(super) required_features: u64,
     home_digest: [u8; 32],
 }
 

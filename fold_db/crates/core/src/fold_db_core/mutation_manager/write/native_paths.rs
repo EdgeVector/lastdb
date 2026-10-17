@@ -30,7 +30,18 @@ impl MutationManager {
         if !self.resident_mode.acks_on_resident() {
             return Ok(());
         }
-        if !job.share_prefixes.is_empty() {
+        if job.storage_prefix.is_some() || !job.share_prefixes.is_empty() {
+            return Ok(transaction::require_durable(runtime)?);
+        }
+        if !self
+            .db_ops
+            .atoms()
+            .molecule_ref_edges_v2_complete(None)
+            .await?
+        {
+            return Ok(transaction::require_durable(runtime)?);
+        }
+        if !runtime.write_has_feature(laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS) {
             return Ok(transaction::require_durable(runtime)?);
         }
         let tips = changed_tips(job);
@@ -80,15 +91,18 @@ impl MutationManager {
                     value,
                 )?;
                 bytes = bytes.saturating_add(record.body.len());
-                if bytes > 128 * 1024 * 1024 {
-                    return Err(SchemaError::WriteResourceLimit {
-                        detail: "native path bodies exceed 128 MiB".into(),
-                    });
+                if bytes > 128 * 1024 * 1024 || records.len() >= 10_000 {
+                    return Ok(transaction::require_durable(runtime)?);
                 }
                 records.push(record);
             }
         }
-        Ok(transaction::stage_paths(runtime, records)?)
+        match transaction::stage_paths(runtime, records) {
+            Err(crate::storage::StorageError::WriteResourceLimit { .. }) => {
+                Ok(transaction::require_durable(runtime)?)
+            }
+            result => Ok(result?),
+        }
     }
 
     async fn path_bindings(
@@ -96,12 +110,10 @@ impl MutationManager {
         job: &DeferredPersistJob,
         molecule: &str,
     ) -> Result<Option<Vec<Binding>>, SchemaError> {
-        // The older completeness meaning omitted shared record-molecule
-        // roots. Keep R writes durable until exact versioned sources exist.
-        if job.schema.molecule_uuid.as_deref() == Some(molecule) {
+        let mut bindings = schema_bindings(&job.schema, molecule)?;
+        if bindings.is_empty() && job.schema.molecule_uuid.as_deref() == Some(molecule) {
             return Ok(None);
         }
-        let mut bindings = schema_bindings(&job.schema, molecule)?;
         let edges = self
             .db_ops
             .atoms()
@@ -110,30 +122,64 @@ impl MutationManager {
         if !edges.complete {
             return Ok(None);
         }
-        if edges
-            .edges
-            .iter()
-            .any(|edge| !matches!(edge.edge_type.as_str(), "schema-field" | "protein-member"))
-        {
+        if edges.edges.iter().any(|edge| {
+            !matches!(
+                edge.edge_type.as_str(),
+                "schema-field" | "schema-record" | "protein-member"
+            )
+        }) {
             return Ok(None);
         }
         let sources = edges
             .edges
             .iter()
-            .filter(|edge| edge.edge_type == "schema-field");
-        let resolved = futures::future::try_join_all(
-            sources
-                .map(|edge| async move { self.resolve_path_source(&edge.source, molecule).await }),
-        )
+            .filter(|edge| matches!(edge.edge_type.as_str(), "schema-field" | "schema-record"));
+        let resolved = futures::future::try_join_all(sources.map(|edge| async move {
+            if edge.edge_type == "schema-record" {
+                self.resolve_record_source(&edge.source, molecule).await
+            } else {
+                Ok(self
+                    .resolve_path_source(&edge.source, molecule)
+                    .await?
+                    .map(|binding| vec![binding]))
+            }
+        }))
         .await?;
         for resolved in resolved {
-            let Some(binding) = resolved else {
+            let Some(resolved) = resolved else {
                 return Ok(None);
             };
-            if !bindings.contains(&binding) {
-                bindings.push(binding);
+            for binding in resolved {
+                if !bindings.contains(&binding) {
+                    bindings.push(binding);
+                    if bindings.len() > 10_000 {
+                        return Ok(None);
+                    }
+                }
             }
         }
+        Ok((!bindings.is_empty()).then_some(bindings))
+    }
+
+    async fn resolve_record_source(
+        &self,
+        source: &str,
+        molecule: &str,
+    ) -> Result<Option<Vec<Binding>>, SchemaError> {
+        let Some(name) = source
+            .strip_prefix("schema:")
+            .and_then(|source| source.strip_suffix(":record"))
+        else {
+            return Ok(None);
+        };
+        let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
+        let Some(schema) = snapshot
+            .schema
+            .filter(|schema| schema.molecule_uuid.as_deref() == Some(molecule))
+        else {
+            return Ok(None);
+        };
+        let bindings = schema_bindings(&schema, molecule)?;
         Ok((!bindings.is_empty()).then_some(bindings))
     }
 
@@ -177,6 +223,9 @@ fn schema_bindings(
     molecule: &str,
 ) -> Result<Vec<Binding>, SchemaError> {
     let envelope = schema.molecule_uuid.as_deref() == Some(molecule);
+    if schema.runtime_fields.len() > 10_000 {
+        return Ok(Vec::new());
+    }
     let mut bindings = Vec::new();
     for (name, field) in &schema.runtime_fields {
         if crate::record_molecule::is_record_molecule_field(name) {

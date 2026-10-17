@@ -1,4 +1,4 @@
-//! Explicit native disk backend. Activation remains gated until its complete write surface is wired.
+//! Explicit native disk backend with complete-request admission and captured read roots.
 
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
@@ -12,18 +12,23 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod admission;
+mod backup;
 mod kv;
 pub(crate) mod logical_paths;
 mod maintenance;
 mod namespace_delete;
 mod read;
 mod rows;
+mod space;
 pub(crate) mod transaction;
 mod view;
 mod write;
+pub use logical_paths::warm::{remember_wire_query, warm_wire_query, WarmQueryFields};
 pub use maintenance::{NativeMaintenanceOptions, NativeMaintenanceReport};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
+pub use view::NativeDiskStatus;
+pub use write::NativeFlushReceipt;
 
 const NODE_MARKER: &str = "laststore-pack-node-v1";
 const REGISTRY: &str = "__native_home";
@@ -44,6 +49,7 @@ pub struct PackRuntime {
     fresh_empty: AtomicBool,
     failed_write: Mutex<Option<Arc<admission::WriteProtection>>>,
     failed_request: Mutex<Option<Arc<transaction::PendingBatch>>>,
+    space_policy: laststore::disk_pack::maintenance::SpacePolicy,
 }
 
 /// All namespaces on one native disk home.
@@ -91,19 +97,13 @@ fn budget() -> ReadBudget {
 
 impl PackNamespacedStore {
     /// Open an explicitly fenced native node store, or create an empty requested home.
-    /// The caller must reject cloud sync and memory acknowledgements until their native gates are wired.
+    /// The caller must reject cloud sync until its native transfer gate is wired.
     pub fn open(path: &Path) -> StorageResult<Self> {
+        let space_policy = space::policy_from_env()?;
         if path.join("laststore-pack-home-v1").try_exists()? {
             return Self::open_home(path);
         }
-        if crate::resident::ResidentPolicy::from_env()
-            .mode
-            .reads_resident_first()
-        {
-            return Err(StorageError::ConfigurationError(
-                "native disk resident routing requires complete read-root and pre-apply admission gates".into(),
-            ));
-        }
+        space::validate_resident_policy()?;
         use std::io::{Read, Write};
         let expected = b"format=1\nhome=disk-pack\n";
         let marker = path.join(NODE_MARKER);
@@ -145,6 +145,12 @@ impl PackNamespacedStore {
                     "native creation refuses a nonempty legacy home".into(),
                 ));
             }
+            // Empty construction has no data-dependent output: one empty tree,
+            // descriptor, current and journal-tail metadata plus directories.
+            // Reserve a conservative MiB before writing any format fence.
+            let _initial_space =
+                laststore::disk_pack::maintenance::reserve_space(path, &space_policy, 1024 * 1024)
+                    .map_err(map)?;
             laststore::disk_pack::home::write_legacy_fence(path).map_err(map)?;
             let mut file = std::fs::OpenOptions::new()
                 .create_new(true)
@@ -153,13 +159,12 @@ impl PackNamespacedStore {
             file.write_all(expected)?;
             file.sync_all()?;
             std::fs::File::open(path)?.sync_all()?;
-            HomeBuilder::create(
+            HomeBuilder::create_empty_with_schema_record_refs(
                 &path.join("disk-pack"),
-                HomeDescriptor::new(16, 0).map_err(map)?,
-                0,
+                // New native homes match the plain LastStore fanout. Existing
+                // homes always retain the fanout in their saved descriptor.
+                HomeDescriptor::new(1, 0).map_err(map)?,
             )
-            .map_err(map)?
-            .finish()
             .map_err(map)?;
         }
         let store = Self::open_home(&path.join("disk-pack"))?;
@@ -169,14 +174,8 @@ impl PackNamespacedStore {
 
     /// Open a completed converted or restored native home with its original node identity.
     pub(crate) fn open_home(path: &Path) -> StorageResult<Self> {
-        if crate::resident::ResidentPolicy::from_env()
-            .mode
-            .reads_resident_first()
-        {
-            return Err(StorageError::ConfigurationError(
-                "native resident routing requires complete logical record ownership".into(),
-            ));
-        }
+        let space_policy = space::policy_from_env()?;
+        space::validate_resident_policy()?;
         let home = Arc::new(DiskHome::open(path).map_err(map)?);
         let journal = home.journal().map_err(map)?;
         let read_lease = journal.read_lease();
@@ -201,6 +200,7 @@ impl PackNamespacedStore {
                 fresh_empty: AtomicBool::new(false),
                 failed_write: Mutex::new(None),
                 failed_request: Mutex::new(None),
+                space_policy,
             }),
         })
     }

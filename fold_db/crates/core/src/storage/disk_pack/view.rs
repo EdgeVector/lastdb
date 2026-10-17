@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// A read-only operational boundary; this method never wakes a flush worker.
+#[derive(serde::Serialize)]
+pub struct NativeDiskStatus {
+    pub generation: u64,
+    pub frontier: u64,
+    pub accepted_batch: bool,
+    pub writer_failed: bool,
+}
+
 #[derive(Clone)]
 pub(super) struct NativeReadView {
     pub(super) current: Current,
@@ -9,6 +18,16 @@ pub(super) struct NativeReadView {
 }
 
 impl PackRuntime {
+    pub fn status_native(&self) -> NativeDiskStatus {
+        let view = self.view.read().expect("native disk status view");
+        NativeDiskStatus {
+            generation: view.current.generation,
+            frontier: view.current.frontier,
+            accepted_batch: view.accepted.is_some(),
+            writer_failed: self.failed.load(Ordering::Acquire),
+        }
+    }
+
     /// The caller owns the write gate and complete physical/logical reservations.
     /// The batch and its protection stay immutable until the last reader releases it.
     pub(super) fn install_accepted(

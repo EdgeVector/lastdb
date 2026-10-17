@@ -22,6 +22,7 @@ pub struct NativeMaintenanceReport {
     pub reclaim_only: bool,
     pub generation: u64,
     pub frontier: u64,
+    pub disk_cap_bytes: u64,
     pub files_before: u64,
     pub files_after: u64,
     pub bytes_before: u64,
@@ -36,13 +37,24 @@ pub struct NativeMaintenanceReport {
 }
 
 impl PackRuntime {
+    /// The writer durably fenced older schema writers before v2 R-edge proofs.
+    pub fn schema_record_refs_supported(&self) -> bool {
+        self.view
+            .read()
+            .expect("native complete read view")
+            .current
+            .required_features
+            & laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS
+            != 0
+    }
+
     /// Serialize with complete writes, publish replacements, install their view,
     /// then reclaim while new read captures remain excluded by the view lock.
     pub async fn maintain_native(
         self: &Arc<Self>,
         options: NativeMaintenanceOptions,
     ) -> StorageResult<NativeMaintenanceReport> {
-        let gate = Arc::clone(&self.write_gate).lock_owned().await;
+        let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
             let _gate = gate;
@@ -62,7 +74,7 @@ impl PackRuntime {
         }
         let policy = SpacePolicy {
             grace_ms: options.grace_ms.unwrap_or(86_400_000),
-            ..SpacePolicy::default()
+            ..self.space_policy.clone()
         };
         let before = space_usage(self.home.path(), policy.max_files).map_err(map)?;
         let mut writer = self.journal.lock().expect("native journal owner");
@@ -103,6 +115,7 @@ impl PackRuntime {
             reclaim_only: options.reclaim_only,
             generation: current.generation,
             frontier: current.frontier,
+            disk_cap_bytes: policy.disk_cap_bytes,
             files_before: before.files,
             files_after: after.files,
             bytes_before: before.bytes,

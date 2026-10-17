@@ -114,7 +114,17 @@ pub fn finish_conversion(source: &Path, destination: &Path) -> Result<()> {
     let token = conversion_uuid(&value, "token")?;
     let reference = conversion_uuid(&value, "reference")?;
     if !destination.join(fence::PENDING).try_exists()? {
-        return Ok(());
+        if fence::bounded_file(&destination.join(fence::COMPLETE), 36)?
+            != token.to_string().as_bytes()
+        {
+            return Err(crate::Error::Corrupt(
+                "completed conversion token differs from source fence".into(),
+            ));
+        }
+        return release_conversion_reference(
+            if forward { &destination } else { source },
+            reference,
+        );
     }
     fence::validate(&destination, token)?;
     if forward {
@@ -138,7 +148,7 @@ pub fn finish_conversion(source: &Path, destination: &Path) -> Result<()> {
             fence::publish(source, fence::FORWARD_FENCE, &value)?;
         }
         fence::finish(&destination, token)?;
-        super::lifetime::release_reference(&destination, reference)?;
+        release_conversion_reference(&destination, reference)?;
     } else {
         let _target = LastStore::open_pending_conversion(&destination)?;
         fence::validate(&destination, token)?;
@@ -149,7 +159,7 @@ pub fn finish_conversion(source: &Path, destination: &Path) -> Result<()> {
             ));
         }
         fence::finish(&destination, token)?;
-        super::lifetime::release_reference(source, reference)?;
+        release_conversion_reference(source, reference)?;
     }
     Ok(())
 }
@@ -158,5 +168,16 @@ fn conversion_uuid(value: &serde_json::Value, field: &str) -> Result<uuid::Uuid>
     value[field]
         .as_str()
         .and_then(|value| uuid::Uuid::parse_str(value).ok())
+        .filter(|identity| !identity.is_nil())
         .ok_or_else(|| crate::Error::Corrupt("conversion fence UUID".into()))
+}
+
+fn release_conversion_reference(root: &Path, reference: uuid::Uuid) -> Result<()> {
+    match super::lifetime::release_reference(root, reference) {
+        // A retry after the completed unlink still needs its directory barrier.
+        Err(crate::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            durability::sync_directory(&File::open(root.join("references"))?)
+        }
+        result => result,
+    }
 }

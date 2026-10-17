@@ -18,15 +18,7 @@ where
         return future.await;
     }
     let delay = if memory_ack {
-        Some(
-            crate::resident::ResidentPolicy::from_env()
-                .persist_interval
-                .ok_or_else(|| {
-                    StorageError::ConfigurationError(
-                        "native memory ack requires a flush interval".into(),
-                    )
-                })?,
-        )
+        Some(super::super::space::memory_flush_delay()?)
     } else {
         None
     };

@@ -38,6 +38,15 @@ pub(crate) fn admit_query_results(
             if value.atom_uuid.is_empty() {
                 continue;
             }
+            let selected = context.paths.lock().expect("native resolved paths").one(
+                field,
+                key,
+                &value.atom_uuid,
+            );
+            if let Some(id) = selected {
+                runtime.admit_field_id(&context, &id, value)?;
+                continue;
+            }
             let molecule = value
                 .molecule_uuid
                 .as_deref()
@@ -55,6 +64,12 @@ pub(crate) fn admit_query_results(
                 atom: value.atom_uuid.clone(),
             };
             runtime.admit_field_path(&context, &path, value)?;
+            context.paths.lock().expect("native resolved paths").note(
+                field,
+                key,
+                &value.atom_uuid,
+                path.id()?,
+            );
         }
     }
     Ok(())
@@ -68,15 +83,28 @@ impl PackRuntime {
         value: &FieldValue,
     ) -> StorageResult<()> {
         let id = path.id()?;
-        let body = serde_json::to_vec(&body::PathBody::from_field(context.version, value))
-            .map_err(|error| serialization(&error))?;
+        self.admit_field_id(context, &id, value)
+    }
+
+    pub(super) fn admit_field_id(
+        &self,
+        context: &Arc<ReadContext>,
+        id: &str,
+        value: &FieldValue,
+    ) -> StorageResult<()> {
+        let value = if field::provenance_current() {
+            body::PathBody::from_field(context.version, value)
+        } else {
+            body::PathBody::content(&value.value)
+        };
+        let body = serde_json::to_vec(&value).map_err(|error| serialization(&error))?;
         let mut call = crate::read_receipts::lock(&context.call);
         call.account_memory_record(id.len(), body.len())
             .map_err(map)?;
         let mut logical = self.logical.lock().expect("native complete logical paths");
-        context.hold_record(&mut logical, PATH_COLLECTION, &id)?;
-        let epoch = logical.record_epoch(&id);
-        if !logical.admit_record(PATH_COLLECTION, &id, Some(body), epoch) {
+        context.hold_record(&mut logical, PATH_COLLECTION, id)?;
+        let epoch = logical.record_epoch(id);
+        if !logical.admit_record(PATH_COLLECTION, id, Some(body), epoch) {
             return Err(StorageError::ReadResourceLimit {
                 detail: "native logical read lost its protected path slot".into(),
             });

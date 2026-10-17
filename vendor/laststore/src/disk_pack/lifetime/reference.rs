@@ -51,6 +51,10 @@ pub struct DurableReference {
 }
 
 impl DurableReference {
+    pub(crate) fn home_path(&self) -> &Path {
+        &self.root
+    }
+
     /// Sync a complete named generation reference before external work starts.
     pub fn create(
         root: &Path,

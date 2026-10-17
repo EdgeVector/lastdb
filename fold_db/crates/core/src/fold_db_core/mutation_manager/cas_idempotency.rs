@@ -157,6 +157,9 @@ impl MutationManager {
         key_value: &KeyValue,
         storage_prefix: Option<&str>,
     ) -> Option<String> {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            return current_atom_uuid(field, key_value);
+        }
         // Overlay and resident tip are not prefix-gated: org Delete stamps
         // the same molecule-slot overlay as personal. The prefix still
         // scopes the catalog fallback via `current_atom_uuid` (schema clone).
