@@ -47,20 +47,26 @@ It then streams current records and tombstones into new pack parts and map pages
 Each record keeps its stored body, full key, collection, and physical mutation version.
 The byte copy uses the existing block and record format.
 The existing plain-frame restriction remains in force.
+Physical encrypted frames require an absent key-epoch adapter and remain refused.
 Encrypted atom content stays opaque.
+Compaction uses one payload writer across hash groups, with parts of at most 8 MiB.
+Each hash group retains its separate locator tree.
 
 The writer publishes the complete replacement receipt before it publishes `CURRENT`.
 It keeps the existing 65,536 dependency-part limit.
-The administrative stream has a one-million-record work limit.
+The compaction quote permits at most 65,536 collection/hash-group coordinates and one million records across the home.
 It retains one cursor path and one record stream, with a 64 KiB copy buffer.
 No product full-read query is added.
 
 One space ticket owns the complete quoted output until completion or cancellation.
 The ticket includes active reservations and checks filesystem capacity.
 The native-root census has a six-level depth and a finite file bound.
-The whole-home cap remains disabled until its number is accepted.
+The whole-home cap is disabled by default.
+`LASTDB_DISK_CAP_BYTES` can set a positive cap for the native node.
 The defaults reserve 64 MiB for free space and 64 MiB for replacement work.
-Compaction can use the replacement reserve and does not refuse because a disk cap is exceeded.
+Compaction can consume the replacement reserve.
+Current files and the complete quoted output must still fit any configured cap and the available filesystem space.
+No reservation takes credit for later file removal.
 
 ## Reclaim
 
@@ -97,6 +103,8 @@ An optional `grace_ms` sets an explicit grace period.
 A named collection is refused because native parts share one committed root.
 
 The runtime waits for the complete write gate before maintenance starts.
+Compaction rewrites the whole home and holds that gate until its work ends.
+New writes wait; this path has no incremental job or wall-clock work limit.
 The long pack copy permits reads from the old root.
 After publication, the runtime takes the read-view write lock and installs the new root.
 It then attempts reclaim before it releases that lock.
@@ -107,4 +115,4 @@ Thus no call can capture a root after its files retire.
 The ordinary cap-disabled space check uses filesystem capacity and active tickets only.
 It does not enumerate files for each write.
 An explicitly enabled whole-home cap still uses a bounded census.
-Its hot-path counter needs a separate accepted cap policy before activation.
+A configured cap therefore adds file-inventory work to each reservation.

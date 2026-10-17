@@ -32,6 +32,17 @@ It retains that ticket with logical protection after a failed append or publicat
 
 Native Create and Update requests now prepare private schema copies under one native write gate.
 Every schema's atoms, tips, sibling records, schema data, and side records enter one complete stored batch.
+These stored operations can exceed the count of caller mutations.
+A 256-record update to two fields needs at least 4,096 distinct stored changes before side records.
+Atom references, counts, and GC queue records remain part of that same atomic batch.
+Fresh native homes use required feature bit `0x20` for a maximum of 16,384 ordered stored operations.
+Their initial durable CURRENT contains this bit before a journal append can use the larger limit.
+Homes and standalone artifacts without this bit retain the 4,096-operation limit.
+An open does not upgrade that limit.
+The journal byte cap remains 128 MiB.
+The writer quotes and reserves the complete batch before it appends any bytes.
+It does not split a caller batch into separate publications to fit the limit.
+Numeric refusal details report current, incoming, projected, and distinct projected operation counts.
 This path does not publish a live graph tip or split the request across schema lanes.
 It rechecks idempotency and preconditions after it acquires the native gate.
 It completes the author-clock barrier before that gate, because the clock queue also needs native storage.

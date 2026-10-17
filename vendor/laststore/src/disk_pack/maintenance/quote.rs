@@ -27,7 +27,7 @@ pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
             if records > 1_000_000 {
                 return Err(crate::disk_pack::resource());
             }
-            let location = Location::decode(&value)?;
+            let location = Location::decode_for_current(&value, current)?;
             if location.version.batch > current.frontier {
                 return Err(corrupt("compaction quote frontier"));
             }

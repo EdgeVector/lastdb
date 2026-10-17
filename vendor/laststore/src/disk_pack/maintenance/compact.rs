@@ -96,7 +96,7 @@ impl Compactor<'_> {
             if records > 1_000_000 {
                 return Err(crate::disk_pack::resource());
             }
-            let location = Location::decode(&value)?;
+            let location = Location::decode_for_current(&value, previous)?;
             if location.version.batch > previous.frontier {
                 return Err(corrupt("compaction record beyond source frontier"));
             }
@@ -113,7 +113,10 @@ impl Compactor<'_> {
                 self.receipt.records_copied += 1;
                 location
             };
-            locator.add(&key, location.encode()?)?;
+            locator.add(
+                &key,
+                location.encode_for_features(self.current.required_features)?,
+            )?;
             call = artifact::metadata_call(root, previous.clone());
         }
         let (locator, parts) = locator.finish_with_parts()?;

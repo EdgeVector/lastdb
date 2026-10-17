@@ -105,7 +105,7 @@ impl PackRuntime {
             .as_millis()
             .try_into()
             .map_err(|_| StorageError::BackendError("native accepted time overflow".into()))?;
-        transaction::validate(&operations)?;
+        transaction::validate(&operations, writer.current().batch_operation_limit())?;
         let reservation = writer.reserve_mutation(&operations).map_err(map)?;
         let space = writer
             .reserve_space(reservation.quote().physical_bytes(), &self.space_policy)

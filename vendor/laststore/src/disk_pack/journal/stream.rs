@@ -43,6 +43,7 @@ impl Stream {
             .generation
             .checked_add(1)
             .ok_or_else(|| corrupt("recovery generation overflow"))?;
+        let operation_limit = current.batch_operation_limit();
         let call = ReadCall {
             native_descriptor: None,
             root: root.to_path_buf(),
@@ -53,7 +54,7 @@ impl Stream {
                 pages: 64,
                 blocks: super::MAX_BATCH_BYTES.div_ceil(4096),
                 bytes: super::MAX_BATCH_BYTES * 6,
-                keys: super::MAX_OPERATIONS as u64,
+                keys: operation_limit as u64,
             },
             costs: ReadCosts::default(),
             pages: HashMap::new(),

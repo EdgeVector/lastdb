@@ -110,7 +110,7 @@ impl ArtifactBuilder {
                 | super::FEATURE_JOURNAL_LIFECYCLE
                 | super::FEATURE_FILE_LIFETIME
                 | if native.is_some() {
-                    super::FEATURE_NATIVE_HOME
+                    super::FEATURE_NATIVE_HOME | super::FEATURE_LARGE_BATCHES
                 } else {
                     0
                 },
@@ -210,10 +210,10 @@ impl GroupWriter<'_> {
             .owner
             .pack
             .put(&self.collection, key, version, body_bytes, body)?;
-        self.locator
-            .as_mut()
-            .expect("active group")
-            .add(key.as_bytes(), location.encode()?)?;
+        self.locator.as_mut().expect("active group").add(
+            key.as_bytes(),
+            location.encode_for_features(self.owner.required_features)?,
+        )?;
         Ok(location)
     }
 
@@ -238,10 +238,10 @@ impl GroupWriter<'_> {
             blocks: 0,
             digest: [0; 32],
         };
-        self.locator
-            .as_mut()
-            .expect("active group")
-            .add(key.as_bytes(), location.encode()?)
+        self.locator.as_mut().expect("active group").add(
+            key.as_bytes(),
+            location.encode_for_features(self.owner.required_features)?,
+        )
     }
 
     fn check_version(&self, version: MutationVersion) -> Result<()> {
@@ -250,7 +250,10 @@ impl GroupWriter<'_> {
                 "artifact builder requires a fresh identity after failure",
             ));
         }
-        if version.batch > self.owner.frontier {
+        if version.batch > self.owner.frontier
+            || version.operation as usize
+                >= super::current::batch_operation_limit(self.owner.required_features)
+        {
             return Err(corrupt("source version exceeds held boundary"));
         }
         Ok(())

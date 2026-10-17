@@ -286,7 +286,7 @@ impl ReadCall {
         let Some(value) = self.find(&entry.locator, key.as_bytes())? else {
             return Ok(None);
         };
-        let location = Location::decode(&value)?;
+        let location = Location::decode_for_current(&value, &self.current)?;
         if location.version.batch > self.current.frontier {
             return Err(corrupt("record newer than committed frontier"));
         }

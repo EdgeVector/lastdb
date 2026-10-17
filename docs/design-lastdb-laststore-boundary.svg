@@ -28,7 +28,7 @@
   <rect x="655" y="126" width="585" height="255" rx="12" fill="#edf5ef" stroke="#b8cdbd" stroke-width="2"/>
   <text x="679" y="169" class="heading">LastStore</text>
   <text x="679" y="210" class="body">Exact keys + exact bytes · complete batches</text>
-  <text x="679" y="249" class="body">File pages · positions · free-space reuse</text>
+  <text x="679" y="249" class="body">Map pages · file positions · packed bytes</text>
   <text x="679" y="288" class="body">Captured read views · recovery · export holds</text>
   <text x="679" y="327" class="body">Physical deletes · compaction · resource limits</text>
   <text x="679" y="359" class="small">Owns file movement. Tips keep the same references.</text>
@@ -45,14 +45,14 @@
   <path d="M375 622 L477 622 L477 665 L532 665" class="arrow"/>
   <path d="M375 710 L477 710 L477 665" fill="none" stroke="#244f69" stroke-width="3"/>
   <rect x="545" y="605" width="695" height="125" rx="10" fill="#edf5ef" stroke="#b8cdbd" stroke-width="2"/>
-  <text x="569" y="645" class="heading">Stable atom reference → stored bytes</text>
-  <text x="569" y="683" class="body">Small atom bytes sit beside their key.</text>
-  <text x="569" y="714" class="small">Larger atoms use more pages inside LastStore.</text>
+  <text x="569" y="645" class="heading">Atom key → locator → journal or pack</text>
+  <text x="569" y="683" class="body">Bodies share journal or packed files.</text>
+  <text x="569" y="714" class="small">Each hash group keeps its separate locator tree.</text>
   <text x="40" y="785" class="body">A tip has no physical position. Compaction does not change its atom reference.</text>
 
   <rect x="40" y="820" width="1200" height="132" rx="10" class="box"/>
   <text x="64" y="856" class="heading">Implementation state</text>
   <text x="64" y="892" class="small">Source exists: batch reads, ranges, native read views, maintenance, and recovery parts.</text>
-  <text x="64" y="925" class="small">Selected: original native engine. Local completion and measurements use generated data.</text>
-  <text x="40" y="982" class="small">Native LastStore engine selected · 16 October 2026 · Current values only · Primary unchanged</text>
+  <text x="64" y="925" class="small">Selected: original native engine. Final generated-data measurements remain pending.</text>
+  <text x="40" y="982" class="small">Native LastStore engine selected · 16 October 2026 · Existing record bytes · Primary unchanged</text>
 </svg>

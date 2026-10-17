@@ -143,12 +143,21 @@ impl Publisher<'_> {
             let collection = first.mutation.collection.clone();
             let group = first.mutation.group;
             let mut changes = BTreeMap::new();
-            changes.insert(first.mutation.key.into_bytes(), first.location.encode()?);
+            changes.insert(
+                first.mutation.key.into_bytes(),
+                first
+                    .location
+                    .encode_for_features(self.proposed.required_features)?,
+            );
             while items.peek().is_some_and(|item| {
                 item.mutation.collection == collection && item.mutation.group == group
             }) {
                 let item = items.next().expect("peeked operation");
-                changes.insert(item.mutation.key.into_bytes(), item.location.encode()?);
+                changes.insert(
+                    item.mutation.key.into_bytes(),
+                    item.location
+                        .encode_for_features(self.proposed.required_features)?,
+                );
             }
             let key = super::ReadCall::directory_key(&collection, group)?;
             let mut call = artifact::metadata_call(self.root, self.proposed.clone());
@@ -170,7 +179,7 @@ impl Publisher<'_> {
                 self.dependencies.add_tree(&tree, parts)?;
                 tree
             } else {
-                if changes.len() > 4096 {
+                if changes.len() > self.proposed.batch_operation_limit() {
                     return Err(corrupt("invalid new locator change count"));
                 }
                 let mut locator =

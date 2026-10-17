@@ -92,10 +92,11 @@ fn prepare(
     namespace: &str,
     mutations: Vec<KvMutation>,
 ) -> StorageResult<Vec<HomeMutation>> {
-    if mutations.len() > 4096 {
-        return Err(StorageError::InvalidOperation(
-            "native mutation exceeds operation admission limit".into(),
-        ));
+    let operation_limit = pending.map_or(4096, |pending| pending.operation_limit());
+    if mutations.len() > operation_limit {
+        return Err(StorageError::InvalidOperation(format!(
+            "native mutation exceeds {operation_limit} operation admission limit"
+        )));
     }
     let plans: Vec<_> = mutations
         .iter()

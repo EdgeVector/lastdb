@@ -31,6 +31,12 @@ pub struct Current {
 }
 
 impl Current {
+    /// Complete ordered-operation ceiling selected by this held durable root.
+    /// Existing homes and standalone artifacts keep their original ceiling.
+    pub fn batch_operation_limit(&self) -> usize {
+        batch_operation_limit(self.required_features)
+    }
+
     /// Decode a complete fixed-width CURRENT; refuse unsupported features.
     pub fn decode(bytes: &[u8; 4096]) -> Result<Self> {
         if &bytes[..8] != b"LDCUR1\0\0"
@@ -107,7 +113,9 @@ impl Current {
             || self.frontier > self.journal_frontier
             || self.directory.kind != TreeKind::Directory
             || self.required_features & !super::SUPPORTED_FEATURES != 0
-            || (self.required_features & super::FEATURE_SCHEMA_RECORD_REFS != 0
+            || (self.required_features
+                & (super::FEATURE_SCHEMA_RECORD_REFS | super::FEATURE_LARGE_BATCHES)
+                != 0
                 && self.required_features & super::FEATURE_NATIVE_HOME == 0)
             || ((self.required_features & super::FEATURE_NATIVE_HOME != 0)
                 != (self.home_digest != [0; 32]))
@@ -124,5 +132,13 @@ impl Current {
             return Err(corrupt("inconsistent CURRENT frontier or generation"));
         }
         Ok(())
+    }
+}
+
+pub(super) fn batch_operation_limit(required_features: u64) -> usize {
+    if required_features & super::FEATURE_LARGE_BATCHES != 0 {
+        super::LARGE_BATCH_OPERATIONS
+    } else {
+        super::LEGACY_BATCH_OPERATIONS
     }
 }

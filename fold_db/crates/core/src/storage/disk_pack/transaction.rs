@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::BTreeMap;
 
+mod accounting;
 pub(crate) mod publication;
 mod request;
 pub(crate) use request::request_scope;
@@ -28,6 +29,7 @@ pub(super) struct PendingBatch {
     frozen: AtomicBool,
     durable_only: AtomicBool,
     paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
+    operation_limit: usize,
 }
 
 tokio::task_local! {
@@ -45,6 +47,12 @@ impl PendingBatch {
             frozen: AtomicBool::new(false),
             durable_only: AtomicBool::new(false),
             paths: Mutex::new(Vec::new()),
+            operation_limit: runtime
+                .view
+                .read()
+                .expect("native complete write view")
+                .current
+                .batch_operation_limit(),
         }
     }
     pub(super) fn current(runtime: &PackRuntime) -> Option<Arc<Self>> {
@@ -59,6 +67,10 @@ impl PendingBatch {
         data.latest
             .get(&(collection.to_string(), key.to_string()))
             .map(|&at| Arc::clone(&data.operations[at]))
+    }
+
+    pub(super) fn operation_limit(&self) -> usize {
+        self.operation_limit
     }
 
     pub(super) fn matching(
@@ -83,18 +95,15 @@ impl PendingBatch {
                 "native accepted batch is immutable".into(),
             ));
         }
-        validate(&operations)?;
+        validate(&operations, self.operation_limit)?;
         let mut data = self.data.lock().expect("native pending batch");
         let count = data
             .operations
             .len()
             .checked_add(operations.len())
-            .filter(|count| *count <= 4096)
-            .ok_or_else(|| {
-                StorageError::InvalidOperation(
-                    "complete native mutation exceeds 4096 storage operations".into(),
-                )
-            })?;
+            .filter(|count| *count <= self.operation_limit)
+            .ok_or_else(|| accounting::refusal(&data, &operations, self.operation_limit))?;
+        accounting::record_stage(&data, &operations, self.operation_limit);
         let mut bytes = data.bytes;
         for operation in &operations {
             bytes = bytes
@@ -202,11 +211,11 @@ pub(crate) fn memory_quote(runtime: &PackRuntime) -> StorageResult<u64> {
         .saturating_add(paths.saturating_mul(2)))
 }
 
-pub(super) fn validate(operations: &[HomeMutation]) -> StorageResult<()> {
-    if operations.len() > 4096 {
-        return Err(StorageError::InvalidOperation(
-            "complete native batch exceeds 4096 operations".into(),
-        ));
+pub(super) fn validate(operations: &[HomeMutation], operation_limit: usize) -> StorageResult<()> {
+    if operations.len() > operation_limit {
+        return Err(StorageError::InvalidOperation(format!(
+            "complete native batch exceeds {operation_limit} operations"
+        )));
     }
     let mut bytes = 256u64;
     for operation in operations {

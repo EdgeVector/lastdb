@@ -1,9 +1,9 @@
 {
-  "product_source": "ef1f210734e0d747edd882dc45dfe700335e5a16",
-  "version": "lastdbd 0.23.4-pre.0-246-gef1f21073",
+  "product_source": "9a1c6a94f178847488d410e9948aae764de3ae48",
+  "version": "lastdbd 0.23.4-pre.0-248-g9a1c6a94f",
   "dirty_scope": null,
-  "physical_tools_source": "ef1f210734e0d747edd882dc45dfe700335e5a16",
-  "physical_tools_note": "All five programs use the same clean source, including grouped changed-key loads and direct new-locator output.",
+  "physical_tools_source": "9a1c6a94f178847488d410e9948aae764de3ae48",
+  "physical_tools_note": "All five programs use the same clean source, including grouped changed-key loads, direct new-locator output, and the bounded write-preparation budget.",
   "profile": "release",
   "locked_dependencies": true,
   "checks": {
@@ -15,10 +15,10 @@
     "release_build": "pass"
   },
   "sha256": {
-    "lastdbd": "752e97e2b52cdd010c0fdec12b1e1090e5b4b0d50051404b0a103e16ac991fe3",
-    "lastdb": "eb7957ecc61a73dd1fb64181cf45c6a18a0156619274f304cffa8bf6be8bdb37",
-    "lastdb-disk-home": "abc2d900763dac808831dcc576bdbb060480331aef8ba41b414105dfdc618aba",
-    "lastdb-disk-recovery": "a5c4c4dbbde1ee4c1fa99c7c82088041ecd16bf29ec45e30ab2bdd6524c6e70c",
-    "lastdb-pack-maintain": "7248c6cf33c36c0d28b5e391eefc83338150a235dd957d5f41d7e16a81e3b28e"
+    "lastdbd": "cc39681dce1cede8f38ba45411c3151151cae2f1294128eeda262f0a4a4c3fad",
+    "lastdb": "351e110c076c3774ec1a261667f973f107d4c2a9392cd09b765c2ba24f7ebfba",
+    "lastdb-disk-home": "fcc14b79dfd34f6520bc6ac08caaecc5b3c761ff3a825007ba9355d97d57ca85",
+    "lastdb-disk-recovery": "1d640b75f1bd5871f11171e61598a78d93f5e29e893732ac696fa3bc6afd1556",
+    "lastdb-pack-maintain": "09522824b324e15b97ee32fe07a6f3255159e4c24801d6bd4f2a9d642c87a435"
   }
 }

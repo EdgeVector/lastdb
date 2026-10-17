@@ -1,8 +1,13 @@
 # Local candidate checks
 
-Final product source: `ef1f2107`, including event batches and complete explicit-key warm reads.
+Final product source: `9a1c6a94`, including event batches and complete explicit-key warm reads.
 Optional query metadata stays within the call budget and can decline admission.
 The required data read retains its strict limits.
+Complete write preparation uses one held view with a separate 40,000-key work budget.
+Queries retain 10,000 keys; physical batches retain 10,000 slots.
+The write owner cannot lend its larger budget to a later query.
+Fresh native homes publish feature `0x20` before admission and permit 16,384 ordered stored operations.
+Existing homes and standalone artifacts retain 4,096. The batch byte cap stays at 128 MiB.
 Changed-key write preparation uses grouped reads for tips, delete barriers, and molecule generation pointers.
 A new hash group writes its sorted locator once. Existing locator trees keep their original update path.
 Later receipt and status documents do not change the product binaries.

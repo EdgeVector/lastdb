@@ -71,11 +71,19 @@ pub const FEATURE_FILE_LIFETIME: u64 = 8;
 /// completeness is valid only after this bit is durably published in CURRENT.
 pub const FEATURE_SCHEMA_RECORD_REFS: u64 = 16;
 
+/// Native batches admit 16,384 ordered storage operations instead of 4,096.
+/// The initial CURRENT fences older readers before any larger journal append.
+pub const FEATURE_LARGE_BATCHES: u64 = 32;
+
 const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
     | FEATURE_JOURNAL_LIFECYCLE
     | FEATURE_NATIVE_HOME
     | FEATURE_FILE_LIFETIME
-    | FEATURE_SCHEMA_RECORD_REFS;
+    | FEATURE_SCHEMA_RECORD_REFS
+    | FEATURE_LARGE_BATCHES;
+
+const LEGACY_BATCH_OPERATIONS: usize = 4096;
+const LARGE_BATCH_OPERATIONS: usize = 16_384;
 
 const PAGE_BYTES: usize = 16_384;
 const HEADER_BYTES: usize = 128;

@@ -42,7 +42,7 @@ impl TreeEdit {
     /// Journal operations and their original physical versions remain unchanged.
     pub(super) fn put_many(&mut self, call: &mut ReadCall, changes: &[MapChange]) -> Result<()> {
         if self.failed
-            || changes.len() > 4096
+            || changes.len() > call.current.batch_operation_limit()
             || changes.iter().any(|(key, _)| key.len() > super::KEY_BYTES)
             || changes.windows(2).any(|pair| pair[0].0 >= pair[1].0)
         {

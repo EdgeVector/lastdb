@@ -1,5 +1,10 @@
 # Native disk home API
 
+CAUTION: This page records the October 15 implementation step.
+Its limits and unfinished-work statements describe that step, not the current candidate.
+Use the [current source status](lastdb-disk-rollout-status.md) for the present boundaries and receipt links.
+Final candidate measurements remain pending.
+
 This change binds the disk reader and journal to saved LastStore placement and key identities.
 It does not select a native node backend, change the memory ack, or activate a primary home.
 The artifact format remains separate. No existing home upgrades implicitly.

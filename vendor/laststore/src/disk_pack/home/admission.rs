@@ -37,7 +37,9 @@ impl HomeJournal {
     /// Reserve journal and directory dependency capacity for all stored parts.
     /// This method does not authorize memory publication or a success ack.
     pub fn reserve_mutation(&self, operations: &[HomeMutation]) -> Result<MutationReservation> {
-        let quote = self.descriptor.quote_mutation(operations)?;
+        let quote = self
+            .descriptor
+            .quote_mutation_with_limit(operations, self.current().batch_operation_limit())?;
         self.writer
             .check_dependency_capacity(quote.dependency_parts())?;
         let journal = self.writer.reserve_quote(quote.journal())?;
@@ -58,7 +60,9 @@ impl HomeJournal {
         if reservation.generation != self.current().generation {
             return Err(corrupt("complete mutation reservation root changed"));
         }
-        let actual = self.descriptor.quote_mutation(&operations)?;
+        let actual = self
+            .descriptor
+            .quote_mutation_with_limit(&operations, self.current().batch_operation_limit())?;
         if actual.map_pages() > reservation.quote.map_pages()
             || actual.dependency_parts() > reservation.quote.dependency_parts()
             || actual.physical_bytes() > reservation.quote.physical_bytes()

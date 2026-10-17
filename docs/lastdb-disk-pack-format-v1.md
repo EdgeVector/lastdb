@@ -62,7 +62,7 @@ This version orders physical store changes. It does not replace an atom UUID, au
 | Body bytes | At most `u32::MAX`, equal to the legacy segment format |
 | One record | `96 + key_bytes + body_bytes`, with checked `u64` arithmetic |
 | One record location | One contiguous logical extent; no inter-record delta chain |
-| Complete batch encoding | At most 8 GiB and 4,096 operations; proposed format ceilings |
+| Complete batch encoding | At most 128 MiB and 4,096 operations; native feature `0x20` permits 16,384 operations |
 | Writer batch admission | Proposed 128 MiB; a separate runtime limit below the format ceiling |
 | Recovery suffix reserve | Proposed 512 MiB, including admitted work not yet appended |
 | Recovery suffix pressure | Materialize at 384 MiB or two seconds; refuse new writes at 512 MiB or five seconds |
@@ -128,7 +128,7 @@ The durable file and the in-process readable root identify the same published ge
 | 80 | 16 | Journal stream UUID for the checkpoint boundary |
 | 96 | 8 | Checkpoint batch sequence; normally equal to `F` |
 | 104 | 8 | Conversion descriptor page, or zero |
-| 112 | 8 | Required feature bits: complete object bounds `0x1`, checkpointed journal lifecycle `0x2`, native home descriptor `0x4`, file lifetime protocol `0x8`, schema-record reverse edges `0x10` |
+| 112 | 8 | Required feature bits: complete object bounds `0x1`, checkpointed journal lifecycle `0x2`, native home descriptor `0x4`, file lifetime protocol `0x8`, schema-record reverse edges `0x10`, larger native batches `0x20` |
 | 120 | 8 | Publication time, Unix milliseconds |
 | 128 | 32 | SHA-256 of all 4,096 bytes |
 | 160 | 32 | SHA-256 of the complete native home descriptor with feature `0x4`; otherwise zero |
@@ -148,6 +148,22 @@ Older programs refuse this bit before a schema write.
 The bit alone does not prove completeness.
 A memory ack also requires the decoded version-2 proof and each exact authoritative schema path.
 Generic conversion never grants `0x10`; imported proof bytes can be stale after a legacy writer.
+
+Native bit `0x20` also requires native bit `0x4`.
+It permits one complete ordered batch of at most 16,384 storage operations.
+New native homes, including new conversion destinations, publish this bit in their initial synced `CURRENT` before journal admission.
+Older readers refuse that root before any larger batch can reach its journal.
+Existing homes without this bit retain the 4,096-operation limit; this release does not upgrade them implicitly.
+Standalone artifacts cannot use the bit and retain the same 4,096-operation limit.
+
+The held root selects the count limit for admission, recovery, locator reads, and map publication.
+Context-free locator encode/decode and descriptor quotes retain the original limit.
+Operation indexes and marker counts keep their existing `u32` fields.
+The 128 MiB batch cap, suffix limits, part sizes, and dependency bounds remain unchanged.
+The extension neither splits a logical batch nor removes ordered operations.
+The `lastdb-disk-home` JSON command retains its separate 4,096-operation input limit.
+The node can produce more stored operations from one logical request through the native capability.
+Final generated-data evidence for the larger batch remains pending.
 Converted homes use the durable fallback until a separate complete-source bootstrap and writer fence.
 Local backups preserve the original complete root and its feature bits.
 A missing, old, or unreadable proof keeps the durable fallback.
@@ -456,7 +472,7 @@ BEGIN and COMMIT are each exactly 128 bytes:
 | 0 | 8 | BEGIN magic `LDJBG1\0\0` or COMMIT magic `LDJCM1\0\0` |
 | 8 | 2 | Format version, 1 |
 | 10 | 2 | Marker length, 128 |
-| 12 | 4 | Operation count, at most 4,096 |
+| 12 | 4 | Operation count, at most 4,096; a held native root with feature `0x20` permits 16,384 |
 | 16 | 8 | Batch sequence |
 | 24 | 8 | Previous complete batch sequence |
 | 32 | 16 | Journal stream UUID |

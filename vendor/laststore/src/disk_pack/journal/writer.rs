@@ -154,13 +154,18 @@ impl JournalWriter {
     pub fn reserve(&self, mutations: &[JournalMutation]) -> Result<super::JournalReservation> {
         self.reserve_quote(super::JournalQuote::from_plan(
             mutations.len(),
-            &BatchPlan::new(mutations)?,
+            &BatchPlan::new(mutations, self.current.batch_operation_limit())?,
         ))
     }
 
     /// Reserve checked dimensions without retaining or copying the body.
     pub fn reserve_quote(&self, quote: super::JournalQuote) -> Result<super::JournalReservation> {
         self.check_admission()?;
+        if quote.operations() > self.current.batch_operation_limit() {
+            return Err(super::refuse(
+                "batch exceeds held CURRENT operation capability",
+            ));
+        }
         self.admission.reserve(
             quote,
             self.reserved_bytes,
@@ -194,7 +199,7 @@ impl JournalWriter {
         mut reservation: super::JournalReservation,
     ) -> Result<DurableBatch> {
         self.check_admission()?;
-        let plan = BatchPlan::new(&mutations)?;
+        let plan = BatchPlan::new(&mutations, self.current.batch_operation_limit())?;
         reservation.validate(
             &self.admission,
             super::JournalQuote::from_plan(mutations.len(), &plan),
@@ -268,7 +273,7 @@ impl JournalWriter {
             .try_reserve_exact(mutations.len())
             .map_err(|_| super::refuse("location buffer admission failed"))?;
         let mut data = PackWriter::journal(&self.root, marker.stream, marker.sequence, generation)?;
-        let begin = marker.encode(false)?;
+        let begin = marker.encode(false, self.current.batch_operation_limit())?;
         data.append_raw(&begin)?;
         let mut hash = Sha256::new();
         hash.update(begin);
@@ -287,7 +292,7 @@ impl JournalWriter {
                 "journal COMMIT position differs from complete length",
             ));
         }
-        let commit = marker.encode(true)?;
+        let commit = marker.encode(true, self.current.batch_operation_limit())?;
         data.append_raw(&commit)?;
         let written = data.finish()?;
         if written.logical_bytes != plan.logical_bytes

@@ -39,7 +39,15 @@ impl MutationQuote {
 impl HomeDescriptor {
     /// Quote the complete staged store batch before any append or publication.
     pub fn quote_mutation(&self, operations: &[HomeMutation]) -> Result<MutationQuote> {
-        let journal = self.quote(operations)?;
+        self.quote_mutation_with_limit(operations, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
+    }
+
+    pub(super) fn quote_mutation_with_limit(
+        &self,
+        operations: &[HomeMutation],
+        operation_limit: usize,
+    ) -> Result<MutationQuote> {
+        let journal = self.quote_with_limit(operations, operation_limit)?;
         let mut groups = BTreeMap::<(&str, u16), BTreeMap<&str, ()>>::new();
         for operation in operations {
             groups

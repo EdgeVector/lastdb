@@ -41,10 +41,18 @@ impl HomeDescriptor {
 
     /// Quote a complete native batch without copying or retaining its bodies.
     pub fn quote(&self, operations: &[HomeMutation]) -> Result<JournalQuote> {
-        if operations.is_empty() || operations.len() > 4096 {
-            return Err(crate::Error::Config(
-                "native batch requires 1..4096 operations".into(),
-            ));
+        self.quote_with_limit(operations, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
+    }
+
+    pub(super) fn quote_with_limit(
+        &self,
+        operations: &[HomeMutation],
+        operation_limit: usize,
+    ) -> Result<JournalQuote> {
+        if operations.is_empty() || operations.len() > operation_limit {
+            return Err(crate::Error::Config(format!(
+                "native batch requires 1..{operation_limit} operations"
+            )));
         }
         let mut shapes = Vec::new();
         shapes
@@ -57,7 +65,7 @@ impl HomeDescriptor {
                 operation.body.as_ref().map(|body| body.len() as u64),
             )?);
         }
-        JournalQuote::from_shapes(&shapes)
+        JournalQuote::from_iter_with_limit(shapes, operation_limit)
     }
 }
 
@@ -131,8 +139,10 @@ impl HomeJournal {
     /// Own journal capacity before the batch transfers its stored bodies.
     /// This does not reserve directory space or authorize a memory ack.
     pub fn reserve(&self, operations: &[HomeMutation]) -> Result<JournalReservation> {
-        self.writer
-            .reserve_quote(self.descriptor.quote(operations)?)
+        self.writer.reserve_quote(
+            self.descriptor
+                .quote_with_limit(operations, self.current().batch_operation_limit())?,
+        )
     }
 
     /// Include unappended reservations in the bounded suffix pressure.
@@ -157,10 +167,11 @@ impl HomeJournal {
         accepted_ms: u64,
         reservation: JournalReservation,
     ) -> Result<DurableBatch> {
-        if operations.is_empty() || operations.len() > 4096 {
-            return Err(crate::Error::Config(
-                "native batch requires 1..4096 operations".into(),
-            ));
+        let operation_limit = self.current().batch_operation_limit();
+        if operations.is_empty() || operations.len() > operation_limit {
+            return Err(crate::Error::Config(format!(
+                "native batch requires 1..{operation_limit} operations"
+            )));
         }
         let addressed: Result<Vec<_>> = operations
             .into_iter()

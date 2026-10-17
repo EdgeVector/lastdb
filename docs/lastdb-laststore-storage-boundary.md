@@ -4,16 +4,19 @@ Selected engine and boundary design, 16 October 2026.
 
 Tom selected the original native LastStore packed-file engine for completion.
 R5′ finds file positions through directory and locator pages.
-R6′ reads the required bytes from packed files.
+R6′ reads the required bytes from journal or packed files.
 The final node work reuses these parts and preserves existing atom and tip records.
 The default backend and primary remain separate adoption decisions.
+Final generated-data measurements remain pending. See the [current source status](lastdb-disk-rollout-status.md).
 
 LastDB decides what a record means and whether it must remain.
 LastStore stores exact keys and bytes, then manages their disk space.
 The two components can stay in one process and share one release.
 Their boundary is a complete batch, a captured read view, and explicit resource limits.
 
-Keep molecule sharing, atom sharing, ordered ranges, and current values only.
+Preserve molecule sharing, atom sharing, ordered ranges, and existing current-record semantics.
+This unit preserves existing history records and their reference rules.
+The separate current-only proposal remains future work.
 Keep physical file positions out of molecule tips and cloud records.
 Use one storage engine for tips, atom bytes, and required control records.
 The selected engine is the existing native LastStore engine.
@@ -48,15 +51,24 @@ The tip contains no physical file number, page number, or byte position.
 An atom entry holds the stored bytes under that key.
 Different protein molecules can refer to the same entry.
 
-Small atom bytes sit beside their atom key inside a storage page.
-Larger atoms use additional pages under LastStore's control.
+A locator tree maps each exact key to a 128-byte physical location.
+The location names record bytes in a journal batch or packed file.
+Atom bytes do not sit inside locator leaves.
+The payload writer places many records in parts of at most 8 MiB.
+Compaction and artifact construction share one payload writer across hash groups.
+Each hash group retains a separate locator tree, so payload consolidation does not combine all metadata files.
+
 Large file blobs keep their separate file service and references.
-The precise page size and value threshold belong to the selected engine.
 
 Compaction can move an atom without a logical change to any referencing tip.
 LastStore changes its internal page references and protects earlier captured views.
-An engine can reuse free space during normal writes.
-Reuse does not necessarily shrink a file; a separate compact operation can reduce the allocated size.
+Normal writes create immutable journal and map parts.
+Reclaim returns obsolete whole files to the filesystem after the required holds and grace period end.
+The selected engine has no allocator that reuses holes inside a part.
+
+The supported physical frame mode is plain.
+Existing atom and field encryption remains inside the opaque stored value.
+Native conversion and frame decode refuse physical encrypted frames; the required key-epoch adapter is absent.
 
 ### Exact bytes and atom identity
 
@@ -99,8 +111,6 @@ Two logical lookups do not promise two physical disk reads.
 LastStore reports page work, file opens, read calls, and read bytes.
 
 All temporary page buffers and file handles end with the call.
-A continuation can retain an opaque view hold with an explicit limit and expiry.
-It does not retain decoded storage pages or admit a hash group to the warm set.
 No global atom-position map stays in application memory.
 
 ### Ordered ranges
@@ -112,8 +122,10 @@ Range work stays under the requested hash.
 
 A range page returns tip records first.
 LastDB then batches the distinct atom requests.
-A continuation binds the disk view, accepted memory view, range bounds, and codec context.
-An expired view returns an explicit expiry result.
+An in-call range cursor borrows the same captured read view through every page.
+The product continuation supplies the last key; the next request captures a fresh disk and accepted memory view.
+It does not promise one snapshot across requests.
+An opaque continuation with a held view, explicit limits, and expiry remains a future interface contract.
 
 Budget the examined keys, pages, bytes, and handles as well as the returned records.
 Do not read a complete hash group to answer one key.
@@ -157,6 +169,13 @@ Count other reservations, held exports, incomplete maintenance, and replacement 
 Take no credit for future compaction.
 Refuse a batch before the memory change when the complete reservation cannot fit.
 
+New native homes require feature `0x20` and permit at most 16,384 ordered storage operations in one complete batch.
+The initial synced root records that feature before journal admission; older readers refuse it.
+Existing homes without the feature and standalone artifacts retain their 4,096-operation limit.
+This release does not upgrade them implicitly.
+The 128 MiB batch cap and existing part and dependency bounds remain unchanged.
+These storage-operation limits are separate from query limits and the 10,000 logical records in the warm set.
+
 An accepted batch remains owned after caller cancellation.
 Normal shutdown drains accepted work.
 A failed or uncertain disk commit stops further write admission and retains the required recovery state.
@@ -188,11 +207,19 @@ LastStore does not decide whether a protein still needs an atom.
 
 LastStore separately protects bytes that an active read, export, backup, or recovery operation still needs.
 It can reuse those bytes only after those storage holds end.
-A physical compact operation receives finite byte, time, and temporary-space limits.
+Current compaction rewrites the whole home under the complete write gate.
+Its quote permits at most 65,536 collection/hash-group coordinates and one million records.
+The complete replacement output must fit the filesystem and any configured cap before reclaim returns old space.
+Reads can retain the earlier root, but new writes wait until compaction ends.
+This path supplies no incremental job or wall-clock work limit.
 It reports progress or a deferred result when a hold prevents reclaim.
 It never returns molecule positions for LastDB to redirect.
 
 ## Backup and cloud
+
+The native local backup and restore path exists.
+The cloud rules below describe the separate Layer 3 contract.
+Native cloud upload and bootstrap remain absent, and native startup refuses a cloud configuration.
 
 LastStore supplies a bounded export from one complete captured disk view.
 The export returns opaque keys and exact values, or an engine-owned backup operation.
@@ -217,7 +244,8 @@ An engine change must not weaken current encryption, recovery, or restore protec
 
 ## Minimum LastStore contract
 
-These names describe responsibilities. They do not fix Rust method names.
+These names describe a proposed storage-neutral interface. They do not fix Rust method names.
+The selected engine uses its existing native interfaces; this list does not claim that every proposed interface exists.
 
 | Operation | Required result |
 |---|---|
@@ -227,7 +255,7 @@ These names describe responsibilities. They do not fix Rust method names.
 | Resolve a commit | After recovery, resolve a batch token from its atomic receipt or frontier before any retry. |
 | Capture a view | Return an opaque complete view; keep its required bytes until release or defined expiry. |
 | Read many keys | Return exact values or absence in request order through one view and one explicit budget. |
-| Read a range page | Read only the supplied hash and bounds; return ordered results and a view-bound continuation. |
+| Read a range page | Read the supplied hash and bounds through one held call; a cross-request held-view continuation remains proposed. |
 | Export a view | Stream bounded exact records or create an engine-owned backup; preserve the captured state until completion. |
 | Maintain and report | Reuse or reclaim space within limits; report counts, holds, progress, and read/write costs. |
 
@@ -252,7 +280,7 @@ The status below describes source in the preserved candidate, not the primary.
 | Read views | The native adapter captures disk state, accepted writes, and a hold. | Add a storage-neutral view and a LastDB coordinator. |
 | Shared atom records | Tips already identify atoms; the direct-position format is only a proposal. | Keep stable exact body references and remove physical extents from the proposed tip. |
 | Backup and export | Backup paths expose LastStore-specific file operations. | Add bounded coherent export and opaque holds. |
-| Space reservation | Native reservations exist. The current caller uses a default with the hard cap disabled. | Connect a configured whole-home cap and concurrent reservations. |
+| Space reservation | Write, backup, and replacement reservations use the configured native policy. The hard cap is disabled by default. | Preserve owned reservations and complete replacement headroom. |
 | Encryption and restore | Wrappers, counter checks, and recovery protection exist. | Preserve those rules through the storage contract and any engine change. |
 
 The previous 384-byte direct-position format remains a historical proposal.

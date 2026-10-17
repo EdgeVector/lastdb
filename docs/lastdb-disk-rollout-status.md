@@ -6,7 +6,7 @@ R6′ reads the required bytes from packed files.
 The candidate keeps existing atom and tip records, with complete batches as the write boundary.
 It does not implement the later direct-position tip format or a new body-key codec.
 
-The final product source revision is `ef1f2107`, before the final receipts and status documents.
+The final product source revision is `9a1c6a94`, before the final receipts and status documents.
 The daemon, CLI, disk-home, recovery, and maintenance programs use that same clean source.
 The [completion receipts](proofs/layer2-completion-20261016/) identify each exact executable and configuration.
 The [final batch report](proofs/layer2-completion-20261016/batch-semantics.md) records complete responses, partial memory results, ordered change entries, flush, and reopen.
@@ -25,10 +25,11 @@ The [benchmark report](proofs/layer2-completion-20261016/benchmarks.md) separate
 | Warm set | Complete logical field paths, with a 10000-record cap. Repeated complete owner queries can reuse one key or an explicit key batch. |
 | Optional metadata | Complete memory coverage precedes value copies. Optional request metadata can decline admission without a failed data read. |
 | Change list | One ordered event vector uses bounded event-and-position writes, rather than a separate write for each event. |
-| Write preparation | Changed keys use the existing batch helper for tips, delete barriers, and one active-generation read per molecule. |
+| Write preparation | Changed keys use batch reads for tips, delete barriers, and molecule pointers. One exact write owner holds one 40,000-key work budget. Queries retain 10,000 keys. |
 | File lifetime | Read and backup holds protect required files. Compaction and reclaim remain inside LastStore. |
 | Packed payloads | Conversion and compaction share one payload writer across hash groups. Per-group locator trees remain separate. |
 | New hash groups | One direct sorted-tree write supplies the locator. No empty locator file precedes the real output. |
+| Complete batch size | Fresh native homes require feature `0x20` before admission and permit 16,384 stored operations. Existing homes retain 4,096. |
 | Disk cap | `LASTDB_DISK_CAP_BYTES` connects write, backup, and replacement reservations. Normal writes preserve 64 MiB of replacement headroom. |
 | Local recovery | Owner backup and flush routes, exact bundle validation, source-free local restore, and explicit forward and reverse conversion. |
 | Current status | `GET /api/db/native-status` reports accepted work and the durable boundary without a forced flush. |
@@ -41,6 +42,24 @@ A configured cap must be positive; admission counts current files and reserves r
 Unsupported or excessive shared paths use the durable fallback.
 Fresh empty LastDB homes use the version-2 schema-reference proof and feature bit `0x10`.
 Generic conversions preserve exact bytes but do not grant this derived authority from an imported proof.
+
+## Supported limits
+
+Physical read batches retain a 10,000-slot limit, including write preparation.
+Larger write work uses ordered chunks inside the same held call and complete pending batch.
+The call never resets its budget after an error.
+Write preparation retains the normal page, block, and byte limits.
+The warm set retains its separate 10,000-logical-record cap.
+One logical mutation can require many stored operations for its atoms, tips, shared references, and delete work.
+The 16,384-operation feature keeps the same 32-bit operation numbers and 128 MiB batch byte cap.
+Older readers refuse the feature before data access. This change does not upgrade existing homes automatically.
+
+Compaction rewrites the complete native home under the complete write gate.
+Its quote permits at most 65,536 coordinates and 1,000,000 records.
+It requires replacement space under a configured disk cap.
+Payload files share packed data; each hash group retains its locator files.
+The engine preserves opaque field bytes but refuses the separate physical encrypted-frame format.
+The small generated homes do not establish behavior at the full warm-set cap.
 
 ## Adoption boundary
 
