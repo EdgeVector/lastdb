@@ -1,0 +1,5 @@
+{
+  "performance_excluded_from_final": true,
+  "purpose": "Find the exact shared dependency that invalidates warm queries. Debug logs enabled.",
+  "finding": "The automatically included hash field shares one atom. Each update rewrites its encrypted body. Byte-level dependency checks reject all unchanged paths."
+}

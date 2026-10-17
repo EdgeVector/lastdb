@@ -1,0 +1,1478 @@
+[
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2506752,
+    "candidate": 2605056
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2523136,
+    "candidate": 2605056
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2801664,
+    "candidate": 2883584
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2818048,
+    "candidate": 2899968
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3375104,
+    "candidate": 3457024
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3407872,
+    "candidate": 3489792
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 5341184,
+    "candidate": 5390336
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 5373952,
+    "candidate": 5455872
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2506752,
+    "candidate": 2605056
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2506752,
+    "candidate": 2605056
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 1,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 1294648,
+    "candidate": 1311032
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3080192,
+    "candidate": 3129344
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3080192,
+    "candidate": 3162112
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4407296,
+    "candidate": 4472832
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 4456448,
+    "candidate": 4505600
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 7766016,
+    "candidate": 7815168
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 7798784,
+    "candidate": 7897088
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 6603088,
+    "candidate": 6619472
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2506752,
+    "candidate": 2605056
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2539520,
+    "candidate": 2605056
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2736128,
+    "candidate": 2818048
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2736128,
+    "candidate": 2834432
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 16,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 1524024,
+    "candidate": 1540408
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3112960,
+    "candidate": 3211264
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3145728,
+    "candidate": 3244032
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 64,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 1933624,
+    "candidate": 1950008
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4456448,
+    "candidate": 4538368
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 4505600,
+    "candidate": 4587520
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2523136,
+    "candidate": 2572288
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2539520,
+    "candidate": 2588672
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2801664,
+    "candidate": 2850816
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2834432,
+    "candidate": 2899968
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 16,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 1638736,
+    "candidate": 1655120
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3375104,
+    "candidate": 3391488
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3391488,
+    "candidate": 3457024
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 64,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 2195792,
+    "candidate": 2212176
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 5488640,
+    "candidate": 5537792
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 5521408,
+    "candidate": 5570560
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3178496,
+    "candidate": 3227648
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3227648,
+    "candidate": 3293184
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 1,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 1884496,
+    "candidate": 1900880
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3407872,
+    "candidate": 3457024
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3489792,
+    "candidate": 3506176
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3702784,
+    "candidate": 3735552
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3817472,
+    "candidate": 3850240
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4407296,
+    "candidate": 4472832
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 4472832,
+    "candidate": 4669440
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 256,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 3129680,
+    "candidate": 3277136
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3162112,
+    "candidate": 3227648
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3244032,
+    "candidate": 3276800
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3424256,
+    "candidate": 3440640
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3473408,
+    "candidate": 3522560
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3653632,
+    "candidate": 3686400
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3735552,
+    "candidate": 3784704
+  },
+  {
+    "profile": "physical-1k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4227072,
+    "candidate": 4259840
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2490368,
+    "candidate": 2572288
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2490368,
+    "candidate": 2572288
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2703360,
+    "candidate": 2752512
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2703360,
+    "candidate": 2768896
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2899968,
+    "candidate": 2998272
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2932736,
+    "candidate": 3014656
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3702784,
+    "candidate": 3768320
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3784704,
+    "candidate": 3817472
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2490368,
+    "candidate": 2572288
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2490368,
+    "candidate": 2572288
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2932736,
+    "candidate": 3014656
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2949120,
+    "candidate": 3014656
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4014080,
+    "candidate": 4079616
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 4014080,
+    "candidate": 4079616
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 5996544,
+    "candidate": 6029312
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 6045696,
+    "candidate": 6127616
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2490368,
+    "candidate": 2572288
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2490368,
+    "candidate": 2572288
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2670592,
+    "candidate": 2752512
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2686976,
+    "candidate": 2752512
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2883584,
+    "candidate": 2949120
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2883584,
+    "candidate": 2965504
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3473408,
+    "candidate": 3571712
+  },
+  {
+    "profile": "physical-128",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3522560,
+    "candidate": 3604480
+  },
+  {
+    "profile": "physical-128",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2490368,
+    "candidate": 2539520
+  },
+  {
+    "profile": "physical-128",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2506752,
+    "candidate": 2555904
+  },
+  {
+    "profile": "physical-128",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2686976,
+    "candidate": 2736128
+  },
+  {
+    "profile": "physical-128",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2703360,
+    "candidate": 2752512
+  },
+  {
+    "profile": "physical-128",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2850816,
+    "candidate": 2916352
+  },
+  {
+    "profile": "physical-128",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2899968,
+    "candidate": 2949120
+  },
+  {
+    "profile": "physical-128",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3489792,
+    "candidate": 3555328
+  },
+  {
+    "profile": "physical-128",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3522560,
+    "candidate": 3588096
+  },
+  {
+    "profile": "physical-128",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 256,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 2326864,
+    "candidate": 2343248
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3112960,
+    "candidate": 3194880
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3194880,
+    "candidate": 3260416
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 1,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 1835320,
+    "candidate": 1851704
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3325952,
+    "candidate": 3342336
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3407872,
+    "candidate": 3424256
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3489792,
+    "candidate": 3538944
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3571712,
+    "candidate": 3670016
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 64,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 2228560,
+    "candidate": 2277712
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3768320,
+    "candidate": 3866624
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3129344,
+    "candidate": 3178496
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3194880,
+    "candidate": 3244032
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3309568,
+    "candidate": 3342336
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3407872,
+    "candidate": 3424256
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3424256,
+    "candidate": 3506176
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3571712,
+    "candidate": 3620864
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3604480,
+    "candidate": 3620864
+  },
+  {
+    "profile": "physical-128",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3735552,
+    "candidate": 3784704
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2605056,
+    "candidate": 2654208
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2605056,
+    "candidate": 2654208
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4423680,
+    "candidate": 4489216
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 4440064,
+    "candidate": 4489216
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 9797632,
+    "candidate": 9846784
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 9846784,
+    "candidate": 9863168
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 31031296,
+    "candidate": 31047680
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 31064064,
+    "candidate": 31096832
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2605056,
+    "candidate": 2654208
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2605056,
+    "candidate": 2654208
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4587520,
+    "candidate": 4669440
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 4620288,
+    "candidate": 4669440
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 11190272,
+    "candidate": 11288576
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 11223040,
+    "candidate": 11304960
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 33587200,
+    "candidate": 33701888
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 33636352,
+    "candidate": 33783808
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 32457064,
+    "candidate": 32522600
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2605056,
+    "candidate": 2654208
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2605056,
+    "candidate": 2654208
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3702784,
+    "candidate": 3751936
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3702784,
+    "candidate": 3768320
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 16,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 2539832,
+    "candidate": 2556216
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 7028736,
+    "candidate": 7094272
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 7061504,
+    "candidate": 7110656
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 20185088,
+    "candidate": 20217856
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 20234240,
+    "candidate": 20267008
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 2621440,
+    "candidate": 2654208
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 2637824,
+    "candidate": 2670592
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4784128,
+    "candidate": 4816896
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 4800512,
+    "candidate": 4833280
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 11583488,
+    "candidate": 11599872
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 11599872,
+    "candidate": 11632640
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "range",
+    "pattern": "bounded",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 30195712,
+    "candidate": 38633472
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3391488,
+    "candidate": 3440640
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3489792,
+    "candidate": 3522560
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4079616,
+    "candidate": 4096000
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 16,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 4161536,
+    "candidate": 4194304
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 6111232,
+    "candidate": 6160384
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 6209536,
+    "candidate": 6242304
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 13860864,
+    "candidate": 13910016
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "distinct",
+    "batch": 256,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 12517712,
+    "candidate": 12534120
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 1,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 3440640,
+    "candidate": 3506176
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 1,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 3506176,
+    "candidate": 3571712
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 1,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 2163024,
+    "candidate": 2195816
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 16,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4128768,
+    "candidate": 4161536
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 64,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 6094848,
+    "candidate": 6127616
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 64,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 6144000,
+    "candidate": 6176768
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 64,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 4800848,
+    "candidate": 4800872
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 13615104,
+    "candidate": 13647872
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 13680640,
+    "candidate": 13778944
+  },
+  {
+    "profile": "physical-16k",
+    "operation": "write",
+    "pattern": "repeated",
+    "batch": 256,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 12337488,
+    "candidate": 12386640
+  },
+  {
+    "profile": "physical-many-maps",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 5570560,
+    "candidate": 5668864
+  },
+  {
+    "profile": "physical-many-maps",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 5586944,
+    "candidate": 5685248
+  },
+  {
+    "profile": "physical-many-maps",
+    "operation": "read",
+    "pattern": "contiguous",
+    "batch": 256,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 4391248,
+    "candidate": 4407632
+  },
+  {
+    "profile": "physical-many-maps",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 10207232,
+    "candidate": 10240000
+  },
+  {
+    "profile": "physical-many-maps",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 10240000,
+    "candidate": 10338304
+  },
+  {
+    "profile": "physical-many-maps",
+    "operation": "read",
+    "pattern": "scattered",
+    "batch": 256,
+    "metric": "maximum_process_peak_memory_bytes",
+    "baseline": 9044304,
+    "candidate": 9060688
+  },
+  {
+    "profile": "physical-many-maps",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 256,
+    "metric": "median_process_maximum_resident_bytes",
+    "baseline": 4423680,
+    "candidate": 4505600
+  },
+  {
+    "profile": "physical-many-maps",
+    "operation": "read",
+    "pattern": "duplicates",
+    "batch": 256,
+    "metric": "maximum_process_maximum_resident_bytes",
+    "baseline": 4456448,
+    "candidate": 4538368
+  }
+]

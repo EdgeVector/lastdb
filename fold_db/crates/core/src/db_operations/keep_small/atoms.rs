@@ -14,6 +14,30 @@ impl KeepSmallMeters {
     ) {
         self.atom_bytes.fetch_add(logical_bytes, Ordering::Relaxed);
         self.atom_count.fetch_add(1, Ordering::Relaxed);
+        self.remember_atom_contribution(
+            schema,
+            atom_uuid,
+            logical_bytes,
+            blob_reference_bytes,
+            contribution_complete,
+        );
+        self.with_schema(schema, |meter| {
+            meter.live_bytes = meter.live_bytes.saturating_add(logical_bytes);
+            meter.atom_count = meter.atom_count.saturating_add(1);
+            Self::add_appended(meter, logical_bytes);
+        });
+    }
+
+    /// Refresh a reused immutable atom's tip contribution without counting a
+    /// body put, appended bytes, or a new live atom.
+    pub(crate) fn remember_atom_contribution(
+        &self,
+        schema: &str,
+        atom_uuid: &str,
+        logical_bytes: u64,
+        blob_reference_bytes: u64,
+        contribution_complete: bool,
+    ) {
         if let Ok(mut pending) = self.pending_atoms.lock() {
             pending.insert(
                 atom_uuid.to_string(),
@@ -29,11 +53,6 @@ impl KeepSmallMeters {
             self.molecule_counters_complete
                 .store(false, Ordering::Relaxed);
         }
-        self.with_schema(schema, |meter| {
-            meter.live_bytes = meter.live_bytes.saturating_add(logical_bytes);
-            meter.atom_count = meter.atom_count.saturating_add(1);
-            Self::add_appended(meter, logical_bytes);
-        });
     }
 
     /// After [`Self::record_atom_put`] of a replacement body, subtract the

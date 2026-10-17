@@ -1,0 +1,5 @@
+{
+  "source_at_build_start": "eed8b2cc0ff83ce3b2feaf3ec5e8c0e7718345ac",
+  "purpose": "debug only; no performance comparison",
+  "binary_sha256": "128b5bfdbe30a453e61422ca2de98170bf18de2465ab36607ddf9ad68b20d3d7"
+}

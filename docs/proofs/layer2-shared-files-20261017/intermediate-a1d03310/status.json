@@ -1,0 +1,7 @@
+{
+  "completed": false,
+  "performance_excluded_from_final": true,
+  "reason": "Unchanged exact reads still used files after unrelated writes; baseline queued Delete acknowledgement also returned before native erasure. Both nodes stopped normally.",
+  "before_source": "7110c7f54ea005e33678b5c93e89353d6117b41f",
+  "after_source": "a1d03310e433b99c788657ef149193776bf5aff6"
+}

@@ -1,7 +1,9 @@
 # Layer 2 comparison recipe
 
 The baseline source is `7110c7f54ea005e33678b5c93e89353d6117b41f`.
-The new source is `a1d03310e433b99c788657ef149193776bf5aff6`.
+The physical command source is `a1d03310e433b99c788657ef149193776bf5aff6`.
+The final node source and saved program hashes appear in `provenance.json`.
+The later node changes do not change the vendor storage code.
 The comparison uses saved programs with recorded SHA-256 hashes.
 Both use native LastStore storage.
 
@@ -68,8 +70,10 @@ Use five alternating rounds per program.
 Keep thread setup and result collection outside the acknowledgement interval.
 Record the complete wall time separately.
 
-Delete 16 keys through one queued request, then read the affected keys before flush.
+Delete 16 keys through one durable request in both programs, then read the affected keys.
 Flush and read the bounded range. Recreate those keys and repeat the reads.
+The new program also receives one queued Delete request.
+Its reply states the stronger durable guarantee. The next read must show the deletion.
 Read all 320 explicit keys after the complete change.
 The other records still reference shared field atoms during this operation.
 

@@ -298,7 +298,10 @@ impl MutationManager {
             deleted: erased,
             ..Default::default()
         });
-        if self.native_erasure_requires_durable() {
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            // Every erase can be spared. Cover the earlier writes explicitly
+            // before upgrading the whole mixed request's durability receipt.
+            runtime.flush_native().await?;
             receipt.durability = ResidentDurability::Durable;
         }
         crate::request_phases::add_counter(
