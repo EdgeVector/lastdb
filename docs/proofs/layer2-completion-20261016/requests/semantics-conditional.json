@@ -1,0 +1,18 @@
+{
+  "type": "mutation",
+  "schema": "SemanticsProof",
+  "mutation_type": "update",
+  "convergence": "async",
+  "key_value": {
+    "hash": "generated",
+    "range": "record-0"
+  },
+  "fields_and_values": {
+    "title": "conditional-value"
+  },
+  "expected": {
+    "type": "value",
+    "field": "title",
+    "value": "title-0"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "convergence": "async",
+  "mutations": [
+    {
+      "type": "mutation",
+      "schema": "SemanticsProof",
+      "mutation_type": "update",
+      "key_value": {
+        "hash": "generated",
+        "range": "record-0"
+      },
+      "fields_and_values": {
+        "title": "repeat-A"
+      }
+    },
+    {
+      "type": "mutation",
+      "schema": "SemanticsProof",
+      "mutation_type": "update",
+      "key_value": {
+        "hash": "generated",
+        "range": "record-0"
+      },
+      "fields_and_values": {
+        "title": "repeat-B"
+      }
+    },
+    {
+      "type": "mutation",
+      "schema": "SemanticsProof",
+      "mutation_type": "update",
+      "key_value": {
+        "hash": "generated",
+        "range": "record-0"
+      },
+      "fields_and_values": {
+        "title": "repeat-C"
+      }
+    }
+  ]
+}

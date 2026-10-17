@@ -1,9 +1,20 @@
 # Local native storage completion, October 16, 2026
 
-CAUTION: The first candidate exposes two defects below.
-The corrected candidate must complete the remaining checks before this report states local completion.
+The corrected candidate completes the local backup, restore, compaction, and forward/reverse conversion checks below.
+The final node-only query guard receives a separate reopen check.
+The first candidate's two defects and their receipts remain recorded below.
 
-## Frozen candidate
+## Component versions
+
+The corrected recovery checks use source `55c6d9aedf20bc66f47669df1114d95fde5d0fb4`.
+
+- `lastdbd` SHA-256: `c6d9aac4a84028a586d11a1824a6c6b0846eba4115d3c8b1e38af33ab59d21a9`.
+- `lastdb-disk-recovery` SHA-256: `b0f8cb7c408c83194d0f58c6bceb11f38eed0acf104dbbc69d03c651b8410759`.
+
+The later node-only query guard changes no backup, restore, or converter source.
+Its final node hash and reopen receipt remain pending below.
+
+The first candidate uses these separate versions:
 
 - Source: `d1fae6469f6ea0244840e604d8212700660106e1`.
 - `lastdbd` SHA-256: `bd18e500cd961a1867664ed843c16389921bb44a8e8cd8d2adadeee192e5a2d6`.
@@ -65,18 +76,47 @@ The factory omits the atom content key for a native backend.
 The opaque converter preserves older field encryption correctly, but the native read cannot open it.
 The source fix gives native plain frames the same field codec as plain hash-group storage.
 That codec also reads older native data whose fields lack the inner encryption envelope.
-The new candidate must repeat the product checks with those two stored forms.
+The corrected product checks below cover those two stored forms.
 
 ## Corrected candidate results
 
 | Product path | Actual receipt |
 |---|---|
-| Shared data through two protein keys | Pending |
-| Native local backup | Pending |
-| Restore without the source path | Pending |
-| Native compaction after restore | Pending |
-| Legacy to native conversion | Pending |
-| Latest native data to legacy conversion | Pending |
+| Shared data through two protein keys | [Matching atom IDs](final-shared-atoms.json) through different molecule IDs |
+| Older native content, source-free restore | [1,009 files; 16,977,194 bytes](final-old-native-restore.json); [both keys and ranges correct](final-old-native-query.json) |
+| Native compaction after restore | [960 live records; 30 tombstones](final-old-native-compact.json); parts 1,008 → 805; 1,012 files removed |
+| New native write and local backup | [879 files; 16,068,100 bytes](final-native-backup.json), generation 240, last batch 118 |
+| New native source-free restore | [Same file count and bytes](final-new-native-restore.json); [all 24 latest records through both keys](final-new-native-restored-query.json) |
+| Legacy to native conversion | [939 records copied](final-forward-convert.json); [plaintext values and both ranges preserved](final-forward-query.json) |
+| Latest native data to legacy conversion | [1,008 records; 409,319 opaque bytes](final-reverse-convert.json); [later update and new record preserved](final-reverse-query.json) |
+
+The exact-key requests name records 000 through 024.
+After the alternate-key deletion, both schemas return 23 records and omit record 023.
+The later native batch changes record 000 and creates record 024.
+Both schemas then return 24 records, omit record 023, and retain the latest fields.
+Both bounded ranges return 010 and 011 with a continuation.
+Both absent-key queries return no records.
+
+The logical response digest includes the statuses, keys, field values, range continuation, and absence results.
+It excludes timings, receipts, and other storage metadata.
+
+| Before and after | Matching SHA-256 |
+|---|---|
+| Fresh legacy data → converted native data | `f4e0ba89a293328f90b0d67d25e91232a550c3e5155296568fd16faece38085d` |
+| Latest native data → restored native data | `acc61ba2335897e0f520fbecc046398631c5683b65d8ddf15cdc77825c362c11` |
+| Later converted-native data → reverse-converted legacy data | `acc61ba2335897e0f520fbecc046398631c5683b65d8ddf15cdc77825c362c11` |
+
+The compaction receipt records files 1,020 → 814 and bytes 17,347,123 → 14,701,451.
+The explicit zero grace applies only to this generated home.
+A query request overlaps the pending compaction request and returns the complete two-key result.
+This receipt does not measure device-cold performance or prove an exact read across the publication instant.
+
+## Final node-only reopen
+
+Pending the final query-guard node binary.
+This check reuses the stopped restored native home and the same generated identity.
+It repeats the complete key/range batch and title/body/title projections.
+It changes no backup or conversion result above.
 
 ## Cloud boundary
 
@@ -94,4 +134,7 @@ The native implementation limits that result to 10,000 records and does not supp
 ## Operational commands and cleanup
 
 See [the product command sequence](operations.md).
-The final result records each owned node's clean stop and scratch cleanup state.
+The corrected native and reverse-converted legacy nodes stop with exit status 0.
+Their [shutdown receipts](final-shutdown-summary.json) report a complete flush.
+The generated scratch root remains retained for the final node-only reopen check.
+It contains no primary data or archive data.

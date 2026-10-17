@@ -1,0 +1,11 @@
+{
+  "type": "mutation",
+  "schema": "SemanticsProof",
+  "mutation_type": "delete",
+  "convergence": "sync",
+  "key_value": {
+    "hash": "generated",
+    "range": "record-7"
+  },
+  "fields_and_values": {}
+}

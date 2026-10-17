@@ -36,6 +36,13 @@ impl QueryExecutor {
             )?
             .filter(crate::storage::disk_pack::WarmQueryFields::complete_wire_metadata)
             {
+                let (api, opaque) = match warm.key_form() {
+                    Some("api") => (1, 0),
+                    Some("opaque") => (0, 1),
+                    Some("mixed") => (1, 1),
+                    _ => (0, 0),
+                };
+                crate::db_operations::note_page_key_forms(api, opaque);
                 return Ok(warm.fields);
             }
         }

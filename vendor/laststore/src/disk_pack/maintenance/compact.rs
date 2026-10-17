@@ -37,6 +37,7 @@ pub(in crate::disk_pack) fn compact_locked(
     current.previous_generation = previous.generation;
     current.published_ms = artifact::unix_ms();
     let mut directory = TreeWriter::new(root, TreeKind::Directory, current.generation)?;
+    let mut pack = PackWriter::new(root, current.generation)?;
     let mut compactor = Compactor {
         lock,
         current,
@@ -51,10 +52,17 @@ pub(in crate::disk_pack) fn compact_locked(
     while let Some((key, value)) = cursor.next(&mut call)? {
         let entry = DirectoryEntry::decode(&value)?;
         let collection = collection(&key, entry.group)?;
-        let replacement = compactor.group(&previous, &collection, &entry)?;
+        let replacement = compactor.group(&previous, &collection, &entry, &mut pack)?;
         directory.add(&key, replacement.encode()?)?;
         call = artifact::metadata_call(root, previous.clone());
     }
+    let data = pack.finish()?;
+    compactor.dependencies.add_payload(
+        data.object,
+        data.sequence,
+        data.data_parts,
+        data.map_pages,
+    )?;
     let (tree, parts) = directory.finish_with_parts()?;
     compactor.dependencies.add_contiguous_tree(&tree, parts)?;
     compactor.current.directory = tree;
@@ -76,10 +84,10 @@ impl Compactor<'_> {
         previous: &Current,
         collection: &str,
         entry: &DirectoryEntry,
+        pack: &mut PackWriter,
     ) -> Result<DirectoryEntry> {
         let root = self.lock.root();
         let mut locator = TreeWriter::new(root, TreeKind::Locator, self.current.generation)?;
-        let mut pack = PackWriter::new(root, self.current.generation)?;
         let mut call = artifact::metadata_call(root, previous.clone());
         let mut cursor = TreeCursor::seek(&mut call, entry.locator.clone(), b"")?;
         let mut records = 0u64;
@@ -108,13 +116,6 @@ impl Compactor<'_> {
             locator.add(&key, location.encode()?)?;
             call = artifact::metadata_call(root, previous.clone());
         }
-        let data = pack.finish()?;
-        self.dependencies.add_payload(
-            data.object,
-            data.sequence,
-            data.data_parts,
-            data.map_pages,
-        )?;
         let (locator, parts) = locator.finish_with_parts()?;
         self.dependencies.add_contiguous_tree(&locator, parts)?;
         Ok(DirectoryEntry {

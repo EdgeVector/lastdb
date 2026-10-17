@@ -1,0 +1,16 @@
+{
+  "type": "mutation",
+  "schema": "SemanticsProof",
+  "mutation_type": "create",
+  "convergence": "async",
+  "key_value": {
+    "hash": "generated",
+    "range": "record-7"
+  },
+  "fields_and_values": {
+    "bucket": "generated",
+    "id": "record-7",
+    "title": "title-7",
+    "body": "body-7"
+  }
+}

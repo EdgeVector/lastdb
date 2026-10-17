@@ -16,6 +16,7 @@ use uuid::Uuid;
 pub struct ArtifactBuilder {
     root: PathBuf,
     directory: TreeWriter,
+    pack: PackWriter,
     generation: u64,
     frontier: u64,
     placement_codec: u16,
@@ -31,7 +32,6 @@ pub struct GroupWriter<'a> {
     owner: &'a mut ArtifactBuilder,
     collection: String,
     group: u16,
-    pack: Option<PackWriter>,
     locator: Option<TreeWriter>,
     finished: bool,
 }
@@ -91,9 +91,11 @@ impl ArtifactBuilder {
             directory(&root.join(name))?;
         }
         let directory = TreeWriter::new(root, TreeKind::Directory, generation)?;
+        let pack = PackWriter::new(root, generation)?;
         Ok(Self {
             root: root.to_path_buf(),
             directory,
+            pack,
             generation,
             frontier,
             placement_codec,
@@ -125,14 +127,12 @@ impl ArtifactBuilder {
         }
         self.failed = true;
         ReadCall::directory_key(collection, group)?;
-        let pack = PackWriter::new(&self.root, self.generation)?;
         let locator = TreeWriter::new(&self.root, TreeKind::Locator, self.generation)?;
         self.failed = false;
         Ok(GroupWriter {
             owner: self,
             collection: collection.to_string(),
             group,
-            pack: Some(pack),
             locator: Some(locator),
             finished: false,
         })
@@ -146,6 +146,13 @@ impl ArtifactBuilder {
                 "refusing incomplete or failed artifact publication",
             ));
         }
+        let data = self.pack.finish()?;
+        self.dependencies.add_payload(
+            data.object,
+            data.sequence,
+            data.data_parts,
+            data.map_pages,
+        )?;
         let (directory, parts) = self.directory.finish_with_parts()?;
         self.dependencies.add_contiguous_tree(&directory, parts)?;
         let current = Current {
@@ -199,13 +206,10 @@ impl GroupWriter<'_> {
         body: &mut dyn Read,
     ) -> Result<Location> {
         self.check_version(version)?;
-        let location = self.pack.as_mut().expect("active group").put(
-            &self.collection,
-            key,
-            version,
-            body_bytes,
-            body,
-        )?;
+        let location = self
+            .owner
+            .pack
+            .put(&self.collection, key, version, body_bytes, body)?;
         self.locator
             .as_mut()
             .expect("active group")
@@ -252,18 +256,12 @@ impl GroupWriter<'_> {
         Ok(())
     }
 
-    /// Make the complete group durable before its directory value can be published.
+    /// Complete this group's private map. The builder makes the shared payload
+    /// durable before it publishes the complete directory.
     pub fn finish(mut self) -> Result<()> {
         if self.owner.failed {
             return Err(corrupt("refusing failed group publication"));
         }
-        let data = self.pack.take().expect("active group").finish()?;
-        self.owner.dependencies.add_payload(
-            data.object,
-            data.sequence,
-            data.data_parts,
-            data.map_pages,
-        )?;
         let (locator, parts) = self
             .locator
             .take()

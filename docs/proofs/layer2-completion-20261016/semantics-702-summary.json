@@ -1,0 +1,101 @@
+{
+  "source": "70295dcbb",
+  "binary_sha256": "7516e78a1c54152ab49b0136dcb39b75b5280138fdf976c1c31e939514123572",
+  "status": "Projection alternation and mutation operations pass. Alias key-form restoration awaits the next binary.",
+  "warm_pairs": [
+    {
+      "reference": "point-cold",
+      "response": "point-warm",
+      "equal_full_json": true,
+      "key_form": "opaque",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "reference": "desc-cold",
+      "response": "desc-warm",
+      "equal_full_json": true,
+      "key_form": "opaque",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "reference": "projection-cold",
+      "response": "projection-warm",
+      "equal_full_json": true,
+      "key_form": "opaque",
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    },
+    {
+      "reference": "point-cold",
+      "response": "point-after-projection",
+      "equal_full_json": true,
+      "key_form": "opaque",
+      "file_opens": 14,
+      "read_operations": 32,
+      "payload_bytes": 9003,
+      "metadata_operations": 35
+    },
+    {
+      "reference": "projection-cold",
+      "response": "projection-after-alias",
+      "equal_full_json": true,
+      "key_form": "opaque",
+      "file_opens": 14,
+      "read_operations": 32,
+      "payload_bytes": 9003,
+      "metadata_operations": 35
+    },
+    {
+      "reference": "alias-cold",
+      "response": "alias-warm",
+      "equal_full_json": true,
+      "key_form": null,
+      "file_opens": 0,
+      "read_operations": 0,
+      "payload_bytes": 0,
+      "metadata_operations": 0
+    }
+  ],
+  "repeat": {
+    "input_order": [
+      "repeat-A",
+      "repeat-B",
+      "repeat-C"
+    ],
+    "mutation_ids": [
+      "c00ea52b-6eea-426c-8ec3-b904af348680",
+      "2363edae-c45d-4aeb-8214-913997d936c1",
+      "4969a564-932c-4c01-adb5-2f1d399b9457"
+    ],
+    "expected_winner": "repeat-A",
+    "observed_winner": "repeat-A",
+    "comparison": "One author clock per batch, then greatest mutation UUID."
+  },
+  "ordinary_occupancy": {
+    "resident_key_count": 19,
+    "resident_key_budget": 10000,
+    "resident_held_keys": 0,
+    "resident_over_cap_keys": 0,
+    "resident_purged_keys": 0
+  },
+  "native_after_conditional_ack": {
+    "accepted_batch": true,
+    "frontier": 51,
+    "generation": 105,
+    "writer_failed": false
+  },
+  "native_after_flush": {
+    "accepted_batch": false,
+    "frontier": 65,
+    "generation": 133,
+    "writer_failed": false
+  }
+}
