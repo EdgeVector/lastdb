@@ -58,6 +58,7 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Option<Atom>, SchemaError> {
         let prefixed = crate::atom::AtomKeyEncoding::PartitionPrefix;
+        let primary = self.primary_atom_key(atom_uuid, partition_hint, storage_prefix);
 
         if let Some(hint) =
             partition_hint.filter(|_| self.atom_key_encoding().writes_partition_prefix())
@@ -67,13 +68,31 @@ impl AtomStore {
                 &atom_key_codec::storage_key(prefixed, Some(hint), atom_uuid),
             );
             if let Some(raw) = self.get_atom_value(&key).await? {
-                return Ok(Some(self.decode_atom_bytes(&raw).await?));
+                return Ok(Some(
+                    self.decode_atom_at_source(
+                        &key,
+                        &raw,
+                        storage_prefix,
+                        partition_hint,
+                        &primary,
+                    )
+                    .await?,
+                ));
             }
         }
 
         let flat_key = build_storage_key(storage_prefix, &atom_key_codec::flat_key(atom_uuid));
         if let Some(raw) = self.get_atom_value(&flat_key).await? {
-            return Ok(Some(self.decode_atom_bytes(&raw).await?));
+            return Ok(Some(
+                self.decode_atom_at_source(
+                    &flat_key,
+                    &raw,
+                    storage_prefix,
+                    partition_hint,
+                    &primary,
+                )
+                .await?,
+            ));
         }
 
         let Some(partition) = self
@@ -87,7 +106,16 @@ impl AtomStore {
             &atom_key_codec::storage_key(prefixed, Some(&partition), atom_uuid),
         );
         match self.get_atom_value(&located_key).await? {
-            Some(raw) => Ok(Some(self.decode_atom_bytes(&raw).await?)),
+            Some(raw) => Ok(Some(
+                self.decode_atom_at_source(
+                    &located_key,
+                    &raw,
+                    storage_prefix,
+                    partition_hint,
+                    &primary,
+                )
+                .await?,
+            )),
             None => Ok(None),
         }
     }
@@ -120,7 +148,7 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Vec<Option<Atom>>, SchemaError> {
         let encoding = self.atom_key_encoding();
-        let keys: Vec<String> = slots
+        let mut keys: Vec<String> = slots
             .iter()
             .map(|(uuid, partition)| {
                 build_storage_key(
@@ -129,10 +157,12 @@ impl AtomStore {
                 )
             })
             .collect();
+        let primary = keys.clone();
         let mut out = self.get_atoms_by_storage_keys(&keys).await?;
 
         if !encoding.writes_partition_prefix() {
             // The keys above ARE the flat keys. Nothing else can exist.
+            self.bind_atom_sources(storage_prefix, slots, &keys, &out, &primary)?;
             return Ok(out);
         }
 
@@ -149,14 +179,29 @@ impl AtomStore {
                 .iter()
                 .map(|&i| build_storage_key(storage_prefix, &atom_key_codec::flat_key(slots[i].0)))
                 .collect();
-            for (&i, atom) in unmigrated
+            for ((&i, atom), key) in unmigrated
                 .iter()
                 .zip(self.get_atoms_by_storage_keys(&flat_keys).await?)
+                .zip(flat_keys)
             {
+                keys[i] = key;
                 out[i] = atom;
             }
         }
 
+        self.fill_located_atom_sources(slots, storage_prefix, &mut keys, &mut out)
+            .await?;
+        self.bind_atom_sources(storage_prefix, slots, &keys, &out, &primary)?;
+        Ok(out)
+    }
+
+    async fn fill_located_atom_sources(
+        &self,
+        slots: &[(&str, Option<crate::atom::AtomPartition>)],
+        storage_prefix: Option<&str>,
+        keys: &mut [String],
+        out: &mut [Option<Atom>],
+    ) -> Result<(), SchemaError> {
         // Step 3 — the backstop. Runs for every atom still missing, including
         // ones whose caller passed a partition: a wrong hint must cost a round
         // trip, never a `None` for an atom that exists.
@@ -167,7 +212,7 @@ impl AtomStore {
             .map(|(i, _)| i)
             .collect();
         if unresolved.is_empty() {
-            return Ok(out);
+            return Ok(());
         }
         let locator_keys: Vec<String> = unresolved
             .iter()
@@ -199,15 +244,35 @@ impl AtomStore {
             ));
         }
         if !located_keys.is_empty() {
-            for (&i, atom) in located_idx
+            for ((&i, atom), key) in located_idx
                 .iter()
                 .zip(self.get_atoms_by_storage_keys(&located_keys).await?)
+                .zip(located_keys)
             {
+                keys[i] = key;
                 out[i] = atom;
             }
         }
 
-        Ok(out)
+        Ok(())
+    }
+
+    fn bind_atom_sources(
+        &self,
+        scope: Option<&str>,
+        slots: &[(&str, Option<crate::atom::AtomPartition>)],
+        keys: &[String],
+        atoms: &[Option<Atom>],
+        primary: &[String],
+    ) -> Result<(), SchemaError> {
+        let runtime = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime());
+        crate::storage::disk_pack::logical_paths::source::bind_atoms(
+            runtime, scope, slots, keys, atoms, primary,
+        )?;
+        Ok(())
     }
 
     pub(super) async fn get_atom_value(&self, key: &str) -> Result<Option<Vec<u8>>, SchemaError> {

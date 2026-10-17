@@ -50,6 +50,7 @@ impl PackRuntime {
             ));
         }
         let revision = next_revision(&view)?;
+        self.invalidate_changed_records(&changes);
         self.validity
             .lock()
             .expect("native dependency validity")
@@ -70,6 +71,7 @@ impl PackRuntime {
         let mut view = self.view.write().expect("native complete read view");
         if !hidden_changes.is_empty() {
             let revision = next_revision(&view)?;
+            self.invalidate_changed_records(&hidden_changes);
             self.validity
                 .lock()
                 .expect("native dependency validity")
@@ -80,6 +82,18 @@ impl PackRuntime {
         view.current = current;
         view.accepted = Arc::new(Vec::new());
         Ok(())
+    }
+
+    /// The view write lock excludes captures until these raw records and their
+    /// epochs agree with the newly visible complete mutation.
+    fn invalidate_changed_records(&self, changes: &[validity::ChangedCoordinate]) {
+        let mut logical = self
+            .logical
+            .lock()
+            .expect("native publication record epochs");
+        for change in changes {
+            logical.forget_record(&change.collection, &change.key);
+        }
     }
 }
 

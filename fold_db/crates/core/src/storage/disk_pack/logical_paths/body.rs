@@ -1,3 +1,4 @@
+use super::source::AtomFacts;
 use super::*;
 use crate::schema::types::field::FieldValue;
 
@@ -16,6 +17,8 @@ pub(super) struct PathBody {
     #[serde(default)]
     pub witness: Option<u64>,
     #[serde(default)]
+    pub atom_facts: Option<AtomFacts>,
+    #[serde(default)]
     pub wire: Option<super::warm::WireMetadata>,
     /// Query descriptors name other already-used paths; they contain no values.
     #[serde(default)]
@@ -29,6 +32,7 @@ impl PathBody {
             content: value,
             provenance: None,
             witness: None,
+            atom_facts: None,
             wire: None,
             projections: EmptyProjections,
         })
@@ -40,11 +44,13 @@ impl PathBody {
         version: ReadVersion,
         value: &FieldValue,
         witness: Option<u64>,
+        atom_facts: Option<&AtomFacts>,
     ) -> StorageResult<usize> {
         encoded_len(&BorrowedPathBody {
             content: &serde_json::Value::Null,
             provenance: Some((version, value)),
             witness,
+            atom_facts,
             wire: None,
             projections: EmptyProjections,
         })
@@ -55,6 +61,7 @@ impl PathBody {
             content: value.clone(),
             provenance: None,
             witness: None,
+            atom_facts: None,
             wire: None,
             projections: BTreeMap::new(),
         }
@@ -64,6 +71,7 @@ impl PathBody {
         version: ReadVersion,
         value: &FieldValue,
         witness: Option<u64>,
+        atom_facts: Option<AtomFacts>,
     ) -> Self {
         let mut provenance = value.clone();
         provenance.value = serde_json::Value::Null;
@@ -71,6 +79,7 @@ impl PathBody {
             content: value.value.clone(),
             provenance: Some((version, provenance)),
             witness,
+            atom_facts,
             wire: None,
             projections: BTreeMap::new(),
         }
@@ -80,6 +89,20 @@ impl PathBody {
         self.provenance
             .as_ref()
             .is_some_and(|(version, _)| context.provenance_valid(*version, self.witness))
+    }
+
+    /// The current tip already selects the atom; no previous query facts enter this read.
+    pub(super) fn selected_field(
+        self,
+        context: &super::super::read::ReadContext,
+        atom: &str,
+        metadata: Option<&crate::atom::KeyMetadata>,
+        writer: Option<&str>,
+    ) -> Option<FieldValue> {
+        let facts = self.atom_facts?;
+        facts
+            .inherit(context)
+            .then(|| facts.field(self.content, atom, metadata, writer))
     }
 
     pub(super) fn field(self, context: &super::super::read::ReadContext) -> Option<FieldValue> {
@@ -102,6 +125,7 @@ struct BorrowedPathBody<'a> {
     content: &'a serde_json::Value,
     provenance: Option<(ReadVersion, &'a FieldValue)>,
     witness: Option<u64>,
+    atom_facts: Option<&'a AtomFacts>,
     wire: Option<&'a super::warm::WireMetadata>,
     projections: EmptyProjections,
 }
@@ -114,7 +138,7 @@ impl Serialize for EmptyProjections {
     }
 }
 
-fn encoded_len(value: &impl Serialize) -> StorageResult<usize> {
+pub(super) fn encoded_len(value: &impl Serialize) -> StorageResult<usize> {
     let mut length = EncodedLength::default();
     serde_json::to_writer(&mut length, value).map_err(|error| serialization(&error))?;
     Ok(length.0)

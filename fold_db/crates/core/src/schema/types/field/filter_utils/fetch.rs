@@ -50,8 +50,14 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
             runtime.clone(),
             storage_prefix,
             molecule_uuid,
-            &entry.0,
-            &entry.1,
+            &crate::storage::disk_pack::logical_paths::field::AtomSelection {
+                entry: &entry,
+                primary: db_ops.atoms().primary_atom_key(
+                    &entry.1,
+                    entry.4.as_ref(),
+                    storage_prefix,
+                ),
+            },
         )? {
             resolved_values.insert(entry.0, value);
         } else {
@@ -80,6 +86,7 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
                 molecule_uuid,
                 &key,
                 &value,
+                partition.as_ref(),
             )?;
             resolved_values.insert(key, value);
         } else {

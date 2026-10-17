@@ -1,0 +1,8 @@
+{
+  "binary_sha256": "5eaaa15bdb6edec565305d93e3feb49f81e30fe68d1577b7d93045cdc00dd7bb",
+  "built_source": "7d5ba4964240ed19f91fac778e5d5aea928aec2c",
+  "comparison_base": "0a45f47ce860f5526e68a24126c11a04d4b9eced",
+  "product_tree_diff": "empty for core, native storage, node, and Cargo.lock",
+  "build": "cargo build --release --locked -p lastdb_node --bin lastdbd",
+  "primary_used": false
+}
