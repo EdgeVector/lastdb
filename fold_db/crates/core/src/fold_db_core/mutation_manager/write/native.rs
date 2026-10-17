@@ -29,6 +29,9 @@ impl MutationManager {
             && !crate::fold_db_core::mutation_sync_flush_enabled();
         let ids =
             transaction::request_scope(Some(Arc::clone(&request.runtime)), memory_ack, async {
+                request
+                    .runtime
+                    .record_read_stage("request-start", request.mutations.len());
                 // Recheck inside the exclusive native gate. A prior native request
                 // can commit while this request waits to enter preparation.
                 let ids: Vec<_> = request
@@ -39,8 +42,14 @@ impl MutationManager {
                 let (_, mutations, hashes) = self
                     .filter_idempotent_mutations(request.mutations, request.storage_prefix)
                     .await?;
+                request
+                    .runtime
+                    .record_read_stage("idempotency-done", mutations.len());
                 self.check_batch_preconditions(&mutations, request.storage_prefix)
                     .await?;
+                request
+                    .runtime
+                    .record_read_stage("conditions-done", mutations.len());
                 let mut deltas = self
                     .prepare_grouped_deltas(
                         mutations,
@@ -51,8 +60,14 @@ impl MutationManager {
                         &mut state.stages,
                     )
                     .await?;
+                request
+                    .runtime
+                    .record_read_stage("private-prepare-done", deltas.len());
                 self.commit_native_deltas(&mut deltas, &request.runtime)
                     .await?;
+                request
+                    .runtime
+                    .record_read_stage("stored-stages-done", deltas.len());
                 if memory_ack {
                     let bytes = transaction::memory_quote(&request.runtime)?;
                     if let Some(reservation) = self.try_reserve_defer(bytes) {
@@ -87,6 +102,7 @@ impl MutationManager {
             let mut job = private_job(delta, schema, mutation_events, modified_fields);
             self.stage_native_job(&mut job).await?;
             self.stage_native_paths(&job, runtime).await?;
+            runtime.record_read_stage("logical-paths-done", job.modified_fields.len());
             if let Some(batch) = job.search_batch.take() {
                 let inbox = self.search_outbox_inbox.clone();
                 transaction::after_commit(runtime, async move {

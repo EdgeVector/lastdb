@@ -1,9 +1,9 @@
 {
-  "product_source": "b47eb21cc20bf1363482e386c2e79b320f0c9bac",
-  "version": "lastdbd 0.23.4-pre.0-244-gb47eb21cc",
+  "product_source": "ef1f210734e0d747edd882dc45dfe700335e5a16",
+  "version": "lastdbd 0.23.4-pre.0-246-gef1f21073",
   "dirty_scope": null,
-  "physical_tools_source": "08409a220e57364052d2eca030eafd12006e6bc4",
-  "physical_tools_note": "Exact executable hashes and physical engine source remain unchanged after the final node batch fixes.",
+  "physical_tools_source": "ef1f210734e0d747edd882dc45dfe700335e5a16",
+  "physical_tools_note": "All five programs use the same clean source, including grouped changed-key loads and direct new-locator output.",
   "profile": "release",
   "locked_dependencies": true,
   "checks": {
@@ -15,10 +15,10 @@
     "release_build": "pass"
   },
   "sha256": {
-    "lastdbd": "37c362262c5ac2854ec2143278dc7df31fc32936a72abdbdc643b7b216d79880",
-    "lastdb": "e875e2df4c604428efdbddec274f95fca14944cf52d4baeb4eff0ca42f201034",
-    "lastdb-disk-home": "ae4e6e343065cbb2e7bf38ed9ab2cc703565e29a107e60f81a72c6ddb1dcc181",
-    "lastdb-disk-recovery": "1caf9ccfafd562a546ef7188de830b4a29c0031cc6739e7051448643b04be974",
-    "lastdb-pack-maintain": "24c074876db39b9928e7d64e03b7f68a54fb40535475065647fe32e66aa02b5a"
+    "lastdbd": "752e97e2b52cdd010c0fdec12b1e1090e5b4b0d50051404b0a103e16ac991fe3",
+    "lastdb": "eb7957ecc61a73dd1fb64181cf45c6a18a0156619274f304cffa8bf6be8bdb37",
+    "lastdb-disk-home": "abc2d900763dac808831dcc576bdbb060480331aef8ba41b414105dfdc618aba",
+    "lastdb-disk-recovery": "a5c4c4dbbde1ee4c1fa99c7c82088041ecd16bf29ec45e30ab2bdd6524c6e70c",
+    "lastdb-pack-maintain": "7248c6cf33c36c0d28b5e391eefc83338150a235dd957d5f41d7e16a81e3b28e"
   }
 }

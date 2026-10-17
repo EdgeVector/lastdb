@@ -6,8 +6,8 @@ R6′ reads the required bytes from packed files.
 The candidate keeps existing atom and tip records, with complete batches as the write boundary.
 It does not implement the later direct-position tip format or a new body-key codec.
 
-The final node source revision is `b47eb21c`, before the final receipts and status documents.
-The physical tools keep the exact `08409a22` executable hashes after the final node changes.
+The final product source revision is `ef1f2107`, before the final receipts and status documents.
+The daemon, CLI, disk-home, recovery, and maintenance programs use that same clean source.
 The [completion receipts](proofs/layer2-completion-20261016/) identify each exact executable and configuration.
 The [final batch report](proofs/layer2-completion-20261016/batch-semantics.md) records complete responses, partial memory results, ordered change entries, flush, and reopen.
 The [earlier component report](proofs/layer2-completion-20261016/semantics.md) records memory ack, conditions, delete, and restore of a deleted record.
@@ -25,8 +25,10 @@ The [benchmark report](proofs/layer2-completion-20261016/benchmarks.md) separate
 | Warm set | Complete logical field paths, with a 10000-record cap. Repeated complete owner queries can reuse one key or an explicit key batch. |
 | Optional metadata | Complete memory coverage precedes value copies. Optional request metadata can decline admission without a failed data read. |
 | Change list | One ordered event vector uses bounded event-and-position writes, rather than a separate write for each event. |
+| Write preparation | Changed keys use the existing batch helper for tips, delete barriers, and one active-generation read per molecule. |
 | File lifetime | Read and backup holds protect required files. Compaction and reclaim remain inside LastStore. |
 | Packed payloads | Conversion and compaction share one payload writer across hash groups. Per-group locator trees remain separate. |
+| New hash groups | One direct sorted-tree write supplies the locator. No empty locator file precedes the real output. |
 | Disk cap | `LASTDB_DISK_CAP_BYTES` connects write, backup, and replacement reservations. Normal writes preserve 64 MiB of replacement headroom. |
 | Local recovery | Owner backup and flush routes, exact bundle validation, source-free local restore, and explicit forward and reverse conversion. |
 | Current status | `GET /api/db/native-status` reports accepted work and the durable boundary without a forced flush. |

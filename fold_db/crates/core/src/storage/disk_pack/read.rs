@@ -119,6 +119,24 @@ impl ReadContext {
         self.holds.hold(logical, collection, key)
     }
 
+    pub(super) fn record_stage(&self, stage: &'static str, items: usize) {
+        if !tracing::enabled!(target: "lastdb::native_read_budget", tracing::Level::DEBUG) {
+            return;
+        }
+        let costs = crate::read_receipts::lock(&self.call).costs();
+        tracing::debug!(
+            target: "lastdb::native_read_budget",
+            stage,
+            items,
+            examined_keys = costs.examined_keys,
+            metadata_pages = costs.directory_pages + costs.locator_pages
+                + costs.overflow_pages + costs.map_pages,
+            payload_blocks = costs.payload_blocks,
+            charged_bytes = costs.budget_bytes,
+            "native preparation cumulative read costs"
+        );
+    }
+
     fn error(&self) -> Option<StorageError> {
         self.failure
             .lock()
@@ -204,6 +222,12 @@ pub(super) async fn write_scope<T>(
 }
 
 impl PackRuntime {
+    pub(crate) fn record_read_stage(&self, stage: &'static str, items: usize) {
+        if let Some(context) = ReadContext::captured(self) {
+            context.record_stage(stage, items);
+        }
+    }
+
     pub(super) fn raw_get(
         &self,
         context: &Arc<ReadContext>,

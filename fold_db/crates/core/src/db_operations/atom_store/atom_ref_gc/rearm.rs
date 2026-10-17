@@ -20,6 +20,23 @@ impl AtomStore {
         let existing = self
             .load_atom_gc_candidate(atom_uuid, storage_prefix)
             .await?;
+        Self::atom_gc_candidate_mutations_for_loaded_count(
+            atom_uuid,
+            before,
+            after,
+            existing,
+            storage_prefix,
+        )
+    }
+
+    /// Plan from the exact candidate already loaded under the caller's count lock.
+    pub(in crate::db_operations::atom_store) fn atom_gc_candidate_mutations_for_loaded_count(
+        atom_uuid: &str,
+        before: u64,
+        after: u64,
+        existing: Option<AtomGcCandidate>,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<KvMutation>, SchemaError> {
         if after == 0 {
             return match existing {
                 None => candidate_put_mutations(

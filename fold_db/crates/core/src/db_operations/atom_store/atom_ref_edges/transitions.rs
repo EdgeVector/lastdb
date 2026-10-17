@@ -1,3 +1,4 @@
+use super::super::atom_ref_gc::AtomGcCandidate;
 use super::*;
 // lint:file-size-ok moved verbatim from the parent module; one method family per file
 
@@ -118,6 +119,42 @@ impl AtomStore {
                     "load atom live reference counts before transition: {error}"
                 ))
             })?;
+        if stored_counts.len() != atoms.len() {
+            return Err(SchemaError::InvalidData(
+                "atom live reference count batch returned misaligned slots".into(),
+            ));
+        }
+        if let Some(runtime) = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime())
+        {
+            runtime.record_read_stage("atom_ref_live_counts", atoms.len());
+        }
+        let candidate_atoms: Vec<String> = atoms
+            .iter()
+            .filter(|(_, delta)| *delta != 0)
+            .map(|(atom_uuid, _)| atom_uuid.clone())
+            .collect();
+        let candidates = if candidate_atoms.is_empty() {
+            Vec::new()
+        } else {
+            self.load_atom_gc_candidates(&candidate_atoms, storage_prefix)
+                .await?
+        };
+        if candidates.len() != candidate_atoms.len() {
+            return Err(SchemaError::InvalidData(
+                "atom GC candidate batch returned misaligned slots".into(),
+            ));
+        }
+        if let Some(runtime) = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime())
+        {
+            runtime.record_read_stage("atom_ref_gc_candidates", candidate_atoms.len());
+        }
+        let mut candidates = candidates.into_iter();
         let mut mutations = Vec::with_capacity(atoms.len());
         for (((atom_uuid, delta), key), stored) in
             atoms.into_iter().zip(count_keys).zip(stored_counts)
@@ -130,7 +167,10 @@ impl AtomStore {
                 &atom_uuid,
                 delta,
                 key,
-                stored,
+                (
+                    stored,
+                    candidates.next().expect("validated candidate batch slots"),
+                ),
                 storage_prefix,
             )
             .await?;
@@ -198,6 +238,13 @@ impl AtomStore {
                     "probe atom references before count transition: {error}"
                 ))
             })?;
+        if let Some(runtime) = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime())
+        {
+            runtime.record_read_stage("atom_ref_edge_probes", probes.len());
+        }
         for ((activate, edge, _), exists) in probes.into_iter().zip(edge_exists) {
             if activate == exists {
                 continue;
@@ -223,29 +270,32 @@ impl AtomStore {
         atom_uuid: &str,
         delta: i128,
         key: String,
-        stored: Option<AtomLiveRefCount>,
+        loaded: (Option<AtomLiveRefCount>, Option<AtomGcCandidate>),
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
+        let (stored, candidate) = loaded;
         if stored.is_none()
             && (delta.is_negative() || self.has_active_atom_refs(atom_uuid, storage_prefix).await?)
         {
             // A legacy tip can lack a counter. Retain its atom until a
             // complete count rebuild; absence must not mean zero.
-            return self
-                .mark_live_ref_count_unknown(mutations, atom_uuid, key, storage_prefix)
-                .await;
+            return Self::mark_live_ref_count_unknown(
+                mutations,
+                atom_uuid,
+                key,
+                candidate,
+                storage_prefix,
+            );
         }
         let stored = stored.unwrap_or_default();
         if !stored.exact {
-            mutations.extend(
-                self.atom_gc_candidate_mutations_for_count(
-                    atom_uuid,
-                    u64::MAX,
-                    u64::MAX,
-                    storage_prefix,
-                )
-                .await?,
-            );
+            mutations.extend(Self::atom_gc_candidate_mutations_for_loaded_count(
+                atom_uuid,
+                u64::MAX,
+                u64::MAX,
+                candidate,
+                storage_prefix,
+            )?);
             return Ok(());
         }
         let before = stored.live_refs;
@@ -254,9 +304,13 @@ impl AtomStore {
             // An old atom can have a seeded zero counter and uncounted
             // tips. An underflow makes its count unknown, never zero.
             if after.is_negative() {
-                return self
-                    .mark_live_ref_count_unknown(mutations, atom_uuid, key, storage_prefix)
-                    .await;
+                return Self::mark_live_ref_count_unknown(
+                    mutations,
+                    atom_uuid,
+                    key,
+                    candidate,
+                    storage_prefix,
+                );
             }
             return Err(SchemaError::InvalidData(format!(
                 "atom live reference count transition is out of range for {atom_uuid}: {before} {delta:+}"
@@ -272,24 +326,22 @@ impl AtomStore {
             ))
         })?;
         mutations.push(KvMutation::put(key.into_bytes(), value));
-        mutations.extend(
-            self.atom_gc_candidate_mutations_for_count(
-                atom_uuid,
-                before,
-                after as u64,
-                storage_prefix,
-            )
-            .await?,
-        );
+        mutations.extend(Self::atom_gc_candidate_mutations_for_loaded_count(
+            atom_uuid,
+            before,
+            after as u64,
+            candidate,
+            storage_prefix,
+        )?);
         Ok(())
     }
 
     /// Store an inexact zero count and mark the atom as a GC candidate.
-    async fn mark_live_ref_count_unknown(
-        &self,
+    fn mark_live_ref_count_unknown(
         mutations: &mut Vec<KvMutation>,
         atom_uuid: &str,
         key: String,
+        candidate: Option<AtomGcCandidate>,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         let value = serde_json::to_vec(&AtomLiveRefCount {
@@ -302,15 +354,13 @@ impl AtomStore {
             ))
         })?;
         mutations.push(KvMutation::put(key.into_bytes(), value));
-        mutations.extend(
-            self.atom_gc_candidate_mutations_for_count(
-                atom_uuid,
-                u64::MAX,
-                u64::MAX,
-                storage_prefix,
-            )
-            .await?,
-        );
+        mutations.extend(Self::atom_gc_candidate_mutations_for_loaded_count(
+            atom_uuid,
+            u64::MAX,
+            u64::MAX,
+            candidate,
+            storage_prefix,
+        )?);
         Ok(())
     }
 }

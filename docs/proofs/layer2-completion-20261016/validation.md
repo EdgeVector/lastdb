@@ -1,9 +1,10 @@
 # Local candidate checks
 
-Final node source: `b47eb21c`, including event batches and complete explicit-key warm reads.
+Final product source: `ef1f2107`, including event batches and complete explicit-key warm reads.
 Optional query metadata stays within the call budget and can decline admission.
 The required data read retains its strict limits.
-The physical engine source and exact tool hashes remain unchanged from `08409a22`.
+Changed-key write preparation uses grouped reads for tips, delete barriers, and molecule generation pointers.
+A new hash group writes its sorted locator once. Existing locator trees keep their original update path.
 Later receipt and status documents do not change the product binaries.
 The receipts identify each exact executable by SHA-256.
 The [final build record](final-build.json) lists the clean final node version and exact binary hashes.
