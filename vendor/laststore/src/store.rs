@@ -100,6 +100,9 @@ struct StoreMeta {
 /// (or [`Self::transaction`], which flushes at the end) for a durability barrier.
 /// Drop also flushes.
 pub struct LastStore {
+    _process_lock: File,
+    conversion_sealed: AtomicBool,
+    conversion_gate: Mutex<()>,
     root: PathBuf,
     opts: LastStoreOptions,
     shards: Mutex<ShardWarmSet>,
@@ -362,6 +365,8 @@ mod group_compact;
 mod layout;
 mod layout_restore;
 mod maintenance;
+mod native_conversion;
+pub use native_conversion::{ConversionCutover, ConversionReceipt};
 mod version_chain;
 mod version_retention;
 pub use layout::{describe_home, home_has_frame_aead_segments, LayoutDescriptor};

@@ -1,0 +1,16 @@
+{
+  "schema_name": "NativeWarmProof",
+  "fields": [
+    "title",
+    "body"
+  ],
+  "filter": {
+    "HashRangeKeys": [
+      [
+        "generated",
+        "record-000000"
+      ]
+    ]
+  },
+  "limit": 1
+}

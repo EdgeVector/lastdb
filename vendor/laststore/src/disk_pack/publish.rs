@@ -2,11 +2,12 @@ use super::dependency::Dependencies;
 use super::dependency_walk;
 use super::generation;
 use super::journal::{JournalRecovery, RecoveredMutation};
+use super::locator_forest::LocatorChanges;
 use super::tree_edit::TreeEdit;
-use super::tree_write::TreeWriter;
 use super::write_lock::WriteLock;
-use super::{artifact, corrupt, Current, DirectoryEntry, TreeKind};
+use super::{artifact, corrupt, Current, DirectoryEntry};
 use crate::{durability, Result};
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -32,6 +33,7 @@ struct Publisher<'a> {
     root: &'a Path,
     proposed: Current,
     directory: TreeEdit,
+    locators: LocatorChanges,
     pages: u64,
     parts: u64,
     mutations: u64,
@@ -78,6 +80,7 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
     let directory = TreeEdit::new(root, previous.directory.clone(), proposed.generation)?;
     let mut publisher = Publisher {
         root,
+        locators: LocatorChanges::new(root, proposed.generation),
         proposed,
         directory,
         pages: 0,
@@ -90,6 +93,13 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
     }
     if !recovery.is_complete() {
         return Err(corrupt("publication did not reach captured TAIL"));
+    }
+    for output in publisher.locators.finish()? {
+        publisher.pages += output.pages;
+        publisher.parts += output.parts.len() as u64;
+        publisher
+            .dependencies
+            .add_tree(&output.tree, output.parts)?;
     }
     let (directory, pages, parts) = publisher.directory.finish()?;
     publisher.proposed.directory = directory;
@@ -137,9 +147,27 @@ impl Publisher<'_> {
                 .then(a.location.version.cmp(&b.location.version))
         });
         let mut items = mutations.into_iter().peekable();
+        let mut directory_changes = BTreeMap::new();
         while let Some(first) = items.next() {
             let collection = first.mutation.collection.clone();
             let group = first.mutation.group;
+            let mut changes = BTreeMap::new();
+            changes.insert(
+                first.mutation.key.into_bytes(),
+                first
+                    .location
+                    .encode_for_features(self.proposed.required_features)?,
+            );
+            while items.peek().is_some_and(|item| {
+                item.mutation.collection == collection && item.mutation.group == group
+            }) {
+                let item = items.next().expect("peeked operation");
+                changes.insert(
+                    item.mutation.key.into_bytes(),
+                    item.location
+                        .encode_for_features(self.proposed.required_features)?,
+                );
+            }
             let key = super::ReadCall::directory_key(&collection, group)?;
             let mut call = artifact::metadata_call(self.root, self.proposed.clone());
             let entry = call
@@ -149,45 +177,28 @@ impl Publisher<'_> {
             if entry.as_ref().is_some_and(|entry| entry.group != group) {
                 return Err(corrupt("publication directory coordinate mismatch"));
             }
+            let changes: Vec<_> = changes.into_iter().collect();
             let tree = if let Some(entry) = &entry {
-                entry.locator.clone()
+                self.locators
+                    .edit(&mut call, entry.locator.clone(), &changes)?
             } else {
-                let tree = TreeWriter::new(self.root, TreeKind::Locator, self.proposed.generation)?
-                    .finish()?;
-                self.pages += 1;
-                self.parts += 1;
-                self.dependencies.add_contiguous_tree(&tree, 1)?;
-                tree
+                if changes.len() > self.proposed.batch_operation_limit() {
+                    return Err(corrupt("invalid new locator change count"));
+                }
+                self.locators.create(&changes)?
             };
-            let mut locator = TreeEdit::new(self.root, tree, self.proposed.generation)?;
-            self.mutation(&mut locator, first)?;
-            while items.peek().is_some_and(|item| {
-                item.mutation.collection == collection && item.mutation.group == group
-            }) {
-                self.mutation(&mut locator, items.next().expect("peeked operation"))?;
-            }
-            let (tree, pages, parts) = locator.finish()?;
-            self.pages += pages;
-            self.parts += parts.len() as u64;
-            self.dependencies.add_tree(&tree, parts)?;
             let value = DirectoryEntry {
                 group,
                 locator: tree,
                 converted_frontier: entry.map_or(0, |entry| entry.converted_frontier),
             }
             .encode()?;
-            let mut call = artifact::metadata_call(self.root, self.proposed.clone());
-            self.directory.put(&mut call, &key, value)?;
+            directory_changes.insert(key, value);
         }
-        Ok(())
-    }
-
-    fn mutation(&self, locator: &mut TreeEdit, item: RecoveredMutation) -> Result<()> {
         let mut call = artifact::metadata_call(self.root, self.proposed.clone());
-        locator.put(
+        self.directory.put_many(
             &mut call,
-            item.mutation.key.as_bytes(),
-            item.location.encode()?,
+            &directory_changes.into_iter().collect::<Vec<_>>(),
         )
     }
 

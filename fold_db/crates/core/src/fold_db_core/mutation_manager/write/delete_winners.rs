@@ -45,11 +45,13 @@ impl MutationManager {
             })?;
             winning.extend(slots.iter().cloned());
             for (uuid, hash, range) in slots {
-                let newer_in_memory = self
-                    .db_ops
-                    .resident()
-                    .resolve_tip(uuid, hash, range)
-                    .is_some_and(|tip| !barrier.blocks_resident_tip(&tip.value));
+                let newer_in_memory =
+                    crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
+                        && self
+                            .db_ops
+                            .resident()
+                            .resolve_tip(uuid, hash, range)
+                            .is_some_and(|tip| !barrier.blocks_resident_tip(&tip.value));
                 let newer_on_disk = disk_tip
                     .as_ref()
                     .is_some_and(|tip| !barrier.blocks_tip(&tip.entry));

@@ -244,7 +244,8 @@ impl AtomStore {
                 Some(h) => h,
                 None => return Ok(None),
             };
-        let mut records = Vec::with_capacity(changed.len());
+        let mut slots = Vec::with_capacity(changed.len());
+        let mut groups = Vec::with_capacity(changed.len());
         for ck in changed {
             let api_hash = ck.disk_hash();
             let api_range = ck.disk_range();
@@ -255,16 +256,21 @@ impl AtomStore {
                 &storage_hash,
                 &storage_range,
             );
-            if let Some((_, rec)) = self.get_per_key(&key, storage_prefix).await? {
-                // Keep API-form hash/range in the in-memory molecule (Option I).
-                records.push((
-                    api_hash.to_string(),
-                    api_range.to_string(),
-                    rec.entry,
-                    rec.meta,
-                ));
-            }
+            slots.push((api_hash.to_string(), api_range.to_string()));
+            groups.push(vec![key]);
         }
+        // The shared helper reads each exact tip and Delete barrier in batches,
+        // and probes this molecule's active generation only once.
+        let selected = self
+            .load_first_present_candidate(storage_prefix, &groups)
+            .await?;
+        let records = slots
+            .into_iter()
+            .zip(selected)
+            .filter_map(|((hash, range), record)| {
+                record.map(|record| (hash, range, record.entry, record.meta))
+            })
+            .collect();
         Ok(Some(MoleculeHashRange::from_write_records(
             molecule_uuid.to_string(),
             header.version,
@@ -345,6 +351,9 @@ impl AtomStore {
             .map_err(|e| {
                 SchemaError::InvalidData(format!("read molecule header {molecule_uuid}: {e}"))
             })?;
+        if let Some(header) = &header {
+            crate::storage::disk_pack::note_molecule_header(&key, header.version);
+        }
         Ok(header.map(|h| (h, storage_prefix)))
     }
 }

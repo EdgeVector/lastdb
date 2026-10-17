@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Mutex};
+use tracing::Instrument;
 
 use crate::schema::SchemaError;
 use crate::storage::{KvStore, StorageError, TypedKvStore};
@@ -14,6 +15,8 @@ use crate::storage::{KvStore, StorageError, TypedKvStore};
 const TIP_KEY: &str = "tip";
 const EVENT_PREFIX: &str = "event:";
 const EVENT_END: &str = "event;";
+const APPEND_EVENTS: usize = 1_024;
+const APPEND_BYTES: usize = 32 * 1024 * 1024;
 /// Bounded node-local retention. A lagging consumer receives `gap=true` and
 /// must rescan its declared product keys before advancing its durable cursor.
 pub const MAX_EVENTS: u64 = 250_000;
@@ -40,17 +43,22 @@ pub struct ChangeFeedPage {
 #[derive(Clone)]
 pub struct ChangeFeedStore {
     store: Arc<TypedKvStore<dyn KvStore>>,
+    native: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
     tip: Arc<Mutex<u64>>,
     subscribers: broadcast::Sender<ChangeFeedEvent>,
 }
 
 impl ChangeFeedStore {
-    pub(crate) async fn new(store: Arc<dyn KvStore>) -> Result<Self, StorageError> {
+    pub(crate) async fn new(
+        store: Arc<dyn KvStore>,
+        native: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+    ) -> Result<Self, StorageError> {
         let store = Arc::new(TypedKvStore::new(store));
         let tip = store.get_item::<u64>(TIP_KEY).await?.unwrap_or(0);
         let (subscribers, _) = broadcast::channel(1024);
         Ok(Self {
             store,
+            native,
             tip: Arc::new(Mutex::new(tip)),
             subscribers,
         })
@@ -65,14 +73,18 @@ impl ChangeFeedStore {
         self.subscribers.subscribe()
     }
 
-    pub async fn append(&self, mut event: ChangeFeedEvent) -> Result<u64, SchemaError> {
-        // This mutex is the one lock on the node NOT scoped to a schema, key,
-        // or molecule — every successful mutation passes through it. Measured
-        // 2026-08-03: queueing here was 33% of all mutation wall time, 132x
-        // the cost of `persist`. Split lock-wait from the write itself
-        // (`crate::request_phases::RequestPhase::ChangeRecordWrite`) so a
-        // caller narrowing this gate can tell contention from storage IO —
-        // same reasoning as `LockWait` vs `MoleculeGate`.
+    pub async fn append(&self, event: ChangeFeedEvent) -> Result<u64, SchemaError> {
+        self.append_many(vec![event]).await
+    }
+
+    /// Preserve caller order with one event/tip write per bounded chunk.
+    /// Native feed batches can share the bounded product flush deadline.
+    pub async fn append_many(&self, events: Vec<ChangeFeedEvent>) -> Result<u64, SchemaError> {
+        if events.is_empty() {
+            return Ok(*self.tip.lock().await);
+        }
+        // One feed lock keeps every caller's sequence range contiguous. Hold
+        // it through each bounded event/tip write and subscriber publication.
         let lock_wait_started = std::time::Instant::now();
         let mut tip = self.tip.lock().await;
         crate::request_phases::add_phase(
@@ -81,21 +93,45 @@ impl ChangeFeedStore {
         );
 
         let write_started = std::time::Instant::now();
-        let seq = tip.saturating_add(1);
-        event.seq = seq;
-        let event_bytes =
-            serde_json::to_vec(&event).map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-        let tip_bytes =
-            serde_json::to_vec(&seq).map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-        self.store
-            .inner()
-            .batch_put(vec![
-                (event_key(seq).into_bytes(), event_bytes),
-                (TIP_KEY.as_bytes().to_vec(), tip_bytes),
-            ])
-            .await?;
-        *tip = seq;
-        let _ = self.subscribers.send(event.clone());
+        let count = u64::try_from(events.len())
+            .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+        let end = tip.checked_add(count).ok_or_else(|| {
+            SchemaError::InvalidData("change-feed sequence exhausted".to_string())
+        })?;
+        let first = *tip + 1;
+        let mut sequence = *tip;
+        let mut rows = Vec::new();
+        let mut ready = Vec::new();
+        let mut bytes = 0usize;
+        for mut event in events {
+            sequence += 1;
+            event.seq = sequence;
+            let key = event_key(sequence).into_bytes();
+            let body = serde_json::to_vec(&event)
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+            let length = key.len().saturating_add(body.len()).saturating_add(256);
+            if length > APPEND_BYTES {
+                return Err(SchemaError::InvalidData(
+                    "change-feed event exceeds its byte limit".to_string(),
+                ));
+            }
+            if !ready.is_empty() && (ready.len() == APPEND_EVENTS || bytes + length > APPEND_BYTES)
+            {
+                self.append_ready(
+                    &mut tip,
+                    std::mem::take(&mut rows),
+                    std::mem::take(&mut ready),
+                )
+                .await?;
+                bytes = 0;
+            }
+            rows.push((key, body));
+            ready.push(event);
+            bytes += length;
+        }
+        if !ready.is_empty() {
+            self.append_ready(&mut tip, rows, ready).await?;
+        }
         // Drop the mutex before retention runs below: retention is best-effort
         // and independent of tip ordering, so holding the node-wide lock
         // across a second sequential storage round trip only serializes every
@@ -106,18 +142,54 @@ impl ChangeFeedStore {
             write_started.elapsed(),
         );
 
-        if seq > MAX_EVENTS {
-            // Off the mutex AND off the request's critical path entirely: a
-            // crash before this delete runs retains one extra event, never
-            // loses a newly acknowledged one, exactly as when this ran
-            // synchronously under the lock.
-            let store = Arc::clone(&self.store);
-            let stale_key = event_key(seq - MAX_EVENTS);
-            tokio::spawn(async move {
-                let _ = store.delete_item(&stale_key).await;
-            });
+        self.prune(first, end);
+        Ok(end)
+    }
+
+    async fn append_ready(
+        &self,
+        tip: &mut u64,
+        mut rows: Vec<(Vec<u8>, Vec<u8>)>,
+        events: Vec<ChangeFeedEvent>,
+    ) -> Result<(), SchemaError> {
+        let sequence = events.last().expect("nonempty change-feed batch").seq;
+        let body = serde_json::to_vec(&sequence)
+            .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+        rows.push((TIP_KEY.as_bytes().to_vec(), body));
+        crate::storage::disk_pack::transaction::background_scope(
+            self.native.clone(),
+            self.store.inner().batch_put(rows),
+        )
+        .await?;
+        *tip = sequence;
+        for event in events {
+            let _ = self.subscribers.send(event);
         }
-        Ok(seq)
+        Ok(())
+    }
+
+    fn prune(&self, first: u64, end: u64) {
+        if end <= MAX_EVENTS || first > end {
+            return;
+        }
+        let store = Arc::clone(&self.store);
+        let mut first = first.saturating_sub(MAX_EVENTS).max(1);
+        let end = end - MAX_EVENTS;
+        // Best-effort retention stays outside the tip lock. A crash retains
+        // surplus events; it never removes a newly acknowledged event.
+        tokio::spawn(
+            async move {
+                while first <= end {
+                    let last = first.saturating_add(APPEND_EVENTS as u64 - 1).min(end);
+                    let keys = (first..=last)
+                        .map(|sequence| event_key(sequence).into_bytes())
+                        .collect();
+                    let _ = store.inner().batch_delete(keys).await;
+                    first = last + 1;
+                }
+            }
+            .in_current_span(),
+        );
     }
 
     pub async fn list_after(

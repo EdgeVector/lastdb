@@ -60,13 +60,13 @@ pub use segfmt::{MAX_BODY_LEN, MAX_ID_LEN};
 pub use store::{
     describe_home, home_has_frame_aead_segments, read_retire_receipt, restore_chunk_cache_paths,
     set_pressure_shed_interactive_override, with_admit_code, with_schema_warm_owner,
-    AllGroupsPurpose, CaptureEvent, CaptureOp, CollectionResidue, DroppedGroupReport,
-    DurabilityToken, FrameCompressionStats, GroupResidue, HashGroupPlacement, HashGroupWarmStats,
-    LastStore, LayoutDescriptor, LayoutMigrationReport, LoadedPoint, LoadedTip, MaintenanceReport,
-    PhysicalRangeCursor, PhysicalRangePage, PointValueSize, RetiredCompactGate, RetiredGroupId,
-    SealedChunkMeta, ShardKey, Snapshot, TxnOp, VersionRetentionReport, WarmEvictionReport,
-    WriteAck, COMPACT_REWRITE_PEAK_BUDGET_BYTES, RETIRED_GROUPS_RECEIPT_FILE,
-    SUPERSEDED_VERSION_RETENTION_NANOS,
+    AllGroupsPurpose, CaptureEvent, CaptureOp, CollectionResidue, ConversionCutover,
+    ConversionReceipt, DroppedGroupReport, DurabilityToken, FrameCompressionStats, GroupResidue,
+    HashGroupPlacement, HashGroupWarmStats, LastStore, LayoutDescriptor, LayoutMigrationReport,
+    LoadedPoint, LoadedTip, MaintenanceReport, PhysicalRangeCursor, PhysicalRangePage,
+    PointValueSize, RetiredCompactGate, RetiredGroupId, SealedChunkMeta, ShardKey, Snapshot, TxnOp,
+    VersionRetentionReport, WarmEvictionReport, WriteAck, COMPACT_REWRITE_PEAK_BUDGET_BYTES,
+    RETIRED_GROUPS_RECEIPT_FILE, SUPERSEDED_VERSION_RETENTION_NANOS,
 };
 
 /// Convenience alias used by some internal callers.

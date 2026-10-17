@@ -3,6 +3,37 @@
 use super::*;
 
 impl MutationManager {
+    /// Produce all stored bytes in the native request's private preparation
+    /// scope. This publishes no live graph tip and clears no dirty state.
+    pub(in crate::fold_db_core::mutation_manager) async fn stage_native_job(
+        &self,
+        job: &mut DeferredPersistJob,
+    ) -> Result<(), SchemaError> {
+        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
+        self.store_deferred_atoms(job, 0).await?;
+        if let Some(runtime) = &runtime {
+            runtime.record_read_stage(
+                "atom-stores-done",
+                job.deferred_atoms.as_ref().map_or(0, Vec::len),
+            );
+        }
+        self.persist_deferred_molecules(job, 0).await?;
+        if let Some(runtime) = &runtime {
+            runtime.record_read_stage("molecule-stores-done", job.modified_fields.len());
+        }
+        self.settle_deferred_atom_births(job, 0).await?;
+        if let Some(runtime) = &runtime {
+            runtime.record_read_stage(
+                "birth-settle-done",
+                job.deferred_atoms.as_ref().map_or(0, Vec::len),
+            );
+        }
+        self.store_deferred_schema(job, 0).await?;
+        let search = job.search_batch.take();
+        let result = self.store_deferred_side_records(job, 0).await;
+        job.search_batch = search;
+        result
+    }
     pub(in crate::fold_db_core::mutation_manager) async fn run_deferred_job(
         &self,
         job: &mut DeferredPersistJob,

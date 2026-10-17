@@ -20,6 +20,18 @@ pub struct HomeGroupWriter<'a> {
 }
 
 impl HomeBuilder {
+    /// Create an empty LastDB home fenced against writers that omit record-R
+    /// reverse edges. Generic conversion never grants this derived authority:
+    /// opaque imported completeness bytes can originate from an older writer.
+    pub fn create_empty_with_schema_record_refs(
+        root: &Path,
+        descriptor: HomeDescriptor,
+    ) -> Result<Current> {
+        let mut builder = Self::create(root, descriptor, 0)?;
+        builder.inner.required_features |= crate::disk_pack::FEATURE_SCHEMA_RECORD_REFS;
+        builder.finish()
+    }
+
     /// Create only at a nonexistent destination. Never modify the source home.
     pub fn create(root: &Path, descriptor: HomeDescriptor, frontier: u64) -> Result<Self> {
         descriptor.validate()?;

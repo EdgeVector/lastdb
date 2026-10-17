@@ -12,6 +12,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
+#[path = "writer_maintenance.rs"]
+mod maintenance;
+
 /// A complete journal batch with durable recovery bytes and exact record extents.
 pub struct DurableBatch {
     /// Complete mutation batch sequence.
@@ -32,7 +35,7 @@ pub struct JournalWriter {
     tail: JournalTail,
     poisoned: bool,
     reserved_bytes: u64,
-    lock: WriteLock,
+    lock: Arc<WriteLock>,
     admission: Arc<super::admission::AdmissionLedger>,
     suffix_oldest: Option<Instant>,
 }
@@ -54,6 +57,14 @@ impl JournalWriter {
     /// An existing stream without TAIL is an availability error, never an empty guess.
     pub fn open(root: &Path) -> Result<Self> {
         let lock = WriteLock::acquire(root)?;
+        Self::open_locked(lock)
+    }
+
+    pub(crate) fn open_conversion(root: &Path, token: Uuid) -> Result<Self> {
+        Self::open_locked(WriteLock::acquire_conversion(root, token)?)
+    }
+
+    fn open_locked(lock: WriteLock) -> Result<Self> {
         let current = crate::disk_pack::artifact::current(lock.root())?;
         if !lock.root().join("JOURNAL_TAIL").try_exists()? {
             super::resume::initial(&lock, &current)?;
@@ -69,7 +80,7 @@ impl JournalWriter {
             tail,
             poisoned: false,
             reserved_bytes: 0,
-            lock,
+            lock: Arc::new(lock),
             admission: Arc::default(),
             suffix_oldest: None,
         }
@@ -114,18 +125,47 @@ impl JournalWriter {
         self.reserved_bytes
     }
 
+    /// Validate bounded future directory growth before an accepted mutation.
+    /// A native caller owns its exclusive complete-write gate through publish.
+    pub(crate) fn check_dependency_capacity(&self, additional: u64) -> Result<()> {
+        self.check_admission()?;
+        if self.tail.last_batch != self.current.frontier {
+            return Err(super::refuse(
+                "complete admission requires a published suffix",
+            ));
+        }
+        let generation = crate::disk_pack::publish::ensure_generation(&self.lock, &self.current)?;
+        if generation
+            .dependencies
+            .checked_add(additional)
+            .map_or(true, |parts| {
+                parts > crate::disk_pack::dependency::MAX_DEPENDENCIES as u64
+            })
+        {
+            return Err(super::capacity(
+                "complete mutation exceeds dependency capacity",
+            ));
+        }
+        Ok(())
+    }
+
     /// Reserve a complete journal batch before its owned payloads move.
     /// This grants no directory capacity, logical-record protection, or ack.
     pub fn reserve(&self, mutations: &[JournalMutation]) -> Result<super::JournalReservation> {
         self.reserve_quote(super::JournalQuote::from_plan(
             mutations.len(),
-            &BatchPlan::new(mutations)?,
+            &BatchPlan::new(mutations, self.current.batch_operation_limit())?,
         ))
     }
 
     /// Reserve checked dimensions without retaining or copying the body.
     pub fn reserve_quote(&self, quote: super::JournalQuote) -> Result<super::JournalReservation> {
         self.check_admission()?;
+        if quote.operations() > self.current.batch_operation_limit() {
+            return Err(super::refuse(
+                "batch exceeds held CURRENT operation capability",
+            ));
+        }
         self.admission.reserve(
             quote,
             self.reserved_bytes,
@@ -159,7 +199,7 @@ impl JournalWriter {
         mut reservation: super::JournalReservation,
     ) -> Result<DurableBatch> {
         self.check_admission()?;
-        let plan = BatchPlan::new(&mutations)?;
+        let plan = BatchPlan::new(&mutations, self.current.batch_operation_limit())?;
         reservation.validate(
             &self.admission,
             super::JournalQuote::from_plan(mutations.len(), &plan),
@@ -233,7 +273,7 @@ impl JournalWriter {
             .try_reserve_exact(mutations.len())
             .map_err(|_| super::refuse("location buffer admission failed"))?;
         let mut data = PackWriter::journal(&self.root, marker.stream, marker.sequence, generation)?;
-        let begin = marker.encode(false)?;
+        let begin = marker.encode(false, self.current.batch_operation_limit())?;
         data.append_raw(&begin)?;
         let mut hash = Sha256::new();
         hash.update(begin);
@@ -252,7 +292,7 @@ impl JournalWriter {
                 "journal COMMIT position differs from complete length",
             ));
         }
-        let commit = marker.encode(true)?;
+        let commit = marker.encode(true, self.current.batch_operation_limit())?;
         data.append_raw(&commit)?;
         let written = data.finish()?;
         if written.logical_bytes != plan.logical_bytes

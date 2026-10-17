@@ -15,8 +15,8 @@ pub(super) struct Marker {
 }
 
 impl Marker {
-    pub(super) fn encode(&self, commit: bool) -> Result<[u8; 128]> {
-        self.validate()?;
+    pub(super) fn encode(&self, commit: bool, operation_limit: usize) -> Result<[u8; 128]> {
+        self.validate(operation_limit)?;
         if !commit && self.batch_digest != [0; 32] {
             return Err(corrupt("BEGIN contains a batch digest"));
         }
@@ -36,7 +36,7 @@ impl Marker {
         Ok(bytes)
     }
 
-    pub(super) fn decode(bytes: &[u8; 128], commit: bool) -> Result<Self> {
+    pub(super) fn decode(bytes: &[u8; 128], commit: bool, operation_limit: usize) -> Result<Self> {
         let magic = if commit { b"LDJCM1\0\0" } else { b"LDJBG1\0\0" };
         if &bytes[..8] != magic || u16_at(bytes, 8) != 1 || u16_at(bytes, 10) != 128 {
             return Err(corrupt("journal marker format"));
@@ -51,17 +51,17 @@ impl Marker {
             accepted_ms: u64_at(bytes, 56),
             batch_digest: bytes[64..96].try_into().expect("marker digest"),
         };
-        marker.validate()?;
+        marker.validate(operation_limit)?;
         if !commit && marker.batch_digest != [0; 32] {
             return Err(corrupt("BEGIN contains a batch digest"));
         }
         Ok(marker)
     }
 
-    fn validate(&self) -> Result<()> {
+    fn validate(&self, operation_limit: usize) -> Result<()> {
         nonnil(self.stream)?;
         if self.operations == 0
-            || self.operations as usize > super::MAX_OPERATIONS
+            || self.operations as usize > operation_limit
             || self.previous.checked_add(1) != Some(self.sequence)
             || !(256..=super::MAX_BATCH_BYTES).contains(&self.logical_bytes)
         {

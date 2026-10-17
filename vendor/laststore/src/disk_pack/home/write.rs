@@ -19,8 +19,8 @@ pub struct HomeMutation {
 /// Exclusive native journal owner. A durable append is distinct from root publication.
 /// This API does not acknowledge a logical memory mutation or release its token.
 pub struct HomeJournal {
-    descriptor: HomeDescriptor,
-    writer: JournalWriter,
+    pub(super) descriptor: HomeDescriptor,
+    pub(super) writer: JournalWriter,
 }
 
 impl HomeDescriptor {
@@ -41,10 +41,18 @@ impl HomeDescriptor {
 
     /// Quote a complete native batch without copying or retaining its bodies.
     pub fn quote(&self, operations: &[HomeMutation]) -> Result<JournalQuote> {
-        if operations.is_empty() || operations.len() > 4096 {
-            return Err(crate::Error::Config(
-                "native batch requires 1..4096 operations".into(),
-            ));
+        self.quote_with_limit(operations, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
+    }
+
+    pub(super) fn quote_with_limit(
+        &self,
+        operations: &[HomeMutation],
+        operation_limit: usize,
+    ) -> Result<JournalQuote> {
+        if operations.is_empty() || operations.len() > operation_limit {
+            return Err(crate::Error::Config(format!(
+                "native batch requires 1..{operation_limit} operations"
+            )));
         }
         let mut shapes = Vec::new();
         shapes
@@ -57,13 +65,31 @@ impl HomeDescriptor {
                 operation.body.as_ref().map(|body| body.len() as u64),
             )?);
         }
-        JournalQuote::from_shapes(&shapes)
+        JournalQuote::from_iter_with_limit(shapes, operation_limit)
     }
 }
 
 impl DiskHome {
+    pub(crate) fn journal_conversion(&self, token: uuid::Uuid) -> Result<HomeJournal> {
+        let writer = JournalWriter::open_conversion(&self.root, token)?;
+        self.descriptor.check_current(writer.current())?;
+        Ok(HomeJournal {
+            descriptor: self.descriptor.clone(),
+            writer,
+        })
+    }
+
     /// Recover complete pending work and checkpoint a fresh stream before admission.
     pub fn journal(&self) -> Result<HomeJournal> {
+        if self
+            .root
+            .join(crate::disk_pack::conversion::REVERSE_FENCE)
+            .try_exists()?
+        {
+            return Err(crate::Error::Config(
+                "native source is sealed after reverse conversion".into(),
+            ));
+        }
         let on_disk = HomeDescriptor::read(&self.root)?;
         if on_disk != self.descriptor {
             return Err(crate::disk_pack::corrupt(
@@ -80,6 +106,31 @@ impl DiskHome {
 }
 
 impl HomeJournal {
+    /// Pack live records without a logical mutation; retain held and grace-period files.
+    pub fn compact(
+        &mut self,
+        policy: &crate::disk_pack::maintenance::SpacePolicy,
+    ) -> Result<crate::disk_pack::maintenance::MaintenanceReceipt> {
+        self.writer.compact(policy)
+    }
+
+    /// Reclaim only the exact files no retained generation still needs.
+    pub fn reclaim(
+        &mut self,
+        policy: &crate::disk_pack::maintenance::SpacePolicy,
+    ) -> Result<crate::disk_pack::maintenance::MaintenanceReceipt> {
+        self.writer.reclaim(policy)
+    }
+
+    /// Reserve all native output bytes under the same exclusive writer lease.
+    pub fn reserve_space(
+        &self,
+        bytes: u64,
+        policy: &crate::disk_pack::maintenance::SpacePolicy,
+    ) -> Result<crate::disk_pack::maintenance::SpaceReservation> {
+        self.writer.reserve_space(bytes, policy)
+    }
+
     /// Last complete readable directory boundary.
     pub fn current(&self) -> &Current {
         self.writer.current()
@@ -88,8 +139,10 @@ impl HomeJournal {
     /// Own journal capacity before the batch transfers its stored bodies.
     /// This does not reserve directory space or authorize a memory ack.
     pub fn reserve(&self, operations: &[HomeMutation]) -> Result<JournalReservation> {
-        self.writer
-            .reserve_quote(self.descriptor.quote(operations)?)
+        self.writer.reserve_quote(
+            self.descriptor
+                .quote_with_limit(operations, self.current().batch_operation_limit())?,
+        )
     }
 
     /// Include unappended reservations in the bounded suffix pressure.
@@ -114,10 +167,11 @@ impl HomeJournal {
         accepted_ms: u64,
         reservation: JournalReservation,
     ) -> Result<DurableBatch> {
-        if operations.is_empty() || operations.len() > 4096 {
-            return Err(crate::Error::Config(
-                "native batch requires 1..4096 operations".into(),
-            ));
+        let operation_limit = self.current().batch_operation_limit();
+        if operations.is_empty() || operations.len() > operation_limit {
+            return Err(crate::Error::Config(format!(
+                "native batch requires 1..{operation_limit} operations"
+            )));
         }
         let addressed: Result<Vec<_>> = operations
             .into_iter()

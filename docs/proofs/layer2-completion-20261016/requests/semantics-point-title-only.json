@@ -1,0 +1,12 @@
+{
+  "schema_name": "SemanticsProof",
+  "fields": [
+    "title"
+  ],
+  "filter": {
+    "HashRangeKey": {
+      "hash": "generated",
+      "range": "record-0"
+    }
+  }
+}

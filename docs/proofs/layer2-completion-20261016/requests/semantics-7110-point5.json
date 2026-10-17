@@ -1,0 +1,1 @@
+{"schema_name": "Layer2FinalBenchmark", "fields": ["title", "body"], "filter": {"HashRangeKey": {"hash": "generated", "range": "record-000005"}}}

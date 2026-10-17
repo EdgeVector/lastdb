@@ -37,6 +37,7 @@ mod count;
 mod fields;
 mod filter;
 mod paging;
+mod pending_values;
 mod predicates;
 mod resolve;
 mod secondary;

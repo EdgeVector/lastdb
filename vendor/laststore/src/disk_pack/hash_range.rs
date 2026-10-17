@@ -250,7 +250,7 @@ impl HashRangeCursor<'_> {
             }
             match group.cursor.next(self.call)? {
                 Some((key, value)) if key < self.end => {
-                    let location = Location::decode(&value)?;
+                    let location = Location::decode_for_current(&value, &self.call.current)?;
                     if location.version.batch > self.call.current.frontier {
                         return Err(corrupt("range location exceeds committed frontier"));
                     }

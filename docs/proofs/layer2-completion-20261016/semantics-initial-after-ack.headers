@@ -1,0 +1,5 @@
+HTTP/1.1 200 OK
+Content-Length: 1027
+Connection: close
+Content-Type: application/json
+x-lastdb-read-receipt: {"blocking_queue_wait_nanos":4250,"decode_nanos":14874,"decoded_bytes":2007,"decrypt_nanos":48375,"decrypted_bytes":2059,"directory_entries":0,"directory_reads":0,"file_open_attempts":7,"file_opens":7,"filesystem_pages":"unknown","footer_bytes":0,"format_probe_bytes":82176,"group_load_nanos":0,"group_opens":0,"journal_replay_bytes":0,"legacy_replay_bytes":0,"loader_calls":0,"lock_wait_nanos":2543,"logical_warm_hits":0,"logical_warm_misses":0,"metadata_nanos":12747,"metadata_operations":11,"open_nanos":136709,"pack_batch_frames":2,"pack_batch_read_runs":2,"pack_file_handle_reuses":2,"pack_file_handles_peak":7,"payload_bytes":1534,"query_storage_elapsed_nanos":3610583,"read_nanos":14583,"read_operations":9,"requested_keys":28,"returned_body_bytes":1027,"scope":"query_storage","socket_queue_wait_nanos":17209,"temporary_bytes_peak":84349,"temporary_bytes_scope":"instrumented_byte_buffers","version":1}

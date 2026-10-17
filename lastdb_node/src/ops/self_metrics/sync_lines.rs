@@ -1,4 +1,5 @@
 use super::*;
+use tracing::Instrument;
 
 /// Compact request-ops offender lines for `lastdb status`.
 ///
@@ -381,25 +382,26 @@ pub(super) fn schedule_backup_storage_refresh(host: &Host) {
         return;
     }
     let cache_path = crate::host::backup_manifest_cache_path(&host.home);
-    // lint:spawn-bare-ok process-lifetime status backup-storage cache fill —
-    // must not block /api/status; engine cache is best-effort.
-    tokio::spawn(async move {
-        let clear = || BACKUP_STORAGE_REFRESHING.store(false, Ordering::SeqCst);
-        let Ok(bytes) = tokio::fs::read(&cache_path).await else {
+    tokio::spawn(
+        async move {
+            let clear = || BACKUP_STORAGE_REFRESHING.store(false, Ordering::SeqCst);
+            let Ok(bytes) = tokio::fs::read(&cache_path).await else {
+                clear();
+                return;
+            };
+            let Ok(manifest) =
+                serde_json::from_slice::<fold_db::storage::laststore::BackupManifest>(&bytes)
+            else {
+                clear();
+                return;
+            };
+            let _ = engine
+                .refresh_backup_storage_footprint(std::slice::from_ref(&manifest))
+                .await;
             clear();
-            return;
-        };
-        let Ok(manifest) =
-            serde_json::from_slice::<fold_db::storage::laststore::BackupManifest>(&bytes)
-        else {
-            clear();
-            return;
-        };
-        let _ = engine
-            .refresh_backup_storage_footprint(std::slice::from_ref(&manifest))
-            .await;
-        clear();
-    });
+        }
+        .in_current_span(),
+    );
 }
 
 // lint:file-size-ok moved verbatim from self_metrics.rs; cohesive unit, split further in a later pass

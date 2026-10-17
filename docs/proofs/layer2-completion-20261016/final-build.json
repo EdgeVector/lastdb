@@ -1,0 +1,24 @@
+{
+  "product_source": "7110c7f54ea005e33678b5c93e89353d6117b41f",
+  "version": "lastdbd 0.23.4-pre.0-249-g7110c7f54",
+  "dirty_scope": null,
+  "physical_tools_source": "7110c7f54ea005e33678b5c93e89353d6117b41f",
+  "physical_tools_note": "All five programs use the same clean source, including grouped changed-key loads, direct new-locator output, the bounded write-preparation budget, and feature-gated larger complete batches.",
+  "profile": "release",
+  "locked_dependencies": true,
+  "checks": {
+    "format": "pass",
+    "clippy_warnings_denied": "pass",
+    "changed_rust_file_size": "pass",
+    "changed_rust_function_size": "pass",
+    "new_lint_allowances": 0,
+    "release_build": "pass"
+  },
+  "sha256": {
+    "lastdbd": "5a7b18dcb206e46711a07dc497edebdb267867b9073fc4d516518056c82b6244",
+    "lastdb": "1b6bc0dff637059478c760e81f4468615f35ac6550c969ec6c77919e8c06b942",
+    "lastdb-disk-home": "01a55295dc8a914d931747eff1e2725f59cd9091d48aca11cc99244de0c652ce",
+    "lastdb-disk-recovery": "43b32657b631a0afd5e0cd9ae2c2357cd7e110e0d9a43e7ab16b365f2bd34b9f",
+    "lastdb-pack-maintain": "ef8efb9fc8bee9bd98a00749a06c3280a3dfccfe2c632b5caaf98bd56c1f67c5"
+  }
+}

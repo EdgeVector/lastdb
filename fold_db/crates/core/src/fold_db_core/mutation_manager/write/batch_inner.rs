@@ -42,15 +42,8 @@ impl MutationManager {
         let (must_exist_deletes, deletes): (Vec<_>, Vec<_>) = deletes
             .into_iter()
             .partition(|mutation| mutation.must_exist == Some(true));
-        let force_hard_durable = purges
-            .iter()
-            .chain(must_exist_deletes.iter())
-            .chain(deletes.iter())
-            .any(|mutation| mutation.synchronous == Some(true));
-        let deletes_wait_for_durable = !matches!(origin, WriteOrigin::Request)
-            || deletes
-                .iter()
-                .any(|mutation| mutation.synchronous == Some(true));
+        let (force_hard_durable, deletes_wait_for_durable) =
+            self.erasure_durability(&purges, &must_exist_deletes, &deletes, origin);
         let all_hard_erasures_durable = deletes.is_empty() || deletes_wait_for_durable;
         // Mixed batch: any Purge/Delete riding with create/update becomes a
         // later envelope on the same schema lane. A request-origin Purge or
@@ -103,6 +96,34 @@ impl MutationManager {
             author_clock_barrier,
         )
         .await
+    }
+
+    fn erasure_durability(
+        &self,
+        purges: &[Mutation],
+        must_exist_deletes: &[Mutation],
+        deletes: &[Mutation],
+        origin: WriteOrigin,
+    ) -> (bool, bool) {
+        // Native queries read disk and accepted batches, not resident tombstones.
+        // Wait for the native lane's complete stored deletion before its reply.
+        let native = self.native_erasure_requires_durable();
+        let forced = native
+            || purges
+                .iter()
+                .chain(must_exist_deletes)
+                .chain(deletes)
+                .any(|mutation| mutation.synchronous == Some(true));
+        let wait = native
+            || !matches!(origin, WriteOrigin::Request)
+            || deletes
+                .iter()
+                .any(|mutation| mutation.synchronous == Some(true));
+        (forced, wait)
+    }
+
+    fn native_erasure_requires_durable(&self) -> bool {
+        self.db_ops.namespaced_store().disk_pack_runtime().is_some()
     }
 
     /// Account the erased ids, then run any remaining create/update mutations
@@ -277,6 +298,12 @@ impl MutationManager {
             deleted: erased,
             ..Default::default()
         });
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            // Every erase can be spared. Cover the earlier writes explicitly
+            // before upgrading the whole mixed request's durability receipt.
+            runtime.flush_native().await?;
+            receipt.durability = ResidentDurability::Durable;
+        }
         crate::request_phases::add_counter(
             crate::request_phases::RequestCounter::ResidentOperations,
             erased,

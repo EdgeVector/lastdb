@@ -66,11 +66,26 @@ impl JournalQuote {
     pub(super) fn from_iter(
         shapes: impl IntoIterator<Item = JournalMutationShape>,
     ) -> Result<Self> {
+        Self::from_iter_with_limit(shapes, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
+    }
+
+    pub(in crate::disk_pack) fn from_iter_with_limit(
+        shapes: impl IntoIterator<Item = JournalMutationShape>,
+        operation_limit: usize,
+    ) -> Result<Self> {
+        if ![
+            crate::disk_pack::LEGACY_BATCH_OPERATIONS,
+            crate::disk_pack::LARGE_BATCH_OPERATIONS,
+        ]
+        .contains(&operation_limit)
+        {
+            return Err(super::refuse("unsupported operation admission limit"));
+        }
         let mut length = 256u64;
         let mut operations = 0;
         for shape in shapes {
             operations += 1;
-            if operations > super::MAX_OPERATIONS {
+            if operations > operation_limit {
                 return Err(super::refuse("batch operation admission limit"));
             }
             length = length

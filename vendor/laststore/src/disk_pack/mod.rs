@@ -4,9 +4,18 @@
 //! the format in a LastStore home or bypass the legacy home descriptor fence.
 
 mod artifact;
+pub mod backup;
+mod batch;
+mod batch_error;
+mod batch_io;
+mod block_plan;
 mod build;
 mod bytes;
 mod call;
+mod call_io;
+pub mod conversion;
+pub(crate) mod conversion_fence;
+mod conversion_select;
 mod current;
 mod dependency;
 mod dependency_walk;
@@ -15,7 +24,10 @@ mod generation;
 mod hash_range;
 pub mod home;
 pub mod journal;
+pub mod lifetime;
 mod location;
+mod locator_forest;
+pub mod maintenance;
 mod object;
 mod pack_write;
 mod page;
@@ -33,6 +45,7 @@ mod write_lock;
 
 pub use build::{ArtifactBuilder, GroupWriter};
 pub use call::{ReadBudget, ReadCall, ReadCosts};
+pub use conversion_select::{resolve_conversion, ResolvedStore};
 pub use current::Current;
 pub use hash_range::{HashRangeCursor, HashScope, RangeBounds, RangePage, RangeRecord};
 pub use location::{DirectoryEntry, Location, MutationVersion, Source};
@@ -50,8 +63,28 @@ pub const FEATURE_JOURNAL_LIFECYCLE: u64 = 2;
 /// CURRENT feature bit: a native home descriptor controls placement and key identity.
 pub const FEATURE_NATIVE_HOME: u64 = 4;
 
-const SUPPORTED_FEATURES: u64 =
-    FEATURE_OBJECT_METADATA | FEATURE_JOURNAL_LIFECYCLE | FEATURE_NATIVE_HOME;
+/// Mandatory protocol: every active reader holds LIFETIME_LOCK or a writer-owned
+/// read capability whose in-process gate excludes reclamation.
+/// Homes without this bit retain all files because older readers have no such hold.
+pub const FEATURE_FILE_LIFETIME: u64 = 8;
+
+/// Native schema writers maintain runtime record-R reverse edges. Version-2
+/// completeness is valid only after this bit is durably published in CURRENT.
+pub const FEATURE_SCHEMA_RECORD_REFS: u64 = 16;
+
+/// Native batches admit 16,384 ordered storage operations instead of 4,096.
+/// The initial CURRENT fences older readers before any larger journal append.
+pub const FEATURE_LARGE_BATCHES: u64 = 32;
+
+const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
+    | FEATURE_JOURNAL_LIFECYCLE
+    | FEATURE_NATIVE_HOME
+    | FEATURE_FILE_LIFETIME
+    | FEATURE_SCHEMA_RECORD_REFS
+    | FEATURE_LARGE_BATCHES;
+
+const LEGACY_BATCH_OPERATIONS: usize = 4096;
+const LARGE_BATCH_OPERATIONS: usize = 16_384;
 
 const PAGE_BYTES: usize = 16_384;
 const HEADER_BYTES: usize = 128;

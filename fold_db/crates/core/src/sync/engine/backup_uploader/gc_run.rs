@@ -351,9 +351,9 @@ impl SyncEngine {
     /// Local Mini R/W never waits on this task.
     pub(crate) fn schedule_post_cas_backup_orphan_gc(self: &Arc<Self>) {
         let engine = Arc::clone(self);
-        // lint:spawn-bare-ok process-lifetime post-CAS backup orphan GC — not
-        // request-scoped; must not block the uploader drain cycle or local R/W.
         tokio::spawn(async move {
+            // lint:spawn-bare-ok process-lifetime post-CAS backup orphan GC.
+            // This task must not block the uploader drain cycle or local R/W.
             engine.run_pending_post_cas_backup_orphan_gc().await;
         });
     }

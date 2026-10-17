@@ -1,0 +1,65 @@
+{
+  "requested_path": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf",
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf",
+  "uid": 501,
+  "user": "tomtang",
+  "root_uid": 501,
+  "root_is_symlink": false,
+  "owned_node_processes": [],
+  "homes": [
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/node",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/node",
+      "uid": 501,
+      "is_symlink": false,
+      "trusted_owner_stamp_present": false
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/final-node",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/final-node",
+      "uid": 501,
+      "is_symlink": false,
+      "trusted_owner_stamp_present": false
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-persist-zero",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-persist-zero",
+      "uid": 501,
+      "is_symlink": false,
+      "trusted_owner_stamp_present": false
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-persist-501",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-persist-501",
+      "uid": 501,
+      "is_symlink": false,
+      "trusted_owner_stamp_present": false
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-cap-small",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-cap-small",
+      "uid": 501,
+      "is_symlink": false,
+      "trusted_owner_stamp_present": false
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-cap-zero",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-cap-zero",
+      "uid": 501,
+      "is_symlink": false,
+      "trusted_owner_stamp_present": false
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-cap-invalid",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-semantics.3v0KLf/refusal-cap-invalid",
+      "uid": 501,
+      "is_symlink": false,
+      "trusted_owner_stamp_present": false
+    }
+  ],
+  "cleanup_status": "complete",
+  "method": "lastdb-dev reclaim --home <exact owned scratch root>",
+  "helper_exit": 0,
+  "root_exists_after_cleanup": false,
+  "helper_result": "lastdb-dev: reclaiming /var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T//layer2-semantics.3v0KLf (owner reclaim)\nlastdb-dev: reclaimed 1 path(s); free space +26 MiB (df delta)"
+}

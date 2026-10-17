@@ -86,6 +86,13 @@ impl SchemaCore {
     }
 
     pub fn get_schema_state_cached(&self, schema_name: &str) -> Result<SchemaState, SchemaError> {
+        if self.native_read_snapshot_active() {
+            return self.captured_schema_state(schema_name)?.ok_or_else(|| {
+                SchemaError::StorageRead {
+                    detail: "native schema state requires its captured catalog value".into(),
+                }
+            });
+        }
         if let Some(staged) = self.staged_schema(schema_name)? {
             return Ok(staged.state);
         }

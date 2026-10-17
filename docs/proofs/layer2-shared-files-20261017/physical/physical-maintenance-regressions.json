@@ -1,0 +1,18 @@
+[
+  {
+    "profile": "physical-1k",
+    "metric": "released_reclaim_product_ms",
+    "baseline_ms": 1108.77925,
+    "candidate_ms": 1120.744166,
+    "change_percent": 1.079107135166879,
+    "samples": 1
+  },
+  {
+    "profile": "physical-128",
+    "metric": "released_reclaim_product_ms",
+    "baseline_ms": 464.584333,
+    "candidate_ms": 475.557791,
+    "change_percent": 2.36199484583135,
+    "samples": 1
+  }
+]

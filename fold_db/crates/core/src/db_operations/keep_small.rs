@@ -130,6 +130,8 @@ impl KeepSmallSnapshot {
 /// capture-skip exact-key contract for the legacy row still applies.
 pub const KEEP_SMALL_SNAPSHOT_COLLECTION: &str = "keep_small";
 
+type PendingAtomContribution = (String, u64, u64, bool, bool);
+
 /// In-process incremental projection. Point-read cheap; updated on the write path.
 #[derive(Debug)]
 pub struct KeepSmallMeters {
@@ -141,8 +143,8 @@ pub struct KeepSmallMeters {
     schemas: Mutex<HashMap<String, SchemaMeter>>,
     molecules: Mutex<HashMap<String, MoleculeStorageCounter>>,
     molecule_counters_complete: AtomicBool,
-    /// atom uuid → (schema, atom bytes, blob bytes, contribution complete).
-    pending_atoms: Mutex<HashMap<String, (String, u64, u64, bool)>>,
+    /// Atom uuid → (schema, atom bytes, blob bytes, complete, body put credited).
+    pending_atoms: Mutex<HashMap<String, PendingAtomContribution>>,
     /// Last written size per store key. Used so tip rewrite accounting does
     /// not have to GET the live tip (those GETs are observable).
     last_key_bytes: Mutex<HashMap<String, u64>>,

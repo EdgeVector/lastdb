@@ -69,7 +69,7 @@ impl AdmissionLedger {
             .chain(suffix_oldest)
             .min();
         if oldest.is_some_and(|time| time.elapsed().as_millis() >= 5000) {
-            return Err(super::refuse(
+            return Err(super::capacity(
                 "journal age admission limit; materialize pending work",
             ));
         }
@@ -81,7 +81,7 @@ impl AdmissionLedger {
         if total.map_or(true, |bytes| bytes > MAX_SUFFIX_BYTES)
             || batches.saturating_add(state.entries.len() as u64) >= MAX_SUFFIX_BATCHES
         {
-            return Err(super::refuse("journal suffix admission limit"));
+            return Err(super::capacity("journal suffix admission limit"));
         }
         let id = state
             .next

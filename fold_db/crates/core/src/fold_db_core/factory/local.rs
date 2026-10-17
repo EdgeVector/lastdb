@@ -138,7 +138,7 @@ async fn create_local_fold_db_inner(
         && !local_proof_engine
         && laststore_is_empty_home(path);
 
-    if crate::storage::disk_pack::requested(path) && sync_setup.is_some() {
+    if open_store::native_selection(path)? && sync_setup.is_some() {
         return Err(FoldDbError::Config(
             "native disk homes require their complete backup and cloud-sync gate before activation"
                 .into(),
@@ -146,6 +146,11 @@ async fn create_local_fold_db_inner(
     }
 
     let primary_store = open_primary_store(path, e2e_keys)?;
+    if sync_setup.is_some() && primary_store.store.disk_pack_runtime().is_some() {
+        return Err(FoldDbError::Config(
+            "native disk cloud sync requires its native compatibility gate".into(),
+        ));
+    }
     let base_store = Arc::clone(&primary_store.store);
 
     // Create the config store for runtime node configuration.

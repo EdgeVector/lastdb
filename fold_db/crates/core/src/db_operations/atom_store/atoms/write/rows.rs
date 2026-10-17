@@ -19,6 +19,7 @@ impl AtomStore {
         atoms: &[(Atom, Option<crate::atom::AtomPartition>)],
         storage_prefix: Option<&str>,
         automatic_gc_generation: u64,
+        existing: &HashMap<String, Atom>,
     ) -> Result<AtomBatchRows, SchemaError> {
         let encoding = self.atom_key_encoding();
 
@@ -40,6 +41,8 @@ impl AtomStore {
             if !seen_keys.insert(key.clone()) {
                 continue; // Skip duplicate keys
             }
+            let stored = existing.get(&key);
+            let atom = stored.unwrap_or(atom);
             let index_key = build_storage_key(
                 storage_prefix,
                 &schema_index_codec::record_key(atom.source_schema_name(), atom.uuid()),
@@ -47,26 +50,30 @@ impl AtomStore {
             let bundle_molecule = storage_prefix
                 .and(partition.as_ref())
                 .and_then(crate::atom::AtomPartition::molecule_uuid);
-            let atom_value = self.encode_atom_bytes(atom, bundle_molecule).await?;
+            if stored.is_none() {
+                let value = self.encode_atom_bytes(atom, bundle_molecule).await?;
+                atom_items.push((key.into_bytes(), value));
+            }
             let logical = serde_json::to_vec(atom).map_or(0, |v| v.len() as u64);
             let blob_bytes = crate::atom::file_pointer::blob_logical_bytes_of_atom(
                 atom.content(),
                 atom.metadata(),
             );
-            keep_small_puts.push((
-                atom.source_schema_name().to_string(),
-                atom.uuid().to_string(),
-                logical,
-                blob_bytes.unwrap_or_default(),
-                blob_bytes.is_some(),
-            ));
+            if stored.is_none() {
+                keep_small_puts.push((
+                    atom.source_schema_name().to_string(),
+                    atom.uuid().to_string(),
+                    logical,
+                    blob_bytes.unwrap_or_default(),
+                    blob_bytes.is_some(),
+                ));
+            }
             Self::push_blob_edge_rows(
                 atom,
                 storage_prefix,
                 &mut seen_blob_edges,
                 &mut blob_edge_items,
             )?;
-            atom_items.push((key.into_bytes(), atom_value));
             index_items.push((index_key, Value::Bool(true)));
 
             // Only a body that actually landed at a prefixed key needs a

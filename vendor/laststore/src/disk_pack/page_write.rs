@@ -53,6 +53,10 @@ impl PageWriter {
         self.next
     }
 
+    pub(super) fn object(&self) -> Uuid {
+        self.object
+    }
+
     pub(super) fn append(&mut self, fields: PageFields, payload: &[u8]) -> Result<u64> {
         if payload.len() > PAGE_PAYLOAD {
             return Err(corrupt("page write payload too large"));

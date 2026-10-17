@@ -10,7 +10,7 @@ pub const MUTATION_AUTHOR_SIGNATURE_VERSION: u8 = 2;
 /// Durable high-water state for one device's mutation author clock.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MutationAuthorClockState {
-    /// Highest physical nanosecond value emitted or observed by this device.
+    /// Highest physical nanosecond value emitted, observed, or reserved by this device.
     #[serde(default)]
     pub physical_nanos: u64,
     /// Monotonic logical counter. It advances for every local operation.
@@ -22,10 +22,11 @@ impl MutationAuthorClockState {
     /// Advance one local event. A wall-clock rollback cannot reduce either
     /// component of the durable author clock.
     #[must_use]
-    pub fn advance_local(&mut self, now_nanos: u64) -> (u64, u64) {
+    pub fn advance_local(&mut self, now_nanos: u64) -> Option<(u64, u64)> {
+        let counter = self.logical_counter.checked_add(1)?;
         self.physical_nanos = self.physical_nanos.max(now_nanos);
-        self.logical_counter = self.logical_counter.saturating_add(1);
-        (self.physical_nanos, self.logical_counter)
+        self.logical_counter = counter;
+        Some((self.physical_nanos, self.logical_counter))
     }
 
     /// Observe a remote author clock without changing the received mutation.

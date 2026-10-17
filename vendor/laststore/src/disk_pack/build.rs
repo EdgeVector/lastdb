@@ -1,4 +1,5 @@
 use super::dependency::Dependencies;
+use super::locator_forest::LocatorForest;
 use super::pack_write::PackWriter;
 use super::page_write::directory;
 use super::tree_write::TreeWriter;
@@ -16,13 +17,15 @@ use uuid::Uuid;
 pub struct ArtifactBuilder {
     root: PathBuf,
     directory: TreeWriter,
+    pack: PackWriter,
+    locators: Option<LocatorForest>,
     generation: u64,
     frontier: u64,
     placement_codec: u16,
     key_codec: u16,
     failed: bool,
     dependencies: Dependencies,
-    required_features: u64,
+    pub(super) required_features: u64,
     home_digest: [u8; 32],
 }
 
@@ -31,7 +34,6 @@ pub struct GroupWriter<'a> {
     owner: &'a mut ArtifactBuilder,
     collection: String,
     group: u16,
-    pack: Option<PackWriter>,
     locator: Option<TreeWriter>,
     finished: bool,
 }
@@ -76,6 +78,7 @@ impl ArtifactBuilder {
             return Err(corrupt("artifact creation generation is zero"));
         }
         directory(root)?;
+        super::lifetime::initialize(root)?;
         if let Some(descriptor) = native {
             descriptor.write(root)?;
         } else {
@@ -90,9 +93,12 @@ impl ArtifactBuilder {
             directory(&root.join(name))?;
         }
         let directory = TreeWriter::new(root, TreeKind::Directory, generation)?;
+        let pack = PackWriter::new(root, generation)?;
         Ok(Self {
             root: root.to_path_buf(),
             directory,
+            pack,
+            locators: None,
             generation,
             frontier,
             placement_codec,
@@ -105,8 +111,9 @@ impl ArtifactBuilder {
             },
             required_features: super::FEATURE_OBJECT_METADATA
                 | super::FEATURE_JOURNAL_LIFECYCLE
+                | super::FEATURE_FILE_LIFETIME
                 | if native.is_some() {
-                    super::FEATURE_NATIVE_HOME
+                    super::FEATURE_NATIVE_HOME | super::FEATURE_LARGE_BATCHES
                 } else {
                     0
                 },
@@ -123,14 +130,15 @@ impl ArtifactBuilder {
         }
         self.failed = true;
         ReadCall::directory_key(collection, group)?;
-        let pack = PackWriter::new(&self.root, self.generation)?;
-        let locator = TreeWriter::new(&self.root, TreeKind::Locator, self.generation)?;
+        if self.locators.is_none() {
+            self.locators = Some(LocatorForest::new(&self.root, self.generation)?);
+        }
+        let locator = self.locators.as_mut().expect("created forest").tree()?;
         self.failed = false;
         Ok(GroupWriter {
             owner: self,
             collection: collection.to_string(),
             group,
-            pack: Some(pack),
             locator: Some(locator),
             finished: false,
         })
@@ -143,6 +151,17 @@ impl ArtifactBuilder {
             return Err(corrupt(
                 "refusing incomplete or failed artifact publication",
             ));
+        }
+        let data = self.pack.finish()?;
+        self.dependencies.add_payload(
+            data.object,
+            data.sequence,
+            data.data_parts,
+            data.map_pages,
+        )?;
+        if let Some(locators) = self.locators {
+            let output = locators.finish()?;
+            self.dependencies.add_tree(&output.tree, output.parts)?;
         }
         let (directory, parts) = self.directory.finish_with_parts()?;
         self.dependencies.add_contiguous_tree(&directory, parts)?;
@@ -197,17 +216,14 @@ impl GroupWriter<'_> {
         body: &mut dyn Read,
     ) -> Result<Location> {
         self.check_version(version)?;
-        let location = self.pack.as_mut().expect("active group").put(
-            &self.collection,
-            key,
-            version,
-            body_bytes,
-            body,
+        let location = self
+            .owner
+            .pack
+            .put(&self.collection, key, version, body_bytes, body)?;
+        self.locator.as_mut().expect("active group").add(
+            key.as_bytes(),
+            location.encode_for_features(self.owner.required_features)?,
         )?;
-        self.locator
-            .as_mut()
-            .expect("active group")
-            .add(key.as_bytes(), location.encode()?)?;
         Ok(location)
     }
 
@@ -232,10 +248,10 @@ impl GroupWriter<'_> {
             blocks: 0,
             digest: [0; 32],
         };
-        self.locator
-            .as_mut()
-            .expect("active group")
-            .add(key.as_bytes(), location.encode()?)
+        self.locator.as_mut().expect("active group").add(
+            key.as_bytes(),
+            location.encode_for_features(self.owner.required_features)?,
+        )
     }
 
     fn check_version(&self, version: MutationVersion) -> Result<()> {
@@ -244,32 +260,27 @@ impl GroupWriter<'_> {
                 "artifact builder requires a fresh identity after failure",
             ));
         }
-        if version.batch > self.owner.frontier {
+        if version.batch > self.owner.frontier
+            || version.operation as usize
+                >= super::current::batch_operation_limit(self.owner.required_features)
+        {
             return Err(corrupt("source version exceeds held boundary"));
         }
         Ok(())
     }
 
-    /// Make the complete group durable before its directory value can be published.
+    /// Complete this group's private map. The builder makes the shared payload
+    /// durable before it publishes the complete directory.
     pub fn finish(mut self) -> Result<()> {
         if self.owner.failed {
             return Err(corrupt("refusing failed group publication"));
         }
-        let data = self.pack.take().expect("active group").finish()?;
-        self.owner.dependencies.add_payload(
-            data.object,
-            data.sequence,
-            data.data_parts,
-            data.map_pages,
-        )?;
-        let (locator, parts) = self
-            .locator
-            .take()
-            .expect("active group")
-            .finish_with_parts()?;
-        self.owner
-            .dependencies
-            .add_contiguous_tree(&locator, parts)?;
+        let locator = self
+            .owner
+            .locators
+            .as_mut()
+            .expect("active locator forest")
+            .complete_tree(self.locator.take().expect("active group"))?;
         let value = DirectoryEntry {
             group: self.group,
             locator,

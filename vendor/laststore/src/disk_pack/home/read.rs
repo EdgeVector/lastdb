@@ -1,5 +1,5 @@
 use super::{HomeDescriptor, ReadCall};
-use crate::disk_pack::{Current, HashRangeCursor, HashScope, RangeBounds, ReadCosts};
+use crate::disk_pack::{Current, HashRangeCursor, HashScope, RangeBounds, ReadBudget, ReadCosts};
 use crate::Result;
 
 /// One native read call. All exact, batch, and range work shares its captured root.
@@ -16,6 +16,11 @@ impl HomeRead {
     /// The immutable generation selected at call start.
     pub fn current(&self) -> &Current {
         self.call.current()
+    }
+
+    /// Fixed limits for this call, including the separately admitted write mode.
+    pub fn budget(&self) -> ReadBudget {
+        self.call.budget
     }
 
     /// Aggregate costs, including work before individual item errors.
@@ -49,14 +54,13 @@ impl HomeRead {
             return Err(super::super::resource());
         }
         self.call
-            .charge((coordinates.len() * std::mem::size_of::<Result<Option<Vec<u8>>>>()) as u64)?;
-        let mut out = Vec::new();
-        out.try_reserve_exact(coordinates.len())
-            .map_err(|_| super::super::resource())?;
-        for (collection, key) in coordinates {
-            out.push(self.get(collection, key));
-        }
-        Ok(out)
+            .batch_get(coordinates.iter().map(|(collection, key)| {
+                (
+                    collection.as_str(),
+                    self.descriptor.group(key),
+                    key.as_str(),
+                )
+            }))
     }
 
     /// Seek one complete encoded hash; derive every configured group locally.

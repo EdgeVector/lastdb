@@ -522,7 +522,8 @@ impl MutationManager {
     /// run under `pending_tasks` (see `LASTDB_RESIDENT_MODE=write`).
     #[inline]
     pub(crate) fn acks_on_resident(&self) -> bool {
-        self.resident_mode.acks_on_resident()
+        self.db_ops.namespaced_store().disk_pack_runtime().is_none()
+            && self.resident_mode.acks_on_resident()
     }
 
     /// Admit one deferred persist of `bytes`, or refuse.

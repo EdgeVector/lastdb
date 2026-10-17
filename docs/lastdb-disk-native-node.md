@@ -1,5 +1,10 @@
 # Native disk node path
 
+CAUTION: This page records the October 15 implementation step.
+Its cache description and activation limits describe that step, not the current candidate.
+Use the [current source status](lastdb-disk-rollout-status.md) for the present boundaries and receipt links.
+The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-summary.json) report the later candidate's measured costs.
+
 The native disk backend connects the saved home format to LastDB namespaces and keyed reads.
 Selection requires `LASTDB_DISK_PACK=1` for a new empty store. An existing native marker selects its saved backend.
 An existing legacy store is refused by this constructor. This change does not convert it.

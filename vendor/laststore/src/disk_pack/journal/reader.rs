@@ -103,7 +103,7 @@ impl JournalRecovery {
         )?;
         let mut begin = [0; 128];
         stream.exact(&mut begin)?;
-        let marker = Marker::decode(&begin, false)?;
+        let marker = Marker::decode(&begin, false, self.current.batch_operation_limit())?;
         if marker.stream != self.tail.stream
             || marker.sequence != self.next
             || marker.previous != self.next - 1
@@ -133,7 +133,7 @@ impl JournalRecovery {
         stream.exact(&mut commit)?;
         let mut expected = marker.clone();
         expected.batch_digest = hash.finalize().into();
-        if Marker::decode(&commit, true)? != expected {
+        if Marker::decode(&commit, true, self.current.batch_operation_limit())? != expected {
             return Err(corrupt("COMMIT differs from complete BEGIN and operations"));
         }
         let encoded_bytes = stream.finish()?;

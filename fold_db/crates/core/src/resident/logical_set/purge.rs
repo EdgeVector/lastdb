@@ -125,6 +125,7 @@ impl LogicalResidentSet {
             }
             ResidentKey::Record { collection, id } => {
                 let key = RecordKey { collection, id };
+                self.record_links.forget_owner(&key);
                 self.records.remove(&key);
                 self.forget_key(&ResidentKey::Record {
                     collection: key.collection,

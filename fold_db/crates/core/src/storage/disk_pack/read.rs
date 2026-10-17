@@ -1,13 +1,30 @@
 use super::*;
+use budget::call_error;
 use laststore::disk_pack::home::HomeRead;
 
+mod budget;
+mod dependencies;
+mod headers;
 mod holds;
+mod proofs;
+mod raw;
+pub(crate) use headers::note_molecule_header;
+mod overlay;
+pub(crate) mod snapshots;
 
 pub(super) struct ReadContext {
     pub(super) call: Arc<Mutex<HomeRead>>,
     identity: uuid::Uuid,
     failure: Arc<Mutex<Option<ReadFailure>>>,
     holds: Arc<holds::CallRecordHolds>,
+    pub(super) accepted: Arc<Vec<Arc<transaction::PendingBatch>>>,
+    snapshots: Arc<snapshots::ReadSnapshots>,
+    pub(super) version: logical_paths::body::ReadVersion,
+    dependencies: Arc<Mutex<validity::Dependencies>>,
+    witnesses: Arc<Mutex<proofs::HeldWitnesses>>,
+    validity: Arc<Mutex<validity::Validity>>,
+    pub(super) paths: Arc<Mutex<logical_paths::warm::ResolvedPaths>>,
+    write_owner: Option<Arc<transaction::PendingBatch>>,
 }
 
 struct ReadFailure {
@@ -21,38 +38,76 @@ tokio::task_local! {
 }
 
 impl ReadContext {
+    pub(super) fn captured(runtime: &PackRuntime) -> Option<Arc<Self>> {
+        READ.try_with(Arc::clone).ok().filter(|context| {
+            context.identity == runtime.home.descriptor().identity
+                && context
+                    .validate_owner(transaction::PendingBatch::current(runtime).as_ref())
+                    .is_ok()
+        })
+    }
+
     pub(super) fn active(runtime: &PackRuntime) -> bool {
-        READ.try_with(|context| context.identity == runtime.home.descriptor().identity)
-            .unwrap_or(false)
+        Self::captured(runtime).is_some()
     }
 
     pub(super) fn new(runtime: &Arc<PackRuntime>) -> StorageResult<Arc<Self>> {
+        Self::capture(runtime, None)
+    }
+
+    fn capture(
+        runtime: &Arc<PackRuntime>,
+        write_owner: Option<Arc<transaction::PendingBatch>>,
+    ) -> StorageResult<Arc<Self>> {
         if runtime.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
                 "native disk or cache publication failed; complete recovery is required".into(),
             ));
         }
-        let current = runtime
-            .current
-            .read()
-            .expect("native committed root")
-            .clone();
+        // Keep the root selector locked until its file lifetime hold exists.
+        // Runtime maintenance must replace this selector before reclaim.
+        let view = runtime.view.read().expect("native complete read view");
+        let call = if write_owner.is_some() {
+            runtime
+                .home
+                .read_for_write_preparation(view.current.clone(), &runtime.read_lease)
+        } else {
+            runtime
+                .home
+                .read_from_writer(view.current.clone(), budget(), &runtime.read_lease)
+        }
+        .map_err(map)?;
+        let accepted = view.accepted.clone();
+        let version = logical_paths::body::ReadVersion {
+            generation: view.current.generation,
+            accepted: if accepted.is_empty() {
+                0
+            } else {
+                Arc::as_ptr(&accepted) as usize
+            },
+            revision: view.revision,
+        };
+        drop(view);
         Ok(Arc::new(Self {
-            call: Arc::new(Mutex::new(
-                runtime
-                    .home
-                    .read_committed(current, budget())
-                    .map_err(map)?,
-            )),
+            call: Arc::new(Mutex::new(call)),
+            accepted,
+            version,
+            dependencies: Arc::new(Mutex::new(validity::Dependencies::default())),
+            witnesses: Arc::new(Mutex::new(proofs::HeldWitnesses::default())),
+            validity: Arc::clone(&runtime.validity),
+            paths: Arc::new(Mutex::new(logical_paths::warm::ResolvedPaths::default())),
+            snapshots: Arc::new(snapshots::ReadSnapshots::default()),
             identity: runtime.home.descriptor().identity,
             failure: Arc::new(Mutex::new(None)),
             holds: Arc::new(holds::CallRecordHolds::new(Arc::clone(&runtime.logical))),
+            write_owner,
         }))
     }
 
     pub(super) async fn current(runtime: &Arc<PackRuntime>) -> StorageResult<Arc<Self>> {
         if let Ok(context) = READ.try_with(Arc::clone) {
             if context.identity == runtime.home.descriptor().identity {
+                context.validate_owner(transaction::PendingBatch::current(runtime).as_ref())?;
                 let failure = ITEM
                     .try_with(Clone::clone)
                     .ok()
@@ -63,6 +118,14 @@ impl ReadContext {
                     identity: context.identity,
                     failure,
                     holds: Arc::clone(&context.holds),
+                    accepted: context.accepted.clone(),
+                    snapshots: Arc::clone(&context.snapshots),
+                    version: context.version,
+                    paths: Arc::clone(&context.paths),
+                    dependencies: Arc::clone(&context.dependencies),
+                    witnesses: Arc::clone(&context.witnesses),
+                    validity: Arc::clone(&context.validity),
+                    write_owner: context.write_owner.clone(),
                 }));
             }
             return Err(StorageError::InvalidOperation(
@@ -92,6 +155,29 @@ impl ReadContext {
         key: &str,
     ) -> StorageResult<()> {
         self.holds.hold(logical, collection, key)
+    }
+
+    fn owns_write(&self, pending: Option<&Arc<transaction::PendingBatch>>) -> bool {
+        self.write_owner
+            .as_ref()
+            .zip(pending)
+            .is_some_and(|(owner, pending)| Arc::ptr_eq(owner, pending))
+    }
+
+    pub(super) fn validate_owner(
+        &self,
+        pending: Option<&Arc<transaction::PendingBatch>>,
+    ) -> StorageResult<()> {
+        // Ordinary 10,000-key scopes also support generic pending KV overlays.
+        // Only the larger preparation call binds its budget to one write owner.
+        if self.write_owner.is_none() || self.owns_write(pending) {
+            return Ok(());
+        }
+        let result = Err(StorageError::InvalidOperation(
+            "native read scope cannot change its complete write owner".into(),
+        ));
+        self.remember(&result);
+        result
     }
 
     fn error(&self) -> Option<StorageError> {
@@ -165,101 +251,17 @@ impl PackReadScope {
 /// An older enclosing query must not supply the comparison state for a mutation.
 pub(super) async fn write_scope<T>(
     runtime: Arc<PackRuntime>,
+    pending: Arc<transaction::PendingBatch>,
     future: impl std::future::Future<Output = T>,
 ) -> StorageResult<T> {
-    let context =
-        super::super::laststore::LastStoreKvStore::run_blocking(move || ReadContext::new(&runtime))
-            .await?;
+    let context = super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        ReadContext::capture(&runtime, Some(pending))
+    })
+    .await?;
     let scope = PackReadScope { context };
     let result = scope.run(future).await;
     if let Some(error) = scope.context.error() {
         return Err(error);
     }
     Ok(result)
-}
-
-impl PackRuntime {
-    pub(super) fn raw_get(
-        &self,
-        context: &Arc<ReadContext>,
-        collection: &str,
-        key: &str,
-        pending: Option<&Arc<transaction::PendingBatch>>,
-    ) -> StorageResult<Option<Vec<u8>>> {
-        Ok(self
-            .raw_many(
-                context,
-                &[(collection.to_string(), key.to_string())],
-                pending,
-            )?
-            .pop()
-            .expect("one native coordinate"))
-    }
-
-    pub(super) fn raw_many(
-        &self,
-        context: &Arc<ReadContext>,
-        coordinates: &[(String, String)],
-        pending: Option<&Arc<transaction::PendingBatch>>,
-    ) -> StorageResult<Vec<Option<Vec<u8>>>> {
-        laststore::record_requested_keys(coordinates.len() as u64);
-        let result = self.raw_many_inner(context, coordinates, pending);
-        context.remember(&result);
-        result
-    }
-
-    fn raw_many_inner(
-        &self,
-        context: &Arc<ReadContext>,
-        coordinates: &[(String, String)],
-        pending: Option<&Arc<transaction::PendingBatch>>,
-    ) -> StorageResult<Vec<Option<Vec<u8>>>> {
-        if coordinates.len() > 10000 {
-            return Err(StorageError::ReadResourceLimit {
-                detail: "native batch exceeds 10000 keys".into(),
-            });
-        }
-        let mut call = crate::read_receipts::lock(&context.call);
-        let mut out = vec![None; coordinates.len()];
-        let mut misses = Vec::new();
-        let mut logical = self.logical.lock().expect("native logical cache");
-        for (slot, (collection, key)) in coordinates.iter().enumerate() {
-            context.hold_record(&mut logical, collection, key)?;
-            if let Some(record) = pending.and_then(|batch| batch.lookup(collection, key)) {
-                call.account_memory_record(key.len(), record.body.as_ref().map_or(0, Vec::len))
-                    .map_err(map)?;
-                out[slot] = record.body.clone();
-                continue;
-            }
-            if call.current().frontier == self.published.load(Ordering::Acquire) {
-                if let Some(length) = logical.fetched_record_bytes(collection, key) {
-                    call.account_memory_record(key.len(), length.unwrap_or(0))
-                        .map_err(map)?;
-                    laststore::record_logical_warm_hits(1);
-                    out[slot] = logical
-                        .fetched_record(collection, key)
-                        .expect("known fetched record");
-                    continue;
-                }
-            }
-            misses.push((slot, logical.record_epoch(key)));
-        }
-        drop(logical);
-        laststore::record_logical_warm_misses(misses.len() as u64);
-        let addresses: Vec<_> = misses
-            .iter()
-            .map(|(slot, _)| coordinates[*slot].clone())
-            .collect();
-        let results = call.get_many(&addresses).map_err(map)?;
-        let mut logical = self.logical.lock().expect("native logical cache");
-        for ((slot, epoch), result) in misses.into_iter().zip(results) {
-            let body = result.map_err(map)?;
-            if call.current().frontier == self.published.load(Ordering::Acquire) {
-                let (collection, key) = &coordinates[slot];
-                logical.admit_record(collection, key, body.clone(), epoch);
-            }
-            out[slot] = body;
-        }
-        Ok(out)
-    }
 }

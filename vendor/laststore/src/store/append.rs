@@ -208,6 +208,7 @@ impl LastStore {
         previous_len: Option<u64>,
         enforce_threshold: bool,
     ) -> Result<Loc> {
+        self.check_conversion_write()?;
         if sh.uses_sorted_index() && sh.sorted_legacy_encrypted {
             Self::compact_sorted_shard(sh)?;
         }

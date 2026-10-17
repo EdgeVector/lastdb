@@ -1,0 +1,257 @@
+[
+  {
+    "path": "physical-1k/inputs.json",
+    "bytes": 1771,
+    "sha256": "63b8665154a53395c1f7461fc936047b68f84590db46d29aa93c73806d44f843"
+  },
+  {
+    "path": "physical-1k/summary.json",
+    "bytes": 26718,
+    "sha256": "91350d09a13462cdc437764970a6e73ad6255dd1891a12a8587608b5589c4662"
+  },
+  {
+    "path": "physical-1k/receipts.jsonl",
+    "bytes": 1552306,
+    "sha256": "aa907bb3c4074460ed2b1f0fb3f0141b09ed22d268f6a989944ff00e66d09520"
+  },
+  {
+    "path": "physical-1k/completed.json",
+    "bytes": 105,
+    "sha256": "3cc00b5ff28e1f3fe84e4f9cddc17da4dfae730ac2070524e57db86278746516"
+  },
+  {
+    "path": "physical-1k/maintenance-baseline/inputs.json",
+    "bytes": 586,
+    "sha256": "6a3c46a2a2f05025cde93c8304af7bdd72debf4bc5d1276a51d9f181cb6427f7"
+  },
+  {
+    "path": "physical-1k/maintenance-baseline/summary.json",
+    "bytes": 4706,
+    "sha256": "91854784937084684a835728b35f4b93ae73d880df791dbb611c0d8fa1234080"
+  },
+  {
+    "path": "physical-1k/maintenance-baseline/receipts.jsonl",
+    "bytes": 1641,
+    "sha256": "cd2f1b47c5fd53de362571f1054c982a8e0a5ea2422ce620c277e8bf328a73ec"
+  },
+  {
+    "path": "physical-1k/maintenance-candidate/inputs.json",
+    "bytes": 578,
+    "sha256": "7af0dfcfef5a24fa8d7b2220ce23be86acd1de824e7bf28c70128005b8d42ee6"
+  },
+  {
+    "path": "physical-1k/maintenance-candidate/summary.json",
+    "bytes": 4706,
+    "sha256": "0aa716529c72eac0fefd3a85c2bbb606bbdb2deb68bef09e5d8af52316bf8a00"
+  },
+  {
+    "path": "physical-1k/maintenance-candidate/receipts.jsonl",
+    "bytes": 1641,
+    "sha256": "a09f593e62b8a3b5d5fe50129a7515955bc843d812e2e5cafe9dce91f3d8366b"
+  },
+  {
+    "path": "physical-128/inputs.json",
+    "bytes": 1768,
+    "sha256": "28179c74aefe11ee4e8fe741327d7da12bc02bb12314d21f8f462ef7e80b6563"
+  },
+  {
+    "path": "physical-128/summary.json",
+    "bytes": 26615,
+    "sha256": "c44c2b7d8bf2a0fa324ca70f9809fd597b3a8a022bd3fcfe0423bbff8b6bdf52"
+  },
+  {
+    "path": "physical-128/receipts.jsonl",
+    "bytes": 568460,
+    "sha256": "7bc2e215b35ed9f14f6470007320c810f52afc4a27f450394412c7434a553101"
+  },
+  {
+    "path": "physical-128/completed.json",
+    "bytes": 104,
+    "sha256": "db14f407a88f77457736598f8f4cffac8ef00dd797dfddea1bf6bcc73adcbf5b"
+  },
+  {
+    "path": "physical-128/maintenance-baseline/inputs.json",
+    "bytes": 587,
+    "sha256": "073fd52815ce26abf6151b9a424bf3b3bd9aa9fbde9cb3f5c6d6d3f1e538598a"
+  },
+  {
+    "path": "physical-128/maintenance-baseline/summary.json",
+    "bytes": 4672,
+    "sha256": "8e7c0ccdf79b517a1c428e09973eb82d48a3f4aa72bc6440381f94a8b501479f"
+  },
+  {
+    "path": "physical-128/maintenance-baseline/receipts.jsonl",
+    "bytes": 1636,
+    "sha256": "80864bceab2f19cf3ac0feb2cb9b39fa5b4e2f20366ec5576afba3dee4eac6fa"
+  },
+  {
+    "path": "physical-128/maintenance-candidate/inputs.json",
+    "bytes": 588,
+    "sha256": "03fefa56ffcdf395555869bd5f037ecb5253f36d3c3f96b4ba2a421b32a1a764"
+  },
+  {
+    "path": "physical-128/maintenance-candidate/summary.json",
+    "bytes": 4672,
+    "sha256": "6b7cdb571a427ec908a753751561e1636ed12c3aa7287dbc8f6a45a08ba744e0"
+  },
+  {
+    "path": "physical-128/maintenance-candidate/receipts.jsonl",
+    "bytes": 1635,
+    "sha256": "4b83d62915c28b018bdc2dd50dba616c9d5c80631cbdeee6583f15f3f45b45be"
+  },
+  {
+    "path": "physical-16k/inputs.json",
+    "bytes": 1771,
+    "sha256": "d5af76d49f5e7a2ee808ede3921e063ba186e690e53ba39f4eda152ed0ab8b91"
+  },
+  {
+    "path": "physical-16k/summary.json",
+    "bytes": 26934,
+    "sha256": "153e3607ca731e64f02292ae0b547747a86a4a5ad71c1fcfab9f26bd161da378"
+  },
+  {
+    "path": "physical-16k/receipts.jsonl",
+    "bytes": 624694,
+    "sha256": "fd33a55cb5d17dc23fdd93b403a16ec3d03c0cfd84d40cb42d3d953d41311870"
+  },
+  {
+    "path": "physical-16k/completed.json",
+    "bytes": 106,
+    "sha256": "86e00a70f2439e5b266af3e27e91021a85cc5fe4088926891ea31df96dc95897"
+  },
+  {
+    "path": "physical-16k/maintenance-baseline/inputs.json",
+    "bytes": 589,
+    "sha256": "bcceba3dcf7537e4617871f23232f67b62ae55fb7cbe2f4304f981fcddf7ad1d"
+  },
+  {
+    "path": "physical-16k/maintenance-baseline/summary.json",
+    "bytes": 4724,
+    "sha256": "310c495b0930fb920db8ef350afebff84de2cce95e642f80f69ec7dd3ff3b2dc"
+  },
+  {
+    "path": "physical-16k/maintenance-baseline/receipts.jsonl",
+    "bytes": 1641,
+    "sha256": "43434b1bc89ac486bff76fccb2d0b62303ff510cf29116efbe240116a27da1ba"
+  },
+  {
+    "path": "physical-16k/maintenance-candidate/inputs.json",
+    "bytes": 588,
+    "sha256": "8f00637e96186156c706dc39d28802c915657f1c02ee971c923f574021b2f1c3"
+  },
+  {
+    "path": "physical-16k/maintenance-candidate/summary.json",
+    "bytes": 4723,
+    "sha256": "db4bacb225782b17d954087f162ebb54ab256eb2540f25de9037024995faca24"
+  },
+  {
+    "path": "physical-16k/maintenance-candidate/receipts.jsonl",
+    "bytes": 1638,
+    "sha256": "7d5fc012e30545baf346dc44486939c95f17ca275a0b6fe9bfac463fe21cc9b9"
+  },
+  {
+    "path": "physical-many-maps/inputs.json",
+    "bytes": 1867,
+    "sha256": "4cfd018ecf80bf295ea250089431582ab1b26296d9b18dd3d4bf003260310da7"
+  },
+  {
+    "path": "physical-many-maps/summary.json",
+    "bytes": 4424,
+    "sha256": "f3d033ae3b1cc7866b06ea0af75c43f9caf3f25741564f8f0342d7f8e43a39ba"
+  },
+  {
+    "path": "physical-many-maps/receipts.jsonl",
+    "bytes": 93167,
+    "sha256": "29a4d4823e4a97231ee38a90db75a8f5c20c37e8518ee4a9ba383c51bfca36d8"
+  },
+  {
+    "path": "physical-many-maps/completed.json",
+    "bytes": 104,
+    "sha256": "a05eb27ac02e66a55220b8898491d4502d6b81c89c19a941203229883ab1c7d3"
+  },
+  {
+    "path": "physical-many-maps/maintenance-baseline/inputs.json",
+    "bytes": 600,
+    "sha256": "ca1c67f5ba668e90a00d4c265bff99e3f4c05e624681b971bd57864db5272327"
+  },
+  {
+    "path": "physical-many-maps/maintenance-baseline/summary.json",
+    "bytes": 4737,
+    "sha256": "0d9982e87dd298e4f656231bd91bff7f89dc57621941cb786c0c4c617fa7cb97"
+  },
+  {
+    "path": "physical-many-maps/maintenance-baseline/receipts.jsonl",
+    "bytes": 1651,
+    "sha256": "e806757db959ed365513aedb4e64f8eb6cf27de181490e698062eb48c6ff3085"
+  },
+  {
+    "path": "physical-many-maps/maintenance-candidate/inputs.json",
+    "bytes": 597,
+    "sha256": "11a1905833a1710d4331e72634e128e574ced522817cf284f90f083243b9e8d5"
+  },
+  {
+    "path": "physical-many-maps/maintenance-candidate/summary.json",
+    "bytes": 4705,
+    "sha256": "ae64bdc3f2ca4807e243f7d6daa9d16f5b7f6d490c7b51eca70c9afeacb4f305"
+  },
+  {
+    "path": "physical-many-maps/maintenance-candidate/receipts.jsonl",
+    "bytes": 1636,
+    "sha256": "f2e91b34c869db0ef4ab8c0de59fa439abe947302230d8c29a07aa539e3ce4db"
+  },
+  {
+    "path": "engine_bench.py",
+    "bytes": 16963,
+    "sha256": "2494a6b43aab5f334dbd7a348022cad2fe75120753e9f75941461d65f31eee71"
+  },
+  {
+    "path": "engine_many_maps.py",
+    "bytes": 17235,
+    "sha256": "001aa4d434f6de0a04bfba7e99fbd83d76d8e64e4a23d0a985962ec77740969b"
+  },
+  {
+    "path": "maintenance_bench.py",
+    "bytes": 5864,
+    "sha256": "efa466507b2aa63e166b10b7f90e2a63955c894fb0f48d56a6dba9f55f79999e"
+  },
+  {
+    "path": "before-binaries.json",
+    "bytes": 1236,
+    "sha256": "92dc911a8359106430a089b6c03fdca5fb997d27a0990908b5ecb7ea0f4e24f7"
+  },
+  {
+    "path": "after-freeze.json",
+    "bytes": 1604,
+    "sha256": "fda49d6b2a73bb907a6e1f2e974365646a3fcfbe2ff6c9bb9c5e72b556fe057f"
+  },
+  {
+    "path": "physical-report.md",
+    "bytes": 17026,
+    "sha256": "cbf7ee7be15083e4b3b8ee3320f251f14f2689303ee111bec94aa24c232ddb1c"
+  },
+  {
+    "path": "physical-comparisons.json",
+    "bytes": 118069,
+    "sha256": "82dfebe72818403836209ffb5e778f0595df3e9c9bb7ac7d2fb081133d8c8396"
+  },
+  {
+    "path": "physical-regressions.json",
+    "bytes": 71375,
+    "sha256": "2ab34c950e74098d1d4adce5ae9bc0a90ff363c0d2c2d89f1521638636c5e532"
+  },
+  {
+    "path": "physical-cost-increases.json",
+    "bytes": 35325,
+    "sha256": "191a9e7e68c69e1a554085e2c0c2816b2f5c01463883a38e600b1a99d999ad5c"
+  },
+  {
+    "path": "physical-maintenance-comparison.json",
+    "bytes": 54272,
+    "sha256": "c3818e83ccc6442f415ba6f14a840002a0369cb9a211fec90edf724f5891fcd5"
+  },
+  {
+    "path": "physical-maintenance-regressions.json",
+    "bytes": 414,
+    "sha256": "af170cbc0e3db052e1e621a72b7e5de96f28fe3ae6b4a8d3c2a9dba1f6cb392d"
+  }
+]

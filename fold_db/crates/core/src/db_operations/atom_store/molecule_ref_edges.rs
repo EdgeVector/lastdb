@@ -1,4 +1,4 @@
-//! Durable active schema-field to molecule reverse edges.
+//! Durable active schema-field and schema-record to molecule reverse edges.
 //!
 //! An edge is a set member, not a counter. The edge key is target-addressable,
 //! so a reclaim check can stop after its first member. Catalog writers journal
@@ -11,7 +11,8 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+
+mod bootstrap;
 
 const MOLECULE_REF_PREFIX: &str = "mref:v1:e:";
 const DATABASE_CATALOG_REF_PRESENT_KEY: &str = "mref:v1:m:database-catalog-present";
@@ -35,6 +36,17 @@ impl MoleculeRefEdge {
             molecule_uuid: molecule_uuid.to_string(),
             source: format!("schema:{schema}:field:{field}"),
             edge_type: "schema-field".to_string(),
+        }
+    }
+
+    /// The runtime record molecule R is not a declared field. Record mappers
+    /// share this root, so it needs a separate authoritative schema source.
+    #[must_use]
+    pub fn schema_record(schema: &str, molecule_uuid: &str) -> Self {
+        Self {
+            molecule_uuid: molecule_uuid.to_string(),
+            source: format!("schema:{schema}:record"),
+            edge_type: "schema-record".to_string(),
         }
     }
 
@@ -96,6 +108,8 @@ pub struct MoleculeRefLookup {
 }
 
 /// Durable proof that every canonical molecule source class was read.
+/// Version 2 includes schema-field, schema-record R, and protein-member roots.
+/// The schema_fields count includes the schema-record roots for wire compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MoleculeRefCompleteness {
     pub version: u8,
@@ -126,10 +140,37 @@ impl AtomStore {
         &self,
         storage_prefix: Option<&str>,
     ) -> Result<bool, SchemaError> {
+        Ok(self
+            .molecule_ref_completeness(storage_prefix)
+            .await?
+            .is_some_and(|proof| matches!(proof.version, 1 | 2)))
+    }
+
+    /// Native memory admission requires v2 and the native bit16 writer fence.
+    /// A legacy v1 marker retains its original liveness meaning only.
+    pub async fn molecule_ref_edges_v2_complete(
+        &self,
+        storage_prefix: Option<&str>,
+    ) -> Result<bool, SchemaError> {
+        Ok(self
+            .molecule_ref_completeness(storage_prefix)
+            .await?
+            .is_some_and(|proof| proof.version == 2))
+    }
+
+    async fn molecule_ref_completeness(
+        &self,
+        storage_prefix: Option<&str>,
+    ) -> Result<Option<MoleculeRefCompleteness>, SchemaError> {
         let key = build_storage_key(storage_prefix, MOLECULE_REF_COMPLETE_KEY);
-        self.main_store.exists_item(&key).await.map_err(|error| {
-            SchemaError::InvalidData(format!("probe molecule reference completeness: {error}"))
-        })
+        self.main_store
+            .get_item::<MoleculeRefCompleteness>(&key)
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "read versioned molecule reference completeness: {error}"
+                ))
+            })
     }
 
     /// Retain one molecule source before its catalog row becomes visible.
@@ -172,13 +213,20 @@ impl AtomStore {
                 vec![None; edges.len()]
             }
         };
-        let mut written = 0;
-        for (edge, stored) in edges.iter().zip(stored) {
-            if stored.as_ref() == Some(edge) {
-                continue;
-            }
-            self.put_molecule_ref_edge(edge, storage_prefix).await?;
-            written += 1;
+        let changed: Vec<_> = edges
+            .iter()
+            .zip(stored)
+            .filter(|(edge, stored)| stored.as_ref() != Some(edge))
+            .map(|(edge, _)| (edge.storage_key(storage_prefix), edge.clone()))
+            .collect();
+        let written = changed.len();
+        if written != 0 {
+            self.main_store
+                .batch_put_items(changed)
+                .await
+                .map_err(|error| {
+                    SchemaError::InvalidData(format!("put molecule reference edge batch: {error}"))
+                })?;
         }
         Ok(written)
     }
@@ -207,16 +255,21 @@ impl AtomStore {
     ) -> Result<MoleculeRefLookup, SchemaError> {
         let target = hex_lower(Sha256::digest(molecule_uuid.as_bytes()));
         let prefix = build_storage_key(storage_prefix, &format!("{MOLECULE_REF_PREFIX}{target}\0"));
-        let edges = self
+        let rows = self
             .main_store
             .scan_items_with_prefix::<MoleculeRefEdge>(&prefix)
             .await
             .map_err(|error| {
                 SchemaError::InvalidData(format!("read molecule reference edges: {error}"))
-            })?
-            .into_iter()
-            .map(|(_, edge)| edge)
-            .collect();
+            })?;
+        if rows.iter().any(|(key, edge)| {
+            edge.molecule_uuid != molecule_uuid || edge.storage_key(storage_prefix) != *key
+        }) {
+            return Err(SchemaError::StorageRead {
+                detail: "molecule reference edge disagrees with its selected target key".into(),
+            });
+        }
+        let edges = rows.into_iter().map(|(_, edge)| edge).collect();
         let complete = self.molecule_ref_edges_complete(storage_prefix).await?;
         Ok(MoleculeRefLookup { complete, edges })
     }
@@ -255,79 +308,5 @@ impl AtomStore {
             .map_err(|error| {
                 SchemaError::InvalidData(format!("probe molecule reference edges: {error}"))
             })
-    }
-
-    /// Install a complete molecule edge set after a caller reads every
-    /// canonical schema-field and protein-member source on an isolated copy.
-    /// The marker is last. A crash before it leaves reclaim disabled.
-    pub async fn bootstrap_molecule_ref_edges_on_isolated_copy(
-        &self,
-        edges: &[MoleculeRefEdge],
-        schema_fields: u64,
-        protein_members: u64,
-        storage_prefix: Option<&str>,
-    ) -> Result<MoleculeRefCompleteness, SchemaError> {
-        let complete_key = build_storage_key(storage_prefix, MOLECULE_REF_COMPLETE_KEY);
-        self.main_store
-            .delete_item(&complete_key)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "clear molecule reference completeness before bootstrap: {error}"
-                ))
-            })?;
-        let edge_prefix = build_storage_key(storage_prefix, MOLECULE_REF_PREFIX);
-        let old_rows: Vec<(String, serde_json::Value)> = self
-            .main_store
-            .scan_items_with_prefix(&edge_prefix)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "scan old molecule reference edges before bootstrap: {error}"
-                ))
-            })?;
-        for (key, _) in old_rows {
-            self.main_store.delete_item(&key).await.map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "clear old molecule reference edge before bootstrap: {error}"
-                ))
-            })?;
-        }
-        let mut expected = HashSet::new();
-        for edge in edges {
-            let key = edge.storage_key(storage_prefix);
-            if expected.insert(key) {
-                self.put_molecule_ref_edge(edge, storage_prefix).await?;
-            }
-        }
-        let written: Vec<(String, MoleculeRefEdge)> = self
-            .main_store
-            .scan_items_with_prefix(&edge_prefix)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("audit molecule reference bootstrap: {error}"))
-            })?;
-        let actual: HashSet<String> = written.into_iter().map(|(key, _)| key).collect();
-        if actual != expected {
-            return Err(SchemaError::InvalidData(format!(
-                "molecule reference bootstrap audit failed: expected {} edge keys, found {}",
-                expected.len(),
-                actual.len()
-            )));
-        }
-        let proof = MoleculeRefCompleteness {
-            version: 1,
-            schema_fields,
-            protein_members,
-        };
-        self.main_store
-            .put_item(&complete_key, &proof)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "persist molecule reference completeness: {error}"
-                ))
-            })?;
-        Ok(proof)
     }
 }

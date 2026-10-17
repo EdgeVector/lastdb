@@ -1,15 +1,17 @@
 use super::bytes::u64_at;
 use super::page::Page;
 use super::sparse_pages::SparsePages;
-use super::tree_output::{self, Child, Descriptor, LeafEntry};
+use super::tree_output::{self, Child, Descriptor, LeafEntry, TreePages};
 use super::{corrupt, ReadCall, TreeRoot, KEY_DESCRIPTOR};
 use crate::Result;
 use std::collections::HashSet;
 use std::path::Path;
 
-pub(super) struct TreeEdit {
+pub(super) type MapChange = (Vec<u8>, [u8; 128]);
+
+pub(super) struct TreeEdit<P = SparsePages> {
     root: TreeRoot,
-    pages: SparsePages,
+    pages: P,
     failed: bool,
 }
 
@@ -25,6 +27,25 @@ struct PathStep {
 impl TreeEdit {
     pub(super) fn new(root: &Path, tree: TreeRoot, generation: u64) -> Result<Self> {
         let pages = SparsePages::new(root, &tree, generation)?;
+        Self::from_pages(tree, pages)
+    }
+
+    pub(super) fn from_pages(tree: TreeRoot, pages: SparsePages) -> Result<Self> {
+        pages.check_tree(&tree)?;
+        Self::with_pages(tree, pages)
+    }
+
+    pub(super) fn finish(self) -> Result<(TreeRoot, u64, Vec<u32>)> {
+        let (tree, pages) = self.finish_tree()?;
+        let written = pages.written_pages;
+        let parts = pages.finish()?;
+        Ok((tree, written, parts))
+    }
+}
+
+impl<P: TreePages> TreeEdit<P> {
+    pub(super) fn with_pages(tree: TreeRoot, pages: P) -> Result<Self> {
+        tree.validate()?;
         Ok(Self {
             root: tree,
             pages,
@@ -36,10 +57,18 @@ impl TreeEdit {
         &self.root
     }
 
-    /// Replace one exact key by path copy. The enclosing publisher owns admission.
-    pub(super) fn put(&mut self, call: &mut ReadCall, key: &[u8], value: [u8; 128]) -> Result<()> {
-        if self.failed || key.len() > super::KEY_BYTES {
-            return Err(corrupt("failed tree edit or oversized key"));
+    /// Install sorted final locators, copying each touched old page only once.
+    /// Journal operations and their original physical versions remain unchanged.
+    pub(super) fn put_many(&mut self, call: &mut ReadCall, changes: &[MapChange]) -> Result<()> {
+        if self.failed
+            || changes.len() > call.current.batch_operation_limit()
+            || changes.iter().any(|(key, _)| key.len() > super::KEY_BYTES)
+            || changes.windows(2).any(|pair| pair[0].0 >= pair[1].0)
+        {
+            return Err(corrupt("failed tree edit or invalid sorted changes"));
+        }
+        if changes.is_empty() {
+            return Ok(());
         }
         self.failed = true;
         let path = PathStep {
@@ -50,15 +79,13 @@ impl TreeEdit {
             upper: None,
             is_root: true,
         };
-        let children = self.edit(call, path, key, value)?;
-        let (number, height) = if children.len() == 1 {
-            (children[0].number, self.root.height)
-        } else {
-            let parent =
-                tree_output::parent(&mut self.pages, self.root.height as usize, &children)?;
-            (parent.number, self.root.height + 1)
-        };
-        self.root.page = number;
+        let mut children = self.edit(call, path, changes)?;
+        let mut height = self.root.height;
+        while children.len() > 1 {
+            children = self.parents(height, &children)?;
+            height += 1;
+        }
+        self.root.page = children[0].number;
         self.root.height = height;
         self.failed = false;
         Ok(())
@@ -68,112 +95,111 @@ impl TreeEdit {
         &mut self,
         call: &mut ReadCall,
         path: PathStep,
-        key: &[u8],
-        value: [u8; 128],
+        changes: &[MapChange],
     ) -> Result<Vec<Child>> {
         let page = call.tree_page(&self.root, path.number)?;
         validate_page(call, &self.root, &page, &path)?;
-        let (position, equal) = call.search_page(&self.root, &page, key)?;
         if path.level == 0 {
-            return self.edit_leaf(&page, position, equal, key, value);
+            return self.edit_leaf(call, &page, changes);
         }
-        let mut children = Vec::with_capacity(page.count() + 2);
-        children.push(Child {
+        let mut children = vec![Child {
             minimum: path.minimum,
             number: page.left(),
-        });
+        }];
         for entry in page.payload().chunks_exact(super::INTERNAL_WIDTH) {
             children.push(Child {
                 minimum: Some(entry[..KEY_DESCRIPTOR].try_into().expect("key descriptor")),
                 number: u64_at(entry, KEY_DESCRIPTOR),
             });
         }
-        let selected = position + usize::from(equal);
-        let lower = if selected == 0 {
-            path.lower
-        } else {
-            Some(call.full_key(
-                &self.root,
-                children[selected].minimum.as_ref().expect("separator"),
-            )?)
-        };
-        let upper = if selected + 1 == children.len() {
-            path.upper
-        } else {
-            Some(call.full_key(
-                &self.root,
-                children[selected + 1].minimum.as_ref().expect("separator"),
-            )?)
-        };
-        let replacement = self.edit(
-            call,
-            PathStep {
-                number: children[selected].number,
-                level: path.level - 1,
-                minimum: children[selected].minimum,
-                lower,
-                upper,
-                is_root: false,
-            },
-            key,
-            value,
-        )?;
-        children.splice(selected..selected + 1, replacement);
-        let chunk = if children.len() <= 89 {
-            children.len()
-        } else {
-            children.len().div_ceil(2)
-        };
+        let mut boundaries = Vec::with_capacity(children.len() + 1);
+        boundaries.push(path.lower);
+        for child in &children[1..] {
+            boundaries.push(Some(
+                call.full_key(&self.root, child.minimum.as_ref().expect("separator"))?,
+            ));
+        }
+        boundaries.push(path.upper);
+        let mut out = Vec::new();
+        let mut first = 0;
+        for (position, child) in children.into_iter().enumerate() {
+            let end = boundaries[position + 1]
+                .as_deref()
+                .map_or(changes.len(), |upper| {
+                    first + changes[first..].partition_point(|(key, _)| key.as_slice() < upper)
+                });
+            if first == end {
+                out.push(child);
+                continue;
+            }
+            out.extend(self.edit(
+                call,
+                PathStep {
+                    number: child.number,
+                    level: path.level - 1,
+                    minimum: child.minimum,
+                    lower: boundaries[position].clone(),
+                    upper: boundaries[position + 1].clone(),
+                    is_root: false,
+                },
+                &changes[first..end],
+            )?);
+            first = end;
+        }
+        if first != changes.len() {
+            return Err(corrupt("tree changes outside parent interval"));
+        }
+        self.parents(path.level, &out)
+    }
+
+    fn parents(&mut self, level: u8, children: &[Child]) -> Result<Vec<Child>> {
+        let chunk = children.len().div_ceil(children.len().div_ceil(89));
         children
             .chunks(chunk)
-            .map(|children| tree_output::parent(&mut self.pages, path.level as usize, children))
+            .map(|items| tree_output::parent(&mut self.pages, level as usize, items))
             .collect()
     }
 
     fn edit_leaf(
         &mut self,
+        call: &mut ReadCall,
         page: &Page,
-        position: usize,
-        equal: bool,
-        key: &[u8],
-        value: [u8; 128],
+        changes: &[MapChange],
     ) -> Result<Vec<Child>> {
-        let mut entries = page
-            .payload()
-            .chunks_exact(super::LEAF_WIDTH)
-            .map(|entry| {
-                (
-                    entry[..KEY_DESCRIPTOR].try_into().expect("key descriptor"),
-                    entry[KEY_DESCRIPTOR..].try_into().expect("leaf value"),
-                )
-            })
-            .collect::<Vec<LeafEntry>>();
-        if equal {
-            entries[position].1 = value;
-        } else {
-            entries.insert(
-                position,
-                (tree_output::key_descriptor(&mut self.pages, key)?, value),
-            );
+        let mut entries = Vec::<LeafEntry>::with_capacity(page.count() + changes.len());
+        let mut updates = changes.iter().peekable();
+        for entry in page.payload().chunks_exact(super::LEAF_WIDTH) {
+            let key = call.full_key(&self.root, entry)?;
+            while updates.peek().is_some_and(|(next, _)| *next < key) {
+                let (key, value) = updates.next().expect("peeked change");
+                entries.push((tree_output::key_descriptor(&mut self.pages, key)?, *value));
+            }
+            let descriptor = entry[..KEY_DESCRIPTOR].try_into().expect("key descriptor");
+            let value = if updates.peek().is_some_and(|(next, _)| *next == key) {
+                updates.next().expect("peeked replacement").1
+            } else {
+                entry[KEY_DESCRIPTOR..].try_into().expect("leaf value")
+            };
+            entries.push((descriptor, value));
         }
-        let chunk = if entries.len() <= super::LEAF_ENTRIES {
-            entries.len()
-        } else {
-            entries.len().div_ceil(2)
-        };
+        for (key, value) in updates {
+            entries.push((tree_output::key_descriptor(&mut self.pages, key)?, *value));
+        }
+        let chunk = entries
+            .len()
+            .div_ceil(entries.len().div_ceil(super::LEAF_ENTRIES));
         entries
             .chunks(chunk)
-            .map(|entries| tree_output::leaf(&mut self.pages, self.root.kind, entries))
+            .map(|items| tree_output::leaf(&mut self.pages, self.root.kind, items))
             .collect()
     }
 
-    pub(super) fn finish(self) -> Result<(TreeRoot, u64, Vec<u32>)> {
+    /// Keep private pages available to other trees in the same object.
+    pub(super) fn finish_tree(self) -> Result<(TreeRoot, P)> {
         if self.failed {
             return Err(corrupt("refusing failed tree edit"));
         }
-        let pages = self.pages.written_pages;
-        let parts = self.pages.finish()?;
-        Ok((self.root, pages, parts))
+        Ok((self.root, self.pages))
     }
 }
 

@@ -14,6 +14,8 @@ use crate::fold_db_core::pending_task_tracker::{PendingTask, PendingTaskTracker}
 
 use super::MutationManager;
 
+mod coverage;
+
 const AUTHOR_CLOCK_QUEUE_CAPACITY: usize = 1_024;
 const AUTHOR_CLOCK_RETRY_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_millis(10);
 const AUTHOR_CLOCK_RETRY_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
@@ -21,6 +23,7 @@ const AUTHOR_CLOCK_RETRY_MAX_DELAY: std::time::Duration = std::time::Duration::f
 pub(super) struct AuthorClockPersistQueue {
     sender: tokio::sync::mpsc::Sender<AuthorClockPersistJob>,
     pending_tasks: Arc<PendingTaskTracker>,
+    coverage: Option<Arc<coverage::ClockCoverage>>,
 }
 
 impl AuthorClockPersistQueue {
@@ -31,6 +34,10 @@ impl AuthorClockPersistQueue {
         pending_tasks: Arc<PendingTaskTracker>,
     ) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel(AUTHOR_CLOCK_QUEUE_CAPACITY);
+        let coverage = db_ops
+            .namespaced_store()
+            .disk_pack_runtime()
+            .map(|_| Arc::new(coverage::ClockCoverage::default()));
         // Process-lifetime ordered metadata lane. Each queued item owns a
         // PendingTask, so graceful shutdown waits for every submitted state.
         tokio::spawn(run_author_clock_persist_queue(
@@ -42,6 +49,7 @@ impl AuthorClockPersistQueue {
         Self {
             sender,
             pending_tasks,
+            coverage,
         }
     }
 
@@ -59,6 +67,7 @@ impl AuthorClockPersistQueue {
         Ok(AuthorClockPersistReservation {
             permit,
             pending_tasks: Arc::clone(&self.pending_tasks),
+            coverage: self.coverage.clone(),
         })
     }
 }
@@ -66,6 +75,7 @@ impl AuthorClockPersistQueue {
 pub(super) struct AuthorClockPersistReservation {
     permit: tokio::sync::mpsc::OwnedPermit<AuthorClockPersistJob>,
     pending_tasks: Arc<PendingTaskTracker>,
+    coverage: Option<Arc<coverage::ClockCoverage>>,
 }
 
 /// A cloneable proof that the author clock for one request is durable.
@@ -105,6 +115,13 @@ impl AuthorClockPersistReservation {
         self,
         state: MutationAuthorClockState,
     ) -> AuthorClockPersistBarrier {
+        if let Some(coverage) = self.coverage.clone() {
+            return coverage.barrier(state, |reserved| self.submit_uncached(reserved));
+        }
+        self.submit_uncached(state)
+    }
+
+    fn submit_uncached(self, state: MutationAuthorClockState) -> AuthorClockPersistBarrier {
         let (completion, receiver) = tokio::sync::watch::channel(false);
         self.submit_inner(state, Some(completion));
         AuthorClockPersistBarrier {
@@ -120,6 +137,7 @@ impl AuthorClockPersistReservation {
         let Self {
             permit,
             pending_tasks,
+            coverage: _,
         } = self;
         let pending_task = pending_tasks.begin();
         let _sender = permit.send(AuthorClockPersistJob {
@@ -270,7 +288,13 @@ impl MutationManager {
         let has_local = mutations
             .iter()
             .any(|mutation| mutation.imported_written_at.is_none());
-        let local_clock = has_local.then(|| state.advance_local(unix_nanos()));
+        let local_clock = if has_local {
+            Some(state.advance_local(unix_nanos()).ok_or_else(|| {
+                SchemaError::InvalidData("mutation author-clock counter exhausted".into())
+            })?)
+        } else {
+            None
+        };
         for mutation in mutations {
             if mutation.imported_written_at.is_some() {
                 continue;

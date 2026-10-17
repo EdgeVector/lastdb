@@ -1,5 +1,6 @@
 use super::*;
 
+mod dedup;
 mod rows;
 use rows::AtomBatchRows;
 
@@ -169,13 +170,8 @@ impl AtomStore {
             .collect::<Vec<_>>();
         let _automatic_gc_guards = self.lock_automatic_gc_atoms(&guarded_uuids).await;
         let _ref_count_guards = self.lock_atom_ref_counts(&guarded_uuids).await;
-        let guarded_blob_refs = atoms
-            .iter()
-            .flat_map(|(atom, _)| {
-                crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
-            })
-            .collect::<Vec<_>>();
-        let _blob_liveness_guards = self.lock_liveness_blobs(&guarded_blob_refs).await;
+        let batch = self.native_atom_batch(atoms, storage_prefix).await?;
+        let _blob_liveness_guards = self.lock_liveness_blobs(&batch.blob_refs).await;
         let automatic_gc_generation = self.automatic_gc_atoms_generation();
         // A body write revives the atom. Under the locks the reaper takes,
         // start a new epoch for each candidate that could reap, so an old
@@ -190,15 +186,19 @@ impl AtomStore {
             index_items,
             keep_small_puts,
         } = self
-            .build_atom_batch_rows(atoms, storage_prefix, automatic_gc_generation)
+            .build_atom_batch_rows(
+                atoms,
+                storage_prefix,
+                automatic_gc_generation,
+                &batch.existing,
+            )
             .await?;
 
-        // `index_items` is one per stored atom; `atom_items` also carries the
-        // locator rows, so it is not the atom count.
+        // Existing immutable bodies need only their marker/reference work.
         tracing::info!(
-            "Batch storing {} atoms (after dedup), {} locator rows",
+            "Batch storing {} atom markers and {} body/locator/GC rows",
             index_items.len(),
-            atom_items.len() - index_items.len()
+            atom_items.len()
         );
 
         // Every atom carries an explicit durable count from birth. A deduped
@@ -236,10 +236,7 @@ impl AtomStore {
             .await
             .map_err(|e| batch_write_error("atom schema index", e))?;
 
-        for (schema, uuid, logical, blob_bytes, complete) in keep_small_puts {
-            self.keep_small
-                .record_atom_put_with_blob(&schema, &uuid, logical, blob_bytes, complete);
-        }
+        batch.record_keep_small(&self.keep_small, keep_small_puts);
         let _ = self.persist_keep_small().await;
 
         tracing::info!("Batch stored atoms successfully");

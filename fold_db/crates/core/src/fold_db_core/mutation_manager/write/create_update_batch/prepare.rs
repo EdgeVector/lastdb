@@ -68,7 +68,7 @@ impl MutationManager {
     /// update gate. It is the same class of work — one persisted-head read per
     /// guarded mutation, under the same locks — so it shares the phase rather
     /// than minting a second name for the same number.
-    pub(super) async fn check_batch_preconditions(
+    pub(in crate::fold_db_core::mutation_manager::write) async fn check_batch_preconditions(
         &self,
         new_mutations: &[Mutation],
         storage_prefix: Option<&str>,
@@ -95,7 +95,7 @@ impl MutationManager {
     }
 
     /// Group by schema and prepare one resident delta per group.
-    pub(super) async fn prepare_grouped_deltas(
+    pub(in crate::fold_db_core::mutation_manager::write) async fn prepare_grouped_deltas(
         &self,
         new_mutations: Vec<Mutation>,
         new_hashes: Vec<String>,

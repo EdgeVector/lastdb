@@ -81,7 +81,9 @@ impl MutationManager {
         schema: &mut Schema,
         changed_keys: &HashMap<String, HashSet<ChangedKey>>,
     ) {
-        if !schema_is_scoped(schema) {
+        if crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
+            && !schema_is_scoped(schema)
+        {
             let overlay: Vec<(String, String, HashSet<ChangedKey>)> = schema
                 .runtime_fields
                 .iter()
@@ -141,6 +143,9 @@ impl MutationManager {
         schema: &mut Schema,
         plans: Vec<FieldLoadPlan>,
     ) -> Result<Vec<FieldLoadPlan>, SchemaError> {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            return Ok(plans);
+        }
         let mut need_store: Vec<FieldLoadPlan> = Vec::new();
         for (field_name, uuid, storage_prefix, keys) in plans {
             if storage_prefix.is_none() {
@@ -247,6 +252,10 @@ impl MutationManager {
         molecule_uuid: &str,
         keys: &HashSet<ChangedKey>,
     ) {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            return;
+        }
+
         let resident = self.db_ops.resident();
         for ck in keys {
             let hash = ck.disk_hash();
@@ -295,6 +304,9 @@ impl MutationManager {
         molecule_uuid: &str,
         keys: &HashSet<ChangedKey>,
     ) -> Option<MoleculeData> {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            return None;
+        }
         let resident = self.db_ops.resident();
         let mut records = Vec::with_capacity(keys.len());
         for ck in keys {

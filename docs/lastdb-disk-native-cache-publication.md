@@ -1,5 +1,9 @@
 # Native schema cache publication
 
+CAUTION: This page records an earlier native implementation step.
+Its activation limits and unfinished read-view gates describe that step.
+Use the [current source status](lastdb-disk-rollout-status.md) for the present boundaries and receipt links.
+
 The native writer keeps a complete storage job under one write gate.
 The job includes the schema reload and its protein writes.
 This change keeps the reload cache private until the complete disk root succeeds.

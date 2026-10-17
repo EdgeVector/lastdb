@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="790" viewBox="0 0 1200 790" role="img" aria-labelledby="title description">
+  <title id="title">Layer 2 with current values only</title>
+  <desc id="description">The key finds one current entry. The entry points directly to packed atom bytes. A batch changes the entries together. Required file holds protect active uses; no atom history remains.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#205b45"/></marker>
+    <style>
+      text { font-family: system-ui, -apple-system, sans-serif; fill: #18211e; }
+      .title { font-size: 31px; font-weight: 700; }
+      .heading { font-size: 23px; font-weight: 650; }
+      .body { font-size: 20px; }
+      .small { font-size: 18px; fill: #40564a; }
+      .box { fill: #ffffff; stroke: #b9cdbf; stroke-width: 2; }
+      .line { stroke: #205b45; stroke-width: 3; marker-end: url(#arrow); fill: none; }
+    </style>
+  </defs>
+  <rect width="1200" height="790" fill="#fafcf9"/>
+  <text x="40" y="54" class="title">Layer 2 keeps current values only</text>
+  <text x="40" y="92" class="body">One current entry for each field and key. No atom history or previous-value links.</text>
+
+  <rect x="40" y="135" width="300" height="195" rx="9" class="box"/>
+  <text x="62" y="174" class="heading">Schema + field + key</text>
+  <text x="62" y="214" class="body">Resolve the molecule.</text>
+  <text x="62" y="250" class="body">Use its hash and OPE range.</text>
+  <text x="62" y="294" class="small">The same entries supply ranges.</text>
+
+  <path d="M 344 233 L 420 233" class="line"/>
+  <rect x="430" y="135" width="330" height="195" rx="9" class="box"/>
+  <text x="452" y="174" class="heading">Current entry</text>
+  <text x="452" y="214" class="body">Current atom ID + write order</text>
+  <text x="452" y="250" class="body">Delete state + file position</text>
+  <text x="452" y="294" class="small">384 bytes; no separate tip fetch</text>
+
+  <path d="M 764 233 L 840 233" class="line"/>
+  <rect x="850" y="135" width="310" height="195" rx="9" class="box"/>
+  <text x="872" y="174" class="heading">Packed files</text>
+  <rect x="874" y="199" width="78" height="42" fill="#d9e9de" stroke="#9cbba7"/>
+  <rect x="952" y="199" width="89" height="42" fill="#b9d5c4" stroke="#9cbba7"/>
+  <rect x="1041" y="199" width="90" height="42" fill="#e8f1ea" stroke="#9cbba7"/>
+  <text x="872" y="276" class="body">Many atoms in each file</text>
+  <text x="872" y="307" class="small">Several keys can share bytes.</text>
+
+  <rect x="40" y="375" width="1120" height="137" rx="9" fill="#eaf3ed" stroke="#b9cdbf" stroke-width="2"/>
+  <text x="62" y="414" class="heading">A batch changes the current entries together</text>
+  <text x="62" y="454" class="body">Collect all writes → reserve space → change memory → ack</text>
+  <text x="62" y="489" class="body">Flush the complete batch → publish one complete disk view. Normal flush interval: 500 ms.</text>
+
+  <rect x="40" y="552" width="1120" height="160" rx="9" class="box"/>
+  <text x="62" y="591" class="heading">Old bytes stay only while a required use remains</text>
+  <text x="62" y="631" class="body">Current or shared references · active calls · backups · pending cloud work · recovery</text>
+  <text x="62" y="675" class="body">Compaction removes other bytes. A content-ID entry alone creates no permanent hold.</text>
+  <text x="40" y="755" class="small">29 current entries per 16 KiB leaf. These are format counts, not benchmark results.</text>
+</svg>

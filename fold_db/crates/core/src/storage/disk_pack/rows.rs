@@ -224,6 +224,8 @@ impl PackRuntime {
         limit: usize,
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<(NativeRows, bool)> {
+        context.validate_owner(pending)?;
+        context.note_range(collection, start, end);
         if limit == 0 {
             return Ok((Vec::new(), start >= end));
         }
@@ -232,9 +234,7 @@ impl PackRuntime {
                 detail: "native page exceeds 10000 records".into(),
             });
         }
-        let overlay = pending
-            .map(|batch| batch.matching(collection, start, end))
-            .unwrap_or_default();
+        let overlay = context.overlay_rows(pending, collection, start, end);
         let mut overlay = overlay.into_iter().peekable();
         let mut call = crate::read_receipts::lock(&context.call);
         let mut cursor = cursor(&mut call, collection, start, end)?;
@@ -266,19 +266,9 @@ impl PackRuntime {
                     disk.pop_front();
                 }
                 if let Some(body) = &memory.body {
-                    context.hold_record(
-                        &mut self.logical.lock().expect("native logical cache"),
-                        collection,
-                        &memory.key,
-                    )?;
                     out.push((memory.key.clone(), body.clone()));
                 }
             } else if let Some(record) = disk.pop_front() {
-                context.hold_record(
-                    &mut self.logical.lock().expect("native logical cache"),
-                    collection,
-                    &record.key,
-                )?;
                 out.push((record.key, record.body));
             } else if exhausted {
                 break;
@@ -286,16 +276,7 @@ impl PackRuntime {
         }
         let complete = exhausted && disk.is_empty() && overlay.peek().is_none();
         drop(cursor);
-        let mut logical = self.logical.lock().expect("native logical cache");
-        if call.current().frontier == self.published.load(Ordering::Acquire) {
-            for (key, body) in &out {
-                if pending.is_some_and(|batch| batch.lookup(collection, key).is_some()) {
-                    continue;
-                }
-                let epoch = logical.record_epoch(key);
-                logical.admit_record(collection, key, Some(body.clone()), epoch);
-            }
-        }
+        context.note_rows(collection, &out);
         Ok((out, complete))
     }
 }

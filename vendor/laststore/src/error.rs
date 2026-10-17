@@ -27,6 +27,8 @@ pub enum Error {
     /// A disk-pack call exhausted its explicit work/byte budget or could not
     /// reserve its bounded buffer. This is never an absent-key result.
     ReadBudgetExceeded,
+    /// A complete mutation cannot reserve its bounded resources before append.
+    WriteCapacity(String),
     /// A cold hash group is larger than the store will load whole.
     ///
     /// `shard_handle_at` reads, decrypts and parses every segment of a group
@@ -70,6 +72,7 @@ impl fmt::Display for Error {
             }
             Self::Config(s) => write!(f, "config: {s}"),
             Self::ReadBudgetExceeded => write!(f, "disk-pack v1: read resource limit exceeded"),
+            Self::WriteCapacity(reason) => write!(f, "disk-pack v1: write capacity unavailable: {reason}"),
             Self::ColdGroupTooLarge {
                 collection,
                 shard,

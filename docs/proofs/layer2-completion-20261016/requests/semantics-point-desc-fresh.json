@@ -1,0 +1,14 @@
+{
+  "schema_name": "SemanticsProof",
+  "fields": [
+    "title",
+    "body"
+  ],
+  "filter": {
+    "HashRangeKey": {
+      "hash": "generated",
+      "range": "record-1"
+    }
+  },
+  "sort_order": "desc"
+}

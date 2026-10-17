@@ -1,0 +1,13 @@
+{
+  "schema_name": "Layer Two Semantics",
+  "fields": [
+    "title",
+    "body"
+  ],
+  "filter": {
+    "HashRangeKey": {
+      "hash": "generated",
+      "range": "record-0"
+    }
+  }
+}

@@ -63,6 +63,8 @@ pub(super) fn metadata_call(root: &Path, current: Current) -> ReadCall {
         pages: HashMap::new(),
         blocks: HashMap::new(),
         parts: HashMap::new(),
+        files: super::call_io::CallFiles::default(),
+        _generation_hold: None,
         payload_class: ReadClass::Payload,
         native_descriptor: None,
     }

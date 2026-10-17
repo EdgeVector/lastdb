@@ -140,13 +140,13 @@ impl HashRangeQueryProcessor {
             return Ok(result);
         }
 
-        let atoms = self.resolve_pending_atoms(&pending).await?;
+        let values = self.resolve_pending_values(schema, &pending).await?;
 
-        for (entry, atom) in pending.into_iter().zip(atoms) {
-            if let Some((fname, kv, fv)) =
-                self.exact_key_field_value(schema, entry, atom, include_tombstones)
-            {
-                result.entry(fname).or_default().insert(kv, fv);
+        for (entry, value) in pending.into_iter().zip(values) {
+            if let Some(value) = value {
+                if include_tombstones || !crate::atom::is_tombstone_value(&value.value) {
+                    result.entry(entry.0).or_default().insert(entry.1, value);
+                }
             }
         }
 
@@ -220,69 +220,5 @@ impl HashRangeQueryProcessor {
             }
         }
         Ok(pending)
-    }
-
-    /// Turn one resolved atom into a field value; `None` skips the key.
-    fn exact_key_field_value(
-        &self,
-        schema: &Schema,
-        entry: SecondaryPending,
-        atom: Option<crate::atom::Atom>,
-        include_tombstones: bool,
-    ) -> Option<(String, KeyValue, FieldValue)> {
-        let (fname, kv, atom_uuid, key_meta, writer_pubkey, prefix, partition) = entry;
-        let Some(atom) = atom else {
-            if prefix.is_none() {
-                self.db_ops.record_unresolved_atom_skip(
-                    &atom_uuid,
-                    &kv,
-                    crate::db_operations::core::UnresolvedAtomContext {
-                        molecule_uuid: schema
-                            .runtime_fields
-                            .get(&fname)
-                            .and_then(|field| field.common().molecule_uuid())
-                            .map(String::as_str),
-                        schema: Some(schema.name.as_str()),
-                        field: Some(fname.as_str()),
-                        atom_partition: partition.as_ref(),
-                        tip_storage_key: None,
-                    },
-                );
-            }
-            return None;
-        };
-        if !include_tombstones && crate::atom::is_tombstone_value(atom.content()) {
-            return None;
-        }
-        let (source_file_name, metadata) = match key_meta {
-            Some(km) => (
-                km.source_file_name
-                    .or_else(|| atom.source_file_name().cloned()),
-                km.metadata.or_else(|| atom.metadata().cloned()),
-            ),
-            None => (atom.source_file_name().cloned(), atom.metadata().cloned()),
-        };
-        let written_at = atom
-            .created_at()
-            .timestamp_nanos_opt()
-            .and_then(|ns| u64::try_from(ns).ok());
-        let mut fv = FieldValue {
-            value: atom.content().clone(),
-            atom_uuid,
-            source_file_name,
-            metadata,
-            molecule_uuid: None,
-            molecule_version: None,
-            writer_pubkey: writer_pubkey.filter(|s| !s.is_empty()),
-            written_at,
-        };
-        if let Some(field) = schema.runtime_fields.get(&fname) {
-            fv.molecule_uuid = field.common().molecule_uuid().cloned();
-            fv.molecule_version = field.molecule_version();
-            if let Some(pk) = field.molecule_writer_pubkey() {
-                fv.writer_pubkey = Some(pk);
-            }
-        }
-        Some((fname, kv, fv))
     }
 }

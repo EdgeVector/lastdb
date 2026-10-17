@@ -1,0 +1,2 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+Error: "core database boot failed: Database error: Configuration error: native memory ack requires LASTDB_RESIDENT_PERSIST_MS between 1 and 500"

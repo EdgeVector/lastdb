@@ -28,7 +28,33 @@ impl LastStore {
         Self::open_resolved(root, opts)
     }
 
-    pub(super) fn open_resolved(root: PathBuf, mut opts: LastStoreOptions) -> Result<Self> {
+    pub(super) fn open_resolved(root: PathBuf, opts: LastStoreOptions) -> Result<Self> {
+        crate::disk_pack::conversion_fence::refuse_pending(&root)?;
+        Self::open_conversion(root, opts, false)
+    }
+
+    pub(super) fn open_conversion(
+        root: PathBuf,
+        mut opts: LastStoreOptions,
+        pending: bool,
+    ) -> Result<Self> {
+        fs::create_dir_all(&root)?;
+        let process_lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(root.join("STORE_LOCK"))?;
+        rustix::fs::flock(
+            &process_lock,
+            rustix::fs::FlockOperation::NonBlockingLockExclusive,
+        )
+        .map_err(std::io::Error::from)?;
+        if !pending {
+            crate::disk_pack::conversion_fence::refuse_pending(&root)?;
+        }
+        if root.join(native_conversion::SOURCE_FENCE).try_exists()? {
+            return Err(Error::Config("legacy source is sealed after explicit native conversion; use its destination or create a reverse conversion".into()));
+        }
         // Backward compatible: a present data_key implies frame-AEAD packaging
         // even when callers only set the key (pre-packaging-mode tests/APIs).
         if opts.data_key.is_some() {
@@ -40,6 +66,9 @@ impl LastStore {
         let next_csn = opts.csn_floor.saturating_add(1);
         let configured_warm_bytes = opts.hash_group_warm_bytes;
         Ok(Self {
+            _process_lock: process_lock,
+            conversion_sealed: AtomicBool::new(false),
+            conversion_gate: Mutex::new(()),
             root,
             opts,
             shards: Mutex::new(ShardWarmSet::default()),

@@ -88,82 +88,14 @@ impl HashRangeQueryProcessor {
         include_tombstones: bool,
         result: &mut HashMap<String, HashMap<KeyValue, FieldValue>>,
     ) -> Result<(), SchemaError> {
-        let resolved = self.resolve_pending_atoms(&pending).await?;
-
-        for ((fname, kv, atom_uuid, key_meta, writer_pubkey, prefix, partition), atom) in
-            pending.into_iter().zip(resolved)
-        {
-            let Some(atom) = atom else {
-                // A present personal tip with no body is an integrity
-                // skip, just as it is for the primary field. Scoped
-                // reads can legitimately omit bodies never shared.
-                if prefix.is_none() {
-                    self.db_ops.record_unresolved_atom_skip(
-                        &atom_uuid,
-                        &kv,
-                        crate::db_operations::core::UnresolvedAtomContext {
-                            molecule_uuid: schema
-                                .runtime_fields
-                                .get(&fname)
-                                .and_then(|field| field.common().molecule_uuid())
-                                .map(String::as_str),
-                            schema: Some(schema.name.as_str()),
-                            field: Some(fname.as_str()),
-                            atom_partition: partition.as_ref(),
-                            tip_storage_key: None,
-                        },
-                    );
+        let values = self.resolve_pending_values(schema, &pending).await?;
+        for (entry, value) in pending.into_iter().zip(values) {
+            if let Some(value) = value {
+                if include_tombstones || !crate::atom::is_tombstone_value(&value.value) {
+                    result.entry(entry.0).or_default().insert(entry.1, value);
                 }
-                continue;
-            };
-            if !include_tombstones && crate::atom::is_tombstone_value(atom.content()) {
-                continue;
             }
-            let fv =
-                Self::cokey_field_value(schema, &fname, &atom, atom_uuid, key_meta, writer_pubkey);
-            result.entry(fname).or_default().insert(kv, fv);
         }
         Ok(())
-    }
-
-    /// Build the response value for one resolved secondary atom.
-    fn cokey_field_value(
-        schema: &Schema,
-        fname: &str,
-        atom: &crate::atom::Atom,
-        atom_uuid: String,
-        key_meta: Option<crate::atom::KeyMetadata>,
-        writer_pubkey: Option<String>,
-    ) -> FieldValue {
-        let (source_file_name, metadata) = match key_meta {
-            Some(km) => (
-                km.source_file_name
-                    .or_else(|| atom.source_file_name().cloned()),
-                km.metadata.or_else(|| atom.metadata().cloned()),
-            ),
-            None => (atom.source_file_name().cloned(), atom.metadata().cloned()),
-        };
-        let written_at = atom
-            .created_at()
-            .timestamp_nanos_opt()
-            .and_then(|ns| u64::try_from(ns).ok());
-        let mut fv = FieldValue {
-            value: atom.content().clone(),
-            atom_uuid,
-            source_file_name,
-            metadata,
-            molecule_uuid: None,
-            molecule_version: None,
-            writer_pubkey: writer_pubkey.filter(|s| !s.is_empty()),
-            written_at,
-        };
-        if let Some(field) = schema.runtime_fields.get(fname) {
-            fv.molecule_uuid = field.common().molecule_uuid().cloned();
-            fv.molecule_version = field.molecule_version();
-            if let Some(pk) = field.molecule_writer_pubkey() {
-                fv.writer_pubkey = Some(pk);
-            }
-        }
-        fv
     }
 }

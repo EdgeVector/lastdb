@@ -10,10 +10,18 @@ impl MutationManager {
         schema_mutations: &mut [Mutation],
         storage_prefix: Option<&str>,
     ) -> Result<crate::schema::types::Schema, SchemaError> {
-        let mut schema = self
-            .schema_manager
-            .get_schema_metadata(schema_name)?
-            .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
+        let mut schema = if self.db_ops.namespaced_store().disk_pack_runtime().is_some() {
+            let snapshot = self.db_ops.schemas().read_snapshot(schema_name).await?;
+            if snapshot.state == SchemaState::Blocked {
+                return Err(SchemaError::Blocked(format!(
+                    "Schema '{schema_name}' is blocked and cannot be mutated"
+                )));
+            }
+            snapshot.schema
+        } else {
+            self.schema_manager.get_schema_metadata(schema_name)?
+        }
+        .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
         apply_storage_prefix_to_schema(&mut schema, storage_prefix);
         schema.ensure_record_molecule_runtime_field();
         crate::record_molecule::fold_mutations_to_record_envelope(

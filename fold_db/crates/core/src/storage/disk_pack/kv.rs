@@ -92,34 +92,41 @@ fn prepare(
     namespace: &str,
     mutations: Vec<KvMutation>,
 ) -> StorageResult<Vec<HomeMutation>> {
-    if mutations.len() > 4096 {
-        return Err(StorageError::InvalidOperation(
-            "native mutation exceeds operation admission limit".into(),
-        ));
+    let operation_limit = pending.map_or(4096, |pending| pending.operation_limit());
+    if mutations.len() > operation_limit {
+        return Err(StorageError::InvalidOperation(format!(
+            "native mutation exceeds {operation_limit} operation admission limit"
+        )));
     }
     let plans: Vec<_> = mutations
         .iter()
         .map(|mutation| coordinates(namespace, mutation.key()))
         .collect();
+    let targets: Vec<_> = mutations
+        .iter()
+        .map(|mutation| write_target(namespace, mutation.key()))
+        .collect();
     let mut addresses = Vec::new();
-    for plan in &plans {
-        addresses.extend(plan.iter().cloned());
+    for ((mutation, plan), target) in mutations.iter().zip(&plans).zip(&targets) {
+        for coordinate in plan {
+            // A Put always overwrites its canonical target. Only alternate
+            // coordinates need presence reads before their cleanup deletes.
+            if matches!(mutation, KvMutation::Delete { .. }) || coordinate != target {
+                addresses.push(coordinate.clone());
+            }
+        }
     }
     addresses.sort();
     addresses.dedup();
+    context.record_stage("write-probes-start", addresses.len());
     let bodies = runtime.raw_many(context, &addresses, pending)?;
+    context.record_stage("write-probes-done", addresses.len());
     let mut present: std::collections::BTreeMap<_, _> = addresses
         .into_iter()
         .zip(bodies.into_iter().map(|body| body.is_some()))
         .collect();
     let mut out = Vec::new();
-    for (mutation, plan) in mutations.into_iter().zip(plans) {
-        let key = native_routing::encode(mutation.key());
-        let target = if namespace == "main" {
-            native_routing::write_collection(mutation.key()).to_string()
-        } else {
-            namespace.to_string()
-        };
+    for ((mutation, plan), (target, key)) in mutations.into_iter().zip(plans).zip(targets) {
         match mutation {
             KvMutation::Put { value, .. } => {
                 super::super::laststore::reject_enc_on_plaintext_catalog(namespace, &value)?;
@@ -158,6 +165,15 @@ fn prepare(
         }
     }
     Ok(out)
+}
+
+fn write_target(namespace: &str, key: &[u8]) -> (String, String) {
+    let collection = if namespace == "main" {
+        native_routing::write_collection(key)
+    } else {
+        namespace
+    };
+    (collection.to_string(), native_routing::encode(key))
 }
 
 #[async_trait::async_trait]

@@ -102,8 +102,10 @@ impl MutationManager {
         hint: Option<&crate::atom::AtomPartition>,
         storage_prefix: Option<&str>,
     ) -> Result<Option<serde_json::Value>, SchemaError> {
-        if let Some(atom) = self.db_ops.resident().resolve_atom(uuid) {
-            return Ok(Some(atom.value.content));
+        if crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            if let Some(atom) = self.db_ops.resident().resolve_atom(uuid) {
+                return Ok(Some(atom.value.content));
+            }
         }
         Ok(self
             .db_ops
@@ -128,6 +130,9 @@ impl MutationManager {
         hint: Option<&crate::atom::AtomPartition>,
         storage_prefix: Option<&str>,
     ) -> Result<Option<(Option<String>, Option<serde_json::Value>)>, SchemaError> {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
+            return Ok(None);
+        }
         let (Some(mol_uuid), Some(changed)) = (
             schema_field.common().molecule_uuid(),
             schema_field.changed_key_for(key_value),
@@ -153,11 +158,14 @@ impl MutationManager {
         // (`purge_apply_gate_transaction`). Skipping the consult when
         // `storage_prefix` is set made a byte-identical org Create a
         // catalog-head no-op while count already hid the row.
-        if self.db_ops.resident().is_key_tombstoned(
-            mol_uuid,
-            changed.disk_hash(),
-            changed.disk_range(),
-        ) {
+        let graph = crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops);
+        if graph
+            && self.db_ops.resident().is_key_tombstoned(
+                mol_uuid,
+                changed.disk_hash(),
+                changed.disk_range(),
+            )
+        {
             return Ok(Some((None, None)));
         }
         let Some(tip) =
@@ -312,21 +320,25 @@ impl MutationManager {
                     "point read field '{schema_name}.{field}' has no molecule identity"
                 ))
             })?;
-        if self.db_ops.resident().is_key_tombstoned(
-            &molecule_uuid,
-            changed_key.disk_hash(),
-            changed_key.disk_range(),
-        ) {
-            return Ok(None);
-        }
-        let resident_entry = self
-            .db_ops
-            .resident()
-            .resolve_tip(
+        let graph = crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops);
+        if graph
+            && self.db_ops.resident().is_key_tombstoned(
                 &molecule_uuid,
                 changed_key.disk_hash(),
                 changed_key.disk_range(),
             )
+        {
+            return Ok(None);
+        }
+        let resident_entry = graph
+            .then(|| {
+                self.db_ops.resident().resolve_tip(
+                    &molecule_uuid,
+                    changed_key.disk_hash(),
+                    changed_key.disk_range(),
+                )
+            })
+            .flatten()
             .map(|tip| {
                 crate::atom::AtomEntry::thin_with_author(
                     tip.value.atom_uuid,

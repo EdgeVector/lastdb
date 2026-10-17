@@ -25,6 +25,7 @@ pub async fn create_paid_checkout(
     );
 
     let url = format!("{api_url}/api/subscription/create-checkout-signup");
+    // trace-egress: propagate (LastDB subscription API)
     let resp = reqwest::Client::new()
         .post(&url)
         .json(&body)
@@ -91,6 +92,7 @@ pub async fn create_upgrade_checkout(
 ) -> Result<String, String> {
     let body = upgrade_checkout_body(success_url, cancel_url);
     let url = format!("{api_url}/api/subscription/create-checkout");
+    // trace-egress: propagate (LastDB subscription API)
     let resp = reqwest::Client::new()
         .post(&url)
         // CLI mint uses `em_…` API keys (X-API-Key), not session Bearer tokens.
@@ -142,6 +144,7 @@ pub async fn subscription_status(
     api_key: &str,
 ) -> Result<serde_json::Value, String> {
     let url = format!("{api_url}/api/subscription/status");
+    // trace-egress: propagate (LastDB subscription API)
     let resp = reqwest::Client::new()
         .get(&url)
         .header("X-API-Key", api_key)
@@ -166,6 +169,7 @@ pub async fn create_portal_session(
         body["return_url"] = serde_json::Value::String(u.to_string());
     }
     let url = format!("{api_url}/api/subscription/portal");
+    // trace-egress: propagate (LastDB subscription API)
     let resp = reqwest::Client::new()
         .post(&url)
         .header("X-API-Key", api_key)
@@ -203,6 +207,7 @@ pub async fn create_portal_session(
 /// connected LastDB account.
 pub async fn account_link(api_url: &str, api_key: &str) -> Result<serde_json::Value, String> {
     let url = format!("{api_url}/api/subscription/account");
+    // trace-egress: propagate (LastDB subscription API)
     let resp = reqwest::Client::new()
         .post(&url)
         .header("X-API-Key", api_key)

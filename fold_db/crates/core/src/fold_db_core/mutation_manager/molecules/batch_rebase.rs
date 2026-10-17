@@ -39,7 +39,7 @@ impl SlotHead {
 }
 
 #[derive(Default)]
-pub(super) struct BatchSlotHeads(HashMap<Slot, SlotHead>);
+pub(in crate::fold_db_core::mutation_manager) struct BatchSlotHeads(HashMap<Slot, SlotHead>);
 
 impl BatchSlotHeads {
     fn overlay_schema(&self, delta: &mut PreparedSchemaDelta) {
@@ -141,7 +141,10 @@ impl BatchSlotHeads {
         }
     }
 
-    pub(super) fn record(&mut self, delta: &PreparedSchemaDelta) {
+    pub(in crate::fold_db_core::mutation_manager) fn record(
+        &mut self,
+        delta: &PreparedSchemaDelta,
+    ) {
         self.record_schema(&delta.schema, &delta.changed_keys);
         for (uuid, data, changed) in &delta.sibling_updates {
             for key in changed {
@@ -177,7 +180,7 @@ fn winning_sources(
 
 impl MutationManager {
     /// Rebase both the serving delta and its persist envelope under the held gates.
-    pub(super) fn rebase_delta_for_publish(
+    pub(in crate::fold_db_core::mutation_manager) fn rebase_delta_for_publish(
         &self,
         delta: &mut PreparedSchemaDelta,
         heads: &mut BatchSlotHeads,
@@ -207,7 +210,8 @@ impl MutationManager {
         let sources = winning_sources(delta, &prospective, &accepted);
         heads.record_schema(&prospective, &delta.changed_keys);
         delta.schema = prospective;
-        let scoped = schema_is_scoped(&delta.schema);
+        let graph_reads = crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
+            && !schema_is_scoped(&delta.schema);
         let updates = std::mem::take(&mut delta.sibling_updates);
         let origins = std::mem::take(&mut delta.sibling_origins);
         for ((uuid, data, changed), origin) in updates.into_iter().zip(origins) {
@@ -222,13 +226,13 @@ impl MutationManager {
                 let (hash, range) = (key.disk_hash(), key.disk_range());
                 let slot = (uuid.clone(), hash.to_string(), range.to_string());
                 let deleted =
-                    !scoped && self.resident_graph().is_key_tombstoned(&uuid, hash, range);
+                    graph_reads && self.resident_graph().is_key_tombstoned(&uuid, hash, range);
                 let base = heads
                     .0
                     .get(&slot)
                     .cloned()
                     .or_else(|| {
-                        (!scoped && !deleted)
+                        (graph_reads && !deleted)
                             .then(|| self.resident_graph().resolve_tip(&uuid, hash, range))
                             .flatten()
                             .map(|tip| SlotHead {
@@ -256,7 +260,9 @@ impl MutationManager {
 
     /// A resurrecting same-value write must not dedupe against its deleted tip.
     fn discard_deleted_delta_bases(&self, delta: &mut PreparedSchemaDelta) {
-        if schema_is_scoped(&delta.schema) {
+        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
+            || schema_is_scoped(&delta.schema)
+        {
             return;
         }
         let resident = self.resident_graph();

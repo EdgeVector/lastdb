@@ -24,8 +24,11 @@ pub use writer::{DurableBatch, JournalWriter};
 const MAX_BATCH_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_SUFFIX_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_SUFFIX_BATCHES: u64 = 4096;
-const MAX_OPERATIONS: usize = 4096;
 
 fn refuse(reason: &'static str) -> crate::Error {
     crate::Error::Config(format!("disk-pack journal: {reason}"))
+}
+
+fn capacity(reason: &'static str) -> crate::Error {
+    crate::Error::WriteCapacity(reason.into())
 }

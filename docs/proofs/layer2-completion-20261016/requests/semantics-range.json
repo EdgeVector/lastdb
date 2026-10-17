@@ -1,0 +1,15 @@
+{
+  "schema_name": "SemanticsProof",
+  "fields": [
+    "title",
+    "body"
+  ],
+  "filter": {
+    "HashRangeRange": {
+      "hash": "generated",
+      "start": "record-0",
+      "end": "record-8"
+    }
+  },
+  "limit": 3
+}

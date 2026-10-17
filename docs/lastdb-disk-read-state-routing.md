@@ -1,5 +1,9 @@
 # Native read state and complete fields
 
+CAUTION: This page records an earlier native implementation step.
+Its activation limits precede the accepted-memory view and complete logical-path admission.
+Use the [current source status](lastdb-disk-rollout-status.md) for the present boundaries and receipt links.
+
 A native query captures one complete disk root.
 Live graph tips, atoms, and deletion marks do not carry that root identity.
 PR #204 enabled those live values in the native `off` mode and allowed a read to mix states.

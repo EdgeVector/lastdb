@@ -2,7 +2,7 @@
 
 mod apply;
 mod apply_gate;
-mod batch_rebase;
+pub(in crate::fold_db_core::mutation_manager) mod batch_rebase;
 mod field_atom;
 mod persist;
 mod prepare;

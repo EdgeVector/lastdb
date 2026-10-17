@@ -53,7 +53,9 @@ impl PendingPublications {
     }
 }
 
-/// The value is visible only to this native write scope until its root succeeds.
+/// Private metadata joins the accepted view before global cache publication.
+/// Later write scopes see that immutable accepted prefix. Ordinary queries use
+/// their captured raw-store snapshots; global caches change after the disk root.
 /// Outside a native write scope, retain the existing immediate cache behavior.
 pub(crate) fn publish<T: Any + Send + Sync>(
     runtime: Option<Arc<PackRuntime>>,
@@ -77,42 +79,56 @@ pub(crate) fn get<T: Any + Send + Sync>(
     cache: usize,
     name: &str,
 ) -> StorageResult<Option<Arc<T>>> {
-    let Some(pending) = runtime.and_then(|runtime| PendingBatch::current(&runtime)) else {
-        return Ok(None);
-    };
-    let value = pending
-        .publications
-        .lock()?
-        .entries
-        .get(&(cache, name.to_string()))
-        .map(|(value, _)| {
-            Arc::clone(value).downcast::<T>().map_err(|_| {
-                StorageError::BackendError("native metadata cache type differs".into())
-            })
-        })
-        .transpose();
-    value
+    for pending in write_views(runtime).into_iter().rev() {
+        let value = pending
+            .publications
+            .lock()?
+            .entries
+            .get(&(cache, name.to_string()))
+            .map(|(value, _)| Arc::clone(value));
+        if let Some(value) = value {
+            return value.downcast::<T>().map(Some).map_err(|_| type_mismatch());
+        }
+    }
+    Ok(None)
 }
 
 pub(crate) fn entries<T: Any + Send + Sync>(
     runtime: Option<Arc<PackRuntime>>,
     cache: usize,
 ) -> StorageResult<Vec<(String, Arc<T>)>> {
-    let Some(pending) = runtime.and_then(|runtime| PendingBatch::current(&runtime)) else {
-        return Ok(Vec::new());
+    let mut entries = BTreeMap::new();
+    for pending in write_views(runtime) {
+        let changes = pending.publications.lock()?;
+        for ((owner, name), (value, _)) in &changes.entries {
+            if *owner == cache {
+                entries.insert(
+                    name.clone(),
+                    Arc::clone(value)
+                        .downcast::<T>()
+                        .map_err(|_| type_mismatch())?,
+                );
+            }
+        }
+    }
+    Ok(entries.into_iter().collect())
+}
+
+/// Preparation owns the gate, so accepted publications cannot drain mid-read.
+/// Ordinary queries retain their separate immutable raw-store metadata view.
+fn write_views(runtime: Option<Arc<PackRuntime>>) -> Vec<Arc<PendingBatch>> {
+    let Some(runtime) = runtime else {
+        return Vec::new();
     };
-    let changes = pending.publications.lock()?;
-    changes
-        .entries
-        .iter()
-        .filter(|((owner, _), _)| *owner == cache)
-        .map(|((_, name), (value, _))| {
-            Arc::clone(value)
-                .downcast::<T>()
-                .map(|value| (name.clone(), value))
-                .map_err(|_| {
-                    StorageError::BackendError("native metadata cache type differs".into())
-                })
-        })
-        .collect()
+    let Some(pending) = PendingBatch::current(&runtime) else {
+        return Vec::new();
+    };
+    let mut views = super::super::read::ReadContext::captured(&runtime)
+        .map_or_else(Vec::new, |context| context.accepted.as_ref().clone());
+    views.push(pending);
+    views
+}
+
+fn type_mismatch() -> StorageError {
+    StorageError::BackendError("native metadata cache type differs".into())
 }

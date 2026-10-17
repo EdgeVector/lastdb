@@ -1,0 +1,106 @@
+{
+  "source": "55c6d9aedf20bc66f47669df1114d95fde5d0fb4",
+  "node_sha256": "c6d9aac4a84028a586d11a1824a6c6b0846eba4115d3c8b1e38af33ab59d21a9",
+  "recovery_sha256": "b0f8cb7c408c83194d0f58c6bceb11f38eed0acf104dbbc69d03c651b8410759",
+  "older_native_restore": {
+    "bytes": 16977194,
+    "command": "restore",
+    "complete": true,
+    "elapsed_nanos": 5877291958,
+    "files": 1009,
+    "frontier": 113,
+    "generation": 228,
+    "includes_identity": false
+  },
+  "compaction": {
+    "bytes_after": 14701451,
+    "bytes_before": 17347123,
+    "bytes_removed": 17326608,
+    "disk_cap_bytes": 0,
+    "dry_run": false,
+    "executed": true,
+    "files_after": 814,
+    "files_before": 1020,
+    "files_removed": 1012,
+    "frontier": 114,
+    "generation": 232,
+    "parts_after": 805,
+    "parts_before": 1008,
+    "reclaim_deferred": false,
+    "reclaim_only": false,
+    "records_copied": 960,
+    "tombstones_copied": 30
+  },
+  "new_native_backup": {
+    "bytes": 16068100,
+    "complete": true,
+    "files": 879,
+    "frontier": 118,
+    "generation": 240,
+    "includes_identity": false
+  },
+  "new_native_restore": {
+    "bytes": 16068100,
+    "command": "restore",
+    "complete": true,
+    "elapsed_nanos": 6670560584,
+    "files": 879,
+    "frontier": 118,
+    "generation": 240,
+    "includes_identity": false
+  },
+  "forward": {
+    "command": "convert",
+    "complete": true,
+    "elapsed_nanos": 9585735250,
+    "receipt": {
+      "catchup_keys": 0,
+      "copied_records": 939,
+      "frontier": 1,
+      "generation": 4,
+      "source_csn": 0
+    },
+    "source_sealed": true
+  },
+  "reverse": {
+    "command": "reverse",
+    "complete": true,
+    "elapsed_nanos": 1064918791,
+    "receipt": {
+      "frontier": 15,
+      "generation": 34,
+      "records": 1008,
+      "stored_bytes": 409319
+    },
+    "source_sealed": true
+  },
+  "logical_response_digests": {
+    "legacy_and_forward": "f4e0ba89a293328f90b0d67d25e91232a550c3e5155296568fd16faece38085d",
+    "latest_native_and_restore_and_reverse": "acc61ba2335897e0f520fbecc046398631c5683b65d8ddf15cdc77825c362c11"
+  },
+  "shutdown": {
+    "all_final_nodes_stopped": true,
+    "native": {
+      "version": 1,
+      "flush_ok": true,
+      "pid": 78316,
+      "start_ts": 1792208953
+    },
+    "converted_legacy": {
+      "version": 1,
+      "flush_ok": true,
+      "pid": 82296,
+      "start_ts": 1792209050
+    },
+    "ephemeral_source": "fresh generated data",
+    "primary_used": false,
+    "archive_used": false
+  },
+  "final_node_guard_reopen": {
+    "source": "08409a220e57364052d2eca030eafd12006e6bc4",
+    "complete": true,
+    "receipt": "packing-summary.json"
+  },
+  "proof_stage": "historical corrected candidate",
+  "final_packing_report": "recovery.md#final-packed-file-checks"
+}

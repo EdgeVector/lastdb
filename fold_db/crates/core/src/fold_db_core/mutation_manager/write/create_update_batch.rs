@@ -6,14 +6,14 @@ mod apply_gate;
 mod prepare;
 
 /// Mutable state threaded through the phases of one batch write.
-struct BatchState {
-    force_durable: bool,
+pub(super) struct BatchState {
+    pub(super) force_durable: bool,
     require_durable: bool,
-    timing_breakdown: std::collections::HashMap<&'static str, std::time::Duration>,
+    pub(super) timing_breakdown: std::collections::HashMap<&'static str, std::time::Duration>,
     // Accumulated across schema groups; reported once as `LockWait` and
     // excluded from the residual `apply` bucket. See the acquisition site.
     molecule_lock_wait: std::time::Duration,
-    stages: ResidentCommitStages,
+    pub(super) stages: ResidentCommitStages,
 }
 
 impl BatchState {
@@ -168,6 +168,19 @@ impl MutationManager {
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
         state: &mut BatchState,
     ) -> Result<Vec<String>, SchemaError> {
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            return self
+                .commit_native_request(
+                    super::native::NativeRequest {
+                        runtime,
+                        mutations: new_mutations,
+                        storage_prefix,
+                        author_clock: author_clock_barrier,
+                    },
+                    state,
+                )
+                .await;
+        }
         let mut prepared_deltas = self
             .prepare_grouped_deltas(
                 new_mutations,

@@ -1,4 +1,12 @@
 use super::*;
+mod backup;
+mod flush;
+mod native;
+mod status;
+
+pub(super) use backup::execute as execute_db_native_backup_route;
+pub(super) use flush::execute as execute_db_flush_route;
+pub(super) use status::execute as execute_db_native_status_route;
 
 /// `POST /api/db/clear-history` — trim or purge mutation-history rows.
 ///
@@ -144,6 +152,9 @@ pub(super) async fn execute_db_compact_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    if let Some(runtime) = host.db.db_ops().namespaced_store().disk_pack_runtime() {
+        return native::execute(req, ctx, runtime).await;
+    }
     #[derive(Deserialize)]
     struct Body {
         #[serde(default)]

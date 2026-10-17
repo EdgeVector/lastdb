@@ -318,6 +318,15 @@ pub enum DataRoute {
     /// `{ collection: string, dry_run?: bool }` (default dry_run=true).
     /// Execute skips while a backup cut is held.
     DbCompact,
+    /// `POST /api/db/native-backup` — local native data bundle at a new absolute
+    /// destination. OWNER only. Node identity material is excluded.
+    DbNativeBackup,
+    /// `POST /api/db/flush` — wait for accepted local writes to reach disk.
+    /// OWNER only. Body: `{}` or empty. No cloud work.
+    DbFlush,
+    /// `GET /api/db/native-status` — read native completion and writer state.
+    /// OWNER only. This does not request a flush.
+    DbNativeStatus,
     /// `POST /api/db/stamp-purged-atom-retirements` — stamp committed atom
     /// successor-history SHAs into pending purged retirements, or report
     /// would-retire counts. OWNER only. Body: `{ dry_run?: bool }` (default true).

@@ -10,11 +10,16 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+mod admission;
 mod build;
+mod maintenance;
+mod mutation_quote;
 mod read;
 mod write;
 
+pub use admission::MutationReservation;
 pub use build::{HomeBuilder, HomeGroupWriter};
+pub use mutation_quote::MutationQuote;
 pub use read::HomeRead;
 pub use write::{HomeJournal, HomeMutation};
 
@@ -207,15 +212,26 @@ pub struct DiskHome {
 }
 
 impl DiskHome {
+    /// Exact explicitly selected native root, for supported backup and maintenance.
+    pub fn path(&self) -> &Path {
+        &self.root
+    }
+
     /// Read the exact descriptor and root without opening a writer.
     pub fn open(root: &Path) -> Result<Self> {
-        let descriptor = HomeDescriptor::read(root)?;
-        let current = super::artifact::current(root)?;
+        super::conversion_fence::refuse_pending(root)?;
+        Self::open_conversion(root)
+    }
+
+    pub(crate) fn open_conversion(root: &Path) -> Result<Self> {
+        let root = root.canonicalize()?;
+        if root.join(super::conversion::REVERSE_FENCE).try_exists()? {
+            return Err(crate::Error::Config("native source is sealed after explicit reverse conversion; use the new legacy destination".into()));
+        }
+        let descriptor = HomeDescriptor::read(&root)?;
+        let current = super::artifact::current(&root)?;
         descriptor.check_current(&current)?;
-        Ok(Self {
-            root: root.to_path_buf(),
-            descriptor,
-        })
+        Ok(Self { root, descriptor })
     }
 
     /// The immutable placement/key identity held by this home handle.
@@ -228,6 +244,32 @@ impl DiskHome {
     /// This avoids reopening CURRENT for a memory-only or request-shared read.
     pub fn read_committed(&self, current: Current, budget: ReadBudget) -> Result<HomeRead> {
         let call = ReadCall::from_committed(&self.root, current, self.descriptor.clone(), budget)?;
+        Ok(HomeRead::new(self.descriptor.clone(), call))
+    }
+
+    /// Capture a reader under this home's already held exclusive writer lease.
+    /// The guard performs no file reads and retains the writer until this call ends.
+    pub fn read_from_writer(
+        &self,
+        current: Current,
+        budget: ReadBudget,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<HomeRead> {
+        let call =
+            ReadCall::from_writer(&self.root, current, self.descriptor.clone(), budget, lease)?;
+        Ok(HomeRead::new(self.descriptor.clone(), call))
+    }
+
+    /// Prepare one atomic write under this home's exclusive writer lease.
+    /// The call permits 40,000 examined keys; its page, block, and byte ceilings
+    /// match an ordinary read. Each physical batch still permits 10,000 slots.
+    pub fn read_for_write_preparation(
+        &self,
+        current: Current,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<HomeRead> {
+        let call =
+            ReadCall::from_write_preparation(&self.root, current, self.descriptor.clone(), lease)?;
         Ok(HomeRead::new(self.descriptor.clone(), call))
     }
 

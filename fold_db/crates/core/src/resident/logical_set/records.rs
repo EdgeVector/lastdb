@@ -50,6 +50,23 @@ impl LogicalResidentSet {
             .map(|body| body.as_ref().map(Vec::len))
     }
 
+    /// Inspect existing bytes without a body copy, hold, or recency change.
+    /// The outer `None` means unfetched; the callback's `None` means fetched absent.
+    /// The callback cannot retain the borrowed body after this method returns.
+    pub fn inspect_record<T>(
+        &self,
+        collection: &str,
+        id: &str,
+        inspect: impl FnOnce(Option<&[u8]>) -> T,
+    ) -> Option<T> {
+        self.records
+            .get(&RecordKey {
+                collection: collection.to_string(),
+                id: id.to_string(),
+            })
+            .map(|body| inspect(body.as_deref()))
+    }
+
     /// True when the set holds a fetched record (present or absent) for the id.
     pub fn has_fetched_record(&self, collection: &str, id: &str) -> Option<bool> {
         self.records
@@ -109,6 +126,7 @@ impl LogicalResidentSet {
             collection: collection.to_string(),
             id: id.to_string(),
         };
+        self.record_links.forget_owner(&key);
         if self.records.remove(&key).is_some() {
             if self.record_is_held(&key) {
                 self.record_holds.unfetched += 1;
@@ -128,6 +146,7 @@ impl LogicalResidentSet {
         self.advance_read_epochs();
         self.pending_write_tokens.clear();
         self.negative_barriers.clear();
+        self.record_links.clear();
         let keys: Vec<RecordKey> = self.records.drain().map(|(key, _)| key).collect();
         for key in keys {
             if self.record_is_held(&key) {

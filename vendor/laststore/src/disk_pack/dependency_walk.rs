@@ -144,7 +144,7 @@ impl Walk<'_> {
                     true,
                 )?;
             } else {
-                let location = Location::decode(entry)?;
+                let location = Location::decode_for_current(entry, self.current)?;
                 if location.version.batch > self.current.frontier {
                     return Err(corrupt("dependency location frontier"));
                 }

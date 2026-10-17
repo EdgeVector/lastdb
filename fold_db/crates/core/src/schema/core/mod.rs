@@ -10,6 +10,7 @@ mod cache;
 mod declare;
 mod load;
 mod locks;
+mod read_snapshot;
 mod replay_reload;
 mod staged_cache;
 mod state;

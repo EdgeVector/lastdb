@@ -1,4 +1,4 @@
-//! Explicit native disk backend. Activation remains gated until its complete write surface is wired.
+//! Explicit native disk backend with complete-request admission and captured read roots.
 
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
@@ -11,12 +11,28 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
+mod admission;
+mod backup;
 mod kv;
+pub(crate) mod logical_paths;
+mod maintenance;
+mod namespace_delete;
+mod queue;
 mod read;
 mod rows;
+mod space;
 pub(crate) mod transaction;
+mod validity;
+mod view;
 mod write;
+pub use logical_paths::warm::{remember_wire_query, warm_wire_query, WarmQueryFields};
+pub use maintenance::{NativeMaintenanceOptions, NativeMaintenanceReport};
+pub(crate) use read::note_molecule_header;
+pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
+pub(crate) use transaction::note_header_write;
+pub use view::NativeDiskStatus;
+pub use write::NativeFlushReceipt;
 
 const NODE_MARKER: &str = "laststore-pack-node-v1";
 const REGISTRY: &str = "__native_home";
@@ -26,12 +42,21 @@ const NAMESPACES: &str = "namespaces\0";
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
     home: Arc<DiskHome>,
-    current: RwLock<Current>,
+    view: RwLock<view::NativeReadView>,
     journal: Mutex<HomeJournal>,
+    read_lease: laststore::disk_pack::lifetime::WriterReadLease,
     write_gate: Arc<tokio::sync::Mutex<()>>,
+    flush_notify: tokio::sync::Notify,
+    queue: Mutex<queue::WriteQueue>,
+    completed: tokio::sync::watch::Sender<u64>,
+    validity: Arc<Mutex<validity::Validity>>,
     logical: Arc<Mutex<LogicalResidentSet>>,
     published: AtomicU64,
     failed: AtomicBool,
+    fresh_empty: AtomicBool,
+    failed_write: Mutex<Option<Arc<admission::WriteProtection>>>,
+    failed_requests: Mutex<Vec<Arc<transaction::PendingBatch>>>,
+    space_policy: laststore::disk_pack::maintenance::SpacePolicy,
 }
 
 /// All namespaces on one native disk home.
@@ -46,7 +71,10 @@ struct PackKvStore {
 }
 
 pub(crate) fn requested(path: &Path) -> bool {
-    path.join(NODE_MARKER).exists() || env_flag::var_parse("LASTDB_DISK_PACK").unwrap_or(false)
+    path.join(NODE_MARKER).exists()
+        || path.join("laststore-pack-home-v1").exists()
+        || path.join("laststore-native-source-sealed-v1").exists()
+        || env_flag::var_parse("LASTDB_DISK_PACK").unwrap_or(false)
 }
 
 fn map(error: laststore::Error) -> StorageError {
@@ -60,6 +88,7 @@ fn map(error: laststore::Error) -> StorageError {
         laststore::Error::ReadBudgetExceeded => StorageError::ReadResourceLimit {
             detail: error.to_string(),
         },
+        laststore::Error::WriteCapacity(detail) => StorageError::WriteResourceLimit { detail },
         _ => StorageError::BackendError(error.to_string()),
     }
 }
@@ -75,20 +104,19 @@ fn budget() -> ReadBudget {
 
 impl PackNamespacedStore {
     /// Open an explicitly fenced native node store, or create an empty requested home.
-    /// The caller must reject cloud sync and memory acknowledgements until their native gates are wired.
+    /// The caller must reject cloud sync until its native transfer gate is wired.
     pub fn open(path: &Path) -> StorageResult<Self> {
-        if crate::resident::ResidentPolicy::from_env()
-            .mode
-            .reads_resident_first()
-        {
-            return Err(StorageError::ConfigurationError(
-                "native disk resident routing requires complete read-root and pre-apply admission gates".into(),
-            ));
+        let space_policy = space::policy_from_env()?;
+        if path.join("laststore-pack-home-v1").try_exists()? {
+            return Self::open_home(path);
         }
+        space::validate_resident_policy()?;
         use std::io::{Read, Write};
         let expected = b"format=1\nhome=disk-pack\n";
         let marker = path.join(NODE_MARKER);
-        if marker.try_exists()? {
+        let exists = marker.try_exists()?;
+        let created = !exists;
+        if exists {
             let mut fence = std::fs::File::open(path.join("laststore-layout-v1"))?;
             let expected_fence = laststore::disk_pack::home::LEGACY_FENCE_BYTES;
             if fence.metadata()?.len() != expected_fence.len() as u64 {
@@ -124,6 +152,12 @@ impl PackNamespacedStore {
                     "native creation refuses a nonempty legacy home".into(),
                 ));
             }
+            // Empty construction has no data-dependent output: one empty tree,
+            // descriptor, current and journal-tail metadata plus directories.
+            // Reserve a conservative MiB before writing any format fence.
+            let _initial_space =
+                laststore::disk_pack::maintenance::reserve_space(path, &space_policy, 1024 * 1024)
+                    .map_err(map)?;
             laststore::disk_pack::home::write_legacy_fence(path).map_err(map)?;
             let mut file = std::fs::OpenOptions::new()
                 .create_new(true)
@@ -132,30 +166,52 @@ impl PackNamespacedStore {
             file.write_all(expected)?;
             file.sync_all()?;
             std::fs::File::open(path)?.sync_all()?;
-            HomeBuilder::create(
+            HomeBuilder::create_empty_with_schema_record_refs(
                 &path.join("disk-pack"),
-                HomeDescriptor::new(16, 0).map_err(map)?,
-                0,
+                // New native homes match the plain LastStore fanout. Existing
+                // homes always retain the fanout in their saved descriptor.
+                HomeDescriptor::new(1, 0).map_err(map)?,
             )
-            .map_err(map)?
-            .finish()
             .map_err(map)?;
         }
-        let home = Arc::new(DiskHome::open(&path.join("disk-pack")).map_err(map)?);
+        let store = Self::open_home(&path.join("disk-pack"))?;
+        store.runtime.fresh_empty.store(created, Ordering::Release);
+        Ok(store)
+    }
+
+    /// Open a completed converted or restored native home with its original node identity.
+    pub(crate) fn open_home(path: &Path) -> StorageResult<Self> {
+        let space_policy = space::policy_from_env()?;
+        space::validate_resident_policy()?;
+        let home = Arc::new(DiskHome::open(path).map_err(map)?);
         let journal = home.journal().map_err(map)?;
+        let read_lease = journal.read_lease();
         let current = journal.current().clone();
         let frontier = current.frontier;
         Ok(Self {
             runtime: Arc::new(PackRuntime {
                 home,
-                current: RwLock::new(current),
+                view: RwLock::new(view::NativeReadView {
+                    current,
+                    accepted: Arc::new(Vec::new()),
+                    revision: 0,
+                }),
                 journal: Mutex::new(journal),
+                read_lease,
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
+                flush_notify: tokio::sync::Notify::new(),
+                queue: Mutex::new(queue::WriteQueue::default()),
+                completed: tokio::sync::watch::channel(0).0,
+                validity: Arc::new(Mutex::new(validity::Validity::default())),
                 logical: Arc::new(Mutex::new(
                     LogicalResidentSet::new().with_metrics(Arc::new(ResidentMetrics::new())),
                 )),
                 published: AtomicU64::new(frontier),
                 failed: AtomicBool::new(false),
+                fresh_empty: AtomicBool::new(false),
+                failed_write: Mutex::new(None),
+                failed_requests: Mutex::new(Vec::new()),
+                space_policy,
             }),
         })
     }
@@ -212,10 +268,8 @@ impl NamespacedStore for PackNamespacedStore {
         .await
     }
 
-    async fn delete_namespace(&self, _name: &str) -> StorageResult<bool> {
-        Err(StorageError::InvalidOperation(
-            "native namespace removal requires a complete named-key plan".into(),
-        ))
+    async fn delete_namespace(&self, name: &str) -> StorageResult<bool> {
+        self.runtime.delete_namespace(name).await
     }
 
     async fn restore_durability_barrier(&self) -> StorageResult<()> {

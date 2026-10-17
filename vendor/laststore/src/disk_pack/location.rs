@@ -46,7 +46,16 @@ pub struct Location {
 
 impl Location {
     /// Decode an exact fixed-width locator. Cloud-only extents remain disabled.
+    /// Without a held CURRENT this preserves the original operation ceiling.
     pub fn decode(bytes: &[u8; 128]) -> Result<Self> {
+        Self::decode_with_limit(bytes, super::LEGACY_BATCH_OPERATIONS)
+    }
+
+    pub(super) fn decode_for_current(bytes: &[u8; 128], current: &super::Current) -> Result<Self> {
+        Self::decode_with_limit(bytes, current.batch_operation_limit())
+    }
+
+    fn decode_with_limit(bytes: &[u8; 128], operation_limit: usize) -> Result<Self> {
         zero(&bytes[1..4])?;
         zero(&bytes[88..])?;
         let source = match bytes[0] {
@@ -68,13 +77,22 @@ impl Location {
             blocks: u32_at(bytes, 52),
             digest: bytes[56..88].try_into().expect("digest field"),
         };
-        value.validate()?;
+        value.validate(operation_limit)?;
         Ok(value)
     }
 
     /// Encode a validated locator entry.
+    /// Without a held feature contract this preserves the original ceiling.
     pub fn encode(&self) -> Result<[u8; 128]> {
-        self.validate()?;
+        self.encode_with_limit(super::LEGACY_BATCH_OPERATIONS)
+    }
+
+    pub(super) fn encode_for_features(&self, features: u64) -> Result<[u8; 128]> {
+        self.encode_with_limit(super::current::batch_operation_limit(features))
+    }
+
+    fn encode_with_limit(&self, operation_limit: usize) -> Result<[u8; 128]> {
+        self.validate(operation_limit)?;
         let mut bytes = [0; 128];
         bytes[0] = match self.source {
             Source::Journal => 1,
@@ -92,8 +110,8 @@ impl Location {
         Ok(bytes)
     }
 
-    fn validate(&self) -> Result<()> {
-        if self.version.operation >= 4096
+    fn validate(&self, operation_limit: usize) -> Result<()> {
+        if self.version.operation as usize >= operation_limit
             || (self.source == Source::Journal && self.version.batch == 0)
         {
             return Err(corrupt("mutation version outside complete-batch limits"));

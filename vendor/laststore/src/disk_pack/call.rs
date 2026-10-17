@@ -1,11 +1,9 @@
-use super::bytes::u32_at;
 use super::page::{Page, PageAddress};
-use super::{corrupt, resource, Current, DirectoryEntry, Location, Source, BLOCK_BYTES, KEY_BYTES};
+use super::{corrupt, resource, Current, DirectoryEntry, Location, Source, KEY_BYTES};
 use crate::read_receipt::TemporaryBytes;
 use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
 use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -66,6 +64,12 @@ pub struct ReadCosts {
     pub budget_bytes: u64,
     /// Exact keys or ordered entries examined, including tombstones.
     pub examined_keys: u64,
+    /// Largest descriptor pool within this read call; at most 32.
+    pub file_handles_peak: u64,
+    /// Extent reads that reuse a descriptor already owned by this call.
+    pub file_handle_reuses: u64,
+    /// Bounded physical payload reads after adjacent-frame coalescing.
+    pub batch_read_runs: u64,
 }
 
 pub(super) struct Buffer {
@@ -96,11 +100,65 @@ pub struct ReadCall {
     pub(super) pages: HashMap<PageAddress, Arc<Page>>,
     pub(super) blocks: HashMap<(Uuid, u64, u64), Arc<Buffer>>,
     pub(super) parts: HashMap<PathBuf, (u64, u64)>,
+    pub(super) files: super::call_io::CallFiles,
+    pub(super) _generation_hold: Option<super::lifetime::GenerationHold>,
     pub(super) payload_class: ReadClass,
     pub(super) native_descriptor: Option<super::home::HomeDescriptor>,
 }
 
 impl ReadCall {
+    pub(super) fn from_writer(
+        root: &Path,
+        current: Current,
+        descriptor: super::home::HomeDescriptor,
+        budget: ReadBudget,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<Self> {
+        budget.validate()?;
+        Self::from_writer_budget(root, current, descriptor, budget, lease)
+    }
+
+    pub(super) fn from_write_preparation(
+        root: &Path,
+        current: Current,
+        descriptor: super::home::HomeDescriptor,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<Self> {
+        let budget = ReadBudget {
+            pages: 4096,
+            blocks: 16_384,
+            bytes: 256 * 1024 * 1024,
+            keys: 40_000,
+        };
+        Self::from_writer_budget(root, current, descriptor, budget, lease)
+    }
+
+    // Only the ordinary validated budget and the fixed preparation budget enter here.
+    fn from_writer_budget(
+        root: &Path,
+        current: Current,
+        descriptor: super::home::HomeDescriptor,
+        budget: ReadBudget,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<Self> {
+        current.encode()?;
+        descriptor.check_current(&current)?;
+        let hold = super::lifetime::GenerationHold::from_writer(lease, root, &current)?;
+        Ok(Self {
+            root: root.to_path_buf(),
+            current,
+            budget,
+            costs: ReadCosts::default(),
+            pages: HashMap::new(),
+            blocks: HashMap::new(),
+            parts: HashMap::new(),
+            files: super::call_io::CallFiles::default(),
+            payload_class: ReadClass::Payload,
+            native_descriptor: Some(descriptor),
+            _generation_hold: Some(hold),
+        })
+    }
+
     pub(super) fn from_committed(
         root: &Path,
         current: Current,
@@ -110,16 +168,26 @@ impl ReadCall {
         budget.validate()?;
         current.encode()?;
         descriptor.check_current(&current)?;
+        if budget.bytes < 4352 {
+            return Err(resource());
+        }
+        let hold = super::lifetime::GenerationHold::acquire(root, &current)?;
         Ok(Self {
             root: root.to_path_buf(),
             current,
             budget,
-            costs: ReadCosts::default(),
+            costs: ReadCosts {
+                file_bytes: 4352,
+                budget_bytes: 4352,
+                ..ReadCosts::default()
+            },
             pages: HashMap::new(),
             blocks: HashMap::new(),
             parts: HashMap::new(),
+            files: super::call_io::CallFiles::default(),
             payload_class: ReadClass::Payload,
             native_descriptor: Some(descriptor),
+            _generation_hold: Some(hold),
         })
     }
 
@@ -132,17 +200,16 @@ impl ReadCall {
         budget: ReadBudget,
     ) -> Result<Self> {
         budget.validate()?;
-        let mut file = measured::open(root.join("CURRENT"))?;
-        if file.metadata()?.len() != 4096 {
-            return Err(corrupt("CURRENT length"));
-        }
-        if budget.bytes < 4096 {
+        let native = measured::try_exists(root.join(super::home::MARKER))?;
+        let initial_bytes = if native {
+            12_288
+        } else {
+            4096 + b"artifact-only=1\nformat=1\n".len() as u64
+        };
+        if budget.bytes < initial_bytes {
             return Err(resource());
         }
-        let mut bytes = [0; 4096];
-        let _class = ReadClass::FormatProbe.enter();
-        file.read_exact(&mut bytes)?;
-        let current = Current::decode(&bytes)?;
+        let (current, hold) = super::lifetime::GenerationHold::capture(root)?;
         if current.placement_codec != placement_codec || current.key_codec != key_codec {
             return Err(corrupt("CURRENT codec differs from held home descriptor"));
         }
@@ -159,11 +226,6 @@ impl ReadCall {
         } else {
             None
         };
-        let initial_bytes = if native_descriptor.is_some() {
-            8192
-        } else {
-            4096
-        };
         Ok(Self {
             root: root.to_path_buf(),
             current,
@@ -176,8 +238,10 @@ impl ReadCall {
             pages: HashMap::new(),
             blocks: HashMap::new(),
             parts: HashMap::new(),
+            files: super::call_io::CallFiles::default(),
             payload_class: ReadClass::Payload,
             native_descriptor,
+            _generation_hold: Some(hold),
         })
     }
 
@@ -194,6 +258,18 @@ impl ReadCall {
     /// Resolve one exact storage key in an explicitly addressed group.
     /// The integration must compute this group with the held placement codec.
     pub fn get(&mut self, collection: &str, group: u16, key: &str) -> Result<Option<Vec<u8>>> {
+        let Some(location) = self.locate(collection, group, key)? else {
+            return Ok(None);
+        };
+        self.read_record(collection, key, &location).map(Some)
+    }
+
+    pub(super) fn locate(
+        &mut self,
+        collection: &str,
+        group: u16,
+        key: &str,
+    ) -> Result<Option<Location>> {
         self.examine()?;
         if key.len() > KEY_BYTES {
             return Err(corrupt("storage key exceeds format limit"));
@@ -210,14 +286,14 @@ impl ReadCall {
         let Some(value) = self.find(&entry.locator, key.as_bytes())? else {
             return Ok(None);
         };
-        let location = Location::decode(&value)?;
+        let location = Location::decode_for_current(&value, &self.current)?;
         if location.version.batch > self.current.frontier {
             return Err(corrupt("record newer than committed frontier"));
         }
         if location.source == Source::Tombstone {
             return Ok(None);
         }
-        self.read_record(collection, key, &location).map(Some)
+        Ok(Some(location))
     }
 
     /// Resolve all supplied exact coordinates in order with one shared call cache.
@@ -227,9 +303,12 @@ impl ReadCall {
         if count > self.budget.keys.saturating_sub(self.costs.examined_keys) {
             return Err(resource());
         }
-        keys.iter()
-            .map(|(collection, group, key)| self.get(collection, *group, key))
-            .collect()
+        self.batch_get(
+            keys.iter()
+                .map(|(collection, group, key)| (*collection, Ok(*group), *key)),
+        )?
+        .into_iter()
+        .collect()
     }
 
     pub(super) fn directory_key(collection: &str, group: u16) -> Result<Vec<u8>> {
@@ -266,37 +345,6 @@ impl ReadCall {
         Ok(())
     }
 
-    pub(super) fn read_extent(
-        &mut self,
-        path: &Path,
-        offset: u64,
-        length: usize,
-        page_part: bool,
-        class: ReadClass,
-    ) -> Result<Buffer> {
-        self.charge(length as u64)?;
-        let mut file = measured::open(path)?;
-        let file_bytes = file.metadata()?.len();
-        let end = offset
-            .checked_add(length as u64)
-            .ok_or_else(|| corrupt("file offset overflow"))?;
-        if end > file_bytes
-            || file_bytes > super::PART_BYTES
-            || (page_part && file_bytes % super::PAGE_BYTES as u64 != 0)
-        {
-            return Err(corrupt("extent outside immutable part"));
-        }
-        let mut bytes = Vec::new();
-        bytes.try_reserve_exact(length).map_err(|_| resource())?;
-        bytes.resize(length, 0);
-        let mut buffer = Buffer::from_vec(bytes);
-        file.seek(SeekFrom::Start(offset))?;
-        let _class = class.enter();
-        file.read_exact(&mut buffer.bytes)?;
-        self.costs.file_bytes = self.costs.file_bytes.saturating_add(length as u64);
-        Ok(buffer)
-    }
-
     pub(super) fn data_path(&self, location: &Location) -> PathBuf {
         match location.source {
             Source::Pack => self.root.join("packs").join(location.object.to_string()),
@@ -310,18 +358,7 @@ impl ReadCall {
     }
 
     pub(super) fn read_block(&mut self, location: &Location, ordinal: u64) -> Result<Arc<Buffer>> {
-        let object = self.object_metadata(location)?;
-        if let Some(object) = &object {
-            if ordinal >= object.blocks {
-                return Err(corrupt("block outside published object length"));
-            }
-        }
-        let sequence = if location.source == Source::Journal {
-            location.version.batch
-        } else {
-            0
-        };
-        let identity = (location.object, sequence, ordinal);
+        let identity = super::block_plan::block_id(location, ordinal);
         if let Some(block) = self.blocks.get(&identity) {
             self.costs.shared_blocks += 1;
             return Ok(Arc::clone(block));
@@ -329,44 +366,14 @@ impl ReadCall {
         if self.costs.payload_blocks >= self.budget.blocks {
             return Err(resource());
         }
-        let base = self.data_path(location);
-        let map = self.map_page(&base, location.object, ordinal / super::MAP_ENTRIES)?;
-        if let Some(object) = &object {
-            if map.object_bounds() != Some((object.logical_bytes, object.data_parts))
-                || map.generation() != object.generation
-            {
-                return Err(corrupt("block-map object bounds differ across pages"));
-            }
-        }
-        let index = (ordinal % super::MAP_ENTRIES) as usize;
-        if index >= map.count() {
-            return Err(corrupt("block outside map"));
-        }
-        let entry = &map.payload()[index * 24..index * 24 + 24];
-        let part = u32_at(entry, 0);
-        let offset = u32_at(entry, 4);
-        let stored = u32_at(entry, 8) as usize;
-        let decoded = u32_at(entry, 12) as usize;
-        if let Some(object) = &object {
-            object.check_block(ordinal, part, decoded, map.count())?;
-        }
-        if u32_at(entry, 16) != 0
-            || u32_at(entry, 20) != 0
-            || offset < 128
-            || !(81..=4192).contains(&stored)
-            || !(1..=BLOCK_BYTES).contains(&decoded)
-        {
-            return Err(corrupt("invalid block map extent"));
-        }
-        let path = base.join(format!("part-{part:08x}"));
-        self.verify_part(&path, location, part, ordinal)?;
-        let frame = self.read_extent(&path, offset.into(), stored, false, self.payload_class)?;
-        self.charge(decoded as u64)?;
-        let bytes =
-            super::frame::decode(&frame.bytes, location.object, sequence, ordinal, decoded)?;
-        let block = Arc::new(Buffer::from_vec(bytes));
-        self.costs.payload_blocks += 1;
-        self.blocks.insert(identity, Arc::clone(&block));
-        Ok(block)
+        let plan = self.plan_block(location, ordinal)?;
+        let frame = self.read_extent(
+            &plan.path,
+            plan.offset,
+            plan.stored,
+            false,
+            self.payload_class,
+        )?;
+        self.decode_planned(&plan, &frame.bytes)
     }
 }

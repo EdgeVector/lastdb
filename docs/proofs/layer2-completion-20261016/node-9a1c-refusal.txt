@@ -1,0 +1,23 @@
+Traceback (most recent call last):
+  File "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 127, in request
+    result = json.loads(response_body)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 633, in <module>
+    write_measurements()
+  File "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 435, in write_measurements
+    result, elapsed = node.mutate(numbers, revision, 'update', 'durable')
+  File "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 289, in mutate
+    result, elapsed, _ = self.request('/api/mutations/batch', payload)
+  File "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 133, in request
+    raise RuntimeError(f'{self.variant} {path} returned non-JSON status {response.status}') from error
+RuntimeError: candidate /api/mutations/batch returned non-JSON status 400

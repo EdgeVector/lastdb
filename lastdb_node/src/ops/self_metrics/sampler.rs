@@ -1,4 +1,5 @@
 use super::*;
+use tracing::Instrument;
 
 pub fn spawn_sampler(
     host: std::sync::Arc<Host>,
@@ -55,7 +56,7 @@ pub fn spawn_sampler(
                 .await;
             }
         }
-    })
+    }.in_current_span())
 }
 
 /// Bring an ALREADY-REGISTERED telemetry schema up to this binary's field list.
@@ -175,9 +176,15 @@ pub(super) fn maybe_spawn_drain(host: &std::sync::Arc<Host>, retention_cap: usiz
         return;
     }
     let host = std::sync::Arc::clone(host);
-    tokio::spawn(async move {
-        crate::maintenance_write_gate::run(&host, drain_orphaned_telemetry(&host, retention_cap))
+    tokio::spawn(
+        async move {
+            crate::maintenance_write_gate::run(
+                &host,
+                drain_orphaned_telemetry(&host, retention_cap),
+            )
             .await;
-        host.self_metrics.end_drain();
-    });
+            host.self_metrics.end_drain();
+        }
+        .in_current_span(),
+    );
 }

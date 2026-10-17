@@ -1,0 +1,1 @@
+{"case":"f1","diagnostic_profile":false,"failed_home_retained":"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/f1/c/home","headline_latency_eligible":true,"no_retry_or_additional_write":true,"normal_stop_exit_code":0,"product_result":"first planned256 update returns HTTP503 read_resource_limit, retryable false"}

@@ -13,6 +13,13 @@ pub(super) async fn dispatch_maintenance_gc(
             heap_route!(execute_db_clear_history_route, req, ctx, host).await
         }
         DataRoute::DbCompact => heap_route!(execute_db_compact_route, req, ctx, host).await,
+        DataRoute::DbNativeBackup => {
+            heap_route!(execute_db_native_backup_route, req, ctx, host).await
+        }
+        DataRoute::DbFlush => heap_route!(execute_db_flush_route, req, ctx, host).await,
+        DataRoute::DbNativeStatus => {
+            heap_route!(execute_db_native_status_route, req, ctx, host).await
+        }
         DataRoute::DbStampPurgedAtomRetirements => {
             heap_route!(
                 execute_db_stamp_purged_atom_retirements_route,

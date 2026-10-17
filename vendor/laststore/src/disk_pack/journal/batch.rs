@@ -47,8 +47,11 @@ pub(super) struct BatchPlan {
 }
 
 impl BatchPlan {
-    pub(super) fn new(operations: &[JournalMutation]) -> Result<Self> {
-        let quote = super::JournalQuote::from_iter(operations.iter().map(JournalMutation::shape))?;
+    pub(super) fn new(operations: &[JournalMutation], operation_limit: usize) -> Result<Self> {
+        let quote = super::JournalQuote::from_iter_with_limit(
+            operations.iter().map(JournalMutation::shape),
+            operation_limit,
+        )?;
         Ok(Self {
             logical_bytes: quote.logical_bytes,
             physical_reserve: quote.physical_reserve,
