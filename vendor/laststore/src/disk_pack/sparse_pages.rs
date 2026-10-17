@@ -1,6 +1,6 @@
 use super::page_write::{encode_page, PageFields};
 use super::tree_output::TreePages;
-use super::{corrupt, TreeRoot};
+use super::{corrupt, TreeKind, TreeRoot};
 use crate::{durability, Result};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -11,6 +11,7 @@ use uuid::Uuid;
 pub(super) struct SparsePages {
     directory: PathBuf,
     object: Uuid,
+    kind: TreeKind,
     generation: u64,
     next: u64,
     file: Option<File>,
@@ -30,12 +31,39 @@ impl SparsePages {
         Ok(Self {
             directory,
             object: tree.object,
+            kind: tree.kind,
             generation,
             next: 0,
             file: None,
             written_pages: 0,
             part_numbers: Vec::new(),
         })
+    }
+
+    pub(super) fn check_tree(&self, tree: &TreeRoot) -> Result<()> {
+        if self.object != tree.object || self.kind != tree.kind {
+            return Err(corrupt("shared edit allocator differs from tree identity"));
+        }
+        Ok(())
+    }
+
+    /// Close the private descriptor between trees; finish still owns its barrier.
+    pub(super) fn park(&mut self) {
+        drop(self.file.take());
+    }
+
+    fn reopen_part(&mut self) -> Result<()> {
+        if self.file.is_none() && self.next % 512 != 0 {
+            let part = self.next / 512;
+            let file = OpenOptions::new()
+                .append(true)
+                .open(self.directory.join(format!("part-{part:08x}")))?;
+            if file.metadata()?.len() != self.next % 512 * super::PAGE_BYTES as u64 {
+                return Err(corrupt("private shared metadata part length changed"));
+            }
+            self.file = Some(file);
+        }
+        Ok(())
     }
 
     fn allocate(&mut self) -> Result<()> {
@@ -71,6 +99,7 @@ impl SparsePages {
     }
 
     fn sync_part(&mut self) -> Result<()> {
+        self.reopen_part()?;
         if let Some(file) = self.file.take() {
             durability::sync_dirty_file(&file)?;
         }
@@ -89,8 +118,10 @@ impl TreePages for SparsePages {
         if !(1..=512).contains(&count) {
             return Err(corrupt("invalid contiguous metadata reservation"));
         }
-        if self.file.is_none() || self.next % 512 + count as u64 > 512 {
+        if (self.file.is_none() && self.next % 512 == 0) || self.next % 512 + count as u64 > 512 {
             self.allocate()?;
+        } else {
+            self.reopen_part()?;
         }
         Ok(self.next)
     }

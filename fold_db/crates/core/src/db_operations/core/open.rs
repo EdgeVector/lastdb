@@ -198,7 +198,7 @@ impl DbOperations {
         let public_key_store = PublicKeyStore::new(public_keys_typed);
         let metadata_store = MetadataStore::new(metadata_typed, idempotency_typed);
         let attribution_ledger = AttributionLedger::new(attribution_ledger_kv).await?;
-        let change_feed = ChangeFeedStore::new(change_feed_kv).await?;
+        let change_feed = ChangeFeedStore::new(change_feed_kv, store.disk_pack_runtime()).await?;
         let lineage_index = LineageIndex::new(lineage_forward_kv, lineage_reverse_kv);
 
         Ok(Self {

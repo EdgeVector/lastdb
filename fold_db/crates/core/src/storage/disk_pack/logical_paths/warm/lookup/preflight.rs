@@ -7,6 +7,7 @@ use super::*;
 struct Metadata {
     provenance: Option<(super::super::super::body::ReadVersion, FieldValue)>,
     wire: Option<WireMetadata>,
+    witness: Option<u64>,
     #[serde(default)]
     projections: BTreeMap<String, Vec<String>>,
 }
@@ -46,10 +47,12 @@ pub(in crate::storage::disk_pack::logical_paths::warm) fn ready(
         for field in selected {
             let id = target(logical, &row, field)?;
             let (length, body) = metadata(logical, &id, call, records, bytes)?;
-            if body.provenance.as_ref()?.0 != context.version {
+            if !context.provenance_valid(body.provenance.as_ref()?.0, body.witness) {
                 return None;
             }
-            let flags = body.wire.filter(|flags| flags.query == query_alias)?;
+            let flags = body.wire.filter(|flags| {
+                flags.query == query_alias && context.provenance_valid(flags.version, flags.witness)
+            })?;
             if wire.get(field).is_some_and(|old| old != &flags) {
                 return None;
             }

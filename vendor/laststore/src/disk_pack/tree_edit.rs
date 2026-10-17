@@ -1,7 +1,7 @@
 use super::bytes::u64_at;
 use super::page::Page;
 use super::sparse_pages::SparsePages;
-use super::tree_output::{self, Child, Descriptor, LeafEntry};
+use super::tree_output::{self, Child, Descriptor, LeafEntry, TreePages};
 use super::{corrupt, ReadCall, TreeRoot, KEY_DESCRIPTOR};
 use crate::Result;
 use std::collections::HashSet;
@@ -9,9 +9,9 @@ use std::path::Path;
 
 pub(super) type MapChange = (Vec<u8>, [u8; 128]);
 
-pub(super) struct TreeEdit {
+pub(super) struct TreeEdit<P = SparsePages> {
     root: TreeRoot,
-    pages: SparsePages,
+    pages: P,
     failed: bool,
 }
 
@@ -27,6 +27,25 @@ struct PathStep {
 impl TreeEdit {
     pub(super) fn new(root: &Path, tree: TreeRoot, generation: u64) -> Result<Self> {
         let pages = SparsePages::new(root, &tree, generation)?;
+        Self::from_pages(tree, pages)
+    }
+
+    pub(super) fn from_pages(tree: TreeRoot, pages: SparsePages) -> Result<Self> {
+        pages.check_tree(&tree)?;
+        Self::with_pages(tree, pages)
+    }
+
+    pub(super) fn finish(self) -> Result<(TreeRoot, u64, Vec<u32>)> {
+        let (tree, pages) = self.finish_tree()?;
+        let written = pages.written_pages;
+        let parts = pages.finish()?;
+        Ok((tree, written, parts))
+    }
+}
+
+impl<P: TreePages> TreeEdit<P> {
+    pub(super) fn with_pages(tree: TreeRoot, pages: P) -> Result<Self> {
+        tree.validate()?;
         Ok(Self {
             root: tree,
             pages,
@@ -175,13 +194,12 @@ impl TreeEdit {
             .collect()
     }
 
-    pub(super) fn finish(self) -> Result<(TreeRoot, u64, Vec<u32>)> {
+    /// Keep private pages available to other trees in the same object.
+    pub(super) fn finish_tree(self) -> Result<(TreeRoot, P)> {
         if self.failed {
             return Err(corrupt("refusing failed tree edit"));
         }
-        let pages = self.pages.written_pages;
-        let parts = self.pages.finish()?;
-        Ok((self.root, pages, parts))
+        Ok((self.root, self.pages))
     }
 }
 

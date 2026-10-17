@@ -2,10 +2,10 @@ use super::dependency::Dependencies;
 use super::dependency_walk;
 use super::generation;
 use super::journal::{JournalRecovery, RecoveredMutation};
+use super::locator_forest::LocatorChanges;
 use super::tree_edit::TreeEdit;
-use super::tree_write::TreeWriter;
 use super::write_lock::WriteLock;
-use super::{artifact, corrupt, Current, DirectoryEntry, TreeKind};
+use super::{artifact, corrupt, Current, DirectoryEntry};
 use crate::{durability, Result};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -33,6 +33,7 @@ struct Publisher<'a> {
     root: &'a Path,
     proposed: Current,
     directory: TreeEdit,
+    locators: LocatorChanges,
     pages: u64,
     parts: u64,
     mutations: u64,
@@ -79,6 +80,7 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
     let directory = TreeEdit::new(root, previous.directory.clone(), proposed.generation)?;
     let mut publisher = Publisher {
         root,
+        locators: LocatorChanges::new(root, proposed.generation),
         proposed,
         directory,
         pages: 0,
@@ -91,6 +93,13 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
     }
     if !recovery.is_complete() {
         return Err(corrupt("publication did not reach captured TAIL"));
+    }
+    for output in publisher.locators.finish()? {
+        publisher.pages += output.pages;
+        publisher.parts += output.parts.len() as u64;
+        publisher
+            .dependencies
+            .add_tree(&output.tree, output.parts)?;
     }
     let (directory, pages, parts) = publisher.directory.finish()?;
     publisher.proposed.directory = directory;
@@ -170,29 +179,13 @@ impl Publisher<'_> {
             }
             let changes: Vec<_> = changes.into_iter().collect();
             let tree = if let Some(entry) = &entry {
-                let mut locator =
-                    TreeEdit::new(self.root, entry.locator.clone(), self.proposed.generation)?;
-                locator.put_many(&mut call, &changes)?;
-                let (tree, pages, parts) = locator.finish()?;
-                self.pages += pages;
-                self.parts += parts.len() as u64;
-                self.dependencies.add_tree(&tree, parts)?;
-                tree
+                self.locators
+                    .edit(&mut call, entry.locator.clone(), &changes)?
             } else {
                 if changes.len() > self.proposed.batch_operation_limit() {
                     return Err(corrupt("invalid new locator change count"));
                 }
-                let mut locator =
-                    TreeWriter::new(self.root, TreeKind::Locator, self.proposed.generation)?;
-                for (key, value) in &changes {
-                    locator.add(key, *value)?;
-                }
-                let (tree, parts) = locator.finish_with_parts()?;
-                // TreeWriter starts at page zero and emits the final root last.
-                self.pages += tree.page + 1;
-                self.parts += parts;
-                self.dependencies.add_contiguous_tree(&tree, parts)?;
-                tree
+                self.locators.create(&changes)?
             };
             let value = DirectoryEntry {
                 group,

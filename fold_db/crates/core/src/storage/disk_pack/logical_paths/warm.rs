@@ -23,6 +23,8 @@ pub(super) type FieldResults = HashMap<String, HashMap<KeyValue, FieldValue>>;
 pub(crate) struct WireMetadata {
     #[serde(default)]
     pub query: String,
+    pub version: super::body::ReadVersion,
+    pub witness: Option<u64>,
     pub conflict_flags: String,
     pub key_form: Option<String>,
     pub field_flag: Option<serde_json::Value>,
@@ -87,7 +89,11 @@ pub(crate) fn lookup(
     query: &Query,
     access: Option<&AccessContext>,
 ) -> StorageResult<Option<WarmQueryFields>> {
-    if !owner_context(access) {
+    if !owner_context(access)
+        || runtime
+            .as_ref()
+            .is_some_and(|runtime| transaction::PendingBatch::current(runtime).is_some())
+    {
         return Ok(None);
     }
     let Some(keys) = keys(query) else {
@@ -166,7 +172,11 @@ pub(crate) fn remember(
     access: Option<&AccessContext>,
     results: &FieldResults,
 ) -> StorageResult<()> {
-    if !owner_context(access) {
+    if !owner_context(access)
+        || runtime
+            .as_ref()
+            .is_some_and(|runtime| transaction::PendingBatch::current(runtime).is_some())
+    {
         return Ok(());
     }
     let Some(keys) = keys(query) else {

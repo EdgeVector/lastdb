@@ -212,11 +212,13 @@ impl RememberWire<'_> {
             else {
                 continue;
             };
-            if body.provenance.as_ref().map(|(version, _)| *version) != Some(self.context.version) {
+            if !body.valid(self.context) {
                 continue;
             }
             body.wire = Some(WireMetadata {
                 query: self.query_alias.to_string(),
+                version: self.context.version,
+                witness: self.context.witness(),
                 conflict_flags: self.flags.to_string(),
                 key_form: self
                     .payload

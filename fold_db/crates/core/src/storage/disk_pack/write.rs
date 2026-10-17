@@ -12,6 +12,8 @@ pub(super) struct PreparedCommit {
 pub struct NativeFlushReceipt {
     pub generation: u64,
     pub frontier: u64,
+    pub target_sequence: u64,
+    pub completed_sequence: u64,
 }
 
 impl PackRuntime {
@@ -30,11 +32,13 @@ impl PackRuntime {
 
     /// Wake an accepted owner and capture the durable boundary after its flush.
     pub async fn flush_native(self: &Arc<Self>) -> StorageResult<NativeFlushReceipt> {
-        self.flush().await?;
+        let target_sequence = self.flush_prefix().await?;
         let view = self.view.read().expect("native durable flush view");
         Ok(NativeFlushReceipt {
             generation: view.current.generation,
             frontier: view.current.frontier,
+            target_sequence,
+            completed_sequence: *self.completed.borrow(),
         })
     }
 
@@ -121,6 +125,25 @@ impl PackRuntime {
     }
 
     pub(super) fn commit_prepared(&self, prepared: PreparedCommit) -> StorageResult<()> {
+        let changes = prepared
+            .operations
+            .iter()
+            .map(|operation| {
+                validity::changed(
+                    operation.collection.clone(),
+                    operation.key.clone(),
+                    operation.body.as_deref(),
+                )
+            })
+            .collect();
+        self.commit_prepared_group(prepared, changes)
+    }
+
+    pub(super) fn commit_prepared_group(
+        &self,
+        prepared: PreparedCommit,
+        hidden_changes: Vec<validity::ChangedCoordinate>,
+    ) -> StorageResult<()> {
         let PreparedCommit {
             operations,
             reservation,
@@ -138,7 +161,7 @@ impl PackRuntime {
             }
         };
         protection.invalidate();
-        self.install_committed(publication.current);
+        self.install_committed(publication.current, hidden_changes)?;
         protection.release_space();
         self.failed.store(false, Ordering::Release);
         Ok(())
@@ -148,22 +171,24 @@ impl PackRuntime {
         if transaction::PendingBatch::current(self).is_some() {
             return Ok(());
         }
-        let _gate = self.enter_write().await;
-        if self.failed.load(Ordering::Acquire) {
-            return Err(StorageError::BackendError(
-                "native flush cannot cover a failed directory publication".into(),
-            ));
-        }
-        Ok(())
+        self.flush_prefix().await.map(|_| ())
+    }
+
+    async fn flush_prefix(self: &Arc<Self>) -> StorageResult<u64> {
+        let target = self.seal_queue();
+        self.wait_for_queue(target).await?;
+        Ok(target)
     }
 
     pub(super) async fn enter_write(self: &Arc<Self>) -> tokio::sync::OwnedMutexGuard<()> {
-        if let Ok(gate) = Arc::clone(&self.write_gate).try_lock_owned() {
-            return gate;
+        loop {
+            let gate = self.enter_prepare().await;
+            let target = self.seal_queue();
+            if target <= *self.completed.borrow() || self.failed.load(Ordering::Acquire) {
+                return gate;
+            }
+            drop(gate);
+            let _ = self.wait_for_queue(target).await;
         }
-        // A request that arrives during preparation also leaves a wake permit
-        // for that owner's eventual accepted worker; it cannot miss the handoff.
-        self.flush_notify.notify_one();
-        Arc::clone(&self.write_gate).lock_owned().await
     }
 }

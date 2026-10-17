@@ -210,13 +210,15 @@ impl EncryptingKvStore {
             .encrypt(plaintext)
             .await
             .map_err(|e| StorageError::EncryptionError(e.to_string()))?;
-        Ok(if self.compression.raw {
+        let sealed = if self.compression.raw {
             Self::encode_binary_ciphertext(&ciphertext, deflated.is_some())
         } else if deflated.is_some() {
             Self::encode_deflated_ciphertext(&ciphertext)
         } else {
             Self::encode_ciphertext(&ciphertext)
-        })
+        };
+        crate::storage::disk_pack::note_header_write(&self.namespace, key, value, &sealed);
+        Ok(sealed)
     }
 
     /// Open one stored value.

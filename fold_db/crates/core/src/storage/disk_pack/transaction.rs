@@ -2,9 +2,11 @@ use super::*;
 use std::collections::BTreeMap;
 
 mod accounting;
+mod headers;
+pub(crate) use headers::note_header_write;
 pub(crate) mod publication;
 mod request;
-pub(crate) use request::request_scope;
+pub(crate) use request::{background_scope, request_scope};
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
 
 pub(super) struct PendingRecord {
@@ -29,6 +31,7 @@ pub(super) struct PendingBatch {
     frozen: AtomicBool,
     durable_only: AtomicBool,
     paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
+    header_versions: Mutex<headers::HeaderVersions>,
     operation_limit: usize,
 }
 
@@ -47,6 +50,7 @@ impl PendingBatch {
             frozen: AtomicBool::new(false),
             durable_only: AtomicBool::new(false),
             paths: Mutex::new(Vec::new()),
+            header_versions: Mutex::new(headers::HeaderVersions::default()),
             operation_limit: runtime
                 .view
                 .read()
@@ -137,7 +141,7 @@ impl PendingBatch {
         Ok(())
     }
 
-    fn freeze_operations(&self) -> Vec<HomeMutation> {
+    pub(super) fn freeze_operations(&self) -> Vec<HomeMutation> {
         self.frozen.store(true, Ordering::Release);
         self.data
             .lock()
@@ -150,6 +154,50 @@ impl PendingBatch {
                 body: record.body.clone(),
             })
             .collect()
+    }
+
+    pub(super) fn changed_coordinates(&self) -> Vec<super::validity::ChangedCoordinate> {
+        let data = self.data.lock().expect("native pending changes");
+        let headers = self
+            .header_versions
+            .lock()
+            .expect("native staged header versions");
+        data.latest
+            .iter()
+            .map(|((collection, key), slot)| {
+                let mut change = super::validity::changed(
+                    collection.clone(),
+                    key.clone(),
+                    data.operations[*slot].body.as_deref(),
+                );
+                if let Some((digest, version)) = headers.entries.get(key) {
+                    if change.digest.as_ref() == Some(digest) {
+                        change.header = Some(*version);
+                    }
+                }
+                change
+            })
+            .collect()
+    }
+
+    pub(super) fn finish_publications(&self) -> StorageResult<()> {
+        self.publications.finish()
+    }
+
+    pub(super) async fn deliver(&self) -> StorageResult<()> {
+        let actions =
+            std::mem::take(&mut *self.after_commit.lock().expect("native post-commit work"));
+        let mut actions: std::collections::VecDeque<_> = actions.into();
+        while let Some(action) = actions.pop_front() {
+            if let Err(error) = action.await {
+                self.after_commit
+                    .lock()
+                    .expect("native post-commit work")
+                    .extend(actions);
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 }
 

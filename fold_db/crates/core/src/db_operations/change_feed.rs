@@ -43,17 +43,22 @@ pub struct ChangeFeedPage {
 #[derive(Clone)]
 pub struct ChangeFeedStore {
     store: Arc<TypedKvStore<dyn KvStore>>,
+    native: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
     tip: Arc<Mutex<u64>>,
     subscribers: broadcast::Sender<ChangeFeedEvent>,
 }
 
 impl ChangeFeedStore {
-    pub(crate) async fn new(store: Arc<dyn KvStore>) -> Result<Self, StorageError> {
+    pub(crate) async fn new(
+        store: Arc<dyn KvStore>,
+        native: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+    ) -> Result<Self, StorageError> {
         let store = Arc::new(TypedKvStore::new(store));
         let tip = store.get_item::<u64>(TIP_KEY).await?.unwrap_or(0);
         let (subscribers, _) = broadcast::channel(1024);
         Ok(Self {
             store,
+            native,
             tip: Arc::new(Mutex::new(tip)),
             subscribers,
         })
@@ -73,7 +78,7 @@ impl ChangeFeedStore {
     }
 
     /// Preserve caller order with one event/tip write per bounded chunk.
-    /// Small caller batches share one write; no timer delays a ready batch.
+    /// Native feed batches can share the bounded product flush deadline.
     pub async fn append_many(&self, events: Vec<ChangeFeedEvent>) -> Result<u64, SchemaError> {
         if events.is_empty() {
             return Ok(*self.tip.lock().await);
@@ -151,7 +156,11 @@ impl ChangeFeedStore {
         let body = serde_json::to_vec(&sequence)
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
         rows.push((TIP_KEY.as_bytes().to_vec(), body));
-        self.store.inner().batch_put(rows).await?;
+        crate::storage::disk_pack::transaction::background_scope(
+            self.native.clone(),
+            self.store.inner().batch_put(rows),
+        )
+        .await?;
         *tip = sequence;
         for event in events {
             let _ = self.subscribers.send(event);

@@ -91,7 +91,7 @@ impl PackRuntime {
         // All older calls already hold their own generation. New calls take the
         // view read lock before their lifetime hold, so no retired view can escape.
         let mut view = self.view.write().expect("native complete read view");
-        if view.accepted.is_some() {
+        if !view.accepted.is_empty() {
             return Err(StorageError::BackendError(
                 "native maintenance cannot replace an accepted write view".into(),
             ));

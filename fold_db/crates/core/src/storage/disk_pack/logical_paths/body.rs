@@ -5,6 +5,7 @@ use crate::schema::types::field::FieldValue;
 pub(crate) struct ReadVersion {
     pub generation: u64,
     pub accepted: usize,
+    pub revision: u64,
 }
 
 /// Only one field's content and provenance belong to this logical path.
@@ -12,6 +13,8 @@ pub(crate) struct ReadVersion {
 pub(super) struct PathBody {
     pub content: serde_json::Value,
     pub provenance: Option<(ReadVersion, FieldValue)>,
+    #[serde(default)]
+    pub witness: Option<u64>,
     #[serde(default)]
     pub wire: Option<super::warm::WireMetadata>,
     /// Query descriptors name other already-used paths; they contain no values.
@@ -25,6 +28,7 @@ impl PathBody {
         encoded_len(&BorrowedPathBody {
             content: value,
             provenance: None,
+            witness: None,
             wire: None,
             projections: EmptyProjections,
         })
@@ -35,10 +39,12 @@ impl PathBody {
     pub(super) fn from_field_encoded_len(
         version: ReadVersion,
         value: &FieldValue,
+        witness: Option<u64>,
     ) -> StorageResult<usize> {
         encoded_len(&BorrowedPathBody {
             content: &serde_json::Value::Null,
             provenance: Some((version, value)),
+            witness,
             wire: None,
             projections: EmptyProjections,
         })
@@ -48,25 +54,42 @@ impl PathBody {
         Self {
             content: value.clone(),
             provenance: None,
+            witness: None,
             wire: None,
             projections: BTreeMap::new(),
         }
     }
 
-    pub(super) fn from_field(version: ReadVersion, value: &FieldValue) -> Self {
+    pub(super) fn from_field(
+        version: ReadVersion,
+        value: &FieldValue,
+        witness: Option<u64>,
+    ) -> Self {
         let mut provenance = value.clone();
         provenance.value = serde_json::Value::Null;
         Self {
             content: value.value.clone(),
             provenance: Some((version, provenance)),
+            witness,
             wire: None,
             projections: BTreeMap::new(),
         }
     }
 
-    pub(super) fn field(self, version: ReadVersion) -> Option<FieldValue> {
+    pub(super) fn valid(&self, context: &super::super::read::ReadContext) -> bool {
+        self.provenance
+            .as_ref()
+            .is_some_and(|(version, _)| context.provenance_valid(*version, self.witness))
+    }
+
+    pub(super) fn field(self, context: &super::super::read::ReadContext) -> Option<FieldValue> {
         let (cached_version, mut value) = self.provenance?;
-        if version != cached_version {
+        if !context.provenance_valid(cached_version, self.witness)
+            || !context.inherit_witness(self.witness)
+        {
+            return None;
+        }
+        if !context.refresh_molecule_version(self.witness, &mut value) {
             return None;
         }
         value.value = self.content;
@@ -78,6 +101,7 @@ impl PathBody {
 struct BorrowedPathBody<'a> {
     content: &'a serde_json::Value,
     provenance: Option<(ReadVersion, &'a FieldValue)>,
+    witness: Option<u64>,
     wire: Option<&'a super::warm::WireMetadata>,
     projections: EmptyProjections,
 }

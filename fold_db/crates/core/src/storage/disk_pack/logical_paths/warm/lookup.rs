@@ -43,7 +43,12 @@ pub(super) fn row(
         let Some(flags) = body.wire.clone().filter(|wire| wire.query == query_alias) else {
             return Ok(None);
         };
-        let Some(value) = body.field(context.version) else {
+        if !context.provenance_valid(flags.version, flags.witness)
+            || !context.inherit_witness(flags.witness)
+        {
+            return Ok(None);
+        }
+        let Some(value) = body.field(context) else {
             return Ok(None);
         };
         context.paths.lock().expect("native resolved paths").note(

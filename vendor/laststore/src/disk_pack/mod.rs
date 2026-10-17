@@ -26,6 +26,7 @@ pub mod home;
 pub mod journal;
 pub mod lifetime;
 mod location;
+mod locator_forest;
 pub mod maintenance;
 mod object;
 mod pack_write;

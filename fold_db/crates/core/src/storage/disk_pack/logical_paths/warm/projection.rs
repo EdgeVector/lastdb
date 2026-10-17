@@ -109,7 +109,7 @@ pub(super) fn save(
     let Some(mut body) = owned_body(context, call, logical, PATH_COLLECTION, anchor)? else {
         return Ok(());
     };
-    if body.provenance.as_ref().map(|(version, _)| *version) != Some(context.version) {
+    if !body.valid(context) {
         return Ok(());
     }
     body.projections

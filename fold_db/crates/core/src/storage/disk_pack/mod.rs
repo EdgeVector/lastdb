@@ -17,16 +17,20 @@ mod kv;
 pub(crate) mod logical_paths;
 mod maintenance;
 mod namespace_delete;
+mod queue;
 mod read;
 mod rows;
 mod space;
 pub(crate) mod transaction;
+mod validity;
 mod view;
 mod write;
 pub use logical_paths::warm::{remember_wire_query, warm_wire_query, WarmQueryFields};
 pub use maintenance::{NativeMaintenanceOptions, NativeMaintenanceReport};
+pub(crate) use read::note_molecule_header;
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
+pub(crate) use transaction::note_header_write;
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 
@@ -43,12 +47,15 @@ pub struct PackRuntime {
     read_lease: laststore::disk_pack::lifetime::WriterReadLease,
     write_gate: Arc<tokio::sync::Mutex<()>>,
     flush_notify: tokio::sync::Notify,
+    queue: Mutex<queue::WriteQueue>,
+    completed: tokio::sync::watch::Sender<u64>,
+    validity: Arc<Mutex<validity::Validity>>,
     logical: Arc<Mutex<LogicalResidentSet>>,
     published: AtomicU64,
     failed: AtomicBool,
     fresh_empty: AtomicBool,
     failed_write: Mutex<Option<Arc<admission::WriteProtection>>>,
-    failed_request: Mutex<Option<Arc<transaction::PendingBatch>>>,
+    failed_requests: Mutex<Vec<Arc<transaction::PendingBatch>>>,
     space_policy: laststore::disk_pack::maintenance::SpacePolicy,
 }
 
@@ -186,12 +193,16 @@ impl PackNamespacedStore {
                 home,
                 view: RwLock::new(view::NativeReadView {
                     current,
-                    accepted: None,
+                    accepted: Arc::new(Vec::new()),
+                    revision: 0,
                 }),
                 journal: Mutex::new(journal),
                 read_lease,
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
                 flush_notify: tokio::sync::Notify::new(),
+                queue: Mutex::new(queue::WriteQueue::default()),
+                completed: tokio::sync::watch::channel(0).0,
+                validity: Arc::new(Mutex::new(validity::Validity::default())),
                 logical: Arc::new(Mutex::new(
                     LogicalResidentSet::new().with_metrics(Arc::new(ResidentMetrics::new())),
                 )),
@@ -199,7 +210,7 @@ impl PackNamespacedStore {
                 failed: AtomicBool::new(false),
                 fresh_empty: AtomicBool::new(false),
                 failed_write: Mutex::new(None),
-                failed_request: Mutex::new(None),
+                failed_requests: Mutex::new(Vec::new()),
                 space_policy,
             }),
         })

@@ -108,9 +108,7 @@ pub(crate) fn lookup(
                 })?;
             let body = serde_json::from_slice::<PathBody>(&bytes)
                 .map_err(|error| serialization(&error))?;
-            provenance_current()
-                .then(|| body.field(context.version))
-                .flatten()
+            provenance_current().then(|| body.field(&context)).flatten()
         }
         None => None,
     };

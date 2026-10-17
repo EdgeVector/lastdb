@@ -93,8 +93,9 @@ impl PackRuntime {
         value: &FieldValue,
     ) -> StorageResult<()> {
         let current = field::provenance_current();
+        let witness = current.then(|| context.witness()).flatten();
         let length = if current {
-            body::PathBody::from_field_encoded_len(context.version, value)?
+            body::PathBody::from_field_encoded_len(context.version, value, witness)?
         } else {
             body::PathBody::content_encoded_len(&value.value)?
         };
@@ -103,7 +104,7 @@ impl PackRuntime {
         context.account_memory_record(&mut call, id.len(), length)?;
         context.hold_record(&mut logical, PATH_COLLECTION, id)?;
         let value = if current {
-            body::PathBody::from_field(context.version, value)
+            body::PathBody::from_field(context.version, value, witness)
         } else {
             body::PathBody::content(&value.value)
         };

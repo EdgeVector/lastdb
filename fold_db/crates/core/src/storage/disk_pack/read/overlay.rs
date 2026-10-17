@@ -16,8 +16,9 @@ impl ReadContext {
             .and_then(|batch| batch.lookup(collection, key))
             .or_else(|| {
                 self.accepted
-                    .as_ref()
-                    .and_then(|batch| batch.lookup(collection, key))
+                    .iter()
+                    .rev()
+                    .find_map(|batch| batch.lookup(collection, key))
             })
     }
 

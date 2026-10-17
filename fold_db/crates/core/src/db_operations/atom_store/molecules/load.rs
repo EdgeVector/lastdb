@@ -351,6 +351,9 @@ impl AtomStore {
             .map_err(|e| {
                 SchemaError::InvalidData(format!("read molecule header {molecule_uuid}: {e}"))
             })?;
+        if let Some(header) = &header {
+            crate::storage::disk_pack::note_molecule_header(&key, header.version);
+        }
         Ok(header.map(|h| (h, storage_prefix)))
     }
 }

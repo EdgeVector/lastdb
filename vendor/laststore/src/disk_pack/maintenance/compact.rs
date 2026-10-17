@@ -2,6 +2,7 @@ use super::space::reserve_replacement;
 use super::stream::RecordBody;
 use super::{MaintenanceReceipt, SpacePolicy};
 use crate::disk_pack::dependency::Dependencies;
+use crate::disk_pack::locator_forest::LocatorForest;
 use crate::disk_pack::pack_write::PackWriter;
 use crate::disk_pack::tree_cursor::TreeCursor;
 use crate::disk_pack::tree_write::TreeWriter;
@@ -38,6 +39,7 @@ pub(in crate::disk_pack) fn compact_locked(
     current.published_ms = artifact::unix_ms();
     let mut directory = TreeWriter::new(root, TreeKind::Directory, current.generation)?;
     let mut pack = PackWriter::new(root, current.generation)?;
+    let mut locators = LocatorForest::new(root, current.generation)?;
     let mut compactor = Compactor {
         lock,
         current,
@@ -52,7 +54,8 @@ pub(in crate::disk_pack) fn compact_locked(
     while let Some((key, value)) = cursor.next(&mut call)? {
         let entry = DirectoryEntry::decode(&value)?;
         let collection = collection(&key, entry.group)?;
-        let replacement = compactor.group(&previous, &collection, &entry, &mut pack)?;
+        let replacement =
+            compactor.group(&previous, &collection, &entry, &mut pack, &mut locators)?;
         directory.add(&key, replacement.encode()?)?;
         call = artifact::metadata_call(root, previous.clone());
     }
@@ -63,6 +66,10 @@ pub(in crate::disk_pack) fn compact_locked(
         data.data_parts,
         data.map_pages,
     )?;
+    let output = locators.finish()?;
+    compactor
+        .dependencies
+        .add_tree(&output.tree, output.parts)?;
     let (tree, parts) = directory.finish_with_parts()?;
     compactor.dependencies.add_contiguous_tree(&tree, parts)?;
     compactor.current.directory = tree;
@@ -85,9 +92,10 @@ impl Compactor<'_> {
         collection: &str,
         entry: &DirectoryEntry,
         pack: &mut PackWriter,
+        locators: &mut LocatorForest,
     ) -> Result<DirectoryEntry> {
         let root = self.lock.root();
-        let mut locator = TreeWriter::new(root, TreeKind::Locator, self.current.generation)?;
+        let mut locator = locators.tree()?;
         let mut call = artifact::metadata_call(root, previous.clone());
         let mut cursor = TreeCursor::seek(&mut call, entry.locator.clone(), b"")?;
         let mut records = 0u64;
@@ -119,8 +127,7 @@ impl Compactor<'_> {
             )?;
             call = artifact::metadata_call(root, previous.clone());
         }
-        let (locator, parts) = locator.finish_with_parts()?;
-        self.dependencies.add_contiguous_tree(&locator, parts)?;
+        let locator = locators.complete_tree(locator)?;
         Ok(DirectoryEntry {
             group: entry.group,
             locator,

@@ -23,6 +23,16 @@ impl TreeWriter {
             generation,
         )?;
         pages.append(tree_output::leaf_fields(kind, 0), &[])?;
+        Self::from_pages(pages, kind)
+    }
+
+    /// Start an independent tree in an allocator whose page zero is an empty leaf.
+    /// Every child and overflow address uses the allocator's final object identity.
+    pub(super) fn from_pages(pages: PageWriter, kind: TreeKind) -> Result<Self> {
+        if pages.next_page() == 0 {
+            return Err(corrupt("tree allocator has no empty root"));
+        }
+        let object = pages.object();
         Ok(Self {
             pages,
             object,
@@ -79,7 +89,15 @@ impl TreeWriter {
         Ok(())
     }
 
-    pub(super) fn finish_with_parts(mut self) -> Result<(TreeRoot, u64)> {
+    pub(super) fn finish_with_parts(self) -> Result<(TreeRoot, u64)> {
+        let (tree, pages) = self.finish_tree()?;
+        let parts = pages.next_page().div_ceil(512);
+        pages.finish()?;
+        Ok((tree, parts))
+    }
+
+    /// Return the private allocator without a barrier so the next tree can share it.
+    pub(super) fn finish_tree(mut self) -> Result<(TreeRoot, PageWriter)> {
         self.flush_leaf()?;
         if self.levels[0].is_empty() && self.last_key.is_none() {
             return self.finish_root(0, 1);
@@ -108,9 +126,7 @@ impl TreeWriter {
         Err(corrupt("tree height exhausted before publication"))
     }
 
-    fn finish_root(self, page: u64, height: u8) -> Result<(TreeRoot, u64)> {
-        let parts = self.pages.next_page().div_ceil(512);
-        self.pages.finish()?;
+    fn finish_root(self, page: u64, height: u8) -> Result<(TreeRoot, PageWriter)> {
         Ok((
             TreeRoot {
                 object: self.object,
@@ -118,7 +134,7 @@ impl TreeWriter {
                 height,
                 kind: self.kind,
             },
-            parts,
+            self.pages,
         ))
     }
 }
