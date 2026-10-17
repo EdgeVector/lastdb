@@ -1,7 +1,9 @@
 {
-  "product_source": "08409a220e57364052d2eca030eafd12006e6bc4",
-  "version": "lastdbd 0.23.4-pre.0-239-g08409a220-dirty",
-  "dirty_scope": "Documentation and saved HTTP header newline normalization only. Product source has no uncommitted change.",
+  "product_source": "511b8982848fddf62457ce5953a57ee80fa6e4d0",
+  "version": "lastdbd 0.23.4-pre.0-243-g511b89828",
+  "dirty_scope": null,
+  "physical_tools_source": "08409a220e57364052d2eca030eafd12006e6bc4",
+  "physical_tools_note": "Exact executable hashes and physical engine source remain unchanged after the final node batch fixes.",
   "profile": "release",
   "locked_dependencies": true,
   "checks": {
@@ -13,8 +15,8 @@
     "release_build": "pass"
   },
   "sha256": {
-    "lastdbd": "a350ae68759889e5e55c8b3251abe77226e18d4e4706bd4ab77a374f4e053417",
-    "lastdb": "81a9522b38951072a19f3f51a888cf07f308fa52aa78f321cc9652a07432034c",
+    "lastdbd": "cf29f12e18b1c41726f506725615ac096e23beaaecdde3c6c55991ec3407c406",
+    "lastdb": "2e4a53743479583fc979b850750549ee457629007819c53011cd0f75aee128a9",
     "lastdb-disk-home": "ae4e6e343065cbb2e7bf38ed9ab2cc703565e29a107e60f81a72c6ddb1dcc181",
     "lastdb-disk-recovery": "1caf9ccfafd562a546ef7188de830b4a29c0031cc6739e7051448643b04be974",
     "lastdb-pack-maintain": "24c074876db39b9928e7d64e03b7f68a54fb40535475065647fe32e66aa02b5a"

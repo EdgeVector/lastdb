@@ -1,9 +1,10 @@
 # Local candidate checks
 
-Product source: `08409a22`, including the shared payload writer and complete warm response metadata.
+Final node source: `511b8982`, including event batches and complete explicit-key warm reads.
+The physical engine source and exact tool hashes remain unchanged from `08409a22`.
 Later receipt and status documents do not change the product binaries.
 The receipts identify each exact executable by SHA-256.
-The [final build record](final-build.json) lists the final binary hashes and the document-only dirty suffix.
+The [final build record](final-build.json) lists the clean final node version and exact binary hashes.
 
 | Check | Result |
 |---|---|

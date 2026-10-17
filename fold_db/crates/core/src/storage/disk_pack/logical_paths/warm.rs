@@ -106,15 +106,25 @@ pub(crate) fn lookup(
         .logical
         .lock()
         .expect("native complete query fields");
-    call.account_memory_record(
+    let Some((records, bytes)) =
+        lookup::ready(&context, &call, &logical, query, &query_alias, &keys)
+    else {
+        return Ok(None);
+    };
+    if !projection::optional_fits(&call, records, bytes) {
+        return Ok(None);
+    }
+    if !projection::optional_record(
+        &mut call,
         0,
         keys.iter()
             .map(|key| {
                 key.hash.as_ref().map_or(0, String::len) + key.range.as_ref().map_or(0, String::len)
             })
             .sum(),
-    )
-    .map_err(map)?;
+    )? {
+        return Ok(None);
+    }
     let mut result = WarmQueryFields {
         fields: HashMap::new(),
         wire: HashMap::new(),

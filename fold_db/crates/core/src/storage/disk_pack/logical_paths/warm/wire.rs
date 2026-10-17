@@ -225,9 +225,9 @@ impl RememberWire<'_> {
                     .map(str::to_owned),
                 field_flag: metadata.get("has_conflicts").cloned(),
             });
-            let bytes = serde_json::to_vec(&body).map_err(|e| serialization(&e))?;
-            call.account_memory_record(id.len(), bytes.len())
-                .map_err(map)?;
+            let Some(bytes) = projection::encode_optional(call, &id, &body)? else {
+                return Ok(());
+            };
             let epoch = logical.record_epoch(&id);
             if logical.admit_record(PATH_COLLECTION, &id, Some(bytes), epoch) {
                 ids.insert(field.clone(), id);

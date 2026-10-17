@@ -29,8 +29,10 @@ pub(super) fn owned_body(
     let Some(Some(length)) = logical.fetched_record_bytes(collection, id) else {
         return Ok(None);
     };
+    if !optional_record(call, id.len(), length)? {
+        return Ok(None);
+    }
     context.hold_record(logical, collection, id)?;
-    call.account_memory_record(id.len(), length).map_err(map)?;
     logical
         .fetched_record(collection, id)
         .flatten()
@@ -133,9 +135,9 @@ pub(super) fn save(
             .expect("selected old descriptor");
         removed.push((old, fields));
     }
-    let bytes = serde_json::to_vec(&body).map_err(|e| serialization(&e))?;
-    call.account_memory_record(anchor.len(), bytes.len())
-        .map_err(map)?;
+    let Some(bytes) = encode_optional(call, anchor, &body)? else {
+        return Ok(());
+    };
     for (old, fields) in removed {
         let old_row = row_alias(&old, key);
         for field in fields {
@@ -151,4 +153,67 @@ pub(super) fn save(
     let epoch = logical.record_epoch(anchor);
     logical.admit_record(PATH_COLLECTION, anchor, Some(bytes), epoch);
     Ok(())
+}
+
+/// Optional query metadata shares the real call budget, but cannot turn an
+/// already successful data read into a resource error. Inspect before copying.
+pub(super) fn optional_record(
+    call: &mut HomeRead,
+    key_bytes: usize,
+    body_bytes: usize,
+) -> StorageResult<bool> {
+    let Some(bytes) = key_bytes.checked_add(body_bytes) else {
+        return Ok(false);
+    };
+    if !optional_fits(call, 1, bytes as u64) {
+        return Ok(false);
+    }
+    call.account_memory_record(key_bytes, body_bytes)
+        .map_err(map)?;
+    Ok(true)
+}
+
+pub(super) fn optional_fits(call: &HomeRead, records: u64, bytes: u64) -> bool {
+    let costs = call.costs();
+    let limits = crate::storage::disk_pack::budget();
+    costs
+        .examined_keys
+        .checked_add(records)
+        .is_some_and(|keys| keys <= limits.keys)
+        && costs
+            .budget_bytes
+            .checked_add(bytes)
+            .is_some_and(|bytes| bytes <= limits.bytes)
+}
+
+pub(super) fn encode_optional<T: Serialize>(
+    call: &mut HomeRead,
+    id: &str,
+    body: &T,
+) -> StorageResult<Option<Vec<u8>>> {
+    let mut length = EncodedLength::default();
+    serde_json::to_writer(&mut length, body).map_err(|e| serialization(&e))?;
+    if !optional_record(call, id.len(), length.0)? {
+        return Ok(None);
+    }
+    serde_json::to_vec(body)
+        .map(Some)
+        .map_err(|e| serialization(&e))
+}
+
+#[derive(Default)]
+struct EncodedLength(usize);
+
+impl std::io::Write for EncodedLength {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 = self
+            .0
+            .checked_add(bytes.len())
+            .ok_or_else(|| std::io::Error::other("optional query metadata length overflow"))?;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }

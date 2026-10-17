@@ -3,6 +3,9 @@
 use super::*;
 use laststore::disk_pack::home::HomeRead;
 
+mod preflight;
+pub(super) use preflight::ready;
+
 pub(super) fn row(
     context: &ReadContext,
     call: &mut HomeRead,

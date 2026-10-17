@@ -187,6 +187,9 @@ The final absent case uses `HashRangeKey` with range `absent-generated` and limi
 Each case has one first call, one prime, then 21 steady calls.
 For the paired old run, program order alternates on the steady rounds.
 The candidate-only final run retains the same case order and count.
+The new shortcut uses the complete query, its key list, and each record's metadata.
+The steady measurement repeats that identical positive query after its prime.
+A new key combination or a range still uses the normal fetch path.
 
 Send header `x-lastdb-read-receipt: true` for the read receipts.
 Check logical values, result count, range order, required fields, and complete response equality against the prime.
