@@ -1,7 +1,7 @@
 # Local native storage completion, October 16, 2026
 
-CAUTION: The product checks below await the benchmark quiet window.
-No completion result appears in this file until the actual command receipts exist.
+CAUTION: The first candidate exposes two defects below.
+The corrected candidate must complete the remaining checks before this report states local completion.
 
 ## Frozen candidate
 
@@ -17,7 +17,57 @@ The request files use the ordinary schema, mutation, and query routes.
 The schemas share five canonical fields and use two different lookup keys.
 The node binds those fields through proteins.
 
-## Results
+## First candidate results
+
+The first native node creates 24 records through the ID schema.
+Both schemas return those records through their different keys.
+Their field metadata names the same shared atoms.
+One batch updates record 000 and deletes record 023 through the alternate key.
+Both schemas then return 23 records and the same updated fields.
+Both bounded ranges return records 010 and 011 with a continuation.
+The two absent-key queries return no records.
+
+The live backup records generation 228 and last batch 113.
+It copies 1,009 files and 16,977,194 bytes.
+After the node stops, its original native directory moves to `source-unavailable`.
+The restore command receives only the bundle and new destination paths.
+It restores the same file count, byte count, generation, and last batch.
+The original generated node identity and encryption keys stay in their original node home.
+The reopened node returns the expected two-key data, ranges, update, deletion, and absences.
+
+The source's clean shutdown advances its root after the backup cut.
+Five `keep_small` records differ between that later source and the restored cut.
+The other 985 record bodies, keys, and physical versions match.
+See [the exact record comparison](native-record-comparison.json).
+
+### Restore directory defect
+
+The restored cut contains recent journal data and no live packed file.
+The restore omits the empty `packs` directory.
+Compaction preview succeeds, but execution returns an error before a replacement root can publish.
+The writer reports failure and refuses a false durability result.
+The node stops with exit status 1, and its failed storage remains retained.
+
+See [the error body](native-compact-failure.txt), [the log](native-compact-failure.log), and [the writer state](native-compact-failure-status.json).
+The source fix creates and syncs all four required native directories before the restored root becomes available.
+The capacity quote includes those empty directories.
+The exact data-file inventory check stays intact.
+
+### Forward field-codec defect
+
+The first forward conversion copies 939 records and completes its saved conversion record.
+The original node home selects the new native storage.
+Exact reads return 23 records, but their older field values appear as encrypted text.
+Both bounded ranges return no records.
+See [the failed query receipt](forward-failure-query.json).
+
+The factory omits the atom content key for a native backend.
+The opaque converter preserves older field encryption correctly, but the native read cannot open it.
+The source fix gives native plain frames the same field codec as plain hash-group storage.
+That codec also reads older native data whose fields lack the inner encryption envelope.
+The new candidate must repeat the product checks with those two stored forms.
+
+## Corrected candidate results
 
 | Product path | Actual receipt |
 |---|---|
