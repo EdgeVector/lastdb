@@ -32,8 +32,8 @@ pub(super) fn keys(query: &Query) -> Option<Vec<KeyValue>> {
     };
     let bytes = borrowed.iter().try_fold(0usize, |total, (hash, range)| {
         total
-            .checked_add(hash.map_or(0, |value| value.len()))?
-            .checked_add(range.map_or(0, |value| value.len()))
+            .checked_add(hash.map_or(0, String::len))?
+            .checked_add(range.map_or(0, String::len))
     })?;
     if borrowed.is_empty() || bytes > MAX_KEY_BYTES {
         return None;
