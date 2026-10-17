@@ -40,6 +40,9 @@ pub struct WriteContext {
     pub author_clock_writer_id: String,
     /// Stable mutation identity used by the final LWW tie-break.
     pub mutation_uuid: String,
+    /// Sync device that wrote the mutation: this node's sync device id for a
+    /// local write, the log writer for a replayed one. Empty when unknown.
+    pub origin_device: String,
     /// The `version` the original author SIGNED, for the import path.
     /// Only consumed by `SingleField` — the single-atom `Molecule` is the
     /// one variant whose canonical bytes include `version`. Ignored by the

@@ -316,9 +316,10 @@ impl SyncEngine {
                 ReplayCause::MissingMutationApplier,
             ));
         };
-        applier(super::super::foreign_intent::receiver_mutations(
-            mutations, target,
-        )?)
+        applier(
+            super::super::foreign_intent::receiver_mutations(mutations, target)?,
+            entry.device_id.clone(),
+        )
         .await
         .map_err(|error| SyncError::ReplayApplyFailed {
             target: "mutation_intent".to_string(),

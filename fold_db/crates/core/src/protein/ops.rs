@@ -14,6 +14,7 @@ use super::types::{Protein, ProteinFoldJob, ProteinMember};
 
 mod batch;
 mod tip;
+pub(crate) use tip::PreparedProteinTip;
 
 struct ProteinTipScope<'a> {
     honor_tip_lww: bool,
@@ -296,7 +297,7 @@ impl AtomStore {
         tip: &AtomEntry,
         keypair: &Ed25519KeyPair,
     ) -> Result<(), SchemaError> {
-        let (molecule_uuid, mut mol, changed) = self
+        let (molecule_uuid, mut mol, changed, _) = self
             .protein_member_tip_update(
                 molecule_uuid,
                 hash,

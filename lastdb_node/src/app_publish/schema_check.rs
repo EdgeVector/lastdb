@@ -58,6 +58,10 @@ impl CheckMode {
 pub struct CheckOutcome {
     pub schema_name: String,
     pub coverage: SchemaCoverage,
+    /// The `retention` object the node returned for a schema whose manifest
+    /// declares a TTL: the policy a sync would apply (read-only check), or the
+    /// policy it applied (sync). `None` when the manifest declares no TTL.
+    pub retention: Option<Value>,
 }
 
 /// Declare every manifest schema on the local node and classify coverage.
@@ -69,6 +73,18 @@ pub fn check_schemas(
     manifest: &AppManifest,
     mode: CheckMode,
 ) -> Result<Vec<CheckOutcome>, String> {
+    check_schemas_with(socket, manifest, mode, false)
+}
+
+/// [`check_schemas`] with the caller's confirmation that records which already
+/// exist may expire (`--confirm-expire-existing`). The node refuses a TTL that
+/// would delete existing records without it.
+pub fn check_schemas_with(
+    socket: &Path,
+    manifest: &AppManifest,
+    mode: CheckMode,
+    confirm_expire_existing: bool,
+) -> Result<Vec<CheckOutcome>, String> {
     let user_hash = socket_auto_identity(socket)?;
     let mut outcomes = Vec::with_capacity(manifest.schemas.len());
     for schema in &manifest.schemas {
@@ -77,23 +93,86 @@ pub fn check_schemas(
             .and_then(Value::as_str)
             .unwrap_or("<unnamed>")
             .to_string();
-        let body = json!({
-            "app_id": manifest.app_id,
-            "schema": schema,
-            "intent": mode.intent(),
-        });
+        let body = declare_body(&manifest.app_id, schema, mode, confirm_expire_existing);
         let (status, payload) =
             socket_post_json(socket, "/api/apps/declare-schema", &user_hash, &body)?;
-        let coverage = match mode {
+        let mut coverage = match mode {
             CheckMode::ReadOnly => classify_check_response(status, &payload),
             CheckMode::Sync => classify_declare_response(status, &payload),
         };
+        // A TTL the node would refuse fails the check like any refused plan.
+        if let Some(reason) = payload
+            .get("retention")
+            .and_then(|retention| retention.get("blocked"))
+            .and_then(Value::as_str)
+        {
+            coverage = SchemaCoverage::Novel {
+                reason: format!("retention refused: {reason}"),
+            };
+        }
         outcomes.push(CheckOutcome {
             schema_name: name,
             coverage,
+            retention: payload.get("retention").cloned(),
         });
     }
     Ok(outcomes)
+}
+
+/// The declare body for one manifest schema entry.
+///
+/// The manifest `retention` key moves out of the schema and beside it: it is
+/// node-local policy, so it must never reach the schema artifact that is
+/// hashed, registered and shared.
+fn declare_body(app_id: &str, schema: &Value, mode: CheckMode, confirm: bool) -> Value {
+    let mut schema = schema.clone();
+    let mut retention = schema
+        .as_object_mut()
+        .and_then(|entry| entry.remove("retention"));
+    if let Some(entry) = retention.as_mut().filter(|_| confirm) {
+        entry["confirm_expire_existing"] = Value::Bool(true);
+    }
+    let mut body = json!({
+        "app_id": app_id,
+        "schema": schema,
+        "intent": mode.intent(),
+    });
+    if let Some(retention) = retention {
+        body["retention"] = retention;
+    }
+    body
+}
+
+/// Manifest schemas that resolved to one catalog schema, as `(catalog hash,
+/// schema names)`. They share one dataset: a record written through one name is
+/// a record of the others, and a TTL on one reaches all of them.
+pub fn catalog_collisions(outcomes: &[CheckOutcome]) -> Vec<(String, Vec<String>)> {
+    let mut by_hash: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for outcome in outcomes {
+        let (SchemaCoverage::Reuse {
+            identity_hash: hash,
+        }
+        | SchemaCoverage::Register {
+            identity_hash: hash,
+            ..
+        }
+        | SchemaCoverage::WouldRegister {
+            identity_hash: hash,
+            ..
+        }) = &outcome.coverage
+        else {
+            continue;
+        };
+        by_hash
+            .entry(hash.clone())
+            .or_default()
+            .push(outcome.schema_name.clone());
+    }
+    by_hash
+        .into_iter()
+        .filter(|(_, names)| names.len() > 1)
+        .collect()
 }
 
 /// Classify a read-only `check` declare response. It carries no audit event

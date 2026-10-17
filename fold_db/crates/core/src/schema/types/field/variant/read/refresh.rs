@@ -145,6 +145,7 @@ impl FieldVariant {
                     String::new(),
                 );
                 entry.writer_pubkey = tip.writer_pubkey;
+                entry.origin_device = tip.origin_device;
                 Ok((tip.hash, range, entry, tip.key_metadata))
             })
             .collect::<Result<Vec<_>, SchemaError>>()?;
@@ -247,6 +248,7 @@ impl FieldVariant {
                     logical_counter: entry.logical_counter,
                     device_id: entry.lww_device().to_string(),
                     mutation_uuid: entry.mutation_uuid.clone(),
+                    origin_device: entry.origin_device.clone(),
                     writer_pubkey: entry.writer_pubkey.clone(),
                     key_metadata: molecule.get_key_metadata(hash, range).cloned(),
                 }

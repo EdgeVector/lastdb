@@ -56,6 +56,14 @@ pub(crate) enum AppCommand {
     /// CAUTION: `--sync` is a WRITE. It uses intent `catalog_sync`: the node
     /// can register or expand schemas, bind them, and write schema-sync audit
     /// events. Only `--sync` reports audited, bind-eligible coverage.
+    ///
+    /// A schema entry may carry `retention: {ttl_days | ttl_seconds}`. The read-only
+    /// check prints the policy it would apply, every change or removal of a
+    /// manifest TTL, who shares the records (`shared_with`), and whether the
+    /// TTL would delete existing records. `--sync` applies it. The node refuses
+    /// a TTL on a catalog schema that another app owns or another schema is
+    /// bound to. A TTL deletes records for good: read
+    /// docs/app-manifest-retention.md first.
     Check {
         /// App manifest (JSON: app_id, metadata, uses[], schemas[]).
         #[arg(long)]
@@ -66,6 +74,12 @@ pub(crate) enum AppCommand {
         /// the read-only check. Can register or expand schemas on the node.
         #[arg(long)]
         sync: bool,
+        /// Confirm that records which already exist may expire. A manifest
+        /// `retention` is refused without it when it would delete existing
+        /// records: a new TTL on a Range or HashRange schema that holds data,
+        /// or a TTL shorter than the manifest TTL running.
+        #[arg(long)]
+        confirm_expire_existing: bool,
         /// Legacy compatibility option. Mini owns schema synchronization.
         #[arg(long)]
         schema_url: Option<String>,

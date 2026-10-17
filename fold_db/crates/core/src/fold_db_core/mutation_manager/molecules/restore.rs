@@ -76,7 +76,7 @@ impl MutationManager {
     }
 
     /// Copy acknowledged resident tips onto fields that already hold a molecule.
-    fn overlay_resident_changed_keys(
+    pub(super) fn overlay_resident_changed_keys(
         &self,
         schema: &mut Schema,
         changed_keys: &HashMap<String, HashSet<ChangedKey>>,
@@ -255,9 +255,7 @@ impl MutationManager {
         if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
             return;
         }
-        let Some(mol) = field.molecule.as_mut() else {
-            return;
-        };
+
         let resident = self.db_ops.resident();
         for ck in keys {
             let hash = ck.disk_hash();
@@ -265,10 +263,19 @@ impl MutationManager {
             let Some(tip) = resident.resolve_tip(molecule_uuid, hash, range) else {
                 continue;
             };
-            mol.overlay_resident_atom_entry(
+            let mol = field.molecule.get_or_insert_with(|| {
+                MoleculeHashRange::from_write_records(
+                    molecule_uuid.to_string(),
+                    0,
+                    Utc::now(),
+                    Vec::new(),
+                )
+            });
+            mol.overlay_resident_tip(
                 hash.to_string(),
                 range.to_string(),
                 atom_entry_from_resident_tip(&tip.value),
+                tip.value.key_metadata.clone(),
             );
         }
     }
@@ -310,7 +317,12 @@ impl MutationManager {
             // publish before apply, or stay on the durable path. Copy the
             // resident LWW clocks so imported apply can lose to T0.
             let entry = atom_entry_from_resident_tip(&tip.value);
-            records.push((api_hash.to_string(), api_range.to_string(), entry, None));
+            records.push((
+                api_hash.to_string(),
+                api_range.to_string(),
+                entry,
+                tip.value.key_metadata.clone(),
+            ));
         }
         Some(MoleculeHashRange::from_write_records(
             molecule_uuid.to_string(),
@@ -321,8 +333,8 @@ impl MutationManager {
     }
 }
 
-fn atom_entry_from_resident_tip(tip: &crate::resident::ResidentTip) -> AtomEntry {
-    AtomEntry::thin_with_author(
+pub(super) fn atom_entry_from_resident_tip(tip: &crate::resident::ResidentTip) -> AtomEntry {
+    let mut entry = AtomEntry::thin_with_author(
         tip.atom_uuid.clone(),
         tip.written_at,
         tip.logical_counter,
@@ -330,4 +342,7 @@ fn atom_entry_from_resident_tip(tip: &crate::resident::ResidentTip) -> AtomEntry
         tip.mutation_uuid.clone(),
         String::new(),
     )
+    .with_origin_device(tip.origin_device.clone());
+    entry.writer_pubkey = tip.writer_pubkey.clone();
+    entry
 }

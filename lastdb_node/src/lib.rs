@@ -33,6 +33,7 @@ pub mod offline_home;
 pub mod ops;
 mod primary_resume_job;
 pub mod proof_replay;
+pub mod retention_audit;
 pub mod schema_resolver_host;
 pub mod schema_sync_audit;
 pub mod seal;

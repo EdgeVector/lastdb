@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::{AtomEntry, KeyMetadata};
 
+pub use import::{ImportedTip, PendingTipConflict, TipAuthor, TipConflictKind};
+
 /// A hash-range-based collection of atom references stored in a nested HashMap<BTreeMap> structure.
 ///
 /// This molecule type supports complex indexing where atoms are organized by:
@@ -58,6 +60,11 @@ pub struct MoleculeHashRange {
     /// `(hash, range, old_tip, archived_version_id)`.
     #[serde(skip)]
     pending_replaced_tips: Vec<(String, String, AtomEntry, Option<String>)>,
+    /// Tip decisions in this in-memory session between writes of different
+    /// atoms from different sync devices. The persist step records them
+    /// before it writes the tips. Not serialized.
+    #[serde(skip)]
+    pending_tip_conflicts: Vec<PendingTipConflict>,
     /// Whether overwrites archive prior heads into `tv:` history. Mini's
     /// settled thin-tip policy keeps this disabled by default.
     #[serde(skip)]
@@ -65,6 +72,8 @@ pub struct MoleculeHashRange {
 }
 
 mod construct;
+mod import;
 mod merge;
 mod ops;
+mod overlay;
 mod verify;

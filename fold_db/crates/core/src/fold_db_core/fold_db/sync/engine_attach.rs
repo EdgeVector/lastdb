@@ -9,6 +9,11 @@ impl FoldDB {
         capture_enabled: bool,
     ) {
         self.register_sync_schema_reloaders(&engine).await;
+        // From here a local write names this sync device on its tip, and the
+        // tip decision knows which writes came from another device.
+        self.db_ops
+            .atoms()
+            .set_local_origin_device(engine.device_id());
 
         if capture_enabled {
             if let Some(capture) = &self.mutation_log_capture {

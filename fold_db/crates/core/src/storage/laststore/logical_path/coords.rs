@@ -54,6 +54,12 @@ pub(super) fn split_molecule_storage_key(
     let mut found = None;
     for (start, _) in storage_key.match_indices(MK_PREFIX) {
         let (prefix, bare) = storage_key.split_at(start);
+        // The first molecule boundary can belong to an outer atom key. Its
+        // entire partition, including any mk: text in its hash, is placement.
+        // A real tip boundary before an atom marker keeps tip semantics.
+        if found.is_none() && is_atom_partition_key(storage_key, prefix) {
+            return Ok(None);
+        }
         let Some(scope) = scope_from_prefix(prefix) else {
             continue;
         };
@@ -74,6 +80,15 @@ pub(super) fn split_molecule_storage_key(
         found = Some((scope, bare, MoleculeId::from_bytes(bytes)));
     }
     Ok(found)
+}
+
+fn is_atom_partition_key(storage_key: &str, prefix: &str) -> bool {
+    ["atom:", "atom\0"].into_iter().any(|kind| {
+        prefix.strip_suffix(kind).is_some_and(|scope_prefix| {
+            scope_from_prefix(scope_prefix).is_some()
+                && atom_key_codec::partition_of(&storage_key[scope_prefix.len()..]).is_some()
+        })
+    })
 }
 
 pub(super) fn scope_from_prefix(prefix: &str) -> Option<Option<&str>> {

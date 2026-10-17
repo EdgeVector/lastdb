@@ -203,6 +203,7 @@ impl DbOperations {
                 let original_len = ids.len();
                 let mut out = Vec::with_capacity(original_len);
                 let mut live_ids = Vec::with_capacity(original_len);
+                let mut gone = Vec::new();
                 for id in ids {
                     let key = build_storage_key(
                         storage_prefix,
@@ -221,11 +222,11 @@ impl DbOperations {
                         }
                         // Resolved or missing: drop from the cache so the next
                         // call stays honest without a scan.
-                        _ => {}
+                        _ => gone.push(id),
                     }
                 }
-                if live_ids.len() != original_len {
-                    let _ = self.atoms().raw().put_item(&index_key, &live_ids).await;
+                if !gone.is_empty() {
+                    self.prune_conflict_index(&index_key, &gone).await;
                 }
                 return Ok(out);
             }
@@ -237,6 +238,9 @@ impl DbOperations {
         };
         let prefix = build_storage_key(storage_prefix, &base_prefix);
 
+        // The scan runs outside the recorder gate. The stamp below is written
+        // only if no record call wrote a row since this point.
+        let epoch = self.atoms().conflict_record_epoch();
         let items: Vec<(String, SyncConflict)> = self
             .atoms()
             .raw()
@@ -254,7 +258,7 @@ impl DbOperations {
         if let Some(mol) = molecule_uuid {
             let index_key = build_storage_key(storage_prefix, &molecule_conflict_index_key(mol));
             let ids: Vec<String> = conflicts.iter().map(|c| c.id.clone()).collect();
-            let _ = self.atoms().raw().put_item(&index_key, &ids).await;
+            self.stamp_conflict_index(&index_key, &ids, epoch).await;
         }
 
         Ok(conflicts)

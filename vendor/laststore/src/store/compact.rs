@@ -1,4 +1,6 @@
+// lint:file-size-ok snapshot seal stays beside the other seal paths; the file was 393 lines before this change
 use super::*;
+use crate::read_receipt_io::lock as read_lock;
 
 impl LastStore {
     /// Force-seal all dirty encrypted tails and return the chunks sealed by
@@ -53,48 +55,97 @@ impl LastStore {
 
     /// Seal one group's tail for [`Self::snapshot`]. Returns `true` when the
     /// group was skipped because it is over the cold-load cap.
+    ///
+    /// A cold hash group is an unpublished handle. The snapshot seals that
+    /// handle and drops it. The group does not enter the warm set. A pin, a
+    /// warm handle, or a live lease is already the group's authority, so the
+    /// seal uses that handle.
     fn seal_group_for_snapshot(&self, key: &ShardKey) -> Result<bool> {
-        // A group over the cold-load cap cannot be sealed without loading
-        // it, and loading it is what the cap forbids. Skip it: its tail
-        // stays unsealed on disk and out of this photograph, which is the
-        // documented state of a group an operator has to reclaim. Failing
-        // the whole photograph instead blocked the 2026-09-22 safe-upgrade
-        // cutover on a 2.3 GB legacy `keep_small:meters` group.
         let (c, s, g) = key.clone();
-        let pin = self.pin_table_handle(key);
-        let h = if let Some(handle) = pin.clone() {
-            handle
-        } else {
-            match self.shard_handle_at(&c, s, g, WarmAdmission::Point, WarmTouch::unspecified()) {
-                Ok(h) => h,
-                Err(Error::ColdGroupTooLarge {
-                    collection,
-                    shard,
-                    group,
-                    bytes,
-                    cap,
-                }) => {
-                    eprintln!(
-                        "LASTSTORE_SNAPSHOT_SKIPPED_CAPPED_GROUP collection={collection} shard={shard} \
-                         group=0x{group:03x} bytes={bytes} cap={cap}: unsealed tail left out of this \
-                         photograph; reclaim or compact the group"
-                    );
-                    return Ok(true);
-                }
-                Err(e) => return Err(e),
+        if self.existing_unpublished_authority(key).is_some() {
+            return self.seal_existing_snapshot_authority(&c, s, g, key);
+        }
+        // Hold the stripe across the recheck and the cold seal so a point
+        // read cannot publish a second authority for this group.
+        let gate = Self::cold_load_gate_index(key);
+        let cold_load_guard = read_lock(&self.cold_load_gates[gate]).expect("poison");
+        if self.existing_unpublished_authority(key).is_some() {
+            drop(cold_load_guard);
+            return self.seal_existing_snapshot_authority(&c, s, g, key);
+        }
+        match self.load_unpublished_shard(key) {
+            Ok(handle) => {
+                self.seal_snapshot_tail(&c, s, g, &handle)?;
+                drop(handle);
+                drop(cold_load_guard);
+                Ok(false)
             }
+            Err(Error::ColdGroupTooLarge {
+                collection,
+                shard,
+                group,
+                bytes,
+                cap,
+            }) => {
+                // A group over the cold-load cap cannot be sealed without
+                // loading it, and loading it is what the cap forbids. Skip
+                // it: its tail stays unsealed on disk and out of this
+                // photograph.
+                eprintln!(
+                    "LASTSTORE_SNAPSHOT_SKIPPED_CAPPED_GROUP collection={collection} shard={shard} \
+                     group=0x{group:03x} bytes={bytes} cap={cap}: unsealed tail left out of this \
+                     photograph; reclaim or compact the group"
+                );
+                Ok(true)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Seal a pin, warm handle, or lease that is already this group's authority.
+    fn seal_existing_snapshot_authority(
+        &self,
+        collection: &str,
+        shard: u16,
+        group: Option<u32>,
+        key: &ShardKey,
+    ) -> Result<bool> {
+        let Some(handle) = self.existing_unpublished_authority(key) else {
+            return Ok(false);
         };
-        let mut sh = h.lock().expect("poison");
+        self.seal_snapshot_tail(collection, shard, group, &handle)?;
+        if self.pin_table_handle(key).is_none()
+            && self
+                .shards
+                .lock()
+                .expect("poison")
+                .handles
+                .contains_key(key)
+        {
+            self.refresh_warm_resident_bytes(key, &handle)?;
+        }
+        Ok(false)
+    }
+
+    /// Seal one loaded handle. Does not publish the handle.
+    fn seal_snapshot_tail(
+        &self,
+        c: &str,
+        s: u16,
+        g: Option<u32>,
+        handle: &ShardHandle,
+    ) -> Result<()> {
+        let mut sh = handle.lock().expect("poison");
         if sh.data_key.is_some() && sh.uses_sorted_index() {
             let previous_high = sh.plain_high_seq;
             Self::seal_sorted_tail(&mut sh)?;
             if sh.plain_high_seq > previous_high {
                 let path = sh.dir.join(format!("{:010}.seg", sh.plain_high_seq));
                 let mut files = sorted_file::physical_parts(&path)?;
-                files.push((plain_segment_log_uuid(&c, s, g, sh.plain_high_seq), path));
+                files.push((plain_segment_log_uuid(c, s, g, sh.plain_high_seq), path));
                 for (chunk_uuid, path) in files {
                     let sealed = SealedChunkMeta {
-                        collection: c.clone(),
+                        collection: c.to_string(),
                         shard: s,
                         group_id: g,
                         chunk_uuid,
@@ -115,11 +166,7 @@ impl LastStore {
         } else {
             Self::sync_open(&mut sh)?;
         }
-        drop(sh);
-        if pin.is_none() {
-            self.refresh_warm_resident_bytes(key, &h)?;
-        }
-        Ok(false)
+        Ok(())
     }
 
     /// Alias for [`Self::snapshot`] when callers need only the force-seal

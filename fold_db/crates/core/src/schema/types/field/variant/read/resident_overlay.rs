@@ -16,8 +16,8 @@ struct OverlayEntry {
     metadata: Option<KeyMetadata>,
 }
 
-/// The read molecule uses API hashes for HashRange and API ranges for exact
-/// HashRange requests. Other coordinates retain their storage encoding.
+/// Match the loader's transient coordinates: composite hashes and exact
+/// composite ranges use API keys, as do both 1-D multi-get dimensions.
 struct OverlayKeys<'a> {
     codec: MoleculeKeyCodec,
     molecule: &'a str,
@@ -32,16 +32,19 @@ impl<'a> OverlayKeys<'a> {
         kind: FieldKind,
         filter: &HashRangeFilter,
     ) -> Self {
-        let api_hash = matches!(kind, FieldKind::HashRange);
+        let multi_get = matches!(filter, HashRangeFilter::HashRangeKeys(_));
+        let api_hash =
+            matches!(kind, FieldKind::HashRange) || (matches!(kind, FieldKind::Hash) && multi_get);
         Self {
             codec: db_ops.atoms().key_codec_for_molecule(molecule),
             molecule,
             api_hash,
-            api_range: api_hash
-                && matches!(
-                    filter,
-                    HashRangeFilter::HashRangeKey { .. } | HashRangeFilter::HashRangeKeys(_)
-                ),
+            api_range: (matches!(kind, FieldKind::Range) && multi_get)
+                || (matches!(kind, FieldKind::HashRange)
+                    && matches!(
+                        filter,
+                        HashRangeFilter::HashRangeKey { .. } | HashRangeFilter::HashRangeKeys(_)
+                    )),
         }
     }
 
@@ -103,7 +106,22 @@ impl FieldVariant {
         if !crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix) {
             return Ok(None);
         }
-        let snapshot = if matches!(kind, FieldKind::HashRange) {
+        let projected = match (kind, filter) {
+            (FieldKind::Hash | FieldKind::Range, HashRangeFilter::HashRangeKeys(keys)) => {
+                Some(HashRangeFilter::HashRangeKeys(
+                    keys.iter()
+                        .map(|(hash, range)| match kind {
+                            FieldKind::Hash => (hash.clone(), String::new()),
+                            _ => (String::new(), range.clone()),
+                        })
+                        .collect(),
+                ))
+            }
+            _ => None,
+        };
+        let snapshot = if let Some(projected) = projected.as_ref() {
+            resident_keys_for_filter(db_ops.resident(), molecule_uuid, projected)
+        } else if matches!(kind, FieldKind::HashRange) {
             resident_keys_for_filter(db_ops.resident(), molecule_uuid, filter)
         } else {
             db_ops
@@ -130,7 +148,8 @@ impl FieldVariant {
                 tip.device_id,
                 tip.mutation_uuid,
                 String::new(),
-            );
+            )
+            .with_origin_device(tip.origin_device);
             entry.writer_pubkey = tip.writer_pubkey;
             entries.push(OverlayEntry {
                 hash,

@@ -380,6 +380,7 @@ impl FieldVariant {
                     String::new(),
                 );
                 entry.writer_pubkey = tip.writer_pubkey;
+                entry.origin_device = tip.origin_device;
                 Ok((
                     KeyValue::new(Some(tip.hash), Some(tip.range)),
                     crate::db_operations::atom_store::PerKeyRecord {

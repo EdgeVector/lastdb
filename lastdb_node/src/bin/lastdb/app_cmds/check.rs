@@ -8,6 +8,7 @@ pub(crate) fn app_check(
     home: &Path,
     manifest: &lastdb_node::app_publish::AppManifest,
     mode: lastdb_node::app_publish::CheckMode,
+    confirm_expire_existing: bool,
 ) -> Result<Vec<lastdb_node::app_publish::CheckOutcome>, String> {
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
     if lastdb_node::health_alert::probe_health(&socket).is_err() {
@@ -16,7 +17,7 @@ pub(crate) fn app_check(
             socket.display()
         ));
     }
-    lastdb_node::app_publish::check_schemas(&socket, manifest, mode)
+    lastdb_node::app_publish::check_schemas_with(&socket, manifest, mode, confirm_expire_existing)
 }
 
 pub(crate) fn ensure_app_schemas_catalog_ready(
@@ -28,7 +29,14 @@ pub(crate) fn ensure_app_schemas_catalog_ready(
     // THE PROMOTE GATE: Mini must return an audited, bind-eligible catalog
     // identity for every schema. No direct catalog fallback can supply the
     // missing bind proof.
-    let outcomes = app_check(home, manifest, lastdb_node::app_publish::CheckMode::Sync)?;
+    let outcomes = app_check(
+        home,
+        manifest,
+        lastdb_node::app_publish::CheckMode::Sync,
+        false,
+    )?;
+    // A promote applies a manifest retention. Say what it did.
+    print_retention_changes(&outcomes);
     let novel = lastdb_node::app_publish::novel_schema_names(&outcomes);
     if !novel.is_empty() {
         return Err(format!(
@@ -72,12 +80,16 @@ fn check_outcome_rows(
                 ),
                 SchemaCoverage::Novel { reason } => ("novel", reason.clone()),
             };
-            serde_json::json!({
+            let mut row = serde_json::json!({
                 "schema": o.schema_name,
                 "resolution": resolution,
                 "detail": detail,
                 "covered": o.coverage.is_covered(),
-            })
+            });
+            if let Some(retention) = &o.retention {
+                row["retention"] = retention.clone();
+            }
+            row
         })
         .collect()
 }
@@ -91,6 +103,10 @@ fn print_check_outcomes_json(
         serde_json::to_string_pretty(&serde_json::json!({
             "app_id": manifest.app_id,
             "schemas": check_outcome_rows(outcomes),
+            "catalog_collisions": lastdb_node::app_publish::catalog_collisions(outcomes)
+                .into_iter()
+                .map(|(catalog, schemas)| serde_json::json!({ "catalog": catalog, "schemas": schemas }))
+                .collect::<Vec<_>>(),
         }))
         .unwrap_or_default()
     );
@@ -143,6 +159,15 @@ fn print_check_outcomes_text(
             ),
             SchemaCoverage::Novel { reason } => println!("  {}\tNOVEL\t{reason}", o.schema_name),
         }
+        if let Some(retention) = &o.retention {
+            print_retention_text(retention);
+        }
+    }
+    for (catalog, names) in lastdb_node::app_publish::catalog_collisions(outcomes) {
+        println!(
+            "WARNING: [{}] resolve to one catalog schema ({catalog}). They share one dataset: a record written through one name is a record of the others.",
+            names.join(", ")
+        );
     }
 }
 
@@ -213,6 +238,7 @@ pub(crate) fn app_check_command(
     manifest_path: &Path,
     json: bool,
     sync: bool,
+    confirm_expire_existing: bool,
 ) -> Result<(), String> {
     use lastdb_node::app_publish;
     let manifest = app_publish::load_manifest(manifest_path)?;
@@ -221,7 +247,7 @@ pub(crate) fn app_check_command(
     } else {
         app_publish::CheckMode::ReadOnly
     };
-    let outcomes = app_check(home, &manifest, mode)?;
+    let outcomes = app_check(home, &manifest, mode, confirm_expire_existing)?;
     let node_novel = app_publish::novel_schema_names(&outcomes);
     print_check_outcomes(&manifest, &outcomes, json);
     for schema in &manifest.schemas {
@@ -240,7 +266,11 @@ pub(crate) fn app_check_command(
         }
     }
     if node_novel.is_empty() {
-        Ok(())
+        collision_error(&manifest, &outcomes).map_or(Ok(()), Err)
+    } else if let Some(refused) = retention_refusals(&outcomes) {
+        Err(format!(
+            "the node did not apply the manifest retention for: {refused}. No retention policy was changed for those schemas. Fix the cause named above (docs/app-manifest-retention.md), then run `lastdb app check` again: a declare is idempotent."
+        ))
     } else if sync {
         Err(format!(
             "Mini did not return bind-eligible catalog identities for: {}. Retry `lastdb app check --sync` after the reported dependency or quota recovers; do not call Schema Service directly.",
@@ -258,7 +288,8 @@ pub(crate) fn app_check_command(
 pub(crate) fn app_register_schemas(home: &Path, manifest_path: &Path) -> Result<(), String> {
     use lastdb_node::app_publish;
     let manifest = app_publish::load_manifest(manifest_path)?;
-    let outcomes = app_check(home, &manifest, app_publish::CheckMode::Sync)?;
+    let outcomes = app_check(home, &manifest, app_publish::CheckMode::Sync, false)?;
+    print_retention_changes(&outcomes);
     let novel = app_publish::novel_schema_names(&outcomes);
     if novel.is_empty() {
         println!(

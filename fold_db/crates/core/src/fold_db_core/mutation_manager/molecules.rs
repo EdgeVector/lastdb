@@ -2,6 +2,7 @@
 
 mod apply;
 mod apply_gate;
+pub(in crate::fold_db_core::mutation_manager) mod batch_rebase;
 mod field_atom;
 mod persist;
 mod prepare;
@@ -9,6 +10,7 @@ mod prepared;
 mod protein_batch;
 mod restore;
 mod scoped_gate;
+mod storage_links;
 mod warm_release;
 
 pub(in crate::fold_db_core::mutation_manager) use apply_gate::{

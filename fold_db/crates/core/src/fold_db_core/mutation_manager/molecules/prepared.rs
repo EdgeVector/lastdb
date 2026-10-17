@@ -12,8 +12,19 @@ use super::scoped_gate::schema_is_scoped;
 
 pub(in crate::fold_db_core::mutation_manager) type SiblingUpdate =
     (String, MoleculeData, HashSet<ChangedKey>);
-pub(in crate::fold_db_core::mutation_manager) type PreparedSiblingUpdates =
-    (Vec<SiblingUpdate>, Vec<PreparedSlotRevision>);
+pub(in crate::fold_db_core::mutation_manager) type SourceId = (usize, String, String);
+pub(in crate::fold_db_core::mutation_manager) type AcceptedSources =
+    HashMap<SourceId, crate::atom::AtomEntry>;
+
+pub(in crate::fold_db_core::mutation_manager) struct SiblingOrigin {
+    pub source: SourceId,
+    pub base: Option<(crate::atom::AtomEntry, Option<crate::atom::KeyMetadata>)>,
+}
+pub(in crate::fold_db_core::mutation_manager) type PreparedSiblingUpdates = (
+    Vec<SiblingUpdate>,
+    Vec<PreparedSlotRevision>,
+    Vec<SiblingOrigin>,
+);
 
 /// The lease prevents a completed slot from losing its revision identity.
 #[derive(Debug, Clone)]

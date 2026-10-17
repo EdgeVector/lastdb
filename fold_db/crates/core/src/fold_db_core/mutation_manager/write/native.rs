@@ -91,17 +91,19 @@ impl MutationManager {
         runtime: &Arc<PackRuntime>,
     ) -> Result<Vec<String>, SchemaError> {
         let mut ids = Vec::new();
+        let mut heads = super::super::molecules::batch_rebase::BatchSlotHeads::default();
         for delta in deltas {
-            let mut schema = delta.schema.clone();
-            let (mutation_events, modified_fields) = self.apply_mutations_to_molecules(
-                &mut schema,
-                &delta.schema_mutations,
-                &delta.mutation_key_values,
-                delta.atom_results.clone(),
+            let (mutation_events, modified_fields) =
+                self.rebase_delta_for_publish(delta, &mut heads);
+            let mut job = private_job(
+                delta,
+                delta.schema.clone(),
+                mutation_events,
+                modified_fields,
             );
-            let mut job = private_job(delta, schema, mutation_events, modified_fields);
             self.stage_native_job(&mut job).await?;
             self.stage_native_paths(&job, runtime).await?;
+            heads.record(delta);
             runtime.record_read_stage("logical-paths-done", job.modified_fields.len());
             if let Some(batch) = job.search_batch.take() {
                 let inbox = self.search_outbox_inbox.clone();

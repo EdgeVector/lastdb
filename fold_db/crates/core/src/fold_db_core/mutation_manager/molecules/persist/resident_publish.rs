@@ -1,5 +1,6 @@
 //! Resident-graph tip publishing and dirty-key bookkeeping for molecule persists.
 
+use super::super::storage_links::StorageTipAliases;
 use super::*;
 
 impl MutationManager {
@@ -17,6 +18,7 @@ impl MutationManager {
         data: &MoleculeData,
         changed: &HashSet<ChangedKey>,
         dirty: bool,
+        storage_links: &StorageTipAliases,
     ) {
         let resident = self.db_ops.resident();
         for ck in changed {
@@ -34,11 +36,20 @@ impl MutationManager {
                 logical_counter: entry.logical_counter,
                 device_id: entry.lww_device().to_string(),
                 mutation_uuid: entry.mutation_uuid.clone(),
+                origin_device: entry.origin_device.clone(),
                 key_metadata: data.get_key_metadata(api_hash, api_range).cloned(),
                 writer_pubkey: entry.writer_pubkey.clone(),
             };
             if dirty {
-                resident.apply_tip(tip);
+                let aliases = storage_links
+                    .get(&(
+                        molecule_uuid.to_string(),
+                        api_hash.to_string(),
+                        api_range.to_string(),
+                    ))
+                    .expect("pre-apply storage aliases cover every published slot")
+                    .clone();
+                resident.apply_tip_with_storage_aliases(tip, aliases);
             }
             // A durable tip does not re-enter the graph. The logical put
             // admits that clean record to the warm set, and the flush
@@ -66,6 +77,7 @@ impl MutationManager {
                     logical_counter: entry.logical_counter,
                     device_id: entry.lww_device().to_string(),
                     mutation_uuid: entry.mutation_uuid.clone(),
+                    origin_device: entry.origin_device.clone(),
                     key_metadata: data.get_key_metadata(api_hash, api_range).cloned(),
                     writer_pubkey: entry.writer_pubkey.clone(),
                 })
@@ -104,6 +116,7 @@ impl MutationManager {
         schema: &Schema,
         modified_fields: &ModifiedFieldKeys,
         dirty: bool,
+        storage_links: &StorageTipAliases,
     ) {
         for (field_name, changed) in modified_fields {
             let Some(schema_field) = schema.runtime_fields.get(field_name) else {
@@ -115,7 +128,13 @@ impl MutationManager {
             let Some(data) = schema_field.molecule_data() else {
                 continue;
             };
-            self.publish_changed_tips_to_resident(molecule_uuid, data, changed, dirty);
+            self.publish_changed_tips_to_resident(
+                molecule_uuid,
+                data,
+                changed,
+                dirty,
+                storage_links,
+            );
         }
     }
 
@@ -195,9 +214,16 @@ impl MutationManager {
         &self,
         sibling_updates: &[(String, MoleculeData, HashSet<ChangedKey>)],
         dirty: bool,
+        storage_links: &StorageTipAliases,
     ) {
         for (molecule_uuid, data, changed) in sibling_updates {
-            self.publish_changed_tips_to_resident(molecule_uuid, data, changed, dirty);
+            self.publish_changed_tips_to_resident(
+                molecule_uuid,
+                data,
+                changed,
+                dirty,
+                storage_links,
+            );
         }
     }
 

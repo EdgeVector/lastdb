@@ -9,11 +9,17 @@ use super::*;
 
 impl MutationManager {
     /// Replay a captured mutation intent without writing it back to the log.
+    ///
+    /// `origin_device` is the sync device id of the log entry that carried the
+    /// mutations. Each tip that a mutation writes names it, so the tip decision
+    /// can tell a write from another device from one in sequence on the same device.
     pub(crate) async fn apply_replayed_mutations(
         &self,
-        mutations: Vec<Mutation>,
+        mut mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
+        origin_device: &str,
     ) -> Result<Vec<String>, SchemaError> {
+        stamp_replay_origin_device(&mut mutations, origin_device);
         let has_aggregate = mutations
             .iter()
             .any(|mutation| mutation.aggregate_set.is_some());
@@ -293,7 +299,9 @@ impl MutationManager {
                     logical_counter: mutation.logical_counter,
                     device_id: source_writer.to_string(),
                     mutation_uuid: source_uuid.to_string(),
+                    origin_device: mutation.origin_device.clone(),
                 }),
+                suppressed_by_tip: None,
                 suppressed_by_delete: Some(SuppressedByDelete {
                     mk_key: winning_delete.mk_key.clone(),
                     written_at: winning_delete.written_at,
@@ -331,4 +339,14 @@ fn suppressed_put_event_key(
             identity.finalize()
         ),
     )
+}
+
+/// The one place where a peer's device id enters a tip. A long or odd id from
+/// the log becomes a stable token (`bounded_origin_device`), so the pair is
+/// still recorded: an unknown id would not be.
+fn stamp_replay_origin_device(mutations: &mut [Mutation], origin_device: &str) {
+    let origin_device = crate::atom::bounded_origin_device(origin_device);
+    for mutation in mutations {
+        mutation.origin_device = origin_device.to_string();
+    }
 }

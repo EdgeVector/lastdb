@@ -26,6 +26,7 @@ mod atom_ref_gc;
 mod atoms;
 mod blob_ref_edges;
 mod codec;
+mod conflict_record;
 mod construct;
 mod content_maintenance;
 mod delete_barriers;
@@ -55,6 +56,7 @@ pub use atom_ref_gc::{
     AtomGcReapOptions, AtomGcReapReport, GraceGateVerdict, DEFAULT_ATOM_GC_GRACE_WINDOW,
 };
 pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
+pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use content_maintenance::{
     RecompressAtomContentReport, RepackAtomContentReport, ResealAtomContentStats,
 };
@@ -260,6 +262,17 @@ pub struct AtomStore {
     atom_ref_count_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
     /// Serializes the one exact catalog-transition recovery registry row.
     catalog_atom_ref_transition_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Sync device id of this node. Empty until a sync engine attaches. The
+    /// tip decision treats a write from any other non-empty device as a write
+    /// from a peer. See [`AtomStore::local_origin_device`].
+    local_origin_device: Arc<std::sync::RwLock<String>>,
+    /// Serializes the conflict recorder, so two recorders cannot lose an id in
+    /// the `mcc:{molecule}` list that they read, extend, and write.
+    conflict_record_gate: Arc<tokio::sync::Mutex<()>>,
+    /// Counts the record calls that wrote a conflict row. A reader that scans
+    /// the conflict rows outside the gate stamps its `mcc:` list only if this
+    /// number did not change since before the scan.
+    conflict_record_epoch: Arc<AtomicU64>,
     /// Fixed target gates for molecule source transitions and reclaim.
     molecule_liveness_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
     /// Fixed target gates for blob source transitions and reclaim.
