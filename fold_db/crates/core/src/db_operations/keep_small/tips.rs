@@ -47,7 +47,7 @@ impl KeepSmallMeters {
         }
     }
 
-    pub(super) fn take_pending(&self, atom_uuid: &str) -> Option<(String, u64, u64, bool, bool)> {
+    pub(super) fn take_pending(&self, atom_uuid: &str) -> Option<PendingAtomContribution> {
         self.pending_atoms
             .lock()
             .ok()
