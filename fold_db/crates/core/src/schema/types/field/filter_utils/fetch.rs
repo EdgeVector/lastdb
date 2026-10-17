@@ -50,7 +50,7 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
             runtime.clone(),
             storage_prefix,
             molecule_uuid,
-            crate::storage::disk_pack::logical_paths::field::AtomSelection {
+            &crate::storage::disk_pack::logical_paths::field::AtomSelection {
                 entry: &entry,
                 primary: db_ops.atoms().primary_atom_key(
                     &entry.1,

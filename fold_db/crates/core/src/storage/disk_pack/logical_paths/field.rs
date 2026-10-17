@@ -83,7 +83,7 @@ pub(crate) fn lookup(
     runtime: Option<Arc<PackRuntime>>,
     scope: Option<&str>,
     molecule: Option<&str>,
-    selection: AtomSelection<'_>,
+    selection: &AtomSelection<'_>,
 ) -> StorageResult<Option<FieldValue>> {
     let (key, atom, metadata, writer, _) = selection.entry;
     let Some((runtime, binding, molecule)) = active(runtime, molecule) else {

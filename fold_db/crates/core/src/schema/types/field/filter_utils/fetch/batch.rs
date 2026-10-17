@@ -28,7 +28,7 @@ pub(crate) async fn fetch_field_atom_batches(
                         runtime.clone(),
                         prefix,
                         batch.molecule.as_deref(),
-                        field::AtomSelection {
+                        &field::AtomSelection {
                             entry,
                             primary: db_ops.atoms().primary_atom_key(
                                 &entry.1,
