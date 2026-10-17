@@ -1,0 +1,17 @@
+{
+  "status": "refused",
+  "exit_status": 1,
+  "retained_path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/l2r.WMC1H2",
+  "owner_uid": 501,
+  "mode": "700",
+  "device": 16777231,
+  "inode": 1462053137,
+  "all_owned_nodes_stopped": true,
+  "owned_node_processes": 0,
+  "open_file_pids": 0,
+  "lsof_exit_status": 1,
+  "lsof_error_bytes": 0,
+  "refusal": "lastdb-dev: ERROR exact seed owner marker is unsafe",
+  "trusted_stamp_added": false,
+  "cleanup_workaround": false
+}

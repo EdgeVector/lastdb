@@ -1,8 +1,9 @@
 # Local candidate checks
 
-Product source: `55c6d9aed`, including implementation commit `b0679bb7`.
+Product source: `08409a22`, including the shared payload writer and complete warm response metadata.
 Later receipt and status documents do not change the product binaries.
 The receipts identify each exact executable by SHA-256.
+The [final build record](final-build.json) lists the final binary hashes and the document-only dirty suffix.
 
 | Check | Result |
 |---|---|

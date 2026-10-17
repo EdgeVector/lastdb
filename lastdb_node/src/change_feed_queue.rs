@@ -1,6 +1,6 @@
 //! Bounded ordered persistence for app change-feed hints.
 //!
-//! Product mutation truth commits in the resident graph. The durable app feed
+//! Product mutation truth commits before the feed. The durable app feed
 //! is a later coordination projection, so it must not delay the T0 response.
 //! A caller reserves one bounded queue slot before product commit. A full or
 //! closed queue therefore rejects before any product state changes.
@@ -78,13 +78,11 @@ async fn run_change_feed_queue(
         let Ok(worker_permit) = worker_gate.acquire().await else {
             return;
         };
-        for event in job.events {
-            if let Err(error) = store.append(event).await {
-                tracing::error!(
-                    error = %error,
-                    "failed to append queued durable app change-feed event"
-                );
-            }
+        if let Err(error) = store.append_many(job.events).await {
+            tracing::error!(
+                error = %error,
+                "failed to append queued durable app change-feed batch"
+            );
         }
         drop(worker_permit);
     }

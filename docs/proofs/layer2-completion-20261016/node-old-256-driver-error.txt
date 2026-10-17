@@ -1,0 +1,25 @@
+Traceback (most recent call last):
+  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 572, in <module>
+    'sha256':hashlib.sha256(ARGS.baseline_engine.read_bytes()).hexdigest()},
+  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 400, in write_measurements
+    numbers = list(range(FIRST, FIRST + count))
+  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 272, in mutate
+    result, elapsed, _ = self.request('/api/mutations/batch', payload)
+  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 123, in request
+    result = json.loads(response.read())
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 578, in <module>
+    'platform':platform.platform(), 'logical_cpu_count':os.cpu_count(),
+  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 182, in stop
+    raise RuntimeError(f'Owned node pid {process.pid} did not stop normally')
+RuntimeError: Owned node pid 38419 did not stop normally

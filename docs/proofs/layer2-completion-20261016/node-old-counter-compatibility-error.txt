@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 563, in <module>
+    read_measurements()
+  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 368, in read_measurements
+    query_receipt(node, count, shape,
+  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/layer2-final-bench.8pJSJg/node_bench.py", line 317, in query_receipt
+    raise RuntimeError('Product read receipt omits a required file-work field')
+RuntimeError: Product read receipt omits a required file-work field

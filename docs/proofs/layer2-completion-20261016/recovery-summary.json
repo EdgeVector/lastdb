@@ -96,5 +96,11 @@
     "primary_used": false,
     "archive_used": false
   },
-  "final_node_guard_reopen": null
+  "final_node_guard_reopen": {
+    "source": "08409a220e57364052d2eca030eafd12006e6bc4",
+    "complete": true,
+    "receipt": "packing-summary.json"
+  },
+  "proof_stage": "historical corrected candidate",
+  "final_packing_report": "recovery.md#final-packed-file-checks"
 }

@@ -42,9 +42,10 @@ It does not receive positions that it must repair.
 
 ## Records and shared atoms
 
-A current tip contains the atom UUID, current write facts, delete state, and a stable reference to its exact stored bytes.
-That reference contains no file number, page number, or byte position.
-An atom entry holds the stored bytes under that stable reference.
+A current tip contains the atom UUID, current write facts, and delete state.
+LastDB derives the existing atom key within the selected storage scope.
+The tip contains no physical file number, page number, or byte position.
+An atom entry holds the stored bytes under that key.
 Different protein molecules can refer to the same entry.
 
 Small atom bytes sit beside their atom key inside a storage page.
@@ -66,16 +67,15 @@ LastStore must not equate those representations or select one silently.
 
 The later boundary proposal supplies a stable body key within the existing storage scope.
 The existing BodyID concept can identify exact stored bytes without a file position.
-The current tip carries that body key directly, beside the atom UUID.
+That proposal would add the body key directly to the tip, beside the atom UUID.
 The body key must bind the exact bytes and their scope under a documented codec.
 The earlier 384-byte entry and BodyExtent layout do not define this new record format.
 
 The original engine completion preserves existing atom UUID keys and exact stored record bytes.
 It does not introduce the proposed body-key codec or the earlier direct-position format.
 
-An ordinary read needs no intermediate atom-UUID-to-body-key lookup.
-An existing read by atom UUID can use its separate LastDB-owned live representative rule.
-That representative creates no permanent history or retention right.
+The selected implementation reads the existing atom UUID key directly.
+The proposed body-key and live-representative rules remain separate future work.
 No new atom version or previous-value chain is introduced.
 
 ## Read sequence
@@ -87,7 +87,7 @@ The ordinary sequence is:
 1. LastDB captures one disk view together with one complete accepted memory view.
 2. It resolves the schema, field, saved molecule UUID, and encoded key through that view.
 3. It collects missing tip keys and sends one batch read.
-4. It collects the distinct body keys from those tips and sends one batch read.
+4. It collects the distinct atom keys from those tips and sends one batch read.
 5. It validates and decrypts the results, then returns them in request order.
 6. It keeps only the logical records that the call used in the warm set.
 
