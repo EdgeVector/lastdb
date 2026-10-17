@@ -63,7 +63,7 @@ pub(crate) fn admit_query_results(
                 range: key.range.clone().unwrap_or_default(),
                 atom: value.atom_uuid.clone(),
             };
-            runtime.admit_field_path(&context, &path, value)?;
+            runtime.admit_field_path(&context, &path, value, None)?;
             context.paths.lock().expect("native resolved paths").note(
                 field,
                 key,
@@ -81,9 +81,10 @@ impl PackRuntime {
         context: &Arc<ReadContext>,
         path: &LogicalPath,
         value: &FieldValue,
+        facts: Option<source::AtomFacts>,
     ) -> StorageResult<()> {
         let id = path.id()?;
-        self.admit_field_id(context, &id, value)
+        self.admit_field_id_with_facts(context, &id, value, facts, false)
     }
 
     pub(super) fn admit_field_id(
@@ -92,19 +93,48 @@ impl PackRuntime {
         id: &str,
         value: &FieldValue,
     ) -> StorageResult<()> {
+        self.admit_field_id_with_facts(context, id, value, None, true)
+    }
+
+    fn admit_field_id_with_facts(
+        &self,
+        context: &Arc<ReadContext>,
+        id: &str,
+        value: &FieldValue,
+        facts: Option<source::AtomFacts>,
+        preserve: bool,
+    ) -> StorageResult<()> {
+        #[derive(Deserialize)]
+        struct Facts {
+            atom_facts: Option<source::AtomFacts>,
+        }
         let current = field::provenance_current();
-        let witness = current.then(|| context.witness()).flatten();
+        let mut call = crate::read_receipts::lock(&context.call);
+        let mut logical = self.logical.lock().expect("native complete logical paths");
+        let mut facts = facts.or_else(|| {
+            if !preserve {
+                return None;
+            }
+            logical
+                .inspect_record(PATH_COLLECTION, id, |body| {
+                    body.and_then(|body| serde_json::from_slice::<Facts>(body).ok())
+                        .and_then(|body| body.atom_facts)
+                        .filter(|facts| facts.valid(context))
+                })
+                .flatten()
+        });
+        if let Some(facts) = facts.as_mut() {
+            facts.renew(context);
+        }
         let length = if current {
-            body::PathBody::from_field_encoded_len(context.version, value, witness)?
+            body::PathBody::from_field_encoded_len(context.version, value, None, facts.as_ref())?
         } else {
             body::PathBody::content_encoded_len(&value.value)?
         };
-        let mut call = crate::read_receipts::lock(&context.call);
-        let mut logical = self.logical.lock().expect("native complete logical paths");
         context.account_memory_record(&mut call, id.len(), length)?;
         context.hold_record(&mut logical, PATH_COLLECTION, id)?;
         let value = if current {
-            body::PathBody::from_field(context.version, value, witness)
+            body::PathBody::from_field(context.version, value, None, facts)
         } else {
             body::PathBody::content(&value.value)
         };

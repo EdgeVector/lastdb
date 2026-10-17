@@ -114,8 +114,7 @@ impl PackRuntime {
         let space = writer
             .reserve_space(reservation.quote().physical_bytes(), &self.space_policy)
             .map_err(map)?;
-        let protection =
-            Arc::new(admission::WriteProtection::reserve(self, &operations).with_space(space));
+        let protection = Arc::new(admission::WriteProtection::reserve(space));
         Ok(PreparedCommit {
             operations,
             reservation,
@@ -160,7 +159,6 @@ impl PackRuntime {
                 return Err(map(error));
             }
         };
-        protection.invalidate();
         self.install_committed(publication.current, hidden_changes)?;
         protection.release_space();
         self.failed.store(false, Ordering::Release);

@@ -65,6 +65,25 @@ pub(super) struct Dependencies {
 }
 
 impl Dependencies {
+    /// Isolate one observed present source without cloning the call's other reads.
+    pub(super) fn single_point(&self, collection: &str, key: &str) -> Option<Self> {
+        if self.overflow {
+            return None;
+        }
+        let coordinate = (collection.to_string(), key.to_string());
+        let digest = self.reads.points.get(&coordinate)?.as_ref()?.clone();
+        let mut source = Self::default();
+        if !source.room(
+            192usize
+                .saturating_add(collection.len())
+                .saturating_add(key.len()),
+        ) {
+            return None;
+        }
+        source.reads.points.insert(coordinate, Some(digest));
+        Some(source)
+    }
+
     pub(super) fn disable(&mut self) {
         self.overflow = true;
         self.cached = None;

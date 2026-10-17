@@ -13,6 +13,11 @@ pub(crate) struct FieldScope {
     name: String,
 }
 
+pub(crate) struct AtomSelection<'a> {
+    pub entry: &'a crate::schema::types::field::KeyedAtomMatch,
+    pub primary: String,
+}
+
 tokio::task_local! {
     static FIELD: FieldScope;
     static CURRENT_PROVENANCE: bool;
@@ -78,9 +83,9 @@ pub(crate) fn lookup(
     runtime: Option<Arc<PackRuntime>>,
     scope: Option<&str>,
     molecule: Option<&str>,
-    key: &KeyValue,
-    atom: &str,
+    selection: AtomSelection<'_>,
 ) -> StorageResult<Option<FieldValue>> {
+    let (key, atom, metadata, writer, _) = selection.entry;
     let Some((runtime, binding, molecule)) = active(runtime, molecule) else {
         return Ok(None);
     };
@@ -108,7 +113,13 @@ pub(crate) fn lookup(
                 })?;
             let body = serde_json::from_slice::<PathBody>(&bytes)
                 .map_err(|error| serialization(&error))?;
-            provenance_current().then(|| body.field(&context)).flatten()
+            (provenance_current()
+                && body
+                    .atom_facts
+                    .as_ref()
+                    .is_some_and(|facts| facts.primary(&selection.primary)))
+            .then(|| body.selected_field(&context, atom, metadata.as_ref(), writer.as_deref()))
+            .flatten()
         }
         None => None,
     };
@@ -127,13 +138,16 @@ pub(crate) fn admit(
     molecule: Option<&str>,
     key: &KeyValue,
     value: &FieldValue,
+    hint: Option<&crate::atom::AtomPartition>,
 ) -> StorageResult<()> {
     let Some((runtime, binding, molecule)) = active(runtime, molecule) else {
         return Ok(());
     };
     let context = ReadContext::captured(&runtime).ok_or_else(missing_context)?;
     let path = binding.path(scope, &molecule, key, &value.atom_uuid);
-    runtime.admit_field_path(&context, &path, value)?;
+    let facts =
+        super::source::atom_facts(Some(Arc::clone(&runtime)), scope, &value.atom_uuid, hint)?;
+    runtime.admit_field_path(&context, &path, value, facts)?;
     context.paths.lock().expect("native resolved paths").note(
         &binding.name,
         key,

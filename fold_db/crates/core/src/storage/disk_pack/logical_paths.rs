@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 pub(super) mod body;
 pub(crate) mod field;
 mod read;
+pub(crate) mod source;
 pub(crate) mod warm;
 pub(crate) use read::admit_query_results;
 

@@ -55,6 +55,26 @@ impl ReadContext {
             .witness(&mut dependencies, self.version.revision)
     }
 
+    /// Bind immutable atom facts to only their exact observed physical source.
+    pub(in crate::storage::disk_pack) fn source_witness(
+        &self,
+        collection: &str,
+        key: &str,
+    ) -> Option<u64> {
+        if self.write_owner.is_some() {
+            return None;
+        }
+        let mut source = self
+            .dependencies
+            .lock()
+            .expect("native read dependencies")
+            .single_point(collection, key)?;
+        self.validity
+            .lock()
+            .expect("native dependency validity")
+            .witness(&mut source, self.version.revision)
+    }
+
     pub(in crate::storage::disk_pack) fn provenance_valid(
         &self,
         version: ReadVersion,
