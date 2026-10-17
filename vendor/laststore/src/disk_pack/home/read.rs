@@ -1,5 +1,5 @@
 use super::{HomeDescriptor, ReadCall};
-use crate::disk_pack::{Current, HashRangeCursor, HashScope, RangeBounds, ReadCosts};
+use crate::disk_pack::{Current, HashRangeCursor, HashScope, RangeBounds, ReadBudget, ReadCosts};
 use crate::Result;
 
 /// One native read call. All exact, batch, and range work shares its captured root.
@@ -16,6 +16,11 @@ impl HomeRead {
     /// The immutable generation selected at call start.
     pub fn current(&self) -> &Current {
         self.call.current()
+    }
+
+    /// Fixed limits for this call, including the separately admitted write mode.
+    pub fn budget(&self) -> ReadBudget {
+        self.call.budget
     }
 
     /// Aggregate costs, including work before individual item errors.

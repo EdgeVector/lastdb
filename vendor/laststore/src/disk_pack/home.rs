@@ -260,6 +260,19 @@ impl DiskHome {
         Ok(HomeRead::new(self.descriptor.clone(), call))
     }
 
+    /// Prepare one atomic write under this home's exclusive writer lease.
+    /// The call permits 40,000 examined keys; its page, block, and byte ceilings
+    /// match an ordinary read. Each physical batch still permits 10,000 slots.
+    pub fn read_for_write_preparation(
+        &self,
+        current: Current,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<HomeRead> {
+        let call =
+            ReadCall::from_write_preparation(&self.root, current, self.descriptor.clone(), lease)?;
+        Ok(HomeRead::new(self.descriptor.clone(), call))
+    }
+
     /// Capture one generation and one aggregate budget for all reads in this call.
     pub fn read(&self, budget: ReadBudget) -> Result<HomeRead> {
         let call = ReadCall::open(&self.root, PLACEMENT_CODEC, KEY_CODEC, budget)?;

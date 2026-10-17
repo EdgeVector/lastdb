@@ -224,6 +224,7 @@ impl PackRuntime {
         limit: usize,
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<(NativeRows, bool)> {
+        context.validate_owner(pending)?;
         if limit == 0 {
             return Ok((Vec::new(), start >= end));
         }

@@ -97,10 +97,15 @@ pub(crate) fn lookup(
         .lock()
         .expect("native complete logical paths");
     context.hold_record(&mut logical, PATH_COLLECTION, &id)?;
-    let value = match logical.fetched_record(PATH_COLLECTION, &id).flatten() {
-        Some(bytes) => {
-            call.account_memory_record(id.len(), bytes.len())
-                .map_err(map)?;
+    let value = match logical.fetched_record_bytes(PATH_COLLECTION, &id).flatten() {
+        Some(length) => {
+            context.account_memory_record(&mut call, id.len(), length)?;
+            let bytes = logical
+                .fetched_record(PATH_COLLECTION, &id)
+                .flatten()
+                .ok_or_else(|| {
+                    StorageError::BackendError("held native logical body disappeared".into())
+                })?;
             let body = serde_json::from_slice::<PathBody>(&bytes)
                 .map_err(|error| serialization(&error))?;
             provenance_current()

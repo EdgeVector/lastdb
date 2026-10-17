@@ -115,6 +115,32 @@ impl ReadCall {
         lease: &super::lifetime::WriterReadLease,
     ) -> Result<Self> {
         budget.validate()?;
+        Self::from_writer_budget(root, current, descriptor, budget, lease)
+    }
+
+    pub(super) fn from_write_preparation(
+        root: &Path,
+        current: Current,
+        descriptor: super::home::HomeDescriptor,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<Self> {
+        let budget = ReadBudget {
+            pages: 4096,
+            blocks: 16_384,
+            bytes: 256 * 1024 * 1024,
+            keys: 40_000,
+        };
+        Self::from_writer_budget(root, current, descriptor, budget, lease)
+    }
+
+    // Only the ordinary validated budget and the fixed preparation budget enter here.
+    fn from_writer_budget(
+        root: &Path,
+        current: Current,
+        descriptor: super::home::HomeDescriptor,
+        budget: ReadBudget,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<Self> {
         current.encode()?;
         descriptor.check_current(&current)?;
         let hold = super::lifetime::GenerationHold::from_writer(lease, root, &current)?;

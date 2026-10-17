@@ -1,6 +1,8 @@
 use super::*;
+use budget::call_error;
 use laststore::disk_pack::home::HomeRead;
 
+mod budget;
 mod holds;
 mod overlay;
 pub(crate) mod snapshots;
@@ -14,6 +16,7 @@ pub(super) struct ReadContext {
     snapshots: Arc<snapshots::ReadSnapshots>,
     pub(super) version: logical_paths::body::ReadVersion,
     pub(super) paths: Arc<Mutex<logical_paths::warm::ResolvedPaths>>,
+    write_owner: Option<Arc<transaction::PendingBatch>>,
 }
 
 struct ReadFailure {
@@ -28,17 +31,26 @@ tokio::task_local! {
 
 impl ReadContext {
     pub(super) fn captured(runtime: &PackRuntime) -> Option<Arc<Self>> {
-        READ.try_with(Arc::clone)
-            .ok()
-            .filter(|context| context.identity == runtime.home.descriptor().identity)
+        READ.try_with(Arc::clone).ok().filter(|context| {
+            context.identity == runtime.home.descriptor().identity
+                && context
+                    .validate_owner(transaction::PendingBatch::current(runtime).as_ref())
+                    .is_ok()
+        })
     }
 
     pub(super) fn active(runtime: &PackRuntime) -> bool {
-        READ.try_with(|context| context.identity == runtime.home.descriptor().identity)
-            .unwrap_or(false)
+        Self::captured(runtime).is_some()
     }
 
     pub(super) fn new(runtime: &Arc<PackRuntime>) -> StorageResult<Arc<Self>> {
+        Self::capture(runtime, None)
+    }
+
+    fn capture(
+        runtime: &Arc<PackRuntime>,
+        write_owner: Option<Arc<transaction::PendingBatch>>,
+    ) -> StorageResult<Arc<Self>> {
         if runtime.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
                 "native disk or cache publication failed; complete recovery is required".into(),
@@ -47,10 +59,16 @@ impl ReadContext {
         // Keep the root selector locked until its file lifetime hold exists.
         // Runtime maintenance must replace this selector before reclaim.
         let view = runtime.view.read().expect("native complete read view");
-        let call = runtime
-            .home
-            .read_from_writer(view.current.clone(), budget(), &runtime.read_lease)
-            .map_err(map)?;
+        let call = if write_owner.is_some() {
+            runtime
+                .home
+                .read_for_write_preparation(view.current.clone(), &runtime.read_lease)
+        } else {
+            runtime
+                .home
+                .read_from_writer(view.current.clone(), budget(), &runtime.read_lease)
+        }
+        .map_err(map)?;
         let accepted = view.accepted.clone();
         let version = logical_paths::body::ReadVersion {
             generation: view.current.generation,
@@ -68,12 +86,14 @@ impl ReadContext {
             identity: runtime.home.descriptor().identity,
             failure: Arc::new(Mutex::new(None)),
             holds: Arc::new(holds::CallRecordHolds::new(Arc::clone(&runtime.logical))),
+            write_owner,
         }))
     }
 
     pub(super) async fn current(runtime: &Arc<PackRuntime>) -> StorageResult<Arc<Self>> {
         if let Ok(context) = READ.try_with(Arc::clone) {
             if context.identity == runtime.home.descriptor().identity {
+                context.validate_owner(transaction::PendingBatch::current(runtime).as_ref())?;
                 let failure = ITEM
                     .try_with(Clone::clone)
                     .ok()
@@ -88,6 +108,7 @@ impl ReadContext {
                     snapshots: Arc::clone(&context.snapshots),
                     version: context.version,
                     paths: Arc::clone(&context.paths),
+                    write_owner: context.write_owner.clone(),
                 }));
             }
             return Err(StorageError::InvalidOperation(
@@ -119,22 +140,27 @@ impl ReadContext {
         self.holds.hold(logical, collection, key)
     }
 
-    pub(super) fn record_stage(&self, stage: &'static str, items: usize) {
-        if !tracing::enabled!(target: "lastdb::native_read_budget", tracing::Level::DEBUG) {
-            return;
+    fn owns_write(&self, pending: Option<&Arc<transaction::PendingBatch>>) -> bool {
+        self.write_owner
+            .as_ref()
+            .zip(pending)
+            .is_some_and(|(owner, pending)| Arc::ptr_eq(owner, pending))
+    }
+
+    pub(super) fn validate_owner(
+        &self,
+        pending: Option<&Arc<transaction::PendingBatch>>,
+    ) -> StorageResult<()> {
+        // Ordinary 10,000-key scopes also support generic pending KV overlays.
+        // Only the larger preparation call binds its budget to one write owner.
+        if self.write_owner.is_none() || self.owns_write(pending) {
+            return Ok(());
         }
-        let costs = crate::read_receipts::lock(&self.call).costs();
-        tracing::debug!(
-            target: "lastdb::native_read_budget",
-            stage,
-            items,
-            examined_keys = costs.examined_keys,
-            metadata_pages = costs.directory_pages + costs.locator_pages
-                + costs.overflow_pages + costs.map_pages,
-            payload_blocks = costs.payload_blocks,
-            charged_bytes = costs.budget_bytes,
-            "native preparation cumulative read costs"
-        );
+        let result = Err(StorageError::InvalidOperation(
+            "native read scope cannot change its complete write owner".into(),
+        ));
+        self.remember(&result);
+        result
     }
 
     fn error(&self) -> Option<StorageError> {
@@ -208,11 +234,13 @@ impl PackReadScope {
 /// An older enclosing query must not supply the comparison state for a mutation.
 pub(super) async fn write_scope<T>(
     runtime: Arc<PackRuntime>,
+    pending: Arc<transaction::PendingBatch>,
     future: impl std::future::Future<Output = T>,
 ) -> StorageResult<T> {
-    let context =
-        super::super::laststore::LastStoreKvStore::run_blocking(move || ReadContext::new(&runtime))
-            .await?;
+    let context = super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        ReadContext::capture(&runtime, Some(pending))
+    })
+    .await?;
     let scope = PackReadScope { context };
     let result = scope.run(future).await;
     if let Some(error) = scope.context.error() {
@@ -263,18 +291,48 @@ impl PackRuntime {
         coordinates: &[(String, String)],
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
-        if coordinates.len() > 10000 {
+        context.validate_owner(pending)?;
+        let maximum = if context.owns_write(pending) {
+            40_000
+        } else {
+            10_000
+        };
+        if coordinates.len() > maximum {
             return Err(StorageError::ReadResourceLimit {
-                detail: "native batch exceeds 10000 keys".into(),
+                detail: format!("native batch exceeds {maximum} keys"),
             });
         }
         let mut call = crate::read_receipts::lock(&context.call);
+        let result = (|| {
+            context.require_room(&call, coordinates.len() as u64, 0)?;
+            let mut out = Vec::with_capacity(coordinates.len());
+            // One immutable call and PendingBatch cover every ordered chunk.
+            // Both engine batch readers retain their 10,000-slot input cap.
+            for chunk in coordinates.chunks(10_000) {
+                out.extend(self.read_chunk(context, &mut call, chunk, pending)?);
+            }
+            Ok(out)
+        })();
+        context.remember(&result);
+        result
+    }
+
+    fn read_chunk(
+        &self,
+        context: &ReadContext,
+        call: &mut HomeRead,
+        coordinates: &[(String, String)],
+        pending: Option<&Arc<transaction::PendingBatch>>,
+    ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         let mut out = vec![None; coordinates.len()];
         let mut misses = Vec::new();
         for (slot, (collection, key)) in coordinates.iter().enumerate() {
             if let Some(record) = context.overlay_record(pending, collection, key) {
-                call.account_memory_record(key.len(), record.body.as_ref().map_or(0, Vec::len))
-                    .map_err(|error| call_error(error, &call))?;
+                context.account_memory_record(
+                    call,
+                    key.len(),
+                    record.body.as_ref().map_or(0, Vec::len),
+                )?;
                 out[slot] = record.body.clone();
             } else {
                 misses.push(slot);
@@ -286,27 +344,10 @@ impl PackRuntime {
             .collect();
         let results = call
             .get_many(&addresses)
-            .map_err(|error| call_error(error, &call))?;
+            .map_err(|error| call_error(error, call))?;
         for (slot, result) in misses.into_iter().zip(results) {
-            out[slot] = result.map_err(|error| call_error(error, &call))?;
+            out[slot] = result.map_err(|error| call_error(error, call))?;
         }
         Ok(out)
-    }
-}
-
-fn call_error(error: laststore::Error, call: &HomeRead) -> StorageError {
-    if !matches!(error, laststore::Error::ReadBudgetExceeded) {
-        return map(error);
-    }
-    let costs = call.costs();
-    let limits = budget();
-    let pages =
-        costs.directory_pages + costs.locator_pages + costs.overflow_pages + costs.map_pages;
-    StorageError::ReadResourceLimit {
-        detail: format!(
-            "native call: examined_keys={}/{}, metadata_pages={}/{}, payload_blocks={}/{}, charged_bytes={}/{}",
-            costs.examined_keys, limits.keys, pages, limits.pages,
-            costs.payload_blocks, limits.blocks, costs.budget_bytes, limits.bytes,
-        ),
     }
 }

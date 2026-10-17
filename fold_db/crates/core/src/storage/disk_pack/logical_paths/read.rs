@@ -92,17 +92,29 @@ impl PackRuntime {
         id: &str,
         value: &FieldValue,
     ) -> StorageResult<()> {
-        let value = if field::provenance_current() {
+        let current = field::provenance_current();
+        let length = if current {
+            body::PathBody::from_field_encoded_len(context.version, value)?
+        } else {
+            body::PathBody::content_encoded_len(&value.value)?
+        };
+        let mut call = crate::read_receipts::lock(&context.call);
+        let mut logical = self.logical.lock().expect("native complete logical paths");
+        context.account_memory_record(&mut call, id.len(), length)?;
+        context.hold_record(&mut logical, PATH_COLLECTION, id)?;
+        let value = if current {
             body::PathBody::from_field(context.version, value)
         } else {
             body::PathBody::content(&value.value)
         };
-        let mut call = crate::read_receipts::lock(&context.call);
-        let mut logical = self.logical.lock().expect("native complete logical paths");
-        context.hold_record(&mut logical, PATH_COLLECTION, id)?;
         let body = serde_json::to_vec(&value).map_err(|error| serialization(&error))?;
-        call.account_memory_record(id.len(), body.len())
-            .map_err(map)?;
+        if body.len() != length {
+            let result = Err(StorageError::BackendError(
+                "native logical body encoded length differs from its admitted length".into(),
+            ));
+            context.remember(&result);
+            return result;
+        }
         let epoch = logical.record_epoch(id);
         if !logical.admit_record(PATH_COLLECTION, id, Some(body), epoch) {
             return Err(StorageError::ReadResourceLimit {

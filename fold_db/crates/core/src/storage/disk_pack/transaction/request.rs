@@ -27,6 +27,7 @@ where
     let pending = Arc::new(PendingBatch::new(&runtime));
     let result = read::write_scope(
         Arc::clone(&runtime),
+        Arc::clone(&pending),
         WRITE.scope(Arc::clone(&pending), future),
     )
     .await??;

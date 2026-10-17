@@ -175,7 +175,7 @@ pub(super) fn optional_record(
 
 pub(super) fn optional_fits(call: &HomeRead, records: u64, bytes: u64) -> bool {
     let costs = call.costs();
-    let limits = crate::storage::disk_pack::budget();
+    let limits = call.budget();
     costs
         .examined_keys
         .checked_add(records)
