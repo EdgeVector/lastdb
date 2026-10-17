@@ -79,10 +79,6 @@ impl TreeWriter {
         Ok(())
     }
 
-    pub(super) fn finish(self) -> Result<TreeRoot> {
-        self.finish_with_parts().map(|(root, _)| root)
-    }
-
     pub(super) fn finish_with_parts(mut self) -> Result<(TreeRoot, u64)> {
         self.flush_leaf()?;
         if self.levels[0].is_empty() && self.last_key.is_none() {
