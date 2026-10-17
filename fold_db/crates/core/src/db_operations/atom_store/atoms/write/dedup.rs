@@ -94,6 +94,7 @@ impl NativeAtomBatch {
                 logical,
                 blob_bytes.unwrap_or_default(),
                 blob_bytes.is_some(),
+                false,
             );
         }
     }

@@ -20,6 +20,7 @@ impl KeepSmallMeters {
             logical_bytes,
             blob_reference_bytes,
             contribution_complete,
+            true,
         );
         self.with_schema(schema, |meter| {
             meter.live_bytes = meter.live_bytes.saturating_add(logical_bytes);
@@ -37,6 +38,7 @@ impl KeepSmallMeters {
         logical_bytes: u64,
         blob_reference_bytes: u64,
         contribution_complete: bool,
+        body_put: bool,
     ) {
         if let Ok(mut pending) = self.pending_atoms.lock() {
             pending.insert(
@@ -46,8 +48,12 @@ impl KeepSmallMeters {
                     logical_bytes,
                     blob_reference_bytes,
                     contribution_complete,
+                    body_put,
                 ),
             );
+        }
+        if !body_put {
+            self.mark_reused_atom_aggregate_incomplete(schema);
         }
         if !contribution_complete {
             self.molecule_counters_complete
@@ -62,9 +68,16 @@ impl KeepSmallMeters {
     /// the old size (not the new one) is what lets a growing rewrite raise
     /// live and still show high churn (`appended / live`).
     pub fn replace_live_atom(&self, new_uuid: &str, superseded_bytes: u64) {
-        let Some(schema) = self.pending_atom_schema(new_uuid) else {
+        let Some((schema, body_put)) = self.pending_atoms.lock().ok().and_then(|pending| {
+            pending
+                .get(new_uuid)
+                .map(|(schema, _, _, _, body_put)| (schema.clone(), *body_put))
+        }) else {
             return;
         };
+        if !body_put {
+            return;
+        }
         self.sub_atom_bytes(superseded_bytes);
         let count = self.atom_count.load(Ordering::Relaxed);
         if count > 0 {
@@ -87,7 +100,7 @@ impl KeepSmallMeters {
         self.pending_atoms
             .lock()
             .ok()
-            .and_then(|m| m.get(atom_uuid).map(|(_, b, _, _)| *b))
+            .and_then(|m| m.get(atom_uuid).map(|(_, b, _, _, _)| *b))
     }
 
     /// Owning schema of a just-stored atom, without consuming it.
@@ -98,14 +111,16 @@ impl KeepSmallMeters {
         self.pending_atoms
             .lock()
             .ok()
-            .and_then(|m| m.get(atom_uuid).map(|(schema, _, _, _)| schema.clone()))
+            .and_then(|m| m.get(atom_uuid).map(|(schema, _, _, _, _)| schema.clone()))
     }
 
     #[must_use]
     pub fn pending_atom_contribution(&self, atom_uuid: &str) -> Option<(u64, u64, bool)> {
         self.pending_atoms.lock().ok().and_then(|m| {
             m.get(atom_uuid)
-                .map(|(_, atom_bytes, blob_bytes, complete)| (*atom_bytes, *blob_bytes, *complete))
+                .map(|(_, atom_bytes, blob_bytes, complete, _)| {
+                    (*atom_bytes, *blob_bytes, *complete)
+                })
         })
     }
 
