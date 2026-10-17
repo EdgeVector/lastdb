@@ -19,7 +19,8 @@ pub(in crate::storage::disk_pack::logical_paths::warm) fn ready(
     query: &Query,
     query_alias: &str,
     keys: &[KeyValue],
-) -> Option<(u64, u64)> {
+) -> Option<(u64, u64, bool)> {
+    let mut renewal = false;
     let mut records = 1u64;
     let mut bytes = keys.iter().try_fold(0u64, |total, key| {
         total.checked_add(
@@ -37,7 +38,10 @@ pub(in crate::storage::disk_pack::logical_paths::warm) fn ready(
         let anchor = query.fields.first()?;
         let anchor_id = target(logical, &row, anchor)?;
         let (_, anchor_body) = metadata(logical, &anchor_id, call, records, bytes)?;
-        let selected = anchor_body.projections.get(query_alias)?;
+        let Some(selected) = anchor_body.projections.get(query_alias) else {
+            tracing::debug!(target: "lastdb::native_warm_validity", "complete query descriptor is absent");
+            return None;
+        };
         if query.fields.iter().any(|field| !selected.contains(field))
             || fields.as_ref().is_some_and(|fields| fields != selected)
         {
@@ -47,12 +51,20 @@ pub(in crate::storage::disk_pack::logical_paths::warm) fn ready(
         for field in selected {
             let id = target(logical, &row, field)?;
             let (length, body) = metadata(logical, &id, call, records, bytes)?;
-            if !context.provenance_valid(body.provenance.as_ref()?.0, body.witness) {
+            let Some((version, mut value)) = body.provenance else {
+                tracing::debug!(target: "lastdb::native_warm_validity", "logical owner has content without query provenance");
+                return None;
+            };
+            if !context.provenance_valid(version, body.witness)
+                || !context.refresh_molecule_version(body.witness, &mut value)
+            {
                 return None;
             }
+            renewal |= version.revision != context.version.revision;
             let flags = body.wire.filter(|flags| {
                 flags.query == query_alias && context.provenance_valid(flags.version, flags.witness)
             })?;
+            renewal |= flags.version.revision != context.version.revision;
             if wire.get(field).is_some_and(|old| old != &flags) {
                 return None;
             }
@@ -66,14 +78,18 @@ pub(in crate::storage::disk_pack::logical_paths::warm) fn ready(
         .all(|entry| {
             entry.conflict_flags == first.conflict_flags && entry.key_form == first.key_form
         })
-        .then_some((records, bytes))
+        .then_some((records, bytes, renewal))
 }
 
 fn target(logical: &LogicalResidentSet, row: &str, field: &str) -> Option<String> {
-    logical
+    let target = logical
         .linked_record_target(LINKS, &alias(row, field))
         .filter(|(collection, _)| collection == PATH_COLLECTION)
-        .map(|(_, id)| id)
+        .map(|(_, id)| id);
+    if target.is_none() {
+        tracing::debug!(target: "lastdb::native_warm_validity", "complete query alias has no retained logical owner");
+    }
+    target
 }
 
 fn metadata(

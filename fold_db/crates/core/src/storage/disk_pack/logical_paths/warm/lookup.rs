@@ -13,6 +13,7 @@ pub(super) fn row(
     query: &Query,
     query_alias: &str,
     key: &KeyValue,
+    refresh: &mut Option<super::refresh::Refresh>,
 ) -> StorageResult<Option<WarmQueryFields>> {
     let row_alias = row_alias(query_alias, key);
     let anchor = &query.fields[0];
@@ -37,7 +38,7 @@ pub(super) fn row(
         } else {
             projection::linked_body(context, call, logical, &row_alias, &field)?
         };
-        let Some((id, body)) = found else {
+        let Some((id, mut body)) = found else {
             return Ok(None);
         };
         let Some(flags) = body.wire.clone().filter(|wire| wire.query == query_alias) else {
@@ -47,6 +48,9 @@ pub(super) fn row(
             || !context.inherit_witness(flags.witness)
         {
             return Ok(None);
+        }
+        if let Some(refresh) = refresh {
+            refresh.record(context, call, logical, &id, &mut body)?;
         }
         let Some(value) = body.field(context) else {
             return Ok(None);

@@ -62,26 +62,24 @@ impl ReadContext {
     ) -> bool {
         self.write_owner.is_none()
             && match witness {
-                Some(token) => self
-                    .validity
-                    .lock()
-                    .expect("native dependency validity")
-                    .valid(token, self.version.revision),
+                Some(token) => self.validated(token).is_some(),
                 None => version == self.version,
             }
     }
 
     pub(in crate::storage::disk_pack) fn inherit_witness(&self, witness: Option<u64>) -> bool {
-        let mut dependencies = self.dependencies.lock().expect("native read dependencies");
-        let Some(token) = witness else {
-            dependencies.disable();
-            return true;
+        let proof = match witness {
+            Some(token) => match self.validated(token) {
+                Some(proof) => Some((token, proof)),
+                None => return false,
+            },
+            None => None,
         };
-        let mut validity = self.validity.lock().expect("native dependency validity");
-        if !validity.valid(token, self.version.revision) {
-            return false;
+        let mut dependencies = self.dependencies.lock().expect("native read dependencies");
+        match proof {
+            Some((token, proof)) => proof.inherit(token, &mut dependencies),
+            None => dependencies.disable(),
         }
-        validity.inherit(token, &mut dependencies, self.version.revision);
         true
     }
 }

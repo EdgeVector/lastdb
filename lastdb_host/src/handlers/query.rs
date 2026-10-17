@@ -46,6 +46,10 @@ pub async fn execute_query<H: HostNode>(
         .map_err(|error| HostError::new(503, error.to_string()))?;
     let runtime = store.disk_pack_runtime();
     let future = Box::pin(async {
+        if let Some(payload) = warm::read(host, &query, limit, offset, cursor.as_ref(), ctx).await?
+        {
+            return Ok(payload);
+        }
         let remembered = query.clone();
         let payload =
             execute_query_scoped(host, query, limit, offset, cursor, ctx, allow_full_scan).await?;
@@ -68,9 +72,6 @@ async fn execute_query_scoped<H: HostNode>(
     ctx: &AccessContext,
     allow_full_scan: bool,
 ) -> Result<Value, HostError> {
-    if let Some(payload) = warm::read(host, &query, limit, offset, cursor.as_ref(), ctx).await? {
-        return Ok(payload);
-    }
     let expected_total_count = query.expected_total_count;
     // Resolve descriptive names → canonical. Bare unknown names still fall
     // through so legacy CLI paths get the standard query-engine not-found

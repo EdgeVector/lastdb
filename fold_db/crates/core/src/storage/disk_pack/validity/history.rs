@@ -57,24 +57,35 @@ impl Validity {
 
     pub(in crate::storage::disk_pack) fn valid(&mut self, token: u64, revision: u64) -> bool {
         let Some(witness) = self.witnesses.get(&token) else {
+            tracing::debug!(target: "lastdb::native_warm_validity", token, revision, "dependency witness left the bounded registry");
             return false;
         };
         if witness.revision < self.floor || witness.revision > revision {
+            tracing::debug!(target: "lastdb::native_warm_validity", token, revision, saved = witness.revision, floor = self.floor, "dependency witness is outside retained history");
             return false;
         }
         if let Some((_, valid)) = witness.verified.filter(|(checked, _)| *checked == revision) {
             return valid;
         }
-        let valid = self
+        let changed = self
             .history
             .iter()
             .filter(|changes| changes.revision > witness.revision && changes.revision <= revision)
-            .all(|changes| {
+            .find_map(|changes| {
                 changes
                     .coordinates
                     .iter()
-                    .all(|change| !witness.reads.intersects(change))
+                    .find(|change| witness.reads.intersects(change))
             });
+        let valid = changed.is_none();
+        if let Some(change) = changed {
+            tracing::debug!(target: "lastdb::native_warm_validity", token, revision, saved = witness.revision,
+                collection = %change.collection, key_digest = %crate::hex::sha256_hex(change.key.as_bytes()),
+                molecule_header_key = change.key.starts_with("mh:"),
+                home_conflict_key = change.key.starts_with("hcu:"),
+                header = change.header.is_some(), header_dependencies = witness.reads.headers.len(),
+                "a captured dependency changed");
+        }
         self.witnesses
             .get_mut(&token)
             .expect("held dependency witness")

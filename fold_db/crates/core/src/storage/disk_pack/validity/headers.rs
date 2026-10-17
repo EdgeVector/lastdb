@@ -79,31 +79,4 @@ impl Validity {
             .next_back()
             .unwrap_or(initial)
     }
-
-    pub(in crate::storage::disk_pack) fn molecule_version(
-        &self,
-        token: u64,
-        revision: u64,
-        molecule: &str,
-    ) -> Result<Option<u64>, ()> {
-        let witness = self.witnesses.get(&token).ok_or(())?;
-        if witness.revision < self.floor || witness.revision > revision {
-            return Err(());
-        }
-        let suffix = format!("mh:{molecule}");
-        let mut matching = witness
-            .reads
-            .headers
-            .iter()
-            .filter(|((_, key), _)| key.ends_with(&suffix));
-        let Some((coordinate, version)) = matching.next() else {
-            return Ok(None);
-        };
-        if matching.next().is_some() {
-            return Err(());
-        }
-        Ok(Some(
-            self.header_at(witness, coordinate, revision, *version),
-        ))
-    }
 }

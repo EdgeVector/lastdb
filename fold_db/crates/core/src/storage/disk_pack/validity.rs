@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 mod headers;
 mod history;
+mod proof;
 pub(super) use headers::{changed, header_version, ChangedCoordinate};
+pub(super) use proof::ValidatedWitness;
 mod witnesses;
 
 const MAX_DEPENDENCIES: usize = 10_000;

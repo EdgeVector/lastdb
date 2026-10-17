@@ -40,44 +40,4 @@ impl Validity {
         dependencies.cached = Some(token);
         Some(token)
     }
-
-    /// Warm hits contribute their original dependencies to the enclosing call.
-    pub(in crate::storage::disk_pack) fn inherit(
-        &self,
-        token: u64,
-        dependencies: &mut Dependencies,
-        revision: u64,
-    ) {
-        if dependencies.overflow || !dependencies.inherited.insert(token) {
-            return;
-        }
-        if dependencies.inherited.len() > MAX_WITNESSES {
-            dependencies.overflow = true;
-            return;
-        }
-        let Some(witness) = self.witnesses.get(&token) else {
-            dependencies.overflow = true;
-            return;
-        };
-        for ((collection, key), digest) in &witness.reads.points {
-            let coordinate = (collection.clone(), key.clone());
-            if dependencies.reads.points.contains_key(&coordinate) {
-                continue;
-            }
-            if dependencies.room(
-                192usize
-                    .saturating_add(collection.len())
-                    .saturating_add(key.len()),
-            ) {
-                dependencies.reads.points.insert(coordinate, digest.clone());
-            }
-        }
-        for (coordinate, initial) in &witness.reads.headers {
-            let version = self.header_at(witness, coordinate, revision, *initial);
-            dependencies.header(coordinate.0.clone(), coordinate.1.clone(), version);
-        }
-        for range in &witness.reads.ranges {
-            dependencies.range(&range.collection, &range.start, &range.end);
-        }
-    }
 }

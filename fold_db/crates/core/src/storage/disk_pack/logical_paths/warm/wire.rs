@@ -215,6 +215,13 @@ impl RememberWire<'_> {
             if !body.valid(self.context) {
                 continue;
             }
+            if let Some((version, value)) = body.provenance.as_mut() {
+                if !self.context.refresh_molecule_version(body.witness, value) {
+                    continue;
+                }
+                *version = self.context.version;
+            }
+            body.witness = self.context.witness();
             body.wire = Some(WireMetadata {
                 query: self.query_alias.to_string(),
                 version: self.context.version,

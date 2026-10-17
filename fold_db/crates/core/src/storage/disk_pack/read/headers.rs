@@ -23,15 +23,16 @@ impl ReadContext {
         witness: Option<u64>,
         value: &mut crate::schema::types::field::FieldValue,
     ) -> bool {
+        if value.molecule_version.is_none() {
+            return true;
+        }
         let (Some(token), Some(molecule)) = (witness, value.molecule_uuid.as_deref()) else {
             return true;
         };
-        match self
-            .validity
-            .lock()
-            .expect("native dependency validity")
-            .molecule_version(token, self.version.revision, molecule)
-        {
+        let Some(proof) = self.validated(token) else {
+            return false;
+        };
+        match proof.molecule_version(molecule) {
             Ok(Some(version)) => value.molecule_version = Some(version),
             Ok(None) => {}
             Err(()) => return false,

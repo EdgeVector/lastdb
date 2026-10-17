@@ -191,14 +191,19 @@ pub(super) fn encode_optional<T: Serialize>(
     id: &str,
     body: &T,
 ) -> StorageResult<Option<Vec<u8>>> {
-    let mut length = EncodedLength::default();
-    serde_json::to_writer(&mut length, body).map_err(|e| serialization(&e))?;
-    if !optional_record(call, id.len(), length.0)? {
+    let length = encoded_len(body)?;
+    if !optional_record(call, id.len(), length)? {
         return Ok(None);
     }
     serde_json::to_vec(body)
         .map(Some)
         .map_err(|e| serialization(&e))
+}
+
+pub(super) fn encoded_len(body: &impl Serialize) -> StorageResult<usize> {
+    let mut length = EncodedLength::default();
+    serde_json::to_writer(&mut length, body).map_err(|e| serialization(&e))?;
+    Ok(length.0)
 }
 
 #[derive(Default)]

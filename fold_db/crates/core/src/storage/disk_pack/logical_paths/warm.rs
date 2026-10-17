@@ -11,6 +11,7 @@ use std::collections::{BTreeSet, HashMap};
 mod keys;
 mod lookup;
 mod projection;
+mod refresh;
 mod wire;
 pub(crate) use keys::covers_window;
 use keys::keys;
@@ -112,7 +113,7 @@ pub(crate) fn lookup(
         .logical
         .lock()
         .expect("native complete query fields");
-    let Some((records, bytes)) =
+    let Some((records, bytes, renewal)) =
         lookup::ready(&context, &call, &logical, query, &query_alias, &keys)
     else {
         return Ok(None);
@@ -120,6 +121,7 @@ pub(crate) fn lookup(
     if !projection::optional_fits(&call, records, bytes) {
         return Ok(None);
     }
+    let mut refresh = refresh::Refresh::new(&context, &call, records, bytes, renewal);
     if !projection::optional_record(
         &mut call,
         0,
@@ -137,7 +139,15 @@ pub(crate) fn lookup(
     };
     let mut paths = 0usize;
     for key in keys {
-        let Some(row) = lookup::row(&context, &mut call, &mut logical, query, &query_alias, &key)?
+        let Some(row) = lookup::row(
+            &context,
+            &mut call,
+            &mut logical,
+            query,
+            &query_alias,
+            &key,
+            &mut refresh,
+        )?
         else {
             return Ok(None);
         };

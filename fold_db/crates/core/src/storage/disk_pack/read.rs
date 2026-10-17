@@ -6,6 +6,7 @@ mod budget;
 mod dependencies;
 mod headers;
 mod holds;
+mod proofs;
 mod raw;
 pub(crate) use headers::note_molecule_header;
 mod overlay;
@@ -20,6 +21,7 @@ pub(super) struct ReadContext {
     snapshots: Arc<snapshots::ReadSnapshots>,
     pub(super) version: logical_paths::body::ReadVersion,
     dependencies: Arc<Mutex<validity::Dependencies>>,
+    witnesses: Arc<Mutex<proofs::HeldWitnesses>>,
     validity: Arc<Mutex<validity::Validity>>,
     pub(super) paths: Arc<Mutex<logical_paths::warm::ResolvedPaths>>,
     write_owner: Option<Arc<transaction::PendingBatch>>,
@@ -91,6 +93,7 @@ impl ReadContext {
             accepted,
             version,
             dependencies: Arc::new(Mutex::new(validity::Dependencies::default())),
+            witnesses: Arc::new(Mutex::new(proofs::HeldWitnesses::default())),
             validity: Arc::clone(&runtime.validity),
             paths: Arc::new(Mutex::new(logical_paths::warm::ResolvedPaths::default())),
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
@@ -120,6 +123,7 @@ impl ReadContext {
                     version: context.version,
                     paths: Arc::clone(&context.paths),
                     dependencies: Arc::clone(&context.dependencies),
+                    witnesses: Arc::clone(&context.witnesses),
                     validity: Arc::clone(&context.validity),
                     write_owner: context.write_owner.clone(),
                 }));
