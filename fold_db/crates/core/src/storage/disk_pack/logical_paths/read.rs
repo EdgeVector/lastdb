@@ -76,6 +76,9 @@ impl PackRuntime {
         let bytes = body::encoded_len(facts.atom.as_ref())?;
         context.account_memory_record(&mut call, path.id()?.len(), bytes)?;
         let atom_source = (facts.source().0.to_owned(), facts.source().1.to_owned());
+        let sources = tip
+            .sources
+            .or_else(|| retained_tip_sources(&mut core, &key, &tip.entry, tip.metadata.as_ref()));
         let slot = CoreWarmSlot {
             entry: tip.entry,
             metadata: tip.metadata,
@@ -92,7 +95,7 @@ impl PackRuntime {
             core.invalidate_slot(&key);
             return Ok(());
         }
-        if let Some(sources) = tip.sources {
+        if let Some(sources) = sources {
             for (collection, source) in sources {
                 if !core.link_source(&key, &collection, &source) {
                     core.invalidate_slot(&key);
@@ -103,6 +106,21 @@ impl PackRuntime {
         }
         Ok(())
     }
+}
+
+/// Promotion keeps the already certified tip under the same publication lock.
+fn retained_tip_sources(
+    core: &mut crate::resident::CoreWarmSet,
+    path: &CorePath,
+    entry: &AtomEntry,
+    metadata: Option<&KeyMetadata>,
+) -> Option<Vec<(String, String)>> {
+    if !core.path_authorized(path) {
+        return None;
+    }
+    let selected = core.lookup(path).into_tip()?;
+    (selected.entry == *entry && selected.metadata.as_ref() == metadata)
+        .then(|| core.source_coordinates(path))
 }
 
 pub(super) fn refresh_tip(
