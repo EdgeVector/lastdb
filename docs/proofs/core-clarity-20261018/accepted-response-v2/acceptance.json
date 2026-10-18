@@ -1,0 +1,221 @@
+{
+  "actual_ack_frontiers": [],
+  "all_nodes_stop_normally": true,
+  "all_processes_remove_engine_and_mode_flags": true,
+  "benchmark_result": false,
+  "binary_sha256": "66879950810b0c9b09756ff1ed0d6981b3ce3af849a89ab3436d7f23bf880045",
+  "default_memory_ack_pass": null,
+  "default_native_boots": 1,
+  "driver_identity": {
+    "bytes": 4424,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-response-v2/response-driver-identity.json",
+    "sha256": "4b8e275bad1e0d6478698d46a8a53b554f0ada0b4f6850b8cfb37900c38510df"
+  },
+  "evidence_scope": "Tracked acceptance summary. Exact raw JSONL stays local and ignored; the receipt seal records its bytes and SHA256.",
+  "exit_codes": [
+    0
+  ],
+  "keyed_value_checks": 0,
+  "limits": [
+    "Repeated public payloads allocate fresh clocks; no internal idempotency hit is claimed.",
+    "The empty public array is refused before core; the internal empty transaction is source-only.",
+    "UUID404 proves addressable absence, not reclaimed disk bytes or zero-file UUID reads.",
+    "Unsupported embedded API and old-format boundaries receive source review; these workflows use normal node APIs."
+  ],
+  "literal_prefix_checks": [],
+  "node_sessions": 1,
+  "operation_counts": {
+    "default-native-format": 1,
+    "expected-operation-refusal": 2,
+    "native-selector-remediation-complete": 1,
+    "native-status": 1,
+    "native-unsupported-filter-refusals": 1,
+    "owned-node-start": 1,
+    "owned-node-stop": 1,
+    "refusal": 2,
+    "request": 4,
+    "response-driver-scope": 1
+  },
+  "raw_receipts": {
+    "bytes": 14678,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-response-v2/receipts.jsonl",
+    "sha256": "aef2000c20e9f232a1aacd6e7b9ea69e88d6fb6b6399a30b910f6615ab42ceaa"
+  },
+  "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-response-v2",
+  "required_zero_file_checks": 0,
+  "result": {
+    "benchmark_result": false,
+    "complete": true,
+    "error": null,
+    "operation_counts": {
+      "default-native-format": 1,
+      "expected-operation-refusal": 2,
+      "native-selector-remediation-complete": 1,
+      "native-status": 1,
+      "native-unsupported-filter-refusals": 1,
+      "owned-node-start": 1,
+      "owned-node-stop": 1,
+      "refusal": 2,
+      "request": 4,
+      "response-driver-scope": 1
+    },
+    "role": "candidate",
+    "workflow": "logical"
+  },
+  "source_identity": {
+    "bytes": 353762,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-response-v2/source-identity.json",
+    "sha256": "b510adc1dc9d9a9eadb7bb0b3319bd286a7ec43f3cfd7c5ceb29c52a17c0c597"
+  },
+  "special_acceptance_receipts": [
+    {
+      "cause": "only Hash and HashRange",
+      "diagnostics": "off",
+      "http_status": 400,
+      "operation": "expected-operation-refusal",
+      "path": "/api/schemas/seed-system",
+      "request_id": "temperature-ef55df5c0c77470baf596e5fac228121-core-owned-candidate-4",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "only Hash and HashRange",
+      "diagnostics": "off",
+      "http_status": 400,
+      "operation": "expected-operation-refusal",
+      "path": "/api/schemas/seed-system",
+      "request_id": "temperature-ef55df5c0c77470baf596e5fac228121-core-owned-candidate-5",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "count": 7,
+      "diagnostics": "off",
+      "operation": "native-unsupported-filter-refusals",
+      "request_id": "temperature-ef55df5c0c77470baf596e5fac228121-core-owned-candidate-6",
+      "results": [
+        {
+          "response": "Invalid data: Native LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors",
+          "status": 400
+        },
+        {
+          "response": "Invalid data: Native LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors",
+          "status": 400
+        },
+        {
+          "response": "Invalid data: Native LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors",
+          "status": 400
+        },
+        {
+          "response": "Invalid data: Native LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors",
+          "status": 400
+        },
+        {
+          "response": {
+            "error": "product apps are keyed-access only; unfiltered schema queries are not supported",
+            "kind": "full_schema_scan_not_allowed",
+            "message": "full_schema_scan_not_allowed: unfiltered query on product schema 'CoreClarityHashRange' is not supported; add a keyed filter using the structured remediation (admin/offline bulk may explicitly opt in with X-LastDB-Allow-Full-Scan: 1)",
+            "ok": false,
+            "remediation": {
+              "action": "add_key_filter",
+              "admin_override": {
+                "header": "X-LastDB-Allow-Full-Scan",
+                "scope": "admin_offline_bulk_only",
+                "value": "1"
+              },
+              "filter_variants": [
+                "HashKey",
+                "HashRangeKey",
+                "HashRangePrefix",
+                "HashRangeRange",
+                "HashRangeKeys"
+              ],
+              "hash_field": "bucket",
+              "range_field": "id",
+              "request_key": "filter"
+            },
+            "schema_id": "CoreClarityHashRange",
+            "schema_name": "CoreClarityHashRange"
+          },
+          "status": 400
+        },
+        {
+          "response": {
+            "error": "product apps are keyed-access only; unfiltered schema queries are not supported",
+            "kind": "full_schema_scan_not_allowed",
+            "message": "full_schema_scan_not_allowed: unfiltered query on product schema 'CoreClarityHashRange' is not supported; add a keyed filter using the structured remediation (admin/offline bulk may explicitly opt in with X-LastDB-Allow-Full-Scan: 1)",
+            "ok": false,
+            "remediation": {
+              "action": "add_key_filter",
+              "admin_override": {
+                "header": "X-LastDB-Allow-Full-Scan",
+                "scope": "admin_offline_bulk_only",
+                "value": "1"
+              },
+              "filter_variants": [
+                "HashKey",
+                "HashRangeKey",
+                "HashRangePrefix",
+                "HashRangeRange",
+                "HashRangeKeys"
+              ],
+              "hash_field": "bucket",
+              "range_field": "id",
+              "request_key": "filter"
+            },
+            "schema_id": "CoreClarityHashRange",
+            "schema_name": "CoreClarityHashRange"
+          },
+          "status": 400
+        },
+        {
+          "response": {
+            "error": "product apps are keyed-access only; unfiltered schema queries are not supported",
+            "kind": "full_schema_scan_not_allowed",
+            "message": "full_schema_scan_not_allowed: unfiltered query on product schema 'CoreClarityHashRange' is not supported; add a keyed filter using the structured remediation (admin/offline bulk may explicitly opt in with X-LastDB-Allow-Full-Scan: 1)",
+            "ok": false,
+            "remediation": {
+              "action": "add_key_filter",
+              "admin_override": {
+                "header": "X-LastDB-Allow-Full-Scan",
+                "scope": "admin_offline_bulk_only",
+                "value": "1"
+              },
+              "filter_variants": [
+                "HashKey",
+                "HashRangeKey",
+                "HashRangePrefix",
+                "HashRangeRange",
+                "HashRangeKeys"
+              ],
+              "hash_field": "bucket",
+              "range_field": "id",
+              "request_key": "filter"
+            },
+            "schema_id": "CoreClarityHashRange",
+            "schema_name": "CoreClarityHashRange"
+          },
+          "status": 400
+        }
+      ],
+      "variant": "core-owned-candidate"
+    },
+    {
+      "all_exact": true,
+      "diagnostics": "off",
+      "filter_variants": [
+        "HashKey",
+        "HashRangeKey",
+        "HashRangePrefix",
+        "HashRangeRange",
+        "HashRangeKeys"
+      ],
+      "operation": "native-selector-remediation-complete",
+      "request_id": "temperature-ef55df5c0c77470baf596e5fac228121-core-owned-candidate-6",
+      "scope": "Static response-only correction. Three ordinary pattern refusals advertise the exact five native selectors; all seven unsupported selectors still fail.",
+      "structured_refusals": 3,
+      "variant": "core-owned-candidate"
+    }
+  ],
+  "version": 1,
+  "warm_purge_uuid_absence": [],
+  "zero_file_checks_pass": true
+}

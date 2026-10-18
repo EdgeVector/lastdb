@@ -1,7 +1,9 @@
 # Native core cutover review
 
-The [final source identity](candidate-final-identity.json) identifies the product source and release.
-The [final committed-source check](committed-final-source-verification.json) matches all 1,883 captured inputs to that exact Git tree.
+The [cohort source identity](candidate-final-identity.json) identifies the product source and release for the three full API workflows.
+The [cohort committed-source check](committed-final-source-verification.json) matches all 1,883 captured inputs to that exact Git tree.
+The later [response-only source identity](response-final-identity.json) records the final static error-message correction.
+The [product delta](response-product-delta.json) confirms one changed product input, with no added or removed inputs.
 Commit `b391b080` records the first cleanup. Its release remains unrun discovery evidence.
 This report describes source behavior. The final results report records the separate ordinary API checks.
 
@@ -49,6 +51,8 @@ Public processor and field query helpers use the same supported-layout, filter, 
 They also capture one core and disk state when no parent scope exists.
 Nested calls reuse the parent root. A recorded native read failure remains an error.
 This closes the public helper path that could otherwise bypass the normal query executor.
+The public query refusal now recommends only the five supported native selectors.
+The earlier response incorrectly included four unsupported range forms.
 
 The purge guard reads actual current core heads.
 It excludes only the exact scoped slots that the purge removes.

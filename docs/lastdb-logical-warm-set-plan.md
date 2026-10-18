@@ -32,6 +32,8 @@ A loading schema never supplies a falsely complete partial answer.
 ## Current state
 
 The branch is `fix/core-owned-writes`, with native cutover source `a60b27d43f11fd6d1f3cf514d1579229d2256d5c`.
+The later product commit `436cc86ad82c4ca2486e0b7f55e4a1b840dfeaed` corrects the public refusal's selector list.
+The cutover results separate the full API workflows from that response-only check.
 The earlier matched measurements use product source `7876211b6d64dff43ceddd602656017b74860fe9` and merged main `011b29f3a74eac3eb3a977678630c40345157ed4`.
 Those measurements do not measure the later cutover.
 The older reports below preserve the earlier preload and core-memory comparisons.

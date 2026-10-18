@@ -1,8 +1,9 @@
 # Native cutover operational plan
 
-The native cutover source is frozen at `a60b27d43f11fd6d1f3cf514d1579229d2256d5c`.
-The release, compiler checks, and source identity pass. Ordinary API checks use fresh synthetic homes.
-The [validation report](VALIDATION.md) records their scope. The final result report records their outcome.
+The full native cutover workflows pass at `a60b27d43f11fd6d1f3cf514d1579229d2256d5c`.
+The final product commit `436cc86ad82c4ca2486e0b7f55e4a1b840dfeaed` corrects the public refusal's selector list.
+Its separate ordinary API check passes. All checks use fresh synthetic homes.
+The [validation report](VALIDATION.md) records their scope. The [results report](RESULTS.md) records their outcome.
 The primary and its archive stay untouched.
 
 ## Product boundary
@@ -58,6 +59,8 @@ V6 accepts that documented error form, but its new literal-value check compares 
 V7 uses the existing logical key comparison in its two new checks. All values, counts, file-read, and UUID gates stay unchanged.
 The V5 and V6 failure receipts stay unchanged. Earlier V1–V4 drafts never ran.
 The final driver includes default memory behavior, historical refusals, literal-prefix values, and warm unique purge.
+The later refusal driver verifies the exact supported-selector advice on the final product release.
+Its first receipt-preparation attempt stops before any node starts. Its corrected frozen identity has 24 inputs.
 Each run preserves the source identity, executable hash, requests, responses, status samples, and normal process stops.
 The final review must separate source-only claims from actual API results.
 Cleanup requires exact owned paths, no live process, preserved receipts, and the supported reclaim command.
