@@ -1,0 +1,39 @@
+{
+  "all_exact_run_roots_removed": true,
+  "all_original_receipt_bytes_match": true,
+  "checked_receipt_files": 397,
+  "normal_node_sessions": 44,
+  "other_unforced_exit_codes": [
+    1
+  ],
+  "removed_roots": [
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.halrvksu",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.kpheucku",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6bfj75vg",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f8skb6ye",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tw4eg12d",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ab6f06g9",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.uo32bult",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qx4bc7qk",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.uu05q8m3",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xw64eko3",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.d80s3nlz",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.o_pem8aw",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.trou0eob",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3vos809b"
+  ],
+  "retained_programs": [
+    {
+      "binary_sha256": "a0ad619076570fc472569712d5a40743a5a32823e909d45d4e33991b7c536285",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.51250ird"
+    },
+    {
+      "binary_sha256": "8a26322c08f60997f4c5bc22b7d09b189ae6597d6113df125151820062205e81",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.482ptgui"
+    }
+  ],
+  "seal": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/discovery-receipt-seal.json",
+  "seal_sha256": "f696c10cbc0209392ff6f16d75753a33f908e8147e7925ba268421b56a103187"
+}

@@ -26,8 +26,8 @@ def main():
     runs = []
     for supplied in args.directories:
         directory = supplied.resolve(strict=True)
-        if directory.parent != HERE:
-            raise RuntimeError('Use an exact direct operational receipt directory in this proof')
+        if not directory.is_relative_to(HERE) or len(directory.relative_to(HERE).parts) > 2:
+            raise RuntimeError('Use an exact receipt directory within two levels of this proof')
         rows = [json.loads(line) for line in (directory / 'receipts.jsonl').read_text().splitlines()]
         starts = [row for row in rows if row.get('operation') == 'owned-node-start']
         stops = [row for row in rows if row.get('operation') == 'owned-node-stop']

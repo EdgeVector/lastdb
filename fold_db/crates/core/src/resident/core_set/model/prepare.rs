@@ -41,7 +41,10 @@ impl CoreWarmSet {
             return Err(capacity());
         }
         validate(self, &changes)?;
-        self.reserve_install(&changes, definitions.len())?;
+        let sources = changes.iter().try_fold(0usize, |count, change| {
+            count.checked_add(change.sources.len()).ok_or_else(capacity)
+        })?;
+        self.reserve_install(changes.len(), sources, definitions.len())?;
         let mut slots = HashMap::new();
         let mut paths = Vec::new();
         for change in changes {
@@ -110,15 +113,10 @@ impl CoreWarmSet {
         if root.definitions.len() > 10_000 {
             return Err(capacity());
         }
-        let install = prepared
-            .iter()
-            .map(|(path, value)| CoreModelChange {
-                path: path.clone(),
-                slot: None,
-                sources: value.sources.clone(),
-            })
-            .collect::<Vec<_>>();
-        self.reserve_install(&install, definitions_by_key.len())?;
+        let sources = prepared.iter().try_fold(0usize, |count, (_, value)| {
+            count.checked_add(value.sources.len()).ok_or_else(capacity)
+        })?;
+        self.reserve_install(prepared.len(), sources, definitions_by_key.len())?;
         Ok(CoreModelUpdate {
             root,
             changes: prepared,
@@ -229,23 +227,20 @@ impl CoreWarmSet {
 
     fn reserve_install(
         &mut self,
-        changes: &[CoreModelChange],
+        slots: usize,
+        sources: usize,
         definitions: usize,
     ) -> Result<(), CoreCapacity> {
-        self.molecules
-            .try_reserve(changes.len())
-            .map_err(|_| capacity())?;
-        self.slot_atoms
-            .try_reserve(changes.len())
-            .map_err(|_| capacity())?;
+        self.molecules.try_reserve(slots).map_err(|_| capacity())?;
+        self.slot_atoms.try_reserve(slots).map_err(|_| capacity())?;
         self.owned_slots
-            .try_reserve(changes.len())
+            .try_reserve(slots)
             .map_err(|_| capacity())?;
         self.slot_sources
-            .try_reserve(changes.len())
+            .try_reserve(slots)
             .map_err(|_| capacity())?;
         self.source_slots
-            .try_reserve(changes.iter().map(|value| value.sources.len()).sum())
+            .try_reserve(sources)
             .map_err(|_| capacity())?;
         self.memory.reserve_install(definitions)
     }
@@ -300,35 +295,29 @@ fn molecule_quote(
     changes: &[CoreModelChange],
 ) -> Result<usize, CoreCapacity> {
     let previous = previous.into_iter().flat_map(|value| {
-        value.slots.iter().map(|((hash, range), value)| {
-            (
-                hash.as_str(),
-                range.as_str(),
-                value.value.as_ref(),
-                value.sources.as_slice(),
-            )
-        })
+        value
+            .slots
+            .iter()
+            .map(|((hash, range), value)| (hash.as_str(), range.as_str(), value.value.as_ref()))
     });
     let incoming = changes.iter().map(|change| {
         (
             change.path.hash.as_str(),
             change.path.range.as_str(),
             change.slot.as_ref(),
-            change.sources.as_slice(),
         )
     });
     previous
         .chain(incoming)
-        .try_fold(4096usize, |bytes, (hash, range, value, sources)| {
+        .try_fold(4096usize, |bytes, (hash, range, value)| {
             let payload = match value {
                 Some(value) => encoded_len(&(&value.entry, &value.metadata))?,
                 None => 0,
             };
-            let source_bytes = sources.iter().fold(0usize, |n, (collection, key)| {
-                n.saturating_add(512 + 4 * (collection.len() + key.len()))
-            });
+            // Source vectors belong to the shared slot owner. This map only
+            // owns its key copies, Arc references, and logical tip projection.
             bytes
-                .checked_add(2048 + 8 * (hash.len() + range.len() + payload) + source_bytes)
+                .checked_add(2048 + 8 * (hash.len() + range.len() + payload))
                 .ok_or_else(capacity)
         })
 }

@@ -29,7 +29,7 @@ def save(path, value):
 
 def preflight(run):
     directory = Path(run['receipt_directory']).resolve(strict=True)
-    if directory.parent != HERE:
+    if not directory.is_relative_to(HERE) or len(directory.relative_to(HERE).parts) > 2:
         raise RuntimeError('The sealed receipt directory escapes this proof')
     for name, expected in run['files'].items():
         path = directory / name

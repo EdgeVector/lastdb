@@ -1,0 +1,1260 @@
+{
+  "all_nodes_stop_normally": true,
+  "all_run_processes_exit_unforced": true,
+  "node_sessions": 28,
+  "runs": [
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "392b6c4c57c8a7022a1d8e9a276ee57638bb372baee67a323a9cdb322e4cef2f"
+        },
+        "driver-identity.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-inputs.json": {
+          "bytes": 747,
+          "sha256": "187670d6e304dfb8e771c0c577d58cb936feec8a8799de87f2988a8e42885cce"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "inputs.json": {
+          "bytes": 1296,
+          "sha256": "31ddc2ff6bca44a0364677cb09b7030f9633ebbf97e8b7a86047a0c61d097808"
+        },
+        "node-c.log": {
+          "bytes": 15775,
+          "sha256": "e1f26b7b84cf4c29dc4533d911957d0558ddad3421347ceba9e66a8502039a90"
+        },
+        "receipts.jsonl": {
+          "bytes": 150209,
+          "sha256": "6483deb33b3bad041b190c3981047795ebe308c1db795a2e81edd739e6a12fb2"
+        },
+        "result.json": {
+          "bytes": 300,
+          "sha256": "b5b72be82dd916e84620ac4d790e78465a0b76e5127bef453d9d1c9a30e69b50"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "8a7957c45a8260087a0dd58651edfba38a387520b1b01a5d7eff2b9e87c08bd5"
+        },
+        "source-identity.json": {
+          "bytes": 351727,
+          "sha256": "032674f5417933c56dd8f3f937bf8214f54ebbf1f5eed593704e01713e6933e5"
+        },
+        "summary.json": {
+          "bytes": 147,
+          "sha256": "b09235ff3ba06bfd9d0eecab76a07b6414e75195e064826806e845c4e1d54383"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v4-scoped",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "operation_counts": {
+          "core-owned-queue-drained": 1,
+          "core-owned-read": 24,
+          "core-owned-scoped-complete": 1,
+          "core-owned-write": 5,
+          "flush": 1,
+          "native-status": 5,
+          "owned-node-start": 2,
+          "owned-node-stop": 2,
+          "request": 41
+        },
+        "role": "candidate",
+        "workflow": "scoped"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.uhlzft90"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "36537fdd31b727c80e69e68864dc16f36917c1f6804bb8717a600dcbc01ddfe5"
+        },
+        "driver-inputs.json": {
+          "bytes": 1450,
+          "sha256": "1519d92e707f659bb331f79dfde34717e1f26c580021570520602a2bd4610335"
+        },
+        "hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "inputs.json": {
+          "bytes": 1301,
+          "sha256": "4e84927691bb8f12497b8f8d051d728d0b48cd9b7504ec913d1950acee017883"
+        },
+        "node.log": {
+          "bytes": 117940,
+          "sha256": "2921a1b2981b09fd497aa60795354b0b0422cdf4742a03f018109cdc1ac76f72"
+        },
+        "operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "receipts.jsonl": {
+          "bytes": 12578165,
+          "sha256": "e5a088f9545c3f0e58ad5bbc811d36fa78f1f251fab1f0c06499c3914184784a"
+        },
+        "result.json": {
+          "bytes": 204,
+          "sha256": "8dbc0411946ee8957b73af533ab2b2ca5d4fb13a37885ba996f7046b8ab9c1e1"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "6e13291e55f064987581b08a385f2fca22a073c3c88ae4dec2895d769cfb9607"
+        },
+        "source-identity.json": {
+          "bytes": 351727,
+          "sha256": "032674f5417933c56dd8f3f937bf8214f54ebbf1f5eed593704e01713e6933e5"
+        },
+        "summary.json": {
+          "bytes": 136,
+          "sha256": "8d29ec35efe3b1c57957a6a515eab400f116435592e9442951862b3a188ca609"
+        }
+      },
+      "node_sessions": 13,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v4-prior-completion",
+      "result": {
+        "complete": true,
+        "error": null,
+        "operation_counts": {
+          "completion-constant-membership": 1,
+          "completion-hash-all-read": 7,
+          "completion-shared-read": 30,
+          "memory-state-read": 219,
+          "memory-state-warm-storage-gate": 58
+        }
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.1fn5nr1x"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "a185dcdb9045f91a8874768b786cc7e8ac2ab208eee4c7c1fd2074eb8ebe40ce"
+        },
+        "driver-identity.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-inputs.json": {
+          "bytes": 748,
+          "sha256": "99f2ac3d7c231f96440b8eea791797beaf7c91a0b72fdfa0c83a2aa44ff3ee6a"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "inputs.json": {
+          "bytes": 1303,
+          "sha256": "1d559790eae80c6529fe1e1fdaadc57a9c57615e05d49603703a1171dce59b3d"
+        },
+        "node-c.log": {
+          "bytes": 32576,
+          "sha256": "6849d0c314b1a5c80994662e0dcb40052e0ac5c4402ce601bd33fafcf6e34341"
+        },
+        "receipts.jsonl": {
+          "bytes": 9134112,
+          "sha256": "ae99364512371c6b4f020d26ad3f2b35bfb82f49986ab60fb6402d243b19cf64"
+        },
+        "result.json": {
+          "bytes": 366,
+          "sha256": "afa889b41778eb9eaa93fef866fd3e1ace4fd7c5ce776dd08063a013a8c13a0a"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "8c3ade74bca935911d0453e6ae21a61a1d59e9e6ba35ced38fbb652303841c9c"
+        },
+        "source-identity.json": {
+          "bytes": 351727,
+          "sha256": "032674f5417933c56dd8f3f937bf8214f54ebbf1f5eed593704e01713e6933e5"
+        },
+        "summary.json": {
+          "bytes": 146,
+          "sha256": "9b2f71e383e673163e083460393c17cd77c2ae8e12ced26f0c9681ec4991a87f"
+        }
+      },
+      "node_sessions": 4,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v4-logical",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "operation_counts": {
+          "core-owned-concurrent-cohort": 3,
+          "core-owned-prime-scope": 1,
+          "core-owned-queue-drained": 6,
+          "core-owned-read": 74,
+          "core-owned-replacement-scope": 1,
+          "core-owned-write": 12,
+          "flush": 6,
+          "native-status": 14,
+          "owned-node-start": 4,
+          "owned-node-stop": 4,
+          "request": 112
+        },
+        "role": "candidate",
+        "workflow": "logical"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.yfdyv3q0"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 122,
+          "sha256": "0d589356bcbef187430d7a11ae917e2a398561c45917cb991973d48bd59c0521"
+        },
+        "driver-identity.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-inputs.json": {
+          "bytes": 748,
+          "sha256": "237dc162bc8db6db665978cb240623acb9b912f24f7c3f234cd1caec21b50ac3"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "inputs.json": {
+          "bytes": 1303,
+          "sha256": "bbbe2a43da7eaf430795a5c894110df12d3733e5194a9d6cf707370646a6ddcd"
+        },
+        "node-c.log": {
+          "bytes": 13145,
+          "sha256": "98fc40d8dcb28940ac86f921479e079756140457e03378fcc4a74f4cebe4e7e6"
+        },
+        "receipts.jsonl": {
+          "bytes": 76541,
+          "sha256": "84596721792cf7d95a07e0d81624a75da447cbf267cff893ad29c43cef7eebfd"
+        },
+        "result.json": {
+          "bytes": 1309,
+          "sha256": "e61691ffffc4294c39c55076ef3d679af5a28fcc5d95331e3f5322d243dfa2a0"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "8f6bc29bbda9a125e5703204d215ff58ed7d0af0e285fb5147a238df01b6f6f1"
+        },
+        "source-identity.json": {
+          "bytes": 351727,
+          "sha256": "032674f5417933c56dd8f3f937bf8214f54ebbf1f5eed593704e01713e6933e5"
+        },
+        "summary.json": {
+          "bytes": 1174,
+          "sha256": "766738e5689a381f7b61374e22ad509153356f04ede8f02699387cbfc376cdce"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v4-protein",
+      "result": {
+        "benchmark_result": false,
+        "complete": false,
+        "error": "RuntimeError: The accepted logical write still needs a file read: [{'blocking_queue_wait_nanos': 4209, 'decode_nanos': 0, 'decoded_bytes': 0, 'decrypt_nanos': 0, 'decrypted_bytes': 0, 'directory_entries': 0, 'directory_reads': 0, 'file_open_attempts': 1, 'file_opens': 1, 'filesystem_pages': 'unknown', 'footer_bytes': 0, 'format_probe_bytes': 32768, 'group_load_nanos': 0, 'group_opens': 0, 'journal_replay_bytes': 0, 'legacy_replay_bytes': 0, 'loader_calls': 0, 'lock_wait_nanos': 791, 'logical_warm_hits': 1, 'logical_warm_misses': 0, 'metadata_nanos': 2875, 'metadata_operations': 2, 'open_nanos': 59500, 'pack_batch_frames': 0, 'pack_batch_read_runs': 0, 'pack_file_handle_reuses': 1, 'pack_file_handles_peak': 1, 'payload_bytes': 0, 'query_storage_elapsed_nanos': 601042, 'read_nanos': 5917, 'read_operations': 2, 'requested_keys': 5, 'returned_body_bytes': 251, 'scope': 'query_storage', 'socket_queue_wait_nanos': 20583, 'temporary_bytes_peak': 32768, 'temporary_bytes_scope': 'instrumented_byte_buffers', 'version': 1}]",
+        "operation_counts": {
+          "core-owned-queue-drained": 1,
+          "core-owned-read": 13,
+          "core-owned-write": 4,
+          "failure": 1,
+          "flush": 1,
+          "native-status": 3,
+          "owned-node-start": 2,
+          "owned-node-stop": 2,
+          "request": 25
+        },
+        "role": "candidate",
+        "workflow": "protein"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp._rpf2d_0"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 122,
+          "sha256": "60c5368876d2d9463545546a350c0478964ef2fbdc61c9f0e048fe216d79d1cb"
+        },
+        "diagnostic-driver-identity.json": {
+          "bytes": 3232,
+          "sha256": "e5f343ba225c79d63ab3e8f452b4f4cd3732c163b671f2bcdd14bc6a21d8e850"
+        },
+        "diagnostic-result.json": {
+          "bytes": 1857,
+          "sha256": "f4e6831eac7fee659932b1115facc8550f05b1865a6c270c0f63e011a7c10028"
+        },
+        "driver-identity.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-inputs.json": {
+          "bytes": 748,
+          "sha256": "237dc162bc8db6db665978cb240623acb9b912f24f7c3f234cd1caec21b50ac3"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "inputs.json": {
+          "bytes": 1299,
+          "sha256": "d778a112111598c5ebc760a7c069480999532b8b1e87749094a63790700bb944"
+        },
+        "node-c.log": {
+          "bytes": 119866,
+          "sha256": "50c6dc3bd39647cf9a06128ffda1069227b6d226e73590645b320ec22c1c399d"
+        },
+        "receipts.jsonl": {
+          "bytes": 94487,
+          "sha256": "aec88ce4858c1158318990f6a9a453a4cba7389c801256598687ab7ae2df1540"
+        },
+        "result.json": {
+          "bytes": 370,
+          "sha256": "aa05e8c18d668571ba8910e4fa2cde38126304d55c01b30a40fc5b0061ee44cf"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "3a4b19b077b7e635aa4dbcedaf60c22bf2cccad0f15199fa440f7190c0cdfc5c"
+        },
+        "scoped_diagnostic.py": {
+          "bytes": 6000,
+          "sha256": "41460946e9a2d86b295fd0d70bfa0a6574d811dc839a8253dd24f2c3a5e39c07"
+        },
+        "source-identity.json": {
+          "bytes": 351727,
+          "sha256": "032674f5417933c56dd8f3f937bf8214f54ebbf1f5eed593704e01713e6933e5"
+        },
+        "summary.json": {
+          "bytes": 143,
+          "sha256": "fa14f3c5635b9687a8dd5229d1b4485a883e15ee8c82ac6da9b083e4806e7500"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v4-protein-window-trace",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "operation_counts": {
+          "core-owned-protein-complete": 1,
+          "core-owned-queue-drained": 2,
+          "core-owned-read": 14,
+          "core-owned-write": 4,
+          "diagnostic-call-window": 28,
+          "diagnostic-continue-after-file-gate": 1,
+          "flush": 2,
+          "native-status": 4,
+          "owned-node-start": 2,
+          "owned-node-stop": 2,
+          "request": 28
+        },
+        "role": "candidate",
+        "workflow": "protein"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.s4r6um0n"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 122,
+          "sha256": "0953f9bbdfd604096bdb93f7b3bc044343980f6adfe837879cc06f42df26bcc1"
+        },
+        "driver-identity.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-inputs.json": {
+          "bytes": 749,
+          "sha256": "9c57d6cd540638c8f660a22f8a4353622045e9b0221592e867ad4b13d5e295c2"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "inputs.json": {
+          "bytes": 1300,
+          "sha256": "4edfff7fa4fa823e48a4880cfbfac5650ae9aa9ec7ce10a2e55707291d7ee9c4"
+        },
+        "node-p.log": {
+          "bytes": 11148,
+          "sha256": "8c2aa2b573d855c42d657802a1a3183a28dd827aed4d6d5ad4c84ee4503a7462"
+        },
+        "receipts.jsonl": {
+          "bytes": 28987814,
+          "sha256": "4609dd7bbd0a972e8bd381f45b1ee61e4ebfb9a03124dbd850c42bf1ce2b7f17"
+        },
+        "result.json": {
+          "bytes": 346,
+          "sha256": "4a4d9ea5082023cd59e0cfd42a0bc2155f522ee09001b94061ee4cf3f3ba2f42"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "fa95543544c197439074a90a4dbf3bfd3da40ee78db263aeff93fedfc1a8507e"
+        },
+        "source-identity.json": {
+          "bytes": 351727,
+          "sha256": "032674f5417933c56dd8f3f937bf8214f54ebbf1f5eed593704e01713e6933e5"
+        },
+        "summary.json": {
+          "bytes": 147,
+          "sha256": "81d29444d7f6a73c04f79729723f10425f8ac75e591bc91c55436231b33b222c"
+        }
+      },
+      "node_sessions": 1,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v4-pressure",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "operation_counts": {
+          "core-owned-memory-cohort-complete": 1,
+          "core-owned-memory-observation": 18,
+          "core-owned-queue-drained": 3,
+          "core-owned-read": 47,
+          "core-owned-write": 8,
+          "flush": 4,
+          "native-status": 21,
+          "owned-node-start": 1,
+          "owned-node-stop": 1,
+          "request": 100
+        },
+        "role": "candidate",
+        "workflow": "pressure"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.jb6d7e4j"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 122,
+          "sha256": "798c7a01362926bf7c529cfcdb9cb8ea5841a1b98711188968796d46f9484278"
+        },
+        "atom_supplement.py": {
+          "bytes": 4358,
+          "sha256": "a672b0f4bb89843b7f7f16264655141d52beb5b8c3cfd1a304b0228a059232e4"
+        },
+        "driver-identity.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-inputs.json": {
+          "bytes": 748,
+          "sha256": "99f2ac3d7c231f96440b8eea791797beaf7c91a0b72fdfa0c83a2aa44ff3ee6a"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "inputs.json": {
+          "bytes": 1291,
+          "sha256": "dd5c9f9211e1cb3c9bdce440c6f8c42d8be6d639839c3973ae4ea919a7fddcd0"
+        },
+        "node-c.log": {
+          "bytes": 5928,
+          "sha256": "ee86fa2dbbb4b11c28fc59a169d5bb6bb6bb6f26959a2590a3861971b7493f52"
+        },
+        "receipts.jsonl": {
+          "bytes": 44552,
+          "sha256": "0d5ef750a7928dbca11a9d87a0b1ea30f41eaae170294d24c0aa78ef39f84aca"
+        },
+        "result.json": {
+          "bytes": 338,
+          "sha256": "b71833d5641bcaa8bef7ff7e73eb49d65b30c961d08e1254c37cbaa30e485f93"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "408b44ad03a064f2764cc98f5cb8e814966c6ebd6688c67ba41f7926f1f85541"
+        },
+        "source-identity.json": {
+          "bytes": 351727,
+          "sha256": "032674f5417933c56dd8f3f937bf8214f54ebbf1f5eed593704e01713e6933e5"
+        },
+        "summary.json": {
+          "bytes": 146,
+          "sha256": "85dd271336ba26acf75cd9e0f3b434f415e38f51bc1f140957d34a02f2547914"
+        },
+        "supplemental-driver-identity.json": {
+          "bytes": 3225,
+          "sha256": "01fc3ff51e7fac8e2a351bd6f42a495364fae89b4188e8c110be3eb92ff4b0ad"
+        }
+      },
+      "node_sessions": 1,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v4-atom",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "operation_counts": {
+          "core-owned-atom-metadata-selection": 1,
+          "core-owned-atom-uuid-read": 8,
+          "core-owned-queue-drained": 1,
+          "core-owned-read": 1,
+          "core-owned-write": 1,
+          "flush": 1,
+          "native-status": 3,
+          "owned-node-start": 1,
+          "owned-node-stop": 1,
+          "request": 17
+        },
+        "role": "candidate",
+        "workflow": "logical"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ymyxmo3z"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 122,
+          "sha256": "1a2b8459aa14970203c4300780c2a3daba7df602551397af25c3ce02729992cf"
+        },
+        "driver-identity.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-inputs.json": {
+          "bytes": 748,
+          "sha256": "99f2ac3d7c231f96440b8eea791797beaf7c91a0b72fdfa0c83a2aa44ff3ee6a"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "inputs.json": {
+          "bytes": 1297,
+          "sha256": "041d56211051c1f8ae70082f40ea74ac8a8a9fb2c13f067cd7519990d8a79e1b"
+        },
+        "node-c.log": {
+          "bytes": 14958,
+          "sha256": "92358341ac39ee9505dddc881bb399466e5f02fbf0fa919843cf6298b050b86f"
+        },
+        "protein_move_supplement.py": {
+          "bytes": 7064,
+          "sha256": "4488ee0a8a6e1dffec7228eda0c213d86debffa654d91b66554573d3a56cec79"
+        },
+        "receipts.jsonl": {
+          "bytes": 166336,
+          "sha256": "935ebe4b10d9d02127a29683990b749f8980a071036dfa56d45c9e0314d1d66c"
+        },
+        "result.json": {
+          "bytes": 335,
+          "sha256": "cad26f4f5a56cddbefa0baf2cd6dcc5a8cc024ade1c19769b58659f73b84f560"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "f214f9c2b5b000a4e7c513cc65c492fefb8c2d47374fbeff654cd04586f919d6"
+        },
+        "source-identity.json": {
+          "bytes": 351727,
+          "sha256": "032674f5417933c56dd8f3f937bf8214f54ebbf1f5eed593704e01713e6933e5"
+        },
+        "summary.json": {
+          "bytes": 144,
+          "sha256": "7d3408ee4617838cadd428f63882b980b55a5e61c14badb99e86c834e6d9d4dc"
+        },
+        "supplemental-driver-identity.json": {
+          "bytes": 3247,
+          "sha256": "db36cddd2b25d3541430e813ec72d4fea0f7f39e1ada2fecedc72b26254287ad"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v4-protein-partial-moves",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "operation_counts": {
+          "core-owned-partial-protein-move-complete": 1,
+          "core-owned-partial-protein-move-read": 7,
+          "core-owned-queue-drained": 2,
+          "core-owned-write": 6,
+          "flush": 2,
+          "native-status": 8,
+          "owned-node-start": 2,
+          "owned-node-stop": 2,
+          "request": 28
+        },
+        "role": "candidate",
+        "workflow": "logical"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ukd41cty"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 122,
+          "sha256": "ce852e78b9c287c5155c18de40e28d29f122109d92af329f3eb06b14168638de"
+        },
+        "driver-identity.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-inputs.json": {
+          "bytes": 746,
+          "sha256": "dd5ca651517568615d3e16b93b66827d7bd6ccba171631ba5e23f666b053dcd0"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "inputs.json": {
+          "bytes": 1292,
+          "sha256": "2617abf74e84221af65304d4fa11792d4a5c1fe534511f8ca57f9ace224d85e2"
+        },
+        "node-p.log": {
+          "bytes": 11150,
+          "sha256": "f2f501760c95abdb95944361a3246d8f3f534c8990607a4702c571040f84c26b"
+        },
+        "receipts.jsonl": {
+          "bytes": 28966356,
+          "sha256": "771ff0abfc800cbc5f29af2ea0302dcb5bdaff09ae8faabfcca143d5429917e3"
+        },
+        "result.json": {
+          "bytes": 343,
+          "sha256": "086de965347d3c10c7aa7e824111ca003f631c2c87df287feb1a2052a96fa70d"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "c3cb36cb768b7455303773a48ef1872be183658b0ae5c9d5699459fbfdc3c01b"
+        },
+        "source-identity.json": {
+          "bytes": 337268,
+          "sha256": "56e501f86b5766a720df9a3480d7809e77261969e6cd386a705bec9a160f2266"
+        },
+        "summary.json": {
+          "bytes": 148,
+          "sha256": "4e67c53fcf17c06e85d89eaf97bd28cff229ddcaaf333aef9c3d57eb57b6f8f1"
+        }
+      },
+      "node_sessions": 1,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/before-pressure-v5",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "operation_counts": {
+          "core-owned-memory-cohort-complete": 1,
+          "core-owned-memory-observation": 18,
+          "core-owned-queue-drained": 3,
+          "core-owned-read": 47,
+          "core-owned-write": 8,
+          "flush": 4,
+          "native-status": 21,
+          "owned-node-start": 1,
+          "owned-node-stop": 1,
+          "request": 100
+        },
+        "role": "before",
+        "workflow": "pressure"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.821e0glf"
+      }
+    }
+  ],
+  "scope": "Expected failed value gates remain failed. Startup exit1 is recorded separately from normal stops. This seal does not establish cleanup safety or change acceptance."
+}
