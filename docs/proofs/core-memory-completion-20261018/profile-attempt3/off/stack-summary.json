@@ -1,0 +1,21 @@
+{
+  "count_scope": "Inclusive call-graph frame sample weights summed over branches and threads; not call counts and not mutually exclusive. No CPU percentages inferred.",
+  "observed_stack": "load_scanned_hash_range -> note_selected_query_tip -> api_hash_range_record_keys_for_read -> storage_range_read_candidates -> ope_encode_range -> sha2",
+  "sample_lines": 25646,
+  "selected_function_frame_weights": {
+    "fold_db::atom::molecule_key_codec::MoleculeKeyCodec::api_hash_range_record_keys_for_read::hbcd496fbf96990fb": 4424,
+    "fold_db::crypto::e2e::E2eKeys::ope_encode_range::h7b7566a808191e55": 1942,
+    "fold_db::db_operations::atom_store::filter::load::hash_range::_$LT$impl$u20$fold_db..db_operations..atom_store..AtomStore$GT$::load_scanned_hash_range::_$u7b$$u7b$closure$u7d$$u7d$::hf6da9c6b3f8a5a69": 6767,
+    "fold_db::db_operations::atom_store::schema_keys::rows::_$LT$impl$u20$fold_db..db_operations..atom_store..AtomStore$GT$::note_selected_query_tip::h868ee9045c41c82c": 4585,
+    "fold_db::db_operations::atom_store::schema_keys::rows::_$LT$impl$u20$fold_db..db_operations..atom_store..AtomStore$GT$::note_selected_query_tip_candidates::h9a488614217aa7a0": 119,
+    "fold_db::resident::core_set::sources::_$LT$impl$u20$fold_db..resident..core_set..CoreWarmSet$GT$::source_coordinates::h7ad2566e2e8e4eb0": 125,
+    "fold_db::schema::types::field::variant::read::core_receipts::_$LT$impl$u20$fold_db..schema..types..field..variant..FieldVariant$GT$::note_loaded_tip::hb25126e0fe3e99ae": 43,
+    "fold_db::storage::disk_pack::logical_paths::core_read::note_candidates::h7dd6a887fc956f6b": 10,
+    "fold_db::storage::disk_pack::logical_paths::read::refresh_tip::h1427e51d2635e293": 1,
+    "fold_db::storage::disk_pack::logical_paths::source::body_location::h551b137eca59e78d": 104,
+    "fold_db::storage::disk_pack::logical_paths::source::body_matches::hf8d0efca79df15df": 117,
+    "fold_db::storage::disk_pack::schema_keys::selection::_$LT$impl$u20$fold_db..storage..disk_pack..PackRuntime$GT$::schema_key_tip_matches::h024ce4c6f719930e": 29,
+    "sha2::sha256::compress256::h0a7fc52465e9acdb": 4798
+  },
+  "verified_source_reason": "PackKvStore range_rows/prefix_rows do not register per-row source receipts. note_winning_tip therefore has no physical tip_source for bounded scan rows; note_candidates declines authority only after the caller already computed all OPE candidate keys. schema_key_tip_matches requires path authority, so body-only warm records cannot use that shortcut."
+}

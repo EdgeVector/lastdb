@@ -107,6 +107,7 @@ impl LogicalResidentSet {
                 return false;
             }
         }
+        self.record_links.forget_owner(&key);
         self.records.insert(key.clone(), body);
         self.touch(ResidentKey::Record {
             collection: key.collection,
@@ -116,8 +117,8 @@ impl LogicalResidentSet {
         true
     }
 
-    /// Drop the fetched record for `(collection, id)`. Call after the store
-    /// write to that id lands, so a concurrent load cannot admit older bytes.
+    /// Drop the fetched record for `(collection, id)` at write publication,
+    /// so a concurrent load cannot admit older bytes.
     pub fn forget_record(&mut self, collection: &str, id: &str) {
         let stripe = record_stripe(id);
         self.record_epochs[stripe] = self.record_epochs[stripe].wrapping_add(1);

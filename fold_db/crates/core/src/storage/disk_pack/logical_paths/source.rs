@@ -1,93 +1,95 @@
-//! Atom facts share the canonical body; source receipts expire with one read call.
-
+//! Full decoded atoms and source coordinates belong to one read or write call.
 use super::*;
-use crate::atom::{Atom, KeyMetadata};
-use crate::schema::types::field::FieldValue;
-use crate::storage::disk_pack::read::ReadContext;
-use std::collections::HashMap;
+use crate::atom::Atom;
 
 const MAX_SOURCE_ENTRIES: usize = 10_000;
 const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
 static SOURCE_CACHE: u8 = 0;
 
-#[derive(Clone, Serialize, Deserialize)]
+pub(in crate::storage::disk_pack) struct BodyLocation {
+    pub(in crate::storage::disk_pack) partition: Option<crate::atom::AtomPartition>,
+}
+
+pub(in crate::storage::disk_pack) fn body_location(
+    core: &crate::resident::CoreWarmSet,
+    path: &crate::resident::CorePath,
+    atom: &str,
+) -> StorageResult<Option<BodyLocation>> {
+    for (_, key) in core.source_coordinates(path) {
+        let raw = crate::storage::laststore::native_routing::decode(&key)?;
+        let Ok(raw) = std::str::from_utf8(&raw) else {
+            continue;
+        };
+        if crate::atom::atom_key_codec::uuid_of(raw) == Some(atom) {
+            return Ok(Some(BodyLocation {
+                partition: crate::atom::atom_key_codec::partition_of(raw),
+            }));
+        }
+    }
+    Ok(None)
+}
+
+pub(super) fn body_matches(
+    core: &crate::resident::CoreWarmSet,
+    path: &crate::resident::CorePath,
+    requested: &str,
+) -> bool {
+    let Some(first) = crate::kind_partition::read_forms(requested)
+        .into_iter()
+        .next()
+    else {
+        return false;
+    };
+    let Some(collection) =
+        crate::storage::laststore::native_routing::read_candidates(first.as_bytes())
+            .into_iter()
+            .next()
+    else {
+        return false;
+    };
+    let encoded = crate::storage::laststore::native_routing::encode(first.as_bytes());
+    core.source_coordinates(path)
+        .iter()
+        .any(|(actual_collection, key)| actual_collection == collection && key == &encoded)
+}
+
+#[derive(Clone)]
 pub(super) struct AtomFacts {
     source: SourceKey,
-    version: super::body::ReadVersion,
-    witness: u64,
-    source_file_name: Option<String>,
-    metadata: Option<HashMap<String, String>>,
-    written_at: Option<u64>,
+    pub(super) atom: Arc<Atom>,
+    bytes: usize,
 }
 
 impl AtomFacts {
-    pub(super) fn valid(&self, context: &ReadContext) -> bool {
-        context.provenance_valid(self.version, Some(self.witness))
+    pub(super) fn source(&self) -> (&str, &str) {
+        (&self.source.collection, &self.source.key)
     }
 
-    pub(super) fn inherit(&self, context: &ReadContext) -> bool {
-        self.valid(context) && context.inherit_witness(Some(self.witness))
-    }
-
-    pub(super) fn primary(&self, requested: &str) -> bool {
+    fn primary(&self, requested: &str) -> bool {
         let Some(first) = crate::kind_partition::read_forms(requested)
             .into_iter()
             .next()
         else {
             return false;
         };
-        let collection =
-            crate::storage::laststore::native_routing::read_candidates(first.as_bytes())
-                .into_iter()
-                .next();
-        collection == Some(self.source.collection.as_str())
+        crate::storage::laststore::native_routing::read_candidates(first.as_bytes())
+            .into_iter()
+            .next()
+            == Some(self.source.collection.as_str())
             && crate::storage::laststore::native_routing::encode(first.as_bytes())
                 == self.source.key
-    }
-
-    pub(super) fn renew(&mut self, context: &ReadContext) {
-        if self.version.revision == context.version.revision || !self.inherit(context) {
-            return;
-        }
-        if let Some(witness) = context.source_witness(&self.source.collection, &self.source.key) {
-            self.version = context.version;
-            self.witness = witness;
-        }
-    }
-
-    pub(super) fn field(
-        &self,
-        content: serde_json::Value,
-        atom: &str,
-        metadata: Option<&KeyMetadata>,
-        writer: Option<&str>,
-    ) -> FieldValue {
-        FieldValue {
-            value: content,
-            atom_uuid: atom.to_string(),
-            source_file_name: metadata
-                .and_then(|value| value.source_file_name.clone())
-                .or_else(|| self.source_file_name.clone()),
-            metadata: metadata
-                .and_then(|value| value.metadata.clone())
-                .or_else(|| self.metadata.clone()),
-            molecule_uuid: None,
-            molecule_version: None,
-            writer_pubkey: writer.filter(|value| !value.is_empty()).map(str::to_string),
-            written_at: self.written_at,
-        }
     }
 }
 
 #[derive(Default)]
-struct Sources {
+pub(in crate::storage::disk_pack) struct Sources {
     reads: BTreeMap<String, SourceKey>,
     atoms: BTreeMap<String, AtomFacts>,
     scoped: BTreeMap<String, String>,
     bytes: usize,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 struct SourceKey {
     collection: String,
     key: String,
@@ -112,11 +114,17 @@ impl Sources {
 }
 
 fn sources(runtime: Option<Arc<PackRuntime>>) -> StorageResult<Option<Arc<Mutex<Sources>>>> {
+    if let Some(pending) = runtime
+        .as_ref()
+        .and_then(|runtime| transaction::PendingBatch::current(runtime))
+    {
+        return Ok(Some(pending.source_receipts()));
+    }
     if !read_snapshot_active(runtime.clone()) {
         return Ok(None);
     }
     let cache = std::ptr::from_ref(&SOURCE_CACHE) as usize;
-    let name = "native_atom_source_receipts_v1";
+    let name = "native_typed_source_receipts_v2";
     if let Some(sources) = read_snapshot_get(runtime.clone(), cache, name)? {
         return Ok(Some(sources));
     }
@@ -127,91 +135,78 @@ fn sources(runtime: Option<Arc<PackRuntime>>) -> StorageResult<Option<Arc<Mutex<
     }
 }
 
-/// The native KV selector supplies the exact encoded key whose bytes won.
 pub(crate) fn note_read_source(
     runtime: Arc<PackRuntime>,
     requested: &[u8],
-    collection: &str,
-    actual: &str,
+    source: Option<(&str, &str)>,
 ) -> StorageResult<()> {
     let Ok(requested) = std::str::from_utf8(requested) else {
         return Ok(());
     };
-    if crate::atom::atom_key_codec::uuid_of(requested).is_none() {
-        return Ok(());
-    }
     let Some(sources) = sources(Some(runtime))? else {
         return Ok(());
     };
-    let mut sources = sources.lock().expect("native atom source receipts");
-    if !sources.reads.contains_key(requested)
-        && sources.room(192 + requested.len() + collection.len() + actual.len())
-    {
+    let mut sources = sources.lock().expect("native read source receipts");
+    if let Some(previous) = sources.reads.remove(requested) {
+        sources.bytes -= 192 + requested.len() + previous.collection.len() + previous.key.len();
+    }
+    if let Some(previous) = sources.atoms.remove(requested) {
+        sources.bytes -= previous.bytes;
+    }
+    let Some((collection, actual)) = source else {
+        return Ok(());
+    };
+    if sources.room(192 + requested.len() + collection.len() + actual.len()) {
         sources.reads.insert(
-            requested.to_string(),
+            requested.to_owned(),
             SourceKey {
-                collection: collection.to_string(),
-                key: actual.to_string(),
+                collection: collection.to_owned(),
+                key: actual.to_owned(),
             },
         );
     }
     Ok(())
 }
 
-/// A typed decode associates immutable atom facts with that read's real source.
 pub(crate) fn note_atom(
     runtime: Option<Arc<PackRuntime>>,
     requested: &str,
     atom: &Atom,
 ) -> StorageResult<()> {
-    let Some(context) = runtime
-        .as_ref()
-        .and_then(|runtime| ReadContext::captured(runtime))
-    else {
-        return Ok(());
-    };
     let Some(sources) = sources(runtime)? else {
         return Ok(());
     };
     let mut sources = sources.lock().expect("native typed atom sources");
-    if sources.atoms.contains_key(requested) {
-        return Ok(());
+    if let Some(previous) = sources.atoms.remove(requested) {
+        sources.bytes -= previous.bytes;
     }
     let Some(source) = sources.reads.get(requested).cloned() else {
         return Ok(());
     };
     let decoded = crate::storage::laststore::native_routing::decode(&source.key)?;
-    let uuid = std::str::from_utf8(&decoded)
+    if std::str::from_utf8(&decoded)
         .ok()
-        .and_then(crate::atom::atom_key_codec::uuid_of);
-    if uuid != Some(atom.uuid()) {
+        .and_then(crate::atom::atom_key_codec::uuid_of)
+        != Some(atom.uuid())
+    {
         return Ok(());
     }
-    let Some(witness) = context.source_witness(&source.collection, &source.key) else {
-        return Ok(());
-    };
+    let bytes = 192
+        + requested.len()
+        + source.collection.len()
+        + source.key.len()
+        + super::body::encoded_len(atom)?;
     let facts = AtomFacts {
         source,
-        version: context.version,
-        witness,
-        source_file_name: atom.source_file_name().cloned(),
-        metadata: atom.metadata().cloned(),
-        written_at: atom
-            .created_at()
-            .timestamp_nanos_opt()
-            .and_then(|value| u64::try_from(value).ok()),
+        atom: Arc::new(atom.clone()),
+        bytes,
     };
-    if !facts.primary(requested) {
-        return Ok(());
-    }
-    let bytes = super::body::encoded_len(&facts)?;
-    if sources.room(192 + requested.len() + bytes) {
-        sources.atoms.insert(requested.to_string(), facts);
+    if facts.primary(requested) && sources.room(bytes) {
+        sources.atoms.insert(requested.to_owned(), facts);
     }
     Ok(())
 }
 
-/// Located reads retain the explicit namespace and whichever fallback actually won.
 pub(crate) fn bind_atoms(
     runtime: Option<Arc<PackRuntime>>,
     scope: Option<&str>,
@@ -226,10 +221,9 @@ pub(crate) fn bind_atoms(
     let mut sources = sources.lock().expect("native scoped atom sources");
     for (((key, atom), (_, hint)), first) in keys.iter().zip(atoms).zip(slots).zip(primary) {
         let Some(atom) = atom else { continue };
-        if key != first || !sources.atoms.contains_key(key) {
-            continue;
+        if key == first {
+            bind(&mut sources, scope, key, atom, hint.as_ref());
         }
-        bind(&mut sources, scope, key, atom, hint.as_ref());
     }
     Ok(())
 }
@@ -264,12 +258,15 @@ fn bind(
     atom: &Atom,
     hint: Option<&crate::atom::AtomPartition>,
 ) {
+    let identity = scoped(scope, atom.uuid(), hint);
+    if let Some(previous) = sources.scoped.remove(&identity) {
+        sources.bytes -= 192 + identity.len() + previous.len();
+    }
     if !sources.atoms.contains_key(key) {
         return;
     }
-    let identity = scoped(scope, atom.uuid(), hint);
-    if !sources.scoped.contains_key(&identity) && sources.room(192 + identity.len() + key.len()) {
-        sources.scoped.insert(identity, key.to_string());
+    if sources.room(192 + identity.len() + key.len()) {
+        sources.scoped.insert(identity, key.to_owned());
     }
 }
 
@@ -282,7 +279,7 @@ pub(super) fn atom_facts(
     let Some(sources) = sources(runtime)? else {
         return Ok(None);
     };
-    let sources = sources.lock().expect("native selected atom facts");
+    let sources = sources.lock().expect("native selected full atom");
     Ok(sources
         .scoped
         .get(&scoped(scope, atom, hint))
@@ -293,4 +290,30 @@ pub(super) fn atom_facts(
 fn scoped(scope: Option<&str>, atom: &str, hint: Option<&crate::atom::AtomPartition>) -> String {
     serde_json::to_string(&(scope, atom, hint.map(crate::atom::AtomPartition::as_str)))
         .expect("atom scope tuple")
+}
+
+pub(crate) fn certified_atom(
+    runtime: Option<Arc<PackRuntime>>,
+    scope: Option<&str>,
+    atom: &str,
+    hint: Option<&crate::atom::AtomPartition>,
+    primary: &str,
+    expected: &Atom,
+) -> StorageResult<bool> {
+    Ok(atom_facts(runtime, scope, atom, hint)?
+        .is_some_and(|facts| facts.primary(primary) && facts.atom.as_ref() == expected))
+}
+
+pub(super) fn source_for_request(
+    runtime: Option<Arc<PackRuntime>>,
+    key: &str,
+) -> StorageResult<Option<(String, String)>> {
+    let Some(sources) = sources(runtime)? else {
+        return Ok(None);
+    };
+    let sources = sources.lock().expect("native typed source coordinate");
+    Ok(sources
+        .reads
+        .get(key)
+        .map(|source| (source.collection.clone(), source.key.clone())))
 }

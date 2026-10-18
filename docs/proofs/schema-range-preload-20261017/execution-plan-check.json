@@ -1,0 +1,16 @@
+{
+  "kind": "execution plan non-test source check",
+  "work_packages": 7,
+  "missing_local_links": [],
+  "unbalanced_fences": [],
+  "product_source_paths_checked": 72,
+  "product_source_mismatches": [],
+  "git_diff_check_exit_code": 0,
+  "documents_sha256": {
+    "docs/lastdb-logical-warm-set-plan.md": "9d133d81ce41ad2358d5b5a3a0c31b58f783c43fb80892114aa4133017a3f936",
+    "docs/lastdb-schema-range-preload-design.md": "b208f968ea4f9eccde28e664df05fa24c30104bbc8b517658da14680109aaaf2"
+  },
+  "product_build_or_benchmark_run_this_pass": false,
+  "tests_run": false,
+  "dependency_review": "P3 explicit product preload; P4 automatic first-query gate; affected writers precede both"
+}

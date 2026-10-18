@@ -1,142 +1,84 @@
-//! Exact request-path aliases to fetched logical records. Aliases contain no
-//! body, map page, file handle, or independently admitted storage object.
+//! Exact source edges belong to the warm records they protect.
+//!
+//! One source can serve several logical paths. Each retained owner has one
+//! source, so these edges cannot outgrow the existing logical-record budget.
 
 use super::{LogicalResidentSet, RecordKey};
-use std::collections::HashMap;
-
-const MAX_LINKS: usize = 10_000;
-const MAX_OWNER_LINKS: usize = 4;
-const MAX_LINK_KEY_BYTES: usize = 256;
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct LinkKey {
-    namespace: String,
-    alias: String,
-}
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Default)]
 pub(super) struct RecordLinks {
-    targets: HashMap<LinkKey, RecordKey>,
-    owners: HashMap<RecordKey, Vec<LinkKey>>,
+    sources: HashMap<RecordKey, HashSet<RecordKey>>,
+    owners: HashMap<RecordKey, RecordKey>,
 }
 
 impl LogicalResidentSet {
-    /// Link one complete request path to an existing fetched record. The
-    /// namespace and alias must include every scope; the caller validates its
-    /// captured view before it uses the body.
-    /// The set permits at most 10,000 links and four aliases per owner.
-    /// A full cap replaces this owner's oldest admitted alias when one exists.
-    /// Capacity refusal leaves an existing alias unchanged.
-    pub fn link_record(
+    /// Attach the exact source that supplied this already-admitted body.
+    /// Source and owner edges leave with the owner; they retain no values.
+    pub fn link_record_source(
         &mut self,
-        namespace: &str,
-        alias: &str,
         collection: &str,
         id: &str,
+        source_collection: &str,
+        source_id: &str,
     ) -> bool {
-        if namespace.len().saturating_add(alias.len()) > MAX_LINK_KEY_BYTES {
-            return false;
-        }
-        let owner = RecordKey {
-            collection: collection.to_string(),
-            id: id.to_string(),
-        };
+        let owner = record_key(collection, id);
         if !self.records.contains_key(&owner) {
             return false;
         }
-        self.record_links.link(link_key(namespace, alias), owner)
+        self.record_links
+            .link(owner, record_key(source_collection, source_id));
+        true
     }
 
-    /// Remove one exact alias and its inverse owner entry. The fetched record
-    /// and its recency are unchanged.
-    pub fn unlink_record(&mut self, namespace: &str, alias: &str) -> bool {
-        if namespace.len().saturating_add(alias.len()) > MAX_LINK_KEY_BYTES {
-            return false;
+    /// A source write removes every affected warm path before publication.
+    /// Active calls retain their copied result and their complete read view.
+    pub fn forget_source_records(&mut self, collection: &str, id: &str) {
+        let source = record_key(collection, id);
+        let Some(owners) = self.record_links.sources.remove(&source) else {
+            return;
+        };
+        for owner in owners {
+            self.forget_record(&owner.collection, &owner.id);
         }
-        self.record_links.unlink(&link_key(namespace, alias))
-    }
-
-    /// Inspect the linked owner before byte admission. This method copies no
-    /// body and changes no recency; the subsequent fetched_record marks use.
-    pub fn linked_record_target(&self, namespace: &str, alias: &str) -> Option<(String, String)> {
-        let owner = self.record_links.targets.get(&link_key(namespace, alias))?;
-        self.records
-            .contains_key(owner)
-            .then(|| (owner.collection.clone(), owner.id.clone()))
-    }
-
-    /// Fetch through an exact alias and mark its single owner most recent.
-    /// None in the returned body means that the owner was fetched absent.
-    pub fn linked_record(
-        &mut self,
-        namespace: &str,
-        alias: &str,
-    ) -> Option<(String, String, Option<Vec<u8>>)> {
-        let (collection, id) = self.linked_record_target(namespace, alias)?;
-        let body = self.fetched_record(&collection, &id)?;
-        Some((collection, id, body))
     }
 }
 
 impl RecordLinks {
-    fn link(&mut self, link: LinkKey, owner: RecordKey) -> bool {
-        let previous = self.targets.get(&link);
-        if previous == Some(&owner) {
-            return true;
+    fn link(&mut self, owner: RecordKey, source: RecordKey) {
+        if self.owners.get(&owner) == Some(&source) {
+            return;
         }
-        if (previous.is_none() && self.targets.len() >= MAX_LINKS)
-            || self
-                .owners
-                .get(&owner)
-                .is_some_and(|links| links.len() >= MAX_OWNER_LINKS)
-        {
-            let Some(victim) = self
-                .owners
-                .get(&owner)
-                .and_then(|links| links.first())
-                .cloned()
-            else {
-                return false;
-            };
-            self.unlink(&victim);
-        }
-        self.unlink(&link);
-        self.targets.insert(link.clone(), owner.clone());
-        self.owners.entry(owner).or_default().push(link);
-        true
-    }
-
-    fn unlink(&mut self, link: &LinkKey) -> bool {
-        let Some(owner) = self.targets.remove(link) else {
-            return false;
-        };
-        let empty = self.owners.get_mut(&owner).is_some_and(|links| {
-            links.retain(|old| old != link);
-            links.is_empty()
-        });
-        if empty {
-            self.owners.remove(&owner);
-        }
-        true
+        self.forget_owner(&owner);
+        self.sources
+            .entry(source.clone())
+            .or_default()
+            .insert(owner.clone());
+        self.owners.insert(owner, source);
     }
 
     pub(super) fn forget_owner(&mut self, owner: &RecordKey) {
-        if let Some(links) = self.owners.remove(owner) {
-            for link in links {
-                self.targets.remove(&link);
-            }
+        let Some(source) = self.owners.remove(owner) else {
+            return;
+        };
+        let empty = self.sources.get_mut(&source).is_some_and(|owners| {
+            owners.remove(owner);
+            owners.is_empty()
+        });
+        if empty {
+            self.sources.remove(&source);
         }
     }
 
     pub(super) fn clear(&mut self) {
-        self.targets.clear();
+        self.sources.clear();
         self.owners.clear();
     }
 }
 
-fn link_key(namespace: &str, alias: &str) -> LinkKey {
-    LinkKey {
-        namespace: namespace.to_string(),
-        alias: alias.to_string(),
+fn record_key(collection: &str, id: &str) -> RecordKey {
+    RecordKey {
+        collection: collection.to_string(),
+        id: id.to_string(),
     }
 }

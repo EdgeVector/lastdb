@@ -1,0 +1,29 @@
+{
+  "kind": "analysis_only_synthetic_representation_measurement",
+  "lastdb_product_proof": false,
+  "completed_utc": "2026-10-17T22:26:31Z",
+  "host": {
+    "model": "Mac16,5",
+    "memory_bytes": 38654705664,
+    "logical_cpus": 14,
+    "os": "macOS 26.5.2",
+    "os_build": "25F84"
+  },
+  "compiler": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "compile_arguments": ["-O", "--edition=2021", "representation.rs", "-o", "OWNED_SCRATCH/representation"],
+  "source_sha256": "15aaf4736734f4643ad3946024eb04bac05d060de5a1a816a164a867f9f26aca",
+  "binary_sha256": "15b439d7a73ba58f7af1e63c905ee8e6f20f520833d30889d68c7a25351e8031",
+  "summary_source_sha256": "5db6025c7d4d933b3f3b61e7a00abbbd68bd15cedb8952ae3f4f692cf7fdaf2d",
+  "scratch_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/schema-range-representation.2BlxHE",
+  "load_processes": 76,
+  "sampling": "Five fresh processes per layout through 100k keys; three per layout at one million keys",
+  "load_order": "Layouts alternate each round; the one-million tree sample 1 runs first as a bounded-memory check",
+  "tree_input_buffer_keys": 1024,
+  "cache_state": "All files were generated before load; no cache flush; not device-cold",
+  "load_timer": "File open, metadata, buffer allocation, sequential read, and structure construction; stops before retained structure destruction",
+  "process_timer": "/usr/bin/time -l includes process startup and destruction",
+  "peak_memory": "Maximum resident set size in bytes; whole process, no baseline subtraction",
+  "all_load_receipts_have_zero_block_input_operations": true,
+  "all_load_receipts_have_zero_page_faults": true,
+  "inputs_and_binary_cleanup": "Completed with lastdb-dev reclaim --home OWNED_SCRATCH --exact-home; exit 0; released exact synthetic seed"
+}

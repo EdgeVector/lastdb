@@ -41,3 +41,33 @@
 # A node run from the repo root writes its sled store to ./data/ (conf, db,
 # blobs). Root-anchored so it never matches nested fixture/test `data/` dirs.
 /data/
+
+# Generated benchmark values and duplicate captures stay in the local worktree.
+# Compact reports, reproducible drivers, and identities remain in Git.
+# The completion proof's evidence-index.json records local hashes and sizes.
+/docs/proofs/**/*.jsonl
+/docs/proofs/**/*.log
+/docs/proofs/**/*.log.gz
+/docs/proofs/**/*.stdout
+/docs/proofs/**/*.stderr
+/docs/proofs/**/*.time
+/docs/proofs/**/sample.txt
+/docs/proofs/**/source-inputs/
+/docs/proofs/**/*-source-inputs/
+/docs/proofs/**/*.py
+!/docs/proofs/*/*.py
+!/docs/proofs/graph-first-20261017/drivers/*.py
+/docs/proofs/**/source-identity.json
+/docs/proofs/**/receipt-manifest.json
+/docs/proofs/**/current-source-pending*.json
+/docs/proofs/schema-range-preload-20261017/keys-*.json
+/docs/proofs/**/*-source.json
+/docs/proofs/**/*source-freeze.json
+/docs/proofs/**/source.json
+/docs/proofs/**/source-inputs.json
+/docs/proofs/core-memory-state-20261018/current-source*.json
+/docs/proofs/core-memory-state-20261018/before-source-prior.json
+!/docs/proofs/core-memory-state-20261018/before-source.json
+!/docs/proofs/core-memory-state-20261018/current-source-v4.json
+/docs/proofs/*/disk-component/**/read*.json
+/docs/proofs/*/disk-component/**/range*.json

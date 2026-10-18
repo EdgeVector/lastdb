@@ -58,6 +58,27 @@ pub struct JournalQuote {
 }
 
 impl JournalQuote {
+    /// Extend dimensions without revisiting an admitted operation or body.
+    pub(in crate::disk_pack) fn extended(self, incoming: Self, limit: usize) -> Result<Self> {
+        let operations = self
+            .operations
+            .checked_add(incoming.operations)
+            .filter(|count| *count <= limit)
+            .ok_or_else(|| super::capacity("batch operation admission limit"))?;
+        // Each quote includes one BEGIN/COMMIT pair. The prefix uses one pair.
+        let logical_bytes = self
+            .logical_bytes
+            .checked_add(incoming.logical_bytes)
+            .and_then(|bytes| bytes.checked_sub(256))
+            .filter(|bytes| *bytes <= super::MAX_BATCH_BYTES)
+            .ok_or_else(|| super::capacity("batch byte admission limit"))?;
+        Ok(Self {
+            operations,
+            logical_bytes,
+            physical_reserve: BatchPlan::reserve(logical_bytes)?,
+        })
+    }
+
     /// Quote one complete batch from dimensions available before ownership moves.
     pub fn from_shapes(shapes: &[JournalMutationShape]) -> Result<Self> {
         Self::from_iter(shapes.iter().copied())

@@ -2,15 +2,18 @@
 
 use super::super::molecules::DeferredPersistJob;
 use super::*;
+use crate::atom::{Atom, AtomEntry, KeyMetadata};
 use crate::storage::disk_pack::logical_paths::{schema_identity, LogicalPath, LogicalPathRecord};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 struct ChangedTip {
     molecule: String,
     hash: String,
     range: String,
-    atom: String,
+    entry: AtomEntry,
+    metadata: Option<KeyMetadata>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -55,30 +58,28 @@ impl MutationManager {
         if bindings.values().any(Option::is_none) {
             return Ok(transaction::require_durable(runtime)?);
         }
-        let atoms: Vec<_> = tips.iter().map(|tip| (tip.atom.as_str(), None)).collect();
-        let atoms = self
-            .db_ops
-            .atoms()
-            .get_atoms_located(&atoms, job.storage_prefix.as_deref())
-            .await?;
-        let mut bytes = 0usize;
+        let Some(atoms) = self
+            .path_atoms(&tips, job.storage_prefix.as_deref())
+            .await?
+        else {
+            return Ok(transaction::require_durable(runtime)?);
+        };
         let mut records = Vec::new();
-        for (tip, atom) in tips.iter().zip(atoms) {
-            let atom = atom.ok_or_else(|| SchemaError::StorageRead {
-                detail: "native write path has no staged or stored atom content".into(),
-            })?;
+        for tip in &tips {
+            let (atom_key, _) = self.path_atom_target(tip, job.storage_prefix.as_deref())?;
+            let atom = &atoms[&atom_key];
+            let sources = self.path_sources(tip, job.storage_prefix.as_deref())?;
             for binding in bindings[&tip.molecule]
                 .as_ref()
                 .expect("complete path bindings")
             {
-                let value = if binding.envelope {
-                    crate::record_molecule::parse_document_fields(atom.content())
-                        .and_then(|fields| fields.get(&binding.name))
-                } else {
-                    Some(atom.content())
-                };
-                let Some(value) = value else { continue };
-                let record = LogicalPathRecord::from_value(
+                if binding.envelope
+                    && !crate::record_molecule::parse_document_fields(atom.content())
+                        .is_some_and(|fields| fields.contains_key(&binding.name))
+                {
+                    continue;
+                }
+                let record = LogicalPathRecord::from_atom(
                     LogicalPath {
                         scope: job.storage_prefix.clone(),
                         schema: binding.schema.clone(),
@@ -86,12 +87,14 @@ impl MutationManager {
                         molecule: tip.molecule.clone(),
                         hash: tip.hash.clone(),
                         range: tip.range.clone(),
-                        atom: tip.atom.clone(),
+                        atom: tip.entry.atom_uuid.clone(),
                     },
-                    value,
-                )?;
-                bytes = bytes.saturating_add(record.body.len());
-                if bytes > 128 * 1024 * 1024 || records.len() >= 10_000 {
+                    Arc::clone(atom),
+                    tip.entry.clone(),
+                    tip.metadata.clone(),
+                )?
+                .with_sources(sources.clone());
+                if records.len() >= 10_000 {
                     return Ok(transaction::require_durable(runtime)?);
                 }
                 records.push(record);
@@ -103,6 +106,101 @@ impl MutationManager {
             }
             result => Ok(result?),
         }
+    }
+
+    /// Name each accepted tip spelling and the current atom placement candidate.
+    fn path_sources(
+        &self,
+        tip: &ChangedTip,
+        scope: Option<&str>,
+    ) -> Result<Vec<String>, SchemaError> {
+        let atoms = self.db_ops.atoms();
+        let codec = atoms.key_codec_for_molecule(&tip.molecule);
+        let mut sources: Vec<_> = codec
+            .api_hash_range_record_keys_for_read(&tip.molecule, &tip.hash, &tip.range)
+            .map_err(|error| SchemaError::InvalidData(error.to_string()))?
+            .into_iter()
+            .map(|key| crate::schema::types::field::build_storage_key(scope, &key))
+            .collect();
+        sources.push(self.path_atom_target(tip, scope)?.0);
+        Ok(sources)
+    }
+
+    fn path_atom_target(
+        &self,
+        tip: &ChangedTip,
+        scope: Option<&str>,
+    ) -> Result<(String, crate::atom::AtomPartition), SchemaError> {
+        let atoms = self.db_ops.atoms();
+        let hash = atoms.storage_hash(&tip.molecule, &tip.hash)?;
+        let partition = crate::atom::AtomPartition::for_slot(&tip.molecule, &hash);
+        let key = atoms.primary_atom_key(&tip.entry.atom_uuid, Some(&partition), scope);
+        Ok((key, partition))
+    }
+
+    /// Fetch exact physical targets, then share only identical full core values.
+    async fn path_atoms(
+        &self,
+        tips: &[ChangedTip],
+        storage_prefix: Option<&str>,
+    ) -> Result<Option<BTreeMap<String, Arc<Atom>>>, SchemaError> {
+        let mut targets = BTreeMap::new();
+        for tip in tips {
+            let (key, partition) = self.path_atom_target(tip, storage_prefix)?;
+            targets
+                .entry(key)
+                .or_insert((tip.entry.atom_uuid.as_str(), partition));
+        }
+        if targets.len() > 10_000 {
+            return Ok(None);
+        }
+        let slots: Vec<_> = targets
+            .values()
+            .map(|(id, partition)| (*id, Some(partition.clone())))
+            .collect();
+        let fetched = self
+            .db_ops
+            .atoms()
+            .get_atoms_located(&slots, storage_prefix)
+            .await?;
+        let mut bytes = 0usize;
+        let mut atoms = BTreeMap::new();
+        let mut shared: BTreeMap<String, Vec<Arc<Atom>>> = BTreeMap::new();
+        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
+        for ((target, (id, partition)), atom) in targets.into_iter().zip(fetched) {
+            let atom = atom.ok_or_else(|| SchemaError::StorageRead {
+                detail: "native write path has no staged or stored atom content".into(),
+            })?;
+            if !crate::storage::disk_pack::logical_paths::source::certified_atom(
+                runtime.clone(),
+                storage_prefix,
+                id,
+                Some(&partition),
+                &target,
+                &atom,
+            )? {
+                return Ok(None);
+            }
+            bytes = bytes.saturating_add(
+                serde_json::to_vec(&atom)
+                    .map_err(|error| SchemaError::InvalidData(error.to_string()))?
+                    .len(),
+            );
+            if bytes > 128 * 1024 * 1024 {
+                return Ok(None);
+            }
+            let variants = shared.entry(atom.uuid().to_owned()).or_default();
+            let atom = if let Some(existing) = variants.iter().find(|value| value.as_ref() == &atom)
+            {
+                Arc::clone(existing)
+            } else {
+                let atom = Arc::new(atom);
+                variants.push(Arc::clone(&atom));
+                atom
+            };
+            atoms.insert(target, atom);
+        }
+        Ok(Some(atoms))
     }
 
     async fn path_bindings(
@@ -264,20 +362,21 @@ fn changed_tips(job: &DeferredPersistJob) -> Vec<ChangedTip> {
     for (molecule, data, keys) in entry.chain(siblings) {
         for key in keys {
             let (hash, range) = (key.disk_hash(), key.disk_range());
-            if let Some(atom) = data.get_atom_uuid(hash, range) {
+            if let Some(entry) = data.get_atom_entry(hash, range) {
                 tips.insert(
                     (molecule.to_string(), hash.to_string(), range.to_string()),
-                    atom.clone(),
+                    (entry.clone(), data.get_key_metadata(hash, range).cloned()),
                 );
             }
         }
     }
     tips.into_iter()
-        .map(|((molecule, hash, range), atom)| ChangedTip {
+        .map(|((molecule, hash, range), (entry, metadata))| ChangedTip {
             molecule,
             hash,
             range,
-            atom,
+            entry,
+            metadata,
         })
         .collect()
 }

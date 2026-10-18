@@ -1,0 +1,1247 @@
+{
+  "completion": {
+    "errors": [],
+    "finished_utc": "2026-10-17T19:01:59.465568+00:00",
+    "load_end": [
+      5.97412109375,
+      4.51220703125,
+      3.32080078125
+    ],
+    "query_count": 112,
+    "receipt_sha256": {
+      "a/node.log": "166d0b0b4cf0b2302d9034dc334096ab2b4fcd6d88a2b1e308297dab7e0fc7cf",
+      "b/node.log": "777f257a2b24e922ca0c8d48520c78d9b575e02dda3b5255687d83f32d55fe24",
+      "inputs.json": "c68592ca7bb2cafc711adad2c3c7dc5f4fd306ed53f65c83f562a5cd2772f6c5",
+      "ownership.json": "f5c2afd3b8a924661febc1d3ab845415e6ed72bcd4f67bf8e21a905d38afadae",
+      "receipts.jsonl": "2ba7a4cf27a0960424808ff7964680d609976811594a05c17c61881c30e991d6",
+      "summary.json": "c9845291cff2a9b6485f9add2c5695eb621e81bb343e0f656e5a0d445b3df8d6"
+    },
+    "success": true
+  },
+  "query_calls": 112,
+  "hash_query_items": 96,
+  "query_values_match": true,
+  "normal_stops": 12,
+  "all_stops_zero": true,
+  "refusals": 0,
+  "max_core_paths": 128,
+  "max_core_molecules": 3,
+  "max_core_atoms": 97,
+  "max_core_dirty": 16,
+  "max_core_held": 0,
+  "candidate_warm_observations": [
+    {
+      "phase": "cold-prime",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 33,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 48,
+        "molecules": 3,
+        "paths": 48,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "cold-prime",
+      "shape": "range",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "range",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "range",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "range",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "range",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "warm-repeat",
+      "shape": "range",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 80,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "related-ack",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 16,
+        "dirty": 16,
+        "held": 0,
+        "hits": 8,
+        "misses": 16,
+        "molecules": 0,
+        "paths": 16,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "related-ack",
+      "shape": "range",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": true
+    },
+    {
+      "phase": "related-after-flush",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "related-after-flush",
+      "shape": "range",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "unrelated-ack",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 24,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "unrelated-ack",
+      "shape": "range",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": true
+    },
+    {
+      "phase": "unrelated-after-flush",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "unrelated-after-flush",
+      "shape": "range",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-hot-prime",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 17,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 24,
+        "molecules": 3,
+        "paths": 24,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-old-prime",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 16,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 24,
+        "molecules": 0,
+        "paths": 24,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-hot-touch",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-pressure",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 32,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 48,
+        "molecules": 0,
+        "paths": 48,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-hot-touch",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-pressure",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 24,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 48,
+        "molecules": 0,
+        "paths": 32,
+        "purged": 16
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-hot-touch",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-pressure",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 48,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 48
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-hot-touch",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-pressure",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 48,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 48
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-hot-touch",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-pressure",
+      "shape": "exact",
+      "batch": 16,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 48,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 48
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-hot-final",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "purge-old-final",
+      "shape": "exact",
+      "batch": 8,
+      "delta": {
+        "atoms": 8,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 24,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 24
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-cold-prime",
+      "shape": "hash-batch",
+      "batch": 4,
+      "delta": {
+        "atoms": 12,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 12,
+        "molecules": 3,
+        "paths": 12,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-warm-repeat",
+      "shape": "hash-batch",
+      "batch": 4,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 20,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-warm-repeat",
+      "shape": "hash-batch",
+      "batch": 4,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 20,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-warm-repeat",
+      "shape": "hash-batch",
+      "batch": 4,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 20,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-warm-repeat",
+      "shape": "hash-batch",
+      "batch": 4,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 20,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-warm-repeat",
+      "shape": "hash-batch",
+      "batch": 4,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 20,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-update-ack",
+      "shape": "hash-batch",
+      "batch": 4,
+      "delta": {
+        "atoms": 4,
+        "dirty": 4,
+        "held": 0,
+        "hits": 8,
+        "misses": 4,
+        "molecules": 0,
+        "paths": 4,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-update-after-flush",
+      "shape": "hash-batch",
+      "batch": 4,
+      "delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 20,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-final-known-keys",
+      "shape": "hash-batch",
+      "batch": 8,
+      "delta": {
+        "atoms": 12,
+        "dirty": 0,
+        "held": 0,
+        "hits": 20,
+        "misses": 12,
+        "molecules": 0,
+        "paths": 12,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    },
+    {
+      "phase": "hash-normal-reopen",
+      "shape": "hash-batch",
+      "batch": 8,
+      "delta": {
+        "atoms": 24,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 24,
+        "molecules": 3,
+        "paths": 24,
+        "purged": 0
+      },
+      "pending_before_and_after": false
+    }
+  ],
+  "lru": [
+    {
+      "diagnostics": "off",
+      "hot_delta": {},
+      "old_delta": {},
+      "operation": "lru-summary",
+      "purged_delta": 0,
+      "variant": "before"
+    },
+    {
+      "diagnostics": "off",
+      "hot_delta": {
+        "atoms": 0,
+        "dirty": 0,
+        "held": 0,
+        "hits": 40,
+        "misses": 0,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 0
+      },
+      "hot_reuse_observed": true,
+      "old_delta": {
+        "atoms": 8,
+        "dirty": 0,
+        "held": 0,
+        "hits": 0,
+        "misses": 24,
+        "molecules": 0,
+        "paths": 0,
+        "purged": 24
+      },
+      "old_fetch_observed": true,
+      "operation": "lru-summary",
+      "purge_observed": true,
+      "purged_delta": 184,
+      "variant": "after"
+    }
+  ],
+  "timings": [
+    {
+      "variant": "before",
+      "phase": "cold-prime",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 1,
+      "median_ms": 10.949791,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "cold-prime",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 1,
+      "median_ms": 10.280208,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "warm-repeat",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 5,
+      "median_ms": 4.135166,
+      "p95_ms": 4.301292
+    },
+    {
+      "variant": "before",
+      "phase": "warm-repeat",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 5,
+      "median_ms": 0.810334,
+      "p95_ms": 0.899834
+    },
+    {
+      "variant": "before",
+      "phase": "cold-prime",
+      "shape": "range",
+      "batch": 16,
+      "samples": 1,
+      "median_ms": 7.424167,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "cold-prime",
+      "shape": "range",
+      "batch": 16,
+      "samples": 1,
+      "median_ms": 3.987375,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "warm-repeat",
+      "shape": "range",
+      "batch": 16,
+      "samples": 5,
+      "median_ms": 3.9085,
+      "p95_ms": 4.186625
+    },
+    {
+      "variant": "before",
+      "phase": "warm-repeat",
+      "shape": "range",
+      "batch": 16,
+      "samples": 5,
+      "median_ms": 7.451833,
+      "p95_ms": 7.646958
+    },
+    {
+      "variant": "before",
+      "phase": "related-ack",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 4.935167,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "related-ack",
+      "shape": "range",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 3.920792,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "related-after-flush",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 5.725833,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "related-after-flush",
+      "shape": "range",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 5.1185,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "related-ack",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 6.50825,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "related-ack",
+      "shape": "range",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 3.2525,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "related-after-flush",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 3.562833,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "related-after-flush",
+      "shape": "range",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 3.245417,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "unrelated-ack",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 5.8115,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "unrelated-ack",
+      "shape": "range",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 5.183459,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "unrelated-after-flush",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 5.873041,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "unrelated-after-flush",
+      "shape": "range",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 5.247625,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "unrelated-ack",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 6.01325,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "unrelated-ack",
+      "shape": "range",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 3.364791,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "unrelated-after-flush",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 3.702958,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "unrelated-after-flush",
+      "shape": "range",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 3.154292,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "purge-hot-prime",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 7.326333,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "purge-old-prime",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 6.847625,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "purge-hot-touch",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 5,
+      "median_ms": 0.50125,
+      "p95_ms": 0.565084
+    },
+    {
+      "variant": "before",
+      "phase": "purge-pressure",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 5,
+      "median_ms": 10.004834,
+      "p95_ms": 10.106125
+    },
+    {
+      "variant": "before",
+      "phase": "purge-hot-final",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 0.486584,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "purge-old-final",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 6.753167,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "purge-hot-prime",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 6.879125,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "purge-old-prime",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 6.475541,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "purge-hot-touch",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 5,
+      "median_ms": 3.335958,
+      "p95_ms": 3.465834
+    },
+    {
+      "variant": "after",
+      "phase": "purge-pressure",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 5,
+      "median_ms": 9.314083,
+      "p95_ms": 9.386041
+    },
+    {
+      "variant": "after",
+      "phase": "purge-hot-final",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 3.300125,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "purge-old-final",
+      "shape": "exact",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 6.266708,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "final-known-keys",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 6,
+      "median_ms": 9.958333,
+      "p95_ms": 10.377959
+    },
+    {
+      "variant": "before",
+      "phase": "normal-reopen",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 6,
+      "median_ms": 10.0278755,
+      "p95_ms": 10.750375
+    },
+    {
+      "variant": "after",
+      "phase": "final-known-keys",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 6,
+      "median_ms": 9.2728125,
+      "p95_ms": 9.6195
+    },
+    {
+      "variant": "after",
+      "phase": "normal-reopen",
+      "shape": "exact",
+      "batch": 16,
+      "samples": 6,
+      "median_ms": 9.461937500000001,
+      "p95_ms": 9.871958
+    },
+    {
+      "variant": "before",
+      "phase": "hash-cold-prime",
+      "shape": "hash-batch",
+      "batch": 4,
+      "samples": 1,
+      "median_ms": 9.107916,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "hash-cold-prime",
+      "shape": "hash-batch",
+      "batch": 4,
+      "samples": 1,
+      "median_ms": 8.492375,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "hash-warm-repeat",
+      "shape": "hash-batch",
+      "batch": 4,
+      "samples": 5,
+      "median_ms": 6.50325,
+      "p95_ms": 6.608541
+    },
+    {
+      "variant": "before",
+      "phase": "hash-warm-repeat",
+      "shape": "hash-batch",
+      "batch": 4,
+      "samples": 5,
+      "median_ms": 0.563208,
+      "p95_ms": 0.626667
+    },
+    {
+      "variant": "before",
+      "phase": "hash-update-ack",
+      "shape": "hash-batch",
+      "batch": 4,
+      "samples": 1,
+      "median_ms": 7.538167,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "hash-update-after-flush",
+      "shape": "hash-batch",
+      "batch": 4,
+      "samples": 1,
+      "median_ms": 0.648167,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "hash-final-known-keys",
+      "shape": "hash-batch",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 8.56025,
+      "p95_ms": null
+    },
+    {
+      "variant": "before",
+      "phase": "hash-normal-reopen",
+      "shape": "hash-batch",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 15.6525,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "hash-update-ack",
+      "shape": "hash-batch",
+      "batch": 4,
+      "samples": 1,
+      "median_ms": 7.814459,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "hash-update-after-flush",
+      "shape": "hash-batch",
+      "batch": 4,
+      "samples": 1,
+      "median_ms": 6.792667,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "hash-final-known-keys",
+      "shape": "hash-batch",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 13.79375,
+      "p95_ms": null
+    },
+    {
+      "variant": "after",
+      "phase": "hash-normal-reopen",
+      "shape": "hash-batch",
+      "batch": 8,
+      "samples": 1,
+      "median_ms": 15.077166,
+      "p95_ms": null
+    }
+  ]
+}

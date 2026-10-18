@@ -13,18 +13,29 @@ impl AtomStore {
 
         let scanned = match filter {
             F::HashRangeKey { hash, range } => {
-                let mut out = Vec::new();
                 let read_keys = self
                     .key_codec_for_molecule(molecule_uuid)
                     .api_hash_range_record_keys_for_read(molecule_uuid, hash, range)
                     .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                for key in read_keys {
-                    if let Some(hit) = self.get_per_key(&key, storage_prefix).await? {
-                        out.push(hit);
-                        break;
-                    }
+                let groups = [read_keys];
+                let hit = self
+                    .load_first_present_candidate_with_key(storage_prefix, &groups)
+                    .await?
+                    .pop()
+                    .flatten();
+                if hit.is_none() {
+                    let api_key = crate::schema::types::key_value::KeyValue::new(
+                        Some(hash.clone()),
+                        Some(range.clone()),
+                    );
+                    self.note_missing_query_key(
+                        storage_prefix,
+                        molecule_uuid,
+                        &api_key,
+                        &groups[0],
+                    )?;
                 }
-                out
+                hit.into_iter().collect()
             }
             F::HashKey(hash) => {
                 if let Some(unique) = self
@@ -61,6 +72,12 @@ impl AtomStore {
             .key_codec_for_molecule(molecule_uuid)
             .api_hash_range_scan_prefixes_for_read(molecule_uuid, hash)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+        if let Some(rows) = self
+            .preloaded_per_key_prefixes_for_api(&prefixes, storage_prefix, Some(hash))
+            .await?
+        {
+            return Ok(rows);
+        }
         self.scan_per_key_prefixes(&prefixes, storage_prefix).await
     }
 
@@ -99,10 +116,17 @@ impl AtomStore {
                         sh,
                         &FilterUtils::create_prefix_end(sr_prefix),
                     );
-                    out.extend(
-                        self.scan_per_key_range(&start, &end, storage_prefix)
-                            .await?,
-                    );
+                    let rows = match self
+                        .preloaded_per_key_range_for_api(&start, &end, storage_prefix, Some(hash))
+                        .await?
+                    {
+                        Some(rows) => rows,
+                        None => {
+                            self.scan_per_key_range(&start, &end, storage_prefix)
+                                .await?
+                        }
+                    };
+                    out.extend(rows);
                 }
             }
         }
@@ -139,7 +163,13 @@ impl AtomStore {
                 let s =
                     molecule_key_codec::hash_range_record_key(molecule_uuid, sh, &start_cands[i]);
                 let e = molecule_key_codec::hash_range_record_key(molecule_uuid, sh, &end_cands[i]);
-                out = self.scan_per_key_range(&s, &e, storage_prefix).await?;
+                out = match self
+                    .preloaded_per_key_range_for_api(&s, &e, storage_prefix, Some(hash))
+                    .await?
+                {
+                    Some(rows) => rows,
+                    None => self.scan_per_key_range(&s, &e, storage_prefix).await?,
+                };
                 if !out.is_empty() {
                     return Ok(out);
                 }

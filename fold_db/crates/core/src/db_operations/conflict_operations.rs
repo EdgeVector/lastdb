@@ -8,6 +8,8 @@ use crate::schema::SchemaError;
 use crate::storage::StorageError;
 use crate::SyncConflict;
 
+mod memory;
+
 /// `mcc:{M}` — cached list of unresolved conflict ids for molecule `M`.
 ///
 /// The hot query path annotates every result field by asking "does this
@@ -133,12 +135,7 @@ impl DbOperations {
         &self,
         storage_prefix: Option<&str>,
     ) -> Option<HomeConflictIndex> {
-        let key = build_storage_key(storage_prefix, HOME_CONFLICT_INDEX_KEY);
-        self.atoms()
-            .raw()
-            .get_item::<HomeConflictIndex>(&key)
-            .await
-            .unwrap_or_default()
+        self.conflict_index_from_memory(storage_prefix).await
     }
 
     /// Stamp plus events newer than `folded_seq`.

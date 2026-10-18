@@ -1,20 +1,22 @@
-//! Native logical paths own their immutable atom content in the existing warm set.
+//! Native logical paths retain the actual shared core molecule and atom objects.
 
 use super::*;
+use crate::atom::{Atom, AtomEntry, KeyMetadata};
+use crate::resident::{CorePath, CoreWarmSlot};
 use crate::schema::types::Schema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub(crate) mod absence;
 pub(super) mod body;
+pub(super) mod controls;
+pub(crate) mod core_filter;
+pub(crate) mod core_read;
+mod dependencies;
 pub(crate) mod field;
 mod read;
+pub(crate) mod record;
 pub(crate) mod source;
-pub(crate) mod warm;
-pub(crate) use read::admit_query_results;
-
-/// A memory identity, never a physical collection or a stored key.
-pub(crate) const PATH_COLLECTION: &str = "__native_logical_paths_v1";
-const MAX_PATH_BATCH_BYTES: usize = 128 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct LogicalPath {
@@ -28,16 +30,21 @@ pub(crate) struct LogicalPath {
 }
 
 impl LogicalPath {
-    /// JSON tuple boundaries preserve every byte, including separators and NULs.
+    pub(super) fn core(&self) -> CorePath {
+        CorePath {
+            scope: self.scope.clone(),
+            schema: self.schema.clone(),
+            field: self.field.clone(),
+            molecule: self.molecule.clone(),
+            hash: self.hash.clone(),
+            range: self.range.clone(),
+        }
+    }
+
     pub(crate) fn id(&self) -> StorageResult<String> {
-        if self.schema.is_empty()
-            || self.field.is_empty()
-            || self.molecule.is_empty()
-            || self.atom.is_empty()
-        {
+        if self.schema.is_empty() || self.field.is_empty() || self.molecule.is_empty() {
             return Err(StorageError::InvalidOperation(
-                "native logical path requires complete schema, field, molecule and atom identities"
-                    .into(),
+                "logical path identity is incomplete".into(),
             ));
         }
         serde_json::to_string(&(
@@ -47,7 +54,6 @@ impl LogicalPath {
             &self.molecule,
             &self.hash,
             &self.range,
-            &self.atom,
         ))
         .map_err(|error| serialization(&error))
     }
@@ -61,98 +67,128 @@ pub(crate) fn schema_identity(schema: &Schema) -> StorageResult<String> {
 #[derive(Clone)]
 pub(crate) struct LogicalPathRecord {
     pub path: LogicalPath,
-    /// Immutable atom content. Per-tip provenance stays in the captured query.
-    pub body: Vec<u8>,
+    pub slot: CoreWarmSlot,
+    pub bytes: usize,
+    sources: Vec<String>,
 }
 
 impl LogicalPathRecord {
-    pub(crate) fn from_value(path: LogicalPath, value: &serde_json::Value) -> StorageResult<Self> {
+    pub(crate) fn from_atom(
+        path: LogicalPath,
+        atom: Arc<Atom>,
+        entry: AtomEntry,
+        metadata: Option<KeyMetadata>,
+    ) -> StorageResult<Self> {
+        if path.atom != atom.uuid() || entry.atom_uuid != atom.uuid() {
+            return Err(StorageError::BackendError(
+                "logical tip and atom identities differ".into(),
+            ));
+        }
+        let bytes = body::encoded_len(atom.as_ref())?;
         Ok(Self {
             path,
-            body: serde_json::to_vec(&body::PathBody::content(value))
-                .map_err(|error| serialization(&error))?,
+            slot: CoreWarmSlot {
+                entry,
+                metadata,
+                atom,
+                bytes,
+            },
+            bytes,
+            sources: Vec::new(),
         })
+    }
+
+    pub(crate) fn with_sources(mut self, sources: Vec<String>) -> Self {
+        self.sources = sources;
+        self
+    }
+
+    fn source_dependencies(&self) -> (bool, Vec<(String, String)>) {
+        let scope = self.path.scope.as_deref();
+        let mut candidates = Vec::new();
+        let mut sources = Vec::new();
+        let mut body = false;
+        for source in &self.sources {
+            let base = match scope {
+                Some(scope) => source
+                    .strip_prefix(scope)
+                    .and_then(|key| key.strip_prefix(':')),
+                None => Some(source.as_str()),
+            };
+            let Some(base) = base else { continue };
+            if crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(base).is_some() {
+                candidates.push(base.to_owned());
+            } else if crate::atom::atom_key_codec::uuid_of(base) == Some(self.path.atom.as_str()) {
+                let collection =
+                    crate::storage::laststore::native_routing::write_collection(source.as_bytes());
+                let encoded = crate::storage::laststore::native_routing::encode(source.as_bytes());
+                sources.push((collection.to_owned(), encoded));
+                body = true;
+            }
+        }
+        let complete = body && !candidates.is_empty();
+        sources.extend(dependencies::tip_sources(
+            scope,
+            &self.path.molecule,
+            &candidates,
+        ));
+        (complete, sources)
     }
 }
 
 pub(crate) struct PathProtection {
-    logical: Arc<Mutex<LogicalResidentSet>>,
-    keys: Vec<(String, String)>,
-    pending: Mutex<Option<BTreeMap<String, Vec<u8>>>>,
+    core: Arc<Mutex<crate::resident::CoreWarmSet>>,
+    keys: Vec<CorePath>,
+    pending: Mutex<Option<Vec<LogicalPathRecord>>>,
 }
 
 impl PathProtection {
-    /// Reserve the whole path set before publication. Failure admits no bodies.
     pub(crate) fn reserve(
         runtime: &PackRuntime,
         records: &[LogicalPathRecord],
     ) -> StorageResult<Arc<Self>> {
-        let mut bodies = BTreeMap::new();
-        let mut bytes = 0usize;
-        for record in records {
-            let id = record.path.id()?;
-            bytes = bytes
-                .checked_add(id.len())
-                .and_then(|n| n.checked_add(record.body.len()))
-                .filter(|n| *n <= MAX_PATH_BATCH_BYTES)
-                .ok_or_else(capacity)?;
-            if let Some(previous) = bodies.get(&id) {
-                if previous != &record.body {
-                    return Err(StorageError::BackendError(
-                        "one native atom path supplied different content bytes".into(),
-                    ));
-                }
-            } else {
-                bodies.insert(id, record.body.clone());
-            }
-        }
-        let mut owner = Self {
-            logical: Arc::clone(&runtime.logical),
-            keys: Vec::new(),
-            pending: Mutex::new(Some(bodies)),
-        };
-        let mut logical = owner
-            .logical
+        let records: BTreeMap<_, _> = records
+            .iter()
+            .map(|record| (record.path.core(), record.clone()))
+            .collect();
+        records.values().try_fold(0usize, |n, record| {
+            n.checked_add(record.bytes)
+                .filter(|n| *n <= 128 * 1024 * 1024)
+                .ok_or_else(capacity)
+        })?;
+        let keys: Vec<_> = records.keys().cloned().collect();
+        let keys = runtime
+            .core
             .lock()
-            .expect("native canonical write protection");
-        for id in owner
-            .pending
-            .lock()
-            .expect("native staged path bodies")
-            .as_ref()
-            .expect("unpublished path bodies")
-            .keys()
-        {
-            if !logical.hold_record(PATH_COLLECTION, id) {
-                logical.release_records(std::mem::take(&mut owner.keys));
-                return Err(capacity());
-            }
-            owner.keys.push((PATH_COLLECTION.to_string(), id.clone()));
-        }
-        drop(logical);
-        Ok(Arc::new(owner))
+            .expect("core write reservation")
+            .reserve_paths(&keys)
+            .map_err(|_| capacity())?;
+        Ok(Arc::new(Self {
+            core: Arc::clone(&runtime.core),
+            keys,
+            pending: Mutex::new(Some(records.into_values().collect())),
+        }))
     }
 
-    /// Physical and journal reservations must succeed before this memory publication.
-    pub(crate) fn publish(&self) -> StorageResult<()> {
-        let Some(bodies) = self
-            .pending
-            .lock()
-            .expect("native staged path bodies")
-            .take()
-        else {
+    /// The caller holds the complete-view write lock until publication finishes.
+    pub(crate) fn publish(&self, sequence: u64) -> StorageResult<()> {
+        let Some(records) = self.pending.lock().expect("core prepared paths").take() else {
             return Ok(());
         };
-        let mut logical = self
-            .logical
-            .lock()
-            .expect("native canonical write publication");
-        for (id, body) in bodies {
-            let epoch = logical.record_epoch(&id);
-            if !logical.admit_record(PATH_COLLECTION, &id, Some(body), epoch) {
-                return Err(StorageError::BackendError(
-                    "native protected logical path lost its reserved slot".into(),
-                ));
+        let mut core = self.core.lock().expect("core write publication");
+        for record in records {
+            let path = record.path.core();
+            let (mut complete, sources) = record.source_dependencies();
+            core.admit(&path, record.slot, Some(sequence))
+                .map_err(|error| StorageError::BackendError(error.to_string()))?;
+            core.clear_sources(&path);
+            for (collection, key) in sources {
+                complete &= core.link_source(&path, &collection, &key);
+            }
+            if complete {
+                core.authorize_path(&path);
+            } else {
+                core.invalidate_slot(&path);
             }
         }
         Ok(())
@@ -161,18 +197,18 @@ impl PathProtection {
 
 impl Drop for PathProtection {
     fn drop(&mut self) {
-        if let Ok(mut logical) = self.logical.lock() {
-            logical.release_records(std::mem::take(&mut self.keys));
+        if let Ok(mut core) = self.core.lock() {
+            core.release_paths(&self.keys);
         }
     }
 }
 
 fn capacity() -> StorageError {
     StorageError::WriteResourceLimit {
-        detail: "native complete mutation cannot reserve its canonical logical paths".into(),
+        detail: "native mutation cannot reserve its logical core paths".into(),
     }
 }
 
 fn serialization(error: &serde_json::Error) -> StorageError {
-    StorageError::BackendError(format!("native logical path encoding: {error}"))
+    StorageError::BackendError(format!("logical core path encoding: {error}"))
 }

@@ -170,16 +170,40 @@ impl FieldVariant {
         include_tombstones: bool,
         visible_matches: Vec<TipMatch>,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
-        let matches = visible_matches.into_iter().map(|(key, rec, tip_key)| {
-            let partition = crate::atom::AtomPartition::from_record_key(&tip_key).or_else(|| {
-                Some(crate::atom::AtomPartition::for_slot(
+        let runtime = db_ops.namespaced_store().disk_pack_runtime();
+        let matches = visible_matches
+            .into_iter()
+            .map(|(key, rec, tip_key)| {
+                let source =
+                    crate::schema::types::field::build_storage_key(storage_prefix, &tip_key);
+                crate::storage::disk_pack::logical_paths::core_read::note_winning_tip(
+                    runtime.clone(),
+                    storage_prefix,
                     molecule_uuid,
-                    key.hash.as_deref().unwrap_or(""),
-                ))
-            });
-            let writer = (!rec.entry.writer_pubkey.is_empty()).then_some(rec.entry.writer_pubkey);
-            (key, rec.entry.atom_uuid, rec.meta, writer, partition)
-        });
+                    &key,
+                    &rec.entry,
+                    rec.meta.as_ref(),
+                    &source,
+                )?;
+                Self::note_query_tip_candidates(
+                    db_ops,
+                    storage_prefix,
+                    molecule_uuid,
+                    &key,
+                    &rec.entry.atom_uuid,
+                )?;
+                let partition =
+                    crate::atom::AtomPartition::from_record_key(&tip_key).or_else(|| {
+                        Some(crate::atom::AtomPartition::for_slot(
+                            molecule_uuid,
+                            key.hash.as_deref().unwrap_or(""),
+                        ))
+                    });
+                let writer =
+                    (!rec.entry.writer_pubkey.is_empty()).then_some(rec.entry.writer_pubkey);
+                Ok((key, rec.entry.atom_uuid, rec.meta, writer, partition))
+            })
+            .collect::<Result<Vec<_>, SchemaError>>()?;
         let mut resolved =
             crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix(
                 db_ops,
@@ -193,15 +217,7 @@ impl FieldVariant {
         for value in resolved.values_mut() {
             value.molecule_uuid = Some(molecule_uuid.to_string());
         }
-        if !include_tombstones {
-            resolved.retain(|_, value| {
-                let live = !crate::atom::is_tombstone_value(&value.value);
-                if !live {
-                    crate::db_operations::note_tombstoned_row();
-                }
-                live
-            });
-        }
+        retain_visible_values(&mut resolved, include_tombstones);
         Ok(resolved)
     }
 }

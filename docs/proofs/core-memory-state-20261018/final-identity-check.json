@@ -1,0 +1,8 @@
+{
+  "before_binary_sha256": "e10f45939488c9f6286fedaca76a32dfb4f0f899f05026b976fa723011ce3ee1",
+  "checked_utc": "2026-10-18T07:05:24.297217+00:00",
+  "current_binary_sha256": "bdb83b38545a2161217392f19f9e6f6c2e0fd2d35f8f449e2d6221cb29f2cbed",
+  "scope": "All product inputs and both executables verified after all eight matched cases.",
+  "source_input_count": 1663,
+  "source_mismatches": []
+}

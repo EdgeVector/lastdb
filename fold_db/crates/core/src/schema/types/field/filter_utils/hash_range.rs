@@ -4,6 +4,7 @@ use crate::atom::MoleculeHashRange;
 use crate::schema::types::field::{HashRangeFilter, HashRangeFilterResult, SAMPLE_PEEK_CAP};
 use crate::schema::types::key_value::KeyValue;
 use std::collections::HashMap;
+use std::ops::Bound;
 
 use super::{FilterUtils, DEFAULT_UNFILTERED_PAGE_LIMIT};
 
@@ -240,11 +241,11 @@ fn hash_range_atoms_in_range(
     if start > end {
         return Vec::new();
     }
-    m.get_atoms_for_hash(hash)
+    m.atom_entries_for_hash(hash)
         .map(|range_map| {
             range_map
-                .range(start.to_string()..end.to_string())
-                .map(|(range, uuid)| (range.clone(), uuid.clone()))
+                .range::<str, _>((Bound::Included(start), Bound::Excluded(end)))
+                .map(|(range, entry)| (range.clone(), entry.atom_uuid.clone()))
                 .collect()
         })
         .unwrap_or_default()
@@ -261,8 +262,13 @@ fn hash_range_atoms_with_prefix(
 ) -> Vec<(String, String)> {
     if prefix.is_empty() {
         return m
-            .get_atoms_for_hash(hash)
-            .map(|range_map| range_map.into_iter().collect())
+            .atom_entries_for_hash(hash)
+            .map(|range_map| {
+                range_map
+                    .iter()
+                    .map(|(range, entry)| (range.clone(), entry.atom_uuid.clone()))
+                    .collect()
+            })
             .unwrap_or_default();
     }
     hash_range_atoms_in_range(m, hash, prefix, &FilterUtils::create_prefix_end(prefix))

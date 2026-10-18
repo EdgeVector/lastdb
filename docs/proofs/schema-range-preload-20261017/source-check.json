@@ -1,0 +1,14 @@
+{
+  "kind": "non-test source and receipt checks",
+  "product_source_paths_checked": 72,
+  "product_source_mismatches": [],
+  "unreceipted_product_rust": [],
+  "document_count": 4,
+  "missing_local_links": [],
+  "python_syntax_sources": 4,
+  "representation_source_matches_receipt": true,
+  "disk_executed_source_matches_receipt": true,
+  "disk_scratch_absent": true,
+  "representation_scratch_absent": true,
+  "disk_cleanup_exit_code": 0
+}

@@ -7,6 +7,9 @@ pub mod file_pointer;
 pub mod legacy_history_memo;
 pub mod merkle;
 mod molecule_hash_range;
+pub(crate) use molecule_hash_range::keys::{
+    CompactRangeKey, CoreStoredKey, KeyVisibility, MoleculeKeys,
+};
 pub mod molecule_key_codec;
 pub mod molecule_uuid;
 pub mod mutation_event;

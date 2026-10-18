@@ -121,6 +121,12 @@ impl AtomStore {
         window: &KeyWindow,
         include_tombstones: bool,
     ) -> Result<Option<Vec<TipRow>>, SchemaError> {
+        if let Some(rows) = self
+            .preloaded_window(molecule, hash, storage_prefix, window, include_tombstones)
+            .await?
+        {
+            return Ok(Some(rows));
+        }
         let codec = self.key_codec_for_molecule(molecule);
         let prefixes = codec
             .api_hash_range_scan_prefixes_for_read(molecule, hash)

@@ -13,13 +13,14 @@ impl HashRangeQueryProcessor {
     ///
     /// Subscriptions with an unparseable `share_prefix` are logged and
     /// skipped (never silently). Inactive subscriptions are excluded.
-    pub(super) async fn collect_received_from_namespaces(&self) -> Vec<String> {
-        if let Ok(namespaces) = receivers::namespaces(&self.db_ops).await {
-            namespaces
-        } else {
-            tracing::error!("the committed inbound receiver namespaces are unavailable");
-            Vec::new()
-        }
+    pub(super) async fn collect_received_from_namespaces(
+        &self,
+    ) -> Result<Vec<String>, SchemaError> {
+        receivers::namespaces(&self.db_ops).await.map_err(|error| {
+            SchemaError::InvalidData(format!(
+                "the committed inbound receiver namespaces are unavailable: {error}"
+            ))
+        })
     }
 
     /// Resolve a field's values from a specific storage namespace by
@@ -34,6 +35,11 @@ impl HashRangeQueryProcessor {
         as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            runtime
+                .preload_current_field(std::sync::Arc::clone(&self.db_ops), field, Some(namespace))
+                .await?;
+        }
         let mut cloned = field.cloned_without_molecule();
         cloned
             .common_mut()

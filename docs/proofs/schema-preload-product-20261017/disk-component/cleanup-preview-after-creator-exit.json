@@ -1,0 +1,29 @@
+{
+  "command": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/laststore-packed.XnEyvY",
+    "--exact-home",
+    "--dry-run"
+  ],
+  "device": 16777231,
+  "exit_code": 0,
+  "inode": 1464005910,
+  "marker": {
+    "creator_pid": 36816,
+    "device": 16777231,
+    "inode": 1464005910,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "matching_live_nodes": [],
+  "open_file_exit": 1,
+  "owner_uid": 501,
+  "previous_refusal": "registration process was active",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/laststore-packed.XnEyvY",
+  "root_exists_after_preview": true,
+  "stderr": "",
+  "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/laststore-packed.XnEyvY (released exact synthetic seed)\n"
+}

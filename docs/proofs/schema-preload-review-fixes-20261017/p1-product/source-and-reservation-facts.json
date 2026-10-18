@@ -1,0 +1,96 @@
+{
+  "active_capture_basis": "The loader captures ReadContext before it publishes Phase::Loading. An observed Loading state plus an unflushed accepted sequence establishes that capture before explicit flush.",
+  "body_facts": [
+    "Generated body field content has 128 ASCII bytes per record; the stored native record also contains serialization and other schema fields.",
+    "NativeWriteRecord owns collection, key, and Option<Vec<u8>> body. Graph exact and ordered links share that record through Arc.",
+    "The read context captures the whole accepted graph, not only the requested 16 exact keys.",
+    "The source input fixes ordinary capture by retaining view.accepted beside the graph under one view lock."
+  ],
+  "public_status_limit": "GET /api/status serves a sampler snapshot. Its deferred byte values and sampled_at timestamp cannot prove a subsecond reservation release time.",
+  "reservation_facts": [
+    "The native mutation path quotes stored bytes times four plus staged path bytes times two.",
+    "A successful memory-ack admission stores DeferReservation in PendingBatch.retained.",
+    "DeferReservation drops its byte charge only when its owner drops.",
+    "The corrected ordinary read and preload contexts retain accepted PendingBatch Arcs together with their graph roots.",
+    "A flush clears only the runtime accepted owner and current graph; old read contexts keep their accepted owners.",
+    "PreparedCommit WriteProtection reserves disk space, not deferred memory."
+  ],
+  "scope": "Ordinary synthetic Mini API observation plus source validation. No tests, diagnostic binary, primary data, archive data, or source data copy.",
+  "source_inputs": {
+    "docs/proofs/graph-first-20261017/drivers/ownership.py": {
+      "bytes": 794,
+      "saved": "source-inputs/ownership.py",
+      "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+    },
+    "docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+      "bytes": 19493,
+      "saved": "source-inputs/range_profile.py",
+      "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+    },
+    "docs/proofs/schema-preload-product-20261017/measure.py": {
+      "bytes": 23399,
+      "saved": "source-inputs/measure.py",
+      "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/native.rs": {
+      "bytes": 7304,
+      "saved": "source-inputs/native-mutation.rs",
+      "sha256": "0dfcc5570dc0a7d7ae654a0e8b5034fbd76b39bbe631b86392db0c85c1a8e2d1"
+    },
+    "fold_db/crates/core/src/memory_budget/deferred_gauge.rs": {
+      "bytes": 11970,
+      "saved": "source-inputs/deferred-gauge.rs",
+      "sha256": "e11d63fbb5eb844c45053ac0508a706255eeea609ab17e90f6350fa5bc24e312"
+    },
+    "fold_db/crates/core/src/resident/native_write_graph.rs": {
+      "bytes": 3170,
+      "saved": "source-inputs/native-write-graph.rs",
+      "sha256": "14c7b23a26f7728eabb7500e49287c63e72766a58499a2de1f0c9ae0d0767479"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/admission.rs": {
+      "bytes": 626,
+      "saved": "source-inputs/admission.rs",
+      "sha256": "5b9aae09033c74f9f5cf42ea0b887db12a11fb986ed70e6355e0a69aeed270a7"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/queue.rs": {
+      "bytes": 9945,
+      "saved": "source-inputs/queue.rs",
+      "sha256": "cfd9758cbf8ea02f0a4b9552aac1bfdbfd0a68aa7467361b50cf0e77e6d3207a"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/read.rs": {
+      "bytes": 9209,
+      "saved": "source-inputs/read.rs",
+      "sha256": "24dde196970135ed21f1cf244c369d0cb6fa0291c1cfd025c5c2a7278aee806d"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/read/budget.rs": {
+      "bytes": 3372,
+      "saved": "source-inputs/read-budget.rs",
+      "sha256": "cef6f20ca13b8f8092f8bfbd07aed25840074d71d544793b8de5e1c0a8ffb47d"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/read/preload.rs": {
+      "bytes": 1412,
+      "saved": "source-inputs/read-preload.rs",
+      "sha256": "7376bb61e5f55da737c193fe8b4130293719ec51d03f0241132c69dc13a9cced"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/schema_keys/load.rs": {
+      "bytes": 14900,
+      "saved": "source-inputs/schema-key-load.rs",
+      "sha256": "28c1fb00aa81dcb47039610709c8ed80a7e7387d3964ccd79341ea2a6b6b82eb"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/transaction.rs": {
+      "bytes": 11303,
+      "saved": "source-inputs/transaction.rs",
+      "sha256": "752753d53b9025850cc8356356cfa0af9eee1aae3f282edd0225e5037652f51b"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/view.rs": {
+      "bytes": 5825,
+      "saved": "source-inputs/view.rs",
+      "sha256": "65816ede107e0a489ca07f91c226eac2c959fd7b64e8d30356f6952aca483fd7"
+    },
+    "lastdb_node/src/exec/admin_routes.rs": {
+      "bytes": 8499,
+      "saved": "source-inputs/status-route.rs",
+      "sha256": "32f78314727c886b9b51cceec5ac2b077328805169ad07e72207e39299244bb3"
+    }
+  }
+}

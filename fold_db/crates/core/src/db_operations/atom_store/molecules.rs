@@ -2,6 +2,7 @@
 
 mod delete;
 mod generation;
+mod header_memory;
 mod load;
 mod store;
 

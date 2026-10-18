@@ -1,0 +1,15 @@
+{
+  "initial_attempt": {
+    "root": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/schema-range-disk-v29y67cr",
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "lastdb-dev: ERROR exact seed owner marker is unsafe\n",
+    "exists_after": true
+  },
+  "repair": "Set our own owner marker to required0600 mode after exact identity verification",
+  "root": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/schema-range-disk-v29y67cr",
+  "returncode": 0,
+  "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/schema-range-disk-v29y67cr (released exact synthetic seed)\n",
+  "stderr": "",
+  "exists_after": false
+}

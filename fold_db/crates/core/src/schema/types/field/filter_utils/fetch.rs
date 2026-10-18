@@ -103,7 +103,7 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
 }
 
 /// Build the `FieldValue` for a resolved atom.
-fn field_value_from_atom(
+pub(crate) fn field_value_from_atom(
     atom: &crate::atom::Atom,
     atom_uuid: String,
     key_meta: Option<crate::atom::KeyMetadata>,

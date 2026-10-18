@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/laststore-packed.XnEyvY",
+    "--exact-home"
+  ],
+  "exit_code": 0,
+  "open_file_exit": 1,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/laststore-packed.XnEyvY",
+  "root_exists_after": false,
+  "stderr": "",
+  "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/laststore-packed.XnEyvY (released exact synthetic seed)\n"
+}

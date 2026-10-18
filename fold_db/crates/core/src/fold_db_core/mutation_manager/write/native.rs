@@ -71,7 +71,7 @@ impl MutationManager {
                 if memory_ack {
                     let bytes = transaction::memory_quote(&request.runtime)?;
                     if let Some(reservation) = self.try_reserve_defer(bytes) {
-                        transaction::retain(&request.runtime, reservation)?;
+                        transaction::retain_raw_memory_reservation(&request.runtime, reservation)?;
                     } else {
                         transaction::require_durable(&request.runtime)?;
                     }

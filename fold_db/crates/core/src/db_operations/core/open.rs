@@ -182,7 +182,11 @@ impl DbOperations {
             }
         };
         let db_catalog = DbCatalogStore::new(db_catalog_store);
-        let molecule_keys = MoleculeKeyStore::new(molecule_keys_store, molecule_wrap_key);
+        let molecule_keys = MoleculeKeyStore::new(
+            molecule_keys_store,
+            molecule_wrap_key,
+            store.disk_pack_runtime(),
+        );
         let (atom_store, resident) = Self::open_atom_store(
             &store,
             main_store,
@@ -242,10 +246,15 @@ impl DbOperations {
         let resident_metrics = store
             .logical_resident_set()
             .and_then(|set| set.lock().expect("poison").metrics().cloned());
-        let resident = Arc::new(match resident_metrics {
-            Some(metrics) => crate::resident::ResidentGraph::new().with_metrics(metrics),
-            None => crate::resident::ResidentGraph::new(),
-        });
+        let resident = store.disk_pack_runtime().map_or_else(
+            || {
+                Arc::new(match resident_metrics {
+                    Some(metrics) => crate::resident::ResidentGraph::new().with_metrics(metrics),
+                    None => crate::resident::ResidentGraph::new(),
+                })
+            },
+            |runtime| runtime.resident_graph(),
+        );
         let atom_store = AtomStore::new_with_content_and_hash_key_codec(
             main_store,
             schema_index_store,

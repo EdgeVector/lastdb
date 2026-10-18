@@ -50,6 +50,31 @@ impl HomeJournal {
         })
     }
 
+    /// Reserve a replacement prefix using only the new request's dimensions.
+    /// The caller retains the previous ticket until complete admission succeeds.
+    pub fn reserve_mutation_extension(
+        &self,
+        previous: &MutationReservation,
+        incoming: &[HomeMutation],
+    ) -> Result<MutationReservation> {
+        if previous.generation != self.current().generation {
+            return Err(corrupt("complete mutation reservation root changed"));
+        }
+        let limit = self.current().batch_operation_limit();
+        let incoming = self.descriptor.quote_mutation_with_limit(incoming, limit)?;
+        let quote = previous.quote.extended(incoming, limit)?;
+        self.writer
+            .check_dependency_capacity(quote.dependency_parts())?;
+        let journal = self
+            .writer
+            .reserve_quote_extension(&previous.journal, quote.journal())?;
+        Ok(MutationReservation {
+            journal,
+            quote,
+            generation: previous.generation,
+        })
+    }
+
     /// Consume the complete quota only for the same still-current disk root.
     pub fn append_mutation(
         &mut self,

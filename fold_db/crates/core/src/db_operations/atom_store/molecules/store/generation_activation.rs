@@ -59,18 +59,17 @@ impl AtomStore {
         Ok(items)
     }
 
-    /// A full rewrite requires the molecule's complete key set. A tail
-    /// molecule holds only the keys this write touched.
+    /// A full rewrite requires the molecule's complete key set. A write tail
+    /// or a partial warm molecule cannot replace that complete set.
     fn refuse_partial_full_rewrite(
         molecule_uuid: &str,
         data: &MoleculeData,
     ) -> Result<(), SchemaError> {
-        if data.order_is_tail() {
+        if data.is_partial() {
             return Err(SchemaError::InvalidData(format!(
-                "refusing full rewrite of molecule {molecule_uuid} from a write-only \
-                 (partial) molecule: it holds {} touched key(s) and an order tail, \
-                 not the molecule's complete state",
-                data.per_key_records().len()
+                "refusing full rewrite of molecule {molecule_uuid} from a partial \
+                 molecule: it holds {} key(s), not the molecule's complete state",
+                data.atom_count()
             )));
         }
         Ok(())
@@ -234,8 +233,8 @@ impl AtomStore {
         domain: MoleculeKeyDomain,
         generation_cut: super::super::PreparedMoleculeGeneration,
     ) -> Result<super::super::PreparedMoleculeGenerationActivation, SchemaError> {
-        let records = self.per_key_storage_records(molecule_uuid, data, domain)?;
         Self::refuse_partial_full_rewrite(molecule_uuid, data)?;
+        let records = self.per_key_storage_records(molecule_uuid, data, domain)?;
         let header = MoleculeHeader {
             version: data.version(),
             updated_at: data.updated_at(),

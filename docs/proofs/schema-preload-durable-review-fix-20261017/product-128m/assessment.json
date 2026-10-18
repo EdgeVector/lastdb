@@ -1,0 +1,13 @@
+{
+  "classification": "incomplete-operational-check-driver-error",
+  "result": "The run reached two Ready domains and passed the durable update plus repeated exact and range reads. The driver then incorrectly equated a global sequence gap with raw graph exposure.",
+  "observed_state_at_stop": {
+    "accepted_batches": 0,
+    "memory_write_records": 0,
+    "accepted_sequence": 17,
+    "completed_sequence": 16
+  },
+  "correction": "Only accepted batch and raw graph counts establish current graph exposure. Global sequences can include later private background work.",
+  "product_fix_conclusion": "This partial run establishes update correctness but does not cover create, delete, key move, or low-cap queued fallback.",
+  "owned_nodes_stopped_normally": true
+}

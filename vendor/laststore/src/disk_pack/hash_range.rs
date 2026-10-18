@@ -193,13 +193,17 @@ impl HashRangeCursor<'_> {
     }
 
     fn page(&mut self, limit: usize) -> Result<RangePage> {
-        self.call
-            .charge((limit * std::mem::size_of::<RangeRecord>()) as u64)?;
-        let mut records = Vec::new();
-        records
+        self.call.charge(
+            (limit
+                * (std::mem::size_of::<RangeRecord>() + std::mem::size_of::<(String, Location)>()))
+                as u64,
+        )?;
+        let mut selected_records = Vec::new();
+        selected_records
             .try_reserve_exact(limit)
             .map_err(|_| super::resource())?;
-        while records.len() < limit {
+        let mut exhausted = false;
+        while selected_records.len() < limit {
             self.fill_pending()?;
             let selected = self
                 .groups
@@ -209,10 +213,8 @@ impl HashRangeCursor<'_> {
                 .min_by(|(_, a), (_, b)| a.cmp(b))
                 .map(|(number, _)| number);
             let Some(selected) = selected else {
-                return Ok(RangePage {
-                    records,
-                    exhausted: true,
-                });
+                exhausted = true;
+                break;
             };
             let (key, location) = self.groups[selected].pending.take().expect("selected key");
             if self.groups.iter().any(|group| {
@@ -230,17 +232,21 @@ impl HashRangeCursor<'_> {
             }
             let key =
                 String::from_utf8(key).map_err(|_| corrupt("range storage key is not UTF-8"))?;
-            let body = self.call.read_record(&self.collection, &key, &location)?;
-            records.push(RangeRecord {
+            selected_records.push((key, location));
+        }
+        let bodies = self
+            .call
+            .read_selected_records(&self.collection, &selected_records)?;
+        let records = selected_records
+            .into_iter()
+            .zip(bodies)
+            .map(|((key, location), body)| RangeRecord {
                 key,
                 body,
                 version: location.version,
-            });
-        }
-        Ok(RangePage {
-            records,
-            exhausted: false,
-        })
+            })
+            .collect();
+        Ok(RangePage { records, exhausted })
     }
 
     fn fill_pending(&mut self) -> Result<()> {

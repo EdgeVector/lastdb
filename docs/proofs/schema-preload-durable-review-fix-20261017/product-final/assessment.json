@@ -1,0 +1,32 @@
+{
+  "classification": "complete-ordinary-operational-check",
+  "binary_sha256": "739ab5e80e0cd915e4c42c2a13cd0e168f22410ceed0df4581aa0e2e1f92ffbb",
+  "seed_records": 64,
+  "query_responses": 48,
+  "all_query_values_membership_order_and_metadata_match": true,
+  "explicit_durable_operations": ["update", "create", "delete", "delete-and-create-key-move"],
+  "all_explicit_durable_responses_report_durable": true,
+  "warm_update_observation": {
+    "core_paths_before": 192,
+    "core_paths_after_ack": 188,
+    "changed_values_have_new_atom_identities": true,
+    "repeated_reads_have_warm_hits_and_zero_misses": true
+  },
+  "ready_domains_before_reopen": 2,
+  "domain_load_count_before_reopen": 2,
+  "ready_domains_do_not_reload_after_mutations_or_explicit_flush": true,
+  "queued_low_cap_observation": {
+    "deferred_byte_cap": 1,
+    "requested_durability": "queued",
+    "returned_durability": "queued",
+    "accepted_sequence": 26,
+    "completed_sequence": 26,
+    "visible_accepted_batches": 0,
+    "memory_write_records": 0,
+    "limit": "The returned queued mode does not report the internal fallback. The one-byte configuration and source select the durable path. The ordinary run checks the returned values and visible graph state."
+  },
+  "normal_reopen_values_and_membership_match": true,
+  "owned_node_starts": 3,
+  "all_owned_nodes_stop_with_exit_zero": true,
+  "scope": "This bounded ordinary run checks product behavior. It does not measure memory peaks during the private durable request or prove a concurrent captured-read lifetime."
+}

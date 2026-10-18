@@ -1,0 +1,23 @@
+{
+  "kind": "non-test documentation and unchanged product-source check",
+  "documents_checked": 9,
+  "document_sha256": {
+    "docs/lastdb-schema-range-preload-design.md": "9148d62820a9a4fcd408f589d3cc0134748116b475aea5c0ea3547ec864066a7",
+    "docs/lastdb-logical-warm-set-plan.md": "9a4cfb4f06a322ce1abc5ebdc4311810a1472fa518e71d3c2122ff8f7c7daf22",
+    "docs/lastdb-logical-warm-set-design.md": "1107c988a48c5208067dd0bb32c22bd6ffae0af2f0915006f52d2ce6ebd1c705",
+    "docs/lastdb-fast-range-design.md": "d93ef0f0c3d7d1dcf55525f07543c4cb7e34cb57309f7c8ee2d3221c3d8d935f",
+    "docs/lastdb-schema-range-preload-study.md": "8b48a08f9d5df200be5cf8ebcd54d7a86ca2461f5aa0d8ef6d6b2f8d49481472",
+    "docs/lastdb-key-selection-study.md": "4d92277122818b55c35b5ac3eb1a75153ca8b96ab3f328636a5e5611f74e8416",
+    "docs/lastdb-canonical-model.md": "7a1efec6bbcea06a885915c925dacceadc2fb91166c2ecd1fe306dbb88b2c22e",
+    "docs/lastdb-access-complexity-requirements.md": "a2288a2d0a8eec8b9bb748a2eafa04fecaaf414f50832b5c02e8873aef33812f",
+    "docs/lastdb-warm-set-design.md": "a93e8ecef58ad3862e8efaa8e47f0988778f6278d58fd566c19e22664bab049f"
+  },
+  "missing_local_links": [],
+  "unbalanced_fences": [],
+  "product_source_paths_checked": 72,
+  "product_source_mismatches": [],
+  "unreceipted_product_rust": [],
+  "git_diff_check_exit_code": 0,
+  "product_code_changed_this_pass": false,
+  "tests_run": false
+}

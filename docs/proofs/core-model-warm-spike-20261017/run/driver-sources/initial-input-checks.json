@@ -1,0 +1,6 @@
+{
+  "main_source_matches_initial_inputs": true,
+  "hash_source_matches_initial_inputs": true,
+  "shared_request_source_matches_initial_inputs": true,
+  "shared_write_source_matches_initial_inputs": true
+}

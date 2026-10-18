@@ -39,7 +39,7 @@ impl HashRangeQueryProcessor {
             "count_rows takes a key-restricted filter or none; \
              a scan-bounding filter would report the page size as the total"
         );
-        let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await;
+        let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
 
         let count_field_names = Self::count_field_names(schema, fields);
         // The read path renames storage keys to API keys only when the primary

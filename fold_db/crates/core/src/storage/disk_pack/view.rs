@@ -12,6 +12,19 @@ pub struct NativeDiskStatus {
     pub accepted_sequence: u64,
     pub completed_sequence: u64,
     pub writer_failed: bool,
+    pub memory_write_records: usize,
+    pub warm_records: usize,
+    pub warm_record_limit: usize,
+    pub core_warm_paths: usize,
+    pub core_warm_molecules: usize,
+    pub core_warm_atoms: usize,
+    pub core_warm_held: usize,
+    pub core_warm_dirty: usize,
+    pub core_warm_hits: u64,
+    pub core_warm_misses: u64,
+    pub core_warm_purged: u64,
+    pub core_memory: crate::resident::CoreMemoryStats,
+    pub schema_keys: schema_keys::SchemaKeyStatus,
 }
 
 #[derive(Clone)]
@@ -19,12 +32,17 @@ pub(super) struct NativeReadView {
     pub(super) current: Current,
     pub(super) accepted: Arc<Vec<Arc<transaction::PendingBatch>>>,
     pub(super) revision: u64,
+    pub(super) sequence: u64,
 }
 
 impl PackRuntime {
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
         let view = self.view.read().expect("native disk status view");
+        let (core, core_memory) = {
+            let core = self.core.lock().expect("native core status");
+            (core.stats(), core.memory_stats())
+        };
         NativeDiskStatus {
             generation: view.current.generation,
             frontier: view.current.frontier,
@@ -33,6 +51,23 @@ impl PackRuntime {
             accepted_sequence: queue.sequence(),
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.failed.load(Ordering::Acquire),
+            memory_write_records: self.resident.native_write_root().len(),
+            warm_records: self
+                .logical
+                .lock()
+                .expect("native warm status")
+                .logical_record_count(),
+            warm_record_limit: crate::resident::resident_key_cap(),
+            core_warm_paths: core.paths,
+            core_warm_molecules: core.molecules,
+            core_warm_atoms: core.atoms,
+            core_warm_held: core.held,
+            core_warm_dirty: core.dirty,
+            core_warm_hits: core.hits,
+            core_warm_misses: core.misses,
+            core_warm_purged: core.purged,
+            core_memory,
+            schema_keys: self.schema_keys.status(),
         }
     }
 
@@ -41,6 +76,7 @@ impl PackRuntime {
     pub(super) fn install_accepted(
         &self,
         batch: Arc<transaction::PendingBatch>,
+        sequence: u64,
     ) -> StorageResult<()> {
         let changes = batch.changed_coordinates();
         let mut view = self.view.write().expect("native complete read view");
@@ -51,14 +87,28 @@ impl PackRuntime {
         }
         let revision = next_revision(&view)?;
         self.invalidate_changed_records(&changes);
-        self.validity
+        if let Some(protection) = batch
+            .path_protection
             .lock()
-            .expect("native dependency validity")
-            .record(revision, changes);
+            .expect("native typed paths")
+            .as_ref()
+        {
+            protection.publish(sequence)?;
+        }
+        let records = batch.latest_records();
+        self.publish_schema_key_changes(records.iter().map(|record| {
+            (
+                record.collection.as_str(),
+                record.key.as_str(),
+                record.body.is_none(),
+            )
+        }));
+        self.resident.publish_native_writes(records);
         let mut accepted = view.accepted.as_ref().clone();
         accepted.push(batch);
         view.accepted = Arc::new(accepted);
         view.revision = revision;
+        view.sequence = sequence;
         Ok(())
     }
 
@@ -66,33 +116,41 @@ impl PackRuntime {
     pub(super) fn install_committed(
         &self,
         current: Current,
-        hidden_changes: Vec<validity::ChangedCoordinate>,
+        hidden_changes: &[(String, String)],
+        key_changes: &[(String, String, bool)],
     ) -> StorageResult<()> {
         let mut view = self.view.write().expect("native complete read view");
         if !hidden_changes.is_empty() {
             let revision = next_revision(&view)?;
-            self.invalidate_changed_records(&hidden_changes);
-            self.validity
-                .lock()
-                .expect("native dependency validity")
-                .record(revision, hidden_changes);
+            self.invalidate_changed_records(hidden_changes);
+            self.publish_schema_key_changes(
+                key_changes.iter().map(|(collection, key, deleted)| {
+                    (collection.as_str(), key.as_str(), *deleted)
+                }),
+            );
             view.revision = revision;
         }
         self.published.store(current.frontier, Ordering::Release);
         view.current = current;
         view.accepted = Arc::new(Vec::new());
+        self.resident.clear_native_writes();
         Ok(())
     }
 
     /// The view write lock excludes captures until these raw records and their
     /// epochs agree with the newly visible complete mutation.
-    fn invalidate_changed_records(&self, changes: &[validity::ChangedCoordinate]) {
+    fn invalidate_changed_records(&self, changes: &[(String, String)]) {
+        logical_paths::controls::invalidate(
+            &mut self.core.lock().expect("core publication invalidation"),
+            changes,
+        );
         let mut logical = self
             .logical
             .lock()
             .expect("native publication record epochs");
-        for change in changes {
-            logical.forget_record(&change.collection, &change.key);
+        for (collection, key) in changes {
+            logical.forget_source_records(collection, key);
+            logical.forget_record(collection, key);
         }
     }
 }

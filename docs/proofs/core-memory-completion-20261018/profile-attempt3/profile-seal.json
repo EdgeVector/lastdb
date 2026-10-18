@@ -1,0 +1,76 @@
+{
+  "binary_sha256": "5f568d9956667b20125c2db5e9716d04b15c5bbccd9535dc065c171de3956cf8",
+  "files": {
+    "cpu_profile.py": {
+      "bytes": 8391,
+      "sha256": "9662526db5f8aa8136b4356ea1105c35ceafdfc079782896180d391f7f3b5fd1"
+    },
+    "off/.synthetic-seed-owner.json": {
+      "bytes": 123,
+      "sha256": "824ead6946207cf8818a95dd234fcf65329bc611167157baae56de70c3b1791e"
+    },
+    "off/cleanup-preflight.json": {
+      "bytes": 1407,
+      "sha256": "da12d30e2bac0241096e94752e076bd53cf6ac4a97877beaa3ad30d8e05fb41e"
+    },
+    "off/cleanup-preview.json": {
+      "bytes": 469,
+      "sha256": "13ca72577965840fde416be313da4535fe0a8bd684e86f4b78bf89aa5d28d164"
+    },
+    "off/cpu_profile.py": {
+      "bytes": 8391,
+      "sha256": "9662526db5f8aa8136b4356ea1105c35ceafdfc079782896180d391f7f3b5fd1"
+    },
+    "off/inputs.json": {
+      "bytes": 1303,
+      "sha256": "354bffdc2bb8ba1b3304ad7cce6aa068473d06f173f3442de3b6c948b99a2946"
+    },
+    "off/node.log": {
+      "bytes": 15683,
+      "sha256": "addaeda5d2a6c4db36abdc83498e3446d56d32774d3505d088d91d3b7329ade0"
+    },
+    "off/profile-inputs.json": {
+      "bytes": 2234,
+      "sha256": "9a4b69f531843f9bc544000be1dd1ca90f64993a5a627ec0188010e51f5024fa"
+    },
+    "off/receipts.jsonl": {
+      "bytes": 7389547,
+      "sha256": "7ba6365efdd21d773e7938c01982b5973c7a8d82a71d423367c6dae7db1f61ca"
+    },
+    "off/result.json": {
+      "bytes": 1212,
+      "sha256": "e2818527372bf6e10842ab119bc8682468f5e2b2dd185e923c63a7a1dfc0a4ec"
+    },
+    "off/retained-root.json": {
+      "bytes": 180,
+      "sha256": "50ab10ec3b287bcc2fa1385c10601efd9e7a133e5885766ecf6494e4054356bc"
+    },
+    "off/sample.stderr": {
+      "bytes": 330,
+      "sha256": "067a3897b0ace4c26db0ade91c4000d4bc19c4dec4677dc4343f1bdb0245eb43"
+    },
+    "off/sample.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "off/sample.txt": {
+      "bytes": 5230056,
+      "sha256": "a28c553c6b23055ee2c1ef193c67b79ea2fcfc937417a192b67179f4f2fb1ae1"
+    },
+    "off/source-identity.json": {
+      "bytes": 357477,
+      "sha256": "d3184ad0b1b5cdfc9f05c8cf79458bbfc6e2484d8e5c9cc4cc105c5d2ec25ba5"
+    },
+    "off/stack-summary.json": {
+      "bytes": 2508,
+      "sha256": "e3d488607e0684b30c603811c185bee6a1a814e36489e6bf89a12b5227cdc6b1"
+    },
+    "off/summary.json": {
+      "bytes": 147,
+      "sha256": "0c5203ec1341683be646c3fd131dfcbc5980c7d190cc683e7e390134d7035f7e"
+    }
+  },
+  "scope": "Owned profile evidence after normal sampler and node exit; no product source changes.",
+  "sealed_utc": "2026-10-18T08:18:08.920807+00:00",
+  "source_identity_sha256": "d3184ad0b1b5cdfc9f05c8cf79458bbfc6e2484d8e5c9cc4cc105c5d2ec25ba5"
+}

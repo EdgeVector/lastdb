@@ -18,6 +18,22 @@ impl FieldVariant {
         as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<Vec<KeyedAtomMatch>, SchemaError> {
+        if as_of.is_none() {
+            if let Some(filter) = filter.as_ref() {
+                if let Some(matches) =
+                    crate::storage::disk_pack::logical_paths::core_filter::matches(
+                        db_ops.namespaced_store().disk_pack_runtime(),
+                        self.common().storage_prefix(),
+                        self.common().molecule_uuid().map(String::as_str),
+                        self.kind,
+                        filter,
+                        include_tombstones,
+                    )?
+                {
+                    return Ok(matches);
+                }
+            }
+        }
         let effective_filter = filter.or(Some(HashRangeFilter::Page {
             offset: 0,
             limit: DEFAULT_UNFILTERED_PAGE_LIMIT,
@@ -66,18 +82,20 @@ impl FieldVariant {
         let mut matches_with_meta: Vec<KeyedAtomMatch> = results
             .matches
             .into_iter()
-            .map(|(kv, atom_uuid)| {
+            .map(|(storage_key, atom_uuid)| {
                 // Meta + partition must use storage-form range/hash (molecule keys).
-                let (key_meta, writer_pubkey) = self.entry_meta_at(&kv);
-                let partition = self.partition_hint(&kv);
+                let (key_meta, writer_pubkey) = self.entry_meta_at(&storage_key);
                 let kv = if remap_ope_range {
-                    api_key_value_from_storage(kv)
+                    api_key_value_from_storage(storage_key.clone())
                 } else {
-                    kv
+                    storage_key.clone()
                 };
-                (kv, atom_uuid, key_meta, writer_pubkey, partition)
+                let partition = self
+                    .note_loaded_tip(db_ops, &storage_key, &kv)?
+                    .or_else(|| self.partition_hint(&storage_key));
+                Ok((kv, atom_uuid, key_meta, writer_pubkey, partition))
             })
-            .collect();
+            .collect::<Result<_, SchemaError>>()?;
 
         if !include_tombstones {
             matches_with_meta

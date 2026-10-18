@@ -30,7 +30,7 @@ where
     .await
 }
 
-/// Join the current collection window, but return only after its durable receipt.
+/// Return after durability; unreserved work seals the current collection window.
 pub(crate) async fn background_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
     future: impl std::future::Future<Output = Result<T, E>>,
@@ -69,7 +69,9 @@ where
     )
     .await??;
     let operations = pending.freeze_operations();
-    let delay = delay.filter(|_| !pending.durable_only.load(Ordering::Acquire));
+    let delay = delay.filter(|_| {
+        !pending.durable_only.load(Ordering::Acquire) && pending.has_reserved_raw_memory()
+    });
     let owner = Arc::clone(&runtime);
     // A cancelled pre-admission caller cannot release the queue's older quota.
     let (prepared, gate) =
@@ -100,11 +102,9 @@ fn protect_paths(
         Err(StorageError::WriteResourceLimit { .. }) => return Ok(None),
         Err(error) => return Err(error),
     };
-    protection.publish()?;
-    pending
-        .retained
+    *pending
+        .path_protection
         .lock()
-        .expect("native request resources")
-        .push(Box::new(protection));
+        .expect("native typed path protection") = Some(protection);
     Ok(delay)
 }

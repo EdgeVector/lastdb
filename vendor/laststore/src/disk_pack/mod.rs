@@ -24,22 +24,26 @@ mod generation;
 mod hash_range;
 pub mod home;
 pub mod journal;
+mod key_layout;
 pub mod lifetime;
 mod location;
 mod locator_forest;
 pub mod maintenance;
 mod object;
 mod pack_write;
+mod packed_page;
 mod page;
 mod page_write;
 mod publish;
 mod record;
+mod selected_batch;
 mod sparse_pages;
 mod stream_checkpoint;
 mod tree;
 mod tree_cursor;
 mod tree_edit;
 mod tree_output;
+mod tree_partition;
 mod tree_write;
 mod write_lock;
 
@@ -76,12 +80,17 @@ pub const FEATURE_SCHEMA_RECORD_REFS: u64 = 16;
 /// The initial CURRENT fences older readers before any larger journal append.
 pub const FEATURE_LARGE_BATCHES: u64 = 32;
 
+/// Locator pages pack complete ordinary keys beside their values.
+/// Older readers reject this feature before they can open a packed-key tree.
+pub const FEATURE_PACKED_KEYS: u64 = 64;
+
 const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
     | FEATURE_JOURNAL_LIFECYCLE
     | FEATURE_NATIVE_HOME
     | FEATURE_FILE_LIFETIME
     | FEATURE_SCHEMA_RECORD_REFS
-    | FEATURE_LARGE_BATCHES;
+    | FEATURE_LARGE_BATCHES
+    | FEATURE_PACKED_KEYS;
 
 const LEGACY_BATCH_OPERATIONS: usize = 4096;
 const LARGE_BATCH_OPERATIONS: usize = 16_384;

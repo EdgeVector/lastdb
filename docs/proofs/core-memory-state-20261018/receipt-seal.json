@@ -1,0 +1,1014 @@
+{
+  "created_utc": "2026-10-18T07:08:20.903614+00:00",
+  "files": {
+    "before-off-r1": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 122,
+        "sha256": "987067cdb13b9f3ee48d81e0cc3d3be19cce6ed690db48b72e0688be16e1435d"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver-inputs.json": {
+        "bytes": 1631,
+        "sha256": "f6584ebde3a7b0a0507252a658cbd59ecfcd9befd060308e961d9ece246e63c6"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 2997,
+        "sha256": "07bf3ddf94a4de7ee2fc799c6389fbf82afe3589f28ba3c186b361f20db630bb"
+      },
+      "measure.py": {
+        "bytes": 23399,
+        "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+      },
+      "node.log": {
+        "bytes": 89265,
+        "sha256": "5bbf5b4339671ec6a15f834a88e5ba0d19b31f59f58094ca4e842b05f3236b52"
+      },
+      "ownership.py": {
+        "bytes": 794,
+        "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+      },
+      "range_profile.py": {
+        "bytes": 19493,
+        "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+      },
+      "receipts.jsonl": {
+        "bytes": 13320969,
+        "sha256": "18a4d7f5f7dc448d5136869deec44dc62cfb713ecba8c7b6ccbc8408e4e426ae"
+      },
+      "result.json": {
+        "bytes": 141,
+        "sha256": "cd163735ad5b2378aabfcb37d66ab9b4160ff970016dba7125e51421c67cb591"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "7774f7fa280b9f228f50471d5f286fbe7b35acccf895560170a5e38be05d06bd"
+      },
+      "source-identity.json": {
+        "bytes": 290254,
+        "sha256": "eddce297119431b6fd4c397ef97cd5d6b3426164c635561488f1e1350c4ae032"
+      },
+      "summary.json": {
+        "bytes": 145,
+        "sha256": "2bc967fa5bad47373995b2bdc68b739ded32c54f726fc42d83e680565baf6a30"
+      },
+      "workload.py": {
+        "bytes": 7441,
+        "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+      }
+    },
+    "before-off-r2": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "60fb33c436614da691bd5b83c4fb8719df2f030c678cacd93ede987f1a69792a"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver-inputs.json": {
+        "bytes": 1631,
+        "sha256": "161e284d2b3f9fb25d56beb7ff1dcdd73b546ee82b0023400f70bdc37fed0d7b"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 2991,
+        "sha256": "03415f67760aa251845d42c694385d8a5ebf2eefb5761e94d1a13abaa179d875"
+      },
+      "measure.py": {
+        "bytes": 23399,
+        "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+      },
+      "node.log": {
+        "bytes": 89265,
+        "sha256": "2435e58a5dfb7ac60faea3f713b65ea1212f5b4f90fd91234c7219c070e5a07e"
+      },
+      "ownership.py": {
+        "bytes": 794,
+        "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+      },
+      "range_profile.py": {
+        "bytes": 19493,
+        "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+      },
+      "receipts.jsonl": {
+        "bytes": 13320714,
+        "sha256": "c248d0924259525d528669bbab3e7a12930f140054a6657941bfea808a7b63a4"
+      },
+      "result.json": {
+        "bytes": 141,
+        "sha256": "cdf4b003eeb490f92a010610a253948a24e432ee313e71ad7b52b96a0f878add"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "9d2f1f279d1204ce20d62db2f4b96b11d4c6fc77593c35c842958cd1fa338541"
+      },
+      "source-identity.json": {
+        "bytes": 290254,
+        "sha256": "eddce297119431b6fd4c397ef97cd5d6b3426164c635561488f1e1350c4ae032"
+      },
+      "summary.json": {
+        "bytes": 141,
+        "sha256": "40dc86c3f3ba38a4f35c3a91507eb371035cb805bfe7ce53566ea0e8367afc61"
+      },
+      "workload.py": {
+        "bytes": 7441,
+        "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+      }
+    },
+    "before-on-r1": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 122,
+        "sha256": "b3caed88f816d2fd344c281608d20c8b442677bba2ea6c8857858b6e2d0da2ae"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver-inputs.json": {
+        "bytes": 1630,
+        "sha256": "11004d07991e782f79906d9736e051a66097c70f44cdec0f326816ea8b471895"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 3019,
+        "sha256": "019695be1848c8cd6a18c15df11541dd941764e5f3f78daf67b006a7e246fc75"
+      },
+      "measure.py": {
+        "bytes": 23399,
+        "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+      },
+      "node.log": {
+        "bytes": 89265,
+        "sha256": "f281dc23f1d72a5b6c345b85a6b75728c3a26b26d1b18b08a15c68577708977f"
+      },
+      "ownership.py": {
+        "bytes": 794,
+        "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+      },
+      "range_profile.py": {
+        "bytes": 19493,
+        "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+      },
+      "receipts.jsonl": {
+        "bytes": 13320855,
+        "sha256": "6402212ae32042ccf3defa3666b8b3a6f855f1e7bb90dbad878d1f25779bab86"
+      },
+      "result.json": {
+        "bytes": 140,
+        "sha256": "44855eff9d3cb9ec89240347d1b73ecb517481cf8331a3f6bde240d126cdd5bd"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "31c3fc110f265ea7552fb9645ec4e0179e8481e8c8d03e923d0cbe91ade6e435"
+      },
+      "source-identity.json": {
+        "bytes": 290254,
+        "sha256": "eddce297119431b6fd4c397ef97cd5d6b3426164c635561488f1e1350c4ae032"
+      },
+      "summary.json": {
+        "bytes": 145,
+        "sha256": "38c7a032481f8bb403ab6a23e1506e9769f990e34507759d6619d0cbafca2896"
+      },
+      "workload.py": {
+        "bytes": 7441,
+        "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+      }
+    },
+    "before-on-r2": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "f5ef0380a5006c9fefcaa870b02bd25cd070c992f6800d6bca86db1f71024060"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver-inputs.json": {
+        "bytes": 1630,
+        "sha256": "65a5c3814eada0446a811bd03533cb64913591351bcb3693fd65b762462ebb61"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 3020,
+        "sha256": "78e5a08851daf15e8aa904e11293b6c19b2ef7a13b13edde51174f2f324e8557"
+      },
+      "measure.py": {
+        "bytes": 23399,
+        "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+      },
+      "node.log": {
+        "bytes": 89265,
+        "sha256": "954a92236d2e7bb89491e0f4c76eeaae7002fc5e5fd7f8a4143248bbec6c960b"
+      },
+      "ownership.py": {
+        "bytes": 794,
+        "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+      },
+      "range_profile.py": {
+        "bytes": 19493,
+        "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+      },
+      "receipts.jsonl": {
+        "bytes": 13321012,
+        "sha256": "97a71b8474146d91435aab2ba9004ebe1d2a30d281ef2d1a4a8206271944336d"
+      },
+      "result.json": {
+        "bytes": 140,
+        "sha256": "12eb2f4e0c504f5550c7ab785a6b979180490ed1c1d4d99a75c6f0e937c91ba8"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "c645fa9b6984a18290a0728cc4364c7a81e39c0d46f181d4822a95ac125a2734"
+      },
+      "source-identity.json": {
+        "bytes": 290254,
+        "sha256": "eddce297119431b6fd4c397ef97cd5d6b3426164c635561488f1e1350c4ae032"
+      },
+      "summary.json": {
+        "bytes": 142,
+        "sha256": "0c063d54d7116bad0d6fabc26c31c7d17b9be1c4d3fc498c411c0f78432e8ee0"
+      },
+      "workload.py": {
+        "bytes": 7441,
+        "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+      }
+    },
+    "current-off-r1": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 122,
+        "sha256": "2cb103b320edcc35bd62e6bc78b5f50fb66c7c434aacf7cb94fbbe8b904ce806"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver-inputs.json": {
+        "bytes": 1632,
+        "sha256": "fd9a5ad4e3eace2897bb90b61fc1a6034c79875a8c5ed6d9c17dfdc6095e46c0"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 3010,
+        "sha256": "8b445dd0523cbfe577de349278837f00fd5341181c563472282bb6e26a00513a"
+      },
+      "measure.py": {
+        "bytes": 23399,
+        "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+      },
+      "node.log": {
+        "bytes": 89264,
+        "sha256": "92e696d4d06446698b3f78fb1dc5138aff07bc970362a833eaed184493443e65"
+      },
+      "ownership.py": {
+        "bytes": 794,
+        "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+      },
+      "range_profile.py": {
+        "bytes": 19493,
+        "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+      },
+      "receipts.jsonl": {
+        "bytes": 13340269,
+        "sha256": "045b889ab757e99dde2b90251cf1445361a644d28450f971b53cd5309fd55103"
+      },
+      "result.json": {
+        "bytes": 142,
+        "sha256": "efbf99070a21d01f2de1aa6eba82b41b39b5f56d9e3f42a0ef1bc3d7e74551f2"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "be615f3a8a999400554aa1d5ee7aba09ceb02e63d69fc80635362b1006c7dca6"
+      },
+      "source-identity.json": {
+        "bytes": 293552,
+        "sha256": "387b94e7d409ea554752958217cb9d60257402564b6e04fa8dc3d8caffc16c38"
+      },
+      "summary.json": {
+        "bytes": 146,
+        "sha256": "695503b33c3d43b47f43beae225ebcb9bb4a395cf6b4eb1b364e5813fa4ba254"
+      },
+      "workload.py": {
+        "bytes": 7441,
+        "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+      }
+    },
+    "current-off-r2": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "8548a984adc3360bb793cbf77e6e1316b8cdffbcc693ca007f79cbc22cc86832"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver-inputs.json": {
+        "bytes": 1632,
+        "sha256": "bbf1e144635ba31260126a26e80f0f12935934eec8f02c4d01185f92fdc0a5dd"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 3011,
+        "sha256": "debb96114554a692ebf88483ef5d2b3ebaf5e00df18483e589c703bf66e14730"
+      },
+      "measure.py": {
+        "bytes": 23399,
+        "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+      },
+      "node.log": {
+        "bytes": 89264,
+        "sha256": "f1b6d840aff37922052a8de195a20ac74911c6b504f800a6af6b33bd6c2c25ec"
+      },
+      "ownership.py": {
+        "bytes": 794,
+        "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+      },
+      "range_profile.py": {
+        "bytes": 19493,
+        "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+      },
+      "receipts.jsonl": {
+        "bytes": 13340435,
+        "sha256": "4490d53229e1a0864ec18c7bece9ab72ac0e5ab0aafec8498b7e4f93d195959e"
+      },
+      "result.json": {
+        "bytes": 142,
+        "sha256": "6254b6be31dea62e19851e054a6958b01992272a060c732e2a0bca9c916a731b"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "bda889681cf75593391967e25d14a7c3852fb7f1a1e73ad70efd9e83b2dbfadc"
+      },
+      "source-identity.json": {
+        "bytes": 293552,
+        "sha256": "387b94e7d409ea554752958217cb9d60257402564b6e04fa8dc3d8caffc16c38"
+      },
+      "summary.json": {
+        "bytes": 146,
+        "sha256": "1195bf05840c11d0634b21e085bdd17506e13f3f6b1a56b2e50adac4228c5adf"
+      },
+      "workload.py": {
+        "bytes": 7441,
+        "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+      }
+    },
+    "current-on-r1": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "0e5d0b5aaa78a6aa7cff579e4358c2884fdd52205a7896626e8ee562d65ca427"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver-inputs.json": {
+        "bytes": 1631,
+        "sha256": "6e988faa6f52f616557f36be8ef69d3f0e640737fbb4080ce24068dcd7a5631a"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 3036,
+        "sha256": "f70f2c9acca10f24331f4e1f3468956534fd943bb1a0b4adfbfb300159310070"
+      },
+      "measure.py": {
+        "bytes": 23399,
+        "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+      },
+      "node.log": {
+        "bytes": 89264,
+        "sha256": "6553c96d958fc9b232f132c6bd89e0695dba5bbfeb14ed72c4300a8c1eb8c908"
+      },
+      "ownership.py": {
+        "bytes": 794,
+        "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+      },
+      "range_profile.py": {
+        "bytes": 19493,
+        "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+      },
+      "receipts.jsonl": {
+        "bytes": 13339493,
+        "sha256": "7b01cfe771672e0b2862bc91caa33fb0120184dd2b64865d36a66174c1f7fc3a"
+      },
+      "result.json": {
+        "bytes": 141,
+        "sha256": "ac2f4a4de0a5c05786d9a09474acfde91d2c9d10acf1205a2bdf0ba46d16594b"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "ab64bef949d66f7684ffff5285a79a92787d6eb71bba2e5c2a1d4031f463bbdb"
+      },
+      "source-identity.json": {
+        "bytes": 293552,
+        "sha256": "387b94e7d409ea554752958217cb9d60257402564b6e04fa8dc3d8caffc16c38"
+      },
+      "summary.json": {
+        "bytes": 147,
+        "sha256": "c51b51def43cb56e98f6493ac56808ed308703132c6d04d251398d348d9edbf7"
+      },
+      "workload.py": {
+        "bytes": 7441,
+        "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+      }
+    },
+    "current-on-r2": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "22c2cf32bfc21aa4ea77a53b6cb62775924c29f8c93a37ac7ede84f3f42f20ae"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver-inputs.json": {
+        "bytes": 1631,
+        "sha256": "441ead8e65a7bb1f0baa4c73b46ce0f90a6e64b366427130d54d5cfbc6913728"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 3037,
+        "sha256": "2aefb8012872175632188d93deb50fd0699fc6e6712764975cb833c9adf3b660"
+      },
+      "measure.py": {
+        "bytes": 23399,
+        "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+      },
+      "node.log": {
+        "bytes": 89264,
+        "sha256": "e610ff793caac92db397e2863e99c09edb7e06db8c813ade1f4cf8b175cf0581"
+      },
+      "ownership.py": {
+        "bytes": 794,
+        "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+      },
+      "range_profile.py": {
+        "bytes": 19493,
+        "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+      },
+      "receipts.jsonl": {
+        "bytes": 13339313,
+        "sha256": "0750f5852849ee39eccfe7038d6f2e9794bc3b029a659e71727f79b51e512db1"
+      },
+      "result.json": {
+        "bytes": 141,
+        "sha256": "369f80a34c1013587d7656dcad0edfeeab3e4b5563230685de5bfa2e3b054e35"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "cfdd5ddffdced1309ac0e9052d906e6224b33d2db6bb3e139a7a35af842a638d"
+      },
+      "source-identity.json": {
+        "bytes": 293552,
+        "sha256": "387b94e7d409ea554752958217cb9d60257402564b6e04fa8dc3d8caffc16c38"
+      },
+      "summary.json": {
+        "bytes": 146,
+        "sha256": "0061f17381674beb8819ba190e59afb661f5667573dcb8ba95924efaea8a4a8c"
+      },
+      "workload.py": {
+        "bytes": 7441,
+        "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+      }
+    },
+    "diagnostic-current-v2": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "e5b15104509fe85facb311efc842cdce0f84bfe168988b3c4eb69e3d843c08b8"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "diagnostic.py": {
+        "bytes": 4230,
+        "sha256": "1dde386d1f9f7ba33a2f5b98aba43d508952004c3c89005fea8fe473be996d14"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 1278,
+        "sha256": "786310d7a83bfab72fce82b0a2f3679f95712d655fd7211cda41939f6004e809"
+      },
+      "node.log": {
+        "bytes": 10433,
+        "sha256": "b12232d8ee87db212bfe1dcf391f06f46051e5c78b25702d1de9677a19a2de7b"
+      },
+      "operational.py": {
+        "bytes": 17207,
+        "sha256": "40905658f2fcbf78ecfc65fc4a633350b3572e55be10c3fc4a540448c7c627ea"
+      },
+      "receipts.jsonl": {
+        "bytes": 37802,
+        "sha256": "68518136bcfdeed3ab65b5d5da70b3005277953f41e4c89985558f27c78dae4f"
+      },
+      "result.json": {
+        "bytes": 93,
+        "sha256": "4bb6569d8f250e083ef7bde809a45b143213f2332d7c49356f2cdb8cf5ab7970"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "75a13128a12cd5d593fc09bd42c38966eb350f21f787aacbe95a0a3849e36331"
+      },
+      "source-identity.json": {
+        "bytes": 292729,
+        "sha256": "ee8194e8682923ac5f3535a7fed21850743f6c0281fd1d9748b92ee309425499"
+      },
+      "summary.json": {
+        "bytes": 204,
+        "sha256": "9acd6d826366dc260e1dfa869d8cb1aacaf42e30948f3f0f46dccda0256f8790"
+      }
+    },
+    "diagnostic-current-v2-projections": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "b5c5d14d5238e27785370abd138e27f4af006623f74d78084822b3a2ef1b0eb6"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "diagnostic.py": {
+        "bytes": 4319,
+        "sha256": "6a69dc1b55ae43b27c3e2b938c0fbbbcf193956ae3b7bf7fdac41c140d00cc64"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 1278,
+        "sha256": "a05c81e5370d4eded3daefdd6a5c58c3aac5ffa6d94e0211125046e2c1e7cf20"
+      },
+      "node.log": {
+        "bytes": 10433,
+        "sha256": "45759de75cd80e28f1577a91cc46412b9a400aabd6e832faa12ccf23a7d3ab1d"
+      },
+      "operational.py": {
+        "bytes": 17207,
+        "sha256": "40905658f2fcbf78ecfc65fc4a633350b3572e55be10c3fc4a540448c7c627ea"
+      },
+      "receipts.jsonl": {
+        "bytes": 79116,
+        "sha256": "8e3633fd017125951b1576ede03701c7c309d0a5ad5afb464b994dbcd0fca92f"
+      },
+      "result.json": {
+        "bytes": 31,
+        "sha256": "f4bcdefeab6a875f7336eded70bc247e6d5489f21e1436cb990a2890d1ad8789"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "feed82c522302afb42bf809dde6c32c4acf21ace7ff64beaa284158b0148744b"
+      },
+      "source-identity.json": {
+        "bytes": 292729,
+        "sha256": "ee8194e8682923ac5f3535a7fed21850743f6c0281fd1d9748b92ee309425499"
+      },
+      "summary.json": {
+        "bytes": 145,
+        "sha256": "b7f427688fe282326c900123b3af42adc04689f423ec63b80fa235bfb5c01430"
+      }
+    },
+    "diagnostic-current-v3-family": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "364be7f2d69b19516111247bb718798e0e47d51a193be874013711046b4ada90"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "diagnostic-inputs.json": {
+        "bytes": 153,
+        "sha256": "9fd0dcea88920c21df9bdce3c2be2b23fe05b66b8bf493ad18de2179917fb23c"
+      },
+      "diagnostic.py": {
+        "bytes": 6818,
+        "sha256": "a2827293340ac2a604adde92bc9a84aba2faadcadd711b645a18b36a37ad63a6"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 1298,
+        "sha256": "fdc793358f2e78859fd06ba5c163ccbf4e996f50e2b19812ec9ef1b63d3697cf"
+      },
+      "node.log": {
+        "bytes": 37450,
+        "sha256": "36125ae0d2aad563a3f8444d852267e2bc6577ae90d714eb6b34e9e240b7cd9a"
+      },
+      "operational.py": {
+        "bytes": 17207,
+        "sha256": "40905658f2fcbf78ecfc65fc4a633350b3572e55be10c3fc4a540448c7c627ea"
+      },
+      "receipts.jsonl": {
+        "bytes": 79806,
+        "sha256": "db5785e2c29245c019cb377f15387fc0f7d378544a486ffc0b9ffe2b6c7d0e4c"
+      },
+      "result.json": {
+        "bytes": 31,
+        "sha256": "f4bcdefeab6a875f7336eded70bc247e6d5489f21e1436cb990a2890d1ad8789"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "adaf526044c5ab53c3d3b32030b59c4daceb4d6dff733b6ad87c57972f4e43e0"
+      },
+      "source-identity.json": {
+        "bytes": 293260,
+        "sha256": "4f7c53c4cb08d1aa701a8f356dfcd3f4c9b5c006b22449b8a95d01c34a5d8f14"
+      },
+      "summary.json": {
+        "bytes": 147,
+        "sha256": "77fd05810e88c592ba3b204cb42130f13ed973546a8bdf91ae6bd8c975d3eaa2"
+      }
+    },
+    "operational-current-v1": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "927702790a9e0989ac6303ad3ca2cb19ec037825bfaca75e8262fc8249a59aac"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 1305,
+        "sha256": "833136babbb2eefb32115cbb4506143162032e16692d345d270828cf0fddc672"
+      },
+      "node.log": {
+        "bytes": 12687,
+        "sha256": "9ad41e3c16dfc1592bf439f0a09110abe756a52cb2360ce1fb5d154c0fabca28"
+      },
+      "operational-inputs.json": {
+        "bytes": 769,
+        "sha256": "b5412954fa2ee4dfb62963e41c44e88df773448f681c6bc48f6473e2d07cc0ec"
+      },
+      "operational.py": {
+        "bytes": 15330,
+        "sha256": "3541de702e5a03c998758913611e45588bc349c00ac42041fd11a5724abb7171"
+      },
+      "receipts.jsonl": {
+        "bytes": 389666,
+        "sha256": "a860b1b2ed2e9cc90fe826ca5b809cff9e6ea85eee7ce10a5e17d5c3357dd365"
+      },
+      "result.json": {
+        "bytes": 1108,
+        "sha256": "7c5051239e9014ae09d4de7887f3e990341ddf4b3662fc72874a1a30d3e20731"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "bc9abbfd5d7001806243968a06fc7e1bac89c6d446092f57cc7b36d83c3d049b"
+      },
+      "source-identity.json": {
+        "bytes": 291752,
+        "sha256": "a68f97fe5b61376868755208c85f1e96b91c1cc6543e14c46f1a4cb0f89a134a"
+      },
+      "summary.json": {
+        "bytes": 1176,
+        "sha256": "0a86bccd8fc0c4a959895d015f3fb5ec08292fa251c991e4622a4f961fac02b3"
+      }
+    },
+    "operational-current-v2": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "49af9dc6dbbce305a6e2c6bc289d5963a243f3a8bf6c9be9a05248bb3840ed71"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 1306,
+        "sha256": "589d17b4d5bbd8a888e32ba3fcb46478b921cd831517ff9a7b0b62a359394671"
+      },
+      "node.log": {
+        "bytes": 12687,
+        "sha256": "d2d9d5071b76d4a427b9efccf5d1db070095381cb9259e84d48162cd69a4a4c7"
+      },
+      "operational-inputs.json": {
+        "bytes": 769,
+        "sha256": "56d0c558a236a550b5e3f3b0ecac94e40b877271ce28fec70d2271891b222b7e"
+      },
+      "operational.py": {
+        "bytes": 17207,
+        "sha256": "40905658f2fcbf78ecfc65fc4a633350b3572e55be10c3fc4a540448c7c627ea"
+      },
+      "receipts.jsonl": {
+        "bytes": 389657,
+        "sha256": "f8153b6e94e634a99bf5b79a46353783a06093931379eb211c39c6bc35fcba8a"
+      },
+      "result.json": {
+        "bytes": 1105,
+        "sha256": "6c08c609e434635acecf27bc5fe6a54736e1ed78893ad0024947676863a69f70"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "f94a2c07a89c5aa2258b8320c7faaf3bdcaeb8ab033380e19a523337a0a5d2cf"
+      },
+      "source-identity.json": {
+        "bytes": 292729,
+        "sha256": "ee8194e8682923ac5f3535a7fed21850743f6c0281fd1d9748b92ee309425499"
+      },
+      "summary.json": {
+        "bytes": 1179,
+        "sha256": "9d60a5d17995d67e3787c41bda9166ad5879648bad115da2602f1ea1f94f198a"
+      }
+    },
+    "operational-current-v3": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "2124d9a1b6342d46f77f4018033cec78db24b28e06ea4d97b49a8be8dc9f3c4b"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 1304,
+        "sha256": "2e6d80e5cbb7bca71d1074f8f2a6bf38f5df9685fc4f8d1d2c3395096b1a1b1d"
+      },
+      "node.log": {
+        "bytes": 19263,
+        "sha256": "5096f702954a9a24d5547940bcc3ee564be7896c6ae54ffda5583815673f5a47"
+      },
+      "operational-inputs.json": {
+        "bytes": 769,
+        "sha256": "d82a07949f51db5e3910cc7d04be0726f43fe0b4c91d9e885f4fb713bc6287c0"
+      },
+      "operational.py": {
+        "bytes": 17207,
+        "sha256": "40905658f2fcbf78ecfc65fc4a633350b3572e55be10c3fc4a540448c7c627ea"
+      },
+      "receipts.jsonl": {
+        "bytes": 440596,
+        "sha256": "f275818640914c81e0173937604947f90a73e1ef29cd61881671ef7e8b61f1b5"
+      },
+      "result.json": {
+        "bytes": 1141,
+        "sha256": "260d51520c501250bae9e73d57934d82a1b44871e5189e78d904a58280771200"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "e520978a5b39e5bcc584924fcb43e30fe0865e24e4c24a56807572c2486e38f8"
+      },
+      "source-identity.json": {
+        "bytes": 293260,
+        "sha256": "4f7c53c4cb08d1aa701a8f356dfcd3f4c9b5c006b22449b8a95d01c34a5d8f14"
+      },
+      "summary.json": {
+        "bytes": 1211,
+        "sha256": "78fb60a84e911b3f9237c03be8b61035cb81d6a097484776307d6ca7ad3d4286"
+      }
+    },
+    "operational-current-v3-family": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "8a2ae05914fb7345f5d24934c308232ea56ffc026906a2f8996852fb793eb52e"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "bounded-delete-diagnostic.json": {
+        "bytes": 5670,
+        "sha256": "453813a9ec2d76701a35571b4b82d802c890e292a56e0ea7709bdc254d29ffe7"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "family_node.py": {
+        "bytes": 1990,
+        "sha256": "2afdc0b4391919e8baa409eeaa4a68a292d05af9ce2121ffba22304c12e5d686"
+      },
+      "inputs.json": {
+        "bytes": 1305,
+        "sha256": "0835da38daadbefdfe7ecfb87d18eb9a7148833dcf6e43fa058c03a8f3fd35b3"
+      },
+      "node.log": {
+        "bytes": 323835,
+        "sha256": "1f8e988cf2a6a1793ca042746ff98a76ba713decc3260973f0dc4edaa862d636"
+      },
+      "operational-inputs.json": {
+        "bytes": 828,
+        "sha256": "8cec41d2553c5b75706b5e8dce376cd5728f8e9418a60a0c06076b672c43a7ca"
+      },
+      "operational.py": {
+        "bytes": 17836,
+        "sha256": "e51fa4dbec9c23f0606babbe79dac267ed7665090ac6620e75ee6d4717e23b2e"
+      },
+      "receipts.jsonl": {
+        "bytes": 2271559,
+        "sha256": "3bca6b3a961e30459b057df6c69ee00299e2a4d8359e9aae253af65cb22ad4fc"
+      },
+      "result.json": {
+        "bytes": 1116,
+        "sha256": "dc8ef3565ce4ad2263b3f49d50379e0f85d6072a4a8779c4c84c106edac4f9b0"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "1e1c4655928b7818516d0a9272031f49133efd8ceeb2a67452810c06d63b129b"
+      },
+      "source-identity.json": {
+        "bytes": 293260,
+        "sha256": "4f7c53c4cb08d1aa701a8f356dfcd3f4c9b5c006b22449b8a95d01c34a5d8f14"
+      },
+      "summary.json": {
+        "bytes": 1189,
+        "sha256": "d6fb0b2e3e9423e89ec4e9381a672f27d4921ee416cd4c228bf0f68012a43677"
+      }
+    },
+    "operational-current-v3-primed": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 123,
+        "sha256": "d8eec480939b9fda87e4a57a728cbe164c09a6ac2e774e1f4c2591eb5cae3fdc"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 1308,
+        "sha256": "1019a04c7fcf7157175bbc1794dd7c465a8ae0fddd0d7882edabd10c13f2e6db"
+      },
+      "node.log": {
+        "bytes": 31112,
+        "sha256": "01dac74abf526fb8f289881a15b6065f8383344e8963e78fd795cba45018d826"
+      },
+      "operational-inputs.json": {
+        "bytes": 769,
+        "sha256": "d82a07949f51db5e3910cc7d04be0726f43fe0b4c91d9e885f4fb713bc6287c0"
+      },
+      "operational.py": {
+        "bytes": 17292,
+        "sha256": "9a24ccd88315e1eca41e2760b11d431edd1eff7301a3397c2ec597404c71ff05"
+      },
+      "receipts.jsonl": {
+        "bytes": 2269420,
+        "sha256": "6cd41c98fcaa29d4a4ffcb5974977112a56c1e8e0d6b70891d515f38bfc2819e"
+      },
+      "result.json": {
+        "bytes": 1116,
+        "sha256": "2c5cc288c2ff563f9a173f4a0aefd9369bdf49bb630c57dad078af15519aa0df"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "960a7363b82f5556fcc2f6a45e64abc8107af7210e8a34715ad767c2cf293651"
+      },
+      "source-identity.json": {
+        "bytes": 293260,
+        "sha256": "4f7c53c4cb08d1aa701a8f356dfcd3f4c9b5c006b22449b8a95d01c34a5d8f14"
+      },
+      "summary.json": {
+        "bytes": 1189,
+        "sha256": "7b5dfc706f5c69719b41dc4c06584d983fb878afc5fb41a672dc92df22c89a0c"
+      }
+    },
+    "operational-current-v4": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 122,
+        "sha256": "6d8935705ee8cc5b31dad26c42e463d357655576cf71fdc2a7be57e5143d6dd4"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 1306,
+        "sha256": "4d26876438d36734d44945b390254902baf321239b0d28939c7c2641641d1ff9"
+      },
+      "node.log": {
+        "bytes": 42373,
+        "sha256": "b72ac6dcad812eebdabfdb6a22fdf579afd3c12b2e9992889c4138510e14454b"
+      },
+      "operational-inputs.json": {
+        "bytes": 798,
+        "sha256": "814cfd68d43376a6d1f1ef0ac6bb4394eb5d7c902b3fa490dcdbc3bd0bd933ac"
+      },
+      "operational.py": {
+        "bytes": 17836,
+        "sha256": "e51fa4dbec9c23f0606babbe79dac267ed7665090ac6620e75ee6d4717e23b2e"
+      },
+      "receipts.jsonl": {
+        "bytes": 11670518,
+        "sha256": "2d8db0b273f6c3483daa5b40511ca1eee21363f06ece8899be49de043e7502b7"
+      },
+      "result.json": {
+        "bytes": 133,
+        "sha256": "bb2b5575348998142b461831e838ccd730a8433aad5b5320bcde4d410a649b1d"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "82f86b8e7e2276198adcac8eed79ae3f9d35a33edbcf103afade8c0953812f74"
+      },
+      "source-identity.json": {
+        "bytes": 293552,
+        "sha256": "387b94e7d409ea554752958217cb9d60257402564b6e04fa8dc3d8caffc16c38"
+      },
+      "summary.json": {
+        "bytes": 200,
+        "sha256": "89e7698182bec5428513ff3bd89420e760fa2af4af880ed92291613c7af70ad5"
+      }
+    },
+    "operational-current-v4-complete": {
+      ".synthetic-seed-owner.json": {
+        "bytes": 122,
+        "sha256": "db7ab0e792c5c2b4dc2c7b5bf7b5025ac4737b9ee1956c06393fc227441226e1"
+      },
+      "api.py": {
+        "bytes": 7337,
+        "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+      },
+      "driver.py": {
+        "bytes": 6378,
+        "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+      },
+      "inputs.json": {
+        "bytes": 1306,
+        "sha256": "e3a8d3b10b224beef3dc596fab5c913516bc469ef58917b4b4bff0da0c74fb1f"
+      },
+      "node.log": {
+        "bytes": 48096,
+        "sha256": "cc2eda79e8cf063bf950c9448ffa6209c61e2792f5e6e9344c8ed63853a5ef04"
+      },
+      "operational-inputs.json": {
+        "bytes": 798,
+        "sha256": "814cfd68d43376a6d1f1ef0ac6bb4394eb5d7c902b3fa490dcdbc3bd0bd933ac"
+      },
+      "operational.py": {
+        "bytes": 18087,
+        "sha256": "cb0185cb543e02ffa402244ee3b52cdd6158014bc116f46fc6f5b2340207fac7"
+      },
+      "receipts.jsonl": {
+        "bytes": 11702896,
+        "sha256": "5313af51f36581269d1ce8ee39904c7c6261797f6d9e78dccc70bb1a8e76a485"
+      },
+      "result.json": {
+        "bytes": 76,
+        "sha256": "4cbfff9f67e9957850950937b8f83081b493344f23e13ca95aa5e537842347ae"
+      },
+      "retained-root.json": {
+        "bytes": 180,
+        "sha256": "8836d98437d4e9f8f36e151f4301d6067e95e5e5dcc6509dc052eb44f70d0907"
+      },
+      "source-identity.json": {
+        "bytes": 293552,
+        "sha256": "387b94e7d409ea554752958217cb9d60257402564b6e04fa8dc3d8caffc16c38"
+      },
+      "summary.json": {
+        "bytes": 141,
+        "sha256": "be45fca7e406ede6cfd88c022742793c04149b7709af0af9262c441c70a8fb58"
+      }
+    }
+  },
+  "scope": "All preserved case source, response, status, result and log receipts. Derived cleanup files excluded."
+}

@@ -7,6 +7,7 @@ mod compact;
 mod dual_read;
 mod dual_write;
 mod envelope;
+mod read_batch;
 
 pub use compact::{compact_record_molecule, compact_record_molecule_key, CompactReport};
 pub use dual_read::{hash_range_key_from_envelope, overlay_document_envelope};

@@ -53,7 +53,7 @@ impl ReadCall {
         for (key, location) in keys.iter().zip(locations) {
             out.push(match location {
                 Ok(Some(location)) => self
-                    .finish_batch_record(key, &location, &failures)
+                    .finish_batch_record(key.collection, key.key, &location, &failures)
                     .map(Some),
                 Ok(None) => Ok(None),
                 Err(error) => Err(error),
@@ -68,7 +68,7 @@ impl ReadCall {
         self.locate(key.collection, *group, key.key)
     }
 
-    fn plan_batch_blocks(
+    pub(super) fn plan_batch_blocks(
         &mut self,
         locations: &mut [Result<Option<Location>>],
     ) -> Result<(Vec<BlockPlan>, BTreeMap<BlockId, Error>)> {
@@ -130,9 +130,10 @@ impl ReadCall {
         Ok(())
     }
 
-    fn finish_batch_record(
+    pub(super) fn finish_batch_record(
         &mut self,
-        key: &BatchKey<'_>,
+        collection: &str,
+        key: &str,
         location: &Location,
         failures: &BTreeMap<BlockId, Error>,
     ) -> Result<Vec<u8>> {
@@ -145,6 +146,6 @@ impl ReadCall {
                 return Err(super::batch_error::copy(error));
             }
         }
-        self.read_record(key.collection, key.key, location)
+        self.read_record(collection, key, location)
     }
 }

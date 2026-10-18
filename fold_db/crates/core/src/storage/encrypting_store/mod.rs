@@ -217,7 +217,6 @@ impl EncryptingKvStore {
         } else {
             Self::encode_ciphertext(&ciphertext)
         };
-        crate::storage::disk_pack::note_header_write(&self.namespace, key, value, &sealed);
         Ok(sealed)
     }
 

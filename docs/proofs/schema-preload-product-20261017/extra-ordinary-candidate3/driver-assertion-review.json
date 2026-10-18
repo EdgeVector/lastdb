@@ -1,0 +1,8 @@
+{
+  "product_failure": false,
+  "reason": "The assertion compared against the load count before first use of the new record molecule.",
+  "pre_record_loads": 2,
+  "post_record_loads": 4,
+  "post_delete_loads": 4,
+  "correction": "Capture the comparison baseline after record setup and the first sample."
+}

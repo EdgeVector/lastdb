@@ -1,0 +1,12 @@
+{
+  "captured_utc": "2026-10-18T06:57:59.470850+00:00",
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "reservation": "The host is not exclusive; OS file cache is uncontrolled.",
+  "sw_vers": "ProductName:\t\tmacOS\nProductVersion:\t\t26.5.2\nBuildVersion:\t\t25F84\n",
+  "sysctl": {
+    "hw.memsize": "38654705664",
+    "hw.model": "Mac16,5",
+    "hw.ncpu": "14",
+    "machdep.cpu.brand_string": "Apple M4 Max"
+  }
+}

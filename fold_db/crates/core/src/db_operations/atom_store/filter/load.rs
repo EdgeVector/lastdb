@@ -9,6 +9,7 @@ use super::super::types::{
 use super::super::AtomStore;
 use super::PageFill;
 
+mod exact;
 mod hash_range;
 mod hash_range_pages;
 mod hash_range_scan;
@@ -53,12 +54,21 @@ impl AtomStore {
         filter: &crate::schema::types::field::HashRangeFilter,
         fill: PageFill,
     ) -> Result<Option<MoleculeData>, SchemaError> {
-        // The header is the per-key-layout marker. No header → absent molecule.
+        // Exact queries still check their physical candidates without a header;
+        // only that complete winner search can admit a missing logical key.
         let Some((header, storage_prefix)) = self
             .read_header_exact_prefix(molecule_uuid, storage_prefix)
             .await?
         else {
-            return Ok(None);
+            return self
+                .load_exact_query_without_header(
+                    molecule_uuid,
+                    layout,
+                    storage_prefix,
+                    filter,
+                    fill,
+                )
+                .await;
         };
         match layout {
             FilterLayout::OneD(slot) => {

@@ -2,6 +2,12 @@
 
 use super::*;
 
+struct SecondaryFieldContext<'a> {
+    field: &'a crate::schema::types::field::FieldVariant,
+    name: &'a str,
+    molecule: &'a str,
+}
+
 impl HashRangeQueryProcessor {
     /// Current-head secondary fan-out: batch-load mk: slots per storage prefix.
     pub(super) async fn secondary_matches_current(
@@ -21,6 +27,16 @@ impl HashRangeQueryProcessor {
         let Some(mol_uuid) = field.common().molecule_uuid().cloned() else {
             return Ok(());
         };
+        let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
+            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+            schema,
+            fname,
+        )?;
+        let context = SecondaryFieldContext {
+            field,
+            name: fname,
+            molecule: &mol_uuid,
+        };
 
         // Group page keys by the storage prefix that owns them.
         let mut by_prefix: HashMap<KeySource, Vec<KeyValue>> = HashMap::new();
@@ -30,36 +46,35 @@ impl HashRangeQueryProcessor {
         }
 
         for (prefix, keys) in by_prefix {
-            self.secondary_current_for_prefix(
-                field,
-                fname,
-                &mol_uuid,
-                prefix,
-                &keys,
-                include_tombstones,
-                pending,
-            )
-            .await?;
+            binding
+                .run(self.secondary_current_for_prefix(
+                    &context,
+                    prefix,
+                    &keys,
+                    include_tombstones,
+                    pending,
+                ))
+                .await?;
         }
         Ok(())
     }
 
     /// Resolve one storage prefix's keys: resident tips first, then durable slots.
-    #[allow(clippy::too_many_arguments)]
     async fn secondary_current_for_prefix(
         &self,
-        field: &crate::schema::types::field::FieldVariant,
-        fname: &str,
-        mol_uuid: &str,
+        context: &SecondaryFieldContext<'_>,
         prefix: KeySource,
         keys: &[KeyValue],
         include_tombstones: bool,
         pending: &mut Vec<SecondaryPending>,
     ) -> Result<(), SchemaError> {
+        if self.secondary_warm_for_prefix(context, &prefix, keys, include_tombstones, pending)? {
+            return Ok(());
+        }
         let mut slots = Vec::with_capacity(keys.len());
         let mut kv_for_slots = Vec::with_capacity(keys.len());
         for kv in keys {
-            if let Some(slot) = field.disk_slot_for_key(kv) {
+            if let Some(slot) = context.field.disk_slot_for_key(kv) {
                 slots.push(slot);
                 kv_for_slots.push(kv.clone());
             }
@@ -79,7 +94,7 @@ impl HashRangeQueryProcessor {
         let mut storage_kv_for_slots = Vec::with_capacity(kv_for_slots.len());
         for ((h, r), kv) in slots.iter().zip(kv_for_slots.iter()) {
             if use_resident_tips {
-                if let Some(tip) = self.db_ops.resident().resolve_tip(mol_uuid, h, r) {
+                if let Some(tip) = self.db_ops.resident().resolve_tip(context.molecule, h, r) {
                     let tip = tip.value;
                     if !include_tombstones
                         && tip.key_metadata.as_ref().is_some_and(|m| m.tombstoned)
@@ -89,12 +104,12 @@ impl HashRangeQueryProcessor {
                     let tip_key = self
                         .db_ops
                         .atoms()
-                        .key_codec_for_molecule(mol_uuid)
-                        .api_hash_range_record_key(mol_uuid, h, r)
+                        .key_codec_for_molecule(context.molecule)
+                        .api_hash_range_record_key(context.molecule, h, r)
                         .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
                     let partition = crate::atom::AtomPartition::from_record_key(&tip_key);
                     pending.push((
-                        fname.to_string(),
+                        context.name.to_string(),
                         kv.clone(),
                         tip.atom_uuid,
                         tip.key_metadata,
@@ -112,9 +127,7 @@ impl HashRangeQueryProcessor {
             return Ok(());
         }
         self.secondary_current_load_slots(
-            field,
-            fname,
-            mol_uuid,
+            context,
             &prefix,
             include_tombstones,
             &storage_slots,
@@ -125,12 +138,9 @@ impl HashRangeQueryProcessor {
     }
 
     /// Batch-load durable records for the slots the resident set did not answer.
-    #[allow(clippy::too_many_arguments)]
     async fn secondary_current_load_slots(
         &self,
-        field: &crate::schema::types::field::FieldVariant,
-        fname: &str,
-        mol_uuid: &str,
+        context: &SecondaryFieldContext<'_>,
         prefix: &KeySource,
         include_tombstones: bool,
         storage_slots: &[(String, String)],
@@ -140,19 +150,31 @@ impl HashRangeQueryProcessor {
         let records = self
             .db_ops
             .atoms()
-            .load_per_key_records_for_slots(mol_uuid, prefix.as_deref(), storage_slots)
+            .load_per_key_records_for_slots(context.molecule, prefix.as_deref(), storage_slots)
             .await?;
-        let mut by_slot = HashMap::with_capacity(records.len());
-        for (h, r, rec) in records {
-            by_slot.insert((h, r), rec);
-        }
-        for kv in storage_kv_for_slots {
-            let Some((h, r)) = field.disk_slot_for_key(kv) else {
+        for ((kv, (h, r)), record) in storage_kv_for_slots.iter().zip(storage_slots).zip(records) {
+            let Some((tip_key, rec)) = record else {
+                let candidates = self
+                    .db_ops
+                    .atoms()
+                    .key_codec_for_molecule(context.molecule)
+                    .api_hash_range_record_keys_for_read(context.molecule, h, r)
+                    .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+                self.db_ops.atoms().note_missing_query_key(
+                    prefix.as_deref(),
+                    context.molecule,
+                    kv,
+                    &candidates,
+                )?;
                 continue;
             };
-            let Some(rec) = by_slot.get(&(h.clone(), r.clone())) else {
-                continue;
-            };
+            self.db_ops.atoms().note_selected_query_tip(
+                prefix.as_deref(),
+                context.molecule,
+                kv,
+                &rec,
+                &tip_key,
+            )?;
             if !include_tombstones && rec.meta.as_ref().is_some_and(|m| m.tombstoned) {
                 continue;
             }
@@ -164,20 +186,11 @@ impl HashRangeQueryProcessor {
                     Some(pk)
                 }
             };
-            // `(h, r)` is the API-form slot — the form `load_per_key_records_for_slots`
-            // takes, because it encodes on the way in. The body partition
-            // must be byte-identical to the one the TIP is filed under, so
-            // encode here too: deriving it from the API hash on a blinded
-            // home names a partition that does not exist.
-            let tip_key = self
-                .db_ops
-                .atoms()
-                .key_codec_for_molecule(mol_uuid)
-                .api_hash_range_record_key(mol_uuid, &h, &r)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+            // The body location belongs to the actual winning tip spelling,
+            // including a fallback encoding or alternate molecule UUID.
             let partition = crate::atom::AtomPartition::from_record_key(&tip_key);
             pending.push((
-                fname.to_string(),
+                context.name.to_string(),
                 kv.clone(),
                 rec.entry.atom_uuid.clone(),
                 rec.meta.clone(),
@@ -187,6 +200,61 @@ impl HashRangeQueryProcessor {
             ));
         }
         Ok(())
+    }
+
+    /// A fully known exact key batch uses the same core molecule as primary reads.
+    fn secondary_warm_for_prefix(
+        &self,
+        context: &SecondaryFieldContext<'_>,
+        prefix: &KeySource,
+        keys: &[KeyValue],
+        include_tombstones: bool,
+        pending: &mut Vec<SecondaryPending>,
+    ) -> Result<bool, SchemaError> {
+        use crate::schema::types::field::FieldKind;
+        let kind = context.field.kind;
+        if !matches!(kind, FieldKind::Hash | FieldKind::HashRange) {
+            return Ok(false);
+        }
+        let pairs: Vec<_> = keys
+            .iter()
+            .filter_map(|key| context.field.disk_slot_for_key(key))
+            .collect();
+        let filter = HashRangeFilter::HashRangeKeys(pairs);
+        let Some(matches) = crate::storage::disk_pack::logical_paths::core_filter::matches(
+            self.db_ops.namespaced_store().disk_pack_runtime(),
+            prefix.as_deref(),
+            Some(context.molecule),
+            kind,
+            &filter,
+            include_tombstones,
+        )?
+        else {
+            return Ok(false);
+        };
+        let matches: HashMap<_, _> = matches
+            .into_iter()
+            .map(|(key, atom, meta, writer, partition)| (key, (atom, meta, writer, partition)))
+            .collect();
+        for key in keys {
+            let Some((hash, range)) = context.field.disk_slot_for_key(key) else {
+                continue;
+            };
+            let selected =
+                KeyValue::new(Some(hash), (kind == FieldKind::HashRange).then_some(range));
+            if let Some((atom, meta, writer, partition)) = matches.get(&selected) {
+                pending.push((
+                    context.name.to_string(),
+                    key.clone(),
+                    atom.clone(),
+                    meta.clone(),
+                    writer.clone(),
+                    prefix.clone(),
+                    partition.clone(),
+                ));
+            }
+        }
+        Ok(true)
     }
 
     /// `as_of` secondary fan-out: hydrate + rewind per storage prefix, keep

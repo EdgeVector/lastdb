@@ -174,45 +174,15 @@ impl AtomStore {
             .cloned()
     }
 
-    pub(crate) async fn durable_delete_barrier(
-        &self,
-        mk_key: &str,
-    ) -> Result<Option<crate::atom::delete_barrier::DeleteBarrier>, crate::schema::SchemaError>
-    {
-        let barrier_key = crate::atom::delete_barrier::delete_barrier_key(mk_key.as_bytes());
-        let barrier: Option<crate::atom::delete_barrier::DeleteBarrier> = self
-            .main_store
-            .get_item(&barrier_key)
-            .await
-            .map_err(|error| {
-                crate::schema::SchemaError::InvalidData(format!(
-                    "read durable Delete barrier: {error}"
-                ))
-            })?;
-        if barrier
-            .as_ref()
-            .is_some_and(|barrier| !barrier.matches_key(mk_key.as_bytes()))
-        {
-            return Err(crate::schema::SchemaError::InvalidData(
-                "durable Delete barrier key identity differs from the molecule key".into(),
-            ));
-        }
-        Ok(barrier)
-    }
-
     pub(crate) async fn winning_delete_barrier(
         &self,
         mk_key: &str,
     ) -> Result<Option<crate::atom::delete_barrier::DeleteBarrier>, crate::schema::SchemaError>
     {
-        let pending = self.pending_delete_barrier(mk_key);
-        let durable = self.durable_delete_barrier(mk_key).await?;
-        Ok(match (pending, durable) {
-            (Some(pending), Some(durable)) if pending.is_newer_than(&durable) => Some(pending),
-            (Some(_), Some(durable)) => Some(durable),
-            (Some(pending), None) => Some(pending),
-            (None, durable) => durable,
-        })
+        Ok(self
+            .winning_delete_barriers(&[mk_key.to_owned()])
+            .await?
+            .remove(mk_key))
     }
 
     /// Active automatic-GC generation, or zero outside a delete sweep.

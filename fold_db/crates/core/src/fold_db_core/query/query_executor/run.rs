@@ -44,14 +44,15 @@ impl QueryExecutor {
             }
         }
 
-        let mut results = self
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            runtime
+                .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
+                .await?;
+        }
+
+        let results = self
             .read_scoped_results(&mut schema, &mut query, window)
             .await?;
-        crate::storage::disk_pack::logical_paths::admit_query_results(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
-            &schema,
-            &mut results,
-        )?;
 
         // Numeric post-filters on field values (`value_filters`) — the
         // LLM agent populates this for prompts like "price < 600". The

@@ -3,28 +3,26 @@ use budget::call_error;
 use laststore::disk_pack::home::HomeRead;
 
 mod budget;
-mod dependencies;
-mod headers;
-mod holds;
-mod proofs;
-mod raw;
-pub(crate) use headers::note_molecule_header;
+mod core_holds;
+pub(super) mod memory;
 mod overlay;
+mod preload;
+mod raw;
 pub(crate) mod snapshots;
 
 pub(super) struct ReadContext {
     pub(super) call: Arc<Mutex<HomeRead>>,
     identity: uuid::Uuid,
     failure: Arc<Mutex<Option<ReadFailure>>>,
-    holds: Arc<holds::CallRecordHolds>,
+    core_holds: Arc<core_holds::CoreCallHolds>,
+    graph: Arc<crate::resident::NativeWriteGraph>,
+    // Drop graph references before the batch-owned memory reservations.
     pub(super) accepted: Arc<Vec<Arc<transaction::PendingBatch>>>,
     snapshots: Arc<snapshots::ReadSnapshots>,
-    pub(super) version: logical_paths::body::ReadVersion,
-    dependencies: Arc<Mutex<validity::Dependencies>>,
-    witnesses: Arc<Mutex<proofs::HeldWitnesses>>,
-    validity: Arc<Mutex<validity::Validity>>,
-    pub(super) paths: Arc<Mutex<logical_paths::warm::ResolvedPaths>>,
+    pub(super) revision: u64,
+    current: Current,
     write_owner: Option<Arc<transaction::PendingBatch>>,
+    _preload_charge: Option<Arc<crate::resident::core_keys::CoreKeyReservation>>,
 }
 
 struct ReadFailure {
@@ -77,30 +75,25 @@ impl ReadContext {
                 .read_from_writer(view.current.clone(), budget(), &runtime.read_lease)
         }
         .map_err(map)?;
+        // Captured graph bodies outlive a flush. Retain their batch owners so
+        // deferred-memory reservations last until the final captured read ends.
         let accepted = view.accepted.clone();
-        let version = logical_paths::body::ReadVersion {
-            generation: view.current.generation,
-            accepted: if accepted.is_empty() {
-                0
-            } else {
-                Arc::as_ptr(&accepted) as usize
-            },
-            revision: view.revision,
-        };
+        let graph = runtime.resident.native_write_root();
+        let revision = view.revision;
+        let current = view.current.clone();
         drop(view);
         Ok(Arc::new(Self {
             call: Arc::new(Mutex::new(call)),
             accepted,
-            version,
-            dependencies: Arc::new(Mutex::new(validity::Dependencies::default())),
-            witnesses: Arc::new(Mutex::new(proofs::HeldWitnesses::default())),
-            validity: Arc::clone(&runtime.validity),
-            paths: Arc::new(Mutex::new(logical_paths::warm::ResolvedPaths::default())),
+            graph,
+            revision,
+            current,
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
             identity: runtime.home.descriptor().identity,
             failure: Arc::new(Mutex::new(None)),
-            holds: Arc::new(holds::CallRecordHolds::new(Arc::clone(&runtime.logical))),
+            core_holds: Arc::new(core_holds::CoreCallHolds::new(Arc::clone(&runtime.core))),
             write_owner,
+            _preload_charge: None,
         }))
     }
 
@@ -117,15 +110,14 @@ impl ReadContext {
                     call: Arc::clone(&context.call),
                     identity: context.identity,
                     failure,
-                    holds: Arc::clone(&context.holds),
+                    core_holds: Arc::clone(&context.core_holds),
                     accepted: context.accepted.clone(),
+                    graph: Arc::clone(&context.graph),
                     snapshots: Arc::clone(&context.snapshots),
-                    version: context.version,
-                    paths: Arc::clone(&context.paths),
-                    dependencies: Arc::clone(&context.dependencies),
-                    witnesses: Arc::clone(&context.witnesses),
-                    validity: Arc::clone(&context.validity),
+                    revision: context.revision,
+                    current: context.current.clone(),
                     write_owner: context.write_owner.clone(),
+                    _preload_charge: context._preload_charge.clone(),
                 }));
             }
             return Err(StorageError::InvalidOperation(
@@ -148,13 +140,12 @@ impl ReadContext {
         }
     }
 
-    pub(super) fn hold_record(
+    pub(super) fn hold_core(
         &self,
-        logical: &mut LogicalResidentSet,
-        collection: &str,
-        key: &str,
+        core: &mut crate::resident::CoreWarmSet,
+        paths: &[crate::resident::CorePath],
     ) -> StorageResult<()> {
-        self.holds.hold(logical, collection, key)
+        self.core_holds.hold(core, paths)
     }
 
     fn owns_write(&self, pending: Option<&Arc<transaction::PendingBatch>>) -> bool {

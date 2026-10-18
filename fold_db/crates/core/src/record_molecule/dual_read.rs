@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::envelope::{envelope_is_complete, parse_document_fields};
 use super::is_record_molecule_field;
+use super::read_batch::load_record_tip_atoms;
 use crate::atom::Atom;
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::FieldValue;
@@ -26,7 +27,15 @@ pub async fn hash_range_key_from_envelope(
         return Ok(None);
     };
     let key = KeyValue::new(Some(hash.to_string()), Some(range.to_string()));
-    let Some(atom) = load_record_tip_atom(db_ops, &record_uuid, &key).await? else {
+    let Some(atom) = load_record_tip_atoms(
+        db_ops,
+        &record_uuid,
+        std::slice::from_ref(&key),
+        record_scope(schema),
+        Some(schema),
+    )
+    .await?
+    .remove(&key) else {
         return Ok(None);
     };
     let Some(fields) = parse_document_fields(atom.content()) else {
@@ -99,10 +108,16 @@ pub async fn overlay_document_envelope(
         keys.extend(by_key.keys().cloned());
     }
 
-    for key in keys {
-        let Some(atom) = load_record_tip_atom(db_ops, &record_uuid, &key).await? else {
-            continue;
-        };
+    let keys: Vec<_> = keys.into_iter().collect();
+    let atoms = load_record_tip_atoms(
+        db_ops,
+        &record_uuid,
+        &keys,
+        record_scope(schema),
+        Some(schema),
+    )
+    .await?;
+    for (key, atom) in atoms {
         let Some(fields) = parse_document_fields(atom.content()) else {
             continue;
         };
@@ -144,42 +159,23 @@ pub(super) async fn load_record_tip_atom(
     record_uuid: &str,
     key: &KeyValue,
 ) -> Result<Option<Atom>, SchemaError> {
-    let hash = key.hash.as_deref().unwrap_or("");
-    let range = key.range.as_deref().unwrap_or("");
-    let mut candidates = vec![(hash.to_string(), range.to_string())];
-    if let (Ok(sh), Ok(sr)) = (
-        db_ops.atoms().storage_hash(record_uuid, hash),
-        db_ops.atoms().storage_range(record_uuid, range),
-    ) {
-        if sh != hash || sr != range {
-            candidates.push((sh, sr));
-        }
-    }
-    let mut atom_uuid = None;
-    for (h, r) in &candidates {
-        if crate::db_operations::resident_read::tip_reads_resident_first(db_ops, None) {
-            if let Some(tip) = db_ops.resident().resolve_tip(record_uuid, h, r) {
-                atom_uuid = Some(tip.value.atom_uuid);
-                break;
-            }
-        }
-        let record_key = crate::atom::molecule_key_codec::hash_range_record_key(record_uuid, h, r);
-        if let Some(rec) = db_ops
-            .atoms()
-            .raw()
-            .get_item::<crate::db_operations::atom_store::PerKeyRecord>(&record_key)
-            .await
-            .map_err(SchemaError::from)
-            .map_err(SchemaError::read_failure)?
-        {
-            atom_uuid = Some(rec.entry.atom_uuid);
-            break;
-        }
-    }
-    let Some(atom_uuid) = atom_uuid else {
-        return Ok(None);
-    };
-    crate::db_operations::resident_read::get_atom_for_tip(db_ops, &atom_uuid)
-        .await
-        .map(Some)
+    Ok(
+        load_record_tip_atoms(db_ops, record_uuid, std::slice::from_ref(key), None, None)
+            .await?
+            .remove(key),
+    )
+}
+
+pub(super) fn record_scope(schema: &Schema) -> Option<&str> {
+    schema
+        .runtime_fields
+        .get(super::RECORD_SENTINEL)
+        .or_else(|| {
+            schema
+                .key
+                .as_ref()
+                .and_then(|key| key.hash_field.as_deref())
+                .and_then(|name| schema.runtime_fields.get(name))
+        })
+        .and_then(|field| field.common().storage_prefix())
 }

@@ -73,7 +73,7 @@ impl HashRangeQueryProcessor {
             current_user_redacted
         );
 
-        let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await;
+        let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
         self.query_cokey(
             schema,
             fields,
@@ -136,7 +136,7 @@ impl HashRangeQueryProcessor {
             current_user_redacted
         );
 
-        let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await;
+        let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
         let scan_fields = self.scan_fields(schema, predicates.unwrap_or(&[]), order_by)?;
         let pass_a_filter = filter.or_else(|| Some(full_span_page()));
         // Pass A must see every candidate: the predicate set, the ordering and

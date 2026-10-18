@@ -26,7 +26,7 @@ use std::collections::HashMap;
 /// An atom may pack many small fields up to the limit, but it is **not** a blob
 /// store: a growing list is one record per entry, and large/opaque bytes go in
 /// a file blob (CAS). See `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Atom {
     uuid: String,
     source_schema_name: String,

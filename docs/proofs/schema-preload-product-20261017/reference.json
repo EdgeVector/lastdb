@@ -1,0 +1,17 @@
+{
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-schema-preload-before-aa64f61-20261017/target/release/lastdbd",
+  "binary_retained": false,
+  "binary_sha256": "3f591bae95065fd31a507dcbab12aa6e40e30b24ff346a55fa5a2b0d126b13cb",
+  "build_cache": "APFS clone of candidate target before build; separate reference target; host Cargo lock for clone and build",
+  "build_command": "scripts/ci/with-fold-host-cargo-lock.sh --timeout 600 -- cargo build --release --locked -p lastdb_node --bin lastdbd",
+  "build_exit": 0,
+  "build_result": "Finished release profile optimized in 2m 03s",
+  "checkout_reclaimed": true,
+  "cleanup_receipt": "reference-cleanup.json",
+  "created_utc": "2026-10-17T23:28:48.853600+00:00",
+  "recovery": "Recreate a DEV worktree at the recorded source_commit and use the recorded release build command; binary hash is historical identity, not an available file",
+  "scope": "Committed aa64f61 engine, no candidate source edits",
+  "source_commit": "aa64f61cd3d2d01a3f8953d4a1b3cf21f9940bab",
+  "source_status": "",
+  "source_worktree": "/Users/tomtang/.fkanban/worktrees/lastdb-schema-preload-before-aa64f61-20261017"
+}

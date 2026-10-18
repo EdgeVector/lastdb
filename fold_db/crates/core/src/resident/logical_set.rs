@@ -386,7 +386,7 @@ pub struct LogicalResidentSet {
     /// and fetched ids that were absent (`None`). Keyed by the exact
     /// `(collection, id)` a loader read. Each entry is one used record.
     records: HashMap<RecordKey, Option<Vec<u8>>>,
-    /// Bounded aliases contain no bodies and leave with their owner record.
+    /// Exact source edges contain no bodies and leave with their owner record.
     record_links: record_links::RecordLinks,
     /// Calls hold exact records, including slots reserved before their fetch.
     record_holds: record_holds::RecordHolds,

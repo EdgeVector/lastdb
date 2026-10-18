@@ -60,6 +60,7 @@ impl AdmissionLedger {
         durable: u64,
         batches: u64,
         suffix_oldest: Option<Instant>,
+        created: Instant,
     ) -> Result<JournalReservation> {
         let mut state = self.state()?;
         let oldest = state
@@ -89,7 +90,6 @@ impl AdmissionLedger {
             .ok_or_else(|| super::refuse("journal reservation identity exhaustion"))?;
         state.next = id;
         state.bytes += quote.physical_reserve;
-        let created = Instant::now();
         state.entries.insert(
             id,
             Entry {

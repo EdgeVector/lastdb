@@ -1,0 +1,24 @@
+{
+  "all_exact_run_roots_removed": true,
+  "all_original_receipt_bytes_match": true,
+  "checked_receipt_files": 130,
+  "normal_node_sessions": 139,
+  "removed_roots": [
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qx98m1fv",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.yajebqap",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ph0bivno",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.k6s0wx4e",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pbayqmql",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pkdbqwk3",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iszbiiiv",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.5m64rc1w",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.lfjk84g3"
+  ],
+  "retained_baseline": {
+    "binary_sha256": "bdb83b38545a2161217392f19f9e6f6c2e0fd2d35f8f449e2d6221cb29f2cbed",
+    "retained": true,
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.kg5lsgib"
+  },
+  "seal": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-memory-completion-20261018/attempt2-receipt-seal.json",
+  "seal_sha256": "9d622d09f29839284e3cf89c2309e065b5b0d3971a84c0c4d0400503978231cf"
+}

@@ -50,6 +50,15 @@ pub(crate) fn read_snapshot_insert<T: Any + Send + Sync>(
     name: String,
     value: T,
 ) -> StorageResult<Arc<T>> {
+    read_snapshot_insert_arc(runtime, cache, name, Arc::new(value))
+}
+
+pub(super) fn read_snapshot_insert_arc<T: Any + Send + Sync>(
+    runtime: Option<Arc<PackRuntime>>,
+    cache: usize,
+    name: String,
+    value: Arc<T>,
+) -> StorageResult<Arc<T>> {
     let context = context(runtime).ok_or_else(|| {
         StorageError::InvalidOperation("native metadata snapshot requires a query scope".into())
     })?;
@@ -65,7 +74,6 @@ pub(crate) fn read_snapshot_insert<T: Any + Send + Sync>(
             detail: "native metadata snapshot exceeds its complete call limit".into(),
         });
     }
-    let value = Arc::new(value);
     snapshots.insert(key, value.clone());
     Ok(value)
 }

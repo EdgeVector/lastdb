@@ -1,0 +1,1 @@
+{"operation":"load","layout":"packed","representation":"binary","keys":100000,"retained_keys":100000,"characters":54,"key_bytes":216,"file_bytes":21600000,"open_ms":0.021916,"read_ms":1.835292,"build_ms":0.000000,"total_ms":1.861000}
