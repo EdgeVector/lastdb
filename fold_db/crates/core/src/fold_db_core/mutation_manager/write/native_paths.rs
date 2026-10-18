@@ -94,7 +94,7 @@ impl MutationManager {
             transaction::require_durable(runtime)?;
         }
         let tips = changed_tips(job, siblings);
-        self.stage_native_controls(runtime, scope, &tips)
+        self.stage_native_controls(runtime, scope, &changed_molecules(job, siblings))
             .boxed()
             .await?;
         let bindings = self
@@ -202,6 +202,28 @@ impl MutationManager {
         }
         Ok(Some(atoms))
     }
+}
+
+fn changed_molecules(job: &DeferredPersistJob, include_siblings: bool) -> Vec<String> {
+    job.modified_fields
+        .keys()
+        .filter_map(|name| {
+            job.schema
+                .runtime_fields
+                .get(name)?
+                .common()
+                .molecule_uuid()
+        })
+        .chain(
+            job.sibling_updates
+                .iter()
+                .filter(|_| include_siblings)
+                .map(|(molecule, _, _)| molecule),
+        )
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn changed_tips(job: &DeferredPersistJob, include_siblings: bool) -> Vec<ChangedTip> {

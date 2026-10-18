@@ -1,0 +1,591 @@
+{
+  "queries": [
+    {
+      "db_locator": null,
+      "file_read_calls": 1,
+      "phase": "protein-empty-source",
+      "raw_requested_family_keys": {
+        "conflict_control": 2,
+        "generation_pointer": 2,
+        "molecule_encryption_keys": 4,
+        "tip": 2
+      },
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-4",
+      "schema": "CoreOwnedProteinHash",
+      "trace_entries": [
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 263,
+          "utc": "2026-10-18T18:44:16.927220Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 264,
+          "utc": "2026-10-18T18:44:16.927753Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 265,
+          "utc": "2026-10-18T18:44:16.927792Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 266,
+          "utc": "2026-10-18T18:44:16.927808Z"
+        },
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 267,
+          "utc": "2026-10-18T18:44:16.928413Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 268,
+          "utc": "2026-10-18T18:44:16.928573Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 269,
+          "utc": "2026-10-18T18:44:16.928625Z"
+        },
+        {
+          "family": "conflict_control",
+          "keys": 1,
+          "line": 270,
+          "utc": "2026-10-18T18:44:16.929283Z"
+        },
+        {
+          "family": "conflict_control",
+          "keys": 1,
+          "line": 271,
+          "utc": "2026-10-18T18:44:16.929314Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:16.930951+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-4",
+        "started_utc": "2026-10-18T18:44:16.925053+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 1,
+      "phase": "protein-empty-target",
+      "raw_requested_family_keys": {
+        "generation_pointer": 2,
+        "molecule_encryption_keys": 4,
+        "molecule_header": 1,
+        "tip": 2
+      },
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-5",
+      "schema": "CoreOwnedProteinHashRange",
+      "trace_entries": [
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 272,
+          "utc": "2026-10-18T18:44:16.932048Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 273,
+          "utc": "2026-10-18T18:44:16.932234Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 274,
+          "utc": "2026-10-18T18:44:16.932265Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 275,
+          "utc": "2026-10-18T18:44:16.932282Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 276,
+          "utc": "2026-10-18T18:44:16.932774Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 277,
+          "utc": "2026-10-18T18:44:16.935358Z"
+        },
+        {
+          "family": "molecule_header",
+          "keys": 1,
+          "line": 278,
+          "utc": "2026-10-18T18:44:16.937243Z"
+        },
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 279,
+          "utc": "2026-10-18T18:44:16.937452Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:16.938295+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-5",
+        "started_utc": "2026-10-18T18:44:16.931451+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "protein-target-first-value-read",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-8",
+      "schema": "CoreOwnedProteinHashRange",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:17.204111+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-8",
+        "started_utc": "2026-10-18T18:44:17.200322+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "protein-source-first-value-read",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-9",
+      "schema": "CoreOwnedProteinHash",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:17.213199+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-9",
+        "started_utc": "2026-10-18T18:44:17.208367+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "protein-target-after-update",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-11",
+      "schema": "CoreOwnedProteinHashRange",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:17.343591+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-11",
+        "started_utc": "2026-10-18T18:44:17.342529+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "protein-source-after-update",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-12",
+      "schema": "CoreOwnedProteinHash",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:17.353089+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-12",
+        "started_utc": "2026-10-18T18:44:17.348306+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 2,
+      "phase": "protein-new-hash-absence-before-move",
+      "raw_requested_family_keys": {
+        "tip": 2
+      },
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-13",
+      "schema": "CoreOwnedProteinHashRange",
+      "trace_entries": [
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 596,
+          "utc": "2026-10-18T18:44:17.354216Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:17.358241+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-13",
+        "started_utc": "2026-10-18T18:44:17.353705+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "protein-old-key-after-move",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-16",
+      "schema": "CoreOwnedProteinHashRange",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:17.627064+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-16",
+        "started_utc": "2026-10-18T18:44:17.623183+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "protein-new-key-after-move",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-17",
+      "schema": "CoreOwnedProteinHashRange",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:17.630637+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-17",
+        "started_utc": "2026-10-18T18:44:17.627272+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "protein-source-after-key-move",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-18",
+      "schema": "CoreOwnedProteinHash",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:17.636170+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-18",
+        "started_utc": "2026-10-18T18:44:17.631281+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 17,
+      "phase": "protein-old-key-normal-reopen",
+      "raw_requested_family_keys": {
+        "conflict_control": 2,
+        "generation_pointer": 2,
+        "molecule_encryption_keys": 4,
+        "molecule_header": 1,
+        "schema": 1,
+        "schema_state": 1,
+        "tip": 2
+      },
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-22",
+      "schema": "CoreOwnedProteinHashRange",
+      "trace_entries": [
+        {
+          "family": "schema",
+          "keys": 1,
+          "line": 892,
+          "utc": "2026-10-18T18:44:18.294804Z"
+        },
+        {
+          "family": "schema_state",
+          "keys": 1,
+          "line": 893,
+          "utc": "2026-10-18T18:44:18.295068Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 894,
+          "utc": "2026-10-18T18:44:18.295371Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 895,
+          "utc": "2026-10-18T18:44:18.295389Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 896,
+          "utc": "2026-10-18T18:44:18.295398Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 897,
+          "utc": "2026-10-18T18:44:18.295407Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 898,
+          "utc": "2026-10-18T18:44:18.295541Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 899,
+          "utc": "2026-10-18T18:44:18.298749Z"
+        },
+        {
+          "family": "molecule_header",
+          "keys": 1,
+          "line": 900,
+          "utc": "2026-10-18T18:44:18.301698Z"
+        },
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 901,
+          "utc": "2026-10-18T18:44:18.301983Z"
+        },
+        {
+          "family": "conflict_control",
+          "keys": 1,
+          "line": 902,
+          "utc": "2026-10-18T18:44:18.302133Z"
+        },
+        {
+          "family": "conflict_control",
+          "keys": 1,
+          "line": 903,
+          "utc": "2026-10-18T18:44:18.302139Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:18.302458+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-22",
+        "started_utc": "2026-10-18T18:44:18.294581+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 16,
+      "phase": "protein-new-key-normal-reopen",
+      "raw_requested_family_keys": {
+        "atom": 8,
+        "generation_pointer": 6,
+        "record_delete": 4,
+        "tip": 8
+      },
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-23",
+      "schema": "CoreOwnedProteinHashRange",
+      "trace_entries": [
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 904,
+          "utc": "2026-10-18T18:44:18.302920Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 905,
+          "utc": "2026-10-18T18:44:18.303209Z"
+        },
+        {
+          "family": "atom",
+          "keys": 2,
+          "line": 906,
+          "utc": "2026-10-18T18:44:18.303275Z"
+        },
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 907,
+          "utc": "2026-10-18T18:44:18.303487Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 908,
+          "utc": "2026-10-18T18:44:18.303551Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 909,
+          "utc": "2026-10-18T18:44:18.303562Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 910,
+          "utc": "2026-10-18T18:44:18.303580Z"
+        },
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 911,
+          "utc": "2026-10-18T18:44:18.303692Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 912,
+          "utc": "2026-10-18T18:44:18.303765Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 913,
+          "utc": "2026-10-18T18:44:18.303773Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 914,
+          "utc": "2026-10-18T18:44:18.303789Z"
+        },
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 915,
+          "utc": "2026-10-18T18:44:18.303896Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 916,
+          "utc": "2026-10-18T18:44:18.303961Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 917,
+          "utc": "2026-10-18T18:44:18.303970Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 918,
+          "utc": "2026-10-18T18:44:18.303986Z"
+        },
+        {
+          "family": "atom",
+          "keys": 6,
+          "line": 919,
+          "utc": "2026-10-18T18:44:18.304039Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:18.304488+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-23",
+        "started_utc": "2026-10-18T18:44:18.302597+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 2,
+      "phase": "protein-source-after-delete",
+      "raw_requested_family_keys": {
+        "molecule_encryption_keys": 4
+      },
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-25",
+      "schema": "CoreOwnedProteinHash",
+      "trace_entries": [
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1041,
+          "utc": "2026-10-18T18:44:18.553457Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1042,
+          "utc": "2026-10-18T18:44:18.553696Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1043,
+          "utc": "2026-10-18T18:44:18.553883Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1044,
+          "utc": "2026-10-18T18:44:18.553900Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:18.558506+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-25",
+        "started_utc": "2026-10-18T18:44:18.553008+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "protein-independent-target-after-delete",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-26",
+      "schema": "CoreOwnedProteinHashRange",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:44:18.564019+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-a804e6cc5f484a8489f220bf336794c4-core-owned-candidate-26",
+        "started_utc": "2026-10-18T18:44:18.562973+00:00",
+        "variant": "core-owned-candidate"
+      }
+    }
+  ],
+  "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v4-protein-window-trace",
+  "scope": "Time-window association of fixed family logs. Background calls can share a window. Raw requested keys do not equal file reads. The strict zero-file candidate receipt remains failed."
+}

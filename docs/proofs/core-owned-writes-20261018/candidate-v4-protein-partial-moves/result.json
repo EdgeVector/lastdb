@@ -1,0 +1,1 @@
+{"benchmark_result":false,"complete":true,"error":null,"operation_counts":{"core-owned-partial-protein-move-complete":1,"core-owned-partial-protein-move-read":7,"core-owned-queue-drained":2,"core-owned-write":6,"flush":2,"native-status":8,"owned-node-start":2,"owned-node-stop":2,"request":28},"role":"candidate","workflow":"logical"}

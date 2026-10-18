@@ -7,23 +7,17 @@ impl MutationManager {
         &self,
         runtime: &PackRuntime,
         scope: Option<&str>,
-        tips: &[ChangedTip],
+        molecules: &[String],
     ) -> Result<(), SchemaError> {
-        let molecules: Vec<_> = tips
-            .iter()
-            .map(|tip| tip.molecule.clone())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
         tokio::try_join!(
             self.db_ops
                 .atoms()
-                .stage_current_molecule_selectors(runtime, &molecules, scope)
+                .stage_current_molecule_selectors(runtime, molecules, scope)
                 .boxed(),
             async {
                 self.db_ops
                     .molecule_keys()
-                    .stage_current_metadata(runtime, &molecules)
+                    .stage_current_metadata(runtime, molecules)
                     .await?;
                 Ok::<_, SchemaError>(())
             }

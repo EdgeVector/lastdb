@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preserve numeric read-family diagnostics after an already-failed strict scope gate."""
+"""Preserve fixed-family diagnostics after an already-failed strict logical read gate."""
 import argparse
 from datetime import datetime, timezone
 import json
@@ -28,6 +28,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--identity', type=Path, required=True)
     parser.add_argument('--freeze', action='store_true')
+    parser.add_argument('--diagnostic-workflow', choices=('scoped', 'protein'), default='scoped')
     own, remaining = parser.parse_known_args()
     current = inputs()
     if own.freeze:
@@ -42,7 +43,7 @@ def main():
     if json.loads(own.identity.read_text())['files'] != current:
         raise RuntimeError('A diagnostic input differs')
     if '--workflow' in remaining:
-        parser.error('The diagnostic workflow selects scoped automatically')
+        parser.error('Use diagnostic-workflow for the selected traced cohort')
     receipt_parser = argparse.ArgumentParser(add_help=False)
     receipt_parser.add_argument('--receipt-dir', type=Path, required=True)
     receipt_parser.add_argument('--binary', type=Path, required=True)
@@ -98,7 +99,7 @@ def main():
         return original_popen(command, *args, **kwargs)
 
     subprocess.Popen = traced_popen
-    sys.argv = [sys.argv[0], *remaining, '--workflow', 'scoped']
+    sys.argv = [sys.argv[0], *remaining, '--workflow', own.diagnostic_workflow]
     try:
         result = base.main()
     finally:
@@ -111,10 +112,11 @@ def main():
         shutil.copy2(Path(__file__), target / Path(__file__).name)
         base.measure.profile.save(target / 'diagnostic-result.json', {
             'strict_acceptance': False, 'workflow_exit_code': result,
+            'diagnostic_workflow': own.diagnostic_workflow,
             'continued_file_gates': observed,
             'child_environment_override': {'RUST_LOG': 'warn,lastdb::native_read_family=debug'},
             'actual_node_overrides': overrides,
-            'scope': 'Separate traced diagnosis. The failed candidate-scoped-v4 strict receipt stays unchanged. Value failures still stop this workflow.'})
+            'scope': 'Separate traced diagnosis. Original failed strict receipts stay unchanged. Value failures still stop this workflow.'})
     if inputs() != current:
         raise RuntimeError('A diagnostic input changes during operation')
     return result

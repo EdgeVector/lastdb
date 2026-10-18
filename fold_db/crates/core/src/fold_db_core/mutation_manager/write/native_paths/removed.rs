@@ -37,9 +37,8 @@ impl MutationManager {
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
-        self.db_ops
-            .atoms()
-            .stage_current_molecule_headers(runtime, &molecules, None)
+        self.stage_removed_controls(runtime, None, &molecules)
+            .boxed()
             .await?;
         self.stage_removed_core_paths(&schema, runtime, None, slots)
             .await
@@ -78,12 +77,28 @@ impl MutationManager {
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
-        self.db_ops
-            .atoms()
-            .stage_current_molecule_headers(runtime, &molecules, job.storage_prefix.as_deref())
+        self.stage_removed_controls(runtime, job.storage_prefix.as_deref(), &molecules)
+            .boxed()
             .await?;
         self.stage_removed_core_paths(&schema, runtime, job.storage_prefix.as_deref(), slots)
             .await
+    }
+
+    async fn stage_removed_controls(
+        &self,
+        runtime: &PackRuntime,
+        scope: Option<&str>,
+        molecules: &[String],
+    ) -> Result<(), SchemaError> {
+        tokio::try_join!(
+            self.db_ops
+                .atoms()
+                .stage_current_molecule_headers(runtime, molecules, scope)
+                .boxed(),
+            self.stage_native_controls(runtime, scope, molecules)
+                .boxed(),
+        )?;
+        Ok(())
     }
 
     pub(super) async fn stage_removed_job_paths(
