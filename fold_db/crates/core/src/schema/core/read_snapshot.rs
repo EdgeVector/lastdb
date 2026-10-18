@@ -1,10 +1,14 @@
-//! Native queries use their own catalog values, never a live shared cache.
+//! Core schema objects shared only across compatible captured native views.
 
 use super::{Schema, SchemaCore, SchemaState};
 use crate::db_operations::schema_store::SchemaReadSnapshot;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
+use crate::storage::disk_pack::{
+    core_memory_get, core_memory_insert, read_snapshot_active, read_snapshot_get, CoreMemoryValue,
+};
 use std::sync::Arc;
+
+mod memory;
 
 impl SchemaCore {
     /// Native name resolution reads only the caller's captured root and overlay.
@@ -21,28 +25,32 @@ impl SchemaCore {
         ))
     }
 
-    /// The directory is read on an exact-name miss and expires with this call.
+    /// A complete directory is shared until catalog or name-claim publication.
     ///
     /// # Errors
     /// Returns an error for an incomplete or unreadable captured directory.
     pub async fn captured_name_candidates(
         &self,
-    ) -> Result<Option<Arc<Vec<crate::schema::SchemaWithState>>>, SchemaError> {
+    ) -> Result<Option<Arc<CoreMemoryValue<Vec<crate::schema::SchemaWithState>>>>, SchemaError>
+    {
         if !self.native_read_snapshot_active() {
             return Ok(None);
         }
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
         let cache = Arc::as_ptr(&self.schemas) as usize;
         let key = "\0native_schema_name_directory";
-        if let Some(directory) = read_snapshot_get(runtime.clone(), cache, key)? {
+        if let Some(directory) = core_memory_get(runtime.clone(), cache, key)? {
             return Ok(Some(directory));
         }
         let directory = self.db_ops.schemas().read_name_directory().await?;
-        Ok(Some(read_snapshot_insert(
+        let bytes = memory::directory_bytes(&directory)?;
+        Ok(Some(core_memory_insert(
             runtime,
             cache,
             key.into(),
             directory,
+            memory::directory_sources(),
+            bytes,
         )?))
     }
 
@@ -74,32 +82,39 @@ impl SchemaCore {
     pub(super) async fn native_schema_snapshot(
         &self,
         name: &str,
-    ) -> Result<Arc<SchemaReadSnapshot>, SchemaError> {
-        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
-        let cache = Arc::as_ptr(&self.schemas) as usize;
-        if let Some(snapshot) = read_snapshot_get(runtime.clone(), cache, name)? {
-            return Ok(snapshot);
-        }
-        let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
+    ) -> Result<Arc<CoreMemoryValue<SchemaReadSnapshot>>, SchemaError> {
+        let snapshot = self.schema_memory_snapshot(name).await?;
         if let Some(canonical) = snapshot
             .schema
             .as_ref()
             .map(|schema| &schema.name)
             .filter(|canonical| canonical.as_str() != name)
         {
-            // Query execution checks the returned schema's own name. Read
-            // that exact state from the same held view, never copy alias state.
-            if read_snapshot_get::<SchemaReadSnapshot>(runtime.clone(), cache, canonical)?.is_none()
-            {
-                let value = self.db_ops.schemas().read_snapshot(canonical).await?;
-                read_snapshot_insert(runtime.clone(), cache, canonical.clone(), value)?;
-            }
+            // Query execution checks the returned schema's own name. Capture
+            // that exact state, rather than substituting the alias's state.
+            self.schema_memory_snapshot(canonical).await?;
         }
-        Ok(read_snapshot_insert(
+        Ok(snapshot)
+    }
+
+    async fn schema_memory_snapshot(
+        &self,
+        name: &str,
+    ) -> Result<Arc<CoreMemoryValue<SchemaReadSnapshot>>, SchemaError> {
+        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
+        let cache = Arc::as_ptr(&self.schemas) as usize;
+        if let Some(snapshot) = core_memory_get(runtime.clone(), cache, name)? {
+            return Ok(snapshot);
+        }
+        let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
+        let bytes = memory::snapshot_bytes(&snapshot)?;
+        Ok(core_memory_insert(
             runtime,
             cache,
             name.to_string(),
             snapshot,
+            memory::snapshot_sources(name),
+            bytes,
         )?)
     }
 
@@ -107,7 +122,7 @@ impl SchemaCore {
         &self,
         name: &str,
     ) -> Result<Option<Option<Schema>>, SchemaError> {
-        let snapshot = read_snapshot_get::<SchemaReadSnapshot>(
+        let snapshot = read_snapshot_get::<CoreMemoryValue<SchemaReadSnapshot>>(
             self.db_ops.namespaced_store().disk_pack_runtime(),
             Arc::as_ptr(&self.schemas) as usize,
             name,
@@ -119,7 +134,7 @@ impl SchemaCore {
         &self,
         name: &str,
     ) -> Result<Option<SchemaState>, SchemaError> {
-        Ok(read_snapshot_get::<SchemaReadSnapshot>(
+        Ok(read_snapshot_get::<CoreMemoryValue<SchemaReadSnapshot>>(
             self.db_ops.namespaced_store().disk_pack_runtime(),
             Arc::as_ptr(&self.schemas) as usize,
             name,

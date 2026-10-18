@@ -7,8 +7,9 @@
 //! skip storage entirely; misses batch through the normal located load into
 //! the warm set.
 //!
-//! Only legacy unprefixed reads consult the live graph. Native pack reads
-//! retain their captured committed root and native warm-record holds. A local
+//! Only legacy unprefixed reads consult the live typed graph. Native pack reads
+//! use the same graph owner's immutable keyed write root, then clean warm
+//! records and their captured committed disk root. A local
 //! selected tip with no atom is an integrity failure, never record absence.
 
 use crate::atom::{Atom, AtomPartition};
@@ -16,7 +17,8 @@ use crate::db_operations::DbOperations;
 use crate::schema::types::SchemaError;
 use std::sync::Arc;
 
-/// Live graph state is not versioned with a native pack read root.
+/// The mutable legacy typed graph is not part of a captured native read root.
+/// Native reads use the immutable write graph below the typed store instead.
 pub(crate) fn graph_reads_enabled(db_ops: &DbOperations) -> bool {
     db_ops.namespaced_store().disk_pack_runtime().is_none()
 }

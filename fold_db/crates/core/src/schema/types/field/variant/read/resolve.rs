@@ -52,6 +52,14 @@ impl FieldVariant {
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         use crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix;
 
+        let filter_now = filter.as_ref().filter(|_| as_of.is_none());
+        let core = self
+            .resolve_core_model(db_ops, filter_now, window.clone(), include_tombstones)
+            .await?;
+        if let Some(values) = core {
+            return Ok(values);
+        }
+
         if let Some(resolved) = self
             .resolve_hash_key_fast(
                 db_ops,
@@ -101,22 +109,9 @@ impl FieldVariant {
         )
         .await?;
 
-        if !include_tombstones {
-            // Count what this drops. The window above was already spent on these
-            // rows and `count_rows` already counted them (it gates on
-            // `KeyMetadata.tombstoned`, which a content tombstone need not set),
-            // so a silent `retain` hands back a short page that is
-            // indistinguishable from the end of the set — and leaves `has_more`
-            // comparing a delivered-row count against a total that includes
-            // them.
-            resolved.retain(|_, fv| {
-                let live = !crate::atom::is_tombstone_value(&fv.value);
-                if !live {
-                    crate::db_operations::note_tombstoned_row();
-                }
-                live
-            });
-        }
+        // Count content tombstones after the window. Key metadata alone can
+        // miss them, so the page's delivered count must retain this signal.
+        retain_visible_values(&mut resolved, include_tombstones);
 
         self.stamp_molecule_meta(&mut resolved);
         self.record_resolved_tip_keys(&resolved);
@@ -292,20 +287,14 @@ impl FieldVariant {
         hash: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<TipMatch>, SchemaError> {
-        let Some((base_key, rec)) = db_ops
+        let hit = db_ops
             .atoms()
-            .get_per_key_1d(molecule_uuid, hash, "", storage_prefix)
-            .await?
-        else {
-            return Ok(Vec::new());
-        };
-        // One home: this disk tip stays out of the graph. The storage read
-        // admits it to the warm set.
-        Ok(vec![(
-            KeyValue::new(Some(hash.to_string()), None),
-            rec,
-            base_key,
-        )])
+            .get_query_hash_tip(molecule_uuid, hash, storage_prefix)
+            .await?;
+        Ok(hit
+            .into_iter()
+            .map(|(base, record)| (KeyValue::new(Some(hash.to_string()), None), record, base))
+            .collect())
     }
 
     /// Tip records for a `HashRange` partition, plus whether the window was

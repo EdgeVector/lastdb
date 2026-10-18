@@ -1,0 +1,49 @@
+{
+  "index_bytes": 1204452,
+  "indexed_files": 3889,
+  "new_git_evidence": {
+    "bytes": 9678958,
+    "files": 1488
+  },
+  "proposed_rules": [
+    "# Generated raw evidence stays local; hashes and sizes are in evidence-index.json.",
+    "/docs/proofs/**/*.jsonl",
+    "/docs/proofs/**/*.log",
+    "/docs/proofs/**/*.log.gz",
+    "/docs/proofs/**/*.stdout",
+    "/docs/proofs/**/*.stderr",
+    "/docs/proofs/**/*.time",
+    "/docs/proofs/**/sample.txt",
+    "/docs/proofs/**/source-inputs/",
+    "/docs/proofs/**/*-source-inputs/",
+    "/docs/proofs/**/*.py",
+    "!/docs/proofs/*/*.py",
+    "!/docs/proofs/graph-first-20261017/drivers/*.py",
+    "/docs/proofs/**/source-identity.json",
+    "/docs/proofs/**/receipt-manifest.json",
+    "/docs/proofs/**/current-source-pending*.json",
+    "/docs/proofs/schema-range-preload-20261017/keys-*.json",
+    "/docs/proofs/**/*-source.json",
+    "/docs/proofs/**/*source-freeze.json",
+    "/docs/proofs/**/source.json",
+    "/docs/proofs/**/source-inputs.json",
+    "/docs/proofs/core-memory-state-20261018/current-source*.json",
+    "/docs/proofs/core-memory-state-20261018/before-source-prior.json",
+    "!/docs/proofs/core-memory-state-20261018/before-source.json",
+    "!/docs/proofs/core-memory-state-20261018/current-source-v4.json",
+    "/docs/proofs/*/disk-component/**/read*.json",
+    "/docs/proofs/*/disk-component/**/range*.json"
+  ],
+  "remaining_limit": "Relative links into local raw evidence require the index note. Raw files are not uploaded or deleted.",
+  "rule_mismatches": [],
+  "totals": {
+    "git": {
+      "bytes": 42654924,
+      "files": 2498
+    },
+    "local": {
+      "bytes": 1133610185,
+      "files": 1391
+    }
+  }
+}

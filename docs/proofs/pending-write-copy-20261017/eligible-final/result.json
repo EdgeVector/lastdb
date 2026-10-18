@@ -1,0 +1,189 @@
+{
+  "captured_utc": "2026-10-18T02:35:49.925585+00:00",
+  "status": "complete",
+  "change": "New requests move only their new operations into the accepted queue. Earlier body allocations remain owned in place. Incoming validation and quota extension use new operations plus scalar prior dimensions.",
+  "shared_prerequisite": "Both measured programs include the same bounded write-only atom source receipt correction. Generic query caches remain disabled inside a write.",
+  "source_review": {
+    "prior_body_copy_per_arrival_removed": true,
+    "remaining_pointer_container_copies": true,
+    "final_flush_walks_complete_batch": true,
+    "accepted_memory_reservation_lifetime_retained": true
+  },
+  "host": {
+    "captured_utc": "2026-10-18T02:26:48.914701+00:00",
+    "cpu": "Apple M4 Max",
+    "logical_cores": 14,
+    "machine": "arm64",
+    "memory_bytes": 38654705664,
+    "physical_cores": 14,
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "scope": "Actual local host facts; no remote-instance or sustained-throughput claim."
+  },
+  "method": {
+    "cases": 8,
+    "records_per_case": 512,
+    "fields": [
+      "bucket",
+      "id",
+      "title",
+      "body"
+    ],
+    "body_bytes": 1024,
+    "records_per_batch": 64,
+    "rounds_per_variant_and_call_shape": 2,
+    "callers": [
+      1,
+      4
+    ],
+    "timing": "First measured request through final explicit flush. Setup and normal reopen readback are outside the interval.",
+    "fresh_synthetic_homes_only": true,
+    "primary_or_archive_accessed": false,
+    "public_api_only": true,
+    "retries": 0,
+    "pilot_cases_excluded": true
+  },
+  "rates": [
+    {
+      "variant": "before",
+      "callers": 1,
+      "records_per_second": 210.6086678054372,
+      "ack_p50_ms": 263.9815625,
+      "ack_p95_ms": 572.414208,
+      "all_rounds_multiple_accepted_batches": false
+    },
+    {
+      "variant": "before",
+      "callers": 4,
+      "records_per_second": 279.8364099958361,
+      "ack_p50_ms": 659.7450415000001,
+      "ack_p95_ms": 1247.842875,
+      "all_rounds_multiple_accepted_batches": true
+    },
+    {
+      "variant": "after",
+      "callers": 1,
+      "records_per_second": 219.30444116739076,
+      "ack_p50_ms": 265.5281465,
+      "ack_p95_ms": 389.53025,
+      "all_rounds_multiple_accepted_batches": false
+    },
+    {
+      "variant": "after",
+      "callers": 4,
+      "records_per_second": 284.77925783577496,
+      "ack_p50_ms": 616.6093125,
+      "ack_p95_ms": 1226.145125,
+      "all_rounds_multiple_accepted_batches": true
+    }
+  ],
+  "comparisons": [
+    {
+      "complete_identical_logical_work": true,
+      "optimization_comparison_eligible": false,
+      "optimization_path_observed_in_both_variants": false,
+      "rounds": [
+        {
+          "after_optimization_path_observed": false,
+          "before_optimization_path_observed": false,
+          "optimization_comparison_eligible": false,
+          "round": 1
+        },
+        {
+          "after_optimization_path_observed": false,
+          "before_optimization_path_observed": false,
+          "optimization_comparison_eligible": false,
+          "round": 2
+        }
+      ],
+      "shape": "serial"
+    },
+    {
+      "ack_p50_change_percent": -6.538242243083248,
+      "ack_p95_change_percent": -1.7388206828524044,
+      "complete_identical_logical_work": true,
+      "optimization_comparison_eligible": true,
+      "optimization_path_observed_in_both_variants": true,
+      "rounds": [
+        {
+          "after_optimization_path_observed": true,
+          "before_optimization_path_observed": true,
+          "optimization_comparison_eligible": true,
+          "round": 1,
+          "throughput_change_percent": -2.949566892619504
+        },
+        {
+          "after_optimization_path_observed": true,
+          "before_optimization_path_observed": true,
+          "optimization_comparison_eligible": true,
+          "round": 2,
+          "throughput_change_percent": 6.628293394687224
+        }
+      ],
+      "shape": "concurrent4",
+      "throughput_change_percent": 1.7663347811002872
+    }
+  ],
+  "conclusion": "The concurrent aggregate improves 1.77%, but repeats change -2.95% and +6.63%. The short mixed result does not establish a reliable speed gain. Serial timings do not demonstrate the repeated-prefix path.",
+  "memory": {
+    "concurrent_timed_prefix_process_MiB": {
+      "before": [
+        119.797,
+        123.75
+      ],
+      "after": [
+        119.609,
+        122.266
+      ]
+    },
+    "limit": "Sparse process memory samples do not bound the peak or establish a hard process cap. The public deferred-byte gauge is cached, not an instantaneous charge."
+  },
+  "data_checks": {
+    "all_eight_cases_complete": true,
+    "all_four_fields_and_membership_match_after_normal_reopen": true,
+    "mutation_errors": 0,
+    "mutation_refusals": 0
+  },
+  "checks": {
+    "release_build": "pass",
+    "clippy_warnings_denied": "pass",
+    "format": "pass",
+    "whitespace": "pass",
+    "source_size": "pass",
+    "post_measurement_source_identity": {
+      "source_files_verified": 1656,
+      "mismatched_files": [],
+      "program_sha256": "e10f45939488c9f6286fedaca76a32dfb4f0f899f05026b976fa723011ce3ee1",
+      "program_matches_measured_after": true
+    },
+    "tests": "not run; retired by user instruction"
+  },
+  "next_performance_candidate": {
+    "kind": "source inference, not a measured live flush reason",
+    "finding": "The API submits change-feed events after the product write. Its unreserved private background write seals the shared queue and can force an early combined flush. This is consistent with serial maximum one and concurrent maximum two accepted batches.",
+    "source_files": [
+      "lastdb_node/src/exec/batch_mutation_routes.rs:126",
+      "lastdb_node/src/change_feed_queue.rs:83",
+      "fold_db/crates/core/src/db_operations/change_feed.rs:159",
+      "fold_db/crates/core/src/storage/disk_pack/transaction/request.rs:72",
+      "fold_db/crates/core/src/storage/disk_pack/queue.rs:108"
+    ],
+    "future_change_requires": "A real memory reservation for the feed write or dispatch after the existing durable boundary. Preserve private unreserved write safety."
+  },
+  "references": {
+    "full_comparison": "paired/comparison.json",
+    "memory_observations": "paired/memory-observations.json",
+    "source_pair": "source-pair-check.json",
+    "before_source": "before-source.json",
+    "after_source": "after-source.json",
+    "cleanup_review": "cleanup-review.json"
+  },
+  "cleanup": {
+    "complete": true,
+    "reviewed_count": 12,
+    "executed_count": 12,
+    "remaining_roots": [],
+    "execution_receipt": "cleanup-execution.json",
+    "normal_node_stops": 20,
+    "forced_node_stops": 0
+  }
+}

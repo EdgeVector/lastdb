@@ -1,0 +1,13 @@
+{
+  "command": [
+    "git",
+    "worktree",
+    "remove",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-cold-hot-before-aa64f61-20261018"
+  ],
+  "exit_code": 0,
+  "stdout": "",
+  "stderr": "",
+  "elapsed_seconds": 0.9734935,
+  "path_exists_after": false
+}

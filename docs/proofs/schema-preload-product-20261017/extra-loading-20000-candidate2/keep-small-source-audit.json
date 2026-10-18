@@ -1,0 +1,31 @@
+{
+  "baseline": "aa64f61cd3d2d01a3f8953d4a1b3cf21f9940bab",
+  "files": [
+    {
+      "baseline_sha256": "ac0b8cef1a96e7faf29ddf5969b4affb6bde45e51b98818a586d1741bde7c8d7",
+      "current_sha256": "ac0b8cef1a96e7faf29ddf5969b4affb6bde45e51b98818a586d1741bde7c8d7",
+      "path": "fold_db/crates/core/src/db_operations/atom_store/keep_small/persist.rs",
+      "unchanged": true
+    },
+    {
+      "baseline_sha256": "602cca37bb8028e00f843653f8dc035738acd57f88b601b71e06a41345f845f0",
+      "current_sha256": "602cca37bb8028e00f843653f8dc035738acd57f88b601b71e06a41345f845f0",
+      "path": "fold_db/crates/core/src/db_operations/keep_small.rs",
+      "unchanged": true
+    },
+    {
+      "baseline_sha256": "df0340bc7444f87ee6c96cb4047ecf817a721364966d4951c5ee6273379743bd",
+      "current_sha256": "df0340bc7444f87ee6c96cb4047ecf817a721364966d4951c5ee6273379743bd",
+      "path": "fold_db/crates/core/src/db_operations/keep_small/snapshot_io.rs",
+      "unchanged": true
+    },
+    {
+      "baseline_sha256": "933237f33ed0c5a7e5e7795d98d97d961a801087b821d13c0ed4b7598cd79b53",
+      "current_sha256": "752753d53b9025850cc8356356cfa0af9eee1aae3f282edd0225e5037652f51b",
+      "path": "fold_db/crates/core/src/storage/disk_pack/transaction.rs",
+      "unchanged": false,
+      "validate_guard_sha256": "97ee8de0a3d5c91cf32b35b520a5414645bd03ed9650ea65a72d6deab2e95a75",
+      "validate_guard_unchanged": true
+    }
+  ]
+}

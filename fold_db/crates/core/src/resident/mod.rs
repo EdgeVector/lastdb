@@ -4,25 +4,33 @@
 //!
 //! ## Load-bearing: do not remove, merge, or "clean up" as unused
 //!
-//! This module holds three live systems. `LASTDB_RESIDENT_MODE=off` (the env
+//! This module holds the live memory and write owners. `LASTDB_RESIDENT_MODE=off` (the env
 //! default) does **not** mean the code is dead or experimental: the live node
 //! has run `write` mode (see `lastdb_node` restore `replay_tail`, which forces
 //! `off` only because a one-shot CLI has no persist worker).
 //!
 //! - [`ResidentGraph`] (`graph*`, `coverage`, `types`) is built by every
-//!   `DbOperations`, in every mode. Its per-slot revisions are the mutation
+//!   `DbOperations`, in every mode. Native storage and `DbOperations` share
+//!   this owner. Native writes use its immutable keyed write graph; a read
+//!   captures that root together with its disk root. Its legacy per-slot
+//!   revisions are the mutation
 //!   concurrency gate (`mutation_manager/molecules/apply_gate.rs`), and
 //!   protein sibling rebase reads tips from it. The mode only decides whether
 //!   reads go resident-first (`read`, `write`) and whether a mutation is
 //!   acknowledged on resident apply (`write`).
 //! - The persist lane (`lane*`, `ledger`) owns mutation persistence in every
 //!   mode.
-//! - [`logical_set::LogicalResidentSet`] is the always-on hot cache for tips
-//!   and atoms inside LastStore (`storage/laststore/logical_path/`). It is
-//!   **not** gated by the mode and is a separate cache from `ResidentGraph`.
+//! - [`CoreWarmSet`] owns native logical read state: typed definitions,
+//!   complete selected keys, sparse current tips, confirmed absence, and full
+//!   atom objects. Calls hold their selected paths; a separate recency list
+//!   controls retention. The raw write graph and held disk roots supply a
+//!   call's captured state when the current model no longer matches it.
+//! - [`logical_set::LogicalResidentSet`] retains compatibility read state for
+//!   the non-native LastStore adapter (`storage/laststore/logical_path/`).
 //!
-//! A third, byte-budgeted cache (`LASTDB_HASH_GROUP_WARM_BYTES`) covers the
-//! non-logical collections. Merging these is a design change, not cleanup.
+//! A separate byte-budgeted cache (`LASTDB_HASH_GROUP_WARM_BYTES`) covers the
+//! compatibility adapter's non-logical collections. Its removal requires a
+//! complete caller cutover, not a source cleanup.
 //!
 //! ## Fidelity
 //!
@@ -64,11 +72,14 @@
 //! it releases the holds.
 
 mod config;
+pub(crate) mod core_keys;
+mod core_set;
 mod graph;
 mod lane;
 mod ledger;
 mod logical_set;
 mod metrics;
+mod native_write_graph;
 mod types;
 mod worker;
 
@@ -78,6 +89,9 @@ pub use config::{
     DEFAULT_RESIDENT_MAX_DEFERRED, DEFAULT_RESIDENT_PERSIST_MS, RESIDENT_BYTES_ENV,
     RESIDENT_MAX_DEFERRED_ENV, RESIDENT_MODE_ENV, RESIDENT_PERSIST_MS_ENV,
 };
+pub(crate) use core_set::CoreMemorySource;
+pub use core_set::{CoreMemoryStats, CoreMemoryValue};
+pub(crate) use core_set::{CorePath, CoreWarmLookup, CoreWarmSet, CoreWarmSlot};
 pub(crate) use graph::OwnedSlotRead;
 pub(crate) use graph::ResidentOverlayEntry;
 pub use graph::{ResidentGraph, SchemaLoader};
@@ -92,6 +106,7 @@ pub use logical_set::{
     ResidentKey, Tip, RESIDENT_KEY_CAP, RESIDENT_KEY_CAP_ENV,
 };
 pub use metrics::{ResidentMetrics, ResidentMetricsSnapshot};
+pub(crate) use native_write_graph::{NativeWriteGraph, NativeWriteRecord};
 pub use types::{
     DirtyKey, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot, ResidentKind,
     ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip, ResolveOutcome,

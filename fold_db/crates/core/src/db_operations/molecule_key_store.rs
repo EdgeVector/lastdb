@@ -24,6 +24,7 @@ const NODE_DOMAIN: &str = "node";
 
 mod cloud_purge_export;
 mod cloud_purge_import;
+mod metadata;
 
 pub(crate) type MoleculeKeyCache = Arc<RwLock<HashMap<String, MoleculeKeyBundle>>>;
 
@@ -84,18 +85,21 @@ pub struct MoleculeKeyStore {
     node_wrap_key: Option<[u8; 32]>,
     cache: MoleculeKeyCache,
     mint_lock: Arc<Mutex<()>>,
+    runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
 }
 
 impl MoleculeKeyStore {
     pub(crate) fn new(
         entries: Arc<TypedKvStore<dyn KvStore>>,
         node_wrap_key: Option<[u8; 32]>,
+        runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
     ) -> Self {
         Self {
             entries,
             node_wrap_key,
             cache: Arc::new(RwLock::new(HashMap::new())),
             mint_lock: Arc::new(Mutex::new(())),
+            runtime,
         }
     }
 
@@ -116,17 +120,8 @@ impl MoleculeKeyStore {
         let Some(wrap_key) = self.node_wrap_key.as_ref() else {
             return Ok(None);
         };
-        let Some(metadata) = self
-            .entries
-            .get_item::<BundleMetadata>(&metadata_key(molecule_uuid))
-            .await?
-        else {
+        if self.metadata_from_memory(molecule_uuid).await?.is_none() {
             return Ok(None);
-        };
-        if metadata.version != BUNDLE_VERSION || metadata.molecule_uuid != molecule_uuid {
-            return Err(StorageError::InvalidOperation(format!(
-                "molecule key metadata mismatch for {molecule_uuid}"
-            )));
         }
         let Some(wrap) = self
             .entries

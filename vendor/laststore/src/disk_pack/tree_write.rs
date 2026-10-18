@@ -54,10 +54,23 @@ impl TreeWriter {
                 "tree input keys must be strictly ordered and representable",
             ));
         }
-        let descriptor = tree_output::key_descriptor(&mut self.pages, key)?;
+        let descriptor = tree_output::key_descriptor(&mut self.pages, self.kind, key)?;
+        if self.kind == TreeKind::Locator
+            && !self.leaf.is_empty()
+            && self
+                .leaf
+                .iter()
+                .map(|(key, _)| key.len() + 132)
+                .sum::<usize>()
+                + descriptor.len()
+                + 132
+                > super::PAGE_PAYLOAD
+        {
+            self.flush_leaf()?;
+        }
         self.leaf.push((descriptor, value));
         self.last_key = Some(key.to_vec());
-        if self.leaf.len() == LEAF_ENTRIES {
+        if self.kind == TreeKind::Directory && self.leaf.len() == LEAF_ENTRIES {
             self.flush_leaf()?;
         }
         Ok(())
@@ -80,10 +93,18 @@ impl TreeWriter {
             self.levels.push(Vec::new());
         }
         self.levels[level].push(child);
-        // Retain at least 89 children until the final balancing decision.
-        if self.levels[level].len() >= 178 {
-            let children = self.levels[level].drain(..89).collect::<Vec<_>>();
-            let parent = tree_output::parent(&mut self.pages, level + 1, &children)?;
+        let split = if self.kind == TreeKind::Directory {
+            (self.levels[level].len() >= 178).then_some(89)
+        } else if self.levels[level].len() > 1 {
+            let ranges = super::tree_partition::parents(self.kind, &self.levels[level])?;
+            // Keep two byte-bounded groups for the final minimum-occupancy split.
+            (ranges.len() > 2).then(|| ranges[0].end)
+        } else {
+            None
+        };
+        if let Some(split) = split {
+            let children = self.levels[level].drain(..split).collect::<Vec<_>>();
+            let parent = tree_output::parent(&mut self.pages, self.kind, level + 1, &children)?;
             self.push_child(level + 1, parent)?;
         }
         Ok(())
@@ -116,10 +137,9 @@ impl TreeWriter {
             if children.is_empty() {
                 continue;
             }
-            let pages = children.len().div_ceil(89);
-            let chunk = children.len().div_ceil(pages);
-            for children in children.chunks(chunk) {
-                let parent = tree_output::parent(&mut self.pages, level + 1, children)?;
+            for range in super::tree_partition::parents(self.kind, &children)? {
+                let parent =
+                    tree_output::parent(&mut self.pages, self.kind, level + 1, &children[range])?;
                 self.push_child(level + 1, parent)?;
             }
         }

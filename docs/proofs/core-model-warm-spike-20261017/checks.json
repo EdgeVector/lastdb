@@ -1,0 +1,29 @@
+{
+  "recorded_utc": "2026-10-17T19:11:36.845466+00:00",
+  "source_identity": "candidate-source.json",
+  "checks": [
+    {
+      "command": "cargo fmt -p fold_db -- --check",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    {
+      "command": "scripts/ci/with-fold-host-cargo-lock.sh --timeout 600 -- cargo clippy --locked -p fold_db -p lastdb_host -p lastdb_node --lib --bins -- -D warnings",
+      "exit_code": 0,
+      "elapsed_seconds": 36.31
+    },
+    {
+      "command": "scripts/ci/with-fold-host-cargo-lock.sh --timeout 600 -- cargo build --release --locked -p lastdb_node --bin lastdbd",
+      "exit_code": 0,
+      "elapsed_seconds": 115
+    }
+  ],
+  "notes": [
+    "Final source includes the page-bound exact route correction.",
+    "The final workload starts after this chat's build and lint checks.",
+    "No tests or existing primary home were used."
+  ]
+}

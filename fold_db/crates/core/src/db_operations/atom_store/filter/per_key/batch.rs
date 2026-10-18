@@ -116,14 +116,14 @@ impl AtomStore {
     ///
     /// One `get_many` over the storage layer (single `spawn_blocking` hop)
     /// instead of N sequential `get_per_key` calls. Missing keys yield no
-    /// entry (sparse fields). Order of `keys` is preserved for present hits
-    /// only by walking the input list.
+    /// entry (sparse fields). Each output position matches its input slot and
+    /// retains the actual winning storage key, including fallback spellings.
     pub(crate) async fn load_per_key_records_for_slots(
         &self,
         molecule_uuid: &str,
         storage_prefix: Option<&str>,
         keys: &[(String, String)],
-    ) -> Result<Vec<(String, String, PerKeyRecord)>, SchemaError> {
+    ) -> Result<Vec<Option<(String, PerKeyRecord)>>, SchemaError> {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
@@ -136,15 +136,7 @@ impl AtomStore {
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))
             })
             .collect::<Result<_, _>>()?;
-        let records = self
-            .load_first_present_candidate(storage_prefix, &groups)
-            .await?;
-        Ok(keys
-            .iter()
-            .zip(records)
-            .filter_map(|((hash, range), record)| {
-                record.map(|record| (hash.clone(), range.clone(), record))
-            })
-            .collect())
+        self.load_first_present_candidate_with_key(storage_prefix, &groups)
+            .await
     }
 }

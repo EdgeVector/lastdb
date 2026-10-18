@@ -50,8 +50,14 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
             runtime.clone(),
             storage_prefix,
             molecule_uuid,
-            &entry.0,
-            &entry.1,
+            &crate::storage::disk_pack::logical_paths::field::AtomSelection {
+                entry: &entry,
+                primary: db_ops.atoms().primary_atom_key(
+                    &entry.1,
+                    entry.4.as_ref(),
+                    storage_prefix,
+                ),
+            },
         )? {
             resolved_values.insert(entry.0, value);
         } else {
@@ -80,6 +86,7 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
                 molecule_uuid,
                 &key,
                 &value,
+                partition.as_ref(),
             )?;
             resolved_values.insert(key, value);
         } else {
@@ -96,7 +103,7 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
 }
 
 /// Build the `FieldValue` for a resolved atom.
-fn field_value_from_atom(
+pub(crate) fn field_value_from_atom(
     atom: &crate::atom::Atom,
     atom_uuid: String,
     key_meta: Option<crate::atom::KeyMetadata>,

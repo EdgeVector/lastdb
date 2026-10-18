@@ -45,44 +45,22 @@ impl PackRuntime {
         }
     }
 
-    /// Existing accepted reservations remain owned until the replacement succeeds.
+    /// Quote only new operations; the accepted prefix retains its owned quota.
     pub(super) fn prepare_queued(
         &self,
         incoming: Vec<HomeMutation>,
-    ) -> StorageResult<Option<write::PreparedCommit>> {
-        let mut operations = {
-            let queue = self.queue.lock().expect("native accepted queue");
-            if queue.requests.len() >= MAX_REQUESTS {
-                self.flush_notify.notify_one();
-                return Err(StorageError::WriteResourceLimit {
-                    detail: "native accepted queue reached 1024 requests; retry after flush".into(),
-                });
-            }
-            queue
-                .requests
-                .iter()
-                .flat_map(|request| request.pending.freeze_operations())
-                .collect::<Vec<_>>()
-        };
-        operations.extend(incoming);
-        let limit = self
-            .view
-            .read()
-            .expect("native queue root")
-            .current
-            .batch_operation_limit();
-        if transaction::validate(&operations, limit).is_err() {
+    ) -> StorageResult<Option<write::PreparedAppend>> {
+        let queue = self.queue.lock().expect("native accepted queue");
+        if queue.requests.len() >= MAX_REQUESTS {
             self.flush_notify.notify_one();
             return Err(StorageError::WriteResourceLimit {
-                detail:
-                    "native accepted prefix reached its operation or byte limit; retry after flush"
-                        .into(),
+                detail: "native accepted queue reached 1024 requests; retry after flush".into(),
             });
         }
-        if operations.is_empty() {
+        if incoming.is_empty() {
             return Ok(None);
         }
-        match self.prepare_commit(operations) {
+        match self.prepare_append(incoming, queue.prepared.as_ref()) {
             Ok(prepared) => Ok(Some(prepared)),
             Err(error) => {
                 self.flush_notify.notify_one();
@@ -95,9 +73,10 @@ impl PackRuntime {
     pub(super) fn accept_queued(
         self: &Arc<Self>,
         pending: Arc<transaction::PendingBatch>,
-        prepared: Option<write::PreparedCommit>,
+        prepared: Option<write::PreparedAppend>,
         delay: Option<std::time::Duration>,
     ) -> StorageResult<u64> {
+        let delay = delay.filter(|_| pending.has_reserved_raw_memory());
         let mut queue = self.queue.lock().expect("native accepted queue");
         let sequence = queue.next_sequence.checked_add(1).ok_or_else(|| {
             StorageError::BackendError("native accepted sequence exhausted".into())
@@ -107,16 +86,25 @@ impl PackRuntime {
             // A completed immediate flush can leave one unused wake permit.
             let _ = self.flush_notify.notified().now_or_never();
         }
-        if delay.is_some() {
-            self.install_accepted(Arc::clone(&pending))?;
+        if let Some(append) = &prepared {
+            append.reserve_capacity(queue.prepared.as_mut())?;
+        }
+        // Read-held raw bodies require retained quota. Private durable work
+        // seals the queue so later writers wait for its committed state.
+        let visible = delay.is_some();
+        if visible {
+            self.install_accepted(Arc::clone(&pending), sequence)?;
         }
         queue.requests.push(QueuedRequest {
             pending,
             sequence,
-            visible: delay.is_some(),
+            visible,
         });
         queue.next_sequence = sequence;
-        queue.prepared = prepared;
+        if let Some(append) = prepared {
+            let previous = queue.prepared.take();
+            queue.prepared = Some(append.finish(previous));
+        }
         queue.sealed |= delay.is_none() || queue.requests.len() == MAX_REQUESTS;
         let sealed = queue.sealed;
         drop(queue);
@@ -233,11 +221,11 @@ impl PackRuntime {
                 .iter()
                 .filter(|request| !request.visible)
                 .flat_map(|request| request.pending.changed_coordinates())
-                .collect();
+                .collect::<Vec<_>>();
             (queue.prepared.take(), hidden)
         };
         if let Some(prepared) = prepared {
-            self.commit_prepared_group(prepared, hidden)?;
+            self.commit_prepared_group(prepared, &hidden)?;
         } else {
             let current = self
                 .view
@@ -245,7 +233,7 @@ impl PackRuntime {
                 .expect("native empty prefix root")
                 .current
                 .clone();
-            self.install_committed(current, hidden)?;
+            self.install_committed(current, &hidden, &[])?;
         }
         let queue = self.queue.lock().expect("native accepted queue");
         for request in &queue.requests {
@@ -255,6 +243,18 @@ impl PackRuntime {
             .requests
             .last()
             .map_or(queue.next_sequence, |request| request.sequence);
+        self.core
+            .lock()
+            .expect("core flush completion")
+            .complete_flush(sequence);
+        for request in &queue.requests {
+            request
+                .pending
+                .path_protection
+                .lock()
+                .expect("completed core write holds")
+                .take();
+        }
         Ok((
             sequence,
             queue

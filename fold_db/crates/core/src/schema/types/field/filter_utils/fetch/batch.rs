@@ -28,8 +28,14 @@ pub(crate) async fn fetch_field_atom_batches(
                         runtime.clone(),
                         prefix,
                         batch.molecule.as_deref(),
-                        &entry.0,
-                        &entry.1,
+                        &field::AtomSelection {
+                            entry,
+                            primary: db_ops.atoms().primary_atom_key(
+                                &entry.1,
+                                entry.4.as_ref(),
+                                prefix,
+                            ),
+                        },
                     )? {
                         values[index].insert(entry.0.clone(), value);
                     } else {
@@ -75,6 +81,7 @@ pub(crate) async fn fetch_field_atom_batches(
                     batch.molecule.as_deref(),
                     &entry.0,
                     &value,
+                    entry.4.as_ref(),
                 )
             })
             .await?;

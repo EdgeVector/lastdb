@@ -344,16 +344,9 @@ impl AtomStore {
             storage_prefix,
             &molecule_key_codec::header_key(molecule_uuid),
         );
-        let header = self
-            .main_store
-            .get_item::<MoleculeHeader>(&key)
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!("read molecule header {molecule_uuid}: {e}"))
-            })?;
-        if let Some(header) = &header {
-            crate::storage::disk_pack::note_molecule_header(&key, header.version);
-        }
+        let header = self.header_from_memory(&key).await.map_err(|e| {
+            SchemaError::InvalidData(format!("read molecule header {molecule_uuid}: {e}"))
+        })?;
         Ok(header.map(|h| (h, storage_prefix)))
     }
 }

@@ -106,6 +106,11 @@ impl Current {
     }
 
     fn validate(&self) -> Result<()> {
+        if self.required_features & super::FEATURE_PACKED_KEYS == 0 {
+            return Err(crate::Error::Config(
+                "unsupported locator format: packed-key feature required".into(),
+            ));
+        }
         self.directory.validate()?;
         nonnil(self.journal_stream)?;
         if self.generation == 0

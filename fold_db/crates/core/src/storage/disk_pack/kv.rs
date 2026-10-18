@@ -16,12 +16,14 @@ impl PackKvStore {
         let context = read::ReadContext::current(&runtime).await?;
         let pending = transaction::PendingBatch::current(&runtime);
         let namespace = self.namespace.clone();
-        LastStoreKvStore::run_blocking(move || {
+        let observed = Arc::clone(&runtime);
+        let (values, keys, receipts) = LastStoreKvStore::run_blocking(move || {
             let plans: Vec<_> = keys
                 .iter()
                 .map(|key| coordinates(&namespace, key))
                 .collect();
             let mut out = vec![None; keys.len()];
+            let mut receipts = vec![None; keys.len()];
             let rounds = plans.iter().map(Vec::len).max().unwrap_or(0);
             for round in 0..rounds {
                 let slots: Vec<_> = (0..keys.len())
@@ -35,13 +37,28 @@ impl PackKvStore {
                     .map(|slot| plans[*slot][round].clone())
                     .collect();
                 let bodies = runtime.raw_many(&context, &addresses, pending.as_ref())?;
-                for (slot, body) in slots.into_iter().zip(bodies) {
+                for ((slot, body), (collection, key)) in
+                    slots.into_iter().zip(bodies).zip(addresses)
+                {
+                    if body.is_some() {
+                        receipts[slot] = Some((collection, key));
+                    }
                     out[slot] = body;
                 }
             }
-            Ok(out)
+            Ok((out, keys, receipts))
         })
-        .await
+        .await?;
+        for (requested, source) in keys.into_iter().zip(receipts) {
+            logical_paths::source::note_read_source(
+                Arc::clone(&observed),
+                &requested,
+                source
+                    .as_ref()
+                    .map(|(collection, key)| (collection.as_str(), key.as_str())),
+            )?;
+        }
+        Ok(values)
     }
 
     async fn change(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
@@ -62,7 +79,7 @@ impl PackKvStore {
     }
 }
 
-fn coordinates(namespace: &str, key: &[u8]) -> Vec<(String, String)> {
+pub(super) fn coordinates(namespace: &str, key: &[u8]) -> Vec<(String, String)> {
     if namespace != "main" {
         return vec![(namespace.to_string(), native_routing::encode(key))];
     }

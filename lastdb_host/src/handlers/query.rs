@@ -15,7 +15,6 @@ pub(in crate::handlers) use self::paging::*;
 mod schema_guard;
 pub(in crate::handlers) use self::schema_guard::*;
 mod plan;
-mod warm;
 
 /// Execute `POST /api/query`: resolve the schema, apply the paginated push-down
 /// (cheap exact count → fetch only the requested page) when the query is an
@@ -44,19 +43,15 @@ pub async fn execute_query<H: HostNode>(
     let scope = fold_db::storage::disk_pack::PackReadScope::for_store(&store)
         .await
         .map_err(|error| HostError::new(503, error.to_string()))?;
-    let runtime = store.disk_pack_runtime();
-    let future = Box::pin(async {
-        if let Some(payload) = warm::read(host, &query, limit, offset, cursor.as_ref(), ctx).await?
-        {
-            return Ok(payload);
-        }
-        let remembered = query.clone();
-        let payload =
-            execute_query_scoped(host, query, limit, offset, cursor, ctx, allow_full_scan).await?;
-        fold_db::storage::disk_pack::remember_wire_query(runtime, &remembered, ctx, &payload)
-            .map_err(|error| HostError::new(503, error.to_string()))?;
-        Ok(payload)
-    });
+    let future = Box::pin(execute_query_scoped(
+        host,
+        query,
+        limit,
+        offset,
+        cursor,
+        ctx,
+        allow_full_scan,
+    ));
     match scope {
         Some(scope) => scope.run_result(future).await,
         None => future.await,

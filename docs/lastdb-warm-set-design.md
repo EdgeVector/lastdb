@@ -1,5 +1,13 @@
 # Warm set design: one clean warm set and one small write queue
 
+Update (2026-10-17): [the logical warm set design](lastdb-logical-warm-set-design.md)
+supersedes this proposal's memory model. It uses one logical state for reads and
+writes, with Hash and HashRange as the two key types. The text below retains the
+October 12 proposal and its historical measurements.
+The selected [schema preload design](lastdb-schema-range-preload-design.md) loads all required keys before the first selected-schema query continues.
+Later ready ranges use complete logical keys, with sparse tips and values and batch fetches for misses.
+The [key selection study](lastdb-key-selection-study.md) preserves the earlier disk-first alternative.
+
 Status (2026-10-12): design for Tom's review. Nothing here is implemented. It
 supersedes the "Revised order" in `docs/lastdb-resident-convergence.md` for
 steps 3 to 6. Steps 1, 2, 2b and 2c of that document are merged.

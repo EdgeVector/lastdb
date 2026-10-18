@@ -36,6 +36,11 @@ impl HashRangeQueryProcessor {
             schema,
             primary_name,
         )?;
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            runtime
+                .preload_bound_field(Arc::clone(&self.db_ops), schema, primary_name)
+                .await?;
+        }
         let field = schema.runtime_fields.get_mut(primary_name).ok_or_else(|| {
             SchemaError::InvalidField(format!(
                 "co-key primary field '{primary_name}' missing from schema runtime"

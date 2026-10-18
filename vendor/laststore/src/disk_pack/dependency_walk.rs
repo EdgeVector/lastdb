@@ -1,4 +1,3 @@
-use super::bytes::u64_at;
 use super::dependency::{Coordinate, Dependencies};
 use super::{artifact, corrupt, Current, DirectoryEntry, Location, Source, TreeKind, TreeRoot};
 use crate::Result;
@@ -90,7 +89,7 @@ impl Walk<'_> {
             call.pages.clear();
             let next = self.tree(
                 tree,
-                u64_at(page.entry(position), super::KEY_DESCRIPTOR),
+                super::key_layout::child(page.entry(position)),
                 page.level() - 1,
                 false,
             )?;
@@ -120,7 +119,7 @@ impl Walk<'_> {
                     "artifact publication metadata-entry budget".into(),
                 ));
             }
-            let entry: &[u8; 128] = page.entry(position)[super::KEY_DESCRIPTOR..]
+            let entry: &[u8; 128] = super::key_layout::value(page.entry(position))
                 .try_into()
                 .expect("leaf value");
             if tree.kind == TreeKind::Directory {

@@ -2,18 +2,12 @@ use super::*;
 use std::collections::BTreeMap;
 
 mod accounting;
-mod headers;
-pub(crate) use headers::note_header_write;
 pub(crate) mod publication;
 mod request;
 pub(crate) use request::{background_scope, request_scope};
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
 
-pub(super) struct PendingRecord {
-    pub(super) collection: String,
-    pub(super) key: String,
-    pub(super) body: Option<Vec<u8>>,
-}
+pub(super) use crate::resident::NativeWriteRecord as PendingRecord;
 
 #[derive(Default)]
 struct PendingData {
@@ -27,11 +21,13 @@ pub(super) struct PendingBatch {
     data: Mutex<PendingData>,
     publications: publication::PendingPublications,
     retained: Mutex<Vec<Box<dyn Send>>>,
+    raw_memory_reservation: Mutex<Option<crate::memory_budget::DeferReservation>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
     durable_only: AtomicBool,
     paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
-    header_versions: Mutex<headers::HeaderVersions>,
+    pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
+    source_receipts: Mutex<Option<Arc<Mutex<super::logical_paths::source::Sources>>>>,
     operation_limit: usize,
 }
 
@@ -46,11 +42,13 @@ impl PendingBatch {
             data: Mutex::new(PendingData::default()),
             publications: publication::PendingPublications::default(),
             retained: Mutex::new(Vec::new()),
+            raw_memory_reservation: Mutex::new(None),
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
             durable_only: AtomicBool::new(false),
             paths: Mutex::new(Vec::new()),
-            header_versions: Mutex::new(headers::HeaderVersions::default()),
+            path_protection: Mutex::new(None),
+            source_receipts: Mutex::new(None),
             operation_limit: runtime
                 .view
                 .read()
@@ -75,6 +73,17 @@ impl PendingBatch {
 
     pub(super) fn operation_limit(&self) -> usize {
         self.operation_limit
+    }
+
+    pub(super) fn source_receipts(&self) -> Arc<Mutex<super::logical_paths::source::Sources>> {
+        Arc::clone(
+            self.source_receipts
+                .lock()
+                .expect("native write source receipts")
+                .get_or_insert_with(|| {
+                    Arc::new(Mutex::new(super::logical_paths::source::Sources::default()))
+                }),
+        )
     }
 
     pub(super) fn matching(
@@ -143,6 +152,13 @@ impl PendingBatch {
 
     pub(super) fn freeze_operations(&self) -> Vec<HomeMutation> {
         self.frozen.store(true, Ordering::Release);
+        // Source proofs are bounded preparation scratch, never accepted bodies.
+        drop(
+            self.source_receipts
+                .lock()
+                .expect("native write source receipts")
+                .take(),
+        );
         self.data
             .lock()
             .expect("native pending batch")
@@ -156,28 +172,42 @@ impl PendingBatch {
             .collect()
     }
 
-    pub(super) fn changed_coordinates(&self) -> Vec<super::validity::ChangedCoordinate> {
-        let data = self.data.lock().expect("native pending changes");
-        let headers = self
-            .header_versions
-            .lock()
-            .expect("native staged header versions");
+    pub(super) fn latest_records(&self) -> Vec<Arc<PendingRecord>> {
+        let data = self.data.lock().expect("native pending graph records");
         data.latest
-            .iter()
-            .map(|((collection, key), slot)| {
-                let mut change = super::validity::changed(
-                    collection.clone(),
-                    key.clone(),
-                    data.operations[*slot].body.as_deref(),
-                );
-                if let Some((digest, version)) = headers.entries.get(key) {
-                    if change.digest.as_ref() == Some(digest) {
-                        change.header = Some(*version);
-                    }
-                }
-                change
-            })
+            .values()
+            .map(|slot| Arc::clone(&data.operations[*slot]))
             .collect()
+    }
+
+    pub(super) fn changed_coordinates(&self) -> Vec<(String, String)> {
+        let data = self.data.lock().expect("native pending changes");
+        data.latest.keys().cloned().collect()
+    }
+
+    /// Verify final staged bytes, not the request size when quota was retained.
+    pub(super) fn has_reserved_raw_memory(&self) -> bool {
+        let required = self.memory_quote();
+        self.raw_memory_reservation
+            .lock()
+            .expect("native raw memory reservation")
+            .as_ref()
+            .is_some_and(|reservation| reservation.bytes() >= required)
+    }
+
+    fn memory_quote(&self) -> u64 {
+        let stored = self.data.lock().expect("native pending batch").bytes;
+        let paths = self
+            .paths
+            .lock()
+            .expect("native private paths")
+            .iter()
+            .fold(0u64, |sum, record| {
+                sum.saturating_add(record.bytes as u64 + 1024)
+            });
+        stored
+            .saturating_mul(4)
+            .saturating_add(paths.saturating_mul(2))
     }
 
     pub(super) fn finish_publications(&self) -> StorageResult<()> {
@@ -224,7 +254,7 @@ pub(crate) fn stage_paths(
         .chain(&records)
         .try_fold(0usize, |total, record| {
             total
-                .checked_add(record.body.len())
+                .checked_add(record.bytes)
                 .and_then(|n| n.checked_add(record.path.id().ok()?.len()))
                 .filter(|n| *n <= 128 * 1024 * 1024)
                 .ok_or_else(|| StorageError::WriteResourceLimit {
@@ -245,21 +275,33 @@ pub(crate) fn memory_quote(runtime: &PackRuntime) -> StorageResult<u64> {
     let pending = PendingBatch::current(runtime).ok_or_else(|| {
         StorageError::InvalidOperation("native memory quote requires a write scope".into())
     })?;
-    let stored = pending.data.lock().expect("native pending batch").bytes;
-    let paths = pending
-        .paths
+    Ok(pending.memory_quote())
+}
+
+/// Only this typed quota can authorize read-held raw write bodies before disk.
+pub(crate) fn retain_raw_memory_reservation(
+    runtime: &PackRuntime,
+    reservation: crate::memory_budget::DeferReservation,
+) -> StorageResult<()> {
+    let pending = PendingBatch::current(runtime).ok_or_else(|| {
+        StorageError::InvalidOperation("native raw memory quota requires a write scope".into())
+    })?;
+    *pending
+        .raw_memory_reservation
         .lock()
-        .expect("native private paths")
-        .iter()
-        .fold(0u64, |sum, record| {
-            sum.saturating_add(record.body.len() as u64 + 1024)
-        });
-    Ok(stored
-        .saturating_mul(4)
-        .saturating_add(paths.saturating_mul(2)))
+        .expect("native raw memory reservation") = Some(reservation);
+    Ok(())
 }
 
 pub(super) fn validate(operations: &[HomeMutation], operation_limit: usize) -> StorageResult<()> {
+    batch_bytes(operations, operation_limit).map(|_| ())
+}
+
+/// Conservative encoded-byte charge, including the batch's fixed markers.
+pub(super) fn batch_bytes(
+    operations: &[HomeMutation],
+    operation_limit: usize,
+) -> StorageResult<u64> {
     if operations.len() > operation_limit {
         return Err(StorageError::InvalidOperation(format!(
             "complete native batch exceeds {operation_limit} operations"
@@ -283,7 +325,7 @@ pub(super) fn validate(operations: &[HomeMutation], operation_limit: usize) -> S
                 StorageError::InvalidOperation("complete native batch exceeds 128 MiB".into())
             })?;
     }
-    Ok(())
+    Ok(bytes)
 }
 
 /// Keep one complete logical job in one storage batch. Commit precedes dirty clear.

@@ -1,0 +1,17 @@
+{
+  "finished_utc": "2026-10-17T19:13:41.667997+00:00",
+  "command": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cw2.j9qaf1lr",
+    "--exact-home"
+  ],
+  "exit_code": 0,
+  "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cw2.j9qaf1lr (released exact synthetic seed)\n",
+  "stderr": "",
+  "root_exists_after_cleanup": false,
+  "scope": "exact fresh synthetic cw2.j9qaf1lr root only",
+  "receipts_preserved": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-model-warm-spike-20261017/run-final",
+  "retry": false
+}

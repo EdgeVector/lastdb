@@ -18,6 +18,20 @@ pub struct MutationQuote {
 }
 
 impl MutationQuote {
+    /// Extend a prefix from the new request's dimensions only. Repeated map
+    /// and dependency bounds are conservative; fixed publication space is paid once.
+    pub(super) fn extended(self, incoming: Self, limit: usize) -> Result<Self> {
+        let journal = self.journal.extended(incoming.journal, limit)?;
+        let map_pages = add(self.map_pages, incoming.map_pages)?;
+        let dependency_parts = add(self.dependency_parts, incoming.dependency_parts)?;
+        Ok(Self {
+            journal,
+            map_pages,
+            dependency_parts,
+            physical_bytes: physical_bytes(journal, map_pages)?,
+        })
+    }
+
     /// Exact journal dimensions for all original ordered operations.
     pub fn journal(&self) -> JournalQuote {
         self.journal
@@ -61,9 +75,9 @@ impl HomeDescriptor {
         for ((collection, _), keys) in groups {
             // Eight levels, two outputs at each split, and at most five
             // overflow pages per new key. Existing descriptors are reused.
-            let locator_pages = keys
-                .keys()
-                .try_fold(0u64, |pages, key| add(pages, 16 + overflow(key.len())))?;
+            let locator_pages = keys.keys().try_fold(0u64, |pages, key| {
+                add(pages, 16 + locator_overflow(key.len()))
+            })?;
             // A new group can also require its initial empty locator part.
             map_pages = add(map_pages, add(locator_pages, 1)?)?;
             // Contiguous overflow chains can leave four unused page positions.
@@ -77,24 +91,35 @@ impl HomeDescriptor {
             dependency_parts,
             blocks.div_ceil(2008) + blocks.div_ceil(677).div_ceil(512),
         )?;
-        // Publication and stream rotation each save a complete receipt.
-        let receipt_pages = 1 + (65_536u64 - 150).div_ceil(201);
-        let metadata_bytes = map_pages
-            .checked_add(2 * receipt_pages)
-            .and_then(|pages| pages.checked_mul(PAGE_BYTES as u64))
-            .ok_or_else(|| corrupt("complete mutation metadata reserve overflow"))?;
-        let physical_bytes = add(add(journal.physical_reserve(), metadata_bytes)?, 8 * 4096)?;
         Ok(MutationQuote {
             journal,
             map_pages,
             dependency_parts,
-            physical_bytes,
+            physical_bytes: physical_bytes(journal, map_pages)?,
         })
     }
 }
 
+fn physical_bytes(journal: JournalQuote, map_pages: u64) -> Result<u64> {
+    // Publication and stream rotation each save a complete receipt.
+    let receipt_pages = 1 + (65_536u64 - 150).div_ceil(201);
+    let metadata_bytes = map_pages
+        .checked_add(2 * receipt_pages)
+        .and_then(|pages| pages.checked_mul(PAGE_BYTES as u64))
+        .ok_or_else(|| corrupt("complete mutation metadata reserve overflow"))?;
+    add(add(journal.physical_reserve(), metadata_bytes)?, 8 * 4096)
+}
+
 fn overflow(bytes: usize) -> u64 {
     bytes.saturating_sub(128).div_ceil(PAGE_PAYLOAD) as u64
+}
+
+fn locator_overflow(bytes: usize) -> u64 {
+    if bytes <= crate::disk_pack::key_layout::INLINE_KEY_BYTES {
+        0
+    } else {
+        overflow(bytes)
+    }
 }
 
 fn add(left: u64, right: u64) -> Result<u64> {

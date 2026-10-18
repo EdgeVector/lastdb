@@ -14,6 +14,8 @@ use super::super::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use super::{FieldKind, FieldValue, FieldVariant};
 
 mod collect;
+mod core_model;
+mod core_receipts;
 #[path = "partition_window.rs"]
 mod partition_window;
 mod refresh;
@@ -31,6 +33,19 @@ pub(crate) struct AuthoritativeFieldMatch {
     pub key: KeyValue,
     pub entry: crate::atom::AtomEntry,
     pub value: serde_json::Value,
+}
+
+/// Content tombstones can lack the key metadata flag. Keep all paths identical.
+fn retain_visible_values(values: &mut HashMap<KeyValue, FieldValue>, include_tombstones: bool) {
+    if !include_tombstones {
+        values.retain(|_, value| {
+            let live = !crate::atom::is_tombstone_value(&value.value);
+            if !live {
+                crate::db_operations::note_tombstoned_row();
+            }
+            live
+        });
+    }
 }
 
 /// Map storage-form range (OPE hex) → API plaintext for query responses.

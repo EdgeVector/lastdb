@@ -78,7 +78,10 @@ impl Coordinate {
             )?;
             if !match self.kind {
                 1 => matches!(page.kind(), 1 | 3 | 4),
-                2 => matches!(page.kind(), 1 | 2 | 4),
+                2 => matches!(
+                    page.kind(),
+                    4 | super::packed_page::LEAF | super::packed_page::INTERNAL
+                ),
                 3 => page.kind() == 5,
                 _ => false,
             } {

@@ -1,0 +1,86 @@
+{
+  "check": {
+    "command": "cargo check --locked -p fold_db -p lastdb_host --lib",
+    "exit_code": 0,
+    "elapsed_seconds": 19.49
+  },
+  "lint": {
+    "command": "cargo clippy --locked -p fold_db -p lastdb_host -p lastdb_node --lib --bins -- -D warnings",
+    "exit_code": 0,
+    "elapsed_seconds": 36.09
+  },
+  "review": "Independent source review found no correctness blocker; schema/header read ownership, publication, alternatives, aliases, byte charge lifetime checked.",
+  "limits": "No tests are run. No primary or archived data is used. Build output is not operational proof.",
+  "format": {
+    "command": "cargo fmt --all -- --check",
+    "exit_code": 0
+  },
+  "release_build": {
+    "command": "cargo build --release --locked -p lastdb_node --bin lastdbd",
+    "exit_code": 0,
+    "elapsed_seconds": 116
+  },
+  "lint_v2": {
+    "command": "cargo clippy --locked -p fold_db -p lastdb_host -p lastdb_node --lib --bins -- -D warnings",
+    "exit_code": 0,
+    "elapsed_seconds": 35.92
+  },
+  "format_v2": {
+    "command": "cargo fmt --all -- --check",
+    "exit_code": 0
+  },
+  "review_v2": "Independent review finds receiver dependencies and conflict stamp/absence lifetime correct. Positive conflict annotations keep existing event-range reads. An initial operational version found remaining receiver/conflict absence probes; receipt retained and corrected before timed runs.",
+  "lint_v3": {
+    "command": "cargo clippy --locked -p fold_db -p lastdb_host -p lastdb_node --lib --bins -- -D warnings",
+    "exit_code": 0,
+    "elapsed_seconds": 36.61
+  },
+  "format_v3": {
+    "command": "cargo fmt --all -- --check",
+    "exit_code": 0
+  },
+  "diff_check_v3": {
+    "command": "git diff --check",
+    "exit_code": 0
+  },
+  "release_build_v3": {
+    "command": "cargo build --release --locked -p lastdb_node --bin lastdbd",
+    "exit_code": 0,
+    "elapsed_seconds": 117,
+    "sha256": "0e8275816862517ca893e5ecb6614defbaa0ddcc5673a890e4b8446bee85778d"
+  },
+  "review_v3": "Independent source review finds no blocker in generation controls, validated molecule-key metadata, shared charged lifetimes, and publication. The opt-in fixed-label family trace is diagnostic only; its token labels are heuristic. Timed runs keep diagnostic logging disabled.",
+  "lint_v4": {
+    "command": "cargo clippy --locked -p fold_db -p lastdb_host -p lastdb_node --lib --bins -- -D warnings",
+    "exit_code": 0,
+    "elapsed_seconds": 36.75
+  },
+  "format_v4": {
+    "command": "cargo fmt --all -- --check",
+    "exit_code": 0
+  },
+  "diff_check_v4": {
+    "command": "git diff --check",
+    "exit_code": 0
+  },
+  "review_v4": "The operational sequence exposed a deleted key re-added by its generation-only marker. Independent review passes the Ready/no-active-generation guard. Loading reconciliation, unknown and active generations, physical tips, and structural pointer invalidation retain their existing routes.",
+  "release_build_v4": {
+    "command": "cargo build --release --locked -p lastdb_node --bin lastdbd",
+    "exit_code": 0,
+    "elapsed_seconds": 118,
+    "sha256": "bdb83b38545a2161217392f19f9e6f6c2e0fd2d35f8f449e2d6221cb29f2cbed"
+  },
+  "operational_v4": {
+    "keyed_value_and_membership_checks": 118,
+    "strict_zero_file_read_gates": 25,
+    "result": "pass",
+    "limits": "Generated quiet homes. Concurrent calls do not deterministically pause an older captured read. Some writes can clear unchanged warm paths; their first read can fetch again."
+  },
+  "matched_timing_cases": {
+    "cases": 8,
+    "keyed_read_checks": 696,
+    "measured_write_batches": 112,
+    "result": "pass",
+    "method": "Two matched rounds in reversed configuration order. Both executables use fresh generated data, with schema preload off and on. No diagnostic logging, retries, configuration change, or owned heavy build work during timing."
+  }
+}

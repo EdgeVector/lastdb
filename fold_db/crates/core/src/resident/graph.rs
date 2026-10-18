@@ -56,6 +56,7 @@ fn tip_map_key(molecule_uuid: &str, hash: &str, range: &str) -> String {
 /// until the persist worker drains it (counted, not silent).
 #[derive(Debug)]
 pub struct ResidentGraph {
+    pub(super) native_writes: RwLock<Arc<super::NativeWriteGraph>>,
     schemas: RwLock<HashMap<String, Schema>>,
     tips: RwLock<tip_map::TipMap>,
     key_index: RwLock<BTreeMap<String, BTreeSet<ResidentMoleculeKey>>>,
@@ -93,6 +94,7 @@ impl Default for ResidentGraph {
 impl ResidentGraph {
     pub fn new() -> Self {
         Self {
+            native_writes: RwLock::new(Arc::new(super::NativeWriteGraph::default())),
             schemas: RwLock::new(HashMap::new()),
             tips: RwLock::new(tip_map::TipMap::default()),
             key_index: RwLock::new(BTreeMap::new()),

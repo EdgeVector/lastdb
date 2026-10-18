@@ -1,0 +1,64 @@
+{
+  "cases": [
+    [
+      "current-on",
+      1
+    ],
+    [
+      "before-on",
+      1
+    ],
+    [
+      "current-off",
+      1
+    ],
+    [
+      "before-off",
+      1
+    ],
+    [
+      "before-off",
+      2
+    ],
+    [
+      "current-off",
+      2
+    ],
+    [
+      "before-on",
+      2
+    ],
+    [
+      "current-on",
+      2
+    ]
+  ],
+  "fixed_dataset": "Two independent schemas, each256 initial records, four fields, 1KiB bodies. One HashRange hash; every bounded request specifies it.",
+  "inherited_nonsecret_flags": {
+    "LASTDB_BACKGROUND_FLUSH_MS": null,
+    "LASTDB_DISK_PACK": null,
+    "LASTDB_MUTATION_SYNC_FLUSH": null,
+    "LASTDB_RESIDENT_KEY_CAP": null,
+    "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": null,
+    "LASTDB_RESIDENT_MODE": null,
+    "LASTDB_RESIDENT_PERSIST_MS": null,
+    "LASTDB_SCHEMA_KEY_BYTES": null,
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": null
+  },
+  "programs": {
+    "before": {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.kg5lsgib/program-before-lastdbd",
+      "sha256": "bdb83b38545a2161217392f19f9e6f6c2e0fd2d35f8f449e2d6221cb29f2cbed",
+      "source_identity": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-memory-state-20261018/current-source-v4.json",
+      "source_identity_sha256": "387b94e7d409ea554752958217cb9d60257402564b6e04fa8dc3d8caffc16c38"
+    },
+    "current": {
+      "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+      "sha256": "5f568d9956667b20125c2db5e9716d04b15c5bbccd9535dc065c171de3956cf8",
+      "source_identity": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-memory-completion-20261018/attempt3-identity.json",
+      "source_identity_sha256": "d3184ad0b1b5cdfc9f05c8cf79458bbfc6e2484d8e5c9cc4cc105c5d2ec25ba5"
+    }
+  },
+  "runner_sha256": "81d23a9a597ba2d52d1392e3e9631254eca9ffdc97881f152471d3a840447e6d",
+  "scope": "First reads after process reopen; OS cache uncontrolled. Repeated same-key reads and separate disjoint-key reads. Writes label caller read conditions, not guaranteed internal cache state."
+}

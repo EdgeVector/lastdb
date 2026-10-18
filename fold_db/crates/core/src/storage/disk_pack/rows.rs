@@ -225,7 +225,6 @@ impl PackRuntime {
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<(NativeRows, bool)> {
         context.validate_owner(pending)?;
-        context.note_range(collection, start, end);
         if limit == 0 {
             return Ok((Vec::new(), start >= end));
         }
@@ -276,7 +275,6 @@ impl PackRuntime {
         }
         let complete = exhausted && disk.is_empty() && overlay.peek().is_none();
         drop(cursor);
-        context.note_rows(collection, &out);
         Ok((out, complete))
     }
 }

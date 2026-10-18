@@ -1,0 +1,45 @@
+{
+  "command": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zb3ew8sj",
+    "--exact-home",
+    "--dry-run"
+  ],
+  "device": 16777231,
+  "execute_authorized": false,
+  "exit_code": 0,
+  "exited_nodes": [
+    {
+      "diagnostics": "off",
+      "exit_code": 1,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 61196,
+      "variant": "after-loading-20000-candidate2"
+    }
+  ],
+  "inode": 1464119704,
+  "marker": {
+    "creator_pid": 61181,
+    "device": 16777231,
+    "inode": 1464119704,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "open_file_exit": 1,
+  "owner_uid": 501,
+  "process_check": {
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "retained_for": "Review of the keep-small shutdown failure",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zb3ew8sj",
+  "root_exists_after_preview": true,
+  "size_kib": 8547648,
+  "stderr": "",
+  "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zb3ew8sj (released exact synthetic seed)\n"
+}

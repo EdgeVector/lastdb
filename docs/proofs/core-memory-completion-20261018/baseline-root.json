@@ -1,0 +1,18 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.kg5lsgib/program-before-lastdbd",
+  "binary_sha256": "bdb83b38545a2161217392f19f9e6f6c2e0fd2d35f8f449e2d6221cb29f2cbed",
+  "marker": {
+    "creator_pid": 75075,
+    "device": 16777231,
+    "inode": 1464894549,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "node_sessions": 0,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.kg5lsgib",
+  "scope": "Previous reviewed executable only. No home copy and no node start.",
+  "source_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "source_identity": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-memory-state-20261018/current-source-v4.json",
+  "source_identity_sha256": "387b94e7d409ea554752958217cb9d60257402564b6e04fa8dc3d8caffc16c38"
+}

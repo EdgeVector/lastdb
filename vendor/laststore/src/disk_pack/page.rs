@@ -43,6 +43,9 @@ impl Page {
             return Err(corrupt("page identity or header"));
         }
         verify_checksum(bytes, 80)?;
+        if super::packed_page::is_packed(bytes[10]) && features & super::FEATURE_PACKED_KEYS == 0 {
+            return Err(corrupt("packed-key page requires CURRENT format feature"));
+        }
         let bounded_map =
             bytes[10] == 5 && bytes[11] == 1 && features & super::FEATURE_OBJECT_METADATA != 0;
         if !bounded_map {
@@ -68,6 +71,25 @@ impl Page {
         let width = u16_at(bytes, 54) as usize;
         let used = self.payload().len();
         match self.kind() {
+            super::packed_page::LEAF
+                if self.level() == 0
+                    && width == 0
+                    && self.left() == 0
+                    && self.next() == 0
+                    && self.auxiliary() == 0 =>
+            {
+                return super::packed_page::validate(self);
+            }
+            super::packed_page::INTERNAL
+                if (1..8).contains(&self.level())
+                    && width == 0
+                    && self.count() > 0
+                    && self.left() != 0
+                    && self.next() == 0
+                    && self.auxiliary() == 0 =>
+            {
+                return super::packed_page::validate(self);
+            }
             1 if (1..8).contains(&self.level())
                 && width == INTERNAL_WIDTH
                 && (1..=INTERNAL_ENTRIES).contains(&self.count())
@@ -114,7 +136,7 @@ impl Page {
         }
         if self.kind() == 1 || self.kind() == 2 || self.kind() == 3 {
             for index in 0..self.count() {
-                validate_key_descriptor(self.entry(index))?;
+                super::key_layout::validate_fixed(self.entry(index))?;
                 if index > 0 {
                     let previous = self.entry(index - 1);
                     let next = self.entry(index);
@@ -188,24 +210,12 @@ impl Page {
         &self.buffer.bytes[HEADER_BYTES..HEADER_BYTES + u32_at(&self.buffer.bytes, 48) as usize]
     }
     pub(super) fn entry(&self, index: usize) -> &[u8] {
+        if super::packed_page::is_packed(self.kind()) {
+            return super::packed_page::entry(self.payload(), index);
+        }
         let width = u16_at(&self.buffer.bytes, 54) as usize;
         &self.payload()[index * width..(index + 1) * width]
     }
-}
-
-pub(super) fn validate_key_descriptor(bytes: &[u8]) -> Result<()> {
-    let length = u32_at(bytes, 0) as usize;
-    let inline = u16_at(bytes, 4) as usize;
-    let overflow = length > 128;
-    if length > super::KEY_BYTES
-        || inline != length.min(128)
-        || u16_at(bytes, 6) != u16::from(overflow)
-        || (u64_at(bytes, 136) != 0) != overflow
-    {
-        return Err(corrupt("key descriptor"));
-    }
-    zero(&bytes[8 + inline..136])?;
-    Ok(())
 }
 
 impl ReadCall {
@@ -216,8 +226,9 @@ impl ReadCall {
             .join(tree.object.to_string());
         let value = self.page(&directory, tree.object, page)?;
         match value.kind() {
-            1 => {}
-            2 if tree.kind == TreeKind::Locator => {}
+            1 if tree.kind == TreeKind::Directory => {}
+            super::packed_page::INTERNAL if tree.kind == TreeKind::Locator => {}
+            super::packed_page::LEAF if tree.kind == TreeKind::Locator => {}
             3 if tree.kind == TreeKind::Directory => {}
             _ => return Err(corrupt("wrong tree page kind")),
         }
@@ -273,7 +284,9 @@ impl ReadCall {
             self.current.required_features,
         )?);
         match page.kind() {
-            1 | 2 if directory.starts_with(self.root.join("locator")) => {
+            super::packed_page::LEAF | super::packed_page::INTERNAL
+                if directory.starts_with(self.root.join("locator")) =>
+            {
                 self.costs.locator_pages += 1
             }
             1 | 3 if directory.starts_with(self.root.join("directory")) => {

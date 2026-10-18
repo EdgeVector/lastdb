@@ -4,6 +4,7 @@ pub mod hash_range_filter;
 pub mod variant;
 
 pub use common::{build_storage_key, FieldCommon, WriteContext};
+pub(crate) use filter_utils::field_value_from_atom;
 pub use filter_utils::{
     apply_hash_filter, apply_hash_range_filter, apply_keyed_filter, apply_range_filter,
     fetch_atoms_with_key_metadata_async_with_prefix, FilterUtils, KeyedAtomMatch, KeyedFilterMode,

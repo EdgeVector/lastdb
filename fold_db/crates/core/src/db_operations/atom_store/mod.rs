@@ -42,6 +42,7 @@ mod molecule_ref_edges;
 mod molecules;
 mod peer_apply;
 mod retired_intent_retention;
+mod schema_keys;
 mod tip_version_backrefs;
 mod types;
 

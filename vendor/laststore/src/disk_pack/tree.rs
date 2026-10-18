@@ -1,6 +1,6 @@
 use super::bytes::*;
 use super::page::Page;
-use super::{corrupt, ReadCall, KEY_DESCRIPTOR};
+use super::{corrupt, key_layout, ReadCall};
 use crate::Result;
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -61,7 +61,7 @@ impl ReadCall {
             }
             let page = self.tree_page(tree, number)?;
             if page.level() != tree.height - depth - 1
-                || (depth > 0 && page.kind() == 1 && page.count() < 7)
+                || (depth > 0 && page.level() > 0 && page.count() < 7)
                 || (depth > 0 && page.level() == 0 && page.count() == 0)
             {
                 return Err(corrupt("tree level or internal occupancy"));
@@ -70,7 +70,7 @@ impl ReadCall {
             self.check_boundaries(tree, &page, position, lower.as_deref(), upper.as_deref())?;
             if page.level() == 0 {
                 return Ok(equal.then(|| {
-                    page.entry(position)[KEY_DESCRIPTOR..]
+                    key_layout::value(page.entry(position))
                         .try_into()
                         .expect("leaf value")
                 }));
@@ -85,7 +85,7 @@ impl ReadCall {
             number = if child == 0 {
                 page.left()
             } else {
-                u64_at(page.entry(child - 1), KEY_DESCRIPTOR)
+                key_layout::child(page.entry(child - 1))
             };
         }
         Err(corrupt("tree path failed to reach leaf"))
@@ -110,7 +110,7 @@ impl ReadCall {
     }
 
     fn compare_key(&mut self, tree: &TreeRoot, entry: &[u8], key: &[u8]) -> Result<Ordering> {
-        let prefix = &entry[8..8 + u16_at(entry, 4) as usize];
+        let prefix = key_layout::inline(entry);
         let common = prefix.len().min(key.len());
         let order = prefix[..common].cmp(&key[..common]);
         if order != Ordering::Equal {
@@ -129,8 +129,8 @@ impl ReadCall {
         let mut key = Vec::new();
         key.try_reserve_exact(length)
             .map_err(|_| super::resource())?;
-        key.extend_from_slice(&entry[8..8 + inline]);
-        let mut next = u64_at(entry, 136);
+        key.extend_from_slice(key_layout::inline(entry));
+        let mut next = key_layout::overflow(entry);
         let mut seen = HashSet::new();
         let directory = self
             .root
@@ -150,7 +150,7 @@ impl ReadCall {
             key.extend_from_slice(page.payload());
             next = page.next();
         }
-        if key.len() != length || digest(&key) != entry[144..176] {
+        if key.len() != length || digest(&key) != key_layout::key_digest(entry) {
             return Err(corrupt("full key length or digest"));
         }
         Ok(key)

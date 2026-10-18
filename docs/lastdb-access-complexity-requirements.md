@@ -51,6 +51,19 @@ Let:
 
 ---
 
+## Selected schema first query
+
+The selected [preload design](lastdb-schema-range-preload-design.md) adds an explicit lifecycle cost for selected HashRange schemas.
+Their first query waits for all required schema membership keys, including when that first query supplies an exact key.
+Concurrent queries share one load.
+The initial load grows with required schema keys; measure it separately from normal lookup and range costs.
+
+After readiness, exact queries keep their direct lookup route.
+Ranges seek within one named hash and examine the required candidates in memory.
+They do not enumerate unrelated hashes or reload schema membership for each call.
+This policy adds no public query without a key; unselected schemas keep their current keyed routes.
+Implementation remains incomplete.
+
 ## Forbidden: full scan
 
 | Not supported | Why |

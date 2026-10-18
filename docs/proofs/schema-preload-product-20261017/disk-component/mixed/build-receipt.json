@@ -1,0 +1,1 @@
+{"built":true,"disk":{"directory_reads":0,"file_opens":10,"footer_bytes":0,"format_probe_bytes":65664,"group_opens":0,"journal_replay_bytes":0,"legacy_replay_bytes":0,"payload_bytes":0,"read_operations":5,"temporary_bytes_peak":16384},"elapsed_nanos":899394625,"frontier":0,"generation":1,"hash_fanout":1,"key_codec":257,"placement_codec":257,"records":2048,"required_features":111}

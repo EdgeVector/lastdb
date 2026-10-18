@@ -1,0 +1,794 @@
+{
+  "all_normal_stops_exit0_without_force": true,
+  "all_supported_previews_pass": true,
+  "capture_root_count": 2,
+  "case_root_count": 10,
+  "cases": [
+    {
+      "device": 16777231,
+      "inode": 1464432519,
+      "marker": {
+        "creator_pid": 27281,
+        "device": 16777231,
+        "inode": 1464432519,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 27284,
+          "variant": "before-serial-r1"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 27354,
+          "variant": "before-serial-r1"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0synostl"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "27284,27354",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0synostl",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/before-serial-r1",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0synostl",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0synostl",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464434590,
+      "marker": {
+        "creator_pid": 27528,
+        "device": 16777231,
+        "inode": 1464434590,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 27540,
+          "variant": "coverage-before-concurrent4"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 27607,
+          "variant": "coverage-before-concurrent4"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3ryuxfxr"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "27540,27607",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3ryuxfxr",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/coverage-before-concurrent4",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3ryuxfxr",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3ryuxfxr",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464436754,
+      "marker": {
+        "creator_pid": 30967,
+        "device": 16777231,
+        "inode": 1464436754,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 30970,
+          "variant": "before-serial-r1"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31356,
+          "variant": "before-serial-r1"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f89vwiqi"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "30970,31356",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f89vwiqi",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-serial-r1",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f89vwiqi",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f89vwiqi",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464437772,
+      "marker": {
+        "creator_pid": 31359,
+        "device": 16777231,
+        "inode": 1464437772,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31364,
+          "variant": "after-serial-r1"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31437,
+          "variant": "after-serial-r1"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j7omumjy"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "31364,31437",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j7omumjy",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-serial-r1",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j7omumjy",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j7omumjy",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464439820,
+      "marker": {
+        "creator_pid": 31440,
+        "device": 16777231,
+        "inode": 1464439820,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31443,
+          "variant": "before-concurrent4-r1"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31455,
+          "variant": "before-concurrent4-r1"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tfialfqa"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "31443,31455",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tfialfqa",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-concurrent4-r1",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tfialfqa",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tfialfqa",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464440737,
+      "marker": {
+        "creator_pid": 31458,
+        "device": 16777231,
+        "inode": 1464440737,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31463,
+          "variant": "after-concurrent4-r1"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31530,
+          "variant": "after-concurrent4-r1"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2aktlos2"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "31463,31530",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2aktlos2",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-concurrent4-r1",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2aktlos2",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2aktlos2",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464441656,
+      "marker": {
+        "creator_pid": 31533,
+        "device": 16777231,
+        "inode": 1464441656,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31538,
+          "variant": "after-concurrent4-r2"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31608,
+          "variant": "after-concurrent4-r2"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.__sl0zwu"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "31538,31608",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.__sl0zwu",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-concurrent4-r2",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.__sl0zwu",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.__sl0zwu",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464442575,
+      "marker": {
+        "creator_pid": 31612,
+        "device": 16777231,
+        "inode": 1464442575,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31617,
+          "variant": "before-concurrent4-r2"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31623,
+          "variant": "before-concurrent4-r2"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wm_mghye"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "31617,31623",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wm_mghye",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-concurrent4-r2",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wm_mghye",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wm_mghye",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464443493,
+      "marker": {
+        "creator_pid": 31626,
+        "device": 16777231,
+        "inode": 1464443493,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31631,
+          "variant": "after-serial-r2"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31702,
+          "variant": "after-serial-r2"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eic4y1yx"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "31631,31702",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eic4y1yx",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-serial-r2",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eic4y1yx",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eic4y1yx",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464444473,
+      "marker": {
+        "creator_pid": 31705,
+        "device": 16777231,
+        "inode": 1464444473,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": true,
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 31711,
+          "variant": "before-serial-r2"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 32630,
+          "variant": "before-serial-r2"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6t_lbt8j"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "31711,32630",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6t_lbt8j",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-serial-r2",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6t_lbt8j",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6t_lbt8j",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464428607,
+      "marker": {
+        "creator_pid": 19899,
+        "device": 16777231,
+        "inode": 1464428607,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": false,
+      "normal_stops": [],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e877fbze"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": null,
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e877fbze",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/before-copy",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e877fbze",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e877fbze",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "device": 16777231,
+      "inode": 1464432433,
+      "marker": {
+        "creator_pid": 26840,
+        "device": 16777231,
+        "inode": 1464432433,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "node_started": false,
+      "normal_stops": [],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.003eh13u"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_exit": 0,
+      "process_check": null,
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.003eh13u",
+      "receipt_directory": "docs/proofs/pending-write-copy-20261017/eligible-final/after-copy",
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.003eh13u",
+      "socket_paths_remaining": [],
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.003eh13u",
+        "--exact-home",
+        "--dry-run"
+      ]
+    }
+  ],
+  "normal_node_stop_count": 20,
+  "scope": "Exact owned roots only; previews preserve all roots for review. No cleanup execution yet."
+}

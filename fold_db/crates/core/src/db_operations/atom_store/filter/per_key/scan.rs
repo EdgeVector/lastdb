@@ -22,6 +22,12 @@ impl AtomStore {
         base_prefixes: &[String],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
+        if let Some(rows) = self
+            .preloaded_per_key_prefixes(base_prefixes, storage_prefix)
+            .await?
+        {
+            return Ok(rows);
+        }
         let mut merged: Vec<(String, PerKeyRecord)> = Vec::new();
         let mut seen: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::new();
@@ -115,6 +121,12 @@ impl AtomStore {
         base_end: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
+        if let Some(rows) = self
+            .preloaded_per_key_range(base_start, base_end, storage_prefix)
+            .await?
+        {
+            return Ok(rows);
+        }
         let start = build_storage_key(storage_prefix, base_start);
         let end = build_storage_key(storage_prefix, base_end);
         let scanned: Vec<(String, PerKeyRecord)> = self

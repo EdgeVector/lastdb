@@ -1,0 +1,10 @@
+{
+  "runtime_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/wr.s2otOz",
+  "owner_uid": 501,
+  "all_owned_nodes_stopped": true,
+  "open_files_check": "lsof returned no open files under the exact root",
+  "receipts_preserved": true,
+  "cleanup_preflight": "refused",
+  "reason": "lastdb-dev: ERROR exact seed owner marker is unsafe",
+  "action": "Retained the root. No deletion or alternate cleanup attempt followed."
+}

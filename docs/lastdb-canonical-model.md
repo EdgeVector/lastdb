@@ -216,6 +216,14 @@ count (`RESIDENT_KEY_CAP = 10000`), not by a byte budget.
 collections (indexes, schema_index, atom_ref_edges_v2, keep_small, metadata,
 cas_blobs). Do not tune those byte settings to size the logical resident set.
 
+**Selected design update, 2026-10-17:** selected HashRange schemas load all required range keys before their first query continues.
+The core logical model owns complete keys and sparse current tips and atoms.
+Full logical records retain the 10,000-record cap; complete keys use a separate explicit byte allowance.
+Concurrent first queries share one load, and accepted writes maintain ready membership before the ack.
+Tip and atom purge preserves those keys; whole-domain key purge or incompatible definitions can require another load.
+The selected route is built in the development branch. The policy remains opt-in at process start.
+See the [schema preload design](lastdb-schema-range-preload-design.md), [work plan](lastdb-logical-warm-set-plan.md), and [product results](lastdb-schema-range-preload-results.md).
+
 **Fidelity:** what is in resident is **exactly** what will be written later
 (isomorphic persist — same tips, atom uuids/content, blob refs, protein
 membership). Not a tip-only cache or a different RAM shape.
@@ -227,6 +235,8 @@ full load).
 Query fields select molecule keys, then the required atoms. Queries return file
 references and access metadata. They never hydrate or cache CAS file bytes.
 See `decision-2026-09-08-local-memory-stops-at-atoms`.
+The October 2 used-record rules and the October 17 selected-schema design above limit this earlier all-schema statement.
+Unused schemas and unrequested atom values do not enter memory through range-key preload.
 
 **Write:** **`apply`** full ladder in resident → dirty pin → ack → **persist**
 serializes the same records → cloud later.

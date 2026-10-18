@@ -55,6 +55,12 @@ impl AtomStore {
         take: Option<usize>,
         after: Option<(&str, &str)>,
     ) -> Result<Vec<(String, String)>, SchemaError> {
+        if let Some(keys) = self
+            .preloaded_hash_range_keys_page_window(molecule_uuid, storage_prefix, take, after)
+            .await?
+        {
+            return Ok(keys);
+        }
         if matches!(take, Some(0)) {
             return Ok(Vec::new());
         }
@@ -271,6 +277,19 @@ impl AtomStore {
             // client already supplied the plaintext partition/range.
             let hash = api_hash_for_response.map_or(storage_hash, str::to_string);
             let range = api_range_for_response.map_or(storage_range, str::to_string);
+            let api_range = if self
+                .key_codec_for_molecule(molecule_uuid)
+                .range_encoding()
+                .writes_ope()
+            {
+                crate::crypto::E2eKeys::ope_decode_range_plaintext(&range)
+                    .unwrap_or_else(|| range.clone())
+            } else {
+                range.clone()
+            };
+            let api_key =
+                crate::schema::types::key_value::KeyValue::new(Some(hash.clone()), Some(api_range));
+            self.note_selected_query_tip(storage_prefix, molecule_uuid, &api_key, &r, &k)?;
             records.push((hash, range, r.entry, r.meta));
         }
         // The transient molecule is only the narrowed `mk:` window.

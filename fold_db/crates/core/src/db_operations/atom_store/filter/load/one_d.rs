@@ -1,6 +1,8 @@
 use super::*;
 // lint:file-size-ok moved verbatim from the parent module; one method family per file
 
+mod exact;
+
 /// The molecule a 1-D page is read from. These three always travel together —
 /// bundling them keeps [`AtomStore::load_1d_page_window`] inside the argument
 /// budget without splitting a routine that is one decision.
@@ -99,66 +101,6 @@ impl AtomStore {
         )
     }
 
-    /// Multi-get on a 1-D molecule: one grouped read for every pair, using
-    /// only the slot's own dimension (hash for Hash-only, range for
-    /// Range-only; the other component is ignored, as `apply_*_filter` does).
-    /// Without this arm the batch fell to the O(field) full load and then
-    /// compared API-form keys to storage-form keys, so it cost a whole-field
-    /// read and could return no rows. Echo the caller's API key, as the
-    /// composite arm does, so the in-memory apply matches it. Candidate
-    /// order matches `get_per_key_1d`: each hash spelling, then each range
-    /// spelling. The first visible spelling wins.
-    async fn load_1d_multi_get(
-        &self,
-        target: &OneDPageTarget<'_>,
-        slot: OneDSlot,
-        keys: &[(String, String)],
-    ) -> Result<Vec<(String, String, AtomEntry, Option<KeyMetadata>)>, SchemaError> {
-        let molecule_uuid = target.molecule_uuid;
-        let mut groups = Vec::with_capacity(keys.len());
-        let mut api_keys = Vec::with_capacity(keys.len());
-        for (hash, range) in keys {
-            let (h, r) = match slot {
-                OneDSlot::Hash => (hash.as_str(), EMPTY_KEY_COMPONENT),
-                OneDSlot::Range => (EMPTY_KEY_COMPONENT, range.as_str()),
-            };
-            let hash_cands = self
-                .key_codec_for_molecule(molecule_uuid)
-                .storage_hash_read_candidates(molecule_uuid, h)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-            let range_cands = self
-                .key_codec_for_molecule(molecule_uuid)
-                .storage_range_read_candidates(molecule_uuid, r)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-            let mut group = Vec::with_capacity(hash_cands.len().saturating_mul(range_cands.len()));
-            for sh in &hash_cands {
-                for sr in &range_cands {
-                    group.push(molecule_key_codec::hash_range_record_key(
-                        molecule_uuid,
-                        sh,
-                        sr,
-                    ));
-                }
-            }
-            groups.push(group);
-            let (api_hash, api_range) = match slot {
-                OneDSlot::Hash => (hash.clone(), EMPTY_KEY_COMPONENT.to_string()),
-                OneDSlot::Range => (EMPTY_KEY_COMPONENT.to_string(), range.clone()),
-            };
-            api_keys.push((api_hash, api_range));
-        }
-        let hits = self
-            .load_first_present_candidate(target.storage_prefix, &groups)
-            .await?;
-        let mut records = Vec::with_capacity(keys.len());
-        for ((api_hash, api_range), hit) in api_keys.into_iter().zip(hits) {
-            if let Some(rec) = hit {
-                records.push((api_hash, api_range, rec.entry, rec.meta));
-            }
-        }
-        Ok(records)
-    }
-
     /// Key-addressed read of a Hash-only molecule. `None` means the filter
     /// does not address a hash key and the caller must fall back.
     async fn scan_1d_hash_slot(
@@ -175,12 +117,7 @@ impl AtomStore {
             _ => return Ok(None),
         };
         let scanned = self
-            .get_per_key_1d(
-                target.molecule_uuid,
-                hash,
-                EMPTY_KEY_COMPONENT,
-                target.storage_prefix,
-            )
+            .get_query_hash_tip(target.molecule_uuid, hash, target.storage_prefix)
             .await?
             .into_iter()
             .collect();

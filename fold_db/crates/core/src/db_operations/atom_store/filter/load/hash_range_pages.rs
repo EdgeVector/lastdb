@@ -239,15 +239,29 @@ impl AtomStore {
             );
         }
         let hits = self
-            .load_first_present_candidate(storage_prefix, &groups)
+            .load_first_present_candidate_with_key(storage_prefix, &groups)
             .await?;
         let mut records = Vec::with_capacity(keys.len());
-        for ((hash, range), hit) in keys.iter().zip(hits) {
-            if let Some(rec) = hit {
+        for (((hash, range), candidates), hit) in keys.iter().zip(&groups).zip(hits) {
+            let api_key = crate::schema::types::key_value::KeyValue::new(
+                Some(hash.clone()),
+                Some(range.clone()),
+            );
+            if let Some((base, rec)) = hit {
+                self.note_selected_query_tip_candidates(
+                    storage_prefix,
+                    molecule_uuid,
+                    &api_key,
+                    &rec,
+                    &base,
+                    candidates,
+                )?;
                 // Option I: echo the API pair the caller supplied, so
                 // `apply_hash_range_filter` — pure string comparison,
                 // no codec — can match it.
                 records.push((hash.clone(), range.clone(), rec.entry, rec.meta));
+            } else {
+                self.note_missing_query_key(storage_prefix, molecule_uuid, &api_key, candidates)?;
             }
         }
         Ok(Some(MoleculeHashRange::from_per_key_records(

@@ -1,8 +1,7 @@
-use super::bytes::u64_at;
 use super::page::Page;
 use super::sparse_pages::SparsePages;
 use super::tree_output::{self, Child, Descriptor, LeafEntry, TreePages};
-use super::{corrupt, ReadCall, TreeRoot, KEY_DESCRIPTOR};
+use super::{corrupt, key_layout, ReadCall, TreeRoot};
 use crate::Result;
 use std::collections::HashSet;
 use std::path::Path;
@@ -106,10 +105,11 @@ impl<P: TreePages> TreeEdit<P> {
             minimum: path.minimum,
             number: page.left(),
         }];
-        for entry in page.payload().chunks_exact(super::INTERNAL_WIDTH) {
+        for index in 0..page.count() {
+            let entry = page.entry(index);
             children.push(Child {
-                minimum: Some(entry[..KEY_DESCRIPTOR].try_into().expect("key descriptor")),
-                number: u64_at(entry, KEY_DESCRIPTOR),
+                minimum: Some(entry[..key_layout::descriptor_bytes(entry)].to_vec()),
+                number: key_layout::child(entry),
             });
         }
         let mut boundaries = Vec::with_capacity(children.len() + 1);
@@ -153,10 +153,16 @@ impl<P: TreePages> TreeEdit<P> {
     }
 
     fn parents(&mut self, level: u8, children: &[Child]) -> Result<Vec<Child>> {
-        let chunk = children.len().div_ceil(children.len().div_ceil(89));
-        children
-            .chunks(chunk)
-            .map(|items| tree_output::parent(&mut self.pages, level as usize, items))
+        super::tree_partition::parents(self.root.kind, children)?
+            .into_iter()
+            .map(|range| {
+                tree_output::parent(
+                    &mut self.pages,
+                    self.root.kind,
+                    level as usize,
+                    &children[range],
+                )
+            })
             .collect()
     }
 
@@ -168,29 +174,33 @@ impl<P: TreePages> TreeEdit<P> {
     ) -> Result<Vec<Child>> {
         let mut entries = Vec::<LeafEntry>::with_capacity(page.count() + changes.len());
         let mut updates = changes.iter().peekable();
-        for entry in page.payload().chunks_exact(super::LEAF_WIDTH) {
+        for index in 0..page.count() {
+            let entry = page.entry(index);
             let key = call.full_key(&self.root, entry)?;
             while updates.peek().is_some_and(|(next, _)| *next < key) {
                 let (key, value) = updates.next().expect("peeked change");
-                entries.push((tree_output::key_descriptor(&mut self.pages, key)?, *value));
+                entries.push((
+                    tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
+                    *value,
+                ));
             }
-            let descriptor = entry[..KEY_DESCRIPTOR].try_into().expect("key descriptor");
+            let descriptor = entry[..key_layout::descriptor_bytes(entry)].to_vec();
             let value = if updates.peek().is_some_and(|(next, _)| *next == key) {
                 updates.next().expect("peeked replacement").1
             } else {
-                entry[KEY_DESCRIPTOR..].try_into().expect("leaf value")
+                key_layout::value(entry).try_into().expect("leaf value")
             };
             entries.push((descriptor, value));
         }
         for (key, value) in updates {
-            entries.push((tree_output::key_descriptor(&mut self.pages, key)?, *value));
+            entries.push((
+                tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
+                *value,
+            ));
         }
-        let chunk = entries
-            .len()
-            .div_ceil(entries.len().div_ceil(super::LEAF_ENTRIES));
-        entries
-            .chunks(chunk)
-            .map(|items| tree_output::leaf(&mut self.pages, self.root.kind, items))
+        super::tree_partition::leaves(self.root.kind, &entries)?
+            .into_iter()
+            .map(|range| tree_output::leaf(&mut self.pages, self.root.kind, &entries[range]))
             .collect()
     }
 
@@ -225,7 +235,7 @@ fn validate_page(call: &mut ReadCall, tree: &TreeRoot, page: &Page, path: &PathS
             return Err(corrupt("tree edit key order or parent interval"));
         }
         if page.level() > 0 {
-            let child = u64_at(entry, KEY_DESCRIPTOR);
+            let child = key_layout::child(entry);
             if child == path.number || !children.insert(child) {
                 return Err(corrupt("tree edit duplicate child"));
             }

@@ -2,9 +2,41 @@ use super::*;
 
 pub(super) struct PreparedCommit {
     operations: Vec<HomeMutation>,
+    batch_bytes: u64,
     reservation: laststore::disk_pack::home::MutationReservation,
     pub(super) protection: Arc<admission::WriteProtection>,
     accepted_ms: u64,
+}
+
+/// New operations and replacement quota; the accepted prefix stays in the queue.
+pub(super) struct PreparedAppend {
+    incoming: PreparedCommit,
+}
+
+impl PreparedAppend {
+    pub(super) fn reserve_capacity(
+        &self,
+        previous: Option<&mut PreparedCommit>,
+    ) -> StorageResult<()> {
+        if let Some(previous) = previous {
+            previous
+                .operations
+                .try_reserve(self.incoming.operations.len())
+                .map_err(|_| StorageError::WriteResourceLimit {
+                    detail: "native prefix operation allocation refused".into(),
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Capacity and complete replacement quota precede visible publication.
+    pub(super) fn finish(mut self, previous: Option<PreparedCommit>) -> PreparedCommit {
+        if let Some(mut previous) = previous {
+            previous.operations.append(&mut self.incoming.operations);
+            self.incoming.operations = std::mem::take(&mut previous.operations);
+        }
+        self.incoming
+    }
 }
 
 /// Durable native boundary after all earlier accepted batches finish.
@@ -96,6 +128,24 @@ impl PackRuntime {
         &self,
         operations: Vec<HomeMutation>,
     ) -> StorageResult<PreparedCommit> {
+        self.prepare_commit_extension(operations, None)
+    }
+
+    pub(super) fn prepare_append(
+        &self,
+        operations: Vec<HomeMutation>,
+        previous: Option<&PreparedCommit>,
+    ) -> StorageResult<PreparedAppend> {
+        Ok(PreparedAppend {
+            incoming: self.prepare_commit_extension(operations, previous)?,
+        })
+    }
+
+    fn prepare_commit_extension(
+        &self,
+        operations: Vec<HomeMutation>,
+        previous: Option<&PreparedCommit>,
+    ) -> StorageResult<PreparedCommit> {
         if self.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
                 "native writer requires complete journal recovery after a failed publication"
@@ -109,15 +159,20 @@ impl PackRuntime {
             .as_millis()
             .try_into()
             .map_err(|_| StorageError::BackendError("native accepted time overflow".into()))?;
-        transaction::validate(&operations, writer.current().batch_operation_limit())?;
-        let reservation = writer.reserve_mutation(&operations).map_err(map)?;
+        let limit = writer.current().batch_operation_limit();
+        let batch_bytes = prefix_batch_bytes(previous, &operations, limit)?;
+        let reservation = match previous {
+            Some(previous) => writer.reserve_mutation_extension(&previous.reservation, &operations),
+            None => writer.reserve_mutation(&operations),
+        }
+        .map_err(map)?;
         let space = writer
             .reserve_space(reservation.quote().physical_bytes(), &self.space_policy)
             .map_err(map)?;
-        let protection =
-            Arc::new(admission::WriteProtection::reserve(self, &operations).with_space(space));
+        let protection = Arc::new(admission::WriteProtection::reserve(space));
         Ok(PreparedCommit {
             operations,
+            batch_bytes,
             reservation,
             protection,
             accepted_ms,
@@ -128,28 +183,39 @@ impl PackRuntime {
         let changes = prepared
             .operations
             .iter()
-            .map(|operation| {
-                validity::changed(
-                    operation.collection.clone(),
-                    operation.key.clone(),
-                    operation.body.as_deref(),
-                )
-            })
-            .collect();
-        self.commit_prepared_group(prepared, changes)
+            .map(|operation| (operation.collection.clone(), operation.key.clone()))
+            .collect::<Vec<_>>();
+        self.commit_prepared_group(prepared, &changes)
     }
 
     pub(super) fn commit_prepared_group(
         &self,
         prepared: PreparedCommit,
-        hidden_changes: Vec<validity::ChangedCoordinate>,
+        hidden_changes: &[(String, String)],
     ) -> StorageResult<()> {
         let PreparedCommit {
             operations,
+            batch_bytes: _,
             reservation,
             protection,
             accepted_ms,
         } = prepared;
+        // A direct durable publication consumes its bodies below. Keep only
+        // membership coordinates; queued flushes already published them.
+        let key_changes = if hidden_changes.is_empty() {
+            Vec::new()
+        } else {
+            operations
+                .iter()
+                .map(|operation| {
+                    (
+                        operation.collection.clone(),
+                        operation.key.clone(),
+                        operation.body.is_none(),
+                    )
+                })
+                .collect()
+        };
         let mut writer = self.journal.lock().expect("native journal owner");
         let result = writer.commit_mutation(operations, accepted_ms, reservation);
         let publication = match result {
@@ -160,8 +226,7 @@ impl PackRuntime {
                 return Err(map(error));
             }
         };
-        protection.invalidate();
-        self.install_committed(publication.current, hidden_changes)?;
+        self.install_committed(publication.current, hidden_changes, &key_changes)?;
         protection.release_space();
         self.failed.store(false, Ordering::Release);
         Ok(())
@@ -191,4 +256,29 @@ impl PackRuntime {
             let _ = self.wait_for_queue(target).await;
         }
     }
+}
+
+fn prefix_batch_bytes(
+    previous: Option<&PreparedCommit>,
+    incoming: &[HomeMutation],
+    limit: usize,
+) -> StorageResult<u64> {
+    let bytes = transaction::batch_bytes(incoming, limit)?;
+    let Some(previous) = previous else {
+        return Ok(bytes);
+    };
+    let operations = previous.operations.len().checked_add(incoming.len());
+    let bytes = previous
+        .batch_bytes
+        .checked_add(bytes)
+        .and_then(|bytes| bytes.checked_sub(256));
+    if operations.is_none_or(|count| count > limit)
+        || bytes.is_none_or(|bytes| bytes > 128 * 1024 * 1024)
+    {
+        return Err(StorageError::WriteResourceLimit {
+            detail: "native accepted prefix reached its operation or byte limit; retry after flush"
+                .into(),
+        });
+    }
+    Ok(bytes.expect("checked native prefix bytes"))
 }

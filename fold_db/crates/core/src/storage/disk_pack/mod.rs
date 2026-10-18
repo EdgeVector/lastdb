@@ -2,7 +2,7 @@
 
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
-use crate::resident::{LogicalResidentSet, ResidentMetrics};
+use crate::resident::{LogicalResidentSet, ResidentGraph, ResidentMetrics};
 use laststore::disk_pack::home::{
     DiskHome, HomeBuilder, HomeDescriptor, HomeJournal, HomeMutation,
 };
@@ -20,17 +20,17 @@ mod namespace_delete;
 mod queue;
 mod read;
 mod rows;
+pub(crate) mod schema_keys;
 mod space;
 pub(crate) mod transaction;
-mod validity;
 mod view;
 mod write;
-pub use logical_paths::warm::{remember_wire_query, warm_wire_query, WarmQueryFields};
+pub(crate) use crate::resident::CoreMemorySource;
+pub use crate::resident::CoreMemoryValue;
 pub use maintenance::{NativeMaintenanceOptions, NativeMaintenanceReport};
-pub(crate) use read::note_molecule_header;
+pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
-pub(crate) use transaction::note_header_write;
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 
@@ -49,8 +49,10 @@ pub struct PackRuntime {
     flush_notify: tokio::sync::Notify,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
-    validity: Arc<Mutex<validity::Validity>>,
+    resident: Arc<ResidentGraph>,
     logical: Arc<Mutex<LogicalResidentSet>>,
+    core: Arc<Mutex<crate::resident::CoreWarmSet>>,
+    schema_keys: schema_keys::SchemaKeys,
     published: AtomicU64,
     failed: AtomicBool,
     fresh_empty: AtomicBool,
@@ -188,6 +190,7 @@ impl PackNamespacedStore {
         let read_lease = journal.read_lease();
         let current = journal.current().clone();
         let frontier = current.frontier;
+        let metrics = Arc::new(ResidentMetrics::new());
         Ok(Self {
             runtime: Arc::new(PackRuntime {
                 home,
@@ -195,6 +198,7 @@ impl PackNamespacedStore {
                     current,
                     accepted: Arc::new(Vec::new()),
                     revision: 0,
+                    sequence: 0,
                 }),
                 journal: Mutex::new(journal),
                 read_lease,
@@ -202,10 +206,10 @@ impl PackNamespacedStore {
                 flush_notify: tokio::sync::Notify::new(),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
-                validity: Arc::new(Mutex::new(validity::Validity::default())),
-                logical: Arc::new(Mutex::new(
-                    LogicalResidentSet::new().with_metrics(Arc::new(ResidentMetrics::new())),
-                )),
+                resident: Arc::new(ResidentGraph::new().with_metrics(Arc::clone(&metrics))),
+                logical: Arc::new(Mutex::new(LogicalResidentSet::new().with_metrics(metrics))),
+                core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
+                schema_keys: schema_keys::SchemaKeys::new(),
                 published: AtomicU64::new(frontier),
                 failed: AtomicBool::new(false),
                 fresh_empty: AtomicBool::new(false),
@@ -214,6 +218,13 @@ impl PackNamespacedStore {
                 space_policy,
             }),
         })
+    }
+}
+
+impl PackRuntime {
+    /// Native write reads and DbOperations share the same resident graph owner.
+    pub(crate) fn resident_graph(&self) -> Arc<ResidentGraph> {
+        Arc::clone(&self.resident)
     }
 }
 

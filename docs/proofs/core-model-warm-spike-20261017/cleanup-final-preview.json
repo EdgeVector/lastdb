@@ -1,0 +1,17 @@
+{
+  "checked_utc": "2026-10-17T19:13:01.285561+00:00",
+  "command": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cw2.j9qaf1lr",
+    "--exact-home",
+    "--dry-run"
+  ],
+  "exit_code": 0,
+  "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cw2.j9qaf1lr (released exact synthetic seed)\n",
+  "stderr": "",
+  "root_exists_after_preview": true,
+  "mutation_authorized": false,
+  "result": "preview only; scratch retained"
+}

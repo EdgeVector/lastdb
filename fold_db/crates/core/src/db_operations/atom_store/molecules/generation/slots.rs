@@ -10,11 +10,13 @@ impl AtomStore {
             storage_prefix,
             &molecule_key_codec::molecule_generation_pointer_key(molecule_uuid),
         );
-        self.main_store.get_item(&key).await.map_err(|error| {
-            SchemaError::InvalidData(format!(
-                "read generation pointer for molecule {molecule_uuid}: {error}"
-            ))
-        })
+        self.molecule_control_from_memory(&key)
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "read generation pointer for molecule {molecule_uuid}: {error}"
+                ))
+            })
     }
 
     /// Select one logical slot from the immutable base and the live change row.

@@ -101,6 +101,20 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         groups: &[Vec<String>],
     ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
+        Ok(self
+            .load_first_present_candidate_with_key(storage_prefix, groups)
+            .await?
+            .into_iter()
+            .map(|hit| hit.map(|(_, record)| record))
+            .collect())
+    }
+
+    /// Keep the winning physical coordinate until a caller records its tip.
+    pub(crate) async fn load_first_present_candidate_with_key(
+        &self,
+        storage_prefix: Option<&str>,
+        groups: &[Vec<String>],
+    ) -> Result<Vec<Option<(String, PerKeyRecord)>>, SchemaError> {
         let mut seen = std::collections::HashSet::<&str>::new();
         let mut unique = Vec::new();
         for group in groups {
@@ -131,7 +145,7 @@ impl AtomStore {
             let mut hit = None;
             for key in group {
                 if let Some(record) = visible_by_key.get(key) {
-                    hit = Some(record.clone());
+                    hit = Some((key.clone(), record.clone()));
                     break;
                 }
             }

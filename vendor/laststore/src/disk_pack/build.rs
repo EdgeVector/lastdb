@@ -110,6 +110,7 @@ impl ArtifactBuilder {
                 None => [0; 32],
             },
             required_features: super::FEATURE_OBJECT_METADATA
+                | super::FEATURE_PACKED_KEYS
                 | super::FEATURE_JOURNAL_LIFECYCLE
                 | super::FEATURE_FILE_LIFETIME
                 | if native.is_some() {

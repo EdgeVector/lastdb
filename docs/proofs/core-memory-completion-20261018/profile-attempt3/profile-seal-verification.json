@@ -1,0 +1,11 @@
+{
+  "checked_utc": "2026-10-18T08:19:49.666998+00:00",
+  "cleanup_exit": 0,
+  "cleanup_files": {
+    "cleanup-execute-preflight.json": "da2dc32d0f5ae7d17de0196bdbe5abe3014e548eda02337648b9fa1fad721ff3",
+    "cleanup.json": "6c111f8be98f332e27dbeeca337ab2c3fd4621751d80a6017b9df9b1ecc2dc65"
+  },
+  "errors": [],
+  "root_exists_after": false,
+  "sealed_files_checked": 17
+}

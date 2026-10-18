@@ -1,6 +1,5 @@
-use super::bytes::u64_at;
 use super::page::Page;
-use super::{corrupt, ReadCall, TreeRoot, KEY_DESCRIPTOR};
+use super::{corrupt, key_layout, ReadCall, TreeRoot};
 use crate::Result;
 use std::sync::Arc;
 
@@ -117,7 +116,7 @@ impl TreeCursor {
             number: if child == 0 {
                 page.left()
             } else {
-                u64_at(page.entry(child - 1), KEY_DESCRIPTOR)
+                key_layout::child(page.entry(child - 1))
             },
             level: page.level() - 1,
             lower: if child == 0 {
@@ -187,7 +186,7 @@ impl TreeCursor {
             self.position += 1;
             return Ok(Some((
                 key,
-                entry[KEY_DESCRIPTOR..].try_into().expect("leaf value"),
+                key_layout::value(entry).try_into().expect("leaf value"),
             )));
         }
     }

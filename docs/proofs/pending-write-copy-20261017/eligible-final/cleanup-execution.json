@@ -1,0 +1,354 @@
+{
+  "complete": true,
+  "executed_count": 12,
+  "outcomes": [
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0synostl",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0synostl",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0synostl (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/before-serial-r1",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/before-serial-r1",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0synostl",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/before-serial-r1\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0synostl\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3ryuxfxr",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3ryuxfxr",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3ryuxfxr (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/coverage-before-concurrent4",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/coverage-before-concurrent4",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3ryuxfxr",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/coverage-before-concurrent4\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3ryuxfxr\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f89vwiqi",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f89vwiqi",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f89vwiqi (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-serial-r1",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-serial-r1",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f89vwiqi",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-serial-r1\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f89vwiqi\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j7omumjy",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j7omumjy",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j7omumjy (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-serial-r1",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-serial-r1",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j7omumjy",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-serial-r1\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j7omumjy\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tfialfqa",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tfialfqa",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tfialfqa (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-concurrent4-r1",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-concurrent4-r1",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tfialfqa",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-concurrent4-r1\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tfialfqa\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2aktlos2",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2aktlos2",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2aktlos2 (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-concurrent4-r1",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-concurrent4-r1",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2aktlos2",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-concurrent4-r1\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2aktlos2\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.__sl0zwu",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.__sl0zwu",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.__sl0zwu (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-concurrent4-r2",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-concurrent4-r2",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.__sl0zwu",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-concurrent4-r2\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.__sl0zwu\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wm_mghye",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wm_mghye",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wm_mghye (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-concurrent4-r2",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-concurrent4-r2",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wm_mghye",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-concurrent4-r2\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wm_mghye\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eic4y1yx",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eic4y1yx",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eic4y1yx (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-serial-r2",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-serial-r2",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eic4y1yx",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/after-serial-r2\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eic4y1yx\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6t_lbt8j",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "result": "supported exact reclaim; no retry",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6t_lbt8j",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6t_lbt8j (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_owned.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-serial-r2",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-serial-r2",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6t_lbt8j",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/paired/before-serial-r2\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6t_lbt8j\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e877fbze",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e877fbze",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e877fbze (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_capture.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/before-copy",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/before-copy",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e877fbze",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/before-copy\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e877fbze\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    },
+    {
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.003eh13u",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.003eh13u",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.003eh13u (released exact synthetic seed)\n"
+      },
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/cleanup_capture.py",
+        "--receipt-dir",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/after-copy",
+        "--execute-reviewed-preview"
+      ],
+      "exit_code": 0,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/after-copy",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.003eh13u",
+      "stderr": "",
+      "stdout": "{\"receipt_dir\": \"/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/after-copy\", \"root\": \"/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.003eh13u\", \"cleanup_exit\": 0, \"retained\": false}\n"
+    }
+  ],
+  "review_json": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/pending-write-copy-20261017/eligible-final/cleanup-review.json",
+  "reviewed_count": 12
+}

@@ -1,0 +1,110 @@
+{
+  "base_commit": "0a45f47ce860f5526e68a24126c11a04d4b9eced",
+  "changed_test_fixture_attribute_paths": [],
+  "index_tree": "cb503477b2489aa5c8d64991c3aa249a8c12c737",
+  "largest_new_functions": [
+    {
+      "function": "matches",
+      "lines": 89,
+      "path": "fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs",
+      "start": 9
+    },
+    {
+      "function": "load_record_tip_atoms",
+      "lines": 86,
+      "path": "fold_db/crates/core/src/record_molecule/read_batch.rs",
+      "start": 20
+    },
+    {
+      "function": "AtomStore::preloaded_hash_tip_window",
+      "lines": 82,
+      "path": "fold_db/crates/core/src/db_operations/atom_store/schema_keys/hash_window.rs",
+      "start": 31
+    },
+    {
+      "function": "PackRuntime::start_key_load",
+      "lines": 82,
+      "path": "fold_db/crates/core/src/storage/disk_pack/schema_keys/load.rs",
+      "start": 82
+    },
+    {
+      "function": "FieldVariant::note_loaded_tip",
+      "lines": 77,
+      "path": "fold_db/crates/core/src/schema/types/field/variant/read/core_receipts.rs",
+      "start": 6
+    },
+    {
+      "function": "PackRuntime::load_key_domain",
+      "lines": 77,
+      "path": "fold_db/crates/core/src/storage/disk_pack/schema_keys/load.rs",
+      "start": 165
+    },
+    {
+      "function": "AtomStore::preloaded_hash_range_keys_page_window",
+      "lines": 75,
+      "path": "fold_db/crates/core/src/db_operations/atom_store/schema_keys/page.rs",
+      "start": 6
+    },
+    {
+      "function": "PackRuntime::publish_schema_key_changes",
+      "lines": 68,
+      "path": "fold_db/crates/core/src/storage/disk_pack/schema_keys/publication.rs",
+      "start": 17
+    },
+    {
+      "function": "note_tip",
+      "lines": 67,
+      "path": "fold_db/crates/core/src/storage/disk_pack/logical_paths/core_read.rs",
+      "start": 30
+    },
+    {
+      "function": "PackRuntime::schema_key_tip",
+      "lines": 67,
+      "path": "fold_db/crates/core/src/storage/disk_pack/schema_keys/selection.rs",
+      "start": 54
+    },
+    {
+      "function": "CoreKeyDomain::select",
+      "lines": 64,
+      "path": "fold_db/crates/core/src/resident/core_keys/selection.rs",
+      "start": 48
+    },
+    {
+      "function": "MutationManager::path_atoms",
+      "lines": 63,
+      "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs",
+      "start": 142
+    }
+  ],
+  "ordinary_file_failures": [],
+  "ordinary_function_failures": [],
+  "performance_fix_files": [
+    {
+      "lines": 110,
+      "path": "fold_db/crates/core/src/schema/types/field/variant/read/core_receipts.rs",
+      "sha256": "0daa7e6ca08d16341d016336cd5a5f5684a2905376ecb1ddc2dae2ddf67a6931"
+    },
+    {
+      "lines": 168,
+      "path": "fold_db/crates/core/src/db_operations/atom_store/schema_keys/rows.rs",
+      "sha256": "62a1e4a43e0720d6711232a281abcb89cfa42ba7408870a1cdb712d1665e3503"
+    },
+    {
+      "lines": 346,
+      "path": "fold_db/crates/core/src/storage/disk_pack/logical_paths/core_read.rs",
+      "sha256": "1c4a915f9ea948f4f0a8597ef7e4c923676aa149fda6bbbe8953861c28ce9a2e"
+    }
+  ],
+  "retired_test_attributes_in_changed_sources": [],
+  "rust_source_count": 143,
+  "scope": "Final frozen working-tree source audit after three receipt fast-path fixes; includes new modules and no override exemptions in strict counts. Index can omit current unstaged performance fixes.",
+  "strict_file_failures": [],
+  "strict_function_failures": [],
+  "too_many_arguments_added": [],
+  "too_many_arguments_removed": 2,
+  "unstaged_rust_paths": [
+    "fold_db/crates/core/src/db_operations/atom_store/schema_keys/rows.rs",
+    "fold_db/crates/core/src/schema/types/field/variant/read/core_receipts.rs",
+    "fold_db/crates/core/src/storage/disk_pack/logical_paths/core_read.rs"
+  ]
+}

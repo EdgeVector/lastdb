@@ -3,10 +3,11 @@
 //! A missing or non-envelope R tip is never an empty document. That would hide
 //! live field molecules.
 
-use super::dual_read::load_record_tip_atom;
+use super::dual_read::record_scope;
 use super::envelope::{
     envelope_is_complete, merge_sent_fields, parse_document_fields, stamp_document_envelope_marked,
 };
+use super::read_batch::load_record_tip_atoms;
 use super::RECORD_SENTINEL;
 use crate::db_operations::DbOperations;
 use crate::schema::types::Mutation;
@@ -27,6 +28,23 @@ pub async fn fold_mutations_to_record_envelope(
         return Ok(());
     };
 
+    let keys: Vec<_> = mutations
+        .iter()
+        .filter(|mutation| {
+            !(mutation.fields_and_values.len() == 1
+                && mutation.fields_and_values.contains_key(RECORD_SENTINEL))
+        })
+        .map(|mutation| mutation.key_value.clone())
+        .collect();
+    let atoms = load_record_tip_atoms(
+        db_ops,
+        record_uuid,
+        &keys,
+        record_scope(schema),
+        Some(schema),
+    )
+    .await?;
+
     for mutation in mutations.iter_mut() {
         if mutation.fields_and_values.len() == 1
             && mutation.fields_and_values.contains_key(RECORD_SENTINEL)
@@ -34,8 +52,7 @@ pub async fn fold_mutations_to_record_envelope(
             continue;
         }
 
-        let Some(atom) = load_record_tip_atom(db_ops, record_uuid, &mutation.key_value).await?
-        else {
+        let Some(atom) = atoms.get(&mutation.key_value) else {
             continue;
         };
         let Some(existing) = parse_document_fields(atom.content()) else {

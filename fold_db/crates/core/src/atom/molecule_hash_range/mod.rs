@@ -6,6 +6,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use super::{AtomEntry, KeyMetadata};
 
@@ -41,6 +42,14 @@ pub struct MoleculeHashRange {
     /// order log.
     #[serde(skip)]
     order_is_tail: bool,
+    /// A partially fetched logical molecule cannot replace the full disk state.
+    /// This flag describes memory ownership, not a logical write or disk field.
+    #[serde(skip)]
+    loaded_is_partial: bool,
+    /// Complete bare membership shares its lifetime and budget with this core
+    /// molecule. Sparse fetched tips remain independent of key completeness.
+    #[serde(skip)]
+    complete_keys: Option<Arc<crate::resident::core_keys::CoreKeyDomain>>,
     /// Monotonic version counter, bumped on each actual change
     #[serde(default)]
     version: u64,
@@ -71,8 +80,12 @@ pub struct MoleculeHashRange {
     tip_history_enabled: bool,
 }
 
+mod compact_key;
 mod construct;
 mod import;
+pub(crate) mod keys;
+mod loaded;
+mod membership;
 mod merge;
 mod ops;
 mod overlay;

@@ -1,0 +1,213 @@
+--- a/fold_db/crates/core/src/storage/disk_pack/transaction.rs
++++ b/fold_db/crates/core/src/storage/disk_pack/transaction.rs
+@@ -27,6 +27,7 @@
+     durable_only: AtomicBool,
+     paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
+     pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
++    source_receipts: Mutex<Option<Arc<Mutex<super::logical_paths::source::Sources>>>>,
+     operation_limit: usize,
+ }
+ 
+@@ -47,6 +48,7 @@
+             durable_only: AtomicBool::new(false),
+             paths: Mutex::new(Vec::new()),
+             path_protection: Mutex::new(None),
++            source_receipts: Mutex::new(None),
+             operation_limit: runtime
+                 .view
+                 .read()
+@@ -71,6 +73,17 @@
+ 
+     pub(super) fn operation_limit(&self) -> usize {
+         self.operation_limit
++    }
++
++    pub(super) fn source_receipts(&self) -> Arc<Mutex<super::logical_paths::source::Sources>> {
++        Arc::clone(
++            self.source_receipts
++                .lock()
++                .expect("native write source receipts")
++                .get_or_insert_with(|| {
++                    Arc::new(Mutex::new(super::logical_paths::source::Sources::default()))
++                }),
++        )
+     }
+ 
+     pub(super) fn matching(
+@@ -139,6 +152,13 @@
+ 
+     pub(super) fn freeze_operations(&self) -> Vec<HomeMutation> {
+         self.frozen.store(true, Ordering::Release);
++        // Source proofs are bounded preparation scratch, never accepted bodies.
++        drop(
++            self.source_receipts
++                .lock()
++                .expect("native write source receipts")
++                .take(),
++        );
+         self.data
+             .lock()
+             .expect("native pending batch")
+--- a/fold_db/crates/core/src/storage/disk_pack/logical_paths/source.rs
++++ b/fold_db/crates/core/src/storage/disk_pack/logical_paths/source.rs
+@@ -1,4 +1,4 @@
+-//! Full decoded atoms and source coordinates live only within one read call.
++//! Full decoded atoms and source coordinates belong to one read or write call.
+ use super::*;
+ use crate::atom::Atom;
+ 
+@@ -57,6 +57,7 @@
+ pub(super) struct AtomFacts {
+     source: SourceKey,
+     pub(super) atom: Arc<Atom>,
++    bytes: usize,
+ }
+ 
+ impl AtomFacts {
+@@ -81,7 +82,7 @@
+ }
+ 
+ #[derive(Default)]
+-struct Sources {
++pub(in crate::storage::disk_pack) struct Sources {
+     reads: BTreeMap<String, SourceKey>,
+     atoms: BTreeMap<String, AtomFacts>,
+     scoped: BTreeMap<String, String>,
+@@ -113,6 +114,12 @@
+ }
+ 
+ fn sources(runtime: Option<Arc<PackRuntime>>) -> StorageResult<Option<Arc<Mutex<Sources>>>> {
++    if let Some(pending) = runtime
++        .as_ref()
++        .and_then(|runtime| transaction::PendingBatch::current(runtime))
++    {
++        return Ok(Some(pending.source_receipts()));
++    }
+     if !read_snapshot_active(runtime.clone()) {
+         return Ok(None);
+     }
+@@ -131,8 +138,7 @@
+ pub(crate) fn note_read_source(
+     runtime: Arc<PackRuntime>,
+     requested: &[u8],
+-    collection: &str,
+-    actual: &str,
++    source: Option<(&str, &str)>,
+ ) -> StorageResult<()> {
+     let Ok(requested) = std::str::from_utf8(requested) else {
+         return Ok(());
+@@ -141,9 +147,16 @@
+         return Ok(());
+     };
+     let mut sources = sources.lock().expect("native read source receipts");
+-    if !sources.reads.contains_key(requested)
+-        && sources.room(192 + requested.len() + collection.len() + actual.len())
+-    {
++    if let Some(previous) = sources.reads.remove(requested) {
++        sources.bytes -= 192 + requested.len() + previous.collection.len() + previous.key.len();
++    }
++    if let Some(previous) = sources.atoms.remove(requested) {
++        sources.bytes -= previous.bytes;
++    }
++    let Some((collection, actual)) = source else {
++        return Ok(());
++    };
++    if sources.room(192 + requested.len() + collection.len() + actual.len()) {
+         sources.reads.insert(
+             requested.to_owned(),
+             SourceKey {
+@@ -164,8 +177,8 @@
+         return Ok(());
+     };
+     let mut sources = sources.lock().expect("native typed atom sources");
+-    if sources.atoms.contains_key(requested) {
+-        return Ok(());
++    if let Some(previous) = sources.atoms.remove(requested) {
++        sources.bytes -= previous.bytes;
+     }
+     let Some(source) = sources.reads.get(requested).cloned() else {
+         return Ok(());
+@@ -178,13 +191,17 @@
+     {
+         return Ok(());
+     }
++    let bytes = 192
++        + requested.len()
++        + source.collection.len()
++        + source.key.len()
++        + super::body::encoded_len(atom)?;
+     let facts = AtomFacts {
+         source,
+         atom: Arc::new(atom.clone()),
+-    };
+-    if facts.primary(requested)
+-        && sources.room(192 + requested.len() + super::body::encoded_len(atom)?)
+-    {
++        bytes,
++    };
++    if facts.primary(requested) && sources.room(bytes) {
+         sources.atoms.insert(requested.to_owned(), facts);
+     }
+     Ok(())
+@@ -241,11 +258,14 @@
+     atom: &Atom,
+     hint: Option<&crate::atom::AtomPartition>,
+ ) {
++    let identity = scoped(scope, atom.uuid(), hint);
++    if let Some(previous) = sources.scoped.remove(&identity) {
++        sources.bytes -= 192 + identity.len() + previous.len();
++    }
+     if !sources.atoms.contains_key(key) {
+         return;
+     }
+-    let identity = scoped(scope, atom.uuid(), hint);
+-    if !sources.scoped.contains_key(&identity) && sources.room(192 + identity.len() + key.len()) {
++    if sources.room(192 + identity.len() + key.len()) {
+         sources.scoped.insert(identity, key.to_owned());
+     }
+ }
+--- a/fold_db/crates/core/src/storage/disk_pack/kv.rs
++++ b/fold_db/crates/core/src/storage/disk_pack/kv.rs
+@@ -17,13 +17,13 @@
+         let pending = transaction::PendingBatch::current(&runtime);
+         let namespace = self.namespace.clone();
+         let observed = Arc::clone(&runtime);
+-        let (values, receipts) = LastStoreKvStore::run_blocking(move || {
++        let (values, keys, receipts) = LastStoreKvStore::run_blocking(move || {
+             let plans: Vec<_> = keys
+                 .iter()
+                 .map(|key| coordinates(&namespace, key))
+                 .collect();
+             let mut out = vec![None; keys.len()];
+-            let mut receipts = Vec::new();
++            let mut receipts = vec![None; keys.len()];
+             let rounds = plans.iter().map(Vec::len).max().unwrap_or(0);
+             for round in 0..rounds {
+                 let slots: Vec<_> = (0..keys.len())
+@@ -41,20 +41,21 @@
+                     slots.into_iter().zip(bodies).zip(addresses)
+                 {
+                     if body.is_some() {
+-                        receipts.push((keys[slot].clone(), collection, key));
++                        receipts[slot] = Some((collection, key));
+                     }
+                     out[slot] = body;
+                 }
+             }
+-            Ok((out, receipts))
++            Ok((out, keys, receipts))
+         })
+         .await?;
+-        for (requested, collection, key) in receipts {
++        for (requested, source) in keys.into_iter().zip(receipts) {
+             logical_paths::source::note_read_source(
+                 Arc::clone(&observed),
+                 &requested,
+-                &collection,
+-                &key,
++                source
++                    .as_ref()
++                    .map(|(collection, key)| (collection.as_str(), key.as_str())),
+             )?;
+         }
+         Ok(values)
