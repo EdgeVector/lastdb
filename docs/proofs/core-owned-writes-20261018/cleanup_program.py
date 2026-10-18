@@ -19,7 +19,8 @@ def main():
     args = parser.parse_args()
     record = args.record.resolve(strict=True)
     target = args.receipt_dir.resolve()
-    if (record.parent != HERE or not record.name.startswith('candidate-discovery-')
+    accepted_name = record.name.startswith('candidate-discovery-') or record.name == 'candidate-v6-root.json'
+    if (record.parent != HERE or not accepted_name
             or not record.name.endswith('-root.json') or target.parent != HERE):
         raise RuntimeError('Use an exact candidate program record and receipt path in this proof')
     if args.execute_reviewed_preview:

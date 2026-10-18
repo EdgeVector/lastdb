@@ -1,7 +1,9 @@
 # Core-owned writes: proof and measurement plan
 
-Status: the before program and source identity are preserved. Reference operational discovery is complete.
-Candidate source work continues. No benchmark timing starts at this stage.
+Status: final V6 source `7876211b…` and executable `c19a25ea…` pass all seven strict ordinary API workflows.
+All eight matched cases finish. The [result report](RESULTS.md) retains the mixed measurements and explicit source-only route limits.
+The V5 metadata allowance failure stays in its separate unchanged comparison.
+The steps below retain the original proof method and the controls for a future reproduction.
 The [route matrix](ROUTES.md) separates source coverage, ordinary API results, and remaining gaps.
 
 ## Reference program
@@ -12,7 +14,7 @@ It also retains the accepted compiler, build settings, and preceding manifest id
 [baseline-root.json](baseline-root.json) identifies a private executable in a new owned scratch directory.
 The directory contains only that executable and its owner marker. It contains no database home and has no node sessions.
 
-The after identity will name the complete final product inputs and actual release executable.
+The [after identity](candidate-v6-identity.json) names all 1,931 final product inputs and the actual release executable.
 Capture the final source before the build. Verify the same source after the build and after the workloads.
 Do not reuse a historical source label for a newly built executable.
 Keep the preserved before executable until the final result and source review accept the comparison.

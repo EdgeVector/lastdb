@@ -31,13 +31,38 @@ The separate off-lane binary clippy check passes in 0.31 seconds.
 SDK typecheck, lint, and build checks also pass.
 The final source still requires its own release identity and final committed-tree checks.
 
-## Final candidate gates
+## V6 product source
 
-The final source must pass the full workspace and separate off-lane clippy checks.
-The existing SDK type, lint, and build checks remain required.
-The final committed tree must pass the stock source, format, new-allow, and artifact checks.
-The root agent owns those checks and required GitHub CI before merge.
+Final product source commit: `7876211b6d64dff43ceddd602656017b74860fe9`.
+Its Git tree is `ff994d7740590578d52e2ed85418896fb236db32`.
+The release build passes in 2 minutes. Its executable SHA is `c19a25ea358b06dea5a0612e206524f4e282d5de9ff0eca46570c592b57b6564`.
+All 1,931 source inputs, host settings, and prior identities match after the build.
+The [committed-source check](candidate-v6-committed-source-verification.json) matches every product input against that exact Git tree.
+
+The root reports these V6 checks pass:
+
+- Core and node library/binary clippy: 38.83 seconds.
+- Function-size and file-size checks: 574 changed files.
+- New-allow check: zero new allow entries.
+- Staged artifact and whitespace checks.
+- Format check for the final metadata-accounting source change.
+- Independent review of the final metadata-accounting change, with no blocker.
+
+The exact V6 source passes the full workspace clippy check in 40.02 seconds.
+That check uses the existing 23-package default lane and excludes `generate_validated_schema_org_seeds` and `schema_service_worker`.
+The separate exact-V6 off-lane binary clippy check passes in 0.46 seconds. The full workspace format check also passes.
+SDK typecheck, lint, and build pass before the final Rust-only change. SDK source stays unchanged.
+The final report update changes only documentation, drivers, and receipts. Product source stays at the verified V6 commit.
+The root repeats the function-size, file-size, and new-allow checks against merged main. All pass; zero new allows exist.
+The staged reports pass the artifact and whitespace checks. The V6 workspace format result remains valid for unchanged product source.
+This task creates no new PR or merge.
 No shared policy, CI, instruction, or deployment change is part of this proof.
+
+The final ordinary API matrix passes all seven supported workflows.
+The separate ACK discovery passes all five warm HashRange updates with zero model refusals and pending work after ACK.
+All eight matched cases pass, with 696 read checks and 112 write checks.
+All 1,931 product inputs, host settings, prior identities, and the executable match again after the workloads.
+The [post-timing check](v6-post-timing-source-verification.json) records that final source comparison.
 
 Operational API receipts must pass their own exact value, membership, memory charge, and file-call gates.
 A source check does not establish a live product result.

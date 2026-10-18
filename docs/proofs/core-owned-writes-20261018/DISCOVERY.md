@@ -1,5 +1,8 @@
 # Ordinary API discovery
 
+This narrative retains each discovery's state at that time. All owned homes and private program containers now receive supported cleanup.
+The [cleanup summary](CLEANUP.md) records the final outcome. The [V6 result](RESULTS.md) is the current result authority.
+
 The first expanded operational run uses the immutable before executable `a0ad6190…` and frozen driver v1.
 It passes the preceding completion gates and the new create and warm-update cohorts.
 The mixed batch then exposes an incorrect driver assumption.
@@ -93,3 +96,20 @@ The records contain equal content but have distinct UUIDs. Each record and its m
 The separately frozen v2 supplement requires UUID stability per record and layout, with equal content across the two records.
 It passes all five bucket-only moves, old-key absence, unrelated-record retention, and normal reopen on v3.
 Both v2 node sessions stop normally. The original v1 failure remains a driver-assumption receipt, not a product failure.
+
+V4 removes the first-query receiver-control probe from the value request through an actual startup read.
+Its strict named-database workflow passes. Its protein delete query returns correct absence but still needs two file calls and 32 KiB.
+The separate diagnostic identifies molecule-key metadata as the remaining raw control read.
+V5 stages those actual final removed-path controls. Its strict protein delete gate then passes with zero file calls.
+
+V5 passes all seven ordinary API workflows, then fails performance review during the eight matched cases.
+Warm HashRange updates reach the metadata allowance and choose disk-first ACKs in 16 observations.
+Their replies still say queued. The separate [V5 ACK report](benchmark-v5/WRITE-FRONTIERS.md) preserves the counters and response phases.
+Source review finds duplicate source-string charges and temporary source-list copies in molecule preparation.
+The [V5 status](benchmark-v5/STATUS.md) preserves the full failed comparison and the confirmed cause.
+
+V6 removes those duplicate charges and copies. It keeps the same 16 MiB metadata cap and reservation lifetimes.
+A separate unchanged current-ON case first verifies zero refusals and pending writes after all five warm HashRange ACKs.
+The full seven-workflow matrix and all eight fresh matched cases then pass on source `7876211b…`, executable `c19a25ea…`.
+All 56 measured candidate writes show pending work and dirty paths after ACK, with zero model refusals.
+The final comparison still includes mixed read and write results. Its [full medians](benchmark-v6/TABLES.md) retain every measured group.

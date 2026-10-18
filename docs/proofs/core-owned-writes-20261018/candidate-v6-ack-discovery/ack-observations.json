@@ -1,0 +1,77 @@
+{
+  "scope": "Separate ordinary API V6 discovery; not a canonical benchmark sample.",
+  "samples": 5,
+  "passed": true,
+  "writes": [
+    {
+      "repeat": 0,
+      "request_id": "temperature-0b80f8eaf81f41dba74613c0b00a8cce-v6-ack-discovery-183",
+      "ack_ms": 248.117167,
+      "returned_durability": "queued",
+      "metadata_limit": 16777216,
+      "metadata_current": 7214144,
+      "metadata_peak": 7214144,
+      "model_refused": 0,
+      "accepted": 16,
+      "completed": 15,
+      "pending": 1,
+      "dirty": 256
+    },
+    {
+      "repeat": 1,
+      "request_id": "temperature-0b80f8eaf81f41dba74613c0b00a8cce-v6-ack-discovery-190",
+      "ack_ms": 160.961292,
+      "returned_durability": "queued",
+      "metadata_limit": 16777216,
+      "metadata_current": 7214144,
+      "metadata_peak": 12644928,
+      "model_refused": 0,
+      "accepted": 18,
+      "completed": 17,
+      "pending": 1,
+      "dirty": 256
+    },
+    {
+      "repeat": 2,
+      "request_id": "temperature-0b80f8eaf81f41dba74613c0b00a8cce-v6-ack-discovery-197",
+      "ack_ms": 240.880333,
+      "returned_durability": "queued",
+      "metadata_limit": 16777216,
+      "metadata_current": 7214144,
+      "metadata_peak": 12644928,
+      "model_refused": 0,
+      "accepted": 21,
+      "completed": 20,
+      "pending": 1,
+      "dirty": 256
+    },
+    {
+      "repeat": 3,
+      "request_id": "temperature-0b80f8eaf81f41dba74613c0b00a8cce-v6-ack-discovery-204",
+      "ack_ms": 160.956417,
+      "returned_durability": "queued",
+      "metadata_limit": 16777216,
+      "metadata_current": 7214144,
+      "metadata_peak": 12644928,
+      "model_refused": 0,
+      "accepted": 23,
+      "completed": 22,
+      "pending": 1,
+      "dirty": 256
+    },
+    {
+      "repeat": 4,
+      "request_id": "temperature-0b80f8eaf81f41dba74613c0b00a8cce-v6-ack-discovery-211",
+      "ack_ms": 242.411625,
+      "returned_durability": "queued",
+      "metadata_limit": 16777216,
+      "metadata_current": 7214144,
+      "metadata_peak": 12644928,
+      "model_refused": 0,
+      "accepted": 26,
+      "completed": 25,
+      "pending": 1,
+      "dirty": 256
+    }
+  ]
+}

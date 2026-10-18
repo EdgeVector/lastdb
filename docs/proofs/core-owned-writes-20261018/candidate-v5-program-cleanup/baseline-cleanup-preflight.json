@@ -1,0 +1,29 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.482ptgui/program-candidate-lastdbd",
+  "binary_sha256": "8a26322c08f60997f4c5bc22b7d09b189ae6597d6113df125151820062205e81",
+  "checked_utc": "2026-10-18T19:18:40.218196+00:00",
+  "device": 16777231,
+  "inode": 1465846118,
+  "marker": {
+    "creator_pid": 17872,
+    "device": 16777231,
+    "inode": 1465846118,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "open_file_check": {
+    "command": [
+      "lsof",
+      "-Fpn",
+      "+D",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.482ptgui"
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "owner_uid": 501,
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.482ptgui",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.482ptgui"
+}

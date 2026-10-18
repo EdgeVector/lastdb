@@ -1,0 +1,29 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.51250ird/program-before-lastdbd",
+  "binary_sha256": "a0ad619076570fc472569712d5a40743a5a32823e909d45d4e33991b7c536285",
+  "checked_utc": "2026-10-18T19:18:40.219197+00:00",
+  "device": 16777231,
+  "inode": 1465687954,
+  "marker": {
+    "creator_pid": 41044,
+    "device": 16777231,
+    "inode": 1465687954,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "open_file_check": {
+    "command": [
+      "lsof",
+      "-Fpn",
+      "+D",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.51250ird"
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "owner_uid": 501,
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.51250ird",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.51250ird"
+}
