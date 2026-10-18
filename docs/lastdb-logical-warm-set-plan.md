@@ -1,11 +1,13 @@
 # LastDB logical warm set work plan
 
 Status: selected schema preload, shared core memory, and the native logical write cutover are complete in the development branch, 2026-10-18.
-The [final write report](proofs/core-owned-writes-20261018/RESULTS.md) records the current source, review, product checks, and matched measurements.
+The [write report](proofs/core-owned-writes-20261018/RESULTS.md) records the earlier source, product checks, and matched measurements.
+The [native cutover review](proofs/core-clarity-20261018/REVIEW.md) records the later default-engine change and source cleanup.
+The [cutover validation](proofs/core-clarity-20261018/VALIDATION.md) identifies its separate source, release, and checks.
 Native reads use the core model. The separate `NativeWriteGraph` is removed.
 A bounded private queue retains prepared disk bytes until flush. Ordinary reads cannot use that queue.
 Raw system writes finish on disk and clear affected core state before success.
-The [final route inventory](proofs/core-owned-writes-20261018/ROUTES.md) names the remaining runtime evidence gaps and legacy backend scope.
+The [write route inventory](proofs/core-owned-writes-20261018/ROUTES.md) names the earlier runtime evidence gaps and backend scope.
 The package contracts below retain the wider targets; they do not establish proof for those gaps.
 Tom selected complete range-key preload on the first query to selected schemas.
 The [preload design](lastdb-schema-range-preload-design.md) defines that lifecycle.
@@ -29,8 +31,9 @@ A loading schema never supplies a falsely complete partial answer.
 
 ## Current state
 
-The branch is `fix/core-owned-writes`, with final product source `7876211b6d64dff43ceddd602656017b74860fe9`.
-Its matched reference is merged main `011b29f3a74eac3eb3a977678630c40345157ed4`.
+The branch is `fix/core-owned-writes`, with native cutover source `a60b27d43f11fd6d1f3cf514d1579229d2256d5c`.
+The earlier matched measurements use product source `7876211b6d64dff43ceddd602656017b74860fe9` and merged main `011b29f3a74eac3eb3a977678630c40345157ed4`.
+Those measurements do not measure the later cutover.
 The older reports below preserve the earlier preload and core-memory comparisons.
 The candidate uses CoreWarmSet for partial molecules and full atoms.
 Its least recently used list holds logical path references.
@@ -62,7 +65,7 @@ The earlier spike measurements found higher exact-read and write costs.
 The core memory report gives the newer comparison against the preceding branch build.
 The earlier candidate used `NativeWriteGraph` for accepted raw records.
 The final native route removes that graph and its duplicate compatibility values.
-The next cutover removes the legacy logical backend from normal startup.
+The later cutover removes the legacy logical backend from normal startup and direct logical constructors.
 Cloud stays disabled. An empty home initializes directly; no migration code is required.
 
 The earlier preload candidate passes both 256-record generated Mini workloads, a selected 20,000-record workload, and separate key-budget and path-purge cases.
@@ -124,7 +127,7 @@ The current branch and worktree remain the implementation venue.
 | 3 Build one shared schema loader | 1 and 2 | Built: first-query gate, bounded pages, private load, concurrent changes, Ready, and DiskOnly. | Earlier preload candidate's concurrent first-call and byte-refusal cases pass. Request overlap passes; publication during Loading at ack remains unobserved. No explicit preload API exists. |
 | 4 Route supported queries | 3 | Built: selected-schema query gate, memory candidate selection, and envelope R source. | Earlier preload candidate's ranges, sample, Hash-only, pages, bounds, filter, and envelope reads pass; the broader read-use-case inventory remains open. |
 | 5 Accelerate first load and fallback | 3 and 4 | Built: batched selected Locations and packed ordinary keys. | Final costs and material regressions are recorded; cloud-part costs remain unmeasured. |
-| 6 Complete cutover and final comparison | 2 through 5 | Native write cutover and final matched comparison complete. | Legacy backend removal and broader runtime and size proof remain outside this result. |
+| 6 Complete cutover and final comparison | 2 through 5 | Native write cutover and matched comparison complete. Later cleanup makes native storage the sole logical engine. | The later cutover has separate validation. Broader runtime and size proof remain open. |
 
 The earlier schema-preload comparison uses one executable with schema preload off and on.
 The newer core memory comparison uses the preceding build and the final build, each with preload off and on.

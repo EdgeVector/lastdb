@@ -1,5 +1,7 @@
 """Ordinary CAS, repeated writes, and unsupported-operation refusals."""
+import base64
 from concurrent.futures import ThreadPoolExecutor
+import json
 
 import logical
 
@@ -11,13 +13,14 @@ def require_refusal(node, path, request, statuses, message):
     first = len(node.run.rows)
     try:
         node.call(path, request)
-    except RuntimeError:
+    except (RuntimeError, json.JSONDecodeError):
         rows = [row for row in node.run.rows[first:]
                 if row.get('operation') == 'refusal' and row.get('path') == path
                 and row.get('request') == request]
         if len(rows) != 1 or rows[0]['http_status'] not in statuses:
             raise
-        if message not in str(rows[0].get('result', '')):
+        raw = base64.b64decode(rows[0]['raw_body_base64'], validate=True).decode('utf-8')
+        if message not in str(rows[0].get('result', '')) + '\n' + raw:
             raise RuntimeError('The refusal names another cause')
         node.remember(operation='expected-operation-refusal', path=path,
             request_id=rows[0]['request_id'], http_status=rows[0]['http_status'],
@@ -160,7 +163,8 @@ def literal_encryption_prefixes(node):
             response = item.get('response', {})
             rows = response.get('results', [])
             if (item.get('status') != 200 or len(rows) != 1
-                    or rows[0]['key'] != spec.key(number) or rows[0]['fields'] != values
+                    or logical.coordinates(rows[0]['key']) != logical.coordinates(spec.key(number))
+                    or rows[0]['fields'] != values
                     or response.get('returned_count') != 1 or response.get('has_more') is not False
                     or not item.get('read_receipt')):
                 raise RuntimeError('A literal encryption-prefix value changes or disappears')
@@ -203,7 +207,7 @@ def purge_warm_unique_atoms(node):
     for spec, values, item in zip(SPECS, wanted, responses):
         rows = item.get('response', {}).get('results', [])
         if (item.get('status') != 200 or len(rows) != 1 or rows[0]['fields'] != values
-                or rows[0]['key'] != spec.key(number)
+                or logical.coordinates(rows[0]['key']) != logical.coordinates(spec.key(number))
                 or item.get('read_receipt', {}).get('read_operations') != 0):
             raise RuntimeError('The unique purge values are not warm after ACK')
         uuids.extend(rows[0]['metadata'][field]['atom_uuid'] for field in ('title', 'body'))

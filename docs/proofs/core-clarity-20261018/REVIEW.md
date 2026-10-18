@@ -1,7 +1,7 @@
 # Native core cutover review
 
 The [final source identity](candidate-final-identity.json) identifies the product source and release.
-The final committed-source check must match every captured product input to that exact Git tree.
+The [final committed-source check](committed-final-source-verification.json) matches all 1,883 captured inputs to that exact Git tree.
 Commit `b391b080` records the first cleanup. Its release remains unrun discovery evidence.
 This report describes source behavior. The final results report records the separate ordinary API checks.
 

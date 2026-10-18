@@ -1,7 +1,8 @@
 # Native cutover operational plan
 
-The source review and native cutover are in progress. No new node or benchmark runs yet.
-The next step requires the final source commit, release identity, and compiler checks.
+The native cutover source is frozen at `a60b27d43f11fd6d1f3cf514d1579229d2256d5c`.
+The release, compiler checks, and source identity pass. Ordinary API checks use fresh synthetic homes.
+The [validation report](VALIDATION.md) records their scope. The final result report records their outcome.
 The primary and its archive stay untouched.
 
 ## Product boundary
@@ -51,10 +52,12 @@ The disabled replay engine stays disabled. No private fixture replaces that miss
 
 ## Identity and cleanup
 
-`driver-identity-v5.json` names the exact new and reused driver inputs.
-The final V5 identity is the only executable driver identity for this pass.
-The earlier V1–V4 drafts never ran. Their draft identity files are removed.
-V5 includes the default memory behavior, historical refusals, literal-prefix values, and warm unique purge.
+`driver-identity-v7.json` names the final 22 new and reused driver inputs.
+V5 stops when its JSON-only error decoder receives the expected plain-text empty-batch error.
+V6 accepts that documented error form, but its new literal-value check compares an omitted range with a returned null range.
+V7 uses the existing logical key comparison in its two new checks. All values, counts, file-read, and UUID gates stay unchanged.
+The V5 and V6 failure receipts stay unchanged. Earlier V1–V4 drafts never ran.
+The final driver includes default memory behavior, historical refusals, literal-prefix values, and warm unique purge.
 Each run preserves the source identity, executable hash, requests, responses, status samples, and normal process stops.
 The final review must separate source-only claims from actual API results.
 Cleanup requires exact owned paths, no live process, preserved receipts, and the supported reclaim command.
