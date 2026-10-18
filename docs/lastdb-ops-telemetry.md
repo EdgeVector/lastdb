@@ -176,7 +176,8 @@ This read does not wake the flush worker.
 
 A queued reply alone does not establish a memory-only ACK.
 Sample the accepted and completed sequences, pending batches, and dirty paths immediately after the reply.
-A durable request or a refused reservation can wait for disk while the response still describes queued durability.
+Explicit durable requests wait for disk.
+A queued request can also wait for disk when its reservation or typed coverage is insufficient.
 The [cutover receipts](proofs/core-clarity-20261018/RESULTS.md) preserve those actual observations.
 
 `lastdb status` prints `Logical keys:`, `Background purge work:`, and `Memory admission:` lines.

@@ -296,33 +296,4 @@ impl MoleculeHashRange {
             }
         }
     }
-
-    /// Updates a key WITHOUT signing. Only for ephemeral in-memory operations (rewind).
-    /// Legacy `history:`-based rewind no longer runs on the default write path;
-    /// this still clears key metadata when the atom changes.
-    ///
-    /// When the existing entry at `(hash_value, range_value)` already
-    /// references the same `atom_uuid`, this is a complete no-op: the
-    /// existing `written_at` and `updated_at` are preserved. Even on the
-    /// ephemeral rewind path, keeping the
-    /// `written_at` invariant on a no-op call avoids surprising downstream
-    /// consumers that diff `AtomEntry.written_at` to detect re-emission.
-    pub(crate) fn set_atom_uuid_from_values_unsigned(
-        &mut self,
-        hash_value: String,
-        range_value: String,
-        atom_uuid: String,
-    ) {
-        if self.get_atom_uuid(&hash_value, &range_value) == Some(&atom_uuid) {
-            return;
-        }
-        let prev_tip_id = self.archive_current_tip(&hash_value, &range_value, &atom_uuid);
-        self.version += 1;
-        self.remove_key_metadata(&hash_value, &range_value);
-        self.atom_uuids.entry(hash_value).or_default().insert(
-            range_value,
-            AtomEntry::thin_with_prev(atom_uuid, now_nanos(), String::new(), prev_tip_id),
-        );
-        self.updated_at = Utc::now();
-    }
 }

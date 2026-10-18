@@ -2,7 +2,6 @@ use super::HashRangeQueryProcessor;
 use crate::schema::types::field::{FieldKind, FieldValue, FieldVariant, HashRangeFilter};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::SchemaError;
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 mod receivers;
 
