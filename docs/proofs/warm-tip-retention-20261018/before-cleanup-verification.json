@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "method": "Supported lastdb-dev reclaim exact-home after parent review and fresh PID, socket, open-file, marker, and seal checks.",
+  "roots": [
+    {
+      "absent": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.8ydfozwf"
+    },
+    {
+      "absent": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3mtwvwpb"
+    }
+  ],
+  "sealed_files_verified": 18
+}

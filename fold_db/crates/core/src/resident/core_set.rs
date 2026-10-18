@@ -49,44 +49,58 @@ pub(crate) struct CoreWarmSelection {
     pub(crate) bytes: usize,
 }
 
-/// An absent key is a complete answer; an unknown key still needs a fetch.
-pub(crate) struct CoreWarmLookup {
-    known: bool,
-    selection: Option<CoreWarmSelection>,
+/// An authoritative current tip does not require its atom body to be loaded.
+#[derive(Clone)]
+pub(crate) struct CoreWarmTip {
+    pub(crate) entry: AtomEntry,
+    pub(crate) metadata: Option<KeyMetadata>,
+}
+
+/// A known tip permits key operations, while only a value can answer a body read.
+pub(crate) enum CoreWarmLookup {
+    Unknown,
+    Absent,
+    Tip(CoreWarmTip),
+    Value(CoreWarmSelection),
 }
 
 impl CoreWarmLookup {
     fn unknown() -> Self {
-        Self {
-            known: false,
-            selection: None,
-        }
+        Self::Unknown
     }
 
     fn absent() -> Self {
-        Self {
-            known: true,
-            selection: None,
-        }
+        Self::Absent
     }
 
-    fn tip(selection: CoreWarmSelection) -> Self {
-        Self {
-            known: true,
-            selection: Some(selection),
-        }
+    fn value(selection: CoreWarmSelection) -> Self {
+        Self::Value(selection)
     }
 
     pub(crate) fn is_unknown(&self) -> bool {
-        !self.known
+        matches!(self, Self::Unknown)
     }
 
     pub(crate) fn is_absent(&self) -> bool {
-        self.known && self.selection.is_none()
+        matches!(self, Self::Absent)
     }
 
-    pub(crate) fn into_tip(self) -> Option<CoreWarmSelection> {
-        self.selection
+    pub(crate) fn into_tip(self) -> Option<CoreWarmTip> {
+        match self {
+            Self::Tip(tip) => Some(tip),
+            Self::Value(value) => Some(CoreWarmTip {
+                entry: value.entry,
+                metadata: value.metadata,
+            }),
+            Self::Unknown | Self::Absent => None,
+        }
+    }
+
+    pub(crate) fn into_value(self) -> Option<CoreWarmSelection> {
+        match self {
+            Self::Value(value) => Some(value),
+            Self::Unknown | Self::Absent | Self::Tip(_) => None,
+        }
     }
 }
 
@@ -106,6 +120,7 @@ impl std::error::Error for CoreCapacity {}
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub(crate) struct CoreWarmStats {
     pub(crate) paths: usize,
+    pub(crate) tip_only_paths: usize,
     pub(crate) molecules: usize,
     pub(crate) atoms: usize,
     pub(crate) held: usize,
@@ -179,8 +194,29 @@ pub(crate) struct CoreWarmSet {
 
 impl CoreWarmSet {
     pub(crate) fn stats(&self) -> CoreWarmStats {
+        let tip_only_paths = self
+            .slot_owners
+            .iter()
+            .filter(|(slot, _)| {
+                self.molecules
+                    .get(&slot.molecule)
+                    .and_then(|molecule| molecule.get_atom_entry(&slot.hash, &slot.range))
+                    .is_some_and(|entry| {
+                        self.slot_atoms
+                            .get(*slot)
+                            .is_none_or(|atom| atom.value.uuid() != entry.atom_uuid.as_str())
+                    })
+            })
+            .flat_map(|(_, owners)| owners)
+            .filter(|path| {
+                self.paths
+                    .get(*path)
+                    .is_some_and(|state| state.known && !state.absent)
+            })
+            .count();
         CoreWarmStats {
             paths: self.paths.len(),
+            tip_only_paths,
             molecules: self.molecules.len(),
             atoms: self.atoms.values().map(Vec::len).sum(),
             held: self.paths.values().filter(|state| state.holds > 0).count(),

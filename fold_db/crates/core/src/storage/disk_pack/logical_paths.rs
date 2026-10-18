@@ -18,6 +18,7 @@ mod protection;
 mod read;
 pub(crate) mod record;
 pub(crate) mod source;
+mod tips;
 
 pub(crate) use protection::{PathProtection, PathPublication};
 

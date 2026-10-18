@@ -15,9 +15,18 @@ impl HashRangeQueryProcessor {
         let mut key_field_molecule: Option<String> = None;
         let mut keys: std::collections::HashSet<KeyValue> = std::collections::HashSet::new();
         for field_name in count_field_names {
-            let Some(field) = schema.runtime_fields.get_mut(field_name) else {
+            if !schema.runtime_fields.contains_key(field_name) {
                 continue;
-            };
+            }
+            let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
+                self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+                schema,
+                field_name,
+            )?;
+            let field = schema
+                .runtime_fields
+                .get_mut(field_name)
+                .expect("count field checked");
             if key_hash_field == Some(field_name.as_str()) {
                 key_field_molecule = field.common().molecule_uuid().cloned();
             }
@@ -26,12 +35,14 @@ impl HashRangeQueryProcessor {
             // without fetching atom bodies. The tombstone gate is applied on the
             // returned metadata inside `live_field_keys_flag_only` — passing
             // `include_tombstones = false` down is not sufficient on its own.
-            let own = self.live_field_keys_flag_only(field, None, filter).await?;
+            let own = binding
+                .run(self.live_field_keys_flag_only(field, None, filter))
+                .await?;
             keys.extend(own);
 
             for namespace in received_from_namespaces {
-                let shared = self
-                    .live_field_keys_flag_only(field, Some(namespace.as_str()), filter)
+                let shared = binding
+                    .run(self.live_field_keys_flag_only(field, Some(namespace.as_str()), filter))
                     .await?;
                 keys.extend(shared);
             }
@@ -55,10 +66,25 @@ impl HashRangeQueryProcessor {
         // authoritative and must not be unioned with sparse projection keys.
         if let Some(fallback) = Self::count_fallback_field(schema, fields) {
             if let Some(field) = schema.runtime_fields.get(&fallback) {
-                keys.extend(self.live_field_keys_flag_only(field, None, filter).await?);
+                let binding =
+                    crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
+                        self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+                        schema,
+                        &fallback,
+                    )?;
+                keys.extend(
+                    binding
+                        .run(self.live_field_keys_flag_only(field, None, filter))
+                        .await?,
+                );
                 for namespace in received_from_namespaces {
                     keys.extend(
-                        self.live_field_keys_flag_only(field, Some(namespace.as_str()), filter)
+                        binding
+                            .run(self.live_field_keys_flag_only(
+                                field,
+                                Some(namespace.as_str()),
+                                filter,
+                            ))
                             .await?,
                     );
                 }

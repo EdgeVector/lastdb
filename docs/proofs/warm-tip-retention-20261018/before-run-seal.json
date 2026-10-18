@@ -1,0 +1,758 @@
+{
+  "all_nodes_stop_normally": true,
+  "all_run_processes_exit_unforced": true,
+  "node_sessions": 4,
+  "runs": [
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "d8522ef11196c53fe2f83d25b91a5a93c550bd0057574abae7eab5442b4b3fcc"
+        },
+        "inputs.json": {
+          "bytes": 1309,
+          "sha256": "51da8fba8f5681f303d439ae7dfcf60f6e3b73a603e867242172d76026622f4f"
+        },
+        "node.log": {
+          "bytes": 15233,
+          "sha256": "676951b6b03cf5b6c3902f2a47654899c5aa8664b6a3ffbbed71ef655f89c4df"
+        },
+        "operations.py": {
+          "bytes": 7872,
+          "sha256": "a4a06cd602e88dde26ec66334687b2a04b2d938871f8e37baced453d136f7615"
+        },
+        "receipt-seal.json": {
+          "bytes": 877,
+          "sha256": "57ce11c58f3c7d06b37d386b7e6c49fd4554ba1940e52ca57bc97e98d52544b8"
+        },
+        "receipts.jsonl": {
+          "bytes": 1276352,
+          "sha256": "8908d296e29c22618e50f8d44cd27ead195d9e43206b6da44f3e9f56b8b792d8"
+        },
+        "result.json": {
+          "bytes": 528,
+          "sha256": "3eb6ee976f91039b4ca8be3caa9a3591b6b89a33f71c5b77742152727a23e9f0"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "30d7a9c67df146a8b2a40d7eda73ccffd4fd6e50d9c928cc3809560a6b4ddb7a"
+        },
+        "summary.json": {
+          "bytes": 205,
+          "sha256": "d9e695c72204969f589f09c907412ea453228b31dd812bdfde4b8d807e7efd9e"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/warm-tip-retention-20261018/before-driver-check-1",
+      "result": {
+        "all_owned_nodes_stopped": true,
+        "binary_sha256": "38f7ac6b7ddaa1a03ebec3219355b2c1962322b90bc1c3b3093475355cd512a3",
+        "body_bytes": 1024,
+        "complete": false,
+        "error": "RuntimeError: The page title differs from its generated value",
+        "hashes": 1,
+        "observations": [],
+        "records": 512,
+        "scope": "Five ordinary API observations on new generated data; no primary data, OS cache control, whole-process bound, or general throughput claim.",
+        "seed_batch": 64,
+        "source_commit": "5419748a0e8ebdc7044f3420808bbd280b6bb249",
+        "title_bytes": 1024,
+        "variant": "before"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.8ydfozwf"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "a2d76c9344835e5ba18ae00e3598cc1a2f6013161ce6137ff77f37c15ad61de7"
+        },
+        "inputs.json": {
+          "bytes": 1303,
+          "sha256": "1c6002ce9bdf3eded1ebc0a6407564cf51b52c2bf0f8115588d90e794f9544e6"
+        },
+        "node.log": {
+          "bytes": 15233,
+          "sha256": "e5b85e22a9227110aeae736e58bb6353af59bbbb9073f7ebd5798ab15bc71727"
+        },
+        "operations.py": {
+          "bytes": 7951,
+          "sha256": "1f4c257d22518527db433745baea6bc324b9df18f8ce114f54aca93fdc259657"
+        },
+        "receipt-seal.json": {
+          "bytes": 879,
+          "sha256": "bd659a547134b198f6238c32b053e7f6df8c8e8df7f7a4a05145df3efa4a794f"
+        },
+        "receipts.jsonl": {
+          "bytes": 1331503,
+          "sha256": "1c03b45d37f45a8b8d6564c5cc6ea83871e13eaeff670ffcf78134d364279c55"
+        },
+        "result.json": {
+          "bytes": 12427,
+          "sha256": "8c5fc7d0bd99d4e857c33dc3c98a7648d64e6aa29501e928929b2f638ec0d189"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "e0b6e3896077756e5094c4981aaa11c7fff24658c775fed7b4265925c94b0050"
+        },
+        "summary.json": {
+          "bytes": 143,
+          "sha256": "031c5ae4959e3efd6f311b11928fecd0291fb92965bd94835118f41b22a2a446"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/warm-tip-retention-20261018/before",
+      "result": {
+        "all_owned_nodes_stopped": true,
+        "binary_sha256": "38f7ac6b7ddaa1a03ebec3219355b2c1962322b90bc1c3b3093475355cd512a3",
+        "body_bytes": 1024,
+        "complete": true,
+        "error": null,
+        "hashes": 1,
+        "observations": [
+          {
+            "elapsed_nanos": 34150125,
+            "expected_values_match": true,
+            "has_more": true,
+            "native_after": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 3,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 0,
+              "core_warm_misses": 4,
+              "core_warm_molecules": 3,
+              "core_warm_paths": 4,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 282094,
+                "disk_only": 0,
+                "domains": 2,
+                "enabled": true,
+                "failed": 0,
+                "keys": 512,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 2,
+                "memory_selections": 4,
+                "peak_bytes": 67390958,
+                "ready": 2,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "native_before": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 0,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 0,
+              "core_warm_misses": 0,
+              "core_warm_molecules": 0,
+              "core_warm_paths": 0,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 0,
+                "disk_only": 0,
+                "domains": 0,
+                "enabled": true,
+                "failed": 0,
+                "keys": 0,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 0,
+                "memory_selections": 0,
+                "peak_bytes": 0,
+                "ready": 0,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "phase": "count-page-0",
+            "read_receipt": {
+              "blocking_queue_wait_nanos": 6127,
+              "decode_nanos": 1687085,
+              "decoded_bytes": 1996831,
+              "decrypt_nanos": 1236329,
+              "decrypted_bytes": 140398,
+              "directory_entries": 0,
+              "directory_reads": 0,
+              "file_open_attempts": 32,
+              "file_opens": 32,
+              "filesystem_pages": "unknown",
+              "footer_bytes": 0,
+              "format_probe_bytes": 738560,
+              "group_load_nanos": 0,
+              "group_opens": 0,
+              "journal_replay_bytes": 0,
+              "legacy_replay_bytes": 0,
+              "loader_calls": 0,
+              "lock_wait_nanos": 1373,
+              "logical_warm_hits": 0,
+              "logical_warm_misses": 0,
+              "metadata_nanos": 97331,
+              "metadata_operations": 242,
+              "open_nanos": 383042,
+              "pack_batch_frames": 489,
+              "pack_batch_read_runs": 177,
+              "pack_file_handle_reuses": 200,
+              "pack_file_handles_peak": 32,
+              "payload_bytes": 1036519,
+              "query_storage_elapsed_nanos": 33761167,
+              "read_nanos": 224830,
+              "read_operations": 232,
+              "requested_keys": 537,
+              "returned_body_bytes": 1972,
+              "scope": "query_storage",
+              "socket_queue_wait_nanos": 8000,
+              "temporary_bytes_peak": 2737293,
+              "temporary_bytes_scope": "instrumented_byte_buffers",
+              "version": 1
+            },
+            "request": {
+              "expected_total_count": 512,
+              "fields": [
+                "title"
+              ],
+              "filter": {
+                "HashKey": "warm-tip-generated-hash"
+              },
+              "limit": 1,
+              "schema_name": "WarmTipCountProduct"
+            },
+            "request_id": "temperature-ad35e986280c49adaedc7225dc666ea3-before-18",
+            "response_sha256": "37c69dc0be9dfcce471fcae35997ed52158dcf8d2bd43c60a3c9efefcc5b3b6c",
+            "returned_count": 1,
+            "total_count": 512
+          },
+          {
+            "elapsed_nanos": 75567791,
+            "expected_values_match": true,
+            "has_more": true,
+            "native_after": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 3,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 8,
+              "core_warm_misses": 4,
+              "core_warm_molecules": 3,
+              "core_warm_paths": 4,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 282094,
+                "disk_only": 0,
+                "domains": 2,
+                "enabled": true,
+                "failed": 0,
+                "keys": 512,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 2,
+                "memory_selections": 12,
+                "peak_bytes": 67390958,
+                "ready": 2,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "native_before": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 3,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 0,
+              "core_warm_misses": 4,
+              "core_warm_molecules": 3,
+              "core_warm_paths": 4,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 282094,
+                "disk_only": 0,
+                "domains": 2,
+                "enabled": true,
+                "failed": 0,
+                "keys": 512,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 2,
+                "memory_selections": 4,
+                "peak_bytes": 67390958,
+                "ready": 2,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "phase": "count-page-1",
+            "read_receipt": {
+              "blocking_queue_wait_nanos": 1833,
+              "decode_nanos": 1629217,
+              "decoded_bytes": 1970176,
+              "decrypt_nanos": 1173409,
+              "decrypted_bytes": 136704,
+              "directory_entries": 0,
+              "directory_reads": 0,
+              "file_open_attempts": 25,
+              "file_opens": 25,
+              "filesystem_pages": "unknown",
+              "footer_bytes": 0,
+              "format_probe_bytes": 541696,
+              "group_load_nanos": 0,
+              "group_opens": 0,
+              "journal_replay_bytes": 0,
+              "legacy_replay_bytes": 0,
+              "loader_calls": 0,
+              "lock_wait_nanos": 543,
+              "logical_warm_hits": 4,
+              "logical_warm_misses": 0,
+              "metadata_nanos": 85827,
+              "metadata_operations": 218,
+              "open_nanos": 342584,
+              "pack_batch_frames": 481,
+              "pack_batch_read_runs": 169,
+              "pack_file_handle_reuses": 185,
+              "pack_file_handles_peak": 25,
+              "payload_bytes": 1019811,
+              "query_storage_elapsed_nanos": 75279500,
+              "read_nanos": 197170,
+              "read_operations": 210,
+              "requested_keys": 1028,
+              "returned_body_bytes": 1972,
+              "scope": "query_storage",
+              "socket_queue_wait_nanos": 4209,
+              "temporary_bytes_peak": 2513234,
+              "temporary_bytes_scope": "instrumented_byte_buffers",
+              "version": 1
+            },
+            "request": {
+              "expected_total_count": 512,
+              "fields": [
+                "title"
+              ],
+              "filter": {
+                "HashKey": "warm-tip-generated-hash"
+              },
+              "limit": 1,
+              "schema_name": "WarmTipCountProduct"
+            },
+            "request_id": "temperature-ad35e986280c49adaedc7225dc666ea3-before-21",
+            "response_sha256": "37c69dc0be9dfcce471fcae35997ed52158dcf8d2bd43c60a3c9efefcc5b3b6c",
+            "returned_count": 1,
+            "total_count": 512
+          },
+          {
+            "elapsed_nanos": 77454917,
+            "expected_values_match": true,
+            "has_more": true,
+            "native_after": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 3,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 16,
+              "core_warm_misses": 4,
+              "core_warm_molecules": 3,
+              "core_warm_paths": 4,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 282094,
+                "disk_only": 0,
+                "domains": 2,
+                "enabled": true,
+                "failed": 0,
+                "keys": 512,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 2,
+                "memory_selections": 20,
+                "peak_bytes": 67390958,
+                "ready": 2,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "native_before": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 3,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 8,
+              "core_warm_misses": 4,
+              "core_warm_molecules": 3,
+              "core_warm_paths": 4,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 282094,
+                "disk_only": 0,
+                "domains": 2,
+                "enabled": true,
+                "failed": 0,
+                "keys": 512,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 2,
+                "memory_selections": 12,
+                "peak_bytes": 67390958,
+                "ready": 2,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "phase": "count-page-2",
+            "read_receipt": {
+              "blocking_queue_wait_nanos": 1666,
+              "decode_nanos": 1702540,
+              "decoded_bytes": 1970176,
+              "decrypt_nanos": 1236576,
+              "decrypted_bytes": 136704,
+              "directory_entries": 0,
+              "directory_reads": 0,
+              "file_open_attempts": 25,
+              "file_opens": 25,
+              "filesystem_pages": "unknown",
+              "footer_bytes": 0,
+              "format_probe_bytes": 541696,
+              "group_load_nanos": 0,
+              "group_opens": 0,
+              "journal_replay_bytes": 0,
+              "legacy_replay_bytes": 0,
+              "loader_calls": 0,
+              "lock_wait_nanos": 585,
+              "logical_warm_hits": 4,
+              "logical_warm_misses": 0,
+              "metadata_nanos": 82374,
+              "metadata_operations": 218,
+              "open_nanos": 323958,
+              "pack_batch_frames": 481,
+              "pack_batch_read_runs": 169,
+              "pack_file_handle_reuses": 185,
+              "pack_file_handles_peak": 25,
+              "payload_bytes": 1019811,
+              "query_storage_elapsed_nanos": 77158792,
+              "read_nanos": 187414,
+              "read_operations": 210,
+              "requested_keys": 1028,
+              "returned_body_bytes": 1972,
+              "scope": "query_storage",
+              "socket_queue_wait_nanos": 6042,
+              "temporary_bytes_peak": 2513234,
+              "temporary_bytes_scope": "instrumented_byte_buffers",
+              "version": 1
+            },
+            "request": {
+              "expected_total_count": 512,
+              "fields": [
+                "title"
+              ],
+              "filter": {
+                "HashKey": "warm-tip-generated-hash"
+              },
+              "limit": 1,
+              "schema_name": "WarmTipCountProduct"
+            },
+            "request_id": "temperature-ad35e986280c49adaedc7225dc666ea3-before-24",
+            "response_sha256": "37c69dc0be9dfcce471fcae35997ed52158dcf8d2bd43c60a3c9efefcc5b3b6c",
+            "returned_count": 1,
+            "total_count": 512
+          },
+          {
+            "elapsed_nanos": 1426125,
+            "expected_values_match": true,
+            "has_more": false,
+            "native_after": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 5,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 16,
+              "core_warm_misses": 7,
+              "core_warm_molecules": 4,
+              "core_warm_paths": 7,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 282094,
+                "disk_only": 0,
+                "domains": 2,
+                "enabled": true,
+                "failed": 0,
+                "keys": 512,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 2,
+                "memory_selections": 20,
+                "peak_bytes": 67390958,
+                "ready": 2,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "native_before": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 3,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 16,
+              "core_warm_misses": 4,
+              "core_warm_molecules": 3,
+              "core_warm_paths": 4,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 282094,
+                "disk_only": 0,
+                "domains": 2,
+                "enabled": true,
+                "failed": 0,
+                "keys": 512,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 2,
+                "memory_selections": 20,
+                "peak_bytes": 67390958,
+                "ready": 2,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "phase": "exact-value-0",
+            "read_receipt": {
+              "blocking_queue_wait_nanos": 1124,
+              "decode_nanos": 27334,
+              "decoded_bytes": 24576,
+              "decrypt_nanos": 22625,
+              "decrypted_bytes": 3079,
+              "directory_entries": 0,
+              "directory_reads": 0,
+              "file_open_attempts": 6,
+              "file_opens": 6,
+              "filesystem_pages": "unknown",
+              "footer_bytes": 0,
+              "format_probe_bytes": 229632,
+              "group_load_nanos": 0,
+              "group_opens": 0,
+              "journal_replay_bytes": 0,
+              "legacy_replay_bytes": 0,
+              "loader_calls": 0,
+              "lock_wait_nanos": 586,
+              "logical_warm_hits": 0,
+              "logical_warm_misses": 0,
+              "metadata_nanos": 12960,
+              "metadata_operations": 23,
+              "open_nanos": 87124,
+              "pack_batch_frames": 6,
+              "pack_batch_read_runs": 5,
+              "pack_file_handle_reuses": 15,
+              "pack_file_handles_peak": 6,
+              "payload_bytes": 14885,
+              "query_storage_elapsed_nanos": 1216125,
+              "read_nanos": 32003,
+              "read_operations": 21,
+              "requested_keys": 14,
+              "returned_body_bytes": 3138,
+              "scope": "query_storage",
+              "socket_queue_wait_nanos": 4917,
+              "temporary_bytes_peak": 259942,
+              "temporary_bytes_scope": "instrumented_byte_buffers",
+              "version": 1
+            },
+            "request": {
+              "fields": [
+                "title",
+                "body"
+              ],
+              "filter": {
+                "HashRangeKeys": [
+                  [
+                    "warm-tip-generated-hash",
+                    "todo#00000511#record-000511xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  ]
+                ]
+              },
+              "limit": 256,
+              "schema_name": "WarmTipCountProduct"
+            },
+            "request_id": "temperature-ad35e986280c49adaedc7225dc666ea3-before-27",
+            "response_sha256": "e93af78443c4611ed642957af3af422f7018ff274e2bb6113ba3f197125b115e",
+            "returned_count": 1,
+            "total_count": null
+          },
+          {
+            "elapsed_nanos": 332666,
+            "expected_values_match": true,
+            "has_more": false,
+            "native_after": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 5,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 22,
+              "core_warm_misses": 7,
+              "core_warm_molecules": 4,
+              "core_warm_paths": 7,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 282094,
+                "disk_only": 0,
+                "domains": 2,
+                "enabled": true,
+                "failed": 0,
+                "keys": 512,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 2,
+                "memory_selections": 20,
+                "peak_bytes": 67390958,
+                "ready": 2,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "native_before": {
+              "accepted_batch": false,
+              "accepted_batches": 0,
+              "accepted_sequence": 1,
+              "completed_sequence": 1,
+              "core_warm_atoms": 5,
+              "core_warm_dirty": 0,
+              "core_warm_held": 0,
+              "core_warm_hits": 16,
+              "core_warm_misses": 7,
+              "core_warm_molecules": 4,
+              "core_warm_paths": 7,
+              "core_warm_purged": 0,
+              "schema_keys": {
+                "bytes": 282094,
+                "disk_only": 0,
+                "domains": 2,
+                "enabled": true,
+                "failed": 0,
+                "keys": 512,
+                "limit_bytes": 134217728,
+                "loading": 0,
+                "loads": 2,
+                "memory_selections": 20,
+                "peak_bytes": 67390958,
+                "ready": 2,
+                "reasons": []
+              },
+              "writer_failed": false
+            },
+            "phase": "exact-value-1",
+            "read_receipt": {
+              "blocking_queue_wait_nanos": 292,
+              "decode_nanos": 0,
+              "decoded_bytes": 0,
+              "decrypt_nanos": 0,
+              "decrypted_bytes": 0,
+              "directory_entries": 0,
+              "directory_reads": 0,
+              "file_open_attempts": 0,
+              "file_opens": 0,
+              "filesystem_pages": "unknown",
+              "footer_bytes": 0,
+              "format_probe_bytes": 0,
+              "group_load_nanos": 0,
+              "group_opens": 0,
+              "journal_replay_bytes": 0,
+              "legacy_replay_bytes": 0,
+              "loader_calls": 0,
+              "lock_wait_nanos": 417,
+              "logical_warm_hits": 3,
+              "logical_warm_misses": 0,
+              "metadata_nanos": 0,
+              "metadata_operations": 0,
+              "open_nanos": 0,
+              "pack_batch_frames": 0,
+              "pack_batch_read_runs": 0,
+              "pack_file_handle_reuses": 0,
+              "pack_file_handles_peak": 0,
+              "payload_bytes": 0,
+              "query_storage_elapsed_nanos": 135584,
+              "read_nanos": 0,
+              "read_operations": 0,
+              "requested_keys": 3,
+              "returned_body_bytes": 3115,
+              "scope": "query_storage",
+              "socket_queue_wait_nanos": 5584,
+              "temporary_bytes_peak": 0,
+              "temporary_bytes_scope": "instrumented_byte_buffers",
+              "version": 1
+            },
+            "request": {
+              "fields": [
+                "title",
+                "body"
+              ],
+              "filter": {
+                "HashRangeKeys": [
+                  [
+                    "warm-tip-generated-hash",
+                    "todo#00000511#record-000511xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  ]
+                ]
+              },
+              "limit": 256,
+              "schema_name": "WarmTipCountProduct"
+            },
+            "request_id": "temperature-ad35e986280c49adaedc7225dc666ea3-before-30",
+            "response_sha256": "3f6f1a881f5dda09c9b23205fe7dd0bca7d12acd99ee305dd984f60101769d7d",
+            "returned_count": 1,
+            "total_count": null
+          }
+        ],
+        "records": 512,
+        "scope": "Five ordinary API observations on new generated data; no primary data, OS cache control, whole-process bound, or general throughput claim.",
+        "seed_batch": 64,
+        "source_commit": "5419748a0e8ebdc7044f3420808bbd280b6bb249",
+        "title_bytes": 1024,
+        "variant": "before"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3mtwvwpb"
+      }
+    }
+  ],
+  "scope": "Expected failed value gates remain failed. Startup exit1 is recorded separately from normal stops. This seal does not establish cleanup safety or change acceptance."
+}

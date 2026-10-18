@@ -196,39 +196,53 @@ impl HashRangeQueryProcessor {
             .cloned()
             .collect();
 
-        let mut vals = HashMap::new();
-        Self::merge_named_layout_values(
-            &mut vals,
-            fetch_atoms_with_key_metadata_async_with_prefix(
-                &self.db_ops,
-                self.live_field_matches_flag_only(field, None, filter)
-                    .await?
-                    .into_iter()
-                    .filter(|(key, _, _, _, _)| need.contains(key)),
-                field.common().storage_prefix(),
-                field.common().molecule_uuid().map(String::as_str),
-                Some(schema.name.as_str()),
-                Some(field_name),
-            )
-            .await?,
-        );
-        for namespace in received_from_namespaces {
-            Self::merge_named_layout_values(
-                &mut vals,
-                fetch_atoms_with_key_metadata_async_with_prefix(
-                    &self.db_ops,
-                    self.live_field_matches_flag_only(field, Some(namespace.as_str()), filter)
-                        .await?
-                        .into_iter()
-                        .filter(|(key, _, _, _, _)| need.contains(key)),
-                    Some(namespace.as_str()),
-                    field.common().molecule_uuid().map(String::as_str),
-                    Some(schema.name.as_str()),
-                    Some(field_name),
-                )
-                .await?,
-            );
-        }
+        let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
+            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+            schema,
+            field_name,
+        )?;
+        let vals = binding
+            .run(async {
+                let mut vals = HashMap::new();
+                Self::merge_named_layout_values(
+                    &mut vals,
+                    fetch_atoms_with_key_metadata_async_with_prefix(
+                        &self.db_ops,
+                        self.live_field_matches_flag_only(field, None, filter)
+                            .await?
+                            .into_iter()
+                            .filter(|(key, _, _, _, _)| need.contains(key)),
+                        field.common().storage_prefix(),
+                        field.common().molecule_uuid().map(String::as_str),
+                        Some(schema.name.as_str()),
+                        Some(field_name),
+                    )
+                    .await?,
+                );
+                for namespace in received_from_namespaces {
+                    Self::merge_named_layout_values(
+                        &mut vals,
+                        fetch_atoms_with_key_metadata_async_with_prefix(
+                            &self.db_ops,
+                            self.live_field_matches_flag_only(
+                                field,
+                                Some(namespace.as_str()),
+                                filter,
+                            )
+                            .await?
+                            .into_iter()
+                            .filter(|(key, _, _, _, _)| need.contains(key)),
+                            Some(namespace.as_str()),
+                            field.common().molecule_uuid().map(String::as_str),
+                            Some(schema.name.as_str()),
+                            Some(field_name),
+                        )
+                        .await?,
+                    );
+                }
+                Ok::<_, SchemaError>(vals)
+            })
+            .await?;
 
         keys.retain(|key| Self::named_layout_keep(&wanted, key, vals.get(key)));
         Ok(())

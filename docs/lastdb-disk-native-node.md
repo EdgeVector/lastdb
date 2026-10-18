@@ -12,7 +12,12 @@ The primary and its archive do not participate in these checks.
 
 ## Memory and write acknowledgements
 
-The core model owns current schemas, molecules, keys, tips, confirmed absence, and full atom values.
+The core model owns current schemas, molecules, keys, selected tips, confirmed absence, and fetched atom values.
+A selected tip can remain without its value after a call that needs no value.
+A value fetch adds the full atom to that same logical record.
+The warm set preserves an existing full value when an unchanged tip arrives.
+Both positive states use the same record limit, source controls, and whole-record purge.
+Accepted writes remain complete through flush and any older calls that retain them.
 The recency list selects clean logical records for purge. It does not hold a second set of values.
 The logical record cap defaults to 10,000. Separate allowances cover metadata, complete selected keys, and accepted write values.
 Those allowances do not define a whole-process memory maximum.
@@ -22,6 +27,7 @@ This memory ACK is the default when the required reservations fit.
 An explicit durable request, insufficient reservation, or uncovered raw control operation waits for disk instead.
 A queued response alone does not prove that its request avoided a disk wait.
 Native status exposes the actual accepted and completed sequences, pending batches, and dirty logical records.
+`core_warm_tip_only_paths` counts retained positive paths whose values are not in memory.
 
 The default flush delay is 500 ms. Native admission requires a configured delay from 1 to 500 ms.
 A private write queue retains prepared disk bytes and resource owners until the flush.

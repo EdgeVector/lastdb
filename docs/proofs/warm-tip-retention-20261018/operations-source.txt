@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""Record bounded ordinary Mini requests on new generated data."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+import time
+from types import SimpleNamespace
+
+sys.dont_write_bytecode = True
+BASE = Path('/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016')
+sys.path.insert(0, str(BASE / 'docs/proofs/core-memory-state-20261018'))
+import api
+sys.path.insert(0, str(BASE / 'docs/proofs/core-owned-writes-20261018'))
+import logical
+sys.path.insert(0, str(BASE / 'docs/proofs/core-clarity-20261018'))
+import default_node
+
+SCHEMA = 'WarmTipCountProduct'
+RECORDS = 512
+
+
+class Spec(logical.Spec):
+    def values(self, number, revision, body_bytes=1024):
+        result = super().values(number, revision, body_bytes)
+        prefix = f'title-{number}-revision-{revision}-'
+        result['title'] = prefix + api.measure.profile.body(number + 9000000, 1024 - len(prefix))
+        return result
+
+
+def snapshot(native):
+    return {name: value for name, value in native.items()
+            if name.startswith(('core_warm_', 'core_model_', 'schema_key_', 'logical_'))
+            or name in ('schema_keys', 'accepted_batches', 'accepted_batch',
+                        'accepted_sequence', 'completed_sequence', 'writer_failed')}
+
+
+def drained(node, phase):
+    for attempt in range(10):
+        try:
+            return logical.drained(node, phase + '-attempt-' + str(attempt))
+        except RuntimeError as exc:
+            if str(exc) != 'The explicit flush leaves accepted or dirty work':
+                raise
+            node.remember(operation='quiescence-retry', phase=phase, attempt=attempt,
+                reason='A later accepted sequence can follow the covered flush target.')
+            time.sleep(.05)
+    raise RuntimeError('The owned generated node does not reach quiescence in ten checks')
+
+
+def observe(node, spec, phase, payload, count_page=False, revision=0, zero=False):
+    before = node.status(phase + '-before')
+    result, elapsed, cost, request_id = node.call('/api/query', payload, True)
+    if cost is None:
+        raise RuntimeError('The product query lacks its requested disk receipt')
+    if count_page:
+        rows = result.get('results', [])
+        if (result.get('total_count') != payload['expected_total_count'] or result.get('returned_count') != 1
+                or result.get('has_more') is not True or len(rows) != 1):
+            raise RuntimeError('The keyed count or one-record page differs: ' + str(result))
+        key = rows[0]['key']
+        choices = [n for n in range(RECORDS) if spec.key(n) == key]
+        if len(choices) != 1:
+            raise RuntimeError('The page has an unknown generated key')
+        number = choices[0]
+        if (rows[0]['fields'].get('title') != spec.values(number, 0)['title']
+                or rows[0]['fields'].get('bucket', spec.hash) != spec.hash):
+            raise RuntimeError('The page title differs from its generated value')
+        if not rows[0]['metadata']['title'].get('atom_uuid'):
+            raise RuntimeError('The selected title lacks its atom identity')
+    else:
+        logical.check_response(spec, {RECORDS - 1: revision}, result,
+                               fields=['title', 'body'])
+    if zero and cost.get('read_operations') != 0:
+        raise RuntimeError('A required repeat still reads a file: ' + str(cost))
+    after = node.status(phase + '-after')
+    row = {'phase': phase, 'request': payload, 'request_id': request_id,
+           'elapsed_nanos': elapsed, 'read_receipt': cost,
+           'response_sha256': api.measure.profile.digest(result),
+           'total_count': result.get('total_count'),
+           'returned_count': result.get('returned_count'),
+           'has_more': result.get('has_more'), 'expected_values_match': True,
+           'require_zero_file_reads': zero,
+           'native_before': snapshot(before), 'native_after': snapshot(after)}
+    node.remember(operation='warm-tip-query', **row)
+    return row
+
+
+def additional(node, spec):
+    count_query = {'schema_name': SCHEMA, 'fields': ['title'],
+        'filter': {'HashKey': spec.hash}, 'limit': 1, 'expected_total_count': RECORDS}
+    exact_query = logical.query(spec, [RECORDS - 1], fields=['title', 'body'])
+    rows = [observe(node, spec, 'extra-count-after-full-value', count_query, True),
+            observe(node, spec, 'extra-full-value-after-count', exact_query, zero=True)]
+    warm = rows[0]['native_after']
+    if warm.get('logical_tip_only_paths', warm.get('core_warm_tip_only_paths', 0)) < 1:
+        raise RuntimeError('The counted query retains no observable tip-only paths')
+    removed = [RECORDS - 2, RECORDS - 1]
+    logical.write(node, [logical.mutation(spec, number, 0, action='delete',
+        durability='durable') for number in removed], 'extra-delete-batch')
+    deleted_query = dict(count_query, expected_total_count=RECORDS - len(removed))
+    rows.append(observe(node, spec, 'extra-count-after-delete', deleted_query, True))
+    result, _, _, _ = node.call('/api/query', exact_query, True)
+    logical.check_response(spec, {RECORDS - 1: None}, result, fields=['title', 'body'])
+    node.remember(operation='extra-deleted-exact-read', correct_absence=True)
+    logical.write(node, [logical.mutation(spec, number, 1, action='create',
+        durability='durable', full=True) for number in removed], 'extra-recreate-batch')
+    rows.append(observe(node, spec, 'extra-count-after-recreate', count_query, True))
+    rows.append(observe(node, spec, 'extra-exact-after-recreate', exact_query, revision=1))
+    drained(node, 'before-low-cap-reopen')
+    node.stop()
+    os.environ['LASTDB_RESIDENT_KEY_CAP'] = '128'
+    node.start()
+    for number in range(2):
+        row = observe(node, spec, 'extra-low-cap-count-' + str(number), count_query, True)
+        if row['native_after'].get('core_warm_paths', 129) > 128:
+            raise RuntimeError('The low-cap operation exceeds the 128-path cap')
+        rows.append(row)
+    rows.append(observe(node, spec, 'extra-low-cap-exact', exact_query, revision=1))
+    rows.append(observe(node, spec, 'extra-low-cap-repeat', exact_query, revision=1, zero=True))
+    return rows
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--binary', type=Path, required=True)
+    parser.add_argument('--variant', required=True)
+    parser.add_argument('--receipt-dir', type=Path, required=True)
+    parser.add_argument('--source-commit', required=True)
+    parser.add_argument('--expected-sha256', required=True)
+    parser.add_argument('--extra-candidate-checks', action='store_true')
+    parser.add_argument('--atom-encoding', choices=('flat', 'partition_prefix'))
+    supplied = parser.parse_args()
+    binary = supplied.binary.resolve(strict=True)
+    if api.measure.profile.file_hash(binary) != supplied.expected_sha256:
+        raise RuntimeError('The expected source executable hash differs')
+    args = SimpleNamespace(binary=binary, variant=supplied.variant,
+        receipt_dir=supplied.receipt_dir, root=None, source_commit=supplied.source_commit,
+        records_per_hash=RECORDS, hashes=1, body_bytes=1024, seed_batch=64,
+        read_rounds=3, cap=10000, counts=[1], concurrent_width=1,
+        extra_env={'LASTDB_SCHEMA_PRELOAD_SCHEMAS': SCHEMA,
+                   'LASTDB_ATOM_KEY_ENCODING': supplied.atom_encoding}, reads_only=True)
+    api.measure.SCHEMA = SCHEMA
+    run = api.measure.Run(args)
+    api.Node.start = default_node.start
+    node = api.Node(run)
+    spec = Spec('hashrange', SCHEMA, 'warm-tip-generated-hash')
+    names = {'LASTDB_SCHEMA_PRELOAD_SCHEMAS': SCHEMA, 'LASTDB_RESIDENT_KEY_CAP': '10000'}
+    prior = {name: os.environ.get(name) for name in (*names, 'LASTDB_ATOM_KEY_ENCODING')}
+    complete, error, observations, extras = False, None, [], []
+    try:
+        os.environ.update(names)
+        if supplied.atom_encoding is None:
+            os.environ.pop('LASTDB_ATOM_KEY_ENCODING', None)
+        else:
+            os.environ['LASTDB_ATOM_KEY_ENCODING'] = supplied.atom_encoding
+        node.start()
+        logical.install(node, spec)
+        for first in range(0, RECORDS, 64):
+            logical.write(node, [logical.mutation(spec, number, 0, action='create',
+                durability='durable', full=True) for number in range(first, first + 64)],
+                'generated-seed-' + str(first))
+        drained(node, 'seed-drained')
+        node.stop()
+        node.start()
+        cold = node.status('reopen-before-query')
+        if cold.get('core_warm_paths') != 0 or cold.get('accepted_batches') != 0:
+            raise RuntimeError('The ordinary reopen does not start with an empty warm set')
+        count_query = {'schema_name': SCHEMA, 'fields': ['title'],
+            'filter': {'HashKey': spec.hash}, 'limit': 1, 'expected_total_count': RECORDS}
+        for number in range(3):
+            observations.append(observe(node, spec, 'count-page-' + str(number),
+                                        count_query, True))
+        exact_query = logical.query(spec, [RECORDS - 1], fields=['title', 'body'])
+        for number in range(2):
+            observations.append(observe(node, spec, 'exact-value-' + str(number), exact_query,
+                                        zero=number == 1))
+        if supplied.extra_candidate_checks:
+            extras = additional(node, spec)
+        drained(node, 'final-drained')
+        complete = True
+    except Exception as exc:
+        error = f'{type(exc).__name__}: {exc}'
+        node.remember(operation='failure', error=error)
+    finally:
+        try:
+            node.stop()
+        except Exception as exc:
+            complete = False
+            error = f'{error or ""}; stop: {type(exc).__name__}: {exc}'
+        for name, value in prior.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        placement = [line for line in (node.directory / 'node.log').read_text().splitlines()
+                     if 'resolved atom body storage-key encoding' in line]
+        expected = 'PartitionPrefix' if supplied.atom_encoding == 'partition_prefix' else 'Flat'
+        if not placement or any('encoding=' + expected + ' ' not in line for line in placement):
+            complete, error = False, 'The actual atom placement differs from the requested policy'
+        run.finish(complete, error)
+        if (node.directory / 'node.log').exists():
+            shutil.copy2(node.directory / 'node.log', run.receipt_dir / 'node.log')
+        shutil.copy2(Path(__file__), run.receipt_dir / 'operations.py')
+        result = {'complete': complete, 'error': error, 'variant': supplied.variant,
+            'source_commit': supplied.source_commit, 'binary_sha256': supplied.expected_sha256,
+            'records': RECORDS, 'hashes': 1, 'seed_batch': 64,
+            'title_bytes': 1024, 'body_bytes': 1024, 'observations': observations,
+            'additional_candidate_checks': extras,
+            'requested_atom_encoding': supplied.atom_encoding,
+            'observed_atom_placement_log': placement,
+            'all_owned_nodes_stopped': node.process is None,
+            'scope': 'Five ordinary API observations on new generated data; no primary data, OS cache control, whole-process bound, or general throughput claim.'}
+        api.measure.profile.save(run.receipt_dir / 'result.json', result)
+        files = {str(path.relative_to(run.receipt_dir)): {
+            'bytes': path.stat().st_size, 'sha256': api.measure.profile.file_hash(path)}
+            for path in sorted(run.receipt_dir.iterdir()) if path.is_file()}
+        api.measure.profile.save(run.receipt_dir / 'receipt-seal.json', {'files': files})
+    print(json.dumps({'complete': complete, 'error': error, 'root': str(run.root),
+                      'receipt_dir': str(run.receipt_dir),
+                      'file_reads': [row['read_receipt'].get('read_operations')
+                                     for row in observations]}), flush=True)
+    return 0 if complete else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

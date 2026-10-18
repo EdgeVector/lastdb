@@ -57,14 +57,13 @@ impl PackRuntime {
         if !field::provenance_current() || transaction::PendingBatch::current(self).is_some() {
             return Ok(());
         }
-        let tip = core_read::selected_tip(
+        let selected = core_read::selected_tip(
             Some(Arc::clone(self)),
             path.scope.as_deref(),
             &path.molecule,
             hint_key,
             &path.atom,
         )?;
-        let Some(tip) = tip else { return Ok(()) };
         let view = self.view.read().expect("native complete core admission");
         if view.revision != context.revision {
             return Ok(());
@@ -72,6 +71,11 @@ impl PackRuntime {
         let mut call = crate::read_receipts::lock(&context.call);
         let mut core = self.core.lock().expect("native shared core model");
         let key = path.core();
+        let Some(AdmissionTip { tip, sources }) =
+            admission_tip(&mut core, &key, &path.atom, selected)
+        else {
+            return Ok(());
+        };
         context.hold_core(&mut core, std::slice::from_ref(&key))?;
         let bytes = body::encoded_len(facts.atom.as_ref())?;
         context.account_memory_record(&mut call, path.id()?.len(), bytes)?;
@@ -92,7 +96,7 @@ impl PackRuntime {
             core.invalidate_slot(&key);
             return Ok(());
         }
-        if let Some(sources) = tip.sources {
+        if let Some(sources) = sources {
             for (collection, source) in sources {
                 if !core.link_source(&key, &collection, &source) {
                     core.invalidate_slot(&key);
@@ -103,6 +107,57 @@ impl PackRuntime {
         }
         Ok(())
     }
+}
+
+struct AdmissionTip {
+    tip: crate::resident::CoreWarmTip,
+    sources: Option<Vec<(String, String)>>,
+}
+
+/// Exact core filters select an authorized tip without a disk receipt.
+fn admission_tip(
+    core: &mut crate::resident::CoreWarmSet,
+    path: &CorePath,
+    atom: &str,
+    selected: Option<core_read::SelectedTip>,
+) -> Option<AdmissionTip> {
+    if let Some(selected) = selected {
+        let sources = selected.sources.or_else(|| {
+            retained_tip_sources(core, path, &selected.entry, selected.metadata.as_ref())
+        });
+        return Some(AdmissionTip {
+            tip: crate::resident::CoreWarmTip {
+                entry: selected.entry,
+                metadata: selected.metadata,
+            },
+            sources,
+        });
+    }
+    if !core.path_authorized(path) {
+        return None;
+    }
+    let crate::resident::CoreWarmLookup::Tip(tip) = core.lookup(path) else {
+        return None;
+    };
+    (tip.entry.atom_uuid == atom).then(|| AdmissionTip {
+        tip,
+        sources: Some(core.source_coordinates(path)),
+    })
+}
+
+/// Promotion keeps the already certified tip under the same publication lock.
+fn retained_tip_sources(
+    core: &mut crate::resident::CoreWarmSet,
+    path: &CorePath,
+    entry: &AtomEntry,
+    metadata: Option<&KeyMetadata>,
+) -> Option<Vec<(String, String)>> {
+    if !core.path_authorized(path) {
+        return None;
+    }
+    let selected = core.lookup(path).into_tip()?;
+    (selected.entry == *entry && selected.metadata.as_ref() == metadata)
+        .then(|| core.source_coordinates(path))
 }
 
 pub(super) fn refresh_tip(

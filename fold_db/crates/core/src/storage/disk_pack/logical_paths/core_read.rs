@@ -17,7 +17,7 @@ pub(crate) struct SelectedTip {
     pub(crate) tip_source: Option<(String, String)>,
     /// Complete possible winners and structural controls for this exact key.
     pub(crate) sources: Option<Vec<(String, String)>>,
-    partition: Option<String>,
+    pub(super) partition: Option<String>,
 }
 
 #[derive(Default)]
@@ -104,8 +104,9 @@ pub(crate) fn note_candidates(
     key: &KeyValue,
     atom_uuid: &str,
     candidates: &[String],
+    encoding: crate::atom::AtomKeyEncoding,
 ) -> StorageResult<()> {
-    let Some(receipts) = receipts(runtime)? else {
+    let Some(receipts) = receipts(runtime.clone())? else {
         return Ok(());
     };
     let identity = identity(scope, molecule, key, atom_uuid)?;
@@ -148,11 +149,18 @@ pub(crate) fn note_candidates(
     else {
         return Ok(());
     };
-    if let Some((selected, previous_bytes)) = receipts.entries.get_mut(&identity) {
+    let selected = if let Some((selected, previous_bytes)) = receipts.entries.get_mut(&identity) {
         selected.sources = sources;
         *previous_bytes = bytes;
-    }
+        Some(selected.clone())
+    } else {
+        None
+    };
     receipts.bytes = total;
+    drop(receipts);
+    if let Some(selected) = selected {
+        super::tips::admit(runtime, scope, molecule, key, encoding, &selected)?;
+    }
     Ok(())
 }
 

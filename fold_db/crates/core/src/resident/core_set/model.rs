@@ -38,7 +38,7 @@ impl CoreModelSlot {
 
     fn lookup(&self) -> CoreWarmLookup {
         match &self.value {
-            Some(value) => CoreWarmLookup::tip(CoreWarmSelection {
+            Some(value) => CoreWarmLookup::value(CoreWarmSelection {
                 entry: value.entry.clone(),
                 metadata: value.metadata.clone(),
                 atom: Arc::clone(&value.atom),

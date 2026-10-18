@@ -1,0 +1,19 @@
+{
+  "complete": true,
+  "method": "Supported exact-home reclaim after parent review, fresh ownership/process/socket/open-file checks, and receipt verification.",
+  "roots": [
+    {
+      "absent": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.oo63eiev"
+    },
+    {
+      "absent": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3y9ntwzr"
+    },
+    {
+      "absent": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.92c_jb50"
+    }
+  ],
+  "sealed_files_verified": 27
+}

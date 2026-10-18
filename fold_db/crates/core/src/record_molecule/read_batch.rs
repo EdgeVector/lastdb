@@ -78,7 +78,12 @@ pub(crate) async fn load_record_tip_atoms(
                         scope,
                         molecule,
                         &key,
-                        (&selected.base, &tip, &candidates),
+                        (
+                            &selected.base,
+                            &tip,
+                            &candidates,
+                            db_ops.atoms().atom_key_encoding(),
+                        ),
                         hint.as_ref(),
                     )?;
                 }
