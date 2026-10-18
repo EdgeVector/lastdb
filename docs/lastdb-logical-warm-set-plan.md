@@ -4,6 +4,7 @@ Status: selected schema preload, shared core memory, and the native logical writ
 The [write report](proofs/core-owned-writes-20261018/RESULTS.md) records the earlier source, product checks, and matched measurements.
 The [native cutover review](proofs/core-clarity-20261018/REVIEW.md) records the later default-engine change and source cleanup.
 The [cutover validation](proofs/core-clarity-20261018/VALIDATION.md) identifies its separate source, release, and checks.
+The [merge review](proofs/core-clarity-20261018/MERGE-REVIEW.md) records the final private-history cleanup and repeated fresh-data checks.
 Native reads use the core model. The separate `NativeWriteGraph` is removed.
 A bounded private queue retains prepared disk bytes until flush. Ordinary reads cannot use that queue.
 Raw system writes finish on disk and clear affected core state before success.

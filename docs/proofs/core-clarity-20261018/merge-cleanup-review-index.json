@@ -1,0 +1,83 @@
+{
+  "all_previews_pass": true,
+  "node_sessions": 10,
+  "preview_only": true,
+  "receipt_seal": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-receipt-seal.json",
+  "receipt_seal_sha256": "6c2079d697f1d81a21013591bf42bcce756bc5383a86947d0b8416bf196b8281",
+  "root_count": 4,
+  "roots": [
+    {
+      "kind": "stopped-ordinary-API-run",
+      "label": "merge-logical",
+      "node_sessions": 6,
+      "preflight": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-logical/cleanup-preflight.json",
+      "preview": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-logical/cleanup-preview.json",
+      "preview_exit_code": 0,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ds8mmqqp",
+      "root_retained_after_preview": true,
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ds8mmqqp",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "kind": "stopped-ordinary-API-run",
+      "label": "merge-protein",
+      "node_sessions": 2,
+      "preflight": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-protein/cleanup-preflight.json",
+      "preview": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-protein/cleanup-preview.json",
+      "preview_exit_code": 0,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.jfx3efso",
+      "root_retained_after_preview": true,
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.jfx3efso",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "kind": "stopped-ordinary-API-run",
+      "label": "merge-scoped",
+      "node_sessions": 2,
+      "preflight": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-scoped/cleanup-preflight.json",
+      "preview": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-scoped/cleanup-preview.json",
+      "preview_exit_code": 0,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e4_dpd0q",
+      "root_retained_after_preview": true,
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e4_dpd0q",
+        "--exact-home",
+        "--dry-run"
+      ]
+    },
+    {
+      "kind": "program-only",
+      "label": "merge-program-cleanup",
+      "node_sessions": 0,
+      "preflight": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-program-cleanup/baseline-cleanup-preflight.json",
+      "preview": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-program-cleanup/baseline-cleanup-preview.json",
+      "preview_exit_code": 0,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.avxy5d_h",
+      "root_retained_after_preview": true,
+      "supported_preview_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.avxy5d_h",
+        "--exact-home",
+        "--dry-run"
+      ]
+    }
+  ],
+  "scope": "Only four newly owned final-merge roots. Earlier proof roots and sealed files stay unchanged."
+}
