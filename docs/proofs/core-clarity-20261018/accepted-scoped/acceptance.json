@@ -1,0 +1,106 @@
+{
+  "actual_ack_frontiers": [
+    {
+      "accepted_batches": 0,
+      "accepted_sequence": 35,
+      "completed_sequence": 34,
+      "core_warm_dirty": 0,
+      "phase": "scoped-create-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 0,
+      "accepted_sequence": 38,
+      "completed_sequence": 37,
+      "core_warm_dirty": 0,
+      "phase": "scoped-update-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 0,
+      "accepted_sequence": 41,
+      "completed_sequence": 40,
+      "core_warm_dirty": 0,
+      "phase": "scoped-delete-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 0,
+      "accepted_sequence": 42,
+      "completed_sequence": 42,
+      "core_warm_dirty": 0,
+      "phase": "scoped-create-after-ack-before-first-value-read"
+    }
+  ],
+  "all_nodes_stop_normally": true,
+  "all_processes_remove_engine_and_mode_flags": true,
+  "benchmark_result": false,
+  "binary_sha256": "bef1ff5b9047e8f76f2b42ec5f581bc385467d99785b6325a5a56a6d3f496f5a",
+  "default_memory_ack_pass": null,
+  "default_native_boots": 2,
+  "driver_identity": {
+    "bytes": 4057,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-scoped/clarity-driver-identity.json",
+    "sha256": "898f396743ad339e3873318d0287ba094a0edb4b0f272e4cbc6488b7745e3ca0"
+  },
+  "evidence_scope": "Tracked acceptance summary. Exact raw JSONL stays local and ignored; the receipt seal records its bytes and SHA256.",
+  "exit_codes": [
+    0,
+    0
+  ],
+  "keyed_value_checks": 24,
+  "limits": [
+    "Repeated public payloads allocate fresh clocks; no internal idempotency hit is claimed.",
+    "The empty public array is refused before core; the internal empty transaction is source-only.",
+    "UUID404 proves addressable absence, not reclaimed disk bytes or zero-file UUID reads.",
+    "Unsupported embedded API and old-format boundaries receive source review; these workflows use normal node APIs."
+  ],
+  "literal_prefix_checks": [],
+  "node_sessions": 2,
+  "operation_counts": {
+    "clarity-driver-scope": 1,
+    "core-owned-queue-drained": 1,
+    "core-owned-read": 24,
+    "core-owned-scoped-complete": 1,
+    "core-owned-write": 5,
+    "default-native-format": 2,
+    "flush": 1,
+    "native-status": 7,
+    "owned-node-start": 2,
+    "owned-node-stop": 2,
+    "request": 43
+  },
+  "raw_receipts": {
+    "bytes": 156867,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-scoped/receipts.jsonl",
+    "sha256": "6e5003a1f7d38edf1503a77757659c5bc07140d114d3f66c1aa63bfd52b69752"
+  },
+  "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-scoped",
+  "required_zero_file_checks": 18,
+  "result": {
+    "benchmark_result": false,
+    "complete": true,
+    "error": null,
+    "operation_counts": {
+      "clarity-driver-scope": 1,
+      "core-owned-queue-drained": 1,
+      "core-owned-read": 24,
+      "core-owned-scoped-complete": 1,
+      "core-owned-write": 5,
+      "default-native-format": 2,
+      "flush": 1,
+      "native-status": 7,
+      "owned-node-start": 2,
+      "owned-node-stop": 2,
+      "request": 43
+    },
+    "role": "candidate",
+    "workflow": "scoped"
+  },
+  "source_identity": {
+    "bytes": 353708,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-scoped/source-identity.json",
+    "sha256": "d5263c3ed85b8533a5ef522388d909dfcff1c58c0d950a675bf06829a4c03b2a"
+  },
+  "special_acceptance_receipts": [],
+  "version": 1,
+  "warm_purge_uuid_absence": [],
+  "zero_file_checks_pass": true
+}

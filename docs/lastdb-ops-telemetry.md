@@ -155,36 +155,43 @@ was still saturated; reduce concurrent clients, postpone bulk jobs, or lower
 `LASTDB_QOS_BULK` on the next planned daemon restart. Do not run `doctor`,
 `init`, or restart the primary node just because QoS counters are moving.
 
-## Resident graph telemetry
+## Native core memory and write telemetry
 
-`GET /api/status` exposes the process-local resident graph under
-`status.resident`, and `lastdb status` prints a `Logical keys:` line plus a
-compact `Resident:` line:
+The native engine is the normal engine. It has no resident-mode choice.
+Use `GET /api/db/native-status` for the direct `native_disk` counters.
+This read does not wake the flush worker.
 
-```text
-Logical keys: 7 / 10000 (memory limit for logical keys (tips and atoms); RESIDENT_KEY_CAP=10000)
-Resident: entries=7 bytes=4.00 KiB graph_budget=16.00 KiB hits schema/molecule/atom/blob/protein=1/3/5/7/9 rehydrates=2/4/6/8/10 persist enqueued/flushed/failed=11/12/13 evicted=14 dirty_refused=15
-```
+| Field | Meaning |
+| --- | --- |
+| `warm_records`, `warm_record_limit` | Current logical path count and its cap, which defaults to 10,000. |
+| `core_warm_held`, `core_warm_dirty` | Logical paths held by calls or protected until flush. |
+| `core_warm_hits`, `core_warm_misses`, `core_warm_purged` | Logical core lookup and purge counters. |
+| `accepted_sequence`, `completed_sequence` | Accepted write frontier and completed disk frontier. |
+| `accepted_batches` | Accepted batches that still await complete disk publication. |
+| `writer_failed` | Native writer failure state. A failed writer cannot acknowledge another accepted view. |
+| `core_model.metadata_*` | Current, retained, used, peak, and limit bytes for core model metadata. |
+| `core_model.body_reserved_*` | Current and retained charged write-body owners, including captured older values. |
+| `core_memory` | Bounded definition memory, with hits, misses, refused admissions, and byte charges. |
+| `schema_keys` | Complete selected-schema key sets, their bytes, readiness, loads, and selection counters. |
 
-The `Logical keys:` line is the memory limit for tips and atoms
-(`resident.resident_key_count` / `resident.resident_key_budget`). Do not tune a
-byte setting to size that set.
+A queued reply alone does not establish a memory-only ACK.
+Sample the accepted and completed sequences, pending batches, and dirty paths immediately after the reply.
+Explicit durable requests wait for disk.
+A queued request can also wait for disk when its reservation or typed coverage is insufficient.
+The [cutover receipts](proofs/core-clarity-20261018/RESULTS.md) preserve those actual observations.
 
-`LASTDB_HASH_GROUP_WARM_BYTES` (`hash_group_warm=` on the `Memory budget:`
-line) bounds the hash-group warm set for non-logical collections (indexes,
-schema_index, atom_ref_edges_v2, keep_small, metadata, cas_blobs).
-`LASTDB_RESIDENT_BYTES` (`resident_graph=` / `graph_budget=`) bounds the
-ResidentGraph (`LASTDB_RESIDENT_MODE=write`).
+`lastdb status` prints `Logical keys:`, `Background purge work:`, and `Memory admission:` lines.
+The logical key line reports the record count cap. A byte allowance does not replace that count cap.
+The background purge counters describe queued purge tasks; they do not establish completion of all native logical writes.
+The direct native accepted/completed frontiers describe that completion.
 
-The `hits` and `rehydrates` buckets come from `ResidentMetrics::snapshot()` and
-are process-lifetime counters. They tell whether reads are being served from T0
-memory or repopulating it from durable storage. `persist_enqueued`,
-`persist_flushed`, and `deferred_persist_failed` track the deferred write drain:
-a rising failure count means the keys remain dirty for retry. `evicted` counts
-clean ResidentGraph entries dropped by the graph byte budget, while
-`dirty_refused` counts budget passes that could not get under budget because
-every candidate was dirty.
+`status.resident` retains historical wire fields for existing readers.
+Its retired graph bytes, entry count, and revision fields do not measure current native core occupancy.
+A zero historical graph budget does not mean native memory is unbounded.
+The sampled status can also lag a short operation. An unavailable field differs from a measured zero.
 
-`entries`, `bytes`, and `graph_budget` are instantaneous ResidentGraph occupancy.
-`graph_budget=unbounded` means the ResidentGraph byte cap is disabled for that
-process.
+`LASTDB_RESIDENT_BYTES` and `LASTDB_HASH_GROUP_WARM_BYTES` remain conservative process-reserve inputs.
+They do not size a native serving graph or a second logical cache.
+`LASTDB_RESIDENT_MAX_DEFERRED_BYTES` controls the deferred write-body allowance.
+The native metadata, complete-key, and logical path limits remain separate.
+None of these counters defines a whole-process memory maximum.

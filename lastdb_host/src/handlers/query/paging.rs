@@ -125,16 +125,13 @@ pub(in crate::handlers) fn is_key_restricted_filter(filter: Option<&HashRangeFil
     filter.is_some_and(HashRangeFilter::is_key_restricted)
 }
 
+/// Supported native selectors for the product query rejection's remediation.
 pub(in crate::handlers) const KEYED_FILTER_VARIANTS: &[&str] = &[
     "HashKey",
     "HashRangeKey",
     "HashRangePrefix",
     "HashRangeRange",
     "HashRangeKeys",
-    "RangeKey",
-    "RangePrefix",
-    "RangeRange",
-    "HashRange",
 ];
 
 pub(in crate::handlers) fn can_push_down(query: &Query) -> bool {

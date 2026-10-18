@@ -1,4 +1,4 @@
-//! One atomic disk root and immutable accepted-write overlay.
+//! One atomic disk root and immutable typed core read view.
 
 use super::*;
 
@@ -12,7 +12,6 @@ pub struct NativeDiskStatus {
     pub accepted_sequence: u64,
     pub completed_sequence: u64,
     pub writer_failed: bool,
-    pub memory_write_records: usize,
     pub warm_records: usize,
     pub warm_record_limit: usize,
     pub core_warm_paths: usize,
@@ -24,6 +23,7 @@ pub struct NativeDiskStatus {
     pub core_warm_misses: u64,
     pub core_warm_purged: u64,
     pub core_memory: crate::resident::CoreMemoryStats,
+    pub(crate) core_model: crate::resident::CoreModelStats,
     pub schema_keys: schema_keys::SchemaKeyStatus,
 }
 
@@ -39,9 +39,9 @@ impl PackRuntime {
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
         let view = self.view.read().expect("native disk status view");
-        let (core, core_memory) = {
+        let (core, core_memory, core_model) = {
             let core = self.core.lock().expect("native core status");
-            (core.stats(), core.memory_stats())
+            (core.stats(), core.memory_stats(), core.model_stats())
         };
         NativeDiskStatus {
             generation: view.current.generation,
@@ -51,12 +51,7 @@ impl PackRuntime {
             accepted_sequence: queue.sequence(),
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.failed.load(Ordering::Acquire),
-            memory_write_records: self.resident.native_write_root().len(),
-            warm_records: self
-                .logical
-                .lock()
-                .expect("native warm status")
-                .logical_record_count(),
+            warm_records: core.paths,
             warm_record_limit: crate::resident::resident_key_cap(),
             core_warm_paths: core.paths,
             core_warm_molecules: core.molecules,
@@ -67,12 +62,13 @@ impl PackRuntime {
             core_warm_misses: core.misses,
             core_warm_purged: core.purged,
             core_memory,
+            core_model,
             schema_keys: self.schema_keys.status(),
         }
     }
 
     /// The caller owns the write gate and complete physical/logical reservations.
-    /// The batch and its protection stay immutable until the last reader releases it.
+    /// Captured core values retain their reservation until the last reader releases them.
     pub(super) fn install_accepted(
         &self,
         batch: Arc<transaction::PendingBatch>,
@@ -103,7 +99,6 @@ impl PackRuntime {
                 record.body.is_none(),
             )
         }));
-        self.resident.publish_native_writes(records);
         let mut accepted = view.accepted.as_ref().clone();
         accepted.push(batch);
         view.accepted = Arc::new(accepted);
@@ -112,12 +107,13 @@ impl PackRuntime {
         Ok(())
     }
 
-    /// Publication removes only this runtime's overlay; older calls keep their Arc.
+    /// Old calls retain their typed values; the flush log is not their read state.
     pub(super) fn install_committed(
         &self,
         current: Current,
         hidden_changes: &[(String, String)],
         key_changes: &[(String, String, bool)],
+        requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
         let mut view = self.view.write().expect("native complete read view");
         if !hidden_changes.is_empty() {
@@ -130,10 +126,24 @@ impl PackRuntime {
             );
             view.revision = revision;
         }
+        for request in requests {
+            if let Some(protection) = request
+                .path_protection
+                .lock()
+                .expect("committed core paths")
+                .as_ref()
+            {
+                protection.publish_clean()?;
+            }
+        }
+        let sequence = view.sequence;
+        self.core
+            .lock()
+            .expect("core atomic flush completion")
+            .complete_flush(sequence);
         self.published.store(current.frontier, Ordering::Release);
         view.current = current;
         view.accepted = Arc::new(Vec::new());
-        self.resident.clear_native_writes();
         Ok(())
     }
 
@@ -144,14 +154,6 @@ impl PackRuntime {
             &mut self.core.lock().expect("core publication invalidation"),
             changes,
         );
-        let mut logical = self
-            .logical
-            .lock()
-            .expect("native publication record epochs");
-        for (collection, key) in changes {
-            logical.forget_source_records(collection, key);
-            logical.forget_record(collection, key);
-        }
     }
 }
 

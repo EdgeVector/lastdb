@@ -91,8 +91,7 @@ impl Host {
         search_outbox_inbox: PathBuf,
         resume_required: bool,
     ) -> Result<Arc<FoldDB>, String> {
-        // A synthetic home that passes the proof guard gets the local proof
-        // engine instead of a plain local-only database. Never with a cloud.
+        // The disabled local proof route refuses before database construction.
         if cloud_sync.is_none() && crate::proof_replay::boot_engine_requested(home) {
             return Self::open_proof_boot_db(
                 home,
@@ -101,8 +100,7 @@ impl Host {
                 keypair,
                 e2e_keys,
                 search_outbox_inbox,
-            )
-            .await;
+            );
         }
         // Last Store only. Legacy sled personal bootstrap is gone — restore
         // uses `lastdb restore --into`. Auth-refresh still wires 401 self-heal
@@ -162,10 +160,8 @@ impl Host {
         })
     }
 
-    /// Open the FoldDB with the local proof engine: capture and replay are
-    /// wired, no cloud is contacted. Called only after the proof guard passed
-    /// (see [`crate::proof_replay::boot_engine_requested`]).
-    pub(super) async fn open_proof_boot_db(
+    /// Refuse the disabled local proof engine after the proof guard.
+    pub(super) fn open_proof_boot_db(
         home: &Path,
         data_path: &Path,
         existing_store: bool,
@@ -187,7 +183,6 @@ impl Host {
             Arc::clone(keypair),
             Some(search_outbox_inbox),
         )
-        .await
         .map_err(|e| map_and_record_boot_error(home, existing_store, e))
     }
 }

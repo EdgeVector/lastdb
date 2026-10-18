@@ -1,7 +1,15 @@
 # LastDB logical warm set work plan
 
-Status: selected schema preload and shared core memory are built in the development branch, 2026-10-18.
-Wider cutover remains incomplete.
+Status: selected schema preload, shared core memory, and the native logical write cutover are complete in the development branch, 2026-10-18.
+The [write report](proofs/core-owned-writes-20261018/RESULTS.md) records the earlier source, product checks, and matched measurements.
+The [native cutover review](proofs/core-clarity-20261018/REVIEW.md) records the later default-engine change and source cleanup.
+The [cutover validation](proofs/core-clarity-20261018/VALIDATION.md) identifies its separate source, release, and checks.
+The [merge review](proofs/core-clarity-20261018/MERGE-REVIEW.md) records the final private-history cleanup and repeated fresh-data checks.
+Native reads use the core model. The separate `NativeWriteGraph` is removed.
+A bounded private queue retains prepared disk bytes until flush. Ordinary reads cannot use that queue.
+Raw system writes finish on disk and clear affected core state before success.
+The [write route inventory](proofs/core-owned-writes-20261018/ROUTES.md) names the earlier runtime evidence gaps and backend scope.
+The package contracts below retain the wider targets; they do not establish proof for those gaps.
 Tom selected complete range-key preload on the first query to selected schemas.
 The [preload design](lastdb-schema-range-preload-design.md) defines that lifecycle.
 The [logical design](lastdb-logical-warm-set-design.md) defines values, fields, and the common read boundary.
@@ -24,7 +32,12 @@ A loading schema never supplies a falsely complete partial answer.
 
 ## Current state
 
-The branch is fix/native-warm-write-reuse, with committed base aa64f61cd3d2d01a3f8953d4a1b3cf21f9940bab.
+The branch is `fix/core-owned-writes`, with native cutover source `a60b27d43f11fd6d1f3cf514d1579229d2256d5c`.
+The later product commit `436cc86ad82c4ca2486e0b7f55e4a1b840dfeaed` corrects the public refusal's selector list.
+The cutover results separate the full API workflows from that response-only check.
+The earlier matched measurements use product source `7876211b6d64dff43ceddd602656017b74860fe9` and merged main `011b29f3a74eac3eb3a977678630c40345157ed4`.
+Those measurements do not measure the later cutover.
+The older reports below preserve the earlier preload and core-memory comparisons.
 The candidate uses CoreWarmSet for partial molecules and full atoms.
 Its least recently used list holds logical path references.
 CoreKeyDomain now supplies complete candidate keys, with a separate byte owner and a shared first-query gate.
@@ -53,8 +66,10 @@ The preserved spike replay returns correct values for its measured workloads and
 It does not establish every supported use case.
 The earlier spike measurements found higher exact-read and write costs.
 The core memory report gives the newer comparison against the preceding branch build.
-NativeWriteGraph supplies accepted raw records, and LogicalResidentSet remains compatibility state.
-Do not remove either route before every required caller moves.
+The earlier candidate used `NativeWriteGraph` for accepted raw records.
+The final native route removes that graph and its duplicate compatibility values.
+The later cutover removes the legacy logical backend from normal startup and direct logical constructors.
+Cloud stays disabled. An empty home initializes directly; no migration code is required.
 
 The earlier preload candidate passes both 256-record generated Mini workloads, a selected 20,000-record workload, and separate key-budget and path-purge cases.
 The [results report](lastdb-schema-range-preload-results.md) records the matched source identities, values, elapsed times, memory, disk size, and regressions.
@@ -101,8 +116,8 @@ The earlier optional 5,000-tip preload allowance is superseded.
 
 ## Execution packages
 
-Packages 1–5 now have product code and bounded ordinary product evidence in the development branch.
-The wider writer inventory remains a separate evidence gap.
+Packages 1–6 now have product code and bounded ordinary product evidence in the development branch.
+The final route inventory records source coverage and each remaining runtime evidence gap.
 An explicit public preload operation is not built.
 Use separate reviewable commits for the packages; keep disk-format work separate from logical correctness.
 The current branch and worktree remain the implementation venue.
@@ -111,16 +126,16 @@ The current branch and worktree remain the implementation venue.
 |---|---|---|---|
 | 0 Preserve the before versions | None | Complete: clean aa64f61 reference source, executable identity, and generated workload receipts. | The final comparison and immutable source receipts are complete. |
 | 1 Add logical keys and their memory owner | 0 | Built: key-only domains, sparse values, lifetime references, byte owner, and native status. | Earlier preload candidate's 20,000-key and 128-path-purge cases pass; larger layouts remain unmeasured. |
-| 2 Complete current boundaries and every affected writer | 1 | Built: common native raw-write publication, captured roots, and candidate changes. | Product receipts cover generated writes; the wider writer inventory remains unproved. |
+| 2 Complete current boundaries and every affected writer | 1 | Built: typed core publication, captured roots, and disk-first system changes. | The final route inventory distinguishes source review from runtime proof for each route. |
 | 3 Build one shared schema loader | 1 and 2 | Built: first-query gate, bounded pages, private load, concurrent changes, Ready, and DiskOnly. | Earlier preload candidate's concurrent first-call and byte-refusal cases pass. Request overlap passes; publication during Loading at ack remains unobserved. No explicit preload API exists. |
 | 4 Route supported queries | 3 | Built: selected-schema query gate, memory candidate selection, and envelope R source. | Earlier preload candidate's ranges, sample, Hash-only, pages, bounds, filter, and envelope reads pass; the broader read-use-case inventory remains open. |
 | 5 Accelerate first load and fallback | 3 and 4 | Built: batched selected Locations and packed ordinary keys. | Final costs and material regressions are recorded; cloud-part costs remain unmeasured. |
-| 6 Complete cutover and final comparison | 2 through 5 | Comparison complete; justified compatibility removal remains pending. | Close the required caller inventory before any full cutover claim. |
+| 6 Complete cutover and final comparison | 2 through 5 | Native write cutover and matched comparison complete. Later cleanup makes native storage the sole logical engine. | The later cutover has separate validation. Broader runtime and size proof remain open. |
 
 The earlier schema-preload comparison uses one executable with schema preload off and on.
 The newer core memory comparison uses the preceding build and the final build, each with preload off and on.
-The next action is review of the recorded tradeoffs and the remaining caller inventory.
-Keep the policy opt-in while the wider writer and read-use-case evidence remains open.
+The next action is review of the recorded performance regressions and the remaining runtime evidence gaps.
+Keep the policy opt-in while the broader read-use-case evidence remains open.
 The package details below retain the target contracts; their completion statements are not claims of completed proof.
 
 ### 0 Preserve the before versions
@@ -213,12 +228,12 @@ The captured generation flag handles physical tip deletion without loss of a ret
 
 A related schema can change the same molecules as the first generated example.
 Source coverage at the native boundary does not prove every caller's end-to-end behavior.
-Keep the wider writer inventory open; do not remove compatibility routes or claim full cutover from the small generated workload.
+The final route inventory covers the native writer boundary. Its source-only routes still require separate runtime evidence.
 
 Primary sources: [view](../fold_db/crates/core/src/storage/disk_pack/view.rs), [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs), [prepared paths](../fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs), [membership pages](../fold_db/crates/core/src/db_operations/atom_store/filter/partition_page.rs).
 
 Completion: every affected writer has a named publication route and the required product receipt.
-The candidate has the common route; those broader receipts remain pending.
+The final candidate has the common route and bounded product receipts. The final route report names the remaining broader proof gaps.
 The current disk reader must retain one consistent captured boundary through the whole query batch.
 
 ### 3 Build one shared schema loader
@@ -328,7 +343,8 @@ Keep this format work in separate reviewable changes from packages 1–4.
 ### 6 Complete cutover and final comparison
 
 Close the complete reader/writer inventory and keep required product receipts beside each route.
-Remove NativeWriteGraph and duplicate compatibility values only when no required caller depends on them.
+The final native route removes `NativeWriteGraph` and duplicate native compatibility values after the caller review.
+Legacy backend compatibility remains. The final route report states the deliberate disk-first routes and runtime proof limits.
 Retain the intentional DiskOnly selector and required file-root lifetime controls.
 Remove Single and standalone Range across declarations, callers, and clients together.
 Reject as_of at every public entry point.

@@ -1,11 +1,12 @@
 //! Calls hold only their selected logical paths in the core model.
 use super::super::*;
 use crate::resident::{CorePath, CoreWarmSet};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct CoreCallHolds {
     core: Arc<Mutex<CoreWarmSet>>,
     paths: Mutex<BTreeSet<CorePath>>,
+    values: Mutex<BTreeMap<usize, Arc<dyn std::any::Any + Send + Sync>>>,
 }
 
 impl CoreCallHolds {
@@ -13,6 +14,7 @@ impl CoreCallHolds {
         Self {
             core,
             paths: Mutex::new(BTreeSet::new()),
+            values: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -29,6 +31,10 @@ impl CoreCallHolds {
                     detail: error.to_string(),
                 })?;
         held.extend(reserved);
+        let mut values = self.values.lock().expect("core call value owners");
+        for owner in core.retained_values(paths) {
+            values.insert(Arc::as_ptr(&owner) as *const () as usize, owner);
+        }
         Ok(())
     }
 }

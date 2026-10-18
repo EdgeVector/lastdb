@@ -2,8 +2,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::super::MutationManager;
-use super::{scoped_gate::schema_is_scoped, PreparedSlotRevision};
 use crate::atom::Atom;
 use crate::db_operations::atom_store::AtomStore;
 use crate::protein::Protein;
@@ -92,63 +90,4 @@ pub(super) async fn load_protein_fold_metadata(
         .await?;
     let proteins_by_uuid = protein_uuids.into_iter().zip(proteins).collect();
     Ok((owners_by_molecule, proteins_by_uuid))
-}
-
-impl MutationManager {
-    /// Observe every planned sibling before any sibling tip load. The leases
-    /// stay in the prepared delta until the apply gate accepts its snapshot.
-    pub(super) fn prepare_protein_sibling_slots(
-        &self,
-        schema: &Schema,
-        mutations: &[Mutation],
-        keys: &[KeyValue],
-        eligible: &[(usize, &Atom, &str)],
-        metadata: &ProteinFoldMetadata,
-    ) -> Vec<PreparedSlotRevision> {
-        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
-            || schema_is_scoped(schema)
-        {
-            return Vec::new();
-        }
-        let entry_layout = schema.key.as_ref().and_then(|key| {
-            key.hash_field
-                .as_deref()
-                .map(|hash| (hash, key.range_field.as_deref()))
-        });
-        let mut observed = HashSet::new();
-        let mut prepared = Vec::new();
-        for (idx, _atom, entry_molecule) in eligible {
-            let Some(protein) = metadata
-                .0
-                .get(*entry_molecule)
-                .and_then(Option::as_ref)
-                .and_then(|uuid| metadata.1.get(uuid))
-                .and_then(Option::as_ref)
-            else {
-                continue;
-            };
-            let fields = super::apply::sibling_key_fields(schema, &keys[*idx], &mutations[*idx]);
-            for member in &protein.members {
-                if member.molecule_uuid == *entry_molecule
-                    && entry_layout.is_none_or(|(hash, range)| {
-                        member.hash_field == hash && member.range_field.as_deref() == range
-                    })
-                {
-                    continue;
-                }
-                let Some((hash, range)) = member.tip_coords_from_fields(&fields) else {
-                    continue;
-                };
-                if observed.insert((member.molecule_uuid.clone(), hash.clone(), range.clone())) {
-                    prepared.push(PreparedSlotRevision::capture(
-                        self.resident_graph(),
-                        &member.molecule_uuid,
-                        &hash,
-                        &range,
-                    ));
-                }
-            }
-        }
-        prepared
-    }
 }

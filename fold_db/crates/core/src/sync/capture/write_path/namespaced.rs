@@ -22,12 +22,6 @@ impl NamespacedStore for MutationLogCaptureNamespacedStore {
         self.inner.disk_pack_runtime()
     }
 
-    fn plaintext_read_cache(
-        &self,
-    ) -> Option<Arc<std::sync::Mutex<crate::resident::LogicalResidentSet>>> {
-        self.inner.plaintext_read_cache()
-    }
-
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
         let inner = self.inner.open_namespace(name).await?;
         if policy::capture_should_skip_namespace(name) {
@@ -58,12 +52,6 @@ impl NamespacedStore for MutationLogCaptureNamespacedStore {
 
     fn laststore_backup_source(&self) -> Option<Arc<crate::storage::LastStoreNamespacedStore>> {
         self.inner.laststore_backup_source()
-    }
-
-    fn logical_resident_set(
-        &self,
-    ) -> Option<Arc<std::sync::Mutex<crate::resident::LogicalResidentSet>>> {
-        self.inner.logical_resident_set()
     }
 
     fn cold_shard_loads(&self) -> Option<u64> {

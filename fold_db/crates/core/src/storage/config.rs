@@ -3,12 +3,12 @@ use std::path::PathBuf;
 
 /// Local primary storage engine for the FoldDB namespaced data path.
 ///
-/// **Last Store only.** Sled was removed after the Mini cutover; configs or
-/// `LASTDB_ENGINE=sled` fail at parse so operators never boot a missing backend.
+/// Last Store names the native packed engine. Normal construction has no
+/// old-format backend selection or migration fallback.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StorageEngine {
-    /// Last Store multi-collection document engine (sole product engine).
+    /// Native packed storage (the sole product engine).
     #[default]
     #[serde(alias = "last_store", alias = "last-store")]
     Laststore,
@@ -126,7 +126,8 @@ impl Default for P2pSyncConfig {
     }
 }
 
-/// Storage configuration — always local Last Store, optionally with cloud sync.
+/// Native local storage configuration. Cloud intent still decodes, but the
+/// factory refuses activation until the native cloud gate is complete.
 ///
 /// Uses a custom deserializer to support both the new format and the legacy
 /// `{"type": "local", ...}` / `{"type": "exemem", ...}` JSON formats.

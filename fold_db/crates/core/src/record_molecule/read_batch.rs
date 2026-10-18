@@ -14,10 +14,10 @@ const BATCH_KEYS: usize = 1000;
 struct SelectedAtom {
     base: String,
     uuid: String,
-    record: Option<PerKeyRecord>,
+    record: PerKeyRecord,
 }
 
-pub(super) async fn load_record_tip_atoms(
+pub(crate) async fn load_record_tip_atoms(
     db_ops: &DbOperations,
     molecule: &str,
     keys: &[KeyValue],
@@ -50,21 +50,18 @@ pub(super) async fn load_record_tip_atoms(
         }
         let candidates = candidate_groups(db_ops, molecule, &cold)?;
         let groups = keep_possible_candidates(db_ops, scope, candidates.clone())?;
-        let (groups, resident) = legacy_candidates(db_ops, scope, groups);
         let tips = db_ops
             .atoms()
             .load_first_present_candidate_with_key(scope, &groups)
             .await?;
         let selected: Vec<_> = tips
             .into_iter()
-            .zip(resident)
-            .map(|(tip, resident)| {
+            .map(|tip| {
                 tip.map(|(base, record)| SelectedAtom {
                     base,
                     uuid: record.entry.atom_uuid.clone(),
-                    record: Some(record),
+                    record,
                 })
-                .or(resident)
             })
             .collect();
         let atoms = load_selected_atoms(db_ops, scope, &selected).await?;
@@ -73,18 +70,17 @@ pub(super) async fn load_record_tip_atoms(
         {
             if let Some(atom) = atom {
                 if let (Some(schema), Some(selected)) = (schema, selected) {
-                    if let Some(tip) = selected.record {
-                        let hint = AtomPartition::from_record_key(&selected.base);
-                        record::admit(
-                            db_ops.namespaced_store().disk_pack_runtime(),
-                            schema,
-                            scope,
-                            molecule,
-                            &key,
-                            (&selected.base, &tip, &candidates),
-                            hint.as_ref(),
-                        )?;
-                    }
+                    let tip = selected.record;
+                    let hint = AtomPartition::from_record_key(&selected.base);
+                    record::admit(
+                        db_ops.namespaced_store().disk_pack_runtime(),
+                        schema,
+                        scope,
+                        molecule,
+                        &key,
+                        (&selected.base, &tip, &candidates),
+                        hint.as_ref(),
+                    )?;
                 }
                 output.insert(key, atom);
             } else if selected.is_none() {
@@ -185,64 +181,22 @@ fn coordinates(base: &str) -> Option<(&str, String, String)> {
     Some((molecule, hash, range))
 }
 
-/// Preserve the legacy per-candidate graph-before-disk priority.
-fn legacy_candidates(
-    db_ops: &DbOperations,
-    scope: Option<&str>,
-    mut groups: Vec<Vec<String>>,
-) -> (Vec<Vec<String>>, Vec<Option<SelectedAtom>>) {
-    let mut resident: Vec<Option<SelectedAtom>> = (0..groups.len()).map(|_| None).collect();
-    if !crate::db_operations::resident_read::tip_reads_resident_first(db_ops, scope) {
-        return (groups, resident);
-    }
-    for (group, fallback) in groups.iter_mut().zip(&mut resident) {
-        let resident_tip = group.iter().enumerate().find_map(|(index, base)| {
-            let (molecule, hash, range) = coordinates(base)?;
-            db_ops
-                .resident()
-                .resolve_tip(molecule, &hash, &range)
-                .map(|tip| {
-                    (
-                        index,
-                        SelectedAtom {
-                            base: base.clone(),
-                            uuid: tip.value.atom_uuid,
-                            record: None,
-                        },
-                    )
-                })
-        });
-        if let Some((index, tip)) = resident_tip {
-            *fallback = Some(tip);
-            group.truncate(index);
-        }
-    }
-    (groups, resident)
-}
-
 async fn load_selected_atoms(
     db_ops: &DbOperations,
     scope: Option<&str>,
     selected: &[Option<SelectedAtom>],
 ) -> Result<Vec<Option<Atom>>, SchemaError> {
-    let legacy = crate::db_operations::resident_read::tip_reads_resident_first(db_ops, scope);
     let mut output = vec![None; selected.len()];
     let mut missing = Vec::new();
     for (index, selected) in selected.iter().enumerate() {
         let Some(selected) = selected else {
             continue;
         };
-        output[index] = legacy
-            .then(|| db_ops.resident().resolve_atom(&selected.uuid))
-            .flatten()
-            .and_then(|hit| hit.value.into_atom());
-        if output[index].is_none() {
-            missing.push((
-                index,
-                selected.uuid.as_str(),
-                AtomPartition::from_record_key(&selected.base),
-            ));
-        }
+        missing.push((
+            index,
+            selected.uuid.as_str(),
+            AtomPartition::from_record_key(&selected.base),
+        ));
     }
     if missing.is_empty() {
         return Ok(output);

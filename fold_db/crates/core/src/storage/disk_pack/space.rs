@@ -26,12 +26,7 @@ pub(super) fn policy_from_env() -> StorageResult<SpacePolicy> {
 }
 
 pub(super) fn validate_resident_policy() -> StorageResult<()> {
-    if crate::resident::ResidentPolicy::from_env()
-        .mode
-        .acks_on_resident()
-    {
-        memory_flush_delay()?;
-    }
+    memory_flush_delay()?;
     Ok(())
 }
 

@@ -94,7 +94,6 @@ impl LastStoreNamespacedStore {
             )));
         }
 
-        let logical = Arc::clone(&self.logical);
         let store = Arc::clone(&self.store);
         let high_water = self.high_water.clone();
         LastStoreKvStore::run_blocking(move || {
@@ -137,7 +136,9 @@ impl LastStoreNamespacedStore {
             }
 
             if options.execute && !ops.is_empty() {
-                direct_write_invalidation::after_transaction(&logical, &store, ops)?;
+                store
+                    .transaction(ops)
+                    .map_err(LastStoreKvStore::map_error)?;
                 LastStoreKvStore::record_high_water(high_water.as_ref(), &store)?;
             }
 

@@ -184,6 +184,11 @@ impl PackRuntime {
                 )
             })
             .await?;
+        // A captured typed write may introduce a generation not on disk yet.
+        let has_generation = has_generation
+            || base
+                .core_model
+                .has_changes(entry.id.0.as_deref(), &entry.id.1);
         {
             let mut state = entry.state.lock().expect("key load generation identity");
             if !state

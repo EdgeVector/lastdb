@@ -105,12 +105,3 @@ pub(crate) struct CoherenceBinding {
     pub(crate) peer_molecule: String,
     pub(crate) peer_layout: crate::schema::field_hash_coherence::KeyLayoutFingerprint,
 }
-
-/// SchemaCore is THE schema owner. This impl is the sanctioned bridge: a resident
-/// schema miss loads from the catalog instead of growing a second cache.
-impl crate::resident::SchemaLoader for SchemaCore {
-    fn load_schema(&self, name: &str) -> Result<Option<Schema>, String> {
-        self.get_schema_metadata(name)
-            .map_err(|error| error.to_string())
-    }
-}

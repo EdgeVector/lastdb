@@ -79,23 +79,6 @@ impl DeleteBarrier {
         self.covers_write_time(tip.written_at) && self.order_key() >= tip_order_key(tip)
     }
 
-    pub(crate) fn blocks_resident_tip(&self, tip: &crate::resident::ResidentTip) -> bool {
-        let writer = if tip.device_id.is_empty() {
-            tip.writer_pubkey.as_str()
-        } else {
-            tip.device_id.as_str()
-        };
-        self.covers_write_time(tip.written_at)
-            && self.order_key()
-                >= (
-                    tip.written_at,
-                    tip.logical_counter,
-                    writer,
-                    tip.mutation_uuid.as_str(),
-                    0,
-                )
-    }
-
     pub(crate) fn is_newer_than(&self, other: &Self) -> bool {
         self.order_key() > other.order_key()
             || (self.order_key() == other.order_key()

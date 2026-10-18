@@ -1,0 +1,2316 @@
+{
+  "alerts": [
+    48,
+    49,
+    50,
+    51
+  ],
+  "analysis_commit": "0a2fbcb3b4f80ffc5777c8829aa614270773e683",
+  "analysis_id": 1975284890,
+  "analysis_sarif_sha256": "3008696fce7e471d43a7a48e3869fdea2c261b3cc0bbf457a31a78e6091bdb13",
+  "conclusions": {
+    "action": "No error sanitization or product alteration addresses the reported paths. No alert dismissal, suppression, or security-policy change was performed.",
+    "call_io": "All three flow endpoints are VecDeque receiver expressions on the call-local descriptor pool. No logging or output operation occurs at these endpoints. UUID taint reaches the aggregate ReadCall, then unrelated self.files and self.parts fields.",
+    "cli": "The endpoint is the requested successful JSON command response. The reported path taints the aggregate closure result through DiskHome::open; it does not show an internal UUID field projected into the JSON value. Command output retains explicit key/body results and numeric public metadata."
+  },
+  "product_changes": false,
+  "results": [
+    {
+      "flows": [
+        [
+          {
+            "line": 60,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 27,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 27,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 40,
+            "message": "...::current(...)",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 40,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 212,
+            "message": "...::capture(...)",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 212,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 263,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 263,
+            "message": "mut call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 269,
+            "message": "call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 301,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 306,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 16,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 52,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 42,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ],
+        [
+          {
+            "line": 69,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 69,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 69,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 27,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 27,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 40,
+            "message": "...::current(...)",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 40,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 212,
+            "message": "...::capture(...)",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 212,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 263,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 263,
+            "message": "mut call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 269,
+            "message": "call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 301,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 306,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 16,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 52,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 42,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ],
+        [
+          {
+            "line": 165,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 165,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 165,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 181,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 173,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 223,
+            "message": "...::read(...)",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 223,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 263,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 263,
+            "message": "mut call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 269,
+            "message": "call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 301,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 306,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 16,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 52,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 42,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ],
+        [
+          {
+            "line": 176,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/location.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 176,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/location.rs"
+          },
+          {
+            "line": 176,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/location.rs"
+          },
+          {
+            "line": 147,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 147,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 118,
+            "message": "self.range_in_groups(...)",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 91,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 173,
+            "message": "call.hash_range(...)",
+            "path": "vendor/laststore/src/bin/lastdb-range.rs"
+          },
+          {
+            "line": 173,
+            "message": "mut cursor",
+            "path": "vendor/laststore/src/bin/lastdb-range.rs"
+          },
+          {
+            "line": 176,
+            "message": "cursor",
+            "path": "vendor/laststore/src/bin/lastdb-range.rs"
+          },
+          {
+            "line": 180,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 190,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 195,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 237,
+            "message": "self.call",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 8,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/selected_batch.rs"
+          },
+          {
+            "line": 33,
+            "message": "self",
+            "path": "vendor/laststore/src/disk_pack/selected_batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 42,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ]
+      ],
+      "line": 42,
+      "path": "vendor/laststore/src/disk_pack/call_io.rs"
+    },
+    {
+      "flows": [
+        [
+          {
+            "line": 60,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 27,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 27,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 40,
+            "message": "...::current(...)",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 40,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 212,
+            "message": "...::capture(...)",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 212,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 263,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 263,
+            "message": "mut call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 269,
+            "message": "call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 301,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 306,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 16,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 52,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 33,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ],
+        [
+          {
+            "line": 69,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 69,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 69,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 27,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 27,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 40,
+            "message": "...::current(...)",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 40,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 212,
+            "message": "...::capture(...)",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 212,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 263,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 263,
+            "message": "mut call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 269,
+            "message": "call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 301,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 306,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 16,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 52,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 33,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ],
+        [
+          {
+            "line": 165,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 165,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 165,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 181,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 173,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 223,
+            "message": "...::read(...)",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 223,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 263,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 263,
+            "message": "mut call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 269,
+            "message": "call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 301,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 306,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 16,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 52,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 33,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ],
+        [
+          {
+            "line": 176,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/location.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 176,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/location.rs"
+          },
+          {
+            "line": 176,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/location.rs"
+          },
+          {
+            "line": 147,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 147,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 118,
+            "message": "self.range_in_groups(...)",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 91,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 173,
+            "message": "call.hash_range(...)",
+            "path": "vendor/laststore/src/bin/lastdb-range.rs"
+          },
+          {
+            "line": 173,
+            "message": "mut cursor",
+            "path": "vendor/laststore/src/bin/lastdb-range.rs"
+          },
+          {
+            "line": 176,
+            "message": "cursor",
+            "path": "vendor/laststore/src/bin/lastdb-range.rs"
+          },
+          {
+            "line": 180,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 190,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 195,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 237,
+            "message": "self.call",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 8,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/selected_batch.rs"
+          },
+          {
+            "line": 33,
+            "message": "self",
+            "path": "vendor/laststore/src/disk_pack/selected_batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 33,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ]
+      ],
+      "line": 33,
+      "path": "vendor/laststore/src/disk_pack/call_io.rs"
+    },
+    {
+      "flows": [
+        [
+          {
+            "line": 60,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 27,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 27,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 40,
+            "message": "...::current(...)",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 40,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 212,
+            "message": "...::capture(...)",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 212,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 263,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 263,
+            "message": "mut call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 269,
+            "message": "call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 301,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 306,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 16,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 52,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 29,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ],
+        [
+          {
+            "line": 69,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 69,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 69,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 27,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 27,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 40,
+            "message": "...::current(...)",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 40,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/lifetime/mod.rs"
+          },
+          {
+            "line": 212,
+            "message": "...::capture(...)",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 212,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 263,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 263,
+            "message": "mut call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 269,
+            "message": "call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 301,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 306,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 16,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 52,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 29,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ],
+        [
+          {
+            "line": 165,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 165,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 165,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 181,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 173,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 223,
+            "message": "...::read(...)",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 223,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 263,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 263,
+            "message": "mut call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 269,
+            "message": "call",
+            "path": "vendor/laststore/src/bin/lastdb-pack.rs"
+          },
+          {
+            "line": 301,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 306,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call.rs"
+          },
+          {
+            "line": 16,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 52,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 29,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ],
+        [
+          {
+            "line": 176,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/location.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 176,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/location.rs"
+          },
+          {
+            "line": 176,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/location.rs"
+          },
+          {
+            "line": 147,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 147,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 118,
+            "message": "self.range_in_groups(...)",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 91,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 173,
+            "message": "call.hash_range(...)",
+            "path": "vendor/laststore/src/bin/lastdb-range.rs"
+          },
+          {
+            "line": 173,
+            "message": "mut cursor",
+            "path": "vendor/laststore/src/bin/lastdb-range.rs"
+          },
+          {
+            "line": 176,
+            "message": "cursor",
+            "path": "vendor/laststore/src/bin/lastdb-range.rs"
+          },
+          {
+            "line": 180,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 190,
+            "message": "self [&ref]",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 195,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 237,
+            "message": "self.call",
+            "path": "vendor/laststore/src/disk_pack/hash_range.rs"
+          },
+          {
+            "line": 8,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/selected_batch.rs"
+          },
+          {
+            "line": 33,
+            "message": "self",
+            "path": "vendor/laststore/src/disk_pack/selected_batch.rs"
+          },
+          {
+            "line": 12,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 30,
+            "message": "self",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 36,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 41,
+            "message": "self",
+            "path": "vendor/laststore/src/disk_pack/batch_io.rs"
+          },
+          {
+            "line": 64,
+            "message": "SelfParam",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 72,
+            "message": "self.files",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 27,
+            "message": "SelfParam [&ref]",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          },
+          {
+            "line": 29,
+            "message": "self.parts",
+            "path": "vendor/laststore/src/disk_pack/call_io.rs"
+          }
+        ]
+      ],
+      "line": 29,
+      "path": "vendor/laststore/src/disk_pack/call_io.rs"
+    },
+    {
+      "flows": [
+        [
+          {
+            "line": 60,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 27,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 27,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 232,
+            "message": "...::current(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 232,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 223,
+            "message": "...::open_conversion(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 221,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 90,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 90,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 141,
+            "message": "work(...)",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 124,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 166,
+            "message": "context.with(...)",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 166,
+            "message": "result",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 167,
+            "message": "result",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 167,
+            "message": "TupleExpr [tuple.0]",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 164,
+            "message": "{ ... } [tuple.0]",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 86,
+            "message": "observe_disk_reads(...) [tuple.0]",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 86,
+            "message": "TuplePat [tuple.0]",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 86,
+            "message": "result",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 105,
+            "message": "mut output",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 112,
+            "message": "MacroExpr",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          }
+        ],
+        [
+          {
+            "line": 69,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 69,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 69,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/current.rs"
+          },
+          {
+            "line": 27,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 27,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/artifact.rs"
+          },
+          {
+            "line": 232,
+            "message": "...::current(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 232,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 223,
+            "message": "...::open_conversion(...)",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 221,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/home.rs"
+          },
+          {
+            "line": 90,
+            "message": "...::open(...)",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 90,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 141,
+            "message": "work(...)",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 124,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 166,
+            "message": "context.with(...)",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 166,
+            "message": "result",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 167,
+            "message": "result",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 167,
+            "message": "TupleExpr [tuple.0]",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 164,
+            "message": "{ ... } [tuple.0]",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 86,
+            "message": "observe_disk_reads(...) [tuple.0]",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 86,
+            "message": "TuplePat [tuple.0]",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 86,
+            "message": "result",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 105,
+            "message": "mut output",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 112,
+            "message": "MacroExpr",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          }
+        ],
+        [
+          {
+            "line": 172,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 172,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 172,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 133,
+            "message": "read(...)",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 132,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 56,
+            "message": "verify(...)",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 56,
+            "message": "return ...",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 26,
+            "message": "write_with_prior(...)",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 25,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 183,
+            "message": "...::write(...)",
+            "path": "vendor/laststore/src/disk_pack/build.rs"
+          },
+          {
+            "line": 183,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/build.rs"
+          },
+          {
+            "line": 54,
+            "message": "... .finish()",
+            "path": "vendor/laststore/src/disk_pack/home/build.rs"
+          },
+          {
+            "line": 54,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/home/build.rs"
+          },
+          {
+            "line": 151,
+            "message": "builder.finish()",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 151,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 88,
+            "message": "build(...)",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 88,
+            "message": "return ...",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 141,
+            "message": "work(...)",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 124,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 166,
+            "message": "context.with(...)",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 166,
+            "message": "result",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 167,
+            "message": "result",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 167,
+            "message": "TupleExpr [tuple.0]",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 164,
+            "message": "{ ... } [tuple.0]",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 86,
+            "message": "observe_disk_reads(...) [tuple.0]",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 86,
+            "message": "TuplePat [tuple.0]",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 86,
+            "message": "result",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 105,
+            "message": "mut output",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 112,
+            "message": "MacroExpr",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          }
+        ],
+        [
+          {
+            "line": 16,
+            "message": "uuid_at(...)",
+            "path": "vendor/laststore/src/disk_pack/generation/dependency_record.rs"
+          },
+          {
+            "line": 60,
+            "message": "...: Uuid",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "id",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 64,
+            "message": "Ok(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 60,
+            "message": "{ ... } [Ok]",
+            "path": "vendor/laststore/src/disk_pack/bytes.rs"
+          },
+          {
+            "line": 16,
+            "message": "nonnil(...) [Ok]",
+            "path": "vendor/laststore/src/disk_pack/generation/dependency_record.rs"
+          },
+          {
+            "line": 16,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/generation/dependency_record.rs"
+          },
+          {
+            "line": 89,
+            "message": "...::decode(...)",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 89,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 26,
+            "message": "write_with_prior(...)",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 25,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/disk_pack/generation.rs"
+          },
+          {
+            "line": 183,
+            "message": "...::write(...)",
+            "path": "vendor/laststore/src/disk_pack/build.rs"
+          },
+          {
+            "line": 183,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/build.rs"
+          },
+          {
+            "line": 54,
+            "message": "... .finish()",
+            "path": "vendor/laststore/src/disk_pack/home/build.rs"
+          },
+          {
+            "line": 54,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/disk_pack/home/build.rs"
+          },
+          {
+            "line": 151,
+            "message": "builder.finish()",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 151,
+            "message": "TryExpr",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 88,
+            "message": "build(...)",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 88,
+            "message": "return ...",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 141,
+            "message": "work(...)",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 124,
+            "message": "{ ... }",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 166,
+            "message": "context.with(...)",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 166,
+            "message": "result",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 167,
+            "message": "result",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 167,
+            "message": "TupleExpr [tuple.0]",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 164,
+            "message": "{ ... } [tuple.0]",
+            "path": "vendor/laststore/src/read_receipt.rs"
+          },
+          {
+            "line": 86,
+            "message": "observe_disk_reads(...) [tuple.0]",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 86,
+            "message": "TuplePat [tuple.0]",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 86,
+            "message": "result",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 105,
+            "message": "mut output",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          },
+          {
+            "line": 112,
+            "message": "MacroExpr",
+            "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+          }
+        ]
+      ],
+      "line": 112,
+      "path": "vendor/laststore/src/bin/lastdb-disk-home.rs"
+    }
+  ],
+  "reviewed_utc": "2026-10-18T08:53:30.110864+00:00"
+}

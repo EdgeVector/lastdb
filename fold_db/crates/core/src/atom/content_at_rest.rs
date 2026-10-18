@@ -1,21 +1,9 @@
-//! Field-level at-rest seal for [`Atom`](super::Atom) `content` only.
+//! Field-level at-rest encryption for an atom's content.
 //!
-//! Plain hash-group packaging leaves group files structural plaintext. Body
-//! secrecy is this module: seal JSON content under the account E2E key while
-//! leaving `uuid`, `source_schema_name`, `metadata`, and timestamps plain.
-//!
-//! ## Operation Trinity (Son)
-//!
-//! **Library / Mini binary default (unset env):** dual-read is **on** so
-//! legacy plain content still opens during migrate. That is intentional so
-//! an unresealed home is not bricked.
-//!
-//! **Trinity product posture (Tom's primary after reseal):** fail-closed
-//! open via durable `LASTDB_ATOM_CONTENT_STRICT=1` on the LaunchAgent (or
-//! `LASTDB_ATOM_CONTENT_DUAL_READ=0`). After `lastdb_reseal_atom_content`,
-//! STRICT must remain set forever on product primaries — it is not a
-//! temporary canary. Dual-read is the migrate-window escape, not the
-//! long-term product default for a resealed home.
+//! The keyed native store encrypts JSON content with the account E2E key.
+//! Atom identity, metadata, schema name, and timestamps remain in its header.
+//! A keyed read rejects unencrypted content. This cutover has no plaintext
+//! migration or reseal path.
 
 use crate::crypto::{
     is_sealed_at_rest, open_at_rest, seal_at_rest_deflate_raw, seal_at_rest_deflate_utf8,
@@ -39,31 +27,6 @@ pub fn atom_content_binary_enabled() -> bool {
         env_flag::var_parse("LASTDB_ATOM_CONTENT_BINARY"),
         Some(true)
     )
-}
-
-/// When true, non-`ENC:` content is accepted (legacy migrate window).
-///
-/// # Default when env is unset
-///
-/// Returns **true** (dual-read). This is the safe migrate default so
-/// pre-reseal rows still open. It is **not** the Trinity end-state.
-///
-/// # Trinity fail-closed (required on resealed product primaries)
-///
-/// Set `LASTDB_ATOM_CONTENT_STRICT=1` (or `true`/`yes`), or set
-/// `LASTDB_ATOM_CONTENT_DUAL_READ=0`/`false`/`no`. STRICT wins when both
-/// are set. Primary LaunchAgents that have completed reseal must keep
-/// STRICT permanently.
-#[must_use]
-pub fn atom_content_dual_read_enabled() -> bool {
-    if env_flag::var_truthy("LASTDB_ATOM_CONTENT_STRICT") {
-        return false;
-    }
-    match env_flag::var_parse("LASTDB_ATOM_CONTENT_DUAL_READ") {
-        Some(false) => false,
-        // Explicit dual-read, or unset/unrecognized → dual-read (safe migrate default).
-        _ => true,
-    }
 }
 
 /// Seal atom content for storage. Returns a JSON string value `ENC:…` or
@@ -189,7 +152,7 @@ pub fn atom_row_header(stored: &[u8]) -> CryptoResult<Value> {
 /// Open stored content.
 ///
 /// - `ENC:…` → decrypt under `key`
-/// - non-sealed → dual-read only when [`atom_content_dual_read_enabled`]; else fail closed
+/// - unencrypted content → explicit error
 pub fn open_content_value(key: &[u8; 32], stored: Value) -> CryptoResult<Value> {
     match stored {
         Value::String(s) if is_sealed_at_rest(s.as_bytes()) => {
@@ -198,9 +161,8 @@ pub fn open_content_value(key: &[u8; 32], stored: Value) -> CryptoResult<Value> 
                 CryptoError::InvalidFormat(format!("deserialize sealed atom content: {e}"))
             })
         }
-        other if atom_content_dual_read_enabled() => Ok(other),
         other => Err(CryptoError::InvalidFormat(format!(
-            "atom content is not sealed (Operation Trinity strict open); got {}",
+            "atom content is not encrypted; got {}",
             content_kind(&other)
         ))),
     }
@@ -226,10 +188,8 @@ pub fn seal_atom_json(key: &[u8; 32], atom: &mut Value) -> CryptoResult<()> {
     let Some(content) = obj.get("content").cloned() else {
         return Ok(());
     };
-    // Already sealed string — leave as-is (idempotent rewrite).
-    if matches!(&content, Value::String(s) if is_sealed_at_rest(s.as_bytes())) {
-        return Ok(());
-    }
+    // This input is logical content. A user string can start with an envelope
+    // marker, so its spelling cannot establish that it is already encrypted.
     obj.insert("content".to_string(), seal_content_value(key, &content)?);
     Ok(())
 }
@@ -244,19 +204,4 @@ pub fn open_atom_json(key: &[u8; 32], atom: &mut Value) -> CryptoResult<()> {
     };
     obj.insert("content".to_string(), open_content_value(key, content)?);
     Ok(())
-}
-
-/// Re-seal plain `content` in place (migrate helper). Idempotent for already-sealed.
-pub fn reseal_atom_json_if_plain(key: &[u8; 32], atom: &mut Value) -> CryptoResult<bool> {
-    let Some(obj) = atom.as_object_mut() else {
-        return Ok(false);
-    };
-    let Some(content) = obj.get("content").cloned() else {
-        return Ok(false);
-    };
-    if matches!(&content, Value::String(s) if is_sealed_at_rest(s.as_bytes())) {
-        return Ok(false);
-    }
-    obj.insert("content".to_string(), seal_content_value(key, &content)?);
-    Ok(true)
 }

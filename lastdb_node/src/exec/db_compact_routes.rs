@@ -458,6 +458,9 @@ async fn compact_collections(
 /// Resume Cloud Sync after a compact walk. Returns whether the file state was
 /// restored and, when anything stayed degraded, the operator-facing reason.
 async fn restore_cloud_after_compact(host: &Host) -> (bool, Option<String>) {
+    if let Err(error) = host.db.require_cloud_sync_supported() {
+        return (false, Some(error));
+    }
     match crate::cloud::resume_cloud_sync_file(&host.home) {
         Ok(_) => match host.db.reenable_cloud_sync_live().await {
             Ok(_) => (true, None),

@@ -274,12 +274,7 @@ impl Apply<'_> {
         report: &mut LastStoreCloudRestoreReport,
         frontier: &fold_db::sync::snapshot_log::Frontier,
     ) -> Phase<()> {
-        // Restore is a one-shot CLI. Plist LASTDB_RESIDENT_MODE=write parks
-        // replayed molecules in the resident graph; without a long-lived
-        // persist worker they never land in atoms/tips (2026-08-21: 715
-        // records_applied, dest HashRangeRange empty, only sync_pin_log
-        // files were new). Force LastStore puts + per-batch flush.
-        std::env::set_var("LASTDB_RESIDENT_MODE", "off");
+        // Restore requires the explicit per-batch durability boundary.
         std::env::set_var("LASTDB_MUTATION_SYNC_FLUSH", "1");
         if let Some(progress) = self.progress {
             progress.phase(fold_db::sync::engine::RestorePhase::OpenDatabase);
@@ -308,7 +303,14 @@ impl Apply<'_> {
         })?;
         fold_db
             .set_sync_engine(std::sync::Arc::clone(&self.engine.engine))
-            .await;
+            .await
+            .map_err(|error| {
+                RestoreFailure::new(
+                    Stage::OpenRestoreDatabase,
+                    Code::OperationFailed,
+                    format!("attach restore sync engine: {error}"),
+                )
+            })?;
         let replay = self
             .engine
             .engine

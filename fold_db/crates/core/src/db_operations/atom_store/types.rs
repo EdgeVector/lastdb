@@ -178,20 +178,6 @@ pub(crate) struct MoleculeGenerationDelete {
     pub shadow: AtomEntry,
 }
 
-/// Derived `HashKey(hash)` fast-path marker.
-///
-/// A marker with `range` + `record` is authoritative only for hashes currently
-/// known to have exactly one range. Missing markers and ambiguous markers both
-/// fall back to the `mk:{M}:{hash}\0` prefix scan, so legacy data and multi-range
-/// hashes keep full HashKey semantics.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct HashKeyLookupRecord {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub range: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub record: Option<PerKeyRecord>,
-}
-
 /// The molecule header stored at `mh:{M}`: the molecule-level
 /// `(kind, version, updated_at)`, plus a "this molecule lives in the per-key
 /// layout" marker (its mere presence).

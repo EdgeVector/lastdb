@@ -26,7 +26,7 @@ impl SyncCoordinator {
     /// calls) cannot both observe an empty slot and both spawn a loop — the
     /// older loop would then be unabortable, since `abort_task`/`stop` can
     /// only abort whatever handle is currently stored.
-    pub fn start_background_sync(&self, interval_ms: u64) {
+    pub(crate) fn start_background_sync(&self, interval_ms: u64) {
         let mut slot = self.task.lock().unwrap();
         if slot.is_some() {
             return;

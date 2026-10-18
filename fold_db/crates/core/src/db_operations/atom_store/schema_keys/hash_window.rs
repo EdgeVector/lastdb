@@ -55,7 +55,12 @@ impl AtomStore {
         let mut output = Vec::new();
         while output.len() < limit {
             let ask = skip.saturating_add(limit - output.len()).clamp(1, 1024);
-            let (selected, frontier) = select_lanes(&lanes, &codec, after.as_deref(), ask)?;
+            let Some(selected) = runtime
+                .with_schema_key_selection(|| select_lanes(&lanes, &codec, after.as_deref(), ask))
+            else {
+                return Ok(None);
+            };
+            let (selected, frontier) = selected?;
             let selected = selected
                 .into_iter()
                 .map(|(uid, key)| {

@@ -266,15 +266,12 @@ use std::collections::HashMap;
 /// How a mutation request handles post-write background convergence before
 /// returning to the caller.
 ///
-/// Default is [`Async`]: the HTTP/UDS handler returns after the write is
-/// installed (resident tip under `LASTDB_RESIDENT_MODE=write`) and does **not**
-/// block on the global background-task tracker. That tracker historically
-/// covered native-index side effects; under resident write it is dominated by
-/// other writers' deferred durable LastStore puts, so waiting made every
-/// mutation pay ~1–2s of unrelated work (`index_wait` in `lastdb ops`).
+/// Default is [`Async`]: the handler returns after the core write reaches its
+/// required publication or durability boundary. It does not drain unrelated
+/// background work through the global task tracker.
 ///
 /// Pass [`Sync`] only when the caller needs background work drained before
-/// the response (e.g. a follow-up search that is not served from resident tips).
+/// the response (e.g. a follow-up search that is outside the core query result).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MutationConvergence {

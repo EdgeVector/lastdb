@@ -256,14 +256,8 @@ impl FoldDB {
             .list_live_record_keys_filtered(&molecule, limit, cursor, None, hash_filter.as_deref())
             .await
             .map_err(|e| admin_op_error("list schema keys", e))?;
-        let resident = self.db_ops().resident();
-        let schema_name = schema.name.clone();
         let keys = pairs
             .into_iter()
-            .filter(|(hash, range)| {
-                !resident.is_schema_key_tombstoned(requested, hash, range)
-                    && !resident.is_schema_key_tombstoned(&schema_name, hash, range)
-            })
             .map(|(hash, range)| SchemaRecordKey { hash, range })
             .collect();
         Ok(SchemaRecordKeysReport {

@@ -1,5 +1,4 @@
 use super::*;
-// lint:file-size-ok moved verbatim from the parent module; one method family per file
 
 impl AtomStore {
     /// HashRange field. The narrowable shapes all stay within a single hash, so
@@ -78,6 +77,7 @@ impl AtomStore {
                 ))
             })?;
 
+        let keys = self.merge_captured_tip_keys(storage_prefix, molecule_uuid, keys)?;
         // A legacy/current forked pair is ONE record. Excluding the legacy half
         // here rather than at the read boundary is what keeps the window and
         // `total_count` measured in rows: the boundary's collapse only fires
@@ -137,8 +137,8 @@ impl AtomStore {
             }
             let chunk = sorted_keys[cursor..cursor + ask].to_vec();
             cursor += ask;
-            let (records, _stale) = self
-                .fetch_hash_range_page_records(molecule_uuid, storage_prefix, chunk)
+            let records = self
+                .load_hash_range_page_records(molecule_uuid, storage_prefix, chunk)
                 .await?;
             kept.extend(
                 records
@@ -161,58 +161,11 @@ impl AtomStore {
     ) -> Result<Option<MoleculeData>, SchemaError> {
         use crate::schema::types::field::HashRangeFilter as F;
 
-        // `Page` / `PageAfter` over a whole HashRange field. With `mhr:` retired,
-        // this is Dynamo-style keyed access rather than a full materialize: list
-        // just the `mk:` **keys** (hash, range — no bodies) to resolve range-major
-        // order, take only the requested window, then point-get bodies for that
-        // window alone. Growing the field grows the key listing (cheap: a few
-        // bytes per key, no `AtomEntry`/metadata decode), never the number of
-        // bodies fetched, which stays pinned at `want`. Key-restricted filters
-        // below never needed `mhr:`.
-        if !super::super::super::helpers::HASH_RANGE_PAGE_INDEX_ENABLED {
-            if let Some(found) = self
-                .load_hash_range_page_without_index(
-                    molecule_uuid,
-                    header,
-                    storage_prefix,
-                    filter,
-                    fill,
-                )
-                .await?
-            {
-                return Ok(Some(found));
-            }
-        }
-
-        // `Page` paginated list over a HashRange field. The primary `mk:` keys
-        // are hash-major (`mk:{M}:{esc(hash)}\0{range}`), while Page order is
-        // `(range, hash)`. Use the derived range-major `mhr:` marker index so
-        // the hot path scans only `offset+limit` marker keys, then point-gets
-        // the authoritative `mk:` records for that page. Existing molecules
-        // lazily build the index once; a stale marker triggers one rebuild.
-        if let F::Page { offset, limit } = filter {
-            return self
-                .load_hash_range_page_via_index(
-                    molecule_uuid,
-                    header,
-                    storage_prefix,
-                    offset.saturating_add(*limit),
-                    fill,
-                )
-                .await;
-        }
-
-        if let F::PageAfter { after, limit } = filter {
-            return self
-                .load_hash_range_page_after_via_index(
-                    molecule_uuid,
-                    header,
-                    storage_prefix,
-                    after,
-                    *limit,
-                    fill,
-                )
-                .await;
+        if let Some(found) = self
+            .load_hash_range_page(molecule_uuid, header, storage_prefix, filter, fill)
+            .await?
+        {
+            return Ok(Some(found));
         }
 
         // Multi-get: one grouped read for every (hash, range) pair.

@@ -299,15 +299,6 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Delete retired `schemaidx:` full-atom-copy secondary index keys.
-    ///
-    /// New writes no longer create schemaidx. This reclaims leftover bulk from
-    /// older binaries (often ~equal to atom: size).
-    PurgeSchemaidx {
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
     /// Reap tips of a dropped schema identity.
     ///
     /// Inspects bounded `schemaidx:` and `mk:` pages for one dropped identity.

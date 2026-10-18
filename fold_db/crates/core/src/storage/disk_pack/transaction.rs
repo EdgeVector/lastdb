@@ -2,12 +2,21 @@ use super::*;
 use std::collections::BTreeMap;
 
 mod accounting;
+mod effects;
+mod empty;
 pub(crate) mod publication;
 mod request;
+pub(crate) use effects::{stage_absences, stage_core_memory, stage_paths};
 pub(crate) use request::{background_scope, request_scope};
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
 
-pub(super) use crate::resident::NativeWriteRecord as PendingRecord;
+/// One serialized operation in the existing private preparation and flush log.
+#[derive(Debug)]
+pub(super) struct PendingRecord {
+    pub(super) collection: String,
+    pub(super) key: String,
+    pub(super) body: Option<Vec<u8>>,
+}
 
 #[derive(Default)]
 struct PendingData {
@@ -21,11 +30,13 @@ pub(super) struct PendingBatch {
     data: Mutex<PendingData>,
     publications: publication::PendingPublications,
     retained: Mutex<Vec<Box<dyn Send>>>,
-    raw_memory_reservation: Mutex<Option<crate::memory_budget::DeferReservation>>,
+    raw_memory_reservation: Mutex<Option<Arc<crate::memory_budget::DeferReservation>>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
     durable_only: AtomicBool,
     paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
+    absences: Mutex<Vec<super::logical_paths::LogicalPathAbsence>>,
+    definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
     pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
     source_receipts: Mutex<Option<Arc<Mutex<super::logical_paths::source::Sources>>>>,
     operation_limit: usize,
@@ -47,6 +58,8 @@ impl PendingBatch {
             frozen: AtomicBool::new(false),
             durable_only: AtomicBool::new(false),
             paths: Mutex::new(Vec::new()),
+            absences: Mutex::new(Vec::new()),
+            definitions: Mutex::new(BTreeMap::new()),
             path_protection: Mutex::new(None),
             source_receipts: Mutex::new(None),
             operation_limit: runtime
@@ -136,6 +149,7 @@ impl PendingBatch {
         data.operations
             .try_reserve(additional)
             .map_err(|_| StorageError::BackendError("native mutation allocation refused".into()))?;
+        effects::forget_superseded(self, &operations);
         for operation in operations {
             let at = data.operations.len();
             data.latest
@@ -203,11 +217,19 @@ impl PendingBatch {
             .expect("native private paths")
             .iter()
             .fold(0u64, |sum, record| {
-                sum.saturating_add(record.bytes as u64 + 1024)
+                sum.saturating_add(record.retained_bytes() as u64)
+            });
+        let absences = self
+            .absences
+            .lock()
+            .expect("native private absences")
+            .iter()
+            .fold(0u64, |sum, record| {
+                sum.saturating_add(record.bytes() as u64)
             });
         stored
             .saturating_mul(4)
-            .saturating_add(paths.saturating_mul(2))
+            .saturating_add(paths.saturating_add(absences).saturating_mul(2))
     }
 
     pub(super) fn finish_publications(&self) -> StorageResult<()> {
@@ -240,36 +262,6 @@ pub(crate) fn require_durable(runtime: &PackRuntime) -> StorageResult<()> {
     Ok(())
 }
 
-/// Stage actual path content privately. Metadata and absences do not count.
-pub(crate) fn stage_paths(
-    runtime: &PackRuntime,
-    records: Vec<super::logical_paths::LogicalPathRecord>,
-) -> StorageResult<()> {
-    let pending = PendingBatch::current(runtime).ok_or_else(|| {
-        StorageError::InvalidOperation("native paths require a complete write scope".into())
-    })?;
-    let mut paths = pending.paths.lock().expect("native private paths");
-    let bytes = paths
-        .iter()
-        .chain(&records)
-        .try_fold(0usize, |total, record| {
-            total
-                .checked_add(record.bytes)
-                .and_then(|n| n.checked_add(record.path.id().ok()?.len()))
-                .filter(|n| *n <= 128 * 1024 * 1024)
-                .ok_or_else(|| StorageError::WriteResourceLimit {
-                    detail: "native private paths exceed 128 MiB".into(),
-                })
-        })?;
-    if paths.len().saturating_add(records.len()) > 10_000 || bytes > 128 * 1024 * 1024 {
-        return Err(StorageError::WriteResourceLimit {
-            detail: "native private paths exceed their key cap".into(),
-        });
-    }
-    paths.extend(records);
-    Ok(())
-}
-
 /// Include owned stored bytes, publication copies, and canonical body copies.
 pub(crate) fn memory_quote(runtime: &PackRuntime) -> StorageResult<u64> {
     let pending = PendingBatch::current(runtime).ok_or_else(|| {
@@ -289,7 +281,7 @@ pub(crate) fn retain_raw_memory_reservation(
     *pending
         .raw_memory_reservation
         .lock()
-        .expect("native raw memory reservation") = Some(reservation);
+        .expect("native raw memory reservation") = Some(Arc::new(reservation));
     Ok(())
 }
 

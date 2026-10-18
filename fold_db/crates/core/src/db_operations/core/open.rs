@@ -87,7 +87,7 @@ impl CoreNamespaces {
 }
 
 impl DbOperations {
-    /// Create from a NamespacedStore (works with any backend).
+    /// Create logical database operations from a native namespaced store.
     ///
     /// Mini has no in-process native embedding index. Mutation writes still
     /// deliver Search app outbox batches (`db_operations::search_index`).
@@ -143,6 +143,12 @@ impl DbOperations {
         molecule_wrap_key: Option<[u8; 32]>,
         admit_meter_trust: bool,
     ) -> Result<Self, crate::storage::StorageError> {
+        if store.disk_pack_runtime().is_none() {
+            return Err(crate::storage::StorageError::ConfigurationError(
+                "LastDB logical operations require native packed storage; old engines are unsupported"
+                    .into(),
+            ));
+        }
         let CoreNamespaces {
             main_kv,
             metadata_kv,
@@ -175,19 +181,24 @@ impl DbOperations {
 
         // Domain stores
         let schema_store = {
-            let store = SchemaStore::new(schemas_store, schema_states_store, superseded_by_store);
+            let store = SchemaStore::new(
+                schemas_store,
+                schema_states_store,
+                superseded_by_store,
+                store.disk_pack_runtime(),
+            );
             match atom_content_key {
                 Some(key) => store.with_catalog_unwrap_key(key),
                 None => store,
             }
         };
-        let db_catalog = DbCatalogStore::new(db_catalog_store);
+        let db_catalog = DbCatalogStore::new(db_catalog_store, store.disk_pack_runtime());
         let molecule_keys = MoleculeKeyStore::new(
             molecule_keys_store,
             molecule_wrap_key,
             store.disk_pack_runtime(),
         );
-        let (atom_store, resident) = Self::open_atom_store(
+        let (atom_store, resident_metrics) = Self::open_atom_store(
             &store,
             main_store,
             schema_index_store,
@@ -216,7 +227,7 @@ impl DbOperations {
             attribution_ledger,
             change_feed,
             lineage_index,
-            resident,
+            resident_metrics,
             unresolved_atom_skips: Arc::new(AtomicU64::new(0)),
             unresolved_atom_identities: Arc::new(Mutex::new(HashSet::new())),
             unresolved_identities_capped: Arc::new(AtomicBool::new(false)),
@@ -237,31 +248,26 @@ impl DbOperations {
         molecule_keys: &MoleculeKeyStore,
         db_catalog: &DbCatalogStore,
         admit_meter_trust: bool,
-    ) -> Result<(AtomStore, Arc<crate::resident::ResidentGraph>), crate::storage::StorageError>
+    ) -> Result<(AtomStore, Arc<crate::resident::ResidentMetrics>), crate::storage::StorageError>
     {
         // Resolve the atom body key encoding against the home, not just the
         // environment, and refuse to serve a flat view of a migrated home.
         // Every construction path funnels through here, so this is the one
         // place a boot can pick the wrong addressing.
         let resident_metrics = store
-            .logical_resident_set()
-            .and_then(|set| set.lock().expect("poison").metrics().cloned());
-        let resident = store.disk_pack_runtime().map_or_else(
-            || {
-                Arc::new(match resident_metrics {
-                    Some(metrics) => crate::resident::ResidentGraph::new().with_metrics(metrics),
-                    None => crate::resident::ResidentGraph::new(),
-                })
-            },
-            |runtime| runtime.resident_graph(),
-        );
+            .disk_pack_runtime()
+            .ok_or_else(|| {
+                crate::storage::StorageError::ConfigurationError(
+                    "logical atom construction requires native packed storage".into(),
+                )
+            })?
+            .resident_metrics();
         let atom_store = AtomStore::new_with_content_and_hash_key_codec(
             main_store,
             schema_index_store,
             atom_content_key,
             hash_key_codec,
         )
-        .with_resident_graph(Arc::clone(&resident))
         .with_namespaced_store(Arc::clone(store))
         .with_molecule_keys(molecule_keys.clone())
         .with_keep_small_persist(Arc::new(TypedKvStore::new(keep_small_kv)))
@@ -298,7 +304,7 @@ impl DbOperations {
                 );
             }
         }
-        Ok((atom_store, resident))
+        Ok((atom_store, resident_metrics))
     }
 
     async fn initialize_fresh_native_refs(

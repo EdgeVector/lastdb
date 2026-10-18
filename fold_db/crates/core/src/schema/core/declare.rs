@@ -55,6 +55,10 @@ impl SchemaCore {
 
         // Convert declarative schema to Schema
         let schema = crate::schema::SchemaInterpreter::interpret(declarative_schema)?;
+        crate::schema::require_native_logical_layout(
+            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+            &schema.schema_type,
+        )?;
 
         // Load the schema using the existing method
         self.load_schema_internal(schema).await
@@ -68,6 +72,10 @@ impl SchemaCore {
     ) -> Result<(), SchemaError> {
         // Use the existing parse_schema_file method which handles declarative schemas
         if let Some(schema) = self.parse_schema_file(path.as_ref())? {
+            crate::schema::require_native_logical_layout(
+                self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+                &schema.schema_type,
+            )?;
             self.load_schema_internal(schema).await
         } else {
             Err(SchemaError::InvalidData(

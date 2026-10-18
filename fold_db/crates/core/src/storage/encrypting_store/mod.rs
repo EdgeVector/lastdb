@@ -23,10 +23,7 @@ use crate::storage::reseal_at_rest::{
 };
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use std::sync::{Arc, Mutex};
-
-use crate::resident::{LogicalResidentSet, ReadEpochs};
-use crate::storage::laststore::logical_path;
+use std::sync::Arc;
 
 /// Prefix marker for encrypted values.
 /// On write: `ENC:` + base64(ciphertext) → valid UTF-8 string.
@@ -61,8 +58,6 @@ pub(crate) const DEFLATED_PREFIX: &str = AT_REST_ENC_DEFLATE_PREFIX;
 /// New binary writes use `ENB:` + flags + ciphertext. Legacy `ENC:` and `ENZ:`
 /// values remain readable.
 ///
-/// During migration (dual-read mode), values without the `ENC:` prefix are
-/// treated as pre-migration plaintext and returned as-is.
 /// Write-side compression policy for one store instance.
 ///
 /// Resolved **once, at construction** rather than per write. Both knobs are
@@ -98,7 +93,6 @@ pub struct EncryptingKvStore {
     crypto: Arc<dyn CryptoProvider>,
     /// Write-side compression policy. Reads never consult it.
     compression: KvCompressionPolicy,
-    logical: Option<Arc<Mutex<LogicalResidentSet>>>,
 }
 
 impl EncryptingKvStore {
@@ -112,47 +106,7 @@ impl EncryptingKvStore {
             inner,
             crypto,
             compression: KvCompressionPolicy::from_env(),
-            logical: None,
         }
-    }
-
-    pub(crate) fn with_logical(mut self, logical: Arc<Mutex<LogicalResidentSet>>) -> Self {
-        self.logical = Some(logical);
-        self
-    }
-
-    fn read_epochs(&self) -> Option<ReadEpochs> {
-        self.logical
-            .as_ref()
-            .map(|set| crate::read_receipts::lock(set).read_epochs())
-    }
-
-    fn admit_plain(&self, key: &[u8], plaintext: &[u8], epochs: Option<ReadEpochs>) {
-        if let (Some(set), Some(epochs)) = (&self.logical, epochs) {
-            logical_path::admit_plaintext(set, key, plaintext, epochs);
-        }
-    }
-
-    /// Admit the plaintext of a put. `sealed` is the bytes the inner store
-    /// wrote, so an older concurrent put does not replace a newer body.
-    fn admit_written(&self, key: &[u8], sealed_digest: u64, plaintext: &[u8]) {
-        if let Some(set) = &self.logical {
-            logical_path::admit_written_plaintext(set, key, sealed_digest, plaintext);
-        }
-    }
-
-    fn lookup_plain(&self, key: &[u8]) -> Option<logical_path::ResidentLookup> {
-        let result = self
-            .logical
-            .as_ref()
-            .map(|set| logical_path::lookup_plaintext(set, key));
-        if matches!(
-            result,
-            Some(logical_path::ResidentLookup::Hit(_) | logical_path::ResidentLookup::Absent)
-        ) {
-            crate::read_receipts::warm_hit();
-        }
-        result
     }
 
     /// Select the crypto provider for a key.
@@ -296,13 +250,11 @@ impl EncryptingKvStore {
     async fn decrypt_rows(
         &self,
         rows: Vec<(Vec<u8>, Vec<u8>)>,
-        epochs: Option<ReadEpochs>,
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         let mut decrypted_rows = Vec::with_capacity(rows.len());
         for (key, stored) in rows {
             // A row with no envelope is absent, so it is simply not in the scan.
             if let Some(plaintext) = self.open_or_discard(&key, stored).await? {
-                self.admit_plain(&key, &plaintext, epochs);
                 decrypted_rows.push((key, plaintext));
             }
         }

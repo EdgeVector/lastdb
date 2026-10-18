@@ -8,7 +8,6 @@ struct PreparedAtomPhase {
     original_atom_results: Vec<(usize, String, crate::atom::Atom)>,
     deferred_atoms: Option<Vec<(crate::atom::Atom, Option<crate::atom::AtomPartition>)>>,
     changed_keys: HashMap<String, HashSet<crate::db_operations::ChangedKey>>,
-    prepared: Vec<super::super::molecules::PreparedSlotRevision>,
 }
 
 impl MutationManager {
@@ -81,8 +80,7 @@ impl MutationManager {
         let changed_keys =
             Self::changed_keys_by_field(schema, schema_mutations, &mutation_key_values);
         let restore_start = std::time::Instant::now();
-        let prepared = self
-            .reload_changed_for_prepare(schema, &changed_keys)
+        self.reload_changed_for_prepare(schema, &changed_keys)
             .await?;
         Self::add_timing(
             timing_breakdown,
@@ -105,7 +103,6 @@ impl MutationManager {
             original_atom_results,
             deferred_atoms,
             changed_keys,
-            prepared,
         })
     }
 
@@ -121,7 +118,7 @@ impl MutationManager {
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
     ) -> Result<super::super::molecules::PreparedSiblingUpdates, SchemaError> {
         let fold_start = std::time::Instant::now();
-        let (sibling_updates, sibling_prepared, sibling_origins) = self
+        let (sibling_updates, sibling_origins, sibling_moves) = self
             .build_protein_sibling_updates(
                 schema,
                 schema_mutations,
@@ -134,7 +131,7 @@ impl MutationManager {
             "  - protein_sibling_fold",
             fold_start.elapsed(),
         );
-        Ok((sibling_updates, sibling_prepared, sibling_origins))
+        Ok((sibling_updates, sibling_origins, sibling_moves))
     }
 
     /// Prepare one schema group's atoms, restored tips, and persist capacity.
@@ -145,7 +142,6 @@ impl MutationManager {
         mut schema_mutations: Vec<Mutation>,
         idempotency_entries: Vec<(String, String)>,
         storage_prefix: Option<&str>,
-        force_durable: bool,
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
     ) -> Result<super::super::molecules::PreparedSchemaDelta, SchemaError> {
         // Register before atom creation. An atom reclaim cut samples this
@@ -169,7 +165,6 @@ impl MutationManager {
             original_atom_results,
             deferred_atoms,
             changed_keys,
-            prepared,
         } = self
             .prepare_atom_phase(
                 &schema_name,
@@ -179,7 +174,7 @@ impl MutationManager {
                 timing_breakdown,
             )
             .await?;
-        let (sibling_updates, sibling_prepared, sibling_origins) = self
+        let (sibling_updates, sibling_origins, sibling_moves) = self
             .prepare_sibling_phase(
                 &schema,
                 &schema_mutations,
@@ -195,16 +190,6 @@ impl MutationManager {
             &schema_mutations,
             &mutation_key_values,
         );
-        let (defer_reservation, lane_reservation, wait_for_persist_lane) = self
-            .reserve_persist_capacity(
-                &schema_name,
-                storage_prefix,
-                force_durable,
-                deferred_atoms.as_deref(),
-                &idempotency_entries,
-                search_batch.as_ref(),
-                &share_prefixes,
-            )?;
 
         Ok(super::super::molecules::PreparedSchemaDelta {
             pending_persist_task,
@@ -219,82 +204,11 @@ impl MutationManager {
             share_prefixes,
             sibling_updates,
             sibling_origins,
-            sibling_prepared,
+            sibling_moves,
             idempotency_entries,
             changed_keys,
-            prepared,
             tracks_retention_age,
             tracks_retention_hash_partitions,
-            defer_reservation,
-            lane_reservation,
-            wait_for_persist_lane,
         })
-    }
-
-    /// Fill one schema envelope while the caller owns every affected gate.
-    ///
-    /// Resident tips are already published when this runs. The function must
-    /// not fail the request: an Err here skips MutationIntent capture and
-    /// author-clock submit while RAM already shows the new tips.
-    pub(super) fn finalize_prepared_schema_delta(
-        &self,
-        delta: &mut super::super::molecules::PreparedSchemaDelta,
-        gate_outcome: &super::super::molecules::ApplyGateOutcome,
-        timing_breakdown: &mut HashMap<&str, std::time::Duration>,
-        author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
-    ) -> Option<tokio::sync::oneshot::Receiver<crate::request_phases::RequestCounts>> {
-        let sibling_updates = std::mem::take(&mut delta.sibling_updates);
-        let resident_applied = delta
-            .schema
-            .runtime_fields
-            .values()
-            .all(|field| field.common().storage_prefix().is_none());
-        let mut batch_dirty_keys = if resident_applied {
-            Self::resident_batch_dirty_keys(
-                &delta.schema,
-                &gate_outcome.modified_fields,
-                delta.deferred_atoms.as_deref(),
-            )
-        } else {
-            Vec::new()
-        };
-        if resident_applied {
-            batch_dirty_keys.extend(Self::sibling_tip_dirty_keys(&sibling_updates));
-        }
-
-        let inject_persist = {
-            {
-                false
-            }
-        };
-
-        if inject_persist {
-            tracing::warn!(
-                schema = %delta.schema_name,
-                "injected post-publish path; persistence remains on the schema lane"
-            );
-        }
-        let (completion_tx, completion_rx) = if delta.wait_for_persist_lane {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            (Some(tx), Some(rx))
-        } else {
-            (None, None)
-        };
-        let fill_start = std::time::Instant::now();
-        self.enqueue_post_publish_persist(
-            delta,
-            sibling_updates,
-            gate_outcome,
-            batch_dirty_keys,
-            completion_tx,
-            author_clock_barrier,
-        );
-        Self::add_timing(
-            timing_breakdown,
-            "  - write_molecules_batch_deferred",
-            fill_start.elapsed(),
-        );
-
-        completion_rx
     }
 }

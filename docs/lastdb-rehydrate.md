@@ -1,151 +1,69 @@
-# LastDB Resident Rehydrate
+# LastDB memory and disk routes
 
-Resident mode is the T0 memory plane for LastDB Mini. It keeps the same ladder
-objects the durable store owns, then drains dirty entries to disk on the T1
-persist path. T2 cloud sync remains downstream of durable storage.
+## One logical model
 
-## Status: production code, not an experiment
+The native engine uses one core model for schemas, molecule definitions, keys, tips, and atom values.
+Reads and accepted logical writes use that same model.
+The recency list holds references to logical records. It selects the clean records that the purge removes first.
+It does not contain another copy of the values.
 
-`LASTDB_RESIDENT_MODE` defaults to `off`, but that is a rollout default, not a
-sign the subsystem is unused. The live node has run `write` mode, and the
-restore CLI forces `off` only because a one-shot process has no persist worker.
-In every mode the ResidentGraph is the mutation concurrency gate (per-key
-revisions), and the persist lane owns the disk writes. Legacy unprefixed reads
-check the graph in every mode. Only acknowledge-on-apply depends on write mode.
-Native pack reads keep one committed disk root and exclude the live graph.
+A normal logical record follows one schema, field, molecule, and key to one atom.
+The normal warm limit is 10,000 logical records.
+A call holds its selected records. The purge skips those records and writes that still await flush.
+File contents stay outside this model. An atom can return a file reference and its access metadata.
 
-Three caches exist and are not duplicates:
+## Read
 
-- ResidentGraph: dirty tips and atoms, write order, and deferred acknowledgment.
-- LogicalResidentSet: always-on read cache for tips and atoms inside LastStore,
-  capped by `RESIDENT_KEY_CAP`.
-- Hash-group warm set: byte-budgeted cache for non-logical collections.
+1. Resolve the schema and its field molecules through the core model.
+2. Capture the current core state and the matching disk root.
+3. Use the known keys, tips, and full atom values from that captured state.
+4. Fetch the missing records in batches from the held disk root.
+5. Admit the fetched logical records when their source checks and memory allowances permit it.
 
-Do not delete, merge, or simplify any of them as cleanup. Changing this is a
-design decision for the owner.
+A call can retain an earlier value while a later write replaces the current value.
+Its memory owner stays charged until that call returns.
+This call lifetime does not provide an old-value query or stored atom history.
+A failed read cannot enter the model as a confirmed missing record.
 
-## Planes
+## Range keys
 
-T0 holds the local schema catalog, molecule tips, atoms, and protein metadata.
-The local schema catalog stays in memory. A query uses its fields to select
-molecule keys, then fetches only the required atoms. A cold read stops at the
-atom. A file result contains the file reference and access metadata. The query
-does not open the file or load CAS bytes into memory.
+Selected HashRange schemas load complete membership keys before their first query continues.
+Concurrent first queries share that load. Later ranges select keys from the complete memory set under one named hash.
+Tips and atom values remain partial. Key preload does not fetch every value.
+The key allowance is separate from the 10,000-record warm limit.
+Unselected schemas and refused loads use the bounded disk selector.
 
-One tip has one normal memory home: the graph while dirty, then the warm set
-after its disk write. A disk read admits a clean record only to the warm set.
-Schemas, proteins, and pending delete marks remain graph metadata.
+## Write and flush
 
-T1 is the node-local durable store. Deferred resident writes are acknowledged
-only after the mutation has installed the exact ladder objects in T0 and marked
-them dirty. The background persist worker later writes those objects to T1 and
-removes the matching graph tips and clean atom bodies.
+1. Validate the batch and its current preconditions under the native write gate.
+2. Prepare the complete logical changes and their disk output.
+3. Reserve their memory and disk work before publication.
+4. Publish the complete core change, then send the permitted ack.
+5. Flush the prepared bytes through the one native disk queue.
 
-T2 is cloud backup and sync. It sees durable T1 state, not speculative memory.
-Resident mode must therefore never treat a T2 upload as evidence that a dirty T0
-entry is durable.
+The private disk queue owns prepared bytes and completion work until flush.
+Ordinary reads cannot query that queue.
+The native journal supports recovery of stored writes. It does not replace the current core state.
+Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.
+An internal file change that lacks a complete logical translation finishes on disk and clears affected core records before success.
 
-## Crash Window
+The native flush delay is at most 500 ms. `LASTDB_RESIDENT_PERSIST_MS` can select a delay from 1 to 500 ms.
+A crash can lose a write that received an ack before its flush.
+Write reservations, core metadata, schema definitions, and complete keys have separate allowances.
+Their limits do not define one whole-process memory cap.
 
-`LASTDB_RESIDENT_MODE=write` allows a bounded crash window: the mutation may be
-acknowledged after T0 apply and before T1 persist. There is no journal for that
-window. The safety rule is bounded exposure, not replay: dirty entries are
-charged, capped, retried on persist failure, and never evicted.
+## Engine boundary
 
-When the number of deferred dirty entries reaches `LASTDB_RESIDENT_MAX_DEFERRED`,
-mutations degrade to synchronous durable writes until the backlog drains. This
-keeps memory from becoming an unbounded write-ahead store.
+Normal FoldDB startup opens the native packed engine. No selection flag is required.
+The logical constructor rejects an older physical store before it opens the logical namespaces.
+An existing native home can reopen. An empty home can initialize directly.
+A nonempty older-format home receives an explicit refusal. No boot migration or automatic conversion runs.
 
-## Environment
+Cloud sync stays disabled for this optimization round. Startup and runtime activation must refuse it before side effects.
+The local capture router remains. No cloud engine attaches to it during this cutover.
+Raw physical format tools and vendor code do not provide an alternate logical engine.
 
-`LASTDB_RESIDENT_MODE` selects resident graph behavior. The common modes are off
-or read-only rehydrate, and write mode for deferred durable persists.
-
-The memory limit for logical keys (tips and atoms) is the used-record cap
-`RESIDENT_KEY_CAP = 10000`. `LASTDB_RESIDENT_KEY_CAP` can lower that cap.
-Do not tune a byte setting to size that set.
-
-`LASTDB_RESIDENT_BYTES` sets the ResidentGraph byte budget
-(`LASTDB_RESIDENT_MODE=write`). A value of `0` disables graph byte-budget
-eviction. This bound does not size the logical resident set.
-
-`LASTDB_HASH_GROUP_WARM_BYTES` bounds the hash-group warm set for non-logical
-collections (indexes, schema_index, atom_ref_edges_v2, keep_small, metadata,
-cas_blobs). Tips and atoms take the unpublished loader.
-
-`LASTDB_RESIDENT_MAX_DEFERRED` bounds the dirty deferred-write backlog before
-write mode falls back to synchronous persistence.
-
-`LASTDB_RESIDENT_PERSIST_MS` controls the background persist worker cadence.
-
-## Eviction Invariants
-
-The local schema catalog stays resident. A confirmed disk write removes a graph
-tip only when its atom and revision still match. Atom reference counts share
-the tip lock, so atom cleanup needs no walk of the other tips.
-
-A cold read or prepared write holds a revision lease. An absent, fully durable
-key revision leaves after its final lease. Unique revision identities prevent
-an old prepared write from accepting a later key state as its original state.
-Revision records do not accumulate for every key that the process wrote.
-
-Delete enters its flush queue before its slot gates release. A later write
-cannot enter that queue ahead of the revision it needs.
-
-A batch can name two schemas that share one molecule key. Each later schema
-delta uses the earlier delta's published winner, including its metadata.
-An imported write that loses cannot change the winner's metadata or protein
-siblings.
-
-An admin tombstone drain holds the exact storage-key gates. It skips a key
-with a pending graph write and checks the current atom before disk erasure.
-The drain does not own the graph revisions of later writes.
-
-Dirty entries are never evicted. If every eviction candidate is dirty, the graph
-stays over budget and increments `evict_refused_dirty`; the persist worker must
-drain the dirty set before budget enforcement can make progress.
-
-A logical purge removes disk records and the graph state that its completed
-revision owns. It preserves any newer write. An admin storage purge removes
-only current disk tombstones; it cannot remove a pending graph write.
-
-## Telemetry
-
-`GET /api/status` exposes resident counters in `status.resident` and labels
-the live byte budgets in `status.memory_budget`. `lastdb status` prints a
-`Logical keys:` line for the used-record cap, a `Memory budget:` line that
-names what each byte budget bounds, and a `Resident:` line for ResidentGraph
-activity. The `Logical keys:` line is the memory limit for tips and atoms
-(`resident_key_count` / `resident_key_budget`, `RESIDENT_KEY_CAP = 10000`).
-The ResidentGraph byte budget is `graph_budget=` on the `Resident:` line and
-`resident_graph=` on the `Memory budget:` line. The hit and
-rehydrate counters are grouped by schema, molecule, atom, file blob, and
-protein. Persist counters show enqueued, flushed, and failed deferred batches.
-Eviction counters separate clean ResidentGraph evictions from dirty-budget
-refusals.
-`revision_slots` reports the key revisions retained by graph state, active
-calls, or pending writes. It is separate from the warm-set record count.
-The legacy file-blob counters remain present for status compatibility. They
-stay at zero because the resident graph cannot hold CAS bytes.
-
-## Complete query intervals
-
-A cold HashRange HashKey, prefix, or range query can certify its complete
-requested interval. The certificate contains no tips, atoms, or file bytes.
-Later queries use the resident key index and tips for that interval. A prefix
-certificate cannot answer a wider partition query. A complete partition can
-answer a narrower interval without extra tip copies.
-
-A certificate starts before the required disk read. Slot revisions protect
-cold tip installs. Dirty data, a pending delete, or an incomplete resident key
-set prevents certification. Writes, durable completion, purge, and eviction
-invalidate affected certificates. Durable tip batches, generation changes,
-and deletes invalidate again when their work ends, including cancellation.
-No storage await holds a certificate lock. No molecule-wide write counter is
-required.
-
-Pages do not certify whole partitions. The registry holds at most 1,024
-certificates, 32 intervals per pair, and 1,024 key bytes per certificate. Reclaim of these small
-certificates only causes a later disk read. The ordinary resident LRU owns tip
-and atom bytes. `key_set_marked_complete` reports successful certifications;
-`key_set_hits` reports their use.
+The core owns the logical values. Shared counters use `ResidentMetrics` directly.
+Write gates, record locks, and purge queues still control their respective work.
+The [write result](proofs/core-owned-writes-20261018/RESULTS.md) records the preceding measured source and its limits.
+Later cleanup or cutover checks must identify their own source and product evidence.

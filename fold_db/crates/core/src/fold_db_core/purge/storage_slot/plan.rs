@@ -101,7 +101,6 @@ pub(super) async fn plan_storage_slot_targets(
             field_name: target.field_name.clone(),
             molecule_uuid: target.molecule_uuid.clone(),
             storage_key: target.storage_key.clone(),
-            resident_key: None,
             disk_hash,
             disk_range,
         });

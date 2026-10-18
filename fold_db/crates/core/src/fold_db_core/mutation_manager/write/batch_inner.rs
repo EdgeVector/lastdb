@@ -13,6 +13,7 @@ impl MutationManager {
         if mutations.is_empty() {
             return Ok(ResidentCommitReceipt::empty());
         }
+        self.validate_native_mutation_layouts(&mutations)?;
         // Personal Delete expansion reads source fields before ordinary preconditions.
         if storage_prefix.is_none() {
             self.prepare_batch_molecule_keys(&mutations, storage_prefix)

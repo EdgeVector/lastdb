@@ -51,21 +51,10 @@ pub fn mark_cloud_resume_required(home: &Path) -> Result<(), String> {
     mark_durable_file(home, &cloud_resume_required_path(home))
 }
 
-/// Stage a backup-only boot. The durable marker reaches disk before the
-/// active configuration can become visible to a restarted daemon.
-pub fn prepare_primary_resume_file(home: &Path) -> Result<bool, String> {
-    let (active, paused) = cloud_sync_paths(home);
-    if active.exists() {
-        if paused.exists() || !cloud_resume_required_path(home).exists() {
-            return Err("primary resume requires one staged active cloud configuration".into());
-        }
-        return Ok(false);
-    }
-    let bytes = read_regular_small_file(&paused, 65_536)?;
-    let _: fold_db::storage::config::CloudSyncConfig = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("invalid paused cloud configuration: {error}"))?;
-    mark_cloud_resume_required(home)?;
-    resume_cloud_sync_file(home)
+/// Native cloud activation is disabled. Refuse before a resume marker or
+/// active configuration can change, including offline command callers.
+pub fn prepare_primary_resume_file(_home: &Path) -> Result<bool, String> {
+    Err(fold_db::FoldDB::CLOUD_SYNC_DISABLED.into())
 }
 
 pub fn read_paused_home_backup_receipt(home: &Path) -> Result<PausedHomeBackupReceipt, String> {
@@ -122,25 +111,9 @@ pub fn pause_cloud_sync_file(home: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Restore `cloud_sync.json.paused` → `cloud_sync.json` (idempotent if already active).
-///
-/// Returns whether a rename was performed.
-pub fn resume_cloud_sync_file(home: &Path) -> Result<bool, String> {
-    let (active, paused) = cloud_sync_paths(home);
-    if active.exists() {
-        return Ok(false); // already on
-    }
-    if !paused.exists() {
-        return Err(format!(
-            "neither {} nor {} present — nothing to turn on",
-            active.display(),
-            paused.display()
-        ));
-    }
-    std::fs::rename(&paused, &active)
-        .map_err(|e| format!("rename {} → {}: {e}", paused.display(), active.display()))?;
-    sync_cloud_home_dir(home)?;
-    Ok(true)
+/// Refuse an active configuration rename until native cloud activation exists.
+pub fn resume_cloud_sync_file(_home: &Path) -> Result<bool, String> {
+    Err(fold_db::FoldDB::CLOUD_SYNC_DISABLED.into())
 }
 
 /// Whether L2 intent is present (active) or only paused on disk.

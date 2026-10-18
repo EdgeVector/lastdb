@@ -11,6 +11,8 @@ use super::super::types::{
 };
 use super::super::AtomStore;
 
+mod live;
+
 type TipRow = (String, PerKeyRecord);
 type TipSlots = (Option<PerKeyRecord>, Option<MoleculeGenerationSlot>);
 type TipRows = BTreeMap<String, TipSlots>;
@@ -258,6 +260,7 @@ impl AtomStore {
         }
         let molecule = molecule_key_codec::molecule_uuid_from_storage_key(prefix)
             .ok_or_else(|| SchemaError::InvalidData("tip page needs a molecule prefix".into()))?;
+        let changes = self.captured_tip_changes(storage_prefix, molecule)?;
         let pointer = self
             .active_molecule_generation(molecule, storage_prefix)
             .await?;
@@ -291,9 +294,10 @@ impl AtomStore {
                 .await?;
             let consumed = rows.len();
             for ((key, (live, base)), deletion) in rows.into_iter().zip(deletions) {
-                if let Some(record) =
+                let record = changes.get(&key).cloned().unwrap_or_else(|| {
                     Self::apply_generation_delete(Self::merge_generation_slot(live, base), deletion)
-                {
+                });
+                if let Some(record) = record {
                     output.push((key, record));
                 }
             }
@@ -302,30 +306,6 @@ impl AtomStore {
             }
         }
         Ok(output)
-    }
-
-    /// Add the live stream to `rows`. Returns whether the stream is exhausted.
-    async fn merge_live_tip_rows(
-        &self,
-        scan: &TipScan<'_>,
-        rows: &mut TipRows,
-    ) -> Result<bool, SchemaError> {
-        let live: Vec<TipRow> = self
-            .main_store
-            .scan_items_in_range_paged(
-                &build_storage_key(scan.storage_prefix, scan.start),
-                &build_storage_key(scan.storage_prefix, scan.end),
-                scan.ask,
-            )
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("tip page: {e}")))?;
-        let exhausted = live.len() < scan.ask;
-        for (key, record) in Self::strip_per_key_storage_prefix(scan.storage_prefix, live) {
-            if scan.cursor.is_none_or(|cursor| key.as_str() > cursor) {
-                rows.entry(key).or_default().0 = Some(record);
-            }
-        }
-        Ok(exhausted)
     }
 
     /// Add the generation stream to `rows`. Returns whether it is exhausted.

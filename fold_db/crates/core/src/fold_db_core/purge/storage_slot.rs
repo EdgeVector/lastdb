@@ -142,15 +142,11 @@ pub(in crate::fold_db_core) struct PlannedStorageSlot {
     pub(super) field_name: String,
     pub(super) molecule_uuid: String,
     pub(super) storage_key: KeyValue,
-    /// API-form coordinates for T0 resident eviction. Normal record purge has
-    /// these; storage-slot drains address already-encoded legacy rows directly.
-    pub(super) resident_key: Option<KeyValue>,
     pub(super) disk_hash: String,
     pub(super) disk_range: String,
 }
 
 pub(in crate::fold_db_core) type StorageSlotIdentity = (String, String, String);
-pub(in crate::fold_db_core) type ResidentApiKey = (String, String);
 
 impl PlannedStorageSlot {
     pub(super) fn identity(&self) -> StorageSlotIdentity {
@@ -286,9 +282,6 @@ pub(in crate::fold_db_core) async fn purge_storage_slots_bulk(
         history_referenced_by_retained,
         records_purged: plan.planned.len(),
         mode: PurgeMode {
-            // This maintenance job owns durable tombstone slots only. Dirty
-            // graph values and turns belong to later request envelopes.
-            evict_resident: false,
             reachability: PurgeReachability::GuardedComplement,
             precomputed_retained: None,
             caller: "mutation-pipeline",

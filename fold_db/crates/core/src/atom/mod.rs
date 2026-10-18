@@ -21,10 +21,9 @@ pub mod tombstone;
 pub use atom_def::Atom;
 pub use atom_key_codec::{AtomKeyEncoding, AtomKeyEncodingMarker, AtomPartition};
 pub use content_at_rest::{
-    atom_content_binary_enabled, atom_content_dual_read_enabled, atom_row_header,
-    open_atom_binary_row, open_atom_json, open_content_value, parse_atom_binary_row,
-    reseal_atom_json_if_plain, seal_atom_binary_row, seal_atom_json, seal_content_value,
-    ATOM_BINARY_ROW_PREFIX,
+    atom_content_binary_enabled, atom_row_header, open_atom_binary_row, open_atom_json,
+    open_content_value, parse_atom_binary_row, seal_atom_binary_row, seal_atom_json,
+    seal_content_value, ATOM_BINARY_ROW_PREFIX,
 };
 pub use molecule_hash_range::{
     ImportedTip, MoleculeHashRange, PendingTipConflict, TipAuthor, TipConflictKind,
@@ -312,9 +311,8 @@ pub fn deterministic_molecule_uuid(schema_name: &str, field_name: &str) -> Strin
 /// `{ old: loser_atom, new: winner_atom, is_conflict: true }`, and that
 /// shape only matches reality when local actually transitioned from
 /// `loser_atom` to `winner_atom`. For self-wins, `loser_atom` would be the
-/// peer's never-local atom, and `FieldVariant::rewind_to` walking the
-/// history would resurrect that never-local atom on any `as_of` query
-/// crossing the event timestamp. The peer's own local audit records its
+/// peer's never-local atom, so the event would describe a local transition
+/// that never occurred. The peer's own local audit records its
 /// loss symmetrically when it merges with us, so dropping self-won
 /// conflicts here loses no information.
 ///
@@ -322,14 +320,12 @@ pub fn deterministic_molecule_uuid(schema_name: &str, field_name: &str) -> Strin
 /// (hash-only / range-only / full hash+range / empty Single slots on
 /// `MoleculeHashRange`). This is the authoritative shape that downstream
 /// consumers — chiefly `SyncEngine::store_merge_conflicts`, which embeds it
-/// into the `MutationEvent` history row that powers `FieldVariant::rewind_to`
+/// into the `MutationEvent` record used by history inspection and purge
 /// — read to build their `FieldKey`. Before this field existed, the typed
 /// key was reconstructed by `split_once(':')` from a `:`-joined string
 /// representation, which mangled both hash and range whenever either
 /// contained a `:` (URLs, ISO timestamps); the typed channel makes the
-/// round-trip exact regardless of the values. See the
-/// `merge_conflict_field_key_preserves_hash_range_with_colons` test in
-/// `molecule_hash_range.rs` for the pinned regression.
+/// round-trip exact regardless of the values.
 #[derive(Debug, Clone)]
 pub struct MergeConflict {
     /// Typed per-field key for this conflict. Authoritative.

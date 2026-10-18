@@ -1,0 +1,636 @@
+{
+  "actual_ack_frontiers": [
+    {
+      "accepted_batches": 1,
+      "accepted_sequence": 15,
+      "completed_sequence": 13,
+      "core_warm_dirty": 512,
+      "phase": "new-complete-queued-batch-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 0,
+      "accepted_sequence": 16,
+      "completed_sequence": 16,
+      "core_warm_dirty": 0,
+      "phase": "warm-partial-update-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 0,
+      "accepted_sequence": 22,
+      "completed_sequence": 21,
+      "core_warm_dirty": 0,
+      "phase": "mixed-independent-delete-update-create-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 0,
+      "accepted_sequence": 25,
+      "completed_sequence": 24,
+      "core_warm_dirty": 0,
+      "phase": "separately-acknowledged-delete-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 1,
+      "accepted_sequence": 27,
+      "completed_sequence": 25,
+      "core_warm_dirty": 8,
+      "phase": "reinsert-after-delete-ack-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 0,
+      "accepted_sequence": 3,
+      "completed_sequence": 3,
+      "core_warm_dirty": 0,
+      "phase": "new-complete-durable-batch-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 1,
+      "accepted_sequence": 4,
+      "completed_sequence": 2,
+      "core_warm_dirty": 128,
+      "phase": "no-prior-value-complete-replacement-after-ack-before-first-value-read"
+    },
+    {
+      "accepted_batches": 0,
+      "accepted_sequence": 6,
+      "completed_sequence": 6,
+      "core_warm_dirty": 0,
+      "phase": "complete-delete-before-explicit-flush-after-ack-before-first-value-read"
+    }
+  ],
+  "all_nodes_stop_normally": true,
+  "all_processes_remove_engine_and_mode_flags": true,
+  "benchmark_result": false,
+  "binary_sha256": "bef1ff5b9047e8f76f2b42ec5f581bc385467d99785b6325a5a56a6d3f496f5a",
+  "default_memory_ack_pass": true,
+  "default_native_boots": 6,
+  "driver_identity": {
+    "bytes": 4057,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-logical/clarity-driver-identity.json",
+    "sha256": "898f396743ad339e3873318d0287ba094a0edb4b0f272e4cbc6488b7745e3ca0"
+  },
+  "evidence_scope": "Tracked acceptance summary. Exact raw JSONL stays local and ignored; the receipt seal records its bytes and SHA256.",
+  "exit_codes": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "keyed_value_checks": 86,
+  "limits": [
+    "Repeated public payloads allocate fresh clocks; no internal idempotency hit is claimed.",
+    "The empty public array is refused before core; the internal empty transaction is source-only.",
+    "UUID404 proves addressable absence, not reclaimed disk bytes or zero-file UUID reads.",
+    "Unsupported embedded API and old-format boundaries receive source review; these workflows use normal node APIs."
+  ],
+  "literal_prefix_checks": [
+    {
+      "all_values_match": true,
+      "file_read_calls": 0,
+      "phase": "literal-prefix-first-values-after-ack",
+      "records": 6,
+      "require_zero_file_calls": true
+    },
+    {
+      "all_values_match": true,
+      "file_read_calls": 98,
+      "phase": "literal-prefix-after-normal-reopen",
+      "records": 6,
+      "require_zero_file_calls": false
+    }
+  ],
+  "node_sessions": 6,
+  "operation_counts": {
+    "clarity-driver-scope": 1,
+    "core-owned-concurrent-cohort": 3,
+    "core-owned-prime-scope": 1,
+    "core-owned-queue-drained": 10,
+    "core-owned-read": 86,
+    "core-owned-replacement-scope": 1,
+    "core-owned-write": 19,
+    "default-native-format": 6,
+    "empty-public-batch-no-write-frontier": 1,
+    "expected-operation-refusal": 13,
+    "flush": 10,
+    "literal-encryption-prefix-read": 2,
+    "native-as-of-query-and-count-refusals": 1,
+    "native-cloud-on-refused-before-intent-change": 1,
+    "native-status": 26,
+    "native-unsupported-filter-refusals": 1,
+    "owned-node-start": 6,
+    "owned-node-stop": 6,
+    "public-repeat-contract": 1,
+    "refusal": 13,
+    "request": 156,
+    "warm-purge-public-uuid-absence": 2,
+    "warm-purge-uuid-selection": 1
+  },
+  "raw_receipts": {
+    "bytes": 9348513,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-logical/receipts.jsonl",
+    "sha256": "1e441cdad88780cd5cf4c2874cea088294e3205a5cd5fada48ea3e72adad1e64"
+  },
+  "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-logical",
+  "required_zero_file_checks": 39,
+  "result": {
+    "benchmark_result": false,
+    "complete": true,
+    "error": null,
+    "operation_counts": {
+      "clarity-driver-scope": 1,
+      "core-owned-concurrent-cohort": 3,
+      "core-owned-prime-scope": 1,
+      "core-owned-queue-drained": 10,
+      "core-owned-read": 86,
+      "core-owned-replacement-scope": 1,
+      "core-owned-write": 19,
+      "default-native-format": 6,
+      "empty-public-batch-no-write-frontier": 1,
+      "expected-operation-refusal": 13,
+      "flush": 10,
+      "literal-encryption-prefix-read": 2,
+      "native-as-of-query-and-count-refusals": 1,
+      "native-cloud-on-refused-before-intent-change": 1,
+      "native-status": 26,
+      "native-unsupported-filter-refusals": 1,
+      "owned-node-start": 6,
+      "owned-node-stop": 6,
+      "public-repeat-contract": 1,
+      "refusal": 13,
+      "request": 156,
+      "warm-purge-public-uuid-absence": 2,
+      "warm-purge-uuid-selection": 1
+    },
+    "role": "candidate",
+    "workflow": "logical"
+  },
+  "source_identity": {
+    "bytes": 353708,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-logical/source-identity.json",
+    "sha256": "d5263c3ed85b8533a5ef522388d909dfcff1c58c0d950a675bf06829a4c03b2a"
+  },
+  "special_acceptance_receipts": [
+    {
+      "cause": "conflict",
+      "diagnostics": "off",
+      "http_status": 409,
+      "operation": "expected-operation-refusal",
+      "path": "/api/mutations/batch",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-125",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "diagnostics": "off",
+      "first_mutation_ids": [
+        "ba674a39-a1aa-4a49-96f8-dcac19a05e6e",
+        "5a5f27e0-8b2a-46ea-b72f-809df6e14629"
+      ],
+      "first_operations": {
+        "created": 0,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 2,
+        "updated": 2
+      },
+      "operation": "public-repeat-contract",
+      "scope": "Each public call receives a fresh author clock. This is repeated-write evidence, not an internal idempotency-hit claim.",
+      "second_mutation_ids": [
+        "47c8a645-45cf-4d06-a196-aef23b2fc300",
+        "a9b5ecf6-bf86-4216-8f1c-9de471368085"
+      ],
+      "second_operations": {
+        "created": 0,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 2,
+        "updated": 2
+      },
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "at least one mutation",
+      "diagnostics": "off",
+      "http_status": 400,
+      "operation": "expected-operation-refusal",
+      "path": "/api/mutations/batch",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-135",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "after": {
+        "accepted_batch": false,
+        "accepted_batches": 0,
+        "accepted_sequence": 25,
+        "completed_sequence": 25,
+        "core_memory": {
+          "entries": 667,
+          "hits": 71,
+          "invalidated": 33,
+          "limit_bytes": 16777216,
+          "misses": 34,
+          "peak_bytes": 1750925,
+          "purged": 0,
+          "refused": 0,
+          "used_bytes": 1620020
+        },
+        "core_model": {
+          "body_reserved_current_bytes": 8606854,
+          "body_reserved_peak_bytes": 17960956,
+          "body_reserved_retained_bytes": 0,
+          "body_reserved_used_bytes": 8606854,
+          "dirty_definitions": 0,
+          "dirty_molecules": 0,
+          "dirty_slots": 0,
+          "metadata_current_bytes": 5688832,
+          "metadata_limit_bytes": 16777216,
+          "metadata_peak_bytes": 12677684,
+          "metadata_retained_bytes": 0,
+          "metadata_used_bytes": 5688832,
+          "refused": 0
+        },
+        "core_warm_atoms": 207,
+        "core_warm_dirty": 0,
+        "core_warm_held": 0,
+        "core_warm_hits": 18880,
+        "core_warm_misses": 0,
+        "core_warm_molecules": 14,
+        "core_warm_paths": 304,
+        "core_warm_purged": 0,
+        "frontier": 73,
+        "generation": 151,
+        "schema_keys": {
+          "bytes": 92156,
+          "disk_only": 0,
+          "domains": 4,
+          "enabled": true,
+          "failed": 0,
+          "keys": 130,
+          "limit_bytes": 134217728,
+          "loading": 0,
+          "loads": 4,
+          "memory_selections": 54,
+          "peak_bytes": 67201020,
+          "ready": 4,
+          "reasons": []
+        },
+        "warm_record_limit": 10000,
+        "warm_records": 304,
+        "writer_failed": false
+      },
+      "before": {
+        "accepted_batch": false,
+        "accepted_batches": 0,
+        "accepted_sequence": 25,
+        "completed_sequence": 25,
+        "core_memory": {
+          "entries": 667,
+          "hits": 71,
+          "invalidated": 33,
+          "limit_bytes": 16777216,
+          "misses": 34,
+          "peak_bytes": 1750925,
+          "purged": 0,
+          "refused": 0,
+          "used_bytes": 1620020
+        },
+        "core_model": {
+          "body_reserved_current_bytes": 8606854,
+          "body_reserved_peak_bytes": 17960956,
+          "body_reserved_retained_bytes": 0,
+          "body_reserved_used_bytes": 8606854,
+          "dirty_definitions": 0,
+          "dirty_molecules": 0,
+          "dirty_slots": 0,
+          "metadata_current_bytes": 5688832,
+          "metadata_limit_bytes": 16777216,
+          "metadata_peak_bytes": 12677684,
+          "metadata_retained_bytes": 0,
+          "metadata_used_bytes": 5688832,
+          "refused": 0
+        },
+        "core_warm_atoms": 207,
+        "core_warm_dirty": 0,
+        "core_warm_held": 0,
+        "core_warm_hits": 18880,
+        "core_warm_misses": 0,
+        "core_warm_molecules": 14,
+        "core_warm_paths": 304,
+        "core_warm_purged": 0,
+        "frontier": 73,
+        "generation": 151,
+        "schema_keys": {
+          "bytes": 92156,
+          "disk_only": 0,
+          "domains": 4,
+          "enabled": true,
+          "failed": 0,
+          "keys": 130,
+          "limit_bytes": 134217728,
+          "loading": 0,
+          "loads": 4,
+          "memory_selections": 54,
+          "peak_bytes": 67201020,
+          "ready": 4,
+          "reasons": []
+        },
+        "warm_record_limit": 10000,
+        "warm_records": 304,
+        "writer_failed": false
+      },
+      "diagnostics": "off",
+      "operation": "empty-public-batch-no-write-frontier",
+      "scope": "The public route rejects the empty array before core. The internal empty transaction remains a source-reviewed branch.",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "only Hash and HashRange",
+      "diagnostics": "off",
+      "http_status": 400,
+      "operation": "expected-operation-refusal",
+      "path": "/api/schemas/seed-system",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-137",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "only Hash and HashRange",
+      "diagnostics": "off",
+      "http_status": 400,
+      "operation": "expected-operation-refusal",
+      "path": "/api/schemas/seed-system",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-138",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "count": 7,
+      "diagnostics": "off",
+      "operation": "native-unsupported-filter-refusals",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-139",
+      "results": [
+        {
+          "response": "Invalid data: Native LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors",
+          "status": 400
+        },
+        {
+          "response": "Invalid data: Native LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors",
+          "status": 400
+        },
+        {
+          "response": "Invalid data: Native LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors",
+          "status": 400
+        },
+        {
+          "response": "Invalid data: Native LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors",
+          "status": 400
+        },
+        {
+          "response": {
+            "error": "product apps are keyed-access only; unfiltered schema queries are not supported",
+            "kind": "full_schema_scan_not_allowed",
+            "message": "full_schema_scan_not_allowed: unfiltered query on product schema 'CoreClarityHashRange' is not supported; add a keyed filter using the structured remediation (admin/offline bulk may explicitly opt in with X-LastDB-Allow-Full-Scan: 1)",
+            "ok": false,
+            "remediation": {
+              "action": "add_key_filter",
+              "admin_override": {
+                "header": "X-LastDB-Allow-Full-Scan",
+                "scope": "admin_offline_bulk_only",
+                "value": "1"
+              },
+              "filter_variants": [
+                "HashKey",
+                "HashRangeKey",
+                "HashRangePrefix",
+                "HashRangeRange",
+                "HashRangeKeys",
+                "RangeKey",
+                "RangePrefix",
+                "RangeRange",
+                "HashRange"
+              ],
+              "hash_field": "bucket",
+              "range_field": "id",
+              "request_key": "filter"
+            },
+            "schema_id": "CoreClarityHashRange",
+            "schema_name": "CoreClarityHashRange"
+          },
+          "status": 400
+        },
+        {
+          "response": {
+            "error": "product apps are keyed-access only; unfiltered schema queries are not supported",
+            "kind": "full_schema_scan_not_allowed",
+            "message": "full_schema_scan_not_allowed: unfiltered query on product schema 'CoreClarityHashRange' is not supported; add a keyed filter using the structured remediation (admin/offline bulk may explicitly opt in with X-LastDB-Allow-Full-Scan: 1)",
+            "ok": false,
+            "remediation": {
+              "action": "add_key_filter",
+              "admin_override": {
+                "header": "X-LastDB-Allow-Full-Scan",
+                "scope": "admin_offline_bulk_only",
+                "value": "1"
+              },
+              "filter_variants": [
+                "HashKey",
+                "HashRangeKey",
+                "HashRangePrefix",
+                "HashRangeRange",
+                "HashRangeKeys",
+                "RangeKey",
+                "RangePrefix",
+                "RangeRange",
+                "HashRange"
+              ],
+              "hash_field": "bucket",
+              "range_field": "id",
+              "request_key": "filter"
+            },
+            "schema_id": "CoreClarityHashRange",
+            "schema_name": "CoreClarityHashRange"
+          },
+          "status": 400
+        },
+        {
+          "response": {
+            "error": "product apps are keyed-access only; unfiltered schema queries are not supported",
+            "kind": "full_schema_scan_not_allowed",
+            "message": "full_schema_scan_not_allowed: unfiltered query on product schema 'CoreClarityHashRange' is not supported; add a keyed filter using the structured remediation (admin/offline bulk may explicitly opt in with X-LastDB-Allow-Full-Scan: 1)",
+            "ok": false,
+            "remediation": {
+              "action": "add_key_filter",
+              "admin_override": {
+                "header": "X-LastDB-Allow-Full-Scan",
+                "scope": "admin_offline_bulk_only",
+                "value": "1"
+              },
+              "filter_variants": [
+                "HashKey",
+                "HashRangeKey",
+                "HashRangePrefix",
+                "HashRangeRange",
+                "HashRangeKeys",
+                "RangeKey",
+                "RangePrefix",
+                "RangeRange",
+                "HashRange"
+              ],
+              "hash_field": "bucket",
+              "range_field": "id",
+              "request_key": "filter"
+            },
+            "schema_id": "CoreClarityHashRange",
+            "schema_name": "CoreClarityHashRange"
+          },
+          "status": 400
+        }
+      ],
+      "variant": "core-owned-candidate"
+    },
+    {
+      "count_route_source": "lastdb_host/src/handlers/query/plan.rs::QueryRun::key_restricted",
+      "diagnostics": "off",
+      "expected_total_count_forces_keyed_count": true,
+      "operation": "native-as-of-query-and-count-refusals",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-140",
+      "results": [
+        {
+          "response": "Invalid data: Native LastDB does not support as_of queries; this engine stores current values only",
+          "status": 400
+        },
+        {
+          "response": "Invalid data: Native LastDB does not support as_of queries; this engine stores current values only",
+          "status": 400
+        }
+      ],
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "not found",
+      "diagnostics": "off",
+      "http_status": 404,
+      "operation": "expected-operation-refusal",
+      "path": "/api/atom/17749dc726f4f6378ed158b04287576de96a84efe827ba434d7f8b18d4cf4c0a",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-155",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "not found",
+      "diagnostics": "off",
+      "http_status": 404,
+      "operation": "expected-operation-refusal",
+      "path": "/api/atom/b8de4f324a78c55befec6ff34a1a553e226880764f6b8ebaa3a6c639a276db2f",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-153",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "not found",
+      "diagnostics": "off",
+      "http_status": 404,
+      "operation": "expected-operation-refusal",
+      "path": "/api/atom/2f9cefa81bd89c1502a1bafc56243385b269d40ea825be0a7f52e79370e2462c",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-154",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "not found",
+      "diagnostics": "off",
+      "http_status": 404,
+      "operation": "expected-operation-refusal",
+      "path": "/api/atom/a678c719cac32d1a2ae446d5391eda2f216c420b7a3a523c53056ad6f4289c4c",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-156",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "not found",
+      "diagnostics": "off",
+      "http_status": 404,
+      "operation": "expected-operation-refusal",
+      "path": "/api/atom/b8de4f324a78c55befec6ff34a1a553e226880764f6b8ebaa3a6c639a276db2f",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-163",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "not found",
+      "diagnostics": "off",
+      "http_status": 404,
+      "operation": "expected-operation-refusal",
+      "path": "/api/atom/2f9cefa81bd89c1502a1bafc56243385b269d40ea825be0a7f52e79370e2462c",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-164",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "not found",
+      "diagnostics": "off",
+      "http_status": 404,
+      "operation": "expected-operation-refusal",
+      "path": "/api/atom/17749dc726f4f6378ed158b04287576de96a84efe827ba434d7f8b18d4cf4c0a",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-165",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "not found",
+      "diagnostics": "off",
+      "http_status": 404,
+      "operation": "expected-operation-refusal",
+      "path": "/api/atom/a678c719cac32d1a2ae446d5391eda2f216c420b7a3a523c53056ad6f4289c4c",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-166",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "cause": "cloud sync is disabled",
+      "diagnostics": "off",
+      "http_status": 409,
+      "operation": "expected-operation-refusal",
+      "path": "/api/sync/cloud-on",
+      "request_id": "temperature-6063f53b8bb3437387966e5eab787455-core-owned-candidate-167",
+      "variant": "core-owned-candidate"
+    },
+    {
+      "after": {
+        ".cloud_resume_ready": false,
+        ".cloud_resume_requested": false,
+        ".cloud_resume_required": false,
+        "cloud_sync.json": false,
+        "cloud_sync.json.paused": false
+      },
+      "before": {
+        ".cloud_resume_ready": false,
+        ".cloud_resume_requested": false,
+        ".cloud_resume_required": false,
+        "cloud_sync.json": false,
+        "cloud_sync.json.paused": false
+      },
+      "diagnostics": "off",
+      "operation": "native-cloud-on-refused-before-intent-change",
+      "remote_claim_observation": "Source gate precedes remote operations; no network packet capture.",
+      "variant": "core-owned-candidate"
+    }
+  ],
+  "version": 1,
+  "warm_purge_uuid_absence": [
+    {
+      "http_status": 404,
+      "phase": "warm-purge-after-ack",
+      "reclaimed_disk_bytes_proved": false,
+      "source_reviewed_deletion": true,
+      "uuids": [
+        "b8de4f324a78c55befec6ff34a1a553e226880764f6b8ebaa3a6c639a276db2f",
+        "2f9cefa81bd89c1502a1bafc56243385b269d40ea825be0a7f52e79370e2462c",
+        "17749dc726f4f6378ed158b04287576de96a84efe827ba434d7f8b18d4cf4c0a",
+        "a678c719cac32d1a2ae446d5391eda2f216c420b7a3a523c53056ad6f4289c4c"
+      ]
+    },
+    {
+      "http_status": 404,
+      "phase": "warm-purge-after-normal-reopen",
+      "reclaimed_disk_bytes_proved": false,
+      "source_reviewed_deletion": true,
+      "uuids": [
+        "b8de4f324a78c55befec6ff34a1a553e226880764f6b8ebaa3a6c639a276db2f",
+        "2f9cefa81bd89c1502a1bafc56243385b269d40ea825be0a7f52e79370e2462c",
+        "17749dc726f4f6378ed158b04287576de96a84efe827ba434d7f8b18d4cf4c0a",
+        "a678c719cac32d1a2ae446d5391eda2f216c420b7a3a523c53056ad6f4289c4c"
+      ]
+    }
+  ],
+  "zero_file_checks_pass": true
+}

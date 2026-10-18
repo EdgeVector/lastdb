@@ -9,30 +9,9 @@ impl FieldVariant {
         storage_prefix: Option<&str>,
         window: &Option<KeyWindow>,
         include_tombstones: bool,
-        use_resident: bool,
     ) -> Result<(Vec<TipMatch>, bool), SchemaError> {
         let mut window_applied = false;
-        let partition_read = (use_resident && window.is_none()).then(|| {
-            db_ops
-                .resident()
-                .begin_partition_interval_read(molecule_uuid, hash, "", None)
-        });
-        let page_read = window.as_ref().filter(|_| use_resident).and_then(|window| {
-            db_ops
-                .resident()
-                .begin_page_read(molecule_uuid, hash, window, include_tombstones)
-        });
-        let paged = if let Some(window) = window.as_ref().filter(|_| use_resident) {
-            partition_window::merged_tip_window(
-                db_ops,
-                molecule_uuid,
-                hash,
-                storage_prefix,
-                window,
-                include_tombstones,
-            )
-            .await?
-        } else if let Some(window) = &window {
+        let paged = if let Some(window) = &window {
             db_ops
                 .atoms()
                 .scan_hash_tip_window(
@@ -49,12 +28,6 @@ impl FieldVariant {
         let scanned = if let Some(paged) = paged {
             window_applied = true;
             paged
-        } else if let Some(unique) = db_ops
-            .atoms()
-            .get_unique_hash_key_record(molecule_uuid, hash, storage_prefix)
-            .await?
-        {
-            vec![unique]
         } else {
             // Storage-form hash (single path).
             let prefixes = db_ops
@@ -68,29 +41,6 @@ impl FieldVariant {
                 .await?
         };
         let rows = Self::api_rows_from_scan(db_ops, hash, scanned)?;
-        if partition_read.is_some() || (window_applied && page_read.is_some()) {
-            let tips = rows
-                .iter()
-                .map(|(key, rec, _)| crate::resident::ResidentTip {
-                    molecule_uuid: molecule_uuid.to_string(),
-                    hash: hash.to_string(),
-                    range: key.range.clone().unwrap_or_default(),
-                    atom_uuid: rec.entry.atom_uuid.clone(),
-                    written_at: rec.entry.written_at,
-                    logical_counter: rec.entry.logical_counter,
-                    device_id: rec.entry.lww_device().to_string(),
-                    mutation_uuid: rec.entry.mutation_uuid.clone(),
-                    origin_device: rec.entry.origin_device.clone(),
-                    writer_pubkey: rec.entry.writer_pubkey.clone(),
-                    key_metadata: rec.meta.clone(),
-                })
-                .collect();
-            if let Some(read) = partition_read {
-                db_ops.resident().finish_partition_read(&read, tips);
-            } else if let Some(read) = page_read {
-                db_ops.resident().finish_page_read(&read, tips);
-            }
-        }
         Ok((rows, window_applied))
     }
 

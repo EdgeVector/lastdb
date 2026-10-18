@@ -1,5 +1,9 @@
 # Native disk work status, October 16, 2026
 
+Historical candidate report. The [native cutover results](proofs/core-clarity-20261018/RESULTS.md)
+and [current memory and disk design](lastdb-rehydrate.md) supersede its engine-selection and write-mode instructions.
+The source identities, measurements, and limits below describe the October 16 candidate.
+
 The local engine work is complete within the limits below.
 Both benchmark versions start with empty homes, write the same synthetic input, and read it back.
 

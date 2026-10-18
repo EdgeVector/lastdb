@@ -1,5 +1,4 @@
 //! `KvStore` trait implementation for [`LastStoreKvStore`].
-// lint:file-size-ok moved verbatim from its original module; one cohesive trait impl per file
 
 use super::*;
 
@@ -8,39 +7,43 @@ impl KvStore for LastStoreKvStore {
     async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
-        let key = key.to_vec();
-        Self::run_blocking(move || logical_path::get(&store, &logical, &collection, &key)).await
+        let id = Self::encode_key(key);
+        Self::run_blocking(move || {
+            laststore::record_requested_keys(1);
+            store
+                .load_existing_point(&collection, &id)
+                .map(|point| point.and_then(|point| point.body))
+                .map_err(Self::map_error)
+        })
+        .await
     }
 
-    /// Batch point-read — the co-key list path's secondary hydrate
-    /// (`get_items` → `HashRangeQueryProcessor`) lands here with every atom id
-    /// of a page at once.
-    ///
-    /// Batch point-read through the logical resident set.
-    ///
-    /// Keys that share one hash group share one unpublished open. A
-    /// `get`-per-key loop paid one `load_point` per key; with `atoms` in
-    /// `HashGroup` layout the ids of a single page scatter across groups, so a
-    /// bounded warm set re-parsed a whole group segment per row.
+    /// Read one physical batch without a logical-value cache.
     async fn get_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
-        Self::run_blocking(move || logical_path::get_many(&store, &logical, &collection, &keys))
-            .await
+        let ids: Vec<_> = keys.iter().map(|key| Self::encode_key(key)).collect();
+        Self::run_blocking(move || {
+            laststore::record_requested_keys(ids.len() as u64);
+            store
+                .load_existing_points(&collection, &ids)
+                .map(|points| {
+                    points
+                        .into_iter()
+                        .map(|point| point.and_then(|point| point.body))
+                        .collect()
+                })
+                .map_err(Self::map_error)
+        })
+        .await
     }
 
     async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()> {
         reject_enc_on_plaintext_catalog(&self.collection, &value)?;
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
-        let key = key.to_vec();
-        Self::run_blocking(move || logical_path::put(&store, &logical, &collection, &key, &value))
+        let id = Self::encode_key(key);
+        Self::run_blocking(move || store.put(&collection, &id, &value).map_err(Self::map_error))
             .await
     }
 
@@ -58,18 +61,12 @@ impl KvStore for LastStoreKvStore {
         }
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
         let id = Self::encode_key(key);
         let expected = expected.to_vec();
         Self::run_blocking(move || {
-            let result = store
+            store
                 .compare_and_swap(&collection, &id, Some(&expected), new.as_deref())
-                .map_err(Self::map_error);
-            logical
-                .lock()
-                .expect("poison")
-                .forget_record(&collection, &id);
-            result
+                .map_err(Self::map_error)
         })
         .await
     }
@@ -77,43 +74,51 @@ impl KvStore for LastStoreKvStore {
     async fn delete(&self, key: &[u8]) -> StorageResult<bool> {
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
-        let key = key.to_vec();
-        Self::run_blocking(move || logical_path::delete(&store, &logical, &collection, &key)).await
+        let id = Self::encode_key(key);
+        Self::run_blocking(move || {
+            let existed = store.exists(&collection, &id).map_err(Self::map_error)?;
+            if existed {
+                store.delete(&collection, &id).map_err(Self::map_error)?;
+            }
+            Ok(existed)
+        })
+        .await
     }
 
     async fn exists(&self, key: &[u8]) -> StorageResult<bool> {
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
-        let key = key.to_vec();
-        Self::run_blocking(move || logical_path::exists(&store, &logical, &collection, &key)).await
+        let id = Self::encode_key(key);
+        Self::run_blocking(move || {
+            laststore::record_requested_keys(1);
+            store
+                .exists_points(&collection, &[id])
+                .map(|present| present[0])
+                .map_err(Self::map_error)
+        })
+        .await
     }
 
-    /// Batch existence probe through the logical resident set.
-    ///
-    /// Keys that share one hash group share one unpublished open. The probe
-    /// does not copy bodies.
+    /// Probe one physical key batch without body copies.
     async fn exists_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<bool>> {
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
-        Self::run_blocking(move || logical_path::exists_many(&store, &logical, &collection, &keys))
-            .await
+        let ids: Vec<_> = keys.iter().map(|key| Self::encode_key(key)).collect();
+        Self::run_blocking(move || {
+            laststore::record_requested_keys(ids.len() as u64);
+            store
+                .exists_points(&collection, &ids)
+                .map_err(Self::map_error)
+        })
+        .await
     }
 
     async fn scan_prefix(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
         let prefix = prefix.to_vec();
-        Self::run_blocking(move || {
-            logical_path::scan_prefix(&store, &logical, &collection, &prefix, usize::MAX)
-        })
-        .await
+        Self::run_blocking(move || Self::prefix_rows_sync(&store, &collection, &prefix, usize::MAX))
+            .await
     }
 
     async fn scan_prefix_partition_undecryptable(
@@ -126,12 +131,9 @@ impl KvStore for LastStoreKvStore {
     async fn scan_prefix_keys(&self, prefix: &[u8]) -> StorageResult<Vec<Vec<u8>>> {
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
         let prefix = prefix.to_vec();
-        Self::run_blocking(move || {
-            logical_path::scan_prefix_keys(&store, &logical, &collection, &prefix, usize::MAX)
-        })
-        .await
+        Self::run_blocking(move || Self::prefix_keys_sync(&store, &collection, &prefix, usize::MAX))
+            .await
     }
 
     async fn scan_prefix_paged(
@@ -141,12 +143,9 @@ impl KvStore for LastStoreKvStore {
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         let store = Arc::clone(&self.store);
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
         let prefix = prefix.to_vec();
-        Self::run_blocking(move || {
-            logical_path::scan_prefix(&store, &logical, &collection, &prefix, limit)
-        })
-        .await
+        Self::run_blocking(move || Self::prefix_rows_sync(&store, &collection, &prefix, limit))
+            .await
     }
 
     async fn scan_range(&self, start: &[u8], end: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
@@ -196,18 +195,18 @@ impl KvStore for LastStoreKvStore {
         let store = Arc::clone(&self.store);
         let high_water = self.high_water.clone();
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
         let deferred = self.deferred_batch_flush;
         Self::run_blocking(move || {
             let ops = items
                 .into_iter()
-                .map(|(key, value)| logical_path::BatchOp::Put {
-                    collection: collection.clone(),
-                    key,
-                    value,
-                })
+                .map(|(key, value)| TxnOp::put(&collection, &Self::encode_key(&key), value))
                 .collect();
-            logical_path::apply_batch(&store, &logical, ops, deferred)?;
+            if deferred {
+                store.transaction_deferred(ops)
+            } else {
+                store.transaction(ops)
+            }
+            .map_err(Self::map_error)?;
             Self::record_high_water(high_water.as_ref(), &store)
         })
         .await
@@ -226,24 +225,25 @@ impl KvStore for LastStoreKvStore {
         let store = Arc::clone(&self.store);
         let high_water = self.high_water.clone();
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
         let deferred = self.deferred_batch_flush;
         Self::run_blocking(move || {
             let ops = mutations
                 .into_iter()
                 .map(|mutation| match mutation {
-                    KvMutation::Put { key, value } => logical_path::BatchOp::Put {
-                        collection: collection.clone(),
-                        key,
-                        value,
-                    },
-                    KvMutation::Delete { key } => logical_path::BatchOp::Delete {
-                        collection: collection.clone(),
-                        key,
-                    },
+                    KvMutation::Put { key, value } => {
+                        TxnOp::put(&collection, &Self::encode_key(&key), value)
+                    }
+                    KvMutation::Delete { key } => {
+                        TxnOp::delete(&collection, &Self::encode_key(&key))
+                    }
                 })
                 .collect();
-            logical_path::apply_batch(&store, &logical, ops, deferred)?;
+            if deferred {
+                store.transaction_deferred(ops)
+            } else {
+                store.transaction(ops)
+            }
+            .map_err(Self::map_error)?;
             Self::record_high_water(high_water.as_ref(), &store)
         })
         .await
@@ -256,18 +256,14 @@ impl KvStore for LastStoreKvStore {
         let store = Arc::clone(&self.store);
         let high_water = self.high_water.clone();
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
         Self::run_blocking(move || {
             let entries: Vec<_> = items
                 .into_iter()
                 .map(|(key, value)| (collection.clone(), Self::encode_key(&key), value))
                 .collect();
-            let ids: Vec<_> = entries.iter().map(|(_, id, _)| id.clone()).collect();
-            direct_write_invalidation::after_direct_write(&logical, &ids, || {
-                store
-                    .restore_put_many_deferred(entries, 16)
-                    .map_err(Self::map_error)
-            })?;
+            store
+                .restore_put_many_deferred(entries, 16)
+                .map_err(Self::map_error)?;
             Self::record_high_water(high_water.as_ref(), &store)
         })
         .await
@@ -348,17 +344,18 @@ impl KvStore for LastStoreKvStore {
         let store = Arc::clone(&self.store);
         let high_water = self.high_water.clone();
         let collection = self.collection.clone();
-        let logical = Arc::clone(&self.logical);
         let deferred = self.deferred_batch_flush;
         Self::run_blocking(move || {
             let ops = keys
                 .into_iter()
-                .map(|key| logical_path::BatchOp::Delete {
-                    collection: collection.clone(),
-                    key,
-                })
+                .map(|key| TxnOp::delete(&collection, &Self::encode_key(&key)))
                 .collect();
-            logical_path::apply_batch(&store, &logical, ops, deferred)?;
+            if deferred {
+                store.transaction_deferred(ops)
+            } else {
+                store.transaction(ops)
+            }
+            .map_err(Self::map_error)?;
             Self::record_high_water(high_water.as_ref(), &store)
         })
         .await
@@ -367,10 +364,8 @@ impl KvStore for LastStoreKvStore {
     async fn flush(&self) -> StorageResult<()> {
         let store = Arc::clone(&self.store);
         let high_water = self.high_water.clone();
-        let logical = Arc::clone(&self.logical);
         Self::run_blocking(move || {
             store.flush().map_err(Self::map_error)?;
-            logical_path::apply_durable_through(&store, &logical);
             Self::record_high_water(high_water.as_ref(), &store)
         })
         .await

@@ -35,6 +35,10 @@ impl PackKvStore {
         let observed = Arc::clone(&context);
         let result = LastStoreKvStore::run_blocking(move || {
             let forms = if namespace == "main" {
+                // Current constructors use both atom\0UUID and atom:mk:…\0UUID,
+                // and aref\0manifest beside aref:v1:e:…\0edge. A kind prefix
+                // must cover both layouts even in a fresh home. Rewriting each
+                // result preserves the prefix requested by typed consumers.
                 crate::kind_partition::read_forms(&prefix)
             } else {
                 vec![prefix.clone()]

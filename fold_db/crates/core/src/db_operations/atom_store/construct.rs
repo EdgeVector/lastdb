@@ -62,7 +62,6 @@ impl AtomStore {
             schema_index_store,
             namespaced_store: None,
             retired_intent_retention_gate: Arc::default(),
-            resident_graph: None,
             content_key,
             atom_content_binary: crate::atom::atom_content_binary_enabled(),
             key_codec,
@@ -129,34 +128,6 @@ impl AtomStore {
     ) -> Self {
         self.molecule_keys = Some(molecule_keys);
         self
-    }
-
-    pub(crate) fn with_resident_graph(
-        mut self,
-        resident: Arc<crate::resident::ResidentGraph>,
-    ) -> Self {
-        self.resident_graph = Some(resident);
-        self
-    }
-
-    pub(super) fn invalidate_coverage_during<'a>(
-        &self,
-        molecules: impl IntoIterator<Item = &'a str>,
-        storage_prefix: Option<&str>,
-    ) -> Option<CoverageMutation> {
-        if storage_prefix.is_some() {
-            return None;
-        }
-        let graph = self.resident_graph.as_ref()?;
-        let molecules: std::collections::BTreeSet<String> =
-            molecules.into_iter().map(str::to_string).collect();
-        for molecule in &molecules {
-            graph.invalidate_molecule_coverage(molecule);
-        }
-        Some(CoverageMutation {
-            graph: Arc::clone(graph),
-            molecules,
-        })
     }
 
     #[must_use]

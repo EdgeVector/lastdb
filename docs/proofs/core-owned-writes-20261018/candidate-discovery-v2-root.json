@@ -1,0 +1,18 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.25f46eeb/program-candidate-lastdbd",
+  "binary_sha256": "be38c44c2d7e973405356cd3cc504744ac86e44d95b1e2bf6c527079cb5be411",
+  "marker": {
+    "creator_pid": 31374,
+    "device": 16777231,
+    "inode": 1465759017,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "node_sessions": 0,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.25f46eeb",
+  "scope": "Candidate executable only. No existing database, primary, archive, or node.",
+  "source_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "source_identity": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-discovery-v2-identity.json",
+  "source_identity_sha256": "57af01e53c9c4863354e3789d12c9181d5cb15652f2aa9271ba1f3ddf7ed7977"
+}

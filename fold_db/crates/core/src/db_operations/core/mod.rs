@@ -66,9 +66,8 @@ pub struct DbOperations {
     /// `projects/molecule-provenance-dag`).
     lineage_index: LineageIndex,
 
-    /// T0 resident graph — rehydrate miss / hit for schema·tip·atom·blob.
-    /// Product law: `concepts-lastdb-rehydrate` (memory → disk → cloud).
-    resident: Arc<crate::resident::ResidentGraph>,
+    /// Shared request and background-work counters from the native runtime.
+    resident_metrics: Arc<crate::resident::ResidentMetrics>,
     /// Cumulative count of query rows skipped because a tip referenced an atom
     /// body that could not be resolved. `/api/query` reads a before/after delta
     /// around one query and reports it as `unresolved_rows`.
@@ -130,15 +129,9 @@ impl DbOperations {
         &self.atom_store
     }
 
-    /// Access the resident graph (T0: resolve / rehydrate / apply).
-    pub fn resident(&self) -> &Arc<crate::resident::ResidentGraph> {
-        &self.resident
-    }
-
-    /// The warm set for this store. A write drops a clean tip here before
-    /// the graph holds the dirty copy.
-    pub fn logical_resident_set(&self) -> Option<Arc<Mutex<crate::resident::LogicalResidentSet>>> {
-        self.store.logical_resident_set()
+    /// Access the process counters shared with the native runtime.
+    pub fn resident_metrics(&self) -> &Arc<crate::resident::ResidentMetrics> {
+        &self.resident_metrics
     }
 
     /// Override the atom body key encoding for the whole node.
@@ -220,14 +213,6 @@ impl DbOperations {
         self.metadata_store.flush().await?;
         self.attribution_ledger.flush().await?;
         self.lineage_index.flush().await?;
-        // Apply `durable_through()` per token. An Ok flush does not clear
-        // every dirty bit: a token above the seal stays dirty.
-        if let (Some(store), Some(set)) = (
-            self.store.raw_last_store(),
-            self.store.logical_resident_set(),
-        ) {
-            crate::storage::laststore::logical_path::apply_durable_through(&store, &set);
-        }
         Ok(())
     }
 

@@ -2,9 +2,25 @@
 
 use super::*;
 
+struct QuerySelection<'a> {
+    schema: &'a mut Schema,
+    fields: &'a [String],
+    filter: Option<HashRangeFilter>,
+    window: Option<KeyWindow>,
+    include_tombstones: bool,
+    request_concurrency: Option<usize>,
+}
+
+struct PredicateSelection<'a> {
+    query: QuerySelection<'a>,
+    predicates: Option<&'a [FieldPredicate]>,
+    order_by: Option<&'a QueryOrderBy>,
+    predicate_limit: Option<usize>,
+}
+
 impl HashRangeQueryProcessor {
-    /// Single co-key query path for all filters, field counts, share
-    /// namespaces, and optional `as_of`.
+    /// Single current co-key query path for all filters, field counts and share
+    /// namespaces. A supplied `as_of` is rejected before resolution.
     pub async fn query_with_filter(
         &self,
         schema: &mut Schema,
@@ -61,6 +77,31 @@ impl HashRangeQueryProcessor {
         include_tombstones: bool,
         request_concurrency: Option<usize>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+        self.require_supported_query(schema, filter.as_ref(), as_of.is_some())?;
+        let query = QuerySelection {
+            schema,
+            fields,
+            filter,
+            window,
+            include_tombstones,
+            request_concurrency,
+        };
+        self.current_query_scope(self.filtered_query_captured(query).boxed())
+            .await
+    }
+
+    async fn filtered_query_captured(
+        &self,
+        query: QuerySelection<'_>,
+    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+        let QuerySelection {
+            schema,
+            fields,
+            filter,
+            window,
+            include_tombstones,
+            request_concurrency,
+        } = query;
         let current_user = crate::user_context::get_current_user_id();
         let current_user_redacted = current_user
             .as_deref()
@@ -79,7 +120,6 @@ impl HashRangeQueryProcessor {
             fields,
             filter,
             window,
-            as_of,
             include_tombstones,
             &received_from_namespaces,
             request_concurrency,
@@ -107,22 +147,47 @@ impl HashRangeQueryProcessor {
         include_tombstones: bool,
         request_concurrency: Option<usize>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+        self.require_supported_query(schema, filter.as_ref(), as_of.is_some())?;
+        let selection = PredicateSelection {
+            query: QuerySelection {
+                schema,
+                fields,
+                filter,
+                window,
+                include_tombstones,
+                request_concurrency,
+            },
+            predicates,
+            order_by,
+            predicate_limit,
+        };
+        self.current_query_scope(self.predicate_query_captured(selection).boxed())
+            .await
+    }
+
+    async fn predicate_query_captured(
+        &self,
+        selection: PredicateSelection<'_>,
+    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+        let PredicateSelection {
+            query,
+            predicates,
+            order_by,
+            predicate_limit,
+        } = selection;
         let has_predicates = predicates.is_some_and(|p| !p.is_empty());
         let has_two_pass_shape = has_predicates || order_by.is_some() || predicate_limit.is_some();
         if !has_two_pass_shape {
-            return self
-                .query_with_filter_windowed_override(
-                    schema,
-                    fields,
-                    filter,
-                    window,
-                    as_of,
-                    include_tombstones,
-                    request_concurrency,
-                )
-                .await;
+            return self.filtered_query_captured(query).await;
         }
-
+        let QuerySelection {
+            schema,
+            fields,
+            filter,
+            window: _,
+            include_tombstones,
+            request_concurrency,
+        } = query;
         let current_user = crate::user_context::get_current_user_id();
         let current_user_redacted = current_user
             .as_deref()
@@ -149,7 +214,6 @@ impl HashRangeQueryProcessor {
                 &scan_fields,
                 pass_a_filter,
                 None,
-                as_of,
                 include_tombstones,
                 &received_from_namespaces,
                 request_concurrency,
@@ -185,7 +249,6 @@ impl HashRangeQueryProcessor {
             fields,
             &kept_keys,
             &kept_sources,
-            as_of,
             include_tombstones,
         )
         .await

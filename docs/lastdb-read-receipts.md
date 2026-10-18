@@ -33,7 +33,7 @@ scope can carry the partial receipt.
 | `version` | Receipt format version, currently `1`. |
 | `scope` | `query_storage`: work after request parse and before the response envelope. |
 | `requested_keys` | Storage lookup attempts. This includes fallback probes and repeated requests for the same key. It is not the number of API records. |
-| `logical_warm_hits` | Exact lookup results from the logical warm path, including known absence and bounded absence hints. |
+| `logical_warm_hits` | Exact lookup results from the logical core path, including confirmed absence. |
 | `logical_warm_misses` | Exact lookup attempts that the logical warm path cannot supply. |
 | `loader_calls` | Storage group loader entry attempts, including cap refusals. |
 | `group_opens` | Existing group directories that enter the storage parser. |
@@ -46,6 +46,7 @@ scope can carry the partial receipt.
 | `directory_entries` | Directory entries returned to the caller. |
 | `read_operations` | File read calls, including EOF and failed calls. |
 | `legacy_replay_bytes` | Bytes read for legacy group replay or append-tail replay. |
+| `journal_replay_bytes` | Bytes read during explicit native journal recovery; ordinary addressed payload reads leave this counter at zero. |
 | `footer_bytes` | Bytes read for sorted footers and key sidecars. |
 | `payload_bytes` | Bytes read from addressed record or sorted-block extents. |
 | `format_probe_bytes` | Bytes read for format, manifest, part, or allocation-bound probes. |
@@ -64,7 +65,8 @@ scope can carry the partial receipt.
 | `filesystem_pages` | `unknown`: the receipt does not measure the operating system's filesystem page state. |
 | `temporary_bytes_scope` | `instrumented_byte_buffers`: the scope of the transient byte peak. |
 
-The four byte classes add to the successful bytes that the caller reads.
+The addressed-read byte classes are legacy replay, footer, payload, and format-probe bytes.
+Explicit journal recovery has its separate replay counter.
 They measure userspace reads from the operating system. They do not measure
 the bytes that a disk device transfers. A warm miss does not prove a cold
 filesystem page. A group open does not prove a new file open.
@@ -88,24 +90,23 @@ It does not measure the process memory size or prove the warm set cap.
 
 - The supported product shapes are an exact key, several exact keys, and a
   bounded range under one hash through `POST /api/query`.
-- The receipt includes the measured LastStore read path, including loader,
-  legacy replay, append-tail, footer, sidecar, format-probe, and payload work.
+- The receipt includes the measured native read path and its typed core lookups.
+  Older receipts also contain legacy loader, replay, and sidecar work. Current native queries do not select that engine.
 - The query can read one extra record to determine `has_more`. A request with
   `limit: 2` can therefore read three candidate records.
-- `requested_keys` covers exact `get`, `get_many`, `exists`, `exists_many`,
-  and plaintext warm hits. Those calls include schema and molecule work, atom
+- `requested_keys` covers measured exact storage and typed core lookups.
+  Those calls include schema and molecule work, atom
   bodies, fallback probes, and atom reads for the page lookahead.
 - The logical hit, miss, and requested-key counters do not count the keys
   that a range enumerates. They need not equal the returned record count.
-- A known absent key or a bounded absence hint can count as a warm hit.
+- A confirmed absent key can count as a warm hit.
   These hit and miss counts do not measure the warm set's record count.
 - The receipt does not count writes, file sync calls, cloud reads, schema
   service network calls, or storage calls outside its attached context.
 - At-rest value decode and inflate contribute to `decrypt_nanos`. Upstream
   atom-owner content decryption is outside this measurement.
-- `lock_wait_nanos` covers selected LastStore read locks and core warm-set
-  locks in `logical_path`, `resident_io`, `warm`, and `absence_hints`.
-  Other locks remain unmeasured, including the core range path's warm-set locks.
+- `lock_wait_nanos` covers selected storage and core memory locks.
+  It does not measure every lock that a complete query uses.
 - The time fields cover named code paths. A zero field does not prove zero
   time for all decryption, all locks, all queues, or the complete query.
 - A file read that returns no bytes increases `read_operations` without a
@@ -134,7 +135,7 @@ receipt_full_socket="$receipt_root/f.sock"
 mkdir -p "$receipt_home"
 env -u SENTRY_DSN -u FOLD_SENTRY_DSN \
   LASTDB_ISOLATED_COPY=1 LASTDB_SUPPRESS_RECOVERY_PHRASE=1 \
-  LASTDB_RESIDENT_MODE=write LASTDB_SELF_METRICS_SAMPLE_SECS=1 \
+  LASTDB_SELF_METRICS_SAMPLE_SECS=1 \
   RUST_MIN_STACK=16777216 \
   "$candidate" --data-dir "$receipt_home" \
   --socket-path "$receipt_socket" --full-socket-path "$receipt_full_socket" \
@@ -142,7 +143,9 @@ env -u SENTRY_DSN -u FOLD_SENTRY_DSN \
 receipt_pid=$!
 ```
 
-A fresh home contains no `cloud_sync.json`, so cloud sync stays dormant.
+The native engine and memory ACK are defaults. No engine or resident-mode option is required.
+An explicit durable request or insufficient memory reservation can still wait for disk.
+Cloud activation receives an explicit disabled error. A fresh local home needs no cloud configuration.
 Wait for the socket, then read the health result. Continue when `status` is `ok`.
 
 ```bash

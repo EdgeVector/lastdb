@@ -1,0 +1,3 @@
+
+> @lastdb/app-sdk@0.4.0 typecheck
+> tsc -p tsconfig.json --noEmit

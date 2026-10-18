@@ -183,7 +183,10 @@ impl AtomStore {
                     .key_codec_for_molecule(&source.molecule)
                     .range_encoding()
                     .writes_ope();
-                for key in source.next(chunk)? {
+                let Some(next) = runtime.with_schema_key_selection(|| source.next(chunk)) else {
+                    return Ok(None);
+                };
+                for key in next? {
                     let key =
                         ReadyTipKey::new(&source.molecule, key, source.api_hash.as_deref(), ope);
                     priorities

@@ -12,10 +12,8 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 
-/// Cap on one slot's tip-version chain walk. Mirrors the bound in
-/// [`crate::db_operations::AtomStore::tip_entry_at_as_of`], deliberately
-/// including its failure mode: exceeding the cap is an **error**, not a
-/// truncated walk.
+/// Cap on one slot's tip-version chain walk. Exceeding the cap is an **error**,
+/// not a truncated walk.
 ///
 /// A purge that silently stopped halfway would return `Ok` and a report while
 /// leaving superseded values stored — the precise shape of the defect this

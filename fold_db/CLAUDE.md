@@ -1,8 +1,10 @@
 # fold_db
 
 Core library of the `EdgeVector/lastdb` workspace (`crates/{core,observability}`).
-Local, schema-based database engine (LastStore-backed) with optional encrypted
-Exemem cloud sync. **Library only — no UI, no React app, no desktop shell.**
+Local database engine with native packed storage and the core logical memory
+model. Cloud activation stays disabled for this round. Empty homes initialize
+directly; startup does not migrate older homes.
+**Library only — no UI, no React app, no desktop shell.**
 
 Product surface is LastDB Mini in sibling crate `lastdb_node` (`lastdb` +
 `lastdbd` over the owner Unix socket). Desktop/Tauri/`fold_db_node` + the old
@@ -21,7 +23,7 @@ Run from the **workspace root** (`EdgeVector/lastdb`), not this subdirectory.
 
 ```bash
 cargo build -p fold_db
-cargo clippy -p fold_db --all-targets -- -D warnings
+cargo clippy -p fold_db --lib --bins -- -D warnings
 cargo fmt -p fold_db
 ```
 

@@ -9,10 +9,12 @@ use crate::schema::SchemaError;
 use crate::storage::disk_pack::PackRuntime;
 use std::sync::Arc;
 
+mod captured;
 mod hash_window;
 mod missing;
 mod page;
 mod prefix;
+mod query;
 mod rows;
 
 type TipRow = (String, PerKeyRecord);

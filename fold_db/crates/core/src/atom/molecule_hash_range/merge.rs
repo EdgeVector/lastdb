@@ -52,14 +52,9 @@ impl MoleculeHashRange {
                         }
                         // Only record a conflict when LOCAL state actually
                         // changes (other wins). A self-won "conflict" is a
-                        // no-op for this node — the rewind/history record
-                        // emitted by
-                        // `sync::SyncEngine::store_merge_conflicts` would
-                        // be shaped `{ old: peer's atom, new: my atom }`,
-                        // and `FieldVariant::rewind_to` would walk back to
-                        // the peer's atom on any `as_of` query crossing
-                        // that event, putting the molecule into a state
-                        // this node was never in. The peer's own local
+                        // no-op for this node. Its event would describe a
+                        // transition from the peer's atom to the local atom,
+                        // although the peer's atom was never local. The peer's own local
                         // audit records its loss symmetrically when it
                         // merges with us.
                         if crate::atom::incoming_wins_lww(other_entry.lww_key(), se.lww_key()) {

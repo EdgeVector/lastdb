@@ -1,0 +1,272 @@
+{
+  "complete": true,
+  "outcomes": [
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/before-operations-v1",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.halrvksu",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.halrvksu (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.halrvksu",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/before-operations-v2",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.kpheucku",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.kpheucku (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.kpheucku",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/before-scoped-v3",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6bfj75vg",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6bfj75vg (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6bfj75vg",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/before-pressure-v3",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f8skb6ye",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f8skb6ye (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f8skb6ye",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/before-replay-v3",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tw4eg12d",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tw4eg12d (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tw4eg12d",
+      "startup_gate_refusal": true
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-scoped-v4",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ab6f06g9",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ab6f06g9 (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ab6f06g9",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-scoped-diagnostic-v4",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.uo32bult",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.uo32bult (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.uo32bult",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-scoped-trace-v4",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qx4bc7qk",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qx4bc7qk (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qx4bc7qk",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-scoped-family-trace-v4",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.uu05q8m3",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.uu05q8m3 (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.uu05q8m3",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-scoped-window-trace-v4",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xw64eko3",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xw64eko3 (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xw64eko3",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v3-scoped-v5",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.d80s3nlz",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.d80s3nlz (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.d80s3nlz",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v3-scoped-window-trace-v5",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.o_pem8aw",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.o_pem8aw (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.o_pem8aw",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v3-protein-partial-moves",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.trou0eob",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.trou0eob (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.trou0eob",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-v3-protein-partial-moves-v2",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3vos809b",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3vos809b (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3vos809b",
+      "startup_gate_refusal": false
+    }
+  ],
+  "scope": "Exact supported reclaim only. The startup refusal is not described as a normal session."
+}

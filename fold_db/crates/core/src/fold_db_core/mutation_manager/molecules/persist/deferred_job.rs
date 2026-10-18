@@ -1,6 +1,7 @@
-//! Persist-lane deferred resident-write job.
+//! Private physical stages for one native logical write.
 
 use super::*;
+use futures::FutureExt;
 
 impl MutationManager {
     /// Produce all stored bytes in the native request's private preparation
@@ -34,59 +35,8 @@ impl MutationManager {
         job.search_batch = search;
         result
     }
-    pub(in crate::fold_db_core::mutation_manager) async fn run_deferred_job(
-        &self,
-        job: &mut DeferredPersistJob,
-        commit_id: u64,
-        slot_revisions: &[crate::resident::PersistSlotRevision],
-    ) -> Result<(), SchemaError> {
-        // Persist jobs created after the apply-gate cut carry no guards. Drop
-        // any rolling-upgrade leftovers before the first storage await.
-        job.molecule_write_guards.clear();
-        let native = self.db_ops.namespaced_store().disk_pack_runtime();
-        let original_schema = native.as_ref().map(|_| job.schema.clone());
-        let deferred_start = std::time::Instant::now();
-        let persist_body = async {
-            self.store_deferred_atoms(job, commit_id).await?;
-            self.persist_deferred_molecules(job, commit_id).await?;
-            self.settle_deferred_atom_births(job, commit_id).await?;
-            self.store_deferred_schema(job, commit_id).await?;
-            self.store_deferred_side_records(job, commit_id).await?;
 
-            Ok::<(), SchemaError>(())
-        };
-        let result = {
-            let _kv_suppress = self
-                .capture_router()
-                .map(|router| router.enter_kv_suppress());
-            crate::sync::capture::with_capture_suppressed(
-                crate::storage::disk_pack::transaction::scope(native, persist_body),
-            )
-            .await
-        };
-
-        if result.is_err() {
-            if let Some(schema) = original_schema {
-                job.schema = schema;
-            }
-        }
-
-        if result.is_ok() {
-            // Native scopes reach their complete CURRENT before any dirty clear.
-            self.complete_resident_persist_turn(slot_revisions)?;
-            self.clear_deferred_job_dirty_after_success(job, slot_revisions);
-        }
-
-        let metrics = self.db_ops.resident().metrics();
-        metrics.record_deferred_persist_duration(deferred_start.elapsed());
-        if result.is_err() {
-            metrics.record_deferred_persist_failure();
-        }
-        result
-    }
-
-    /// Keep the owned atom batch in the envelope until every durable stage
-    /// succeeds. A failed stage returns the same batch to the lane.
+    /// Keep the Atom batch private until every stage succeeds.
     async fn store_deferred_atoms(
         &self,
         job: &DeferredPersistJob,
@@ -154,6 +104,7 @@ impl MutationManager {
         commit_id: u64,
     ) -> Result<(), SchemaError> {
         let mut timing = std::collections::HashMap::new();
+        self.persist_sibling_key_moves(job).boxed().await?;
         self.persist_modified_molecules(
             &mut job.schema,
             &job.modified_fields,

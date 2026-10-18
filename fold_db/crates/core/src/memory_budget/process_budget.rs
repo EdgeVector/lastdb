@@ -24,7 +24,7 @@ impl DeferCapSource {
     }
 }
 
-/// Inputs for the pure budget computation (unit-testable without `std::env`).
+/// Inputs for the pure budget computation, separate from `std::env`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MemoryBudgetInputs {
     pub warm_bytes: u64,
@@ -95,8 +95,7 @@ impl ProcessMemoryBudget {
 
         let charged_bytes = warm_bytes
             .saturating_add(key_cache_bytes)
-            .saturating_add(resident_graph_bytes)
-            .saturating_add(logical_resident_set_charged_bytes());
+            .saturating_add(resident_graph_bytes);
         let multiplier = rss_multiplier.clamp(MIN_RSS_MULTIPLIER, MAX_RSS_MULTIPLIER);
         let projected_rss_bytes = scale_bytes(charged_bytes, multiplier);
         let headroom_bytes = rss_limit_bytes.saturating_sub(projected_rss_bytes);
@@ -136,8 +135,9 @@ impl ProcessMemoryBudget {
         }
     }
 
-    /// Resolve from environment. The resident graph budget comes from the same
-    /// [`ResidentPolicy`] the node runs on, so the two can never disagree.
+    /// Resolve the conservative process admission projection from environment.
+    /// Historical field names remain on the status surface. Their configured
+    /// values reserve headroom; they do not measure native core allocations.
     #[must_use]
     pub fn from_env() -> Self {
         let policy = ResidentPolicy::from_env();
@@ -147,8 +147,9 @@ impl ProcessMemoryBudget {
                 std::env::var(KEY_CACHE_BYTES_ENV).ok(),
                 PRESET_KEY_CACHE_BYTES,
             ),
-            // The resident graph fills even in mode=off (tips are published
-            // after every durable store), so it is charged unconditionally.
+            // Keep this reserve while clean native atom retention has a record
+            // cap rather than a global byte cap. Removing the old graph does
+            // not authorize donating its headroom to deferred writes.
             resident_graph_bytes: policy.budget_bytes,
             rss_limit_bytes: parse_rss_limit_bytes(std::env::var(RSS_LIMIT_MB_ENV).ok()),
             rss_multiplier: parse_rss_multiplier(std::env::var(RSS_MULTIPLIER_ENV).ok()),

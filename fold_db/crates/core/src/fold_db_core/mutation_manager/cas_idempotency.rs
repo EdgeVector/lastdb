@@ -1,7 +1,7 @@
 //! Idempotent-mutation filtering against current state.
 
 use crate::db_operations::AtomStore;
-use crate::schema::types::{KeyValue, Mutation};
+use crate::schema::types::Mutation;
 use crate::schema::SchemaError;
 
 use super::helpers::current_atom_uuid;
@@ -124,65 +124,12 @@ impl MutationManager {
                 mutation.source_file_name.clone(),
                 mutation.metadata.clone(),
             )?;
-            let current_uuid =
-                self.resident_preferred_atom_uuid(schema_field, &key_value, storage_prefix);
+            let current_uuid = current_atom_uuid(schema_field, &key_value);
             if current_uuid.as_deref() != Some(expected_atom.uuid()) {
                 return Ok(false);
             }
         }
 
         Ok(true)
-    }
-
-    /// The current atom uuid at `key_value` for `field`, preferring the
-    /// acknowledged resident tip over the schema catalog head.
-    ///
-    /// Mirrors the same preference [`Self::read_current_head`] applies: a
-    /// same-node write acks and advances the resident tip before its
-    /// deferred durable persist reloads the schema catalog, so a lookup that
-    /// only ever consults the catalog can observe pre-write state for a
-    /// window after the write that produced it already returned. Without
-    /// this, a byte-identical retry of that write reads its own prior
-    /// attempt as absent and gets reapplied instead of recognized as an
-    /// idempotent no-op.
-    ///
-    /// A hard-erase stamps the resident tombstone overlay and drops the
-    /// resident tip before ack, while the catalog head still names the
-    /// pre-delete atom until the deferred converge lane runs. Without an
-    /// overlay check here, a byte-identical Create after Delete falls
-    /// through to that stale catalog uuid and skips as a duplicate.
-    pub(super) fn resident_preferred_atom_uuid(
-        &self,
-        field: &crate::schema::types::field::FieldVariant,
-        key_value: &KeyValue,
-        storage_prefix: Option<&str>,
-    ) -> Option<String> {
-        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
-            return current_atom_uuid(field, key_value);
-        }
-        // Overlay and resident tip are not prefix-gated: org Delete stamps
-        // the same molecule-slot overlay as personal. The prefix still
-        // scopes the catalog fallback via `current_atom_uuid` (schema clone).
-        let _ = storage_prefix;
-        if let (Some(mol_uuid), Some(changed)) = (
-            field.common().molecule_uuid(),
-            field.changed_key_for(key_value),
-        ) {
-            if self.db_ops.resident().is_key_tombstoned(
-                mol_uuid,
-                changed.disk_hash(),
-                changed.disk_range(),
-            ) {
-                return None;
-            }
-            if let Some(tip) = self.db_ops.resident().resolve_tip(
-                mol_uuid,
-                changed.disk_hash(),
-                changed.disk_range(),
-            ) {
-                return Some(tip.value.atom_uuid);
-            }
-        }
-        current_atom_uuid(field, key_value)
     }
 }

@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use tracing::info;
 
 use crate::db_operations::DbOperations;
 use crate::schema::SchemaCore;
-use crate::storage::{LastStoreNamespacedStore, StorageError};
+use crate::storage::disk_pack::PackNamespacedStore;
+use crate::storage::StorageError;
 
 use super::FoldDB;
 use crate::fold_db_core::mutation_manager::MutationManager;
@@ -14,7 +16,7 @@ use crate::fold_db_core::query::QueryExecutor;
 impl FoldDB {
     /// Creates a new FoldDB instance with the specified storage path.
     ///
-    /// This is a convenience path for tests and other in-process callers
+    /// This is a native convenience path for in-process callers
     /// that do not have a persistent node identity (e.g., ephemeral
     /// `tempdir` storage). It generates a fresh Ed25519 signing keypair
     /// on the fly. **Production callers must go through
@@ -23,7 +25,7 @@ impl FoldDB {
     /// every boot produces a different signing key and molecule
     /// signatures will not match the node's public identity.
     pub async fn new(path: &str) -> Result<Self, StorageError> {
-        let store = Arc::new(LastStoreNamespacedStore::open(std::path::Path::new(path))?);
+        let store = Arc::new(PackNamespacedStore::open(std::path::Path::new(path))?);
         Self::initialize_from_store(
             store as Arc<dyn crate::storage::traits::NamespacedStore>,
             path,
@@ -39,7 +41,7 @@ impl FoldDB {
         path: &str,
         molecule_wrap_key: [u8; 32],
     ) -> Result<Self, StorageError> {
-        let store = Arc::new(LastStoreNamespacedStore::open(std::path::Path::new(path))?);
+        let store = Arc::new(PackNamespacedStore::open(std::path::Path::new(path))?);
         Self::initialize_from_store(
             store as Arc<dyn crate::storage::traits::NamespacedStore>,
             path,
@@ -48,7 +50,7 @@ impl FoldDB {
         .await
     }
 
-    /// Generate a signing keypair for in-process / test callers that do
+    /// Generate a signing keypair for in-process callers that do
     /// not have a persistent node identity. Wraps the error so callers
     /// get a single failure mode.
     fn generate_ephemeral_signer() -> Result<Arc<crate::security::Ed25519KeyPair>, StorageError> {
@@ -58,7 +60,7 @@ impl FoldDB {
         Ok(Arc::new(keypair))
     }
 
-    /// Test / in-process init: open a namespaced store path with an ephemeral signer.
+    /// In-process init: open native storage with an ephemeral signer.
     /// Production boots go through the factory → [`FoldDB::initialize_from_init`].
     async fn initialize_from_store(
         store: Arc<dyn crate::storage::traits::NamespacedStore>,
@@ -77,7 +79,7 @@ impl FoldDB {
     ) -> Result<Self, StorageError> {
         tracing::info!(
             target: "fold_node::database",
-            "Using DbOperations with storage abstraction layer (Last Store backend)"
+            "Using native packed storage with the core logical model"
         );
 
         let (store, mutation_log_capture) = {
@@ -104,7 +106,7 @@ impl FoldDB {
 
         tracing::info!(
             target: "fold_node::database",
-            "Storage abstraction active - using Last Store backend"
+            "Native packed storage is active"
         );
 
         Self::initialize_from_init(FoldDbInit {
@@ -138,7 +140,7 @@ impl FoldDB {
             Some(e2e_keys.index_key()),
             Some(e2e_keys.ope_key()),
         );
-        // Same at-rest ENC seam Mini factory uses for plain HashGroup homes.
+        // Use the same at-rest encryption seam as the normal Mini factory.
         // Without it TypedKvStore parses ciphertext as JSON:
         // `Serialization error: expected value at line 1 column 1`.
         let crypto: Arc<dyn crate::crypto::CryptoProvider> = Arc::new(
@@ -155,10 +157,8 @@ impl FoldDB {
                     .collect(),
             ),
         );
-        // Mini HashGroup+Plain seals atom `content` under the account E2E
-        // key (factory `atom_content_key`). Passing None writes plain-string
-        // bodies; dest `LASTDB_ATOM_CONTENT_STRICT=1` then fails HashKey with
-        // "atom content is not sealed … got plain-string".
+        // Keyed atom reads require content encrypted with this account's E2E
+        // key. Pass the same content key as the normal native constructor.
         let db_ops = Arc::new(
             DbOperations::from_namespaced_store_with_atom_and_molecule_keys(
                 store,
@@ -219,6 +219,16 @@ impl FoldDB {
         let query_executor = QueryExecutor::new(&db_ops, Arc::clone(&schema_manager));
         info!("Created QueryExecutor for query operations");
 
+        if crate::fold_db_core::query::hash_range_query::preload_receiver_controls(&db_ops)
+            .boxed()
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                "native receiver controls remain unknown after startup preload; queries retry their ordinary read"
+            );
+        }
+
         let author_clock_state = Self::load_author_clock_state(&db_ops, &signer).await?;
 
         // Create MutationManager for handling all mutation operations.
@@ -242,7 +252,7 @@ impl FoldDB {
 
         let background_flush = Self::start_background_flush(&db_ops);
 
-        let background_persist = Self::log_resident_policy();
+        Self::log_resident_policy();
 
         let background_protein_reaper = Self::start_protein_reaper(&db_ops);
 
@@ -260,7 +270,6 @@ impl FoldDB {
             mutation_manager,
             pending_tasks,
             background_flush,
-            background_persist,
             background_protein_reaper,
             background_tip_history_drain,
             background_atom_reclaim_janitor,
@@ -295,23 +304,4 @@ pub struct FoldDbInit {
         crate::sync::capture::plane_compactor::BackupPublishTargetSlot,
         Arc<tokio::sync::Mutex<Option<u64>>>,
     )>,
-}
-
-impl FoldDbInit {
-    /// Configure an in-process local database without cloud mutation capture.
-    /// Factory boots attach their capture router separately inside the crate.
-    pub fn local(
-        db_ops: Arc<DbOperations>,
-        db_path: String,
-        signer: Arc<crate::security::Ed25519KeyPair>,
-    ) -> Self {
-        Self {
-            db_ops,
-            db_path,
-            signer,
-            search_outbox_inbox: None,
-            mutation_log_capture: None,
-            packing_slots: None,
-        }
-    }
 }

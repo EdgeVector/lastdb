@@ -208,6 +208,18 @@ impl QueryExecutor {
                         schema.name
                     )));
                 }
+                crate::schema::require_native_logical_layout(
+                    self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+                    &schema.schema_type,
+                )?;
+                crate::schema::require_native_logical_filter(
+                    self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+                    query.filter.as_ref(),
+                )?;
+                crate::schema::require_native_current_read(
+                    self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+                    query.as_of.is_some(),
+                )?;
                 self.db_ops
                     .molecule_keys()
                     .load_schema(&schema)
@@ -291,19 +303,4 @@ impl QueryExecutor {
             None => future.await,
         }
     }
-}
-
-fn filter_schema_key_tombstones(
-    mut results: HashMap<String, HashMap<KeyValue, FieldValue>>,
-    resident: &crate::resident::ResidentGraph,
-    schema_name: &str,
-) -> HashMap<String, HashMap<KeyValue, FieldValue>> {
-    for field_map in results.values_mut() {
-        field_map.retain(|kv, _| {
-            let hash = kv.hash.as_deref().unwrap_or("");
-            let range = kv.range.as_deref().unwrap_or("");
-            !resident.is_schema_key_tombstoned(schema_name, hash, range)
-        });
-    }
-    results
 }

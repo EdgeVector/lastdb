@@ -7,8 +7,8 @@
 > Brain: `brain get concepts-lastdb-canonical-model` · this file:
 > `docs/lastdb-canonical-model.md`
 
-**Audience:** anyone designing an app against LastDB (Mini `lastdbd`, the
-desktop node, or embedded). Agents: also read
+**Audience:** anyone designing an app against LastDB (Mini `lastdbd` or
+embedded). Agents: also read
 `docs/lastdb-agent-access-model.md` for day-to-day usage rules.
 
 ---
@@ -40,10 +40,10 @@ Complexity law (`requirement-lastdb-access-complexity`):
 
 ### Schema
 
-An app-declared **catalog**: it names the fields of a record type and the
-keying mode (`Single` | `Hash` | `Range` | `HashRange` — i.e. an exact key, or
-a hash plus a range key). The schema stores nothing; it describes how the
-molecules below it are keyed.
+An app declares a schema with its field names and key type: `Hash` or `HashRange`.
+The schema describes how its field molecules use keys. It does not store the record values.
+Older declarations and remote templates can still encode `Single` or `Range`.
+The native logical query and write routes reject those layouts before they fetch molecules or change records.
 
 ### Field → molecule
 
@@ -69,9 +69,10 @@ pack many small fields up to the fence, but it is not a blob store.
 
 The atom's data is what points at durable bytes on disk:
 
-- **Physically**, atoms live in hash-sharded **segment files** under the store
-  home (storage v2: `atoms/<hh>/<hh>/<seg>.seg`), so disk usage is explainable
-  with `du` and compaction is per-shard.
+- **Physically**, the native disk engine finds the file bytes from the atom identity.
+  Native storage uses packed files and keyed trees.
+  Older physical tools remain separate from the logical database constructors.
+  File positions remain storage details; molecule tips retain atom identities.
 - **File-scale payloads** (packs, attachments, anything past the atom fence)
   are **content-addressed file blobs** (CAS: `blobs/sha256/…`); the atom holds
   the reference, not the bytes.
@@ -119,9 +120,10 @@ Rules:
   member's protein UUID, walks the member list, and repoints every other
   member's tip to the shared atom. O(members), correct by construction — the
   protein is the authority on who must update, so drift cannot happen.
-  Propagation is **enqueued** (eventually consistent): the entry member and
-  atom commit immediately; the other members fold in shortly after; racing
-  writes converge by the existing LWW tip semantics.
+  The native create/update request prepares the related molecule changes
+  before one core publication. Its ack does not precede those related tips.
+  A mixed create/delete call can also require a separate durable erasure phase.
+  This does not promise one atomic change for every mutation verb.
 - **App view:** when two schemas share the same set of fields but index them
   differently, their field molecules belong to one protein. A write through
   either schema updates the shared atoms and re-indexes the related molecules
@@ -191,66 +193,55 @@ Never:
 
 ---
 
-## 5. Resident graph: memory → disk → cloud
+## 5. Memory → disk → cloud
 
-**Product law (Tom, 2026-07-28):** The full ladder is the **resident graph** —
-**primary** and ultra-fast:
-
-```text
-Schema → field → molecule → atom (file reference and access metadata)
-(+ protein binding molecules)
-```
-
-Tier sequence:
+The logical model stays the same across memory, disk, and cloud:
 
 ```text
-T0  resident (primary)  →  schema catalog, molecule tips, and atoms in memory
-T1  disk (eventual)     →  dirty resident persists to LastStore
-T2  cloud (eventual)    →  sync / export; never on mutation ack
+schema → field → molecule → atom → file
+protein binds related molecules
 ```
 
-**Logical resident set:** tips and atoms in memory are capped by used-record
-count (`RESIDENT_KEY_CAP = 10000`), not by a byte budget.
-`LASTDB_RESIDENT_BYTES` bounds the ResidentGraph.
-`LASTDB_HASH_GROUP_WARM_BYTES` bounds the hash-group warm set for non-logical
-collections (indexes, schema_index, atom_ref_edges_v2, keep_small, metadata,
-cas_blobs). Do not tune those byte settings to size the logical resident set.
+### Native disk engine
 
-**Selected design update, 2026-10-17:** selected HashRange schemas load all required range keys before their first query continues.
-The core logical model owns complete keys and sparse current tips and atoms.
-Full logical records retain the 10,000-record cap; complete keys use a separate explicit byte allowance.
-Concurrent first queries share one load, and accepted writes maintain ready membership before the ack.
-Tip and atom purge preserves those keys; whole-domain key purge or incompatible definitions can require another load.
-The selected route is built in the development branch. The policy remains opt-in at process start.
-See the [schema preload design](lastdb-schema-range-preload-design.md), [work plan](lastdb-logical-warm-set-plan.md), and [product results](lastdb-schema-range-preload-results.md).
+The core model holds current schemas, molecule definitions, keys, tips, and atom values.
+Reads and accepted logical writes use that model.
+A call captures the core state and its matching disk root.
+A miss fetches the required records in batches. The fetched logical records can stay warm.
 
-**Fidelity:** what is in resident is **exactly** what will be written later
-(isomorphic persist — same tips, atom uuids/content, blob refs, protein
-membership). Not a tip-only cache or a different RAM shape.
+The separate recency list controls the warm records. The normal limit is 10,000 logical records.
+The purge skips a record that a call still holds or that still awaits flush.
+An older call can retain its earlier values. Their memory owners stay charged until that call returns.
+These call lifetimes do not provide an old-value query or stored atom history.
 
-**Read:** memory first; miss **`rehydrate`s** from disk (lazy; open is not a
-full load).
+The private disk queue retains prepared bytes until flush. Ordinary reads cannot query that queue.
+The native journal supports recovery of stored writes. It does not replace the current logical memory state.
+The local capture router remains, but no cloud engine attaches during this cutover.
+A logical write can send an ack before flush when the complete change fits its allowances.
+Explicit durable requests and unsupported internal file changes finish on disk before success.
+An internal file change clears affected core records before a later call can use them.
 
-**Owner correction, 2026-09-08:** all schemas with local data stay in memory.
-Query fields select molecule keys, then the required atoms. Queries return file
-references and access metadata. They never hydrate or cache CAS file bytes.
-See `decision-2026-09-08-local-memory-stops-at-atoms`.
-The October 2 used-record rules and the October 17 selected-schema design above limit this earlier all-schema statement.
-Unused schemas and unrequested atom values do not enter memory through range-key preload.
+Native reads and writes always use the core model. No old memory mode flag selects that route.
+`LASTDB_RESIDENT_PERSIST_MS` sets the native flush delay, from 1 to 500 ms.
+The record cap, definition allowance, selected-key allowance, and write allowance cover separate owners.
+They do not define one whole-process memory cap.
 
-**Write:** **`apply`** full ladder in resident → dirty pin → ack → **persist**
-serializes the same records → cloud later.
+Selected HashRange schemas can load all required membership keys before their first query continues.
+Concurrent first queries share that load. Later range calls select complete keys from memory.
+Tips and values remain partial. Range-key preload does not load unused atom values or file contents.
+The policy remains opt-in through `LASTDB_SCHEMA_PRELOAD_SCHEMAS`.
+See the [preload design](lastdb-schema-range-preload-design.md) and [native write result](proofs/core-owned-writes-20261018/RESULTS.md).
 
-| Op | Role |
-|---|---|
-| **`apply`** | Mutate resident ladder (hot path) |
-| **`rehydrate`** | Miss: disk → faithful resident object |
-| **`resolve`** | Hit or rehydrate |
-| **persist** | Dirty → disk (same logical records) |
-| **`evict`** | Drop **clean** only; never dirty until persisted |
-| **`fold`** | Protein tip fan-out on resident (not rehydrate) |
+### Engine cutover
 
-Full brief: brain `concepts-lastdb-rehydrate` · `docs/lastdb-rehydrate.md`.
+Normal FoldDB startup opens the native packed engine. No selection flag is required.
+The logical constructor rejects a non-native physical store before it opens logical namespaces.
+An empty home initializes directly. Existing native homes can reopen.
+A nonempty older-format home receives an explicit refusal. No automatic conversion or boot migration runs.
+Cloud sync stays disabled for this optimization round.
+
+Older physical-format tools and vendor code do not provide an alternate logical query or write engine.
+The source review and product receipts must identify the exact native source that they cover.
 
 ---
 

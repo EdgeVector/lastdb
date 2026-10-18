@@ -21,12 +21,10 @@ impl NamespacedStore for LastStoreNamespacedStore {
         let high_water = self.high_water.clone();
         let keys = keys.to_vec();
         // One scope, every collection. A second call would be a second barrier.
-        let logical = Arc::clone(&self.logical);
         LastStoreKvStore::run_blocking(move || {
             store
                 .flush_scope(&keys)
                 .map_err(LastStoreKvStore::map_error)?;
-            logical_path::apply_durable_through(&store, &logical);
             LastStoreKvStore::record_high_water(high_water.as_ref(), &store)
         })
         .await
@@ -38,10 +36,6 @@ impl NamespacedStore for LastStoreNamespacedStore {
 
     fn laststore_backup_source(&self) -> Option<Arc<LastStoreNamespacedStore>> {
         Some(Arc::new(self.clone()))
-    }
-
-    fn logical_resident_set(&self) -> Option<Arc<Mutex<LogicalResidentSet>>> {
-        Some(Arc::clone(&self.logical))
     }
 
     async fn drain_plane_residue(
@@ -151,18 +145,10 @@ impl NamespacedStore for LastStoreNamespacedStore {
     }
 
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
-        if name == LOGICAL_MAIN_COLLECTION {
-            return Ok(Arc::new(LogicalMainLastStoreKvStore::with_logical(
-                Arc::clone(&self.store),
-                self.high_water.clone(),
-                Arc::clone(&self.logical),
-            )));
-        }
-        Ok(Arc::new(LastStoreKvStore::with_logical(
+        Ok(Arc::new(LastStoreKvStore::new(
             Arc::clone(&self.store),
             name.to_string(),
             self.high_water.clone(),
-            Arc::clone(&self.logical),
         )))
     }
 
@@ -268,7 +254,6 @@ impl NamespacedStore for LastStoreNamespacedStore {
     async fn delete_namespace(&self, name: &str) -> StorageResult<bool> {
         let store = Arc::clone(&self.store);
         let collection = name.to_string();
-        let logical = Arc::clone(&self.logical);
         LastStoreKvStore::run_blocking(move || {
             // Keys-only walk of this collection, then batch delete — no body hydrate.
             let keys = store
@@ -281,7 +266,9 @@ impl NamespacedStore for LastStoreNamespacedStore {
                 .into_iter()
                 .map(|id| TxnOp::delete(&collection, &id))
                 .collect();
-            direct_write_invalidation::after_transaction(&logical, &store, ops)?;
+            store
+                .transaction(ops)
+                .map_err(LastStoreKvStore::map_error)?;
             Ok(true)
         })
         .await

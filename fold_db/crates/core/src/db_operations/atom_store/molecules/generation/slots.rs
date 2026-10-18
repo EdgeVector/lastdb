@@ -44,59 +44,6 @@ impl AtomStore {
         }
     }
 
-    pub(crate) async fn generation_slot_for_record_key(
-        &self,
-        base_key: &str,
-        generation: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<Option<MoleculeGenerationSlot>, SchemaError> {
-        let Some(molecule_uuid) = molecule_key_codec::molecule_uuid_from_storage_key(base_key)
-        else {
-            return Ok(None);
-        };
-        let Some(generation_key) = molecule_key_codec::molecule_generation_bound_for_record_bound(
-            molecule_uuid,
-            generation,
-            base_key,
-        ) else {
-            return Ok(None);
-        };
-        let storage_key = build_storage_key(storage_prefix, &generation_key);
-        self.main_store
-            .get_item(&storage_key)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "read molecule generation slot {storage_key}: {error}"
-                ))
-            })
-    }
-
-    pub(crate) async fn generation_delete_for_record_key(
-        &self,
-        base_key: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<Option<MoleculeGenerationDelete>, SchemaError> {
-        let Some(molecule_uuid) = molecule_key_codec::molecule_uuid_from_storage_key(base_key)
-        else {
-            return Ok(None);
-        };
-        let Some(key) = molecule_key_codec::molecule_generation_delete_bound_for_record_bound(
-            molecule_uuid,
-            base_key,
-        ) else {
-            return Ok(None);
-        };
-        self.main_store
-            .get_item(&build_storage_key(storage_prefix, &key))
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "read generation delete for molecule {molecule_uuid}: {error}"
-                ))
-            })
-    }
-
     pub(crate) fn apply_generation_delete(
         record: Option<PerKeyRecord>,
         deletion: Option<MoleculeGenerationDelete>,

@@ -283,6 +283,9 @@ pub(super) async fn execute_seed_system_schema_route(
         );
     }
 
+    if let Some(response) = native_layout_error(ctx, host, &request.schema) {
+        return response;
+    }
     let schema_name = request.schema.name.clone();
     let schema = match fold_db::schema::SchemaInterpreter::interpret(request.schema) {
         Ok(schema) => schema,

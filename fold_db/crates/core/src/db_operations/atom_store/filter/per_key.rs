@@ -6,7 +6,6 @@ use crate::schema::SchemaError;
 
 use super::super::types::PerKeyRecord;
 use super::super::AtomStore;
-use super::super::HashKeyLookupRecord;
 use super::PageFill;
 
 mod batch;

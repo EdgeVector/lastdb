@@ -124,14 +124,4 @@ impl FoldDB {
             .await
             .map_err(|e| FoldDbError::Database(format!("clear_mutation_history: {e}")))
     }
-
-    /// Delete all `schemaidx:` marker keys from the live store, forcing
-    /// a later schema listing to rebuild the secondary index.
-    pub async fn purge_schemaidx(&self) -> Result<SchemaIdxPurgeReport, FoldDbError> {
-        self.db_ops()
-            .atoms()
-            .purge_schemaidx(None)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("purge_schemaidx: {e}")))
-    }
 }

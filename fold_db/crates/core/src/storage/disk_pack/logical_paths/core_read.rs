@@ -321,8 +321,14 @@ fn identity(
     key: &KeyValue,
     atom: &str,
 ) -> StorageResult<String> {
-    serde_json::to_string(&(scope, molecule, &key.hash, &key.range, atom))
-        .map_err(|error| serialization(&error))
+    serde_json::to_string(&(
+        scope,
+        molecule,
+        key.hash.as_deref().unwrap_or_default(),
+        key.range.as_deref().unwrap_or_default(),
+        atom,
+    ))
+    .map_err(|error| serialization(&error))
 }
 
 fn receipt_bytes(

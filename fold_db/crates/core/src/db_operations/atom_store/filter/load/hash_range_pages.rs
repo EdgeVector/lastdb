@@ -1,9 +1,9 @@
 use super::*;
 
 impl AtomStore {
-    /// `Page` / `PageAfter` / `SampleN` when the `mhr:` page index is off.
+    /// `Page` / `PageAfter` / `SampleN` from authoritative molecule keys.
     /// Returns `Ok(None)` when the filter is not one of those shapes.
-    pub(super) async fn load_hash_range_page_without_index(
+    pub(super) async fn load_hash_range_page(
         &self,
         molecule_uuid: &str,
         header: &MoleculeHeader,
@@ -25,7 +25,7 @@ impl AtomStore {
             _ => None,
         };
         if let Some((offset, limit)) = page_window {
-            // Match the mhr path: load the prefix [0, offset+limit) so a
+            // Load the prefix [0, offset+limit) so a
             // subsequent apply_hash_range_filter(Page{offset,limit}) sees
             // the same window as a full-molecule Page.
             //
@@ -108,119 +108,6 @@ impl AtomStore {
         Ok(page)
     }
 
-    /// `Page` through the range-major `mhr:` index, rebuilding or repairing it
-    /// when it is missing or stale.
-    pub(super) async fn load_hash_range_page_via_index(
-        &self,
-        molecule_uuid: &str,
-        header: &MoleculeHeader,
-        storage_prefix: Option<&str>,
-        want: usize,
-        fill: PageFill,
-    ) -> Result<Option<MoleculeData>, SchemaError> {
-        if want == 0 {
-            return Ok(Some(MoleculeHashRange::from_per_key_records(
-                molecule_uuid.to_string(),
-                header.version,
-                header.updated_at,
-                Vec::new(),
-            )));
-        }
-
-        if !self
-            .hash_range_page_index_complete(molecule_uuid, storage_prefix)
-            .await?
-        {
-            self.rebuild_hash_range_page_index(molecule_uuid, storage_prefix, header)
-                .await?;
-        }
-
-        let (mut records, stale) = self
-            .load_hash_range_page_window_filled(molecule_uuid, storage_prefix, None, want, fill)
-            .await?;
-        if stale {
-            self.repair_hash_range_page_index(molecule_uuid, storage_prefix, header)
-                .await?;
-            records = self
-                .load_hash_range_page_window_filled(molecule_uuid, storage_prefix, None, want, fill)
-                .await?
-                .0;
-        }
-        Ok(Some(MoleculeHashRange::from_per_key_records(
-            molecule_uuid.to_string(),
-            header.version,
-            header.updated_at,
-            records,
-        )))
-    }
-
-    /// `PageAfter` through the range-major `mhr:` index, rebuilding or
-    /// repairing it when it is missing or stale.
-    pub(super) async fn load_hash_range_page_after_via_index(
-        &self,
-        molecule_uuid: &str,
-        header: &MoleculeHeader,
-        storage_prefix: Option<&str>,
-        after: &crate::schema::types::key_value::KeyValue,
-        limit: usize,
-        fill: PageFill,
-    ) -> Result<Option<MoleculeData>, SchemaError> {
-        if limit == 0 {
-            return Ok(Some(MoleculeHashRange::from_per_key_records(
-                molecule_uuid.to_string(),
-                header.version,
-                header.updated_at,
-                Vec::new(),
-            )));
-        }
-
-        if !self
-            .hash_range_page_index_complete(molecule_uuid, storage_prefix)
-            .await?
-        {
-            self.rebuild_hash_range_page_index(molecule_uuid, storage_prefix, header)
-                .await?;
-        }
-
-        // The refill loop resumes from storage-form index keys, so map the
-        // caller's API cursor once here rather than re-blinding a blinded
-        // segment on every continuation.
-        let cursor = Some((
-            self.storage_hash(molecule_uuid, after.hash.as_deref().unwrap_or(""))?,
-            self.storage_range(molecule_uuid, after.range.as_deref().unwrap_or(""))?,
-        ));
-
-        let (mut records, stale) = self
-            .load_hash_range_page_window_filled(
-                molecule_uuid,
-                storage_prefix,
-                cursor.clone(),
-                limit,
-                fill,
-            )
-            .await?;
-        if stale {
-            self.repair_hash_range_page_index(molecule_uuid, storage_prefix, header)
-                .await?;
-            records = self
-                .load_hash_range_page_window_filled(
-                    molecule_uuid,
-                    storage_prefix,
-                    cursor,
-                    limit,
-                    fill,
-                )
-                .await?
-                .0;
-        }
-        Ok(Some(MoleculeHashRange::from_per_key_records(
-            molecule_uuid.to_string(),
-            header.version,
-            header.updated_at,
-            records,
-        )))
-    }
-
     /// `HashRangeKeys` multi-get: one grouped read for all API pairs.
     pub(super) async fn load_hash_range_keys_batch(
         &self,
@@ -229,39 +116,25 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         keys: &[(String, String)],
     ) -> Result<Option<MoleculeData>, SchemaError> {
-        let codec = self.key_codec_for_molecule(molecule_uuid);
-        let mut groups = Vec::with_capacity(keys.len());
-        for (hash, range) in keys {
-            groups.push(
-                codec
-                    .api_hash_range_record_keys_for_read(molecule_uuid, hash, range)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?,
-            );
-        }
+        let api_keys: Vec<_> = keys
+            .iter()
+            .map(|(hash, range)| {
+                crate::schema::types::key_value::KeyValue::new(
+                    Some(hash.clone()),
+                    Some(range.clone()),
+                )
+            })
+            .collect();
         let hits = self
-            .load_first_present_candidate_with_key(storage_prefix, &groups)
+            .load_query_tip_records(storage_prefix, molecule_uuid, &api_keys)
             .await?;
         let mut records = Vec::with_capacity(keys.len());
-        for (((hash, range), candidates), hit) in keys.iter().zip(&groups).zip(hits) {
-            let api_key = crate::schema::types::key_value::KeyValue::new(
-                Some(hash.clone()),
-                Some(range.clone()),
-            );
-            if let Some((base, rec)) = hit {
-                self.note_selected_query_tip_candidates(
-                    storage_prefix,
-                    molecule_uuid,
-                    &api_key,
-                    &rec,
-                    &base,
-                    candidates,
-                )?;
+        for ((hash, range), hit) in keys.iter().zip(hits) {
+            if let Some((_, rec)) = hit {
                 // Option I: echo the API pair the caller supplied, so
                 // `apply_hash_range_filter` — pure string comparison,
                 // no codec — can match it.
                 records.push((hash.clone(), range.clone(), rec.entry, rec.meta));
-            } else {
-                self.note_missing_query_key(storage_prefix, molecule_uuid, &api_key, candidates)?;
             }
         }
         Ok(Some(MoleculeHashRange::from_per_key_records(

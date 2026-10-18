@@ -34,10 +34,9 @@ pub use protein::{Protein, ProteinFoldJob, ProteinMember, PROTEIN_SCHEMA_MARKER}
 /// (`concepts-lastdb-rehydrate`).
 pub mod resident;
 pub use resident::{
-    DirtyKey, PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey,
-    PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistReservation,
-    PersistSlotRevision, ResidentAtom, ResidentGraph, ResidentKind, ResidentMetrics,
-    ResidentSlotControl, ResidentSlotState, ResidentTip, ResolveOutcome, ResolveSource,
+    PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneOccupancy,
+    PersistLanePressure, PersistLaneSet, PersistReservation, PersistSlotRevision, ResidentKind,
+    ResidentMetrics,
 };
 /// Pure continuous-backup drain planner (no network; always compiled for tests).
 pub mod backup_drain_plan;

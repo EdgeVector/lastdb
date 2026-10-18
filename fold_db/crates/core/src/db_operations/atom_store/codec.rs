@@ -180,7 +180,7 @@ impl AtomStore {
     /// **Must** be used instead of `raw().get_items::<Atom>(…)` — deserializing
     /// sealed rows straight into [`Atom`] leaves `content` as `ENC:…` ciphertext
     /// and leaks into query / hash-key paths.
-    pub async fn get_atoms_by_storage_keys(
+    pub(super) async fn get_atoms_by_storage_keys_captured(
         &self,
         keys: &[String],
     ) -> Result<Vec<Option<crate::atom::Atom>>, crate::schema::SchemaError> {
@@ -188,45 +188,68 @@ impl AtomStore {
             .namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
-        let forms: Vec<Vec<String>> = keys
-            .iter()
-            .map(|key| crate::kind_partition::read_forms(key))
-            .collect();
-        let lookup: Vec<Vec<u8>> = forms
-            .iter()
-            .flatten()
-            .map(|key| key.as_bytes().to_vec())
-            .collect();
-        let raw = self
-            .main_store
-            .inner()
-            .get_many(lookup)
-            .await
-            .map_err(crate::schema::SchemaError::from)?;
-        let mut raw_iter = raw.into_iter();
+        let captured = runtime
+            .as_ref()
+            .map(|runtime| runtime.captured_atoms(keys))
+            .transpose()?
+            .unwrap_or_else(|| vec![None; keys.len()]);
+        let raw = self.load_cold_atom_bytes(keys, &captured).await?;
         let mut out = Vec::with_capacity(keys.len());
-        for (requested, key_forms) in keys.iter().zip(forms) {
-            let mut hit = None;
-            for key in key_forms {
-                let item = raw_iter.next().flatten();
-                if hit.is_none() {
-                    hit = item.map(|bytes| (key, bytes));
-                }
+        for ((requested, raw), captured) in keys.iter().zip(raw).zip(captured) {
+            let atom = match captured {
+                Some(atom) => Some(atom.as_ref().clone()),
+                None => match raw {
+                    Some(value) => Some(self.decode_atom_bytes(&value).await?),
+                    None => None,
+                },
+            };
+            if let Some(atom) = &atom {
+                crate::storage::disk_pack::logical_paths::source::note_atom(
+                    runtime.clone(),
+                    requested,
+                    atom,
+                )?;
             }
-            out.push(match hit {
-                Some((_, value)) => {
-                    let atom = self.decode_atom_bytes(&value).await?;
-                    crate::storage::disk_pack::logical_paths::source::note_atom(
-                        runtime.clone(),
-                        requested,
-                        &atom,
-                    )?;
-                    Some(atom)
-                }
-                None => None,
-            });
+            out.push(atom);
         }
         Ok(out)
+    }
+
+    /// Read exact current keys first; only a missed flat key needs its alias.
+    async fn load_cold_atom_bytes(
+        &self,
+        keys: &[String],
+        captured: &[Option<Arc<crate::atom::Atom>>],
+    ) -> Result<Vec<Option<Vec<u8>>>, crate::schema::SchemaError> {
+        let cold: Vec<_> = captured
+            .iter()
+            .enumerate()
+            .filter(|(_, atom)| atom.is_none())
+            .map(|(index, _)| index)
+            .collect();
+        let lookup = cold
+            .iter()
+            .map(|&index| keys[index].as_bytes().to_vec())
+            .collect();
+        let values = self.main_store.inner().get_many(lookup).await?;
+        let mut raw = vec![None; keys.len()];
+        let mut missing = Vec::new();
+        for (index, value) in cold.into_iter().zip(values) {
+            if value.is_none() {
+                if let Some(alias) = crate::kind_partition::form_twin(&keys[index]) {
+                    missing.push((index, alias.into_bytes()));
+                }
+            }
+            raw[index] = value;
+        }
+        if !missing.is_empty() {
+            let lookup = missing.iter().map(|(_, alias)| alias.clone()).collect();
+            let values = self.main_store.inner().get_many(lookup).await?;
+            for ((index, _), value) in missing.into_iter().zip(values) {
+                raw[index] = value;
+            }
+        }
+        Ok(raw)
     }
 
     pub(crate) fn primary_atom_key(
@@ -241,23 +264,28 @@ impl AtomStore {
         )
     }
 
-    pub(super) async fn decode_atom_at_source(
+    pub(super) async fn load_atom_at_source(
         &self,
         key: &str,
-        raw: &[u8],
         scope: Option<&str>,
         hint: Option<&crate::atom::AtomPartition>,
         primary: &str,
-    ) -> Result<crate::atom::Atom, crate::schema::SchemaError> {
-        let atom = self.decode_atom_bytes(raw).await?;
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        crate::storage::disk_pack::logical_paths::source::note_atom(runtime.clone(), key, &atom)?;
-        crate::storage::disk_pack::logical_paths::source::bind_atom(
-            runtime, scope, key, &atom, hint, primary,
-        )?;
+    ) -> Result<Option<crate::atom::Atom>, crate::schema::SchemaError> {
+        let atom = self
+            .get_atoms_by_storage_keys(&[key.to_owned()])
+            .await?
+            .into_iter()
+            .next()
+            .flatten();
+        if let Some(atom) = &atom {
+            let runtime = self
+                .namespaced_store
+                .as_ref()
+                .and_then(|store| store.disk_pack_runtime());
+            crate::storage::disk_pack::logical_paths::source::bind_atom(
+                runtime, scope, key, atom, hint, primary,
+            )?;
+        }
         Ok(atom)
     }
 }

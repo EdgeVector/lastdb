@@ -112,9 +112,6 @@ impl FoldDB {
         // Stop periodic flusher before the final barrier so we do not race
         // two flushes (and so Drop does not try to abort a still-running tick).
         self.background_flush.stop().await;
-        // The worker stays disabled in production. Stop remains safe for test
-        // instances that construct the explicit repair helper.
-        self.background_persist.stop();
         self.background_protein_reaper.stop();
         self.background_tip_history_drain.stop();
         self.background_atom_reclaim_janitor.stop();

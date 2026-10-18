@@ -37,15 +37,10 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         prefix: &str,
         limit: usize,
     ) -> StorageResult<(Vec<(String, T)>, Vec<String>)> {
-        let mut rows = self
+        let rows = self
             .inner
             .scan_prefix_paged(prefix.as_bytes(), limit)
             .await?;
-        if let Some(twin) = crate::kind_partition::form_twin(prefix) {
-            let extra = self.inner.scan_prefix_paged(twin.as_bytes(), limit).await?;
-            rows = crate::kind_partition::merge_scan_rows(prefix, rows, extra);
-            rows.truncate(limit);
-        }
         let mut items = Vec::with_capacity(rows.len());
         let mut undecodable = Vec::new();
         for (key_bytes, value_bytes) in rows {
@@ -88,20 +83,23 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         &self,
         key: &str,
     ) -> StorageResult<Option<T>> {
-        for form in crate::kind_partition::read_forms(key) {
-            if let Some(bytes) = self.inner.get(form.as_bytes()).await? {
-                let item = serde_json::from_slice(&bytes)
-                    .map_err(|e| StorageError::SerializationError(e.to_string()))?;
-                return Ok(Some(item));
+        let mut raw = self.inner.get(key.as_bytes()).await?;
+        if raw.is_none() {
+            if let Some(alias) = crate::kind_partition::form_twin(key) {
+                raw = self.inner.get(alias.as_bytes()).await?;
             }
         }
-        Ok(None)
+        raw.map(|bytes| {
+            serde_json::from_slice(&bytes)
+                .map_err(|error| StorageError::SerializationError(error.to_string()))
+        })
+        .transpose()
     }
 
     /// Get multiple typed items, preserving input order.
     ///
-    /// Dual-read is one `get_many` of the write form, then one `get_many` of
-    /// the colon twin for misses. A page must not pay one round trip per key.
+    /// Read exact keys first. A key returned under a broad kind prefix can
+    /// name the other current flat layout, so resolve that alias only on a miss.
     pub async fn get_items<T: DeserializeOwned + Send + Sync>(
         &self,
         keys: &[String],
@@ -109,34 +107,15 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
-        let primary: Vec<Vec<u8>> = keys
-            .iter()
-            .map(|key| {
-                crate::kind_partition::read_forms(key)
-                    .into_iter()
-                    .next()
-                    .unwrap_or_else(|| key.clone())
-                    .into_bytes()
-            })
-            .collect();
+        let primary = keys.iter().map(|key| key.as_bytes().to_vec()).collect();
         let mut raw = self.inner.get_many(primary).await?;
-        let mut missing = Vec::new();
-        let mut twins = Vec::new();
-        for (idx, key) in keys.iter().enumerate() {
-            if raw.get(idx).is_some_and(Option::is_some) {
-                continue;
-            }
-            let forms = crate::kind_partition::read_forms(key);
-            if forms.len() > 1 {
-                missing.push(idx);
-                twins.push(forms[1].clone().into_bytes());
-            }
-        }
-        if !twins.is_empty() {
-            let twin_vals = self.inner.get_many(twins).await?;
-            for (idx, value) in missing.into_iter().zip(twin_vals) {
-                if idx < raw.len() {
-                    raw[idx] = value;
+        let (missing, aliases) =
+            missing_aliases(keys, |index| raw.get(index).is_some_and(Option::is_some));
+        if !aliases.is_empty() {
+            let alias_values = self.inner.get_many(aliases).await?;
+            for (index, value) in missing.into_iter().zip(alias_values) {
+                if let Some(slot) = raw.get_mut(index) {
+                    *slot = value;
                 }
             }
         }
@@ -159,27 +138,18 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
 
     /// Delete an item
     pub async fn delete_item(&self, key: &str) -> StorageResult<bool> {
-        let mut existed = false;
-        for form in crate::kind_partition::read_forms(key) {
-            existed |= self.inner.delete(form.as_bytes()).await?;
+        if self.inner.delete(key.as_bytes()).await? {
+            return Ok(true);
         }
-        Ok(existed)
+        match crate::kind_partition::form_twin(key) {
+            Some(alias) => self.inner.delete(alias.as_bytes()).await,
+            None => Ok(false),
+        }
     }
 
     /// List all keys with a given prefix
     pub async fn list_keys_with_prefix(&self, prefix: &str) -> StorageResult<Vec<String>> {
-        let mut keys = self.inner.scan_prefix_keys(prefix.as_bytes()).await?;
-        if let Some(twin) = crate::kind_partition::form_twin(prefix) {
-            let extra = self.inner.scan_prefix_keys(twin.as_bytes()).await?;
-            let extra_rows: Vec<(Vec<u8>, Vec<u8>)> =
-                extra.into_iter().map(|k| (k, Vec::new())).collect();
-            let primary: Vec<(Vec<u8>, Vec<u8>)> =
-                keys.into_iter().map(|k| (k, Vec::new())).collect();
-            keys = crate::kind_partition::merge_scan_rows(prefix, primary, extra_rows)
-                .into_iter()
-                .map(|(k, _)| k)
-                .collect();
-        }
+        let keys = self.inner.scan_prefix_keys(prefix.as_bytes()).await?;
         Ok(keys
             .into_iter()
             .map(|k| String::from_utf8_lossy(&k).into_owned())
@@ -191,11 +161,7 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         &self,
         prefix: &str,
     ) -> StorageResult<Vec<(String, T)>> {
-        let mut rows = self.inner.scan_prefix(prefix.as_bytes()).await?;
-        if let Some(twin) = crate::kind_partition::form_twin(prefix) {
-            let extra = self.inner.scan_prefix(twin.as_bytes()).await?;
-            rows = crate::kind_partition::merge_scan_rows(prefix, rows, extra);
-        }
+        let rows = self.inner.scan_prefix(prefix.as_bytes()).await?;
         Self::decode_rows(rows)
     }
 
@@ -230,18 +196,10 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         // LASTDB_READS_REQUIRE_PARTITION that is an UnanchoredRead on
         // `scan_prefix`. `scan_prefix_partition_undecryptable` is the
         // startup/admin walk (walk_all_groups when the prefix is empty).
-        let mut scan = self
+        let scan = self
             .inner
             .scan_prefix_partition_undecryptable(prefix.as_bytes())
             .await?;
-        if let Some(twin) = crate::kind_partition::form_twin(prefix) {
-            let extra = self
-                .inner
-                .scan_prefix_partition_undecryptable(twin.as_bytes())
-                .await?;
-            scan.rows = crate::kind_partition::merge_scan_rows(prefix, scan.rows, extra.rows);
-            scan.undecryptable.extend(extra.undecryptable);
-        }
         let mut items = Vec::with_capacity(scan.rows.len());
         let mut undecodable = Vec::with_capacity(scan.undecryptable.len());
         for key_bytes in scan.undecryptable {
@@ -267,15 +225,10 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         prefix: &str,
         limit: usize,
     ) -> StorageResult<Vec<(String, T)>> {
-        let mut rows = self
+        let rows = self
             .inner
             .scan_prefix_paged(prefix.as_bytes(), limit)
             .await?;
-        if let Some(twin) = crate::kind_partition::form_twin(prefix) {
-            let extra = self.inner.scan_prefix_paged(twin.as_bytes(), limit).await?;
-            rows = crate::kind_partition::merge_scan_rows(prefix, rows, extra);
-            rows.truncate(limit);
-        }
         Self::decode_rows(rows)
     }
 
@@ -330,24 +283,80 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
 
     /// Batch delete keys
     pub async fn batch_delete_keys(&self, keys: Vec<String>) -> StorageResult<()> {
-        let keys_bytes = keys.into_iter().map(String::into_bytes).collect();
-        self.inner.batch_delete(keys_bytes).await
+        let mut selected: Vec<Vec<u8>> = keys.iter().map(|key| key.as_bytes().to_vec()).collect();
+        let aliased: Vec<_> = keys
+            .iter()
+            .enumerate()
+            .filter_map(|(index, key)| {
+                crate::kind_partition::form_twin(key).map(|alias| (index, alias.into_bytes()))
+            })
+            .collect();
+        if !aliased.is_empty() {
+            let exact = aliased
+                .iter()
+                .map(|(index, _)| selected[*index].clone())
+                .collect();
+            let present = self.inner.exists_many(exact).await?;
+            let missing: Vec<_> = aliased
+                .into_iter()
+                .zip(present)
+                .filter(|(_, present)| !present)
+                .map(|(entry, _)| entry)
+                .collect();
+            if !missing.is_empty() {
+                let aliases = missing.iter().map(|(_, alias)| alias.clone()).collect();
+                let present = self.inner.exists_many(aliases).await?;
+                for ((index, alias), present) in missing.into_iter().zip(present) {
+                    if present {
+                        selected[index] = alias;
+                    }
+                }
+            }
+        }
+        self.inner.batch_delete(selected).await
     }
 
     /// Check if key exists
     pub async fn exists_item(&self, key: &str) -> StorageResult<bool> {
-        for form in crate::kind_partition::read_forms(key) {
-            if self.inner.exists(form.as_bytes()).await? {
-                return Ok(true);
-            }
+        if self.inner.exists(key.as_bytes()).await? {
+            return Ok(true);
         }
-        Ok(false)
+        match crate::kind_partition::form_twin(key) {
+            Some(alias) => self.inner.exists(alias.as_bytes()).await,
+            None => Ok(false),
+        }
     }
 
     /// Whether each key exists, preserving input order. See
     /// [`KvStore::exists_many`] for why this is not a `get_items` in disguise.
     pub async fn exists_items(&self, keys: &[String]) -> StorageResult<Vec<bool>> {
         let raw_keys = keys.iter().map(|key| key.as_bytes().to_vec()).collect();
-        self.inner.exists_many(raw_keys).await
+        let mut present = self.inner.exists_many(raw_keys).await?;
+        let (missing, aliases) = missing_aliases(keys, |index| present.get(index) == Some(&true));
+        if !aliases.is_empty() {
+            let alias_present = self.inner.exists_many(aliases).await?;
+            for (index, value) in missing.into_iter().zip(alias_present) {
+                if let Some(slot) = present.get_mut(index) {
+                    *slot = value;
+                }
+            }
+        }
+        Ok(present)
     }
+}
+
+/// Prefix results preserve the requested spelling. Flat keys can therefore
+/// return through their other current layout; compound keys have no alias.
+fn missing_aliases(keys: &[String], present: impl Fn(usize) -> bool) -> (Vec<usize>, Vec<Vec<u8>>) {
+    let mut missing = Vec::new();
+    let mut aliases = Vec::new();
+    for (index, key) in keys.iter().enumerate() {
+        if !present(index) {
+            if let Some(alias) = crate::kind_partition::form_twin(key) {
+                missing.push(index);
+                aliases.push(alias.into_bytes());
+            }
+        }
+    }
+    (missing, aliases)
 }

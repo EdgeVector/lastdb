@@ -1,11 +1,9 @@
 use chrono::{DateTime, Utc};
+use futures::{future::BoxFuture, FutureExt};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::db_operations::DbOperations;
-use crate::resident::{
-    ResidentGraph, ResidentKeySetCompleteness, ResidentKeySetSnapshot, ResidentMoleculeKey,
-};
 use crate::schema::types::field::{HashRangeFilter, KeyWindow, KeyedAtomMatch};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::SchemaError;
@@ -16,12 +14,44 @@ use super::{FieldKind, FieldValue, FieldVariant};
 mod collect;
 mod core_model;
 mod core_receipts;
-#[path = "partition_window.rs"]
-mod partition_window;
 mod refresh;
-mod resident_overlay;
 mod resolve;
 mod resolve_scan;
+
+impl FieldVariant {
+    fn require_native_read(
+        &self,
+        db_ops: &DbOperations,
+        filter: Option<&HashRangeFilter>,
+        historical: bool,
+    ) -> Result<(), SchemaError> {
+        use crate::schema::types::schema::DeclarativeSchemaType;
+
+        let native = db_ops.namespaced_store().disk_pack_runtime().is_some();
+        let layout = match self.kind {
+            FieldKind::Single => DeclarativeSchemaType::Single,
+            FieldKind::Hash => DeclarativeSchemaType::Hash,
+            FieldKind::Range => DeclarativeSchemaType::Range,
+            FieldKind::HashRange => DeclarativeSchemaType::HashRange,
+        };
+        crate::schema::require_native_logical_layout(native, &layout)?;
+        crate::schema::require_native_logical_filter(native, filter)?;
+        crate::schema::require_native_current_read(native, historical)
+    }
+}
+
+async fn captured_field_read<T>(
+    db_ops: &DbOperations,
+    future: BoxFuture<'_, Result<T, SchemaError>>,
+) -> Result<T, SchemaError> {
+    let scope =
+        crate::storage::disk_pack::PackReadScope::for_store(&db_ops.namespaced_store()).await?;
+    let future = crate::storage::disk_pack::logical_paths::field::query_scope(true, future);
+    match scope {
+        Some(scope) => scope.run_result(future).await,
+        None => future.await,
+    }
+}
 
 /// One live field slot from an authoritative, hydrated hash-partition walk.
 ///
@@ -58,112 +88,4 @@ fn api_key_value_from_storage(kv: KeyValue) -> KeyValue {
         }
         _ => kv,
     }
-}
-
-/// The complete interval requested by a keyed query. Pages have no certificate.
-fn partition_interval(filter: &HashRangeFilter) -> Option<(&str, String, Option<String>)> {
-    match filter {
-        HashRangeFilter::HashKey(hash) => Some((hash, String::new(), None)),
-        HashRangeFilter::HashRangeRange { hash, start, end } => {
-            Some((hash, start.clone(), Some(end.max(start).clone())))
-        }
-        HashRangeFilter::HashRangePrefix { hash, prefix } => {
-            let mut upper = prefix.clone();
-            let end = loop {
-                let Some(ch) = upper.pop() else { break None };
-                let next = match ch as u32 + 1 {
-                    0xD800 => 0xE000,
-                    n => n,
-                };
-                if let Some(next) = char::from_u32(next) {
-                    upper.push(next);
-                    break Some(upper);
-                }
-            };
-            Some((hash, prefix.clone(), end))
-        }
-        _ => None,
-    }
-}
-
-/// Select the key interval before cloning tips or encoding storage keys.
-/// Resident keys are in API form; the later molecule filter still owns the
-/// public filter semantics. This must never broaden a keyed query to every
-/// hash partition in a molecule.
-fn resident_keys_for_filter(
-    resident: &ResidentGraph,
-    molecule: &str,
-    filter: &HashRangeFilter,
-) -> ResidentKeySetSnapshot {
-    let bounds = match filter {
-        HashRangeFilter::HashRangeKey { hash, range } => Some((
-            ResidentMoleculeKey::new(hash, range),
-            ResidentMoleculeKey::new(hash, format!("{range}\0")),
-        )),
-        HashRangeFilter::HashKey(hash) | HashRangeFilter::HashRangePattern { hash, .. } => Some((
-            ResidentMoleculeKey::new(hash, ""),
-            ResidentMoleculeKey::new(format!("{hash}\0"), ""),
-        )),
-        HashRangeFilter::HashRangeRange { hash, start, end } => Some((
-            ResidentMoleculeKey::new(hash, start),
-            ResidentMoleculeKey::new(hash, end.max(start)),
-        )),
-        HashRangeFilter::HashRangePrefix { hash, prefix } => {
-            // Increment the final incrementable Unicode scalar. An all-max
-            // prefix has no string successor, so stop at the hash boundary.
-            let mut upper = prefix.clone();
-            let successor = loop {
-                let Some(ch) = upper.pop() else { break None };
-                let next = match ch as u32 + 1 {
-                    0xD800 => 0xE000,
-                    n => n,
-                };
-                if let Some(next) = char::from_u32(next) {
-                    upper.push(next);
-                    break Some(upper);
-                }
-            };
-            Some((
-                ResidentMoleculeKey::new(hash, prefix),
-                successor.map_or_else(
-                    || ResidentMoleculeKey::new(format!("{hash}\0"), ""),
-                    |end| ResidentMoleculeKey::new(hash, end),
-                ),
-            ))
-        }
-        HashRangeFilter::HashRange { start, end } => Some((
-            ResidentMoleculeKey::new(start, ""),
-            ResidentMoleculeKey::new(end.max(start), ""),
-        )),
-        HashRangeFilter::HashRangeKeys(keys) => {
-            let mut result = resident.resident_key_set_range(
-                molecule,
-                Some(&ResidentMoleculeKey::new("", "")),
-                Some(&ResidentMoleculeKey::new("", "")),
-            );
-            for (hash, range) in keys {
-                let snapshot = resident_keys_for_filter(
-                    resident,
-                    molecule,
-                    &HashRangeFilter::HashRangeKey {
-                        hash: hash.clone(),
-                        range: range.clone(),
-                    },
-                );
-                result.keys.extend(snapshot.keys);
-                result.tombstones.extend(snapshot.tombstones);
-            }
-            result.keys.sort_unstable();
-            result.keys.dedup();
-            result.tombstones.sort_unstable();
-            result.tombstones.dedup();
-            return result;
-        }
-        _ => None,
-    };
-    resident.resident_key_set_range(
-        molecule,
-        bounds.as_ref().map(|b| &b.0),
-        bounds.as_ref().map(|b| &b.1),
-    )
 }

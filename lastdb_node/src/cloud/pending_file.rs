@@ -127,6 +127,7 @@ pub(super) fn write_new_cloud_sync_config(
     api_url: &str,
     api_key: &str,
 ) -> Result<(), String> {
+    require_cloud_activation_supported()?;
     let body = serde_json::json!({ "api_url": api_url, "api_key": api_key });
     let bytes = serde_json::to_vec_pretty(&body)
         .map_err(|_| "failed to serialize new DEV cloud credentials".to_string())?;

@@ -20,10 +20,8 @@ use std::sync::Arc;
 /// sample in the recent ring showed single-digit *microseconds* of wait — a
 /// bursty stall that the wait gauge alone could not attribute to either cause.
 ///
-/// Counted for every acquisition in both resident modes: the guard is moved
-/// into the deferred persist task under `LASTDB_RESIDENT_MODE=write`, so the
-/// hold outlives the request that opened it and a per-request phase would
-/// silently record zero there. A node-lifetime counter is honest in both.
+/// Record the complete lifetime of every guard. A background owner can outlive
+/// its request, so the lifetime counter does not depend on request-local phases.
 #[derive(Debug, Default)]
 pub struct MoleculeGateHoldStats {
     total_us: AtomicU64,

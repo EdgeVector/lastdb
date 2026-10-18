@@ -185,13 +185,14 @@ impl PackRuntime {
             .iter()
             .map(|operation| (operation.collection.clone(), operation.key.clone()))
             .collect::<Vec<_>>();
-        self.commit_prepared_group(prepared, &changes)
+        self.commit_prepared_group(prepared, &changes, &[])
     }
 
     pub(super) fn commit_prepared_group(
         &self,
         prepared: PreparedCommit,
         hidden_changes: &[(String, String)],
+        requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
         let PreparedCommit {
             operations,
@@ -226,7 +227,7 @@ impl PackRuntime {
                 return Err(map(error));
             }
         };
-        self.install_committed(publication.current, hidden_changes, &key_changes)?;
+        self.install_committed(publication.current, hidden_changes, &key_changes, requests)?;
         protection.release_space();
         self.failed.store(false, Ordering::Release);
         Ok(())

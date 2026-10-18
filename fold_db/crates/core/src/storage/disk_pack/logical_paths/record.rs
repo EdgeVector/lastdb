@@ -25,6 +25,18 @@ pub(crate) fn lookup(
     };
     let binding = field::FieldScope::record(schema)?;
     let path = binding.path(scope, molecule, key, "");
+    let captured = super::read::captured_lookup(&runtime, &context, &path.core())?;
+    if !captured.is_unknown() {
+        let mut call = crate::read_receipts::lock(&context.call);
+        let selected = captured.into_tip();
+        context.account_memory_record(
+            &mut call,
+            path.id()?.len(),
+            selected.as_ref().map_or(0, |value| value.bytes),
+        )?;
+        crate::read_receipts::warm_hit();
+        return Ok(Some(selected.map(|value| value.atom)));
+    }
     let view = runtime.view.read().expect("record envelope captured view");
     if view.revision != context.revision {
         return Ok(None);

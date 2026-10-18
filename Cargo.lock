@@ -3056,7 +3056,6 @@ dependencies = [
  "futures",
  "hex",
  "hkdf",
- "lastdb_docstore",
  "lastdb_host",
  "lastdb_identity",
  "lastdb_uds",

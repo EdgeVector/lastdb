@@ -43,12 +43,6 @@ impl MutationManager {
         };
 
         let hint = schema_field.partition_hint(&key_value);
-        if let Some(resident) = self
-            .resident_head(schema_field, &key_value, hint.as_ref(), storage_prefix)
-            .await?
-        {
-            return Ok(resident);
-        }
 
         let Some(uuid) = current_atom_uuid(schema_field, &key_value) else {
             return Ok((None, None));
@@ -102,88 +96,12 @@ impl MutationManager {
         hint: Option<&crate::atom::AtomPartition>,
         storage_prefix: Option<&str>,
     ) -> Result<Option<serde_json::Value>, SchemaError> {
-        if crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
-            if let Some(atom) = self.db_ops.resident().resolve_atom(uuid) {
-                return Ok(Some(atom.value.content));
-            }
-        }
         Ok(self
             .db_ops
             .atoms()
             .get_atom_by_uuid_in_partition(uuid, hint, storage_prefix)
             .await?
             .map(|atom| atom.content().clone()))
-    }
-
-    /// Answer a head read from the acknowledged resident state, if it knows
-    /// the key. `None` means fall through to the catalog molecule head.
-    ///
-    /// Prefer the acknowledged resident tip over the catalog molecule head.
-    /// A sibling schema that shares a node identity can reload the catalog
-    /// with a stale `state` tip while event_id/log_excerpt already advanced.
-    /// CAS that followed the catalog atom UUID then compared the pre-write
-    /// value (`expected "pending", found "failure"` on 2026-09-02).
-    async fn resident_head(
-        &self,
-        schema_field: &crate::schema::types::field::FieldVariant,
-        key_value: &crate::schema::types::KeyValue,
-        hint: Option<&crate::atom::AtomPartition>,
-        storage_prefix: Option<&str>,
-    ) -> Result<Option<(Option<String>, Option<serde_json::Value>)>, SchemaError> {
-        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
-            return Ok(None);
-        }
-        let (Some(mol_uuid), Some(changed)) = (
-            schema_field.common().molecule_uuid(),
-            schema_field.changed_key_for(key_value),
-        ) else {
-            return Ok(None);
-        };
-        // A hard-erase (`Delete`/`Purge`) stamps this resident overlay
-        // synchronously, before its ack, and removes the resident tip
-        // in the same step — but the catalog molecule head below is
-        // only updated later by the deferred converge/purge lane. A
-        // CAS read that lands in that window would otherwise fall
-        // through resolve_tip's miss straight to the stale catalog
-        // uuid and its still-undeleted atom body, which is never
-        // tombstone-shaped for a `Delete` (no per-field tombstone
-        // atom is written — see `MutationType::Delete`), so the old
-        // value would read as live. Check the overlay first, exactly
-        // like the sibling `read_current_row_fields_with_winner`
-        // does, so a tombstoned key reads as absent regardless of
-        // which path (resident tip or catalog fallback) would
-        // otherwise have answered next.
-        //
-        // Org-prefix Delete stamps the same overlay
-        // (`purge_apply_gate_transaction`). Skipping the consult when
-        // `storage_prefix` is set made a byte-identical org Create a
-        // catalog-head no-op while count already hid the row.
-        let graph = crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops);
-        if graph
-            && self.db_ops.resident().is_key_tombstoned(
-                mol_uuid,
-                changed.disk_hash(),
-                changed.disk_range(),
-            )
-        {
-            return Ok(Some((None, None)));
-        }
-        let Some(tip) =
-            self.db_ops
-                .resident()
-                .resolve_tip(mol_uuid, changed.disk_hash(), changed.disk_range())
-        else {
-            return Ok(None);
-        };
-        let uuid = tip.value.atom_uuid;
-        let content = self.read_atom_content(&uuid, hint, storage_prefix).await?;
-        if content
-            .as_ref()
-            .is_some_and(crate::atom::is_tombstone_value)
-        {
-            return Ok(Some((None, None)));
-        }
-        Ok(Some((Some(uuid), content)))
     }
 
     /// Point-read a fixed field set from one exact row.
@@ -320,52 +238,17 @@ impl MutationManager {
                     "point read field '{schema_name}.{field}' has no molecule identity"
                 ))
             })?;
-        let graph = crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops);
-        if graph
-            && self.db_ops.resident().is_key_tombstoned(
-                &molecule_uuid,
-                changed_key.disk_hash(),
-                changed_key.disk_range(),
-            )
-        {
-            return Ok(None);
-        }
-        let resident_entry = graph
-            .then(|| {
-                self.db_ops.resident().resolve_tip(
-                    &molecule_uuid,
-                    changed_key.disk_hash(),
-                    changed_key.disk_range(),
-                )
-            })
-            .flatten()
-            .map(|tip| {
-                crate::atom::AtomEntry::thin_with_author(
-                    tip.value.atom_uuid,
-                    tip.value.written_at,
-                    tip.value.logical_counter,
-                    tip.value.device_id,
-                    tip.value.mutation_uuid,
-                    String::new(),
-                )
-                .with_origin_device(tip.value.origin_device)
+        let changed = std::collections::HashSet::from([changed_key.clone()]);
+        let durable_entry = self
+            .db_ops
+            .atoms()
+            .load_molecule_for_write(&molecule_uuid, storage_prefix, &changed)
+            .await?
+            .and_then(|molecule| {
+                molecule
+                    .get_atom_entry(changed_key.disk_hash(), changed_key.disk_range())
+                    .cloned()
             });
-        let durable_entry = if resident_entry.is_none() {
-            let changed = std::collections::HashSet::from([changed_key.clone()]);
-            self.db_ops
-                .atoms()
-                .load_molecule_for_write(&molecule_uuid, storage_prefix, &changed)
-                .await?
-                .and_then(|molecule| {
-                    molecule
-                        .get_atom_entry(changed_key.disk_hash(), changed_key.disk_range())
-                        .cloned()
-                })
-        } else {
-            None
-        };
-        Ok(resident_entry
-            .or(durable_entry)
-            .or_else(|| schema_field.atom_entry_at_key(key_value).cloned()))
+        Ok(durable_entry.or_else(|| schema_field.atom_entry_at_key(key_value).cloned()))
     }
 }

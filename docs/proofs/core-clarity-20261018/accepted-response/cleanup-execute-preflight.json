@@ -1,0 +1,49 @@
+{
+  "binary_sha256": "66879950810b0c9b09756ff1ed0d6981b3ce3af849a89ab3436d7f23bf880045",
+  "device": 16777231,
+  "exact_root_files": [
+    ".synthetic-seed-owner.json",
+    "inputs.json",
+    "program-lastdbd",
+    "receipts.jsonl",
+    "summary.json"
+  ],
+  "inode": 1466070165,
+  "marker": {
+    "creator_pid": 28214,
+    "device": 16777231,
+    "inode": 1466070165,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "mode": "0o700",
+  "no_node_homes_or_sockets": true,
+  "node_sessions": 0,
+  "open_file_check": {
+    "command": [
+      "lsof",
+      "-Fpn",
+      "+D",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9yka3j2s"
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "owner_uid": 501,
+  "process_check": {
+    "command": [
+      "ps",
+      "-p",
+      "28214",
+      "-o",
+      "pid=,command="
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9yka3j2s",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9yka3j2s"
+}

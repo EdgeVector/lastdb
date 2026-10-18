@@ -1,0 +1,132 @@
+{
+  "passed": true,
+  "root_count": 9,
+  "sealed_files_checked": 357,
+  "roots": [
+    {
+      "label": "candidate-logical",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ksyn0q4t",
+      "checks": {
+        "exact_path": true,
+        "owned": true,
+        "same_object": true,
+        "private_mode": true,
+        "no_open_files": true,
+        "no_remaining_socket": true,
+        "supported_preview": true,
+        "no_live_process": true
+      }
+    },
+    {
+      "label": "final-logical",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.vfwq8l9s",
+      "checks": {
+        "exact_path": true,
+        "owned": true,
+        "same_object": true,
+        "private_mode": true,
+        "no_open_files": true,
+        "no_remaining_socket": true,
+        "supported_preview": true,
+        "no_live_process": true
+      }
+    },
+    {
+      "label": "accepted-logical",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tqm3hjli",
+      "checks": {
+        "exact_path": true,
+        "owned": true,
+        "same_object": true,
+        "private_mode": true,
+        "no_open_files": true,
+        "no_remaining_socket": true,
+        "supported_preview": true,
+        "no_live_process": true
+      }
+    },
+    {
+      "label": "accepted-protein",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0_h47wit",
+      "checks": {
+        "exact_path": true,
+        "owned": true,
+        "same_object": true,
+        "private_mode": true,
+        "no_open_files": true,
+        "no_remaining_socket": true,
+        "supported_preview": true,
+        "no_live_process": true
+      }
+    },
+    {
+      "label": "accepted-scoped",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.av97egn6",
+      "checks": {
+        "exact_path": true,
+        "owned": true,
+        "same_object": true,
+        "private_mode": true,
+        "no_open_files": true,
+        "no_remaining_socket": true,
+        "supported_preview": true,
+        "no_live_process": true
+      }
+    },
+    {
+      "label": "accepted-response",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9yka3j2s",
+      "checks": {
+        "exact_path": true,
+        "owned": true,
+        "same_object": true,
+        "private_mode": true,
+        "no_open_files": true,
+        "no_remaining_socket": true,
+        "supported_preview": true,
+        "no_live_process": true
+      }
+    },
+    {
+      "label": "accepted-response-v2",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.idcr7omj",
+      "checks": {
+        "exact_path": true,
+        "owned": true,
+        "same_object": true,
+        "private_mode": true,
+        "no_open_files": true,
+        "no_remaining_socket": true,
+        "supported_preview": true,
+        "no_live_process": true
+      }
+    },
+    {
+      "label": "program-cleanup",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.52cmhd8i",
+      "checks": {
+        "exact_path": true,
+        "owned": true,
+        "same_object": true,
+        "private_mode": true,
+        "no_open_files": true,
+        "no_remaining_socket": true,
+        "supported_preview": true
+      }
+    },
+    {
+      "label": "response-program-cleanup",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.v9u5w7z1",
+      "checks": {
+        "exact_path": true,
+        "owned": true,
+        "same_object": true,
+        "private_mode": true,
+        "no_open_files": true,
+        "no_remaining_socket": true,
+        "supported_preview": true
+      }
+    }
+  ],
+  "errors": []
+}

@@ -5,82 +5,36 @@ use super::*;
 #[async_trait]
 impl KvStore for EncryptingKvStore {
     async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
-        match self.lookup_plain(key) {
-            Some(logical_path::ResidentLookup::Hit(plain)) => return Ok(Some(plain)),
-            Some(logical_path::ResidentLookup::Absent) => return Ok(None),
-            Some(logical_path::ResidentLookup::Miss) | None => {}
-        }
-        let epochs = self.read_epochs();
         match self.inner.get(key).await? {
-            Some(stored) => {
-                let opened = self.open_or_discard(key, stored).await?;
-                if let Some(ref plain) = opened {
-                    self.admit_plain(key, plain, epochs);
-                }
-                Ok(opened)
-            }
+            Some(stored) => self.open_or_discard(key, stored).await,
             None => Ok(None),
         }
     }
 
-    /// Batch point-read through the encrypting seam.
-    ///
-    /// Warm plaintext hits stay in the resident set. Misses go to the inner
-    /// store as one [`KvStore::get_many`] so keys that share a hash group share
-    /// one unpublished open. The trait default (and the previous override)
-    /// looped [`Self::get`] per key; this wrapper is the outermost store on
-    /// every encrypted namespace, so a product multi-get paid one cold group
-    /// load per key. The lossy derived-key skip still applies per key after
-    /// the inner batch returns.
+    /// Decrypt one physical batch without a second cache of logical values.
     async fn get_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut values = vec![None; keys.len()];
-        let mut miss = Vec::with_capacity(keys.len());
-        for (slot, key) in keys.iter().enumerate() {
-            match self.lookup_plain(key) {
-                Some(logical_path::ResidentLookup::Hit(plain)) => values[slot] = Some(plain),
-                Some(logical_path::ResidentLookup::Absent) => {}
-                Some(logical_path::ResidentLookup::Miss) | None => miss.push(slot),
-            }
-        }
-        if miss.is_empty() {
-            return Ok(values);
-        }
-        let miss_keys: Vec<Vec<u8>> = miss.iter().map(|&slot| keys[slot].clone()).collect();
-        let epochs = self.read_epochs();
-        let stored = self.inner.get_many(miss_keys).await?;
-        for (slot, stored) in miss.into_iter().zip(stored) {
-            let Some(stored) = stored else {
-                continue;
-            };
-            let key = &keys[slot];
-            match self.open_or_discard(key, stored).await {
-                Ok(opened) => {
-                    if let Some(ref plain) = opened {
-                        self.admit_plain(key, plain, epochs);
+        let stored = self.inner.get_many(keys.clone()).await?;
+        let mut values = Vec::with_capacity(keys.len());
+        for (key, stored) in keys.into_iter().zip(stored) {
+            let opened = match stored {
+                Some(stored) => match self.open_or_discard(&key, stored).await {
+                    Ok(opened) => opened,
+                    Err(error) if Self::lossy_derived_key(&key) => {
+                        tracing::warn!(error = %error, "get_many: skipping undecryptable derived-index row");
+                        None
                     }
-                    values[slot] = opened;
-                }
-                Err(e) if Self::lossy_derived_key(key) => {
-                    tracing::warn!(
-                        error = %e,
-                        "get_many: skipping undecryptable derived-index row"
-                    );
-                }
-                Err(e) => return Err(e),
-            }
+                    Err(error) => return Err(error),
+                },
+                None => None,
+            };
+            values.push(opened);
         }
         Ok(values)
     }
 
     async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()> {
         let sealed = self.seal_value(key, &value).await?;
-        let digest = logical_path::body_digest(&sealed);
-        self.inner.put(key, sealed).await?;
-        self.admit_written(key, digest, &value);
-        Ok(())
+        self.inner.put(key, sealed).await
     }
 
     async fn delete(&self, key: &[u8]) -> StorageResult<bool> {
@@ -91,29 +45,14 @@ impl KvStore for EncryptingKvStore {
         self.inner.exists(key).await
     }
 
-    /// Existence is a property of the **key**, and keys are plaintext — there is
-    /// no value to decrypt, so this forwards verbatim, exactly as
-    /// [`Self::scan_prefix_keys`] does.
-    ///
-    /// Forwarding is not cosmetic here. Without this override the trait's
-    /// correctness-first default loops over [`Self::exists`] one key at a time,
-    /// and this wrapper is the **outermost** store on `main`
-    /// (`EncryptingNamespacedStore::open_namespace` wraps every namespace not in
-    /// `PLAINTEXT_NAMESPACES`, which is empty in production). Every batched
-    /// existence probe from a caller below — the atom partition-prefix rekey's
-    /// per-page prefixed-key probe and its post-write verify pass — would be
-    /// silently unrolled back into N point reads before it ever reached
-    /// `LogicalMainLastStoreKvStore::exists_many`, paying one shard resolution
-    /// and, under `HashGroup` with a bounded warm set, up to one cold group load
-    /// per key. That is the pathology the batching was written to remove.
+    /// Existence checks do not decrypt values and retain one batch call.
     async fn exists_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<bool>> {
         self.inner.exists_many(keys).await
     }
 
     async fn scan_prefix(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
-        let epochs = self.read_epochs();
         let results = self.inner.scan_prefix(prefix).await?;
-        self.decrypt_rows(results, epochs).await
+        self.decrypt_rows(results).await
     }
 
     async fn scan_prefix_keys(&self, prefix: &[u8]) -> StorageResult<Vec<Vec<u8>>> {
@@ -130,18 +69,16 @@ impl KvStore for EncryptingKvStore {
         // prefix bound applies before decryption. Forward to the inner store's
         // paged scan so its native lazy bound (Sled) holds — we then decrypt only
         // the page's rows, not the whole prefix.
-        let epochs = self.read_epochs();
         let results = self.inner.scan_prefix_paged(prefix, limit).await?;
-        self.decrypt_rows(results, epochs).await
+        self.decrypt_rows(results).await
     }
 
     async fn scan_range(&self, start: &[u8], end: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         // Keep the range path symmetric with the explicit prefix/paged range
         // overrides: bounds apply to plaintext keys at the inner layer, then
         // this decorator decrypts only the matching rows.
-        let epochs = self.read_epochs();
         let results = self.inner.scan_range(start, end).await?;
-        self.decrypt_rows(results, epochs).await
+        self.decrypt_rows(results).await
     }
 
     async fn scan_range_paged(
@@ -153,9 +90,8 @@ impl KvStore for EncryptingKvStore {
         // Keys are plaintext at this layer (only values are encrypted), so the
         // range bound applies before decryption. Forward to the inner store's
         // paged range scan so native lazy bounds hold.
-        let epochs = self.read_epochs();
         let results = self.inner.scan_range_paged(start, end, limit).await?;
-        self.decrypt_rows(results, epochs).await
+        self.decrypt_rows(results).await
     }
 
     async fn max_key_u64_after_marker(
@@ -176,13 +112,12 @@ impl KvStore for EncryptingKvStore {
         limit: usize,
         max_handles: usize,
     ) -> StorageResult<PhysicalScanPage> {
-        let epochs = self.read_epochs();
         let page = self
             .inner
             .scan_range_physical_paged(start, end, cursor, limit, max_handles)
             .await?;
         Ok(PhysicalScanPage {
-            rows: self.decrypt_rows(page.rows, epochs).await?,
+            rows: self.decrypt_rows(page.rows).await?,
             next_cursor: page.next_cursor,
             row_handle: page.row_handle,
             handles_visited: page.handles_visited,
@@ -200,7 +135,6 @@ impl KvStore for EncryptingKvStore {
     // `fold_db_node`'s `RevocationStore::read_all`). See the trait-level note on
     // `KvStore::scan_prefix_lossy` for the allow-list rule.
     async fn scan_prefix_lossy(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
-        let epochs = self.read_epochs();
         let results = self.inner.scan_prefix(prefix).await?;
         let mut decrypted_results = Vec::with_capacity(results.len());
         let mut skipped = 0usize;
@@ -208,7 +142,6 @@ impl KvStore for EncryptingKvStore {
         for (key, stored) in results {
             match self.open_or_discard(&key, stored).await {
                 Ok(Some(plaintext)) => {
-                    self.admit_plain(&key, &plaintext, epochs);
                     decrypted_results.push((key, plaintext));
                 }
                 // No envelope: absent, already counted and warned once.
@@ -252,7 +185,6 @@ impl KvStore for EncryptingKvStore {
         // (boot decrypt proof, snapshot scrub). Product `scan_prefix("")`
         // still goes through the LastStore partition guard and rejects.
         // Page the explicit all-groups primitive instead.
-        let epochs = self.read_epochs();
         let results = if prefix.is_empty() {
             let mut rows = Vec::new();
             let mut cursor = None;
@@ -283,7 +215,6 @@ impl KvStore for EncryptingKvStore {
         for (key, stored) in results {
             match self.open_or_discard(&key, stored).await {
                 Ok(Some(plaintext)) => {
-                    self.admit_plain(&key, &plaintext, epochs);
                     rows.push((key, plaintext));
                 }
                 // An un-enveloped row is absent, not undecryptable: it is not a
@@ -301,19 +232,11 @@ impl KvStore for EncryptingKvStore {
 
     async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
         let mut encrypted_items = Vec::with_capacity(items.len());
-        let mut digests = Vec::with_capacity(items.len());
-
-        for (key, value) in &items {
-            let sealed = self.seal_value(key, value).await?;
-            digests.push(logical_path::body_digest(&sealed));
-            encrypted_items.push((key.clone(), sealed));
+        for (key, value) in items {
+            let sealed = self.seal_value(&key, &value).await?;
+            encrypted_items.push((key, sealed));
         }
-
-        self.inner.batch_put(encrypted_items).await?;
-        for ((key, value), digest) in items.iter().zip(digests) {
-            self.admit_written(key, digest, value);
-        }
-        Ok(())
+        self.inner.batch_put(encrypted_items).await
     }
 
     fn batch_put_has_durable_barrier(&self) -> bool {
@@ -322,30 +245,16 @@ impl KvStore for EncryptingKvStore {
 
     async fn batch_mutate(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
         let mut sealed = Vec::with_capacity(mutations.len());
-        let mut digests = Vec::with_capacity(mutations.len());
-        for mutation in &mutations {
+        for mutation in mutations {
             sealed.push(match mutation {
                 KvMutation::Put { key, value } => {
-                    let value = self.seal_value(key, value).await?;
-                    digests.push(Some(logical_path::body_digest(&value)));
-                    KvMutation::Put {
-                        key: key.clone(),
-                        value,
-                    }
+                    let value = self.seal_value(&key, &value).await?;
+                    KvMutation::Put { key, value }
                 }
-                KvMutation::Delete { key } => {
-                    digests.push(None);
-                    KvMutation::Delete { key: key.clone() }
-                }
+                KvMutation::Delete { key } => KvMutation::Delete { key },
             });
         }
-        self.inner.batch_mutate(sealed).await?;
-        for (mutation, digest) in mutations.iter().zip(digests) {
-            if let (KvMutation::Put { key, value }, Some(digest)) = (mutation, digest) {
-                self.admit_written(key, digest, value);
-            }
-        }
-        Ok(())
+        self.inner.batch_mutate(sealed).await
     }
 
     async fn restore_batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {

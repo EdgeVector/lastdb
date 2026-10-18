@@ -18,12 +18,6 @@ impl SyncEngine {
             })
     }
 
-    /// Ask the backup-uploader std thread to exit. Idempotent if never started.
-    pub(crate) fn stop_laststore_backup_uploader(&self) {
-        self.laststore_backup_uploader_stop
-            .store(true, Ordering::SeqCst);
-    }
-
     pub(crate) fn start_laststore_backup_uploader(self: &Arc<Self>) {
         if self.laststore_backup_source.is_none() {
             return;

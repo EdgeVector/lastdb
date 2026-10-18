@@ -23,6 +23,10 @@ struct Changes {
 pub(super) struct PendingPublications(Mutex<Changes>);
 
 impl PendingPublications {
+    pub(super) fn is_empty(&self) -> StorageResult<bool> {
+        Ok(self.lock()?.entries.is_empty())
+    }
+
     fn lock(&self) -> StorageResult<std::sync::MutexGuard<'_, Changes>> {
         self.0.lock().map_err(|_| {
             StorageError::BackendError("native metadata publication lock is poisoned".into())
@@ -55,7 +59,8 @@ impl PendingPublications {
 
 /// Private metadata joins the accepted view before global cache publication.
 /// Later write scopes see that immutable accepted prefix. Ordinary queries use
-/// their captured raw-store snapshots; global caches change after the disk root.
+/// typed core definitions and their captured disk root; global caches change
+/// after the disk root.
 /// Outside a native write scope, retain the existing immediate cache behavior.
 pub(crate) fn publish<T: Any + Send + Sync>(
     runtime: Option<Arc<PackRuntime>>,

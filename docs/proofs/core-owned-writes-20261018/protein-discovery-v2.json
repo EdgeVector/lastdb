@@ -1,0 +1,683 @@
+[
+  {
+    "path": "/api/schemas/seed-system",
+    "request_id": "temperature-bbe03f6d03e4404ca98ef41f3c223deb-core-owned-before-552",
+    "request": {
+      "isolated_copy": true,
+      "schema": {
+        "descriptive_name": "CoreOwnedProteinHash",
+        "field_descriptions": {
+          "body": "CoreOwnedProtein same product shared body",
+          "bucket": "CoreOwnedProtein same product shared bucket",
+          "id": "CoreOwnedProtein same product shared id",
+          "title": "CoreOwnedProtein same product shared title"
+        },
+        "fields": [
+          "bucket",
+          "id",
+          "title",
+          "body"
+        ],
+        "key": {
+          "hash_field": "id"
+        },
+        "name": "CoreOwnedProteinHash",
+        "schema_type": "Hash",
+        "source": "system_seed"
+      }
+    },
+    "result": {
+      "ok": true,
+      "source": "system_seed",
+      "system_seed_schema": "CoreOwnedProteinHash",
+      "user_hash": "8c5c3d2494197c66cde0a46b17eae281"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/schemas/seed-system",
+    "request_id": "temperature-bbe03f6d03e4404ca98ef41f3c223deb-core-owned-before-553",
+    "request": {
+      "isolated_copy": true,
+      "schema": {
+        "descriptive_name": "CoreOwnedProteinHashRange",
+        "field_descriptions": {
+          "body": "CoreOwnedProtein same product shared body",
+          "bucket": "CoreOwnedProtein same product shared bucket",
+          "id": "CoreOwnedProtein same product shared id",
+          "title": "CoreOwnedProtein same product shared title"
+        },
+        "fields": [
+          "bucket",
+          "id",
+          "title",
+          "body"
+        ],
+        "key": {
+          "hash_field": "bucket",
+          "range_field": "id"
+        },
+        "name": "CoreOwnedProteinHashRange",
+        "schema_type": "HashRange",
+        "source": "system_seed"
+      }
+    },
+    "result": {
+      "ok": true,
+      "source": "system_seed",
+      "system_seed_schema": "CoreOwnedProteinHashRange",
+      "user_hash": "8c5c3d2494197c66cde0a46b17eae281"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/query",
+    "request_id": "temperature-bbe03f6d03e4404ca98ef41f3c223deb-core-owned-before-554",
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashKey": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedProteinHash"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": null,
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [],
+      "returned_count": 0,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "8c5c3d2494197c66cde0a46b17eae281"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 8458,
+      "decode_nanos": 40958,
+      "decoded_bytes": 2096,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 14,
+      "file_opens": 14,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 246016,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 1333,
+      "logical_warm_hits": 0,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 56128,
+      "metadata_operations": 21,
+      "open_nanos": 866789,
+      "pack_batch_frames": 2,
+      "pack_batch_read_runs": 2,
+      "pack_file_handle_reuses": 5,
+      "pack_file_handles_peak": 14,
+      "payload_bytes": 1551,
+      "query_storage_elapsed_nanos": 3553875,
+      "read_nanos": 102081,
+      "read_operations": 19,
+      "requested_keys": 10,
+      "returned_body_bytes": 251,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 33459,
+      "temporary_bytes_peak": 247856,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  },
+  {
+    "path": "/api/query",
+    "request_id": "temperature-bbe03f6d03e4404ca98ef41f3c223deb-core-owned-before-555",
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashRangeKeys": [
+          [
+            "core-owned-protein-before",
+            "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        ]
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedProteinHashRange"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": null,
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [],
+      "returned_count": 0,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "8c5c3d2494197c66cde0a46b17eae281"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 4543,
+      "decode_nanos": 20250,
+      "decoded_bytes": 2135,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 14,
+      "file_opens": 14,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 229632,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 1334,
+      "logical_warm_hits": 0,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 32126,
+      "metadata_operations": 20,
+      "open_nanos": 556501,
+      "pack_batch_frames": 2,
+      "pack_batch_read_runs": 2,
+      "pack_file_handle_reuses": 4,
+      "pack_file_handles_peak": 14,
+      "payload_bytes": 1565,
+      "query_storage_elapsed_nanos": 69879833,
+      "read_nanos": 60958,
+      "read_operations": 18,
+      "requested_keys": 9,
+      "returned_body_bytes": 251,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 31542,
+      "temporary_bytes_peak": 231511,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  },
+  {
+    "path": "/api/mutations/batch",
+    "request_id": "temperature-bbe03f6d03e4404ca98ef41f3c223deb-core-owned-before-556",
+    "request": {
+      "mutations": [
+        {
+          "durability": "queued",
+          "fields_and_values": {
+            "body": "5a4b051ef807010eda9b79ac8f41da5dc6e514d8abf0d2be337f811ea9f3f7dc5ecdf39d77ad3398629d8143c80093ee60b6ca1e72e3f5e013a207e0eb6539814a1ed05538921adc1fb3f3627888c34d39d1f9af9152e1d1ebd80c78d69ff96732c45ff8f349960f6ec84b597b379919f90f7814f297ef92543ee3ede01ce6aa4524274e19a08e2785495be690dfaf6301344ddbb315d3b5e8f22d866fbf71678e9a1a1484d60f114fde15ec4205898ed0e827a90b57aabbf8e0763c48b290b5cf8e5ea5a3363388b0a263320927cb46863445943496152255a40fbd987e4e19deac88f6b77341cba7cba2e1beccade2e0f3b7f58a735dd5ac27c406ba7b943bb518abfe3fafd54e879ee42b9e1a0fb19a0f318977b4c82a679b8d0eb43cf57177a6e78df7fc674d8ee607a1c7f62f42b1d0dcf53f97f0f2592653066f34871db2597fafea89a106bcb984d706410935819748e798de3ca8f733e25327278a7b6744afe6e3e0bff68e1fc3347c5f5016964326f0934b840af25daba67453658825c18345d65593da87e8f27911d1e6de5fb6aac06466f72efba5cc1b33b9bb59c4bfd09bba9713471b081418121e8082fd45568f89be2e736622ab3e26c587e3801828b3905248475a692cbc33bf1d7b6ffffdd6420a9b43fb740f899bfa46fa2c8466c63932077f3edacd77c4764e0bcad5644a010c01bebca4f8c5bf385726",
+            "bucket": "core-owned-protein-before",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-10"
+          },
+          "key_value": {
+            "hash": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "mutation_type": "create",
+          "schema": "CoreOwnedProteinHash",
+          "type": "mutation"
+        },
+        {
+          "durability": "queued",
+          "fields_and_values": {
+            "body": "5a4b051ef807010eda9b79ac8f41da5dc6e514d8abf0d2be337f811ea9f3f7dc5ecdf39d77ad3398629d8143c80093ee60b6ca1e72e3f5e013a207e0eb6539814a1ed05538921adc1fb3f3627888c34d39d1f9af9152e1d1ebd80c78d69ff96732c45ff8f349960f6ec84b597b379919f90f7814f297ef92543ee3ede01ce6aa4524274e19a08e2785495be690dfaf6301344ddbb315d3b5e8f22d866fbf71678e9a1a1484d60f114fde15ec4205898ed0e827a90b57aabbf8e0763c48b290b5cf8e5ea5a3363388b0a263320927cb46863445943496152255a40fbd987e4e19deac88f6b77341cba7cba2e1beccade2e0f3b7f58a735dd5ac27c406ba7b943bb518abfe3fafd54e879ee42b9e1a0fb19a0f318977b4c82a679b8d0eb43cf57177a6e78df7fc674d8ee607a1c7f62f42b1d0dcf53f97f0f2592653066f34871db2597fafea89a106bcb984d706410935819748e798de3ca8f733e25327278a7b6744afe6e3e0bff68e1fc3347c5f5016964326f0934b840af25daba67453658825c18345d65593da87e8f27911d1e6de5fb6aac06466f72efba5cc1b33b9bb59c4bfd09bba9713471b081418121e8082fd45568f89be2e736622ab3e26c587e3801828b3905248475a692cbc33bf1d7b6ffffdd6420a9b43fb740f899bfa46fa2c8466c63932077f3edacd77c4764e0bcad5644a010c01bebca4f8c5bf385726",
+            "bucket": "core-owned-protein-before",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-10"
+          },
+          "key_value": {
+            "hash": "core-owned-protein-before",
+            "range": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "mutation_type": "create",
+          "schema": "CoreOwnedProteinHashRange",
+          "type": "mutation"
+        }
+      ]
+    },
+    "result": {
+      "background_tasks_drained": false,
+      "convergence_pending": true,
+      "count": 2,
+      "durability": "queued",
+      "mutation_ids": [
+        "3ca5c41a-715f-49ea-bcd3-b49be4b3f67d",
+        "4c2bc853-e492-43f1-9abd-dbc6bf222160"
+      ],
+      "ok": true,
+      "operations": {
+        "created": 2,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 2,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 133512,
+        "gate_wait": 0,
+        "prepare": 11485,
+        "publish": 0
+      },
+      "revision": 14416,
+      "touched_group_ids": [],
+      "user_hash": "8c5c3d2494197c66cde0a46b17eae281"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/query",
+    "request_id": "temperature-bbe03f6d03e4404ca98ef41f3c223deb-core-owned-before-558",
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashRangeKeys": [
+          [
+            "core-owned-protein-before",
+            "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        ]
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedProteinHashRange"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": "opaque",
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [
+        {
+          "author_pub_key": null,
+          "fields": {
+            "body": "5a4b051ef807010eda9b79ac8f41da5dc6e514d8abf0d2be337f811ea9f3f7dc5ecdf39d77ad3398629d8143c80093ee60b6ca1e72e3f5e013a207e0eb6539814a1ed05538921adc1fb3f3627888c34d39d1f9af9152e1d1ebd80c78d69ff96732c45ff8f349960f6ec84b597b379919f90f7814f297ef92543ee3ede01ce6aa4524274e19a08e2785495be690dfaf6301344ddbb315d3b5e8f22d866fbf71678e9a1a1484d60f114fde15ec4205898ed0e827a90b57aabbf8e0763c48b290b5cf8e5ea5a3363388b0a263320927cb46863445943496152255a40fbd987e4e19deac88f6b77341cba7cba2e1beccade2e0f3b7f58a735dd5ac27c406ba7b943bb518abfe3fafd54e879ee42b9e1a0fb19a0f318977b4c82a679b8d0eb43cf57177a6e78df7fc674d8ee607a1c7f62f42b1d0dcf53f97f0f2592653066f34871db2597fafea89a106bcb984d706410935819748e798de3ca8f733e25327278a7b6744afe6e3e0bff68e1fc3347c5f5016964326f0934b840af25daba67453658825c18345d65593da87e8f27911d1e6de5fb6aac06466f72efba5cc1b33b9bb59c4bfd09bba9713471b081418121e8082fd45568f89be2e736622ab3e26c587e3801828b3905248475a692cbc33bf1d7b6ffffdd6420a9b43fb740f899bfa46fa2c8466c63932077f3edacd77c4764e0bcad5644a010c01bebca4f8c5bf385726",
+            "bucket": "core-owned-protein-before",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-10"
+          },
+          "key": {
+            "hash": "core-owned-protein-before",
+            "range": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "metadata": {
+            "body": {
+              "atom_uuid": "835c058680abd61cc9563c066e5f2c7de1d14409ae56126718f52b1e68d961e0",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "BKfR4AHlb5IGb6TV0Qmz38dY2f8ox7piFaxmjVSVM0s",
+              "source_file_name": null
+            },
+            "bucket": {
+              "atom_uuid": "2348280086fb0d6b43e7b76e85e0a0a53b01964f00998e6ab3414ed709194625",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "020l6tbzNVotU4Et7BShHmYAYP-weAnNAE7-OFrDV4E",
+              "source_file_name": null
+            },
+            "id": {
+              "atom_uuid": "0c247c8b0ac52145c263846cdb5286ffb66db85c2fef3f51ebe66515dd68fd80",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "vkSi0xwtuk8uOTXZBVGo6yf1IRVK81uLtIaJ-48-jOY",
+              "source_file_name": null
+            },
+            "title": {
+              "atom_uuid": "1de78349c993e25328a0758cb0c95ce0b16ff64e3934fbf5525ab54f9f3f3895",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "JesD1E2bsvylaVAUsEJsst3nBSyTIAmStBmQj83hzUE",
+              "source_file_name": null
+            }
+          }
+        }
+      ],
+      "returned_count": 1,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "8c5c3d2494197c66cde0a46b17eae281"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 708,
+      "decode_nanos": 0,
+      "decoded_bytes": 0,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 0,
+      "file_opens": 0,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 0,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 666,
+      "logical_warm_hits": 4,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 0,
+      "metadata_operations": 0,
+      "open_nanos": 0,
+      "pack_batch_frames": 0,
+      "pack_batch_read_runs": 0,
+      "pack_file_handle_reuses": 0,
+      "pack_file_handles_peak": 0,
+      "payload_bytes": 0,
+      "query_storage_elapsed_nanos": 283667,
+      "read_nanos": 0,
+      "read_operations": 0,
+      "requested_keys": 4,
+      "returned_body_bytes": 2379,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 7833,
+      "temporary_bytes_peak": 0,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  },
+  {
+    "path": "/api/query",
+    "request_id": "temperature-bbe03f6d03e4404ca98ef41f3c223deb-core-owned-before-559",
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashKey": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedProteinHash"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": "opaque",
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [
+        {
+          "author_pub_key": null,
+          "fields": {
+            "body": "5a4b051ef807010eda9b79ac8f41da5dc6e514d8abf0d2be337f811ea9f3f7dc5ecdf39d77ad3398629d8143c80093ee60b6ca1e72e3f5e013a207e0eb6539814a1ed05538921adc1fb3f3627888c34d39d1f9af9152e1d1ebd80c78d69ff96732c45ff8f349960f6ec84b597b379919f90f7814f297ef92543ee3ede01ce6aa4524274e19a08e2785495be690dfaf6301344ddbb315d3b5e8f22d866fbf71678e9a1a1484d60f114fde15ec4205898ed0e827a90b57aabbf8e0763c48b290b5cf8e5ea5a3363388b0a263320927cb46863445943496152255a40fbd987e4e19deac88f6b77341cba7cba2e1beccade2e0f3b7f58a735dd5ac27c406ba7b943bb518abfe3fafd54e879ee42b9e1a0fb19a0f318977b4c82a679b8d0eb43cf57177a6e78df7fc674d8ee607a1c7f62f42b1d0dcf53f97f0f2592653066f34871db2597fafea89a106bcb984d706410935819748e798de3ca8f733e25327278a7b6744afe6e3e0bff68e1fc3347c5f5016964326f0934b840af25daba67453658825c18345d65593da87e8f27911d1e6de5fb6aac06466f72efba5cc1b33b9bb59c4bfd09bba9713471b081418121e8082fd45568f89be2e736622ab3e26c587e3801828b3905248475a692cbc33bf1d7b6ffffdd6420a9b43fb740f899bfa46fa2c8466c63932077f3edacd77c4764e0bcad5644a010c01bebca4f8c5bf385726",
+            "bucket": "core-owned-protein-before",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-10"
+          },
+          "key": {
+            "hash": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "range": null
+          },
+          "metadata": {
+            "body": {
+              "atom_uuid": "835c058680abd61cc9563c066e5f2c7de1d14409ae56126718f52b1e68d961e0",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "PQnEdkKsT37xelkQwgYRMda3L1vKy-XhsbMtAJQtjCA",
+              "source_file_name": null
+            },
+            "bucket": {
+              "atom_uuid": "2348280086fb0d6b43e7b76e85e0a0a53b01964f00998e6ab3414ed709194625",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "-URGjlI-ZQ4iL77RtmGO0KZDlmezHVVMribzUOdvOfc",
+              "source_file_name": null
+            },
+            "id": {
+              "atom_uuid": "0c247c8b0ac52145c263846cdb5286ffb66db85c2fef3f51ebe66515dd68fd80",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "aZpCrehYjYPjn912OgH27wRwKWSnRqxHX8_QzoE3sQg",
+              "source_file_name": null
+            },
+            "title": {
+              "atom_uuid": "1de78349c993e25328a0758cb0c95ce0b16ff64e3934fbf5525ab54f9f3f3895",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "7a5MWO59P_kXr3FTw_e0aHxZBn2aK_vMORTH1I3Qp2s",
+              "source_file_name": null
+            }
+          }
+        }
+      ],
+      "returned_count": 1,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "8c5c3d2494197c66cde0a46b17eae281"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 375,
+      "decode_nanos": 0,
+      "decoded_bytes": 0,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 0,
+      "file_opens": 0,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 0,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 794,
+      "logical_warm_hits": 4,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 0,
+      "metadata_operations": 0,
+      "open_nanos": 0,
+      "pack_batch_frames": 0,
+      "pack_batch_read_runs": 0,
+      "pack_file_handle_reuses": 0,
+      "pack_file_handles_peak": 0,
+      "payload_bytes": 0,
+      "query_storage_elapsed_nanos": 205542,
+      "read_nanos": 0,
+      "read_operations": 0,
+      "requested_keys": 4,
+      "returned_body_bytes": 2356,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 7375,
+      "temporary_bytes_peak": 0,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  },
+  {
+    "path": "/api/mutations/batch",
+    "request_id": "temperature-bbe03f6d03e4404ca98ef41f3c223deb-core-owned-before-560",
+    "request": {
+      "mutations": [
+        {
+          "durability": "queued",
+          "fields_and_values": {
+            "body": "a3de7d7d4f1e8fbf96ed3763f6b6919125b106f9cb80bbd7a88927812222fa4a38ced7c88c9d767c2da12e03a71be084c3824a463b9503a7b6d074a7b4d55569e3d8894e0f4ae1d1eedbaf5aca596dec62a4d33feaa0155588f2696957efcdfe7ff499d1c74fa7126b9d0091c4c57c055c7b9398ec2b17205cfdc96bb862b76be8f1f5c95876eec6b123d534102b29edddf87c930c611c9e7c02f3a37e02e67d27de23af70e3a6c762e6d1b6fddcd9ac091679574e568f99cafbd779fd839e03ba1c74877ba217c7cdf265cdf66b387d88ce29510815829944930ee381da31756def81d80873ad5fc239f4c3a322845a14b3f01d613a6c81e72be33e3b4b07eee0ba22fc5b425bd62eef68a378d18f793ac656ad1ff1fdd5feca5dcb466ac922ebb2a0d19df9dac4a0ad9683f3394a85fe7b18b34abb6a1008be7aac9832fafc793356043a06f07b21801b9dbca2c004c69621b5e7eda037504d4f79a42911481c82d05b6aaab86b95cda4398fdae9902263cee18cc731fc7cf4fe3b1b0ffd8559bd8d982d6e482813ce4bb6dad67ab947483811a72fd0b2ca9700a31cf250b547e5c1a71aa8dcab8ed48933da784990707a7d27dc489713c329d7c22099d56ea73a75840610f33f8e2be0b72f3d9dd0ab560a977a7e5c83c49ae0550f00deca2160582894d78a4c6c021ee71b596457e3a7829000944a2c9788608f3aa08525",
+            "title": "core-owned-0-revision-11"
+          },
+          "key_value": {
+            "hash": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "mutation_type": "update",
+          "schema": "CoreOwnedProteinHash",
+          "type": "mutation"
+        }
+      ]
+    },
+    "result": {
+      "background_tasks_drained": false,
+      "convergence_pending": true,
+      "count": 1,
+      "durability": "queued",
+      "mutation_ids": [
+        "554b7e58-c93a-4812-9a2f-0877d4e54195"
+      ],
+      "ok": true,
+      "operations": {
+        "created": 0,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 1,
+        "updated": 1
+      },
+      "resident_stages_us": {
+        "ack": 141332,
+        "gate_wait": 0,
+        "prepare": 5760,
+        "publish": 0
+      },
+      "revision": 14417,
+      "touched_group_ids": [],
+      "user_hash": "8c5c3d2494197c66cde0a46b17eae281"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/query",
+    "request_id": "temperature-bbe03f6d03e4404ca98ef41f3c223deb-core-owned-before-561",
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashRangeKeys": [
+          [
+            "core-owned-protein-before",
+            "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        ]
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedProteinHashRange"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": "opaque",
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [
+        {
+          "author_pub_key": null,
+          "fields": {
+            "body": "5a4b051ef807010eda9b79ac8f41da5dc6e514d8abf0d2be337f811ea9f3f7dc5ecdf39d77ad3398629d8143c80093ee60b6ca1e72e3f5e013a207e0eb6539814a1ed05538921adc1fb3f3627888c34d39d1f9af9152e1d1ebd80c78d69ff96732c45ff8f349960f6ec84b597b379919f90f7814f297ef92543ee3ede01ce6aa4524274e19a08e2785495be690dfaf6301344ddbb315d3b5e8f22d866fbf71678e9a1a1484d60f114fde15ec4205898ed0e827a90b57aabbf8e0763c48b290b5cf8e5ea5a3363388b0a263320927cb46863445943496152255a40fbd987e4e19deac88f6b77341cba7cba2e1beccade2e0f3b7f58a735dd5ac27c406ba7b943bb518abfe3fafd54e879ee42b9e1a0fb19a0f318977b4c82a679b8d0eb43cf57177a6e78df7fc674d8ee607a1c7f62f42b1d0dcf53f97f0f2592653066f34871db2597fafea89a106bcb984d706410935819748e798de3ca8f733e25327278a7b6744afe6e3e0bff68e1fc3347c5f5016964326f0934b840af25daba67453658825c18345d65593da87e8f27911d1e6de5fb6aac06466f72efba5cc1b33b9bb59c4bfd09bba9713471b081418121e8082fd45568f89be2e736622ab3e26c587e3801828b3905248475a692cbc33bf1d7b6ffffdd6420a9b43fb740f899bfa46fa2c8466c63932077f3edacd77c4764e0bcad5644a010c01bebca4f8c5bf385726",
+            "bucket": "core-owned-protein-before",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-10"
+          },
+          "key": {
+            "hash": "core-owned-protein-before",
+            "range": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "metadata": {
+            "body": {
+              "atom_uuid": "835c058680abd61cc9563c066e5f2c7de1d14409ae56126718f52b1e68d961e0",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "BKfR4AHlb5IGb6TV0Qmz38dY2f8ox7piFaxmjVSVM0s",
+              "source_file_name": null
+            },
+            "bucket": {
+              "atom_uuid": "2348280086fb0d6b43e7b76e85e0a0a53b01964f00998e6ab3414ed709194625",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "020l6tbzNVotU4Et7BShHmYAYP-weAnNAE7-OFrDV4E",
+              "source_file_name": null
+            },
+            "id": {
+              "atom_uuid": "0c247c8b0ac52145c263846cdb5286ffb66db85c2fef3f51ebe66515dd68fd80",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "vkSi0xwtuk8uOTXZBVGo6yf1IRVK81uLtIaJ-48-jOY",
+              "source_file_name": null
+            },
+            "title": {
+              "atom_uuid": "1de78349c993e25328a0758cb0c95ce0b16ff64e3934fbf5525ab54f9f3f3895",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "JesD1E2bsvylaVAUsEJsst3nBSyTIAmStBmQj83hzUE",
+              "source_file_name": null
+            }
+          }
+        }
+      ],
+      "returned_count": 1,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "8c5c3d2494197c66cde0a46b17eae281"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 500,
+      "decode_nanos": 0,
+      "decoded_bytes": 0,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 0,
+      "file_opens": 0,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 0,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 626,
+      "logical_warm_hits": 4,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 0,
+      "metadata_operations": 0,
+      "open_nanos": 0,
+      "pack_batch_frames": 0,
+      "pack_batch_read_runs": 0,
+      "pack_file_handle_reuses": 0,
+      "pack_file_handles_peak": 0,
+      "payload_bytes": 0,
+      "query_storage_elapsed_nanos": 185917,
+      "read_nanos": 0,
+      "read_operations": 0,
+      "requested_keys": 4,
+      "returned_body_bytes": 2379,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 10000,
+      "temporary_bytes_peak": 0,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  }
+]

@@ -30,23 +30,20 @@
 //! order for those ids). Binary/`b64:` prefix walks are best-effort on the
 //! encoded id space — Mini's hot paths use UTF-8 keys.
 
-mod absence_hints;
 mod backup_descriptor;
 mod backup_manifest;
 mod compact_dispatch;
-mod direct_write_invalidation;
 pub mod dual_read_metrics;
 pub mod high_water;
 mod key_routing;
 mod value_lengths;
 pub(crate) use value_lengths::raw_value_lengths;
 mod kv_store_impl;
-mod logical_main;
-pub(crate) mod logical_path;
 mod namespaced_maintenance;
 mod namespaced_store_impl;
 pub(in crate::storage) mod native_routing;
 mod partition_scan;
+mod prefix_layouts;
 mod residue_types;
 
 use super::encrypting_namespaced_store::LASTSTORE_PLAINTEXT_NAMESPACES;
@@ -56,10 +53,7 @@ use super::traits::{
     PhysicalScanCursor, PhysicalScanPage,
 };
 use crate::hex::sha256_hex;
-use crate::kind_partition::{colon_prefix_matches, form_twin, logical_row_id, rewrite_key_like};
-use crate::mini_cutover::{
-    classify_main_key, LEGACY_MAIN_MIGRATION_COLLECTIONS, MAIN_MIGRATION_COLLECTIONS,
-};
+use crate::mini_cutover::classify_main_key;
 use async_trait::async_trait;
 pub use backup_descriptor::{
     canonical_bytes, CanonicalRecord, DescriptorEntry, DescriptorObjectClass, DescriptorPage,
@@ -95,20 +89,16 @@ pub use high_water::{
 
 pub use compact_dispatch::COMPACT_NAMED_ONLY;
 use high_water::LastStoreHighWaterFile;
-pub(crate) use key_routing::MAIN_KEY_PREFIX_COLLECTIONS;
 use key_routing::*;
 use namespaced_maintenance::collection_dir_bytes;
 pub use residue_types::*;
 
 use laststore::{HashGroupKey, LastStore, LastStoreOptions, RetiredCompactGate, TxnOp};
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use crate::resident::{LogicalResidentSet, ResidentMetrics};
 use uuid::Uuid;
 
-const LOGICAL_MAIN_COLLECTION: &str = "main";
 const TIPS_COLLECTION: &str = "tips";
 const INDEXES_COLLECTION: &str = "indexes";
 
@@ -177,7 +167,6 @@ pub(crate) struct LastStoreKvStore {
     high_water: Option<Arc<LastStoreHighWaterFile>>,
     /// See [`TXN_DEFERRED_FLUSH_ENV`]. Resolved once at construction.
     deferred_batch_flush: bool,
-    logical: Arc<Mutex<LogicalResidentSet>>,
 }
 
 impl LastStoreKvStore {
@@ -190,18 +179,16 @@ impl LastStoreKvStore {
     /// caps the guess.
     const GC_HYDRATE_BATCH_RESERVE: usize = 2048;
 
-    fn with_logical(
+    fn new(
         store: Arc<LastStore>,
         collection: String,
         high_water: Option<Arc<LastStoreHighWaterFile>>,
-        logical: Arc<Mutex<LogicalResidentSet>>,
     ) -> Self {
         Self {
             store,
             collection,
             high_water,
             deferred_batch_flush: deferred_batch_flush_from_env(),
-            logical,
         }
     }
 
@@ -338,7 +325,7 @@ impl LastStoreKvStore {
     }
 
     /// B-tree prefix walk + hydrate only matched ids (engine does get-per-id).
-    pub(super) fn prefix_rows_sync(
+    fn prefix_rows_exact_sync(
         store: &LastStore,
         collection: &str,
         prefix: &[u8],
@@ -421,7 +408,7 @@ impl LastStoreKvStore {
     }
 
     /// B-tree prefix walk — **keys only**, no body load.
-    pub(super) fn prefix_keys_sync(
+    fn prefix_keys_exact_sync(
         store: &LastStore,
         collection: &str,
         prefix: &[u8],
@@ -513,70 +500,6 @@ impl LastStoreKvStore {
     }
 }
 
-/// Logical `main` namespace over the target LastStore `atoms` + `tips`
-/// collections, with read/delete compatibility for migration-era split
-/// collections produced by early Mini cutover builds.
-///
-/// ## One logical key, one physical row
-///
-/// Reads, deletes and existence checks span every candidate collection for a
-/// key ([`main_collections_for_key`]); writes target the canonical one alone.
-/// A read-modify-write over a still-active migration-era row therefore reads it
-/// from a legacy collection and writes the modified copy to `tips`, leaving the
-/// original in place — one logical key with two physical rows, the stale one
-/// first.
-///
-/// `get` is unaffected: it returns the first candidate, which is canonical. The
-/// scans are what broke, because they concatenated the collections. They now
-/// collapse to one row per key with that same precedence, so a scan and a point
-/// read agree about what exists and a paged scan spends its limit on distinct
-/// keys. See [`Self::dedupe_and_sort_rows`].
-///
-/// Converging the *physical* rows — having a write displace the legacy copy —
-/// is done here, in [`Self::converging_deletes`]. It makes every write a
-/// deleter, and a hydrating walk concurrent with a delete used to fail the whole
-/// scan with `corrupt: id vanished during walk`. `LastStore::load_bodies_by_shard`
-/// now skips a vanished id and counts it in `LastStore::walk_vanished_ids()`,
-/// which is what unblocked it.
-///
-/// Converging is the ONLY thing that removes the second walk. Measured in
-/// [`legacy_collection_fanout_cost_tests`]: an *absent* legacy collection
-/// already costs nothing — `hash_groups_on_disk` returns early on the missing
-/// directory — so the fan-out is paid only when the collection holds rows, and
-/// that is exactly the state no emptiness check can detect. The pruned
-/// absent/zero-hit collections avoid new fan-out, while still-populated legacy
-/// collections continue paying an extra enumeration until their rows drain.
-///
-/// ## Why the converging point write is ordered, not transactional
-///
-/// `LastStore::transaction` restores prior values after a reported operation
-/// failure, but it has no cross-group WAL crash transaction. Routing a point
-/// `put` through it would add no stronger crash guarantee while adding a scoped
-/// durability barrier to every single write.
-///
-/// So the crash guarantee comes from **order** instead: the canonical put lands
-/// first, the legacy delete second. A crash between them leaves both rows, and
-/// both-rows is precisely the state every read path above already handles —
-/// canonical shadows legacy. The reverse order would have a crash window that
-/// loses the row outright. `batch_put` restores each applied key to its previous
-/// body when a later key fails, then syncs only the groups that batch wrote.
-pub(crate) struct LogicalMainLastStoreKvStore {
-    store: Arc<LastStore>,
-    high_water: Option<Arc<LastStoreHighWaterFile>>,
-    /// See [`TXN_DEFERRED_FLUSH_ENV`]. Resolved once at construction.
-    deferred_batch_flush: bool,
-    logical: Arc<Mutex<LogicalResidentSet>>,
-    /// Legacy collections this home actually carries on disk, resolved once.
-    ///
-    /// [`LastStore::collections_on_disk`] is a `read_dir`, so it cannot run per
-    /// write. Caching it for the life of the handle is sound because the set
-    /// only ever *shrinks*: nothing writes to a legacy collection, and the
-    /// converging delete is itself filtered through this set, so it can never
-    /// create the directory it is gated on. A post-cutover home resolves to an
-    /// empty set and keeps the plain-put fast path, untouched.
-    legacy_collections_on_disk: std::sync::OnceLock<std::collections::HashSet<String>>,
-}
-
 /// Last Store-backed [`NamespacedStore`] implementation.
 #[derive(Clone)]
 pub struct LastStoreNamespacedStore {
@@ -588,6 +511,4 @@ pub struct LastStoreNamespacedStore {
     chunk_sha_memo: Arc<backup_manifest::ChunkShaMemo>,
     /// Serialize compaction provenance, manifest cuts, and confirmed commits.
     atom_retirement_lock: Arc<std::sync::Mutex<()>>,
-    /// Shared logical resident set for every namespace on this LastStore.
-    logical: Arc<Mutex<LogicalResidentSet>>,
 }

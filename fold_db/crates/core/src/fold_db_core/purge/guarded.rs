@@ -28,13 +28,6 @@ pub(super) async fn execute_guarded_purge(
         .iter()
         .map(PlannedStorageSlot::identity)
         .collect();
-    // Resolve resident aliases before the first destructive write. Encoding
-    // failure must refuse the purge while every durable row is still intact.
-    let resident_api_keys = if purge.mode.evict_resident {
-        resident_api_keys_for_storage_slots(db_ops.as_ref(), &target_slot_ids)?
-    } else {
-        HashMap::new()
-    };
     let inputs = GuardedRemovalInputs {
         candidate_atoms: &purge.candidate_atoms,
         history_keys: &purge.history_keys,
@@ -47,7 +40,6 @@ pub(super) async fn execute_guarded_purge(
     };
     let GuardedErasure {
         report,
-        atoms_to_delete,
         keys_to_delete,
         tip_debits,
         live_head_debits,
@@ -86,9 +78,6 @@ pub(super) async fn execute_guarded_purge(
         .await?;
 
     batch_delete_keys(db_ops, keys_to_delete, acct).await?;
-    if purge.mode.evict_resident {
-        evict_resident_state(db_ops, storage_slots, &resident_api_keys, &atoms_to_delete);
-    }
     finalize_schema_after_purge(db_ops, schema_manager, schema_name, schema, acct).await?;
     // The destructive flush precedes the durable meter debit. A crash in
     // this short gap leaves meter trust incomplete rather than a false debit.

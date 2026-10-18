@@ -1,0 +1,15 @@
+{
+  "all_exact_run_roots_removed": true,
+  "all_original_receipt_bytes_match": true,
+  "checked_receipt_files": 153,
+  "normal_node_sessions": 10,
+  "other_unforced_exit_codes": [],
+  "removed_roots": [
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ds8mmqqp",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.jfx3efso",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e4_dpd0q"
+  ],
+  "retained_programs": [],
+  "seal": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-receipt-seal.json",
+  "seal_sha256": "6c2079d697f1d81a21013591bf42bcce756bc5383a86947d0b8416bf196b8281"
+}

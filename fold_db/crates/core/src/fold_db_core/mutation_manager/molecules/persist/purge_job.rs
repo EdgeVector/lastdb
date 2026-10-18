@@ -1,19 +1,30 @@
 //! Persist-lane hard-erasure purge job.
 
 use super::*;
+use futures::FutureExt;
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn run_purge_job(
         &self,
         job: &mut PurgeEnvelope,
-        slot_revisions: &[crate::resident::PersistSlotRevision],
     ) -> Result<(), SchemaError> {
         let has_completion = job.completion.is_some();
         let native = self.db_ops.namespaced_store().disk_pack_runtime();
         let original_flags = native
             .as_ref()
             .map(|_| (job.validated_present, job.retry_requires_finalize));
-        let attempt = self.attempt_purge_stages(job);
+        let attempt = async {
+            let result = self.attempt_purge_stages(job).await?;
+            if let Some(runtime) = &native {
+                self.stage_purge_core_paths(job, runtime)
+                    .boxed()
+                    .await
+                    .map_err(PurgeAttemptError::Retry)?;
+                self.reserve_native_core_memory(runtime)
+                    .map_err(PurgeAttemptError::Retry)?;
+            }
+            Ok(result)
+        };
         let attempt = async {
             // The lane task no longer has the request's logical-commit scope,
             // and LastStore can move its writes onto spawn_blocking. Hold both
@@ -24,7 +35,7 @@ impl MutationManager {
                 .capture_router()
                 .map(|router| router.enter_kv_suppress());
             crate::sync::capture::with_capture_suppressed(
-                crate::storage::disk_pack::transaction::scope(native, attempt),
+                crate::storage::disk_pack::transaction::scope(native.clone(), attempt),
             )
             .await
         };
@@ -45,7 +56,6 @@ impl MutationManager {
         }
         match result {
             Ok(result) => {
-                self.finish_purge_resident_turn(job, slot_revisions).await?;
                 if job.completion.is_some() {
                     job.pending_completion = Some(PurgeCompletion {
                         result: Ok(result),
@@ -55,7 +65,6 @@ impl MutationManager {
                 Ok(())
             }
             Err(PurgeAttemptError::Missing(error)) => {
-                self.finish_purge_resident_turn(job, slot_revisions).await?;
                 if job.completion.is_some() {
                     job.pending_completion = Some(PurgeCompletion {
                         result: Err(error),
@@ -63,10 +72,7 @@ impl MutationManager {
                     });
                 } else {
                     tracing::warn!(error = %error, "terminal persist-lane purge target absent");
-                    self.db_ops
-                        .resident()
-                        .metrics()
-                        .record_persist_lane_failure();
+                    self.db_ops.resident_metrics().record_persist_lane_failure();
                 }
                 Ok(())
             }
@@ -92,7 +98,6 @@ impl MutationManager {
                     // This envelope owns a revision, not every future
                     // value of the key. Complete its turn before the
                     // revision-conditional resident cleanup below.
-                    evict_resident: false,
                     precomputed_retained: job.guarded_complement_retained.clone(),
                     emit_derived_events: false,
                 },

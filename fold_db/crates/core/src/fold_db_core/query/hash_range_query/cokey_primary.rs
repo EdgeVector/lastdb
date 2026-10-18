@@ -13,23 +13,18 @@ pub(super) type CokeyPrimaryPage = (
 impl HashRangeQueryProcessor {
     /// Resolve the primary field (falling back to the first selected field when
     /// the key spine is empty) and rename the page to API-form keys.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "mirrors the co-key plan inputs; bundling them into a struct would only move the argument list"
-    )]
     pub(super) async fn resolve_cokey_primary_page(
         &self,
         schema: &mut Schema,
         selected: &[String],
         filter: Option<HashRangeFilter>,
         window: Option<KeyWindow>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
         received_from_namespaces: &[String],
     ) -> Result<CokeyPrimaryPage, SchemaError> {
         let mut primary_name = Self::cokey_primary_field(schema, selected);
 
-        // --- 1. Primary: full resolve under filter / as_of / namespaces ---
+        // --- 1. Primary: current resolve under filter / namespaces ---
         // The primary establishes the page of keys; secondaries only fill those
         // keys. So windowing the primary windows the whole row set, and the
         // secondary fan-out below shrinks with it for free.
@@ -39,7 +34,6 @@ impl HashRangeQueryProcessor {
                 &primary_name,
                 filter.clone(),
                 window.clone(),
-                as_of,
                 include_tombstones,
                 received_from_namespaces,
             )
@@ -87,7 +81,6 @@ impl HashRangeQueryProcessor {
                     &fallback,
                     filter,
                     window,
-                    as_of,
                     include_tombstones,
                     received_from_namespaces,
                 )

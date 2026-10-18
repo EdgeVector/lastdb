@@ -12,7 +12,8 @@ use crate::db_operations::DbOperations;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
-use crate::storage::{LastStoreNamespacedStore, NamespacedStore};
+use crate::storage::disk_pack::PackNamespacedStore;
+use crate::storage::NamespacedStore;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -304,8 +305,9 @@ pub async fn run_search_rebuild_for_home(
     fs::create_dir_all(&inbox)
         .map_err(|e| SchemaError::InvalidData(format!("search rebuild create inbox: {e}")))?;
 
-    let store = LastStoreNamespacedStore::open(&data)
-        .map_err(|e| SchemaError::InvalidData(format!("open LastStore for search rebuild: {e}")))?;
+    let store = PackNamespacedStore::open(&data).map_err(|e| {
+        SchemaError::InvalidData(format!("open native store for search rebuild: {e}"))
+    })?;
     let ops = DbOperations::from_namespaced_store(Arc::new(store) as Arc<dyn NamespacedStore>)
         .await
         .map_err(|e| {

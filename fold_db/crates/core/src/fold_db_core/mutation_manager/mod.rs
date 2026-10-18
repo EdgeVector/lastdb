@@ -40,7 +40,6 @@ use crate::db_operations::DbOperations;
 use crate::memory_budget::{
     DeferReservation, DeferredPersistGauge, RuntimeMemoryBudgetObservation,
 };
-use crate::resident::ResidentMode;
 use crate::schema::SchemaCore;
 
 /// Process-lifetime work totals for one schema's purges.
@@ -161,20 +160,14 @@ pub struct MutationManager {
     schema_manager: Arc<SchemaCore>,
     /// Signing keypair for molecule signatures
     signer: Arc<crate::security::Ed25519KeyPair>,
-    /// WaitGroup for best-effort side-effects spawned off the write path
-    /// (semantic indexing + schema-lane durable store when
-    /// `LASTDB_RESIDENT_MODE=write`). Lets shutdown and tests block via
-    /// `FoldDb::wait_for_background_tasks` even though the mutation itself
-    /// returns before those tasks finish.
+    /// Tracks search side effects and queued purge work until completion.
+    /// Shutdown waits through `FoldDb::wait_for_background_tasks` even when
+    /// the mutation returns before those tasks finish.
     pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
     /// Explicit Search app inbox for this database instance. Daemon boots pass
     /// this so two `Host::boot` calls in one process do not race through
     /// process-global `LASTDB_HOME`.
     search_outbox_inbox: Option<PathBuf>,
-    /// Resident-primary routing mode (`LASTDB_RESIDENT_MODE`). When `Write`,
-    /// mutations install tip+atom into the resident graph and can acknowledge
-    /// after schema-lane enqueue.
-    resident_mode: ResidentMode,
     /// Byte cap on in-flight deferred persist work, sized from the process
     /// memory budget (`crate::memory_budget`).
     ///
@@ -264,8 +257,7 @@ pub struct MutationManager {
     capture_router: std::sync::Arc<
         std::sync::RwLock<Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>>>,
     >,
-    /// Per-schema FIFO persist lanes. Deferred mode=write jobs enqueue here
-    /// instead of each spawning an unordered Tokio task.
+    /// Per-schema FIFO lanes for durable purge work.
     persist_lanes: std::sync::Arc<crate::resident::PersistLaneSet<molecules::LanePersistJob>>,
 }
 
@@ -294,7 +286,6 @@ impl MutationManager {
                 Arc::clone(&signer),
                 Arc::clone(&pending_tasks),
                 search_outbox_inbox.clone(),
-                policy.mode,
                 Arc::clone(&defer_gauge),
                 write_dedupe,
                 Arc::clone(&purge_barrier),
@@ -310,7 +301,7 @@ impl MutationManager {
             policy.max_deferred_persists.max(1),
             lane_fair_share.max(1),
             writer,
-            Some(Arc::clone(db_ops.resident().metrics())),
+            Some(Arc::clone(db_ops.resident_metrics())),
         ));
         let author_clock_state_key = crate::schema::types::author_clock::mutation_author_clock_key(
             &signer.public_key_base64(),
@@ -327,7 +318,6 @@ impl MutationManager {
             signer,
             pending_tasks,
             search_outbox_inbox,
-            resident_mode: policy.mode,
             defer_gauge,
             cas_locks: std::sync::Mutex::new(HashMap::new()),
             author_clock_state: std::sync::Mutex::new(author_clock_state),
@@ -356,7 +346,6 @@ impl MutationManager {
         signer: Arc<crate::security::Ed25519KeyPair>,
         pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
         search_outbox_inbox: Option<PathBuf>,
-        resident_mode: ResidentMode,
         defer_gauge: Arc<DeferredPersistGauge>,
         write_dedupe: bool,
         purge_barrier: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
@@ -373,7 +362,6 @@ impl MutationManager {
             signer,
             pending_tasks,
             search_outbox_inbox,
-            resident_mode,
             defer_gauge,
             cas_locks: std::sync::Mutex::new(HashMap::new()),
             author_clock_state: std::sync::Mutex::new(
@@ -401,12 +389,6 @@ impl MutationManager {
     #[must_use]
     pub fn persist_lane_pressure(&self) -> crate::resident::PersistLanePressure {
         self.persist_lanes.pressure()
-    }
-
-    /// Resident graph handle. Named so the apply-gate module can read slot
-    /// revisions without naming `db_ops` in that file (structural test).
-    pub(crate) fn resident_graph(&self) -> &Arc<crate::resident::ResidentGraph> {
-        self.db_ops.resident()
     }
 
     /// Wire the serving mutation-log engine (called from FoldDB::set_sync_engine).
@@ -516,14 +498,6 @@ impl MutationManager {
     fn tip_history_enabled_for_writes(&self) -> bool {
         self.tip_history_enabled
             .load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    /// When true, mutation acks after resident install; durable LastStore puts
-    /// run under `pending_tasks` (see `LASTDB_RESIDENT_MODE=write`).
-    #[inline]
-    pub(crate) fn acks_on_resident(&self) -> bool {
-        self.db_ops.namespaced_store().disk_pack_runtime().is_none()
-            && self.resident_mode.acks_on_resident()
     }
 
     /// Admit one deferred persist of `bytes`, or refuse.

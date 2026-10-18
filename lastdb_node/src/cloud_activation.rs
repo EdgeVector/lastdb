@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub(crate) async fn activate_adopted_generation(
     host: &Host,
 ) -> Result<Option<serde_json::Value>, String> {
+    host.db.require_cloud_sync_supported()?;
     static ACTIVATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _activation = ACTIVATE.lock().await;
     if crate::cloud_purge_runtime::local_writes_paused(host)? {

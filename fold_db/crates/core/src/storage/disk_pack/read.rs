@@ -2,6 +2,7 @@ use super::*;
 use budget::call_error;
 use laststore::disk_pack::home::HomeRead;
 
+mod atoms;
 mod budget;
 mod core_holds;
 pub(super) mod memory;
@@ -15,8 +16,8 @@ pub(super) struct ReadContext {
     identity: uuid::Uuid,
     failure: Arc<Mutex<Option<ReadFailure>>>,
     core_holds: Arc<core_holds::CoreCallHolds>,
-    graph: Arc<crate::resident::NativeWriteGraph>,
-    // Drop graph references before the batch-owned memory reservations.
+    pub(super) core_model: crate::resident::CoreModelSnapshot,
+    // Only private write preparation can inspect the existing flush log.
     pub(super) accepted: Arc<Vec<Arc<transaction::PendingBatch>>>,
     snapshots: Arc<snapshots::ReadSnapshots>,
     pub(super) revision: u64,
@@ -75,17 +76,23 @@ impl ReadContext {
                 .read_from_writer(view.current.clone(), budget(), &runtime.read_lease)
         }
         .map_err(map)?;
-        // Captured graph bodies outlive a flush. Retain their batch owners so
-        // deferred-memory reservations last until the final captured read ends.
-        let accepted = view.accepted.clone();
-        let graph = runtime.resident.native_write_root();
+        let accepted = if write_owner.is_some() {
+            view.accepted.clone()
+        } else {
+            Arc::new(Vec::new())
+        };
+        let core_model = runtime
+            .core
+            .lock()
+            .expect("captured typed core model")
+            .dirty_snapshot();
         let revision = view.revision;
         let current = view.current.clone();
         drop(view);
         Ok(Arc::new(Self {
             call: Arc::new(Mutex::new(call)),
             accepted,
-            graph,
+            core_model,
             revision,
             current,
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
@@ -112,7 +119,7 @@ impl ReadContext {
                     failure,
                     core_holds: Arc::clone(&context.core_holds),
                     accepted: context.accepted.clone(),
-                    graph: Arc::clone(&context.graph),
+                    core_model: context.core_model.clone(),
                     snapshots: Arc::clone(&context.snapshots),
                     revision: context.revision,
                     current: context.current.clone(),
@@ -159,9 +166,9 @@ impl ReadContext {
         &self,
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<()> {
-        // Ordinary 10,000-key scopes also support generic pending KV overlays.
-        // Only the larger preparation call binds its budget to one write owner.
-        if self.write_owner.is_none() || self.owns_write(pending) {
+        // Only private preparation reads the flush log and binds its budget
+        // to one write owner. Ordinary reads use their captured typed core view.
+        if (self.write_owner.is_none() && pending.is_none()) || self.owns_write(pending) {
             return Ok(());
         }
         let result = Err(StorageError::InvalidOperation(

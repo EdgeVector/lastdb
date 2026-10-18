@@ -8,6 +8,7 @@ pub(crate) fn finish(
     restore_manifest_sha256: &str,
     restore_home: Option<&str>,
 ) -> Result<serde_json::Value, String> {
+    host.db.require_cloud_sync_supported()?;
     if restore_manifest_sha256.len() != 64
         || !restore_manifest_sha256
             .bytes()

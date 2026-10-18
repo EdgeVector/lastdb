@@ -135,9 +135,8 @@ impl AtomStore {
             )
         };
 
-        let mut items = self
-            .changed_key_store_items(molecule_uuid, data, changed, storage_prefix)
-            .await?;
+        let mut items =
+            self.changed_key_store_items(molecule_uuid, data, changed, storage_prefix)?;
         let guarded_automatic_gc_uuids =
             self.automatic_gc_tip_reference_uuids(&items, storage_prefix);
         let _automatic_gc_guards = self
@@ -271,9 +270,8 @@ impl AtomStore {
 
         let mut all_items = Vec::new();
         for (molecule_uuid, data, changed) in molecules {
-            let items = self
-                .changed_key_store_items(molecule_uuid, data, changed, storage_prefix)
-                .await?;
+            let items =
+                self.changed_key_store_items(molecule_uuid, data, changed, storage_prefix)?;
             all_items.extend(items);
         }
         let guarded_automatic_gc_uuids =

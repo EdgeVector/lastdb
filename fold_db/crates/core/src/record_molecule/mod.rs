@@ -16,6 +16,7 @@ pub use envelope::{
     envelope_is_complete, merge_sent_fields, parse_document_fields, stamp_document_envelope_marked,
     ENVELOPE_VERSION,
 };
+pub(crate) use read_batch::load_record_tip_atoms;
 
 use crate::schema::Schema;
 

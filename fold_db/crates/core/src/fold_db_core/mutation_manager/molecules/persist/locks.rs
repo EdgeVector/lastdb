@@ -18,7 +18,7 @@ impl MutationManager {
     /// rewrites the header), which takes a gate no per-slot writer holds — the
     /// molecule-wide state it touches is guarded by the short commit lock in
     /// [`crate::db_operations::AtomStore::lock_molecule_commit`] instead.
-    pub(super) fn molecule_persist_lock_key(
+    pub(in crate::fold_db_core::mutation_manager) fn molecule_persist_lock_key(
         molecule_uuid: &str,
         hash: Option<&str>,
         range: Option<&str>,
@@ -61,36 +61,6 @@ impl MutationManager {
                             uuid,
                             Some(ck.disk_hash()),
                             Some(ck.disk_range()),
-                            None,
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect()
-    }
-
-    /// Slot-gate identities for prepared protein-sibling tip updates.
-    pub(in crate::fold_db_core::mutation_manager) fn sibling_molecule_lock_keys(
-        sibling_updates: &[(String, MoleculeData, HashSet<ChangedKey>)],
-    ) -> Vec<String> {
-        sibling_updates
-            .iter()
-            .flat_map(|(molecule_uuid, _data, changed)| {
-                if changed.is_empty() {
-                    return vec![Self::molecule_persist_lock_key(
-                        molecule_uuid,
-                        None,
-                        None,
-                        None,
-                    )];
-                }
-                changed
-                    .iter()
-                    .map(|key| {
-                        Self::molecule_persist_lock_key(
-                            molecule_uuid,
-                            Some(key.disk_hash()),
-                            Some(key.disk_range()),
                             None,
                         )
                     })

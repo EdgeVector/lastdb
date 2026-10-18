@@ -2,27 +2,20 @@
 
 use super::*;
 
-mod apply_gate;
 mod prepare;
 
 /// Mutable state threaded through the phases of one batch write.
 pub(super) struct BatchState {
     pub(super) force_durable: bool,
-    require_durable: bool,
     pub(super) timing_breakdown: std::collections::HashMap<&'static str, std::time::Duration>,
-    // Accumulated across schema groups; reported once as `LockWait` and
-    // excluded from the residual `apply` bucket. See the acquisition site.
-    molecule_lock_wait: std::time::Duration,
     pub(super) stages: ResidentCommitStages,
 }
 
 impl BatchState {
-    fn new(force_durable: bool, require_durable: bool) -> Self {
+    fn new(force_durable: bool) -> Self {
         Self {
             force_durable,
-            require_durable,
             timing_breakdown: std::collections::HashMap::new(),
-            molecule_lock_wait: std::time::Duration::ZERO,
             stages: ResidentCommitStages::default(),
         }
     }
@@ -39,9 +32,8 @@ impl MutationManager {
         if mutations.is_empty() {
             return Ok(ResidentCommitReceipt::empty());
         }
-        // Replay and an explicit synchronous request wait for the complete
-        // schema-lane envelope. Ordinary writes keep the accepted resident-ack
-        // contract; LastStore restores a failed multi-op durable attempt.
+        // Replay and synchronous requests wait for complete durability.
+        // Each backend owns its publication and failure boundary.
         let force_durable = require_durable
             || mutations
                 .iter()
@@ -50,16 +42,8 @@ impl MutationManager {
 
         self.reject_derived_and_blocked(&mutations)?;
 
-        // Phase 0.5a: Compare-and-set lock acquisition (same-node atomicity).
-        //
-        // For every mutation carrying a `CasExpectation`, take the per-key CAS
-        // lock before either the idempotency filter or the precondition check
-        // below runs. The `_cas_guards` bindings hold those locks until this
-        // function returns, so no other same-key writer can read-modify-write
-        // in between our compare and our commit — that window is exactly
-        // where a naive check-then-set silently loses a concurrent writer. A
-        // batch with no CAS mutations acquires nothing and is byte-for-byte
-        // unchanged.
+        // Keep each compare-and-set lock through idempotency, validation,
+        // and commit. A same-key writer cannot change the compared state.
         let lock_wait_start = std::time::Instant::now();
         let _cas_guards = self.acquire_cas_locks(&mutations).await;
         crate::request_phases::add_phase(
@@ -70,50 +54,26 @@ impl MutationManager {
         Self::log_batch_start(mutations.len());
 
         let start_time = std::time::Instant::now();
-        let mut state = BatchState::new(force_durable, require_durable);
-
-        let (already_seen_ids, new_mutations, new_hashes) = self
-            .filter_new_mutations(mutations, storage_prefix, &mut state)
-            .await?;
-
-        if new_mutations.is_empty() {
-            return self
-                .finish_all_duplicate_batch(
-                    already_seen_ids,
-                    force_durable,
-                    &state.timing_breakdown,
-                    start_time,
-                    state.stages,
-                )
-                .await;
-        }
-
-        self.check_batch_preconditions(&new_mutations, storage_prefix)
-            .await?;
-
-        tracing::debug!(
-            "Idempotency: {} new, {} duplicates",
-            new_mutations.len(),
-            already_seen_ids.len()
-        );
-
-        let mutation_ids = self
-            .commit_new_mutations(
-                new_mutations,
-                new_hashes,
+        let state = BatchState::new(force_durable);
+        let runtime = self
+            .db_ops
+            .namespaced_store()
+            .disk_pack_runtime()
+            .ok_or_else(|| {
+                SchemaError::InvalidData("logical writes require native disk storage".into())
+            })?;
+        self.write_native_batch(
+            super::native::NativeRequest {
+                runtime,
+                mutations,
                 storage_prefix,
-                author_clock_barrier,
-                &mut state,
-            )
-            .await?;
-
-        Ok(Self::build_commit_receipt(
-            already_seen_ids,
-            &mutation_ids,
+                author_clock: author_clock_barrier,
+            },
             operations,
             start_time,
             state,
-        ))
+        )
+        .await
     }
 
     fn log_batch_start(batch_len: usize) {
@@ -125,98 +85,6 @@ impl MutationManager {
             "DEBUG: MutationManager::write_mutations_batch_async started for {} mutations",
             batch_len
         );
-    }
-
-    /// Split off mutations already applied; returns
-    /// `(already_seen_ids, new_mutations, new_hashes)`.
-    async fn filter_new_mutations(
-        &self,
-        mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
-        state: &mut BatchState,
-    ) -> Result<(Vec<String>, Vec<Mutation>, Vec<String>), SchemaError> {
-        // Phase 1: Filter out already-processed mutations BEFORE the CAS
-        // precondition check below. A byte-identical retry of an applied
-        // CAS-guarded mutation must be recognized as a safe no-op here — the
-        // CAS check compares against the head the first attempt already
-        // advanced, so running it before this filter rejects the retry as a
-        // conflict for exactly the write type ("same-node atomicity") whose
-        // contract depends on safe retries. This filter and the CAS check
-        // below both still run while `_cas_guards` is held, so the
-        // same-node atomicity invariant is unchanged for every mutation that
-        // survives the filter.
-        let idem_start = std::time::Instant::now();
-        let filtered = self
-            .filter_idempotent_mutations(mutations, storage_prefix)
-            .await?;
-        Self::add_timing(
-            &mut state.timing_breakdown,
-            "idempotency_check",
-            idem_start.elapsed(),
-        );
-        Ok(filtered)
-    }
-
-    /// Phases 2-8 for the mutations that survived the idempotency filter:
-    /// prepare per-schema deltas, apply them, wait for persistence, and run
-    /// the durability barrier. Returns the ids of the newly written mutations.
-    async fn commit_new_mutations(
-        &self,
-        new_mutations: Vec<Mutation>,
-        new_hashes: Vec<String>,
-        storage_prefix: Option<&str>,
-        author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
-        state: &mut BatchState,
-    ) -> Result<Vec<String>, SchemaError> {
-        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
-            return self
-                .commit_native_request(
-                    super::native::NativeRequest {
-                        runtime,
-                        mutations: new_mutations,
-                        storage_prefix,
-                        author_clock: author_clock_barrier,
-                    },
-                    state,
-                )
-                .await;
-        }
-        let mut prepared_deltas = self
-            .prepare_grouped_deltas(
-                new_mutations,
-                new_hashes,
-                storage_prefix,
-                state.force_durable,
-                &mut state.timing_breakdown,
-                &mut state.stages,
-            )
-            .await?;
-
-        let persist_completions = self
-            .apply_prepared_deltas(
-                &mut prepared_deltas,
-                storage_prefix,
-                state.require_durable,
-                author_clock_barrier,
-                &mut state.timing_breakdown,
-                &mut state.molecule_lock_wait,
-                &mut state.stages,
-            )
-            .await?;
-
-        let mut mutation_ids = Vec::new();
-        for delta in &prepared_deltas {
-            for mutation in &delta.schema_mutations {
-                mutation_ids.push(mutation.uuid.clone());
-            }
-        }
-        Self::await_persist_completions(persist_completions).await?;
-
-        // Phase 8: apply the optional caller durability barrier. A failed
-        // barrier cannot produce a Durable receipt.
-        self.finalize_batch(&mut state.timing_breakdown, state.force_durable)
-            .await?;
-        Ok(mutation_ids)
     }
 
     /// Phase -1: reject historical derived writes and blocked targets, then
@@ -247,7 +115,7 @@ impl MutationManager {
 
     /// Stamp the final stage timings, log the phase totals, and build the
     /// receipt that merges already-seen ids with the newly written ones.
-    fn build_commit_receipt(
+    pub(super) fn build_commit_receipt(
         already_seen_ids: Vec<String>,
         mutation_ids: &[String],
         mut operations: ResidentCommitOperations,
@@ -257,12 +125,11 @@ impl MutationManager {
         let BatchState {
             force_durable,
             timing_breakdown,
-            molecule_lock_wait,
             mut stages,
             ..
         } = state;
         let total_time = start_time.elapsed();
-        stages.gate_wait_us = crate::request_phases::duration_us(molecule_lock_wait);
+        stages.gate_wait_us = 0;
         stages.ack_us = crate::request_phases::duration_us(total_time);
 
         // Combine already-seen ids with newly processed mutation ids
@@ -282,7 +149,7 @@ impl MutationManager {
         );
 
         Self::log_timing_breakdown(&timing_breakdown, total_time);
-        Self::report_phase_totals(&timing_breakdown, total_time, molecule_lock_wait);
+        Self::report_phase_totals(&timing_breakdown, total_time, std::time::Duration::ZERO);
         Self::report_resident_commit_counts(&operations);
 
         ResidentCommitReceipt {
@@ -293,10 +160,8 @@ impl MutationManager {
             // around it.
             revision: None,
             operations,
-            // The default path returns after the resident commit; the
-            // per-schema FIFO lane writes the envelope afterwards. Anything
-            // stronger would be a claim about disk this function did not wait
-            // for.
+            // Queued permits a later flush. Explicit durability waits for disk;
+            // admission can also choose disk-first when it cannot retain bytes.
             durability: Self::commit_durability(force_durable),
             cloud: None,
             stages,

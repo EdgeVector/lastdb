@@ -8,6 +8,7 @@ impl FoldDB {
         fresh_from_local: bool,
         accept_local_damage: bool,
     ) -> Result<crate::sync::engine::PrimaryResumeCut, String> {
+        self.require_cloud_sync_supported()?;
         let engine = self
             .sync_engine()
             .ok_or_else(|| "primary resume requires a paused sync engine".to_string())?;
@@ -61,6 +62,7 @@ impl FoldDB {
         ),
         String,
     > {
+        self.require_cloud_sync_supported()?;
         let engine = self
             .sync_engine()
             .ok_or_else(|| "primary resume requires a sync engine".to_string())?;
@@ -86,6 +88,7 @@ impl FoldDB {
         &self,
         cut: &crate::sync::engine::PrimaryResumeCut,
     ) -> Result<crate::sync::engine::PrimaryResumeLogInventory, String> {
+        self.require_cloud_sync_supported()?;
         let engine = self
             .sync_engine()
             .ok_or_else(|| "primary resume requires a sync engine".to_string())?;
@@ -98,12 +101,13 @@ impl FoldDB {
     /// Start normal workers after the node commits cloud-on intent and clears
     /// the durable resume marker.
     pub async fn finish_primary_authoritative_cloud_resume(&self) -> Result<(), String> {
+        self.require_cloud_sync_supported()?;
         let engine = self
             .sync_engine()
             .ok_or_else(|| "primary resume has no sync engine".to_string())?;
         engine.finish_primary_resume().await;
         engine.start_laststore_backup_uploader();
-        self.start_sync(engine.config.sync_interval_ms);
+        self.start_sync(engine.config.sync_interval_ms)?;
         Ok(())
     }
 }

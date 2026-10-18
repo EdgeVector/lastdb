@@ -17,45 +17,20 @@ impl PackKvStore {
         let pending = transaction::PendingBatch::current(&runtime);
         let namespace = self.namespace.clone();
         let observed = Arc::clone(&runtime);
-        let (values, keys, receipts) = LastStoreKvStore::run_blocking(move || {
-            let plans: Vec<_> = keys
+        let (values, keys, addresses) = LastStoreKvStore::run_blocking(move || {
+            let addresses: Vec<_> = keys
                 .iter()
-                .map(|key| coordinates(&namespace, key))
+                .map(|key| write_target(&namespace, key))
                 .collect();
-            let mut out = vec![None; keys.len()];
-            let mut receipts = vec![None; keys.len()];
-            let rounds = plans.iter().map(Vec::len).max().unwrap_or(0);
-            for round in 0..rounds {
-                let slots: Vec<_> = (0..keys.len())
-                    .filter(|slot| out[*slot].is_none() && plans[*slot].len() > round)
-                    .collect();
-                if slots.is_empty() {
-                    break;
-                }
-                let addresses: Vec<_> = slots
-                    .iter()
-                    .map(|slot| plans[*slot][round].clone())
-                    .collect();
-                let bodies = runtime.raw_many(&context, &addresses, pending.as_ref())?;
-                for ((slot, body), (collection, key)) in
-                    slots.into_iter().zip(bodies).zip(addresses)
-                {
-                    if body.is_some() {
-                        receipts[slot] = Some((collection, key));
-                    }
-                    out[slot] = body;
-                }
-            }
-            Ok((out, keys, receipts))
+            let bodies = runtime.raw_many(&context, &addresses, pending.as_ref())?;
+            Ok((bodies, keys, addresses))
         })
         .await?;
-        for (requested, source) in keys.into_iter().zip(receipts) {
+        for ((requested, (collection, key)), body) in keys.into_iter().zip(addresses).zip(&values) {
             logical_paths::source::note_read_source(
                 Arc::clone(&observed),
                 &requested,
-                source
-                    .as_ref()
-                    .map(|(collection, key)| (collection.as_str(), key.as_str())),
+                body.as_ref().map(|_| (collection.as_str(), key.as_str())),
             )?;
         }
         Ok(values)
@@ -79,27 +54,8 @@ impl PackKvStore {
     }
 }
 
-pub(super) fn coordinates(namespace: &str, key: &[u8]) -> Vec<(String, String)> {
-    if namespace != "main" {
-        return vec![(namespace.to_string(), native_routing::encode(key))];
-    }
-    let Ok(text) = std::str::from_utf8(key) else {
-        return native_routing::read_candidates(key)
-            .into_iter()
-            .map(|collection| (collection.to_string(), native_routing::encode(key)))
-            .collect();
-    };
-    let forms = crate::kind_partition::read_forms(text);
-    let mut coordinates = Vec::new();
-    for form in forms {
-        for collection in native_routing::read_candidates(form.as_bytes()) {
-            coordinates.push((
-                collection.to_string(),
-                native_routing::encode(form.as_bytes()),
-            ));
-        }
-    }
-    coordinates
+pub(super) fn coordinates(namespace: &str, key: &[u8]) -> [(String, String); 1] {
+    [write_target(namespace, key)]
 }
 
 fn prepare(
@@ -115,22 +71,14 @@ fn prepare(
             "native mutation exceeds {operation_limit} operation admission limit"
         )));
     }
-    let plans: Vec<_> = mutations
-        .iter()
-        .map(|mutation| coordinates(namespace, mutation.key()))
-        .collect();
     let targets: Vec<_> = mutations
         .iter()
         .map(|mutation| write_target(namespace, mutation.key()))
         .collect();
     let mut addresses = Vec::new();
-    for ((mutation, plan), target) in mutations.iter().zip(&plans).zip(&targets) {
-        for coordinate in plan {
-            // A Put always overwrites its canonical target. Only alternate
-            // coordinates need presence reads before their cleanup deletes.
-            if matches!(mutation, KvMutation::Delete { .. }) || coordinate != target {
-                addresses.push(coordinate.clone());
-            }
+    for (mutation, target) in mutations.iter().zip(&targets) {
+        if matches!(mutation, KvMutation::Delete { .. }) {
+            addresses.push(target.clone());
         }
     }
     addresses.sort();
@@ -143,7 +91,7 @@ fn prepare(
         .zip(bodies.into_iter().map(|body| body.is_some()))
         .collect();
     let mut out = Vec::new();
-    for ((mutation, plan), (target, key)) in mutations.into_iter().zip(plans).zip(targets) {
+    for (mutation, (target, key)) in mutations.into_iter().zip(targets) {
         match mutation {
             KvMutation::Put { value, .. } => {
                 super::super::laststore::reject_enc_on_plaintext_catalog(namespace, &value)?;
@@ -153,30 +101,15 @@ fn prepare(
                     body: Some(value),
                 });
                 present.insert((target.clone(), key.clone()), true);
-                for (collection, legacy) in plan {
-                    if (collection == target && legacy == key)
-                        || present.get(&(collection.clone(), legacy.clone())) != Some(&true)
-                    {
-                        continue;
-                    }
-                    present.insert((collection.clone(), legacy.clone()), false);
-                    out.push(HomeMutation {
-                        collection,
-                        key: legacy,
-                        body: None,
-                    });
-                }
             }
             KvMutation::Delete { .. } => {
-                for (collection, key) in plan {
-                    if present.get(&(collection.clone(), key.clone())) == Some(&true) {
-                        present.insert((collection.clone(), key.clone()), false);
-                        out.push(HomeMutation {
-                            collection,
-                            key,
-                            body: None,
-                        });
-                    }
+                if present.get(&(target.clone(), key.clone())) == Some(&true) {
+                    present.insert((target.clone(), key.clone()), false);
+                    out.push(HomeMutation {
+                        collection: target,
+                        key,
+                        body: None,
+                    });
                 }
             }
         }

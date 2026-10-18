@@ -68,6 +68,7 @@ pub(super) fn write_cloud_sync_config_at(
     api_key: &str,
     file_name: &str,
 ) -> Result<(), String> {
+    require_cloud_activation_supported()?;
     let path = home.join(file_name);
     let body = serde_json::json!({ "api_url": api_url, "api_key": api_key });
     let bytes =

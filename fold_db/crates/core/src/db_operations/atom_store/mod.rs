@@ -18,7 +18,7 @@
 //! - [`delete_barriers`] — delete-barrier reads and writes
 //! - [`atom_ref_edges`], [`blob_ref_edges`], [`molecule_ref_edges`],
 //!   [`tip_version_backrefs`] — durable reverse-reference planes
-//! - [`atom_ref_gc`], [`dropped_schema_reap`], [`content_maintenance`],
+//! - [`atom_ref_gc`], [`dropped_schema_reap`],
 //!   [`hard_erase_journal`], [`keep_small`] — GC, reap and maintenance passes
 
 pub(crate) mod atom_ref_edges;
@@ -28,7 +28,6 @@ mod blob_ref_edges;
 mod codec;
 mod conflict_record;
 mod construct;
-mod content_maintenance;
 mod delete_barriers;
 mod dropped_schema_reap;
 mod filter;
@@ -58,21 +57,15 @@ pub use atom_ref_gc::{
 };
 pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
-pub use content_maintenance::{
-    RecompressAtomContentReport, RepackAtomContentReport, ResealAtomContentStats,
-};
 pub use dropped_schema_reap::{
     DroppedSchemaReapCursor, DroppedSchemaReapPhase, DroppedSchemaReapReport,
     DroppedSchemaTipProbe, DroppedSchemaTipProof, MAX_DROPPED_SCHEMA_REAP_OPS,
 };
-/// Retired derived-index prefixes the reclaim path may delete, derived from
-/// this build's `HASH_RANGE_*_ENABLED` flags.
-pub use helpers::{retired_index_reclaim_prefixes, retired_index_reclaim_prefixes_for};
+/// Historical derived-index prefixes the reclaim path may delete.
+pub use helpers::retired_index_reclaim_prefixes;
 pub use molecule_ref_edges::{
     MoleculeRefCompleteness, MoleculeRefEdge, MoleculeRefLookup, MOLECULE_REF_COMPLETE_KEY,
 };
-/// Full `mk:` prefix-scan counter (test/ops surface for zero-yield purge plan cost).
-pub use molecules::mk_full_scans;
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use peer_apply::{
     allow_after_peer_apply_from_env, PeerApplyState, ALLOW_AFTER_PEER_APPLY_ENV, PEER_APPLY_KEY,
@@ -87,8 +80,8 @@ pub use tip_version_backrefs::{
 pub use types::MoleculeData;
 pub(crate) use types::MoleculeHeader;
 pub(crate) use types::{
-    ChangedKey, FilterLayout, HashKeyLookupRecord, MoleculeGenerationDelete,
-    MoleculeGenerationPointer, MoleculeGenerationSlot, OneDSlot, PerKeyRecord,
+    ChangedKey, FilterLayout, MoleculeGenerationDelete, MoleculeGenerationPointer,
+    MoleculeGenerationSlot, OneDSlot, PerKeyRecord,
 };
 
 use crate::{
@@ -157,7 +150,6 @@ pub struct AtomStore {
     /// Retired outcome roots commit exclusively; reclaim retains a shared fence
     /// through its final deletion. Every clone shares the same fence.
     retired_intent_retention_gate: Arc<tokio::sync::RwLock<()>>,
-    resident_graph: Option<Arc<crate::resident::ResidentGraph>>,
     /// When set (plain packaging homes), atom `content` is sealed at rest
     /// while metadata stays plaintext. `None` leaves content unsealed (tests
     /// / legacy dual-read of plain content).
@@ -365,19 +357,5 @@ impl AtomStore {
             storage_prefix,
             &schema_index_codec::record_key(schema_name, atom_uuid),
         )
-    }
-}
-
-/// Invalidate again on success, failure, or cancellation of a durable write.
-/// No lock is held across IO; a cold read during IO cannot certify old data.
-struct CoverageMutation {
-    graph: Arc<crate::resident::ResidentGraph>,
-    molecules: std::collections::BTreeSet<String>,
-}
-impl Drop for CoverageMutation {
-    fn drop(&mut self) {
-        for molecule in &self.molecules {
-            self.graph.invalidate_molecule_coverage(molecule);
-        }
     }
 }

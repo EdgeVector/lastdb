@@ -6,8 +6,10 @@ impl FoldDB {
     ///
     /// Automatic gc-atoms is not started here. FoldDB init starts that
     /// local cadence even when no sync engine is configured.
-    pub fn start_sync(&self, interval_ms: u64) {
+    pub fn start_sync(&self, interval_ms: u64) -> Result<(), String> {
+        self.require_cloud_sync_supported()?;
         self.sync_coordinator.start_background_sync(interval_ms);
+        Ok(())
     }
 
     /// Force an immediate sync (e.g. on shutdown).
@@ -110,6 +112,9 @@ impl FoldDB {
     /// Does **not** remove credentials; pair with renaming `cloud_sync.json` for
     /// durable reboot pause (`lastdb cloud off`). No-op-ish if no engine.
     pub async fn set_cloud_sync_disabled_live(&self, disabled: bool) -> Result<(), String> {
+        if !disabled {
+            self.require_cloud_sync_supported()?;
+        }
         let engine = self.sync_engine().ok_or_else(|| {
             "cloud sync engine not running (daemon booted without cloud_sync.json)".to_string()
         })?;
@@ -121,6 +126,7 @@ impl FoldDB {
     pub async fn reenable_cloud_sync_live(
         &self,
     ) -> Result<crate::sync::CloudSyncReenableOutcome, String> {
+        self.require_cloud_sync_supported()?;
         let engine = self.sync_engine().ok_or_else(|| {
             "cloud sync engine not running (daemon booted without cloud_sync.json)".to_string()
         })?;

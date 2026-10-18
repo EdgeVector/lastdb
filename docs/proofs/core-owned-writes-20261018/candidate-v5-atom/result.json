@@ -1,0 +1,1 @@
+{"benchmark_result":false,"complete":true,"error":null,"operation_counts":{"core-owned-atom-metadata-selection":1,"core-owned-atom-uuid-read":8,"core-owned-queue-drained":1,"core-owned-read":1,"core-owned-write":1,"flush":1,"native-status":3,"owned-node-start":1,"owned-node-stop":1,"request":17},"role":"candidate","workflow":"logical"}

@@ -31,10 +31,8 @@ use serde::Serialize;
 /// Environment the primary daemon runs with that changes how a home is read or
 /// written. The report lists the value this process saw for each name, so the
 /// operator can compare it with the daemon's launch environment.
-const REPORTED_ENV: [&str; 8] = [
-    "LASTDB_ENGINE",
+const REPORTED_ENV: [&str; 6] = [
     "LASTDB_ATOM_KEY_ENCODING",
-    "LASTDB_ATOM_CONTENT_STRICT",
     "LASTDB_AT_REST_RAW",
     "LASTDB_KV_AT_REST_RAW",
     "LASTDB_KV_AT_REST_COMPRESS",
@@ -87,6 +85,9 @@ pub(crate) fn bootstrap_liveness(args: &LivenessBootstrapArgs<'_>) -> Result<(),
     if !store_root.is_dir() {
         return Err(format!("missing data dir {}", store_root.display()));
     }
+    if !store_root.join("laststore-pack-node-v1").is_file() {
+        return Err("liveness bootstrap requires a native LastDB node home".into());
+    }
     let (preflight, _lock) = preflight_stopped_home(args.home, &store_root)?;
     let mut report = LivenessBootstrapOfflineReport {
         ok: true,
@@ -112,14 +113,6 @@ pub(crate) fn bootstrap_liveness(args: &LivenessBootstrapArgs<'_>) -> Result<(),
         return print_report(&report, args.json);
     }
 
-    // The siblings force this too; the factory reads it when it resolves the engine.
-    if std::env::var_os("LASTDB_ENGINE").is_none() {
-        std::env::set_var("LASTDB_ENGINE", "laststore");
-        report.env.insert(
-            "LASTDB_ENGINE",
-            "laststore (set by this command)".to_string(),
-        );
-    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         // Unoptimized builds keep the factory's futures on the stack.

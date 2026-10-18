@@ -1,0 +1,774 @@
+[
+  {
+    "path": "/health",
+    "request_id": "temperature-e7115d2794194155a0db46a939eed281-core-owned-before-1",
+    "db_locator": null,
+    "request": null,
+    "result": {
+      "api_version": 1,
+      "capabilities": {
+        "atomic_aggregate_set_v1": true
+      },
+      "instance_id": "98833-1792345821763037000",
+      "status": "ok"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/schemas/seed-system",
+    "request_id": "temperature-e7115d2794194155a0db46a939eed281-core-owned-before-2",
+    "db_locator": null,
+    "request": {
+      "isolated_copy": true,
+      "schema": {
+        "descriptive_name": "CoreOwnedScopedHash",
+        "field_descriptions": {
+          "body": "CoreOwnedScopedHash independent body",
+          "bucket": "CoreOwnedScopedHash independent bucket",
+          "id": "CoreOwnedScopedHash independent id",
+          "title": "CoreOwnedScopedHash independent title"
+        },
+        "fields": [
+          "bucket",
+          "id",
+          "title",
+          "body"
+        ],
+        "key": {
+          "hash_field": "id"
+        },
+        "name": "CoreOwnedScopedHash",
+        "schema_type": "Hash",
+        "source": "system_seed"
+      }
+    },
+    "result": {
+      "ok": true,
+      "source": "system_seed",
+      "system_seed_schema": "CoreOwnedScopedHash",
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/db/catalog",
+    "request_id": "temperature-e7115d2794194155a0db46a939eed281-core-owned-before-3",
+    "db_locator": null,
+    "request": {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "schema_name": "CoreOwnedScopedHash"
+    },
+    "result": {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "instance_id": "f23e1302b9c08a2ff593edf79c45150efaaae853a1d4f818026bafc01864a533",
+      "key_selection": "whole_schema",
+      "ok": true,
+      "schema_name": "CoreOwnedScopedHash",
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/schemas/seed-system",
+    "request_id": "temperature-e7115d2794194155a0db46a939eed281-core-owned-before-4",
+    "db_locator": null,
+    "request": {
+      "isolated_copy": true,
+      "schema": {
+        "descriptive_name": "CoreOwnedScopedHashRange",
+        "field_descriptions": {
+          "body": "CoreOwnedScopedHashRange independent body",
+          "bucket": "CoreOwnedScopedHashRange independent bucket",
+          "id": "CoreOwnedScopedHashRange independent id",
+          "title": "CoreOwnedScopedHashRange independent title"
+        },
+        "fields": [
+          "bucket",
+          "id",
+          "title",
+          "body"
+        ],
+        "key": {
+          "hash_field": "bucket",
+          "range_field": "id"
+        },
+        "name": "CoreOwnedScopedHashRange",
+        "schema_type": "HashRange",
+        "source": "system_seed"
+      }
+    },
+    "result": {
+      "ok": true,
+      "source": "system_seed",
+      "system_seed_schema": "CoreOwnedScopedHashRange",
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/db/catalog",
+    "request_id": "temperature-e7115d2794194155a0db46a939eed281-core-owned-before-5",
+    "db_locator": null,
+    "request": {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "schema_name": "CoreOwnedScopedHashRange"
+    },
+    "result": {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "instance_id": "f23e1302b9c08a2ff593edf79c45150efaaae853a1d4f818026bafc01864a533",
+      "key_selection": "whole_schema",
+      "ok": true,
+      "schema_name": "CoreOwnedScopedHashRange",
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/mutations/batch",
+    "request_id": "temperature-e7115d2794194155a0db46a939eed281-core-owned-before-6",
+    "db_locator": null,
+    "request": {
+      "mutations": [
+        {
+          "durability": "queued",
+          "fields_and_values": {
+            "body": "4ccc7820e05e1606939af561816c0458b8cf6c1cbe7f21fbab52c313c4fb14edce758943df9c88d86579d504bde2032a0aad0014b239fbe83f1f4fd0bb4994fa6f101b72da8ea17b0c1d9a586c311c6c6fb876998680ec70994161f525dd948daadeec364b98d85f8cc38e4fc4c763cd06c30c9b7f9c154d472673f22c4a75f29c63674c1dfda9696756dcd07103a3dbf6fe88286e750a842798105af40bce2bd1dcfe2d974dab6f46d8d0af80c1b91b3fbc709fb8bd3c8f529cdb96dca7f44ab0c452f6b045c7cf38a8f4ca3fe158e8a29dc29fd9f5a759a99fb23bb68a5950db7881d4ef7157adcae6116a7fe6cb3c5da97494d8c7a690a7e0836c10d8a792e54857f957614d9db04d32cb6e36cafecf90b9181437d902d699966d85431954e35966a7fc5b44ddf06088998705b19f0bc811ea37b410db8dba5da80a00d033ee15d1785016dab36128078ad80b1086f4a2468613c9daf299119c32dc671ba691a01ee453abf363aa42b5fbb3f18ae8f620f28358a90cdde49e5af40c0e39422d6b20428bc0d9ed524e2ba3e9c85cdc682e8d6e147244d4ec471af6f20ff6146bf39e745fcec147bc88294c45122ede31eed3f02ea50f9f054a19be16e719af9071e30fb2cd40a2ecab528afda8204808f520794df1435b88ebf1d2d81355a636e6363b9adb6cc86bac2f09a305a126679eea9101d94313dcd710ab7b034709",
+            "bucket": "core-owned-generated-hash",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-1"
+          },
+          "key_value": {
+            "hash": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "mutation_type": "create",
+          "schema": "CoreOwnedScopedHash",
+          "type": "mutation"
+        },
+        {
+          "durability": "queued",
+          "fields_and_values": {
+            "body": "4ccc7820e05e1606939af561816c0458b8cf6c1cbe7f21fbab52c313c4fb14edce758943df9c88d86579d504bde2032a0aad0014b239fbe83f1f4fd0bb4994fa6f101b72da8ea17b0c1d9a586c311c6c6fb876998680ec70994161f525dd948daadeec364b98d85f8cc38e4fc4c763cd06c30c9b7f9c154d472673f22c4a75f29c63674c1dfda9696756dcd07103a3dbf6fe88286e750a842798105af40bce2bd1dcfe2d974dab6f46d8d0af80c1b91b3fbc709fb8bd3c8f529cdb96dca7f44ab0c452f6b045c7cf38a8f4ca3fe158e8a29dc29fd9f5a759a99fb23bb68a5950db7881d4ef7157adcae6116a7fe6cb3c5da97494d8c7a690a7e0836c10d8a792e54857f957614d9db04d32cb6e36cafecf90b9181437d902d699966d85431954e35966a7fc5b44ddf06088998705b19f0bc811ea37b410db8dba5da80a00d033ee15d1785016dab36128078ad80b1086f4a2468613c9daf299119c32dc671ba691a01ee453abf363aa42b5fbb3f18ae8f620f28358a90cdde49e5af40c0e39422d6b20428bc0d9ed524e2ba3e9c85cdc682e8d6e147244d4ec471af6f20ff6146bf39e745fcec147bc88294c45122ede31eed3f02ea50f9f054a19be16e719af9071e30fb2cd40a2ecab528afda8204808f520794df1435b88ebf1d2d81355a636e6363b9adb6cc86bac2f09a305a126679eea9101d94313dcd710ab7b034709",
+            "bucket": "core-owned-generated-hash",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-1"
+          },
+          "key_value": {
+            "hash": "core-owned-generated-hash",
+            "range": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "mutation_type": "create",
+          "schema": "CoreOwnedScopedHashRange",
+          "type": "mutation"
+        }
+      ]
+    },
+    "result": {
+      "background_tasks_drained": false,
+      "convergence_pending": true,
+      "count": 2,
+      "durability": "queued",
+      "mutation_ids": [
+        "2b731b21-1663-4a0d-a5a6-d39f13446823",
+        "5ea7ff7c-7a0d-452a-a096-5cf5d80cf43f"
+      ],
+      "ok": true,
+      "operations": {
+        "created": 2,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 2,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 136611,
+        "gate_wait": 0,
+        "prepare": 8854,
+        "publish": 0
+      },
+      "revision": 1,
+      "touched_group_ids": [],
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/query",
+    "request_id": "temperature-e7115d2794194155a0db46a939eed281-core-owned-before-7",
+    "db_locator": null,
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashKey": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedScopedHash"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": "opaque",
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [
+        {
+          "author_pub_key": null,
+          "fields": {
+            "body": "4ccc7820e05e1606939af561816c0458b8cf6c1cbe7f21fbab52c313c4fb14edce758943df9c88d86579d504bde2032a0aad0014b239fbe83f1f4fd0bb4994fa6f101b72da8ea17b0c1d9a586c311c6c6fb876998680ec70994161f525dd948daadeec364b98d85f8cc38e4fc4c763cd06c30c9b7f9c154d472673f22c4a75f29c63674c1dfda9696756dcd07103a3dbf6fe88286e750a842798105af40bce2bd1dcfe2d974dab6f46d8d0af80c1b91b3fbc709fb8bd3c8f529cdb96dca7f44ab0c452f6b045c7cf38a8f4ca3fe158e8a29dc29fd9f5a759a99fb23bb68a5950db7881d4ef7157adcae6116a7fe6cb3c5da97494d8c7a690a7e0836c10d8a792e54857f957614d9db04d32cb6e36cafecf90b9181437d902d699966d85431954e35966a7fc5b44ddf06088998705b19f0bc811ea37b410db8dba5da80a00d033ee15d1785016dab36128078ad80b1086f4a2468613c9daf299119c32dc671ba691a01ee453abf363aa42b5fbb3f18ae8f620f28358a90cdde49e5af40c0e39422d6b20428bc0d9ed524e2ba3e9c85cdc682e8d6e147244d4ec471af6f20ff6146bf39e745fcec147bc88294c45122ede31eed3f02ea50f9f054a19be16e719af9071e30fb2cd40a2ecab528afda8204808f520794df1435b88ebf1d2d81355a636e6363b9adb6cc86bac2f09a305a126679eea9101d94313dcd710ab7b034709",
+            "bucket": "core-owned-generated-hash",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-1"
+          },
+          "key": {
+            "hash": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "range": null
+          },
+          "metadata": {
+            "body": {
+              "atom_uuid": "588eaa084b236f9e0a2530e547cda0c883e6bfacc90b5d165e4313fbb74baa6a",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "6FYbbD6PvC5nAh3U21mYKd3e-kEoXBAMyK-OJeS6Q90",
+              "source_file_name": null
+            },
+            "bucket": {
+              "atom_uuid": "f39dd85eb479390d2d9fe3ae0cd2c4560a56576019f2ad3269d133041b1425d6",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "y30FvXvhHmj-Sh7k--9Z4eZD-NCaPT4OxiRcK0Hr-00",
+              "source_file_name": null
+            },
+            "id": {
+              "atom_uuid": "dd8dd23ee595da907c416cdb48bf3f2e9a764a74d96c0c6e826783f5d6f89ec3",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "5z1dRl0_IbW6LYyPIBOzdiwx9XgcWdg9OCVn-o8Cn38",
+              "source_file_name": null
+            },
+            "title": {
+              "atom_uuid": "95a135b6cd286053e1cbe3ed7d7494b4b6fc2bfd1ae2983edcad01b55db3373d",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "YA-uHDQ0DoeeRGA3PYIWI2JAHTI1m50l5FEbLW7jFa0",
+              "source_file_name": null
+            }
+          }
+        }
+      ],
+      "returned_count": 1,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 2164,
+      "decode_nanos": 15292,
+      "decoded_bytes": 2070,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 7,
+      "file_opens": 7,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 82176,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 1413,
+      "logical_warm_hits": 4,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 26709,
+      "metadata_operations": 11,
+      "open_nanos": 195749,
+      "pack_batch_frames": 2,
+      "pack_batch_read_runs": 2,
+      "pack_file_handle_reuses": 2,
+      "pack_file_handles_peak": 7,
+      "payload_bytes": 1533,
+      "query_storage_elapsed_nanos": 3053542,
+      "read_nanos": 22624,
+      "read_operations": 9,
+      "requested_keys": 12,
+      "returned_body_bytes": 2355,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 28125,
+      "temporary_bytes_peak": 84419,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  },
+  {
+    "path": "/api/query",
+    "request_id": "core-owned-e7115d2794194155a0db46a939eed281-scoped-8",
+    "db_locator": "lastdb://org/core-owned/generated",
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashKey": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedScopedHash"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": null,
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [],
+      "returned_count": 0,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 1084,
+      "decode_nanos": 9375,
+      "decoded_bytes": 1316,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 4,
+      "file_opens": 4,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 49280,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 625,
+      "logical_warm_hits": 0,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 7833,
+      "metadata_operations": 6,
+      "open_nanos": 100500,
+      "pack_batch_frames": 1,
+      "pack_batch_read_runs": 1,
+      "pack_file_handle_reuses": 1,
+      "pack_file_handles_peak": 4,
+      "payload_bytes": 777,
+      "query_storage_elapsed_nanos": 783209,
+      "read_nanos": 11543,
+      "read_operations": 5,
+      "requested_keys": 5,
+      "returned_body_bytes": 251,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 12750,
+      "temporary_bytes_peak": 51245,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  },
+  {
+    "path": "/api/query",
+    "request_id": "temperature-e7115d2794194155a0db46a939eed281-core-owned-before-9",
+    "db_locator": null,
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashRangeKeys": [
+          [
+            "core-owned-generated-hash",
+            "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        ]
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedScopedHashRange"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": "opaque",
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [
+        {
+          "author_pub_key": null,
+          "fields": {
+            "body": "4ccc7820e05e1606939af561816c0458b8cf6c1cbe7f21fbab52c313c4fb14edce758943df9c88d86579d504bde2032a0aad0014b239fbe83f1f4fd0bb4994fa6f101b72da8ea17b0c1d9a586c311c6c6fb876998680ec70994161f525dd948daadeec364b98d85f8cc38e4fc4c763cd06c30c9b7f9c154d472673f22c4a75f29c63674c1dfda9696756dcd07103a3dbf6fe88286e750a842798105af40bce2bd1dcfe2d974dab6f46d8d0af80c1b91b3fbc709fb8bd3c8f529cdb96dca7f44ab0c452f6b045c7cf38a8f4ca3fe158e8a29dc29fd9f5a759a99fb23bb68a5950db7881d4ef7157adcae6116a7fe6cb3c5da97494d8c7a690a7e0836c10d8a792e54857f957614d9db04d32cb6e36cafecf90b9181437d902d699966d85431954e35966a7fc5b44ddf06088998705b19f0bc811ea37b410db8dba5da80a00d033ee15d1785016dab36128078ad80b1086f4a2468613c9daf299119c32dc671ba691a01ee453abf363aa42b5fbb3f18ae8f620f28358a90cdde49e5af40c0e39422d6b20428bc0d9ed524e2ba3e9c85cdc682e8d6e147244d4ec471af6f20ff6146bf39e745fcec147bc88294c45122ede31eed3f02ea50f9f054a19be16e719af9071e30fb2cd40a2ecab528afda8204808f520794df1435b88ebf1d2d81355a636e6363b9adb6cc86bac2f09a305a126679eea9101d94313dcd710ab7b034709",
+            "bucket": "core-owned-generated-hash",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-1"
+          },
+          "key": {
+            "hash": "core-owned-generated-hash",
+            "range": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "metadata": {
+            "body": {
+              "atom_uuid": "df5dbbed4f7e205a509a6e79ad984ec593d69bd83e9247dc2ef305c388dda8f5",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "GwTRev1nO-S1cnEQ_bUUX_EtXVef7TSdpLe-ye-WPFs",
+              "source_file_name": null
+            },
+            "bucket": {
+              "atom_uuid": "0aef7b913e14e68d16228a132763b4a4114f42de79f58846bc2f830afcf73a58",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "UIX5f2PG3lsF4qb323rEA7tqio6CP7Ki6sUIsionnJM",
+              "source_file_name": null
+            },
+            "id": {
+              "atom_uuid": "eac2f4f05a1df8368fc3e938da8cf0d19d2d41652c7003e5696a3d7689aa8188",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "XOr3b_yc_JURuQo6KGeREL-iG9CwThPqJ83Cw8IllzY",
+              "source_file_name": null
+            },
+            "title": {
+              "atom_uuid": "26129d8f98ec9ec6a8d645a30503fb43ed2305d7ee1ecfbf5cf3d81393f76c1c",
+              "has_conflicts": "unknown",
+              "molecule_uuid": "dw1kJP7iyxQCRr83d19laHQ0cbsBymUk0kdetHKZUr8",
+              "source_file_name": null
+            }
+          }
+        }
+      ],
+      "returned_count": 1,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 999,
+      "decode_nanos": 14916,
+      "decoded_bytes": 2129,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 7,
+      "file_opens": 7,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 82176,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 829,
+      "logical_warm_hits": 4,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 14331,
+      "metadata_operations": 11,
+      "open_nanos": 162375,
+      "pack_batch_frames": 2,
+      "pack_batch_read_runs": 2,
+      "pack_file_handle_reuses": 2,
+      "pack_file_handles_peak": 7,
+      "payload_bytes": 1534,
+      "query_storage_elapsed_nanos": 4285583,
+      "read_nanos": 15207,
+      "read_operations": 9,
+      "requested_keys": 10,
+      "returned_body_bytes": 2378,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 12667,
+      "temporary_bytes_peak": 84481,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  },
+  {
+    "path": "/api/query",
+    "request_id": "core-owned-e7115d2794194155a0db46a939eed281-scoped-10",
+    "db_locator": "lastdb://org/core-owned/generated",
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashRangeKeys": [
+          [
+            "core-owned-generated-hash",
+            "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        ]
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedScopedHashRange"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": null,
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [],
+      "returned_count": 0,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 666,
+      "decode_nanos": 4583,
+      "decoded_bytes": 1336,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 4,
+      "file_opens": 4,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 49280,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 375,
+      "logical_warm_hits": 0,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 6876,
+      "metadata_operations": 6,
+      "open_nanos": 88583,
+      "pack_batch_frames": 1,
+      "pack_batch_read_runs": 1,
+      "pack_file_handle_reuses": 1,
+      "pack_file_handles_peak": 4,
+      "payload_bytes": 784,
+      "query_storage_elapsed_nanos": 3856416,
+      "read_nanos": 9543,
+      "read_operations": 5,
+      "requested_keys": 4,
+      "returned_body_bytes": 251,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 8458,
+      "temporary_bytes_peak": 51272,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  },
+  {
+    "path": "/api/mutations/batch",
+    "request_id": "core-owned-e7115d2794194155a0db46a939eed281-scoped-11",
+    "db_locator": "lastdb://org/core-owned/generated",
+    "request": {
+      "mutations": [
+        {
+          "durability": "queued",
+          "fields_and_values": {
+            "body": "049e2e58b5db5c2bdb7b5e6fe77847f7b3d7b6d9fcd718bda9cd3eb5635302faf7d4e69943015cd1ba17bd6940743205e7b8ee32c6ef45bd7c5025d5cf2aef243dd63823e2fd95ca73a12bb2065e65fae525c8ecbe8cf2bbc3978619860923d8f426e5c8bb00ebf849d7c7a4ee2beb192b4fdee7286b719ff00d7ea8fc536456879186d77b1c0e50c8ec8245de8c8e5de6bfddb8675fb8f64a7d4e2dbe23dabb3e853f1211dbe3c4ed4567fee38c2958c75ee096451c55d1ff6f4e5b2a0b8bad766627d7a295dd85915c3922449c9f4f83d80a6731a018d8ae92d491ea9d61018e4da4cf755046bf0e33ba4ead42d4c84b2b3cd22e810e018654c136238f794ded1769d00c40d73c90158c1db92ba1f77938ffc1847972ac63956418d4e6372db4d46926584cd210c091104e40431c8f92d9e9f8cbaa391aa2d9d0889b532d5f21e573a9df4762476d279e82fd50ea349877be96d435c233bcfe8faf9dc984cf24987be3f598c656d6fdf8d61e7c6d3a7799bab0d206bc0e44bb1b43b7064e1ea4e7154fcc4861df87f8bbd00a0b70c6229fd83a08f472cea0d6f3ea2c9478c67343ab5c92c35e742339b0e495de242bf8d0b69c3bd5e42834c043376f67a9369bd8dcca76fdec2204ea6f903bf43d9ece28539b169dbe5caea781f480824935ea9a4c0058e03ffce160c72f7435e7ae29f8b596ea6e9a205cf265371342543c",
+            "bucket": "core-owned-generated-hash",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-2"
+          },
+          "key_value": {
+            "hash": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "mutation_type": "create",
+          "schema": "CoreOwnedScopedHash",
+          "type": "mutation"
+        },
+        {
+          "durability": "queued",
+          "fields_and_values": {
+            "body": "049e2e58b5db5c2bdb7b5e6fe77847f7b3d7b6d9fcd718bda9cd3eb5635302faf7d4e69943015cd1ba17bd6940743205e7b8ee32c6ef45bd7c5025d5cf2aef243dd63823e2fd95ca73a12bb2065e65fae525c8ecbe8cf2bbc3978619860923d8f426e5c8bb00ebf849d7c7a4ee2beb192b4fdee7286b719ff00d7ea8fc536456879186d77b1c0e50c8ec8245de8c8e5de6bfddb8675fb8f64a7d4e2dbe23dabb3e853f1211dbe3c4ed4567fee38c2958c75ee096451c55d1ff6f4e5b2a0b8bad766627d7a295dd85915c3922449c9f4f83d80a6731a018d8ae92d491ea9d61018e4da4cf755046bf0e33ba4ead42d4c84b2b3cd22e810e018654c136238f794ded1769d00c40d73c90158c1db92ba1f77938ffc1847972ac63956418d4e6372db4d46926584cd210c091104e40431c8f92d9e9f8cbaa391aa2d9d0889b532d5f21e573a9df4762476d279e82fd50ea349877be96d435c233bcfe8faf9dc984cf24987be3f598c656d6fdf8d61e7c6d3a7799bab0d206bc0e44bb1b43b7064e1ea4e7154fcc4861df87f8bbd00a0b70c6229fd83a08f472cea0d6f3ea2c9478c67343ab5c92c35e742339b0e495de242bf8d0b69c3bd5e42834c043376f67a9369bd8dcca76fdec2204ea6f903bf43d9ece28539b169dbe5caea781f480824935ea9a4c0058e03ffce160c72f7435e7ae29f8b596ea6e9a205cf265371342543c",
+            "bucket": "core-owned-generated-hash",
+            "id": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "title": "core-owned-0-revision-2"
+          },
+          "key_value": {
+            "hash": "core-owned-generated-hash",
+            "range": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "mutation_type": "create",
+          "schema": "CoreOwnedScopedHashRange",
+          "type": "mutation"
+        }
+      ]
+    },
+    "result": {
+      "background_tasks_drained": false,
+      "convergence_pending": true,
+      "count": 2,
+      "durability": "queued",
+      "mutation_ids": [
+        "d1140ca4-8573-4320-a30e-8f822a4ea3a4",
+        "876c4185-fdf4-434c-b5a6-73412dede7f6"
+      ],
+      "ok": true,
+      "operations": {
+        "created": 2,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 2,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 116396,
+        "gate_wait": 0,
+        "prepare": 939,
+        "publish": 0
+      },
+      "revision": 2,
+      "touched_group_ids": [],
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/db/native-status",
+    "request_id": "temperature-e7115d2794194155a0db46a939eed281-core-owned-before-12",
+    "db_locator": null,
+    "request": null,
+    "result": {
+      "native_disk": {
+        "accepted_batch": false,
+        "accepted_batches": 0,
+        "accepted_sequence": 58,
+        "completed_sequence": 57,
+        "core_memory": {
+          "entries": 10,
+          "hits": 22,
+          "invalidated": 9,
+          "limit_bytes": 16777216,
+          "misses": 38,
+          "peak_bytes": 83211,
+          "purged": 0,
+          "refused": 0,
+          "used_bytes": 63913
+        },
+        "core_warm_atoms": 8,
+        "core_warm_dirty": 0,
+        "core_warm_held": 0,
+        "core_warm_hits": 16,
+        "core_warm_misses": 0,
+        "core_warm_molecules": 11,
+        "core_warm_paths": 10,
+        "core_warm_purged": 0,
+        "frontier": 62,
+        "generation": 126,
+        "memory_write_records": 0,
+        "schema_keys": {
+          "bytes": 24828,
+          "disk_only": 0,
+          "domains": 4,
+          "enabled": true,
+          "failed": 0,
+          "keys": 2,
+          "limit_bytes": 134217728,
+          "loading": 0,
+          "loads": 4,
+          "memory_selections": 0,
+          "peak_bytes": 67132118,
+          "ready": 4,
+          "reasons": []
+        },
+        "warm_record_limit": 10000,
+        "warm_records": 0,
+        "writer_failed": false
+      },
+      "ok": true,
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": null
+  },
+  {
+    "path": "/api/query",
+    "request_id": "core-owned-e7115d2794194155a0db46a939eed281-scoped-13",
+    "db_locator": "lastdb://org/core-owned/generated",
+    "request": {
+      "fields": [
+        "bucket",
+        "id",
+        "title",
+        "body"
+      ],
+      "filter": {
+        "HashKey": "todo#00000000#record-000000xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "limit": 256,
+      "schema_name": "CoreOwnedScopedHash"
+    },
+    "result": {
+      "conflict_flags": "unknown",
+      "has_more": false,
+      "key_form": null,
+      "limit": 256,
+      "next_cursor": null,
+      "offset": 0,
+      "ok": true,
+      "results": [],
+      "returned_count": 0,
+      "tombstoned_rows": 0,
+      "total_count": null,
+      "unresolved_rows": 0,
+      "user_hash": "0c85e839e3c46dc10599214af9f19264"
+    },
+    "cost": {
+      "blocking_queue_wait_nanos": 1250,
+      "decode_nanos": 3833,
+      "decoded_bytes": 1316,
+      "decrypt_nanos": 0,
+      "decrypted_bytes": 0,
+      "directory_entries": 0,
+      "directory_reads": 0,
+      "file_open_attempts": 4,
+      "file_opens": 4,
+      "filesystem_pages": "unknown",
+      "footer_bytes": 0,
+      "format_probe_bytes": 65664,
+      "group_load_nanos": 0,
+      "group_opens": 0,
+      "journal_replay_bytes": 0,
+      "legacy_replay_bytes": 0,
+      "loader_calls": 0,
+      "lock_wait_nanos": 209,
+      "logical_warm_hits": 1,
+      "logical_warm_misses": 0,
+      "metadata_nanos": 5291,
+      "metadata_operations": 7,
+      "open_nanos": 56165,
+      "pack_batch_frames": 1,
+      "pack_batch_read_runs": 1,
+      "pack_file_handle_reuses": 2,
+      "pack_file_handles_peak": 4,
+      "payload_bytes": 777,
+      "query_storage_elapsed_nanos": 371833,
+      "read_nanos": 7083,
+      "read_operations": 6,
+      "requested_keys": 2,
+      "returned_body_bytes": 251,
+      "scope": "query_storage",
+      "socket_queue_wait_nanos": 8333,
+      "temporary_bytes_peak": 67629,
+      "temporary_bytes_scope": "instrumented_byte_buffers",
+      "version": 1
+    }
+  }
+]

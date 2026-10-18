@@ -114,7 +114,6 @@ impl HashRangeQueryProcessor {
         fields: &[String],
         page_keys: &[KeyValue],
         key_sources: &HashMap<KeyValue, KeySource>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
         let selected = Self::exact_key_selected_fields(schema, fields);
@@ -132,7 +131,6 @@ impl HashRangeQueryProcessor {
                 &selected,
                 page_keys,
                 key_sources,
-                as_of,
                 include_tombstones,
             )
             .await?;
@@ -184,40 +182,26 @@ impl HashRangeQueryProcessor {
         selected
     }
 
-    /// Find each selected field's slot for every page key, at head or `as_of`.
+    /// Find each selected field's current slot for every page key.
     async fn collect_exact_key_pending(
         &self,
         schema: &mut Schema,
         selected: &[String],
         page_keys: &[KeyValue],
         key_sources: &HashMap<KeyValue, KeySource>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<Vec<SecondaryPending>, SchemaError> {
         let mut pending: Vec<SecondaryPending> = Vec::new();
         for fname in selected {
-            if as_of.is_some() {
-                self.secondary_matches_as_of(
-                    schema,
-                    fname,
-                    page_keys,
-                    key_sources,
-                    as_of,
-                    include_tombstones,
-                    &mut pending,
-                )
-                .await?;
-            } else {
-                self.secondary_matches_current(
-                    schema,
-                    fname,
-                    page_keys,
-                    key_sources,
-                    include_tombstones,
-                    &mut pending,
-                )
-                .await?;
-            }
+            self.secondary_matches_current(
+                schema,
+                fname,
+                page_keys,
+                key_sources,
+                include_tombstones,
+                &mut pending,
+            )
+            .await?;
         }
         Ok(pending)
     }

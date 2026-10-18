@@ -77,8 +77,10 @@ impl AtomStore {
                 .merge_generation_prefix_rows(molecule_uuid, base_prefix, storage_prefix, out)
                 .await?;
         }
-        self.filter_delete_barriers_for_records(out, storage_prefix)
-            .await
+        let rows = self
+            .filter_delete_barriers_for_records(out, storage_prefix)
+            .await?;
+        self.merge_captured_tip_prefixes(storage_prefix, base_prefixes, rows)
     }
 
     /// Scan **at most `limit`** per-key records under the molecule's record
@@ -100,6 +102,13 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         limit: usize,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
+        let end = crate::schema::types::field::FilterUtils::create_prefix_end(base_prefix);
+        if let Some(rows) = self
+            .captured_tip_page(storage_prefix, base_prefix, &end, limit)
+            .await?
+        {
+            return Ok(rows);
+        }
         let scan_prefix = build_storage_key(storage_prefix, base_prefix);
         let scanned: Vec<(String, PerKeyRecord)> = self
             .main_store
@@ -146,8 +155,10 @@ impl AtomStore {
         let merged = self
             .merge_generation_range_rows(molecule_uuid, base_start, base_end, storage_prefix, live)
             .await?;
-        self.filter_delete_barriers_for_records(merged, storage_prefix)
-            .await
+        let rows = self
+            .filter_delete_barriers_for_records(merged, storage_prefix)
+            .await?;
+        self.merge_captured_tip_range(storage_prefix, base_start, base_end, rows)
     }
 
     /// Scan forward under `base_prefix` until `want` rows that `fill` keeps
@@ -260,6 +271,12 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         limit: usize,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
+        if let Some(rows) = self
+            .captured_tip_page(storage_prefix, base_start, base_end, limit)
+            .await?
+        {
+            return Ok(rows);
+        }
         let start = build_storage_key(storage_prefix, base_start);
         let end = build_storage_key(storage_prefix, base_end);
         let scanned: Vec<(String, PerKeyRecord)> = self

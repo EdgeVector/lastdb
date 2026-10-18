@@ -7,10 +7,8 @@ use crate::db_operations::ChangedKey;
 use crate::schema::types::Schema;
 
 use super::super::MutationManager;
-use super::apply_gate::PreparedSchemaDelta;
+use super::delta::PreparedSchemaDelta;
 use super::prepared::{AcceptedSources, SourceId};
-use super::restore::atom_entry_from_resident_tip;
-use super::scoped_gate::schema_is_scoped;
 
 type Slot = (String, String, String);
 
@@ -158,6 +156,28 @@ fn empty_molecule(uuid: &str, version: u64) -> MoleculeHashRange {
     MoleculeHashRange::from_write_records(uuid.to_string(), version, chrono::Utc::now(), Vec::new())
 }
 
+/// A moved unchanged value keeps its Atom but uses the accepted move clock.
+fn sibling_source(
+    source: &SlotHead,
+    replacement: Option<&(String, Option<KeyMetadata>)>,
+) -> SlotHead {
+    let mut source = source.clone();
+    if let Some((atom, metadata)) = replacement {
+        let entry = &source.entry;
+        source.entry = AtomEntry::thin_with_author(
+            atom.clone(),
+            entry.written_at,
+            entry.logical_counter,
+            entry.lww_device().to_owned(),
+            entry.mutation_uuid.clone(),
+            String::new(),
+        )
+        .with_origin_device(entry.origin_device.clone());
+        source.metadata.clone_from(metadata);
+    }
+    source
+}
+
 fn winning_sources(
     delta: &PreparedSchemaDelta,
     schema: &Schema,
@@ -189,7 +209,6 @@ impl MutationManager {
         super::super::helpers::ModifiedFieldKeys,
     ) {
         heads.overlay_schema(delta);
-        self.discard_deleted_delta_bases(delta);
         delta.atom_results = if self.write_dedupe_enabled() {
             Self::drop_unchanged_field_writes(
                 &delta.schema,
@@ -208,16 +227,18 @@ impl MutationManager {
             delta.atom_results.clone(),
         );
         let sources = winning_sources(delta, &prospective, &accepted);
+        delta
+            .sibling_moves
+            .retain(|movement| sources.contains_key(&movement.source));
         heads.record_schema(&prospective, &delta.changed_keys);
         delta.schema = prospective;
-        let graph_reads = crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
-            && !schema_is_scoped(&delta.schema);
         let updates = std::mem::take(&mut delta.sibling_updates);
         let origins = std::mem::take(&mut delta.sibling_origins);
         for ((uuid, data, changed), origin) in updates.into_iter().zip(origins) {
             let Some(source) = sources.get(&origin.source) else {
                 continue;
             };
+            let source = sibling_source(source, origin.replacement.as_ref());
             if changed.is_empty() {
                 continue;
             }
@@ -225,64 +246,22 @@ impl MutationManager {
             for key in &changed {
                 let (hash, range) = (key.disk_hash(), key.disk_range());
                 let slot = (uuid.clone(), hash.to_string(), range.to_string());
-                let deleted =
-                    graph_reads && self.resident_graph().is_key_tombstoned(&uuid, hash, range);
-                let base = heads
-                    .0
-                    .get(&slot)
-                    .cloned()
-                    .or_else(|| {
-                        (graph_reads && !deleted)
-                            .then(|| self.resident_graph().resolve_tip(&uuid, hash, range))
-                            .flatten()
-                            .map(|tip| SlotHead {
-                                entry: atom_entry_from_resident_tip(&tip.value),
-                                metadata: tip.value.key_metadata.clone(),
-                            })
-                    })
-                    .or_else(|| {
-                        (!deleted)
-                            .then(|| origin.base.clone())
-                            .flatten()
-                            .map(|(entry, metadata)| SlotHead { entry, metadata })
-                    });
+                let base = heads.0.get(&slot).cloned().or_else(|| {
+                    origin
+                        .base
+                        .clone()
+                        .map(|(entry, metadata)| SlotHead { entry, metadata })
+                });
                 if let Some(base) = base {
                     base.overlay(&mut rebased, hash, range);
                 }
-                Self::apply_sibling_source(&mut rebased, key, source);
+                Self::apply_sibling_source(&mut rebased, key, &source);
                 heads.record_slot(&uuid, &rebased, key);
             }
             delta.sibling_updates.push((uuid, rebased, changed));
             delta.sibling_origins.push(origin);
         }
         (events, modified)
-    }
-
-    /// A resurrecting same-value write must not dedupe against its deleted tip.
-    fn discard_deleted_delta_bases(&self, delta: &mut PreparedSchemaDelta) {
-        if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
-            || schema_is_scoped(&delta.schema)
-        {
-            return;
-        }
-        let resident = self.resident_graph();
-        for (name, keys) in &delta.changed_keys {
-            let Some(field) = delta.schema.runtime_fields.get_mut(name) else {
-                continue;
-            };
-            let Some(uuid) = field.common().molecule_uuid().cloned() else {
-                continue;
-            };
-            let Some(data) = field.molecule.as_mut() else {
-                continue;
-            };
-            for key in keys {
-                let (hash, range) = (key.disk_hash(), key.disk_range());
-                if resident.is_key_tombstoned(&uuid, hash, range) {
-                    data.remove_atom_uuid(hash, range);
-                }
-            }
-        }
     }
 
     fn apply_sibling_source(data: &mut MoleculeHashRange, key: &ChangedKey, source: &SlotHead) {

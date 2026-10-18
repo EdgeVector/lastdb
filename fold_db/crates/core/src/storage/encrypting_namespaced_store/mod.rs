@@ -15,9 +15,8 @@ use super::reseal_at_rest::{
 };
 use super::traits::{KvStore, NamespacedStore};
 use crate::crypto::CryptoProvider;
-use crate::resident::LogicalResidentSet;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Namespaces deliberately stored in plaintext — the encrypt-at-rest
 /// **default-deny** allowlist (Gap G1 of `docs/security/at-rest-threat-model.md`,

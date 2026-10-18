@@ -30,32 +30,140 @@ pub(crate) fn matches(
     let context = ReadContext::captured(&runtime).ok_or_else(|| {
         StorageError::InvalidOperation("core filter requires captured query".into())
     })?;
-    let view = runtime.view.read().expect("core filter captured view");
-    if view.revision != context.revision {
-        return Ok(None);
-    }
     let paths: Vec<_> = keys
         .iter()
         .map(|key| binding.path(scope, molecule, key, "").core())
         .collect();
+    let projection = Projection {
+        scope,
+        molecule,
+        kind,
+        filter,
+        include_tombstones,
+    };
+    if let Some(matches) = captured_matches(&runtime, &context, &paths, &keys, &projection)? {
+        return Ok(Some(matches));
+    }
+    current_matches(&runtime, &context, &paths, &keys, &projection)
+}
+
+struct Projection<'a> {
+    scope: Option<&'a str>,
+    molecule: &'a str,
+    kind: FieldKind,
+    filter: &'a HashRangeFilter,
+    include_tombstones: bool,
+}
+
+fn captured_matches(
+    runtime: &PackRuntime,
+    context: &ReadContext,
+    paths: &[CorePath],
+    keys: &[KeyValue],
+    projection: &Projection<'_>,
+) -> StorageResult<Option<Vec<KeyedAtomMatch>>> {
+    let values: Vec<_> = paths
+        .iter()
+        .map(|path| context.core_model.lookup(path))
+        .collect();
+    if values
+        .iter()
+        .any(crate::resident::CoreWarmLookup::is_unknown)
+    {
+        return Ok(None);
+    }
+    {
+        let view = runtime.view.read().expect("captured filter path holds");
+        let mut core = runtime.core.lock().expect("captured filter retention");
+        context.hold_core(&mut core, paths)?;
+        if view.revision == context.revision {
+            for path in paths {
+                let _ = core.lookup(path);
+            }
+        }
+    }
+    let mode = if projection.kind == FieldKind::Hash {
+        KeyedFilterMode::Hash
+    } else {
+        KeyedFilterMode::HashRange
+    };
+    let filtered =
+        context
+            .core_model
+            .with_molecule(projection.scope, projection.molecule, |model| {
+                apply_keyed_filter(model, Some(projection.filter.clone()), mode)
+            });
+    let mut matches = Vec::new();
+    for ((key, path), value) in keys.iter().zip(paths).zip(values) {
+        if value.is_absent() {
+            let mut call = crate::read_receipts::lock(&context.call);
+            context.account_memory_record(
+                &mut call,
+                key.hash.as_ref().map_or(0, String::len)
+                    + key.range.as_ref().map_or(0, String::len),
+                0,
+            )?;
+            crate::read_receipts::warm_hit();
+            continue;
+        }
+        let Some(value) = value.into_tip() else {
+            return Ok(None);
+        };
+        if filtered
+            .as_ref()
+            .is_none_or(|filtered| !filtered.matches.contains_key(key))
+            || (!projection.include_tombstones
+                && value.metadata.as_ref().is_some_and(|meta| meta.tombstoned))
+        {
+            continue;
+        }
+        let Some(body) = source::body_location_from_coordinates(
+            &context.core_model.source_coordinates(path),
+            &value.entry.atom_uuid,
+        )?
+        else {
+            return Ok(None);
+        };
+        let writer = (!value.entry.writer_pubkey.is_empty()).then_some(value.entry.writer_pubkey);
+        matches.push((
+            key.clone(),
+            value.entry.atom_uuid,
+            value.metadata,
+            writer,
+            body.partition,
+        ));
+    }
+    Ok(Some(matches))
+}
+
+fn current_matches(
+    runtime: &PackRuntime,
+    context: &ReadContext,
+    paths: &[CorePath],
+    keys: &[KeyValue],
+    projection: &Projection<'_>,
+) -> StorageResult<Option<Vec<KeyedAtomMatch>>> {
+    let view = runtime.view.read().expect("core filter captured view");
+    if view.revision != context.revision {
+        return Ok(None);
+    }
     let mut call = crate::read_receipts::lock(&context.call);
     let mut core = runtime.core.lock().expect("core filter model");
     if paths.iter().any(|path| !core.path_authorized(path)) {
         return Ok(None);
     }
-    context.hold_core(&mut core, &paths)?;
-    let mode = if kind == FieldKind::Hash {
+    context.hold_core(&mut core, paths)?;
+    let mode = if projection.kind == FieldKind::Hash {
         KeyedFilterMode::Hash
     } else {
         KeyedFilterMode::HashRange
     };
-    let filtered = core.with_molecule(scope, molecule, |model| {
-        apply_keyed_filter(model, Some(filter.clone()), mode)
+    let filtered = core.with_molecule(projection.scope, projection.molecule, |model| {
+        apply_keyed_filter(model, Some(projection.filter.clone()), mode)
     });
     let mut matches = Vec::new();
-    for key in keys {
-        let path = binding.path(scope, molecule, &key, "").core();
-        let value = core.lookup(&path);
+    for (key, path) in keys.iter().zip(paths) {
+        let value = core.lookup(path);
         if value.is_unknown() {
             return Ok(None);
         }
@@ -74,19 +182,21 @@ pub(crate) fn matches(
         };
         if filtered
             .as_ref()
-            .is_none_or(|filtered| !filtered.matches.contains_key(&key))
+            .is_none_or(|filtered| !filtered.matches.contains_key(key))
         {
             continue;
         }
-        if !include_tombstones && value.metadata.as_ref().is_some_and(|meta| meta.tombstoned) {
+        if !projection.include_tombstones
+            && value.metadata.as_ref().is_some_and(|meta| meta.tombstoned)
+        {
             continue;
         }
-        let Some(body) = source::body_location(&core, &path, &value.entry.atom_uuid)? else {
+        let Some(body) = source::body_location(&core, path, &value.entry.atom_uuid)? else {
             return Ok(None);
         };
         let writer = (!value.entry.writer_pubkey.is_empty()).then_some(value.entry.writer_pubkey);
         matches.push((
-            key,
+            key.clone(),
             value.entry.atom_uuid,
             value.metadata,
             writer,

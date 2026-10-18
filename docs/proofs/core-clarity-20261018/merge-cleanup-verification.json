@@ -1,0 +1,57 @@
+{
+  "all_old_receipts_match": true,
+  "errors": [],
+  "exact_roots_removed": 4,
+  "new_sealed_receipt_files_checked": 153,
+  "normal_node_sessions": 10,
+  "old_sealed_receipt_files_checked": 357,
+  "passed": true,
+  "prior_seals_and_index": [
+    {
+      "matches_prior_commit_f5de8fd0": true,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/receipt-seal.json",
+      "sha256": "0ca54a9d662e0a89a7772cbb254d1231e80febf10163f608cc760e43e39e6c50"
+    },
+    {
+      "matches_prior_commit_f5de8fd0": true,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/response-receipt-seal.json",
+      "sha256": "83c80dccad212291da412c44cce4a0644b2d7acae729d192391b22e2a94fc529"
+    },
+    {
+      "matches_prior_commit_f5de8fd0": true,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/preparation-receipt-seal.json",
+      "sha256": "8ae6686ef6c9610bcce0dc2e2e321e20d0f600c8bbf8b35598cd78b671e641cd"
+    },
+    {
+      "matches_prior_commit_f5de8fd0": true,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/evidence-index.json",
+      "sha256": "d276ca0740d656f84bcabefc20865d8f1b7ba36b5bd19f8ac6d60bdd6be2f083"
+    }
+  ],
+  "roots": [
+    {
+      "execution_receipt": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-logical/cleanup.json",
+      "label": "merge-logical",
+      "removed_with_supported_command": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ds8mmqqp"
+    },
+    {
+      "execution_receipt": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-protein/cleanup.json",
+      "label": "merge-protein",
+      "removed_with_supported_command": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.jfx3efso"
+    },
+    {
+      "execution_receipt": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-scoped/cleanup.json",
+      "label": "merge-scoped",
+      "removed_with_supported_command": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.e4_dpd0q"
+    },
+    {
+      "execution_receipt": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/merge-program-cleanup/baseline-cleanup.json",
+      "label": "merge-program-cleanup",
+      "removed_with_supported_command": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.avxy5d_h"
+    }
+  ]
+}

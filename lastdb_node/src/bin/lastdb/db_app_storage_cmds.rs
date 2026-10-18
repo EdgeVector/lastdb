@@ -217,7 +217,6 @@ fn print_app_storage_owners(report: &serde_json::Value) {
         }
     }
 }
-
 fn print_app_storage_completeness(report: &serde_json::Value, complete: bool) {
     let meters_origin = report
         .get("meters_origin")
@@ -249,38 +248,4 @@ fn print_app_storage_completeness(report: &serde_json::Value, complete: bool) {
             format_bytes(report_u64(report, "unattributed_bytes"))
         );
     }
-}
-
-pub(crate) fn db_purge_schemaidx(socket: &Path, json_only: bool) -> Result<(), String> {
-    let req = format!(
-        "POST /api/db/purge-schemaidx HTTP/1.1\r\nHost: localhost\r\n{}Content-Length: 0\r\nConnection: close\r\n\r\n",
-        client_headers()
-    );
-    let response = request_with_timeout(socket, req.as_bytes(), admin_scan_client_timeout())?;
-    let value = parse_json_response(&response, "purge-schemaidx")?;
-    let report = value
-        .get("purge_schemaidx")
-        .cloned()
-        .ok_or_else(|| "response missing purge_schemaidx field".to_string())?;
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize report: {e}"))?
-        );
-        return Ok(());
-    }
-    let keys = report
-        .get("keys_deleted")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let bytes = report
-        .get("bytes_freed_approx")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    println!("Purged retired schemaidx secondary index");
-    println!("  keys_deleted:  {keys}");
-    println!("  bytes_approx:  {}", format_bytes(bytes));
-    println!();
-    println!("Canonical atom: rows were not touched. On-disk freelist may need later compact.");
-    Ok(())
 }

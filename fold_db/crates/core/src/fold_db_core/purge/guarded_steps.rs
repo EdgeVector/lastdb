@@ -64,16 +64,17 @@ pub(super) fn unreferenced_candidate_atoms(
     candidate_atoms: &HashSet<String>,
     history_referenced_by_retained: &HashSet<String>,
     chain_referenced_by_retained: &HashSet<String>,
+    storage_slots: &[PlannedStorageSlot],
     acct: &mut PurgeCommitAccounting,
-) -> Vec<String> {
+) -> Result<Vec<String>, SchemaError> {
     let live_head_start = std::time::Instant::now();
     let mut still_referenced = collect_live_atom_uuids(schema);
-    still_referenced.extend(collect_resident_live_atom_uuids(db_ops, schema));
+    still_referenced.extend(collect_core_live_atom_uuids(db_ops, schema, storage_slots)?);
     acct.record(
         crate::request_phases::RequestPhase::PurgeRetentionGuard,
         live_head_start.elapsed(),
     );
-    candidate_atoms
+    Ok(candidate_atoms
         .iter()
         .filter(|uuid| {
             !still_referenced.contains(*uuid)
@@ -81,7 +82,7 @@ pub(super) fn unreferenced_candidate_atoms(
                 && !chain_referenced_by_retained.contains(*uuid)
         })
         .cloned()
-        .collect()
+        .collect())
 }
 
 /// Snapshot each touched field's molecule data with the slots it gave up.
@@ -193,13 +194,14 @@ pub(super) async fn collect_unreferenced_by_reverse_edges(
     db_ops: &Arc<DbOperations>,
     schema: &crate::schema::types::Schema,
     candidate_atoms: &HashSet<String>,
+    storage_slots: &[PlannedStorageSlot],
     atoms_to_delete: &mut Vec<String>,
 ) -> Result<u64, SchemaError> {
     let mut reverse_edge_reads = 0u64;
-    let resident_live = collect_resident_live_atom_uuids(db_ops, schema);
+    let core_live = collect_core_live_atom_uuids(db_ops, schema, storage_slots)?;
     let prefixes = helpers::schema_storage_prefixes(schema);
     for atom_uuid in candidate_atoms {
-        if helpers::atom_ref_edges_keep_resident_live(atom_uuid, &resident_live) {
+        if helpers::atom_ref_edges_keep_core_live(atom_uuid, &core_live) {
             continue;
         }
         let mut referenced = false;
@@ -294,30 +296,6 @@ pub(super) async fn push_atom_storage_keys(
         );
     }
     Ok(())
-}
-
-/// Evict the purged tips and atoms from the resident set.
-pub(super) fn evict_resident_state(
-    db_ops: &Arc<DbOperations>,
-    storage_slots: &[PlannedStorageSlot],
-    resident_api_keys: &std::collections::HashMap<StorageSlotIdentity, ResidentApiKey>,
-    atoms_to_delete: &[String],
-) {
-    let resident = db_ops.resident();
-    for slot in storage_slots {
-        if let Some(resident_key) = slot.resident_key.as_ref() {
-            resident.purge_tip(
-                &slot.molecule_uuid,
-                resident_key.hash.as_deref().unwrap_or_default(),
-                resident_key.range.as_deref().unwrap_or_default(),
-            );
-        } else if let Some((api_hash, api_range)) = resident_api_keys.get(&slot.identity()) {
-            resident.purge_tip(&slot.molecule_uuid, api_hash, api_range);
-        }
-    }
-    for uuid in atoms_to_delete {
-        resident.purge_atom(uuid);
-    }
 }
 
 /// Store, reload, and flush the schema after the destructive writes.

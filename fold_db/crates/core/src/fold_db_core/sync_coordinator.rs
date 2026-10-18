@@ -100,7 +100,7 @@ impl SyncCoordinator {
 
     /// Store the sync engine. Caller is responsible for registering any
     /// reloader callbacks on the engine before calling this.
-    pub fn set_engine(&self, engine: Arc<SyncEngine>) {
+    pub(crate) fn set_engine(&self, engine: Arc<SyncEngine>) {
         *self.engine.write().unwrap() = Some(engine);
     }
 

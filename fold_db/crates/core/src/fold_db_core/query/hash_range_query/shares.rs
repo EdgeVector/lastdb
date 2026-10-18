@@ -2,9 +2,37 @@ use super::HashRangeQueryProcessor;
 use crate::schema::types::field::{FieldKind, FieldValue, FieldVariant, HashRangeFilter};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::SchemaError;
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 mod receivers;
+
+/// Resolve the existing receiver controls before native query service starts.
+/// Failure leaves them unknown, so a later query uses the ordinary read path.
+pub(crate) async fn preload_receiver_controls(
+    ops: &crate::db_operations::DbOperations,
+) -> crate::storage::error::StorageResult<()> {
+    use crate::storage::disk_pack::PackReadScope;
+    use futures::FutureExt;
+
+    let store = ops.namespaced_store();
+    if store.disk_pack_runtime().is_none() {
+        return Ok(());
+    }
+    let Some(scope) = PackReadScope::for_store(&store).await? else {
+        return Ok(());
+    };
+    scope
+        .run_result(
+            async {
+                receivers::namespaces(ops).await.map(|_| ()).map_err(|_| {
+                    crate::storage::StorageError::BackendError(
+                        "native receiver control preload failed".into(),
+                    )
+                })
+            }
+            .boxed(),
+        )
+        .await
+}
 
 impl HashRangeQueryProcessor {
     /// Look up active `ShareSubscription`s and return a deduped list of
@@ -32,7 +60,6 @@ impl HashRangeQueryProcessor {
         field: &FieldVariant,
         namespace: &str,
         filter: Option<HashRangeFilter>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
@@ -45,7 +72,7 @@ impl HashRangeQueryProcessor {
             .common_mut()
             .set_storage_prefix(Some(namespace.to_string()));
         cloned
-            .resolve_value(&self.db_ops, filter, as_of, include_tombstones)
+            .resolve_value(&self.db_ops, filter, None, include_tombstones)
             .await
     }
 

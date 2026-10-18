@@ -13,40 +13,20 @@ impl AtomStore {
 
         let scanned = match filter {
             F::HashRangeKey { hash, range } => {
-                let read_keys = self
-                    .key_codec_for_molecule(molecule_uuid)
-                    .api_hash_range_record_keys_for_read(molecule_uuid, hash, range)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                let groups = [read_keys];
+                let key = crate::schema::types::key_value::KeyValue::new(
+                    Some(hash.clone()),
+                    Some(range.clone()),
+                );
                 let hit = self
-                    .load_first_present_candidate_with_key(storage_prefix, &groups)
+                    .load_query_tip_records(storage_prefix, molecule_uuid, &[key])
                     .await?
                     .pop()
                     .flatten();
-                if hit.is_none() {
-                    let api_key = crate::schema::types::key_value::KeyValue::new(
-                        Some(hash.clone()),
-                        Some(range.clone()),
-                    );
-                    self.note_missing_query_key(
-                        storage_prefix,
-                        molecule_uuid,
-                        &api_key,
-                        &groups[0],
-                    )?;
-                }
                 hit.into_iter().collect()
             }
             F::HashKey(hash) => {
-                if let Some(unique) = self
-                    .get_unique_hash_key_record(molecule_uuid, hash, storage_prefix)
+                self.scan_hash_range_all_ranges(molecule_uuid, storage_prefix, hash)
                     .await?
-                {
-                    vec![unique]
-                } else {
-                    self.scan_hash_range_all_ranges(molecule_uuid, storage_prefix, hash)
-                        .await?
-                }
             }
             F::HashRangePrefix { hash, prefix } => {
                 self.scan_hash_range_prefix(molecule_uuid, storage_prefix, hash, prefix)

@@ -89,7 +89,7 @@ impl PackRuntime {
         if let Some(append) = &prepared {
             append.reserve_capacity(queue.prepared.as_mut())?;
         }
-        // Read-held raw bodies require retained quota. Private durable work
+        // Read-held core values require retained quota. Private durable work
         // seals the queue so later writers wait for its committed state.
         let visible = delay.is_some();
         if visible {
@@ -213,7 +213,7 @@ impl PackRuntime {
     }
 
     fn commit_queue(&self) -> StorageResult<(u64, Vec<Arc<transaction::PendingBatch>>)> {
-        let (prepared, hidden) = {
+        let (prepared, hidden, requests) = {
             let mut queue = self.queue.lock().expect("native accepted queue");
             queue.sealed = true;
             let hidden = queue
@@ -222,10 +222,15 @@ impl PackRuntime {
                 .filter(|request| !request.visible)
                 .flat_map(|request| request.pending.changed_coordinates())
                 .collect::<Vec<_>>();
-            (queue.prepared.take(), hidden)
+            let requests = queue
+                .requests
+                .iter()
+                .map(|request| Arc::clone(&request.pending))
+                .collect::<Vec<_>>();
+            (queue.prepared.take(), hidden, requests)
         };
         if let Some(prepared) = prepared {
-            self.commit_prepared_group(prepared, &hidden)?;
+            self.commit_prepared_group(prepared, &hidden, &requests)?;
         } else {
             let current = self
                 .view
@@ -233,7 +238,7 @@ impl PackRuntime {
                 .expect("native empty prefix root")
                 .current
                 .clone();
-            self.install_committed(current, &hidden, &[])?;
+            self.install_committed(current, &hidden, &[], &requests)?;
         }
         let queue = self.queue.lock().expect("native accepted queue");
         for request in &queue.requests {
@@ -243,10 +248,6 @@ impl PackRuntime {
             .requests
             .last()
             .map_or(queue.next_sequence, |request| request.sequence);
-        self.core
-            .lock()
-            .expect("core flush completion")
-            .complete_flush(sequence);
         for request in &queue.requests {
             request
                 .pending

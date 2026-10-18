@@ -202,17 +202,8 @@ pub(crate) async fn execute_catalog_schema_sync(
     route: &str,
     declare: DirectDeclareProposal,
 ) -> UdsResponse {
-    if crate::ephemeral::is_ephemeral() {
-        return error_response(
-            403,
-            "schema catalog synchronization is not permitted on ephemeral nodes; \
-             use check intent for read-only inspection or run against the primary node",
-            ctx,
-        );
-    }
-    // Refuse a retention the layout cannot carry before anything is written.
-    if let Err(e) = validate_declare_retention(&declare) {
-        return error_response(409, &e, ctx);
+    if let Some(response) = super::native_layout::sync_admission_error(ctx, host, &declare) {
+        return response;
     }
 
     let mut audit = SchemaSyncAuditEvent::new(
@@ -381,6 +372,9 @@ pub(crate) async fn execute_catalog_schema_check(
     host: &Host,
     declare: DirectDeclareProposal,
 ) -> UdsResponse {
+    if let Some(response) = native_layout_error(ctx, host, &declare.catalog_schema) {
+        return response;
+    }
     let plan = match plan_catalog_schema_for_direct_declare(host, &declare).await {
         Ok(plan) => plan,
         Err(e) => return error_response(409, &e, ctx),

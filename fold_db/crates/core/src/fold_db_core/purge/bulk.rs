@@ -226,7 +226,7 @@ fn plan_storage_slots(
         let Some(molecule_uuid) = field.common().molecule_uuid().cloned() else {
             continue;
         };
-        for (api_key, storage_key) in keys.iter().zip(storage_form_keys(db_ops, field, keys)?) {
+        for storage_key in storage_form_keys(db_ops, field, keys)? {
             let Some((disk_hash, disk_range)) = field.disk_slot_for_key(&storage_key) else {
                 continue;
             };
@@ -234,7 +234,6 @@ fn plan_storage_slots(
                 field_name: field_name.clone(),
                 molecule_uuid: molecule_uuid.clone(),
                 storage_key,
-                resident_key: Some(api_key.clone()),
                 disk_hash,
                 disk_range,
             });

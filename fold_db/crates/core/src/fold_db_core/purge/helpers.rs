@@ -12,6 +12,7 @@ use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 
 pub(crate) use super::chain_walk::*;
+pub(crate) use super::core_live::collect_core_live_atom_uuids;
 pub(crate) use super::target_chain::*;
 
 /// Translate an API-form (plaintext) [`KeyValue`] into the **storage form** the
@@ -322,11 +323,8 @@ pub(crate) fn collect_live_atom_uuids(schema: &Schema) -> HashSet<String> {
 
 /// True when AtomRefEdges must keep `uuid` because T0 already acked it.
 /// Disk reverse edges do not see that write until its persist envelope runs.
-pub(crate) fn atom_ref_edges_keep_resident_live(
-    uuid: &str,
-    resident_live: &HashSet<String>,
-) -> bool {
-    resident_live.contains(uuid)
+pub(crate) fn atom_ref_edges_keep_core_live(uuid: &str, core_live: &HashSet<String>) -> bool {
+    core_live.contains(uuid)
 }
 
 /// Load an atom for hard-erase accounting. A storage error must fail the
@@ -341,29 +339,6 @@ pub(crate) fn atom_load_for_hard_erase(
             "Failed to load atom {uuid} before hard-delete: {error}"
         ))),
     }
-}
-
-/// Resident tips for this schema's molecules. A concurrent write can ack
-/// a new live head before its persist envelope runs; disk molecules then
-/// lag T0. Union this set into the preserve list so a purge commit that
-/// walked before that write does not delete the new atom.
-pub(crate) fn collect_resident_live_atom_uuids(
-    db_ops: &DbOperations,
-    schema: &Schema,
-) -> HashSet<String> {
-    let mut out: HashSet<String> = HashSet::new();
-    let graph = db_ops.resident();
-    for field in schema.runtime_fields.values() {
-        let Some(molecule_uuid) = field.common().molecule_uuid() else {
-            continue;
-        };
-        for tip in graph.tips_for_molecule(molecule_uuid) {
-            if !tip.atom_uuid.is_empty() {
-                out.insert(tip.atom_uuid);
-            }
-        }
-    }
-    out
 }
 
 /// Human-readable rendering of a KeyValue for log/error messages.

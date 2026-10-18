@@ -86,11 +86,6 @@ impl LastStoreNamespacedStore {
         Self::assemble(Arc::new(store), None)
     }
 
-    /// Shared logical resident set for every namespace on this store.
-    pub fn logical_set(&self) -> Arc<Mutex<LogicalResidentSet>> {
-        Arc::clone(&self.logical)
-    }
-
     /// Single construction point: derives the chunk-sha memo (and its
     /// persistence location, when a durable high-water sidecar dir exists).
     pub(super) fn assemble(
@@ -106,9 +101,6 @@ impl LastStoreNamespacedStore {
             high_water,
             chunk_sha_memo: Arc::new(backup_manifest::ChunkShaMemo::new(memo_path)),
             atom_retirement_lock: Arc::new(std::sync::Mutex::new(())),
-            logical: Arc::new(Mutex::new(
-                LogicalResidentSet::new().with_metrics(Arc::new(ResidentMetrics::new())),
-            )),
         }
     }
 }

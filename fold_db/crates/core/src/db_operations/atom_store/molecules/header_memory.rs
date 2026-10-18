@@ -9,6 +9,111 @@ use serde::{de::DeserializeOwned, Serialize};
 static HEADER_MEMORY: u8 = 0;
 
 impl AtomStore {
+    pub(crate) async fn stage_current_molecule_selectors(
+        &self,
+        runtime: &crate::storage::disk_pack::PackRuntime,
+        molecules: &[String],
+        scope: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        let mut keys: Vec<_> = molecules
+            .iter()
+            .flat_map(|molecule| crate::atom::molecule_uuid_read_candidates(molecule))
+            .map(|molecule| {
+                crate::schema::types::field::build_storage_key(
+                    scope,
+                    &crate::atom::molecule_key_codec::molecule_generation_pointer_key(&molecule),
+                )
+            })
+            .collect();
+        keys.sort();
+        keys.dedup();
+        let values = self
+            .main_store
+            .get_items::<super::super::MoleculeGenerationPointer>(&keys)
+            .await?;
+        for (key, value) in keys.into_iter().zip(values) {
+            let bytes = serde_json::to_vec(&value)
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?
+                .len()
+                .saturating_mul(8)
+                .saturating_add(256);
+            crate::storage::disk_pack::transaction::stage_core_memory(
+                runtime,
+                std::ptr::from_ref(&HEADER_MEMORY) as usize,
+                key.clone(),
+                value,
+                core_memory_sources("main", key.as_bytes()),
+                bytes,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn stage_current_molecule_headers(
+        &self,
+        runtime: &crate::storage::disk_pack::PackRuntime,
+        molecules: &[String],
+        scope: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        let keys: Vec<_> = molecules
+            .iter()
+            .map(|molecule| {
+                crate::schema::types::field::build_storage_key(
+                    scope,
+                    &crate::atom::molecule_key_codec::header_key(molecule),
+                )
+            })
+            .collect();
+        let values = self.main_store.get_items::<MoleculeHeader>(&keys).await?;
+        for (key, header) in keys.into_iter().zip(values) {
+            let bytes = serde_json::to_vec(&header)
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?
+                .len()
+                .saturating_mul(8)
+                .saturating_add(256);
+            crate::storage::disk_pack::transaction::stage_core_memory(
+                runtime,
+                std::ptr::from_ref(&HEADER_MEMORY) as usize,
+                key.clone(),
+                header,
+                core_memory_sources("main", key.as_bytes()),
+                bytes,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn stage_molecule_header(
+        &self,
+        runtime: &crate::storage::disk_pack::PackRuntime,
+        molecule: &str,
+        data: &super::super::MoleculeData,
+        scope: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        let key = crate::schema::types::field::build_storage_key(
+            scope,
+            &crate::atom::molecule_key_codec::header_key(molecule),
+        );
+        let header = Some(MoleculeHeader {
+            version: data.version(),
+            updated_at: data.updated_at(),
+        });
+        let bytes = serde_json::to_vec(&header)
+            .map_err(|error| SchemaError::InvalidData(error.to_string()))?
+            .len()
+            .saturating_mul(8)
+            .saturating_add(256);
+        crate::storage::disk_pack::transaction::stage_core_memory(
+            runtime,
+            std::ptr::from_ref(&HEADER_MEMORY) as usize,
+            key.clone(),
+            header,
+            core_memory_sources("main", key.as_bytes()),
+            bytes,
+        )?;
+        Ok(())
+    }
+
     pub(super) async fn header_from_memory(
         &self,
         key: &str,
