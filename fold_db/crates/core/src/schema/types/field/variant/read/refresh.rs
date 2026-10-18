@@ -16,6 +16,11 @@ impl FieldVariant {
 
     /// Refreshes the field's data from the database.
     pub async fn refresh_from_db(&mut self, db_ops: &DbOperations) -> Result<(), SchemaError> {
+        self.require_native_read(db_ops, None, false)?;
+        captured_field_read(db_ops, self.refresh_from_db_captured(db_ops).boxed()).await
+    }
+
+    async fn refresh_from_db_captured(&mut self, db_ops: &DbOperations) -> Result<(), SchemaError> {
         super::super::super::base::refresh_field_molecule_from_db(
             &mut self.inner,
             &mut self.molecule,

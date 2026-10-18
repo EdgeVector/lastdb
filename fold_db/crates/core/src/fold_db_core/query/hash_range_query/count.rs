@@ -1,4 +1,4 @@
-use super::{full_span_page, HashRangeQueryProcessor};
+use super::{full_span_page, FutureExt, HashRangeQueryProcessor};
 use crate::schema::types::field::{
     fetch_atoms_with_key_metadata_async_with_prefix, FieldValue, FieldVariant, HashRangeFilter,
     KeyedAtomMatch,
@@ -29,6 +29,17 @@ impl HashRangeQueryProcessor {
     /// rather than which ones exist, so counting under one would report the
     /// page size as the total.
     pub async fn count_rows(
+        &self,
+        schema: &mut Schema,
+        fields: &[String],
+        filter: Option<&HashRangeFilter>,
+    ) -> Result<usize, SchemaError> {
+        self.require_supported_query(schema, filter, false)?;
+        self.current_query_scope(self.count_rows_captured(schema, fields, filter).boxed())
+            .await
+    }
+
+    async fn count_rows_captured(
         &self,
         schema: &mut Schema,
         fields: &[String],

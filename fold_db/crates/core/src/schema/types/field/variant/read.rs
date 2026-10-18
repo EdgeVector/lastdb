@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use futures::{future::BoxFuture, FutureExt};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -16,6 +17,41 @@ mod core_receipts;
 mod refresh;
 mod resolve;
 mod resolve_scan;
+
+impl FieldVariant {
+    fn require_native_read(
+        &self,
+        db_ops: &DbOperations,
+        filter: Option<&HashRangeFilter>,
+        historical: bool,
+    ) -> Result<(), SchemaError> {
+        use crate::schema::types::schema::DeclarativeSchemaType;
+
+        let native = db_ops.namespaced_store().disk_pack_runtime().is_some();
+        let layout = match self.kind {
+            FieldKind::Single => DeclarativeSchemaType::Single,
+            FieldKind::Hash => DeclarativeSchemaType::Hash,
+            FieldKind::Range => DeclarativeSchemaType::Range,
+            FieldKind::HashRange => DeclarativeSchemaType::HashRange,
+        };
+        crate::schema::require_native_logical_layout(native, &layout)?;
+        crate::schema::require_native_logical_filter(native, filter)?;
+        crate::schema::require_native_current_read(native, historical)
+    }
+}
+
+async fn captured_field_read<T>(
+    db_ops: &DbOperations,
+    future: BoxFuture<'_, Result<T, SchemaError>>,
+) -> Result<T, SchemaError> {
+    let scope =
+        crate::storage::disk_pack::PackReadScope::for_store(&db_ops.namespaced_store()).await?;
+    let future = crate::storage::disk_pack::logical_paths::field::query_scope(true, future);
+    match scope {
+        Some(scope) => scope.run_result(future).await,
+        None => future.await,
+    }
+}
 
 /// One live field slot from an authoritative, hydrated hash-partition walk.
 ///

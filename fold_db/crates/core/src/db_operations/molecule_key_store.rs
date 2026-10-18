@@ -6,7 +6,7 @@
 //! (`mkw:`). Catalog sharing adds a wrap; it never reseals molecule data.
 
 use crate::atom::MoleculeKeyCodec;
-use crate::crypto::{open_at_rest, seal_at_rest_utf8};
+use crate::crypto::{is_sealed_at_rest, open_at_rest, seal_at_rest_utf8};
 use crate::schema::types::Schema;
 use crate::storage::error::StorageResult;
 use crate::storage::traits::KvStore;
@@ -325,6 +325,11 @@ fn open_wrap(
         return Err(StorageError::InvalidOperation(format!(
             "molecule key wrap metadata mismatch for {molecule_uuid} in {domain}"
         )));
+    }
+    if !is_sealed_at_rest(wrap.sealed_bundle.as_bytes()) {
+        return Err(StorageError::InvalidOperation(
+            "molecule key bundle wrap is not encrypted".into(),
+        ));
     }
     let plaintext = open_at_rest(wrapping_key, wrap.sealed_bundle.as_bytes()).map_err(|error| {
         StorageError::InvalidOperation(format!("unwrap molecule key bundle: {error}"))

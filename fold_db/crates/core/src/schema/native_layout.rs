@@ -1,8 +1,7 @@
 use super::types::{field::HashRangeFilter, schema::DeclarativeSchemaType};
 use super::SchemaError;
 
-/// Enforce the supported native logical key layouts without changing wire
-/// decoding, catalog templates, or the legacy backend's operation contract.
+/// Enforce supported logical layouts without changing catalog-template decoding.
 pub fn require_native_logical_layout(
     native: bool,
     schema_type: &DeclarativeSchemaType,
@@ -22,7 +21,7 @@ pub fn require_native_logical_layout(
 }
 
 /// Keep native key queries within one hash while preserving explicit page and
-/// sample operations. The legacy backend retains its existing filter contract.
+/// sample operations. Catalog metadata does not establish a logical read path.
 pub fn require_native_logical_filter(
     native: bool,
     filter: Option<&HashRangeFilter>,

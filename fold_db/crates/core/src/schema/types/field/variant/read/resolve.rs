@@ -49,6 +49,23 @@ impl FieldVariant {
         as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
+        self.require_native_read(db_ops, filter.as_ref(), as_of.is_some())?;
+        captured_field_read(
+            db_ops,
+            self.resolve_value_windowed_captured(db_ops, filter, window, as_of, include_tombstones)
+                .boxed(),
+        )
+        .await
+    }
+
+    async fn resolve_value_windowed_captured(
+        &mut self,
+        db_ops: &Arc<DbOperations>,
+        filter: Option<HashRangeFilter>,
+        window: Option<KeyWindow>,
+        as_of: Option<DateTime<Utc>>,
+        include_tombstones: bool,
+    ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         use crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix;
 
         let filter_now = filter.as_ref().filter(|_| as_of.is_none());
