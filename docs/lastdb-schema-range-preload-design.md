@@ -14,7 +14,7 @@ Concurrent first queries share one load.
 Only keys and essential membership flags enter this complete part of the logical set.
 Full tips and atom values remain partial and enter the normal warm set when required.
 Selected tips can remain without values after a call that does not fetch values.
-The same logical record gains its full atom after a value fetch; the key preload does not fetch all tips.
+The same logical record gains its full atom after a value fetch; the key preload does not retain all tips.
 
 After the load, ranges select keys from the logical set.
 The resolver uses known current tips and atoms, then fetches missing paths in batches.

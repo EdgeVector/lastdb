@@ -184,7 +184,7 @@ The earlier implementation retains only complete records and confirmed absence.
 Its selected tips live only within one call, so repeated counts can repeat disk tip reads.
 The mixed choice permits reuse of those selected tips without a second warm set or a separate tip limit.
 Complete range keys remain smaller: they contain candidate keys and visibility flags, without a tip or an atom.
-Preload does not fetch every tip or value.
+Preload retains candidate keys and flags; it does not retain every tip or atom.
 
 | Choice | Repeated value read | Repeated call that needs only tips | Retention cost |
 |---|---|---|---|
