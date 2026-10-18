@@ -67,3 +67,29 @@ Driver v5 corrects one source-backed protein expectation. A Hash delete preserve
 `fold_db/crates/core/src/fold_db_core/mutation_manager/cas.rs::protein_delete_peers` explicitly excludes those differently shaped peers.
 The prior driver and receipts stay unchanged. The partial shared-field and key-move gates stay strict.
 The initial protein creates address both key layouts through per-field molecules; they do not claim record-envelope creation.
+
+The v3 candidate `8cff7b4c…` uses committed source `7a7a7ab7…` and 1,931 verified product inputs.
+The release build passes in 2 minutes 4 seconds. Exact Git source verification also passes.
+The strict scoped workflow still stops at the first personal Hash query with one format-only file call.
+Its four warm fields return correctly. The failed gate remains in `candidate-v3-scoped-v5`.
+
+A separate v3 wall-clock diagnostic continues that one failed file gate after the values pass.
+The personal HashRange read and every scoped create/update/delete/recreate first read now use zero file calls.
+All values, personal independence, and normal-reopen checks pass diagnostically.
+The one-file Hash request contains no raw-family trace entry in its exact request window.
+The [v3 family association](candidate-v3-scoped-window-families.json) preserves that distinction.
+The root and memory agent investigate the remaining file probe outside the raw-control read path.
+No v3 timing workload runs. All three v3 node sessions stop normally.
+
+The source review identifies that first probe as the existing receiver-control load.
+It reads the empty share-subscription namespace through the directory-read path, which does not emit exact-key family logs.
+The one directory absence proof costs one 16 KiB format read in the preserved v3 query receipt.
+The next candidate moves that actual control read to startup and retains the existing typed control state.
+This change moves the read cost; it does not remove the cost or weaken the zero-file query gate.
+The final report must state the startup cost separately from first-query latency.
+
+The first partial-move supplement stops before any move because its driver assumes equal UUIDs across two equal-content records.
+The records contain equal content but have distinct UUIDs. Each record and its member layout do share their corresponding UUIDs.
+The separately frozen v2 supplement requires UUID stability per record and layout, with equal content across the two records.
+It passes all five bucket-only moves, old-key absence, unrelated-record retention, and normal reopen on v3.
+Both v2 node sessions stop normally. The original v1 failure remains a driver-assumption receipt, not a product failure.

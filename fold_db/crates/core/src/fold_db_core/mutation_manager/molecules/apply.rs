@@ -249,7 +249,6 @@ impl MutationManager {
             .prepare_protein_moves(
                 &super::protein_moves::ProteinMoveInput {
                     schema,
-                    mutations: schema_mutations,
                     keys: mutation_key_values,
                     eligible: &eligible,
                     fields: &key_maps,

@@ -45,6 +45,7 @@ mod shares;
 mod watch;
 
 use predicates::*;
+pub(crate) use shares::preload_receiver_controls;
 pub use watch::*;
 
 /// Production defaults to serial field reads. A value above one opts in to

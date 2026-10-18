@@ -43,16 +43,18 @@ def verify_all(node, source, targets, current, phase, shared):
         positive.extend(item['response']['results'])
         costs.append(item['read_receipt'])
     for record in positive:
+        number = {base.logical.measure.key(value): value for value in (0, 1)}[record['fields']['id']]
+        record_uuids = shared.setdefault(str(number), {})
         for field in ('title', 'body'):
             uuid = record['metadata'][field]['atom_uuid']
-            if field in shared and uuid != shared[field]:
+            if field in record_uuids and uuid != record_uuids[field]:
                 raise RuntimeError('A partial key move replaces an unchanged shared content UUID')
-            shared.setdefault(field, uuid)
+            record_uuids.setdefault(field, uuid)
     node.remember(operation='core-owned-partial-protein-move-read', phase=phase,
         current_hash=current, request_id=request_id, shared_content_uuids=shared,
         file_read_calls=sum(cost['read_operations'] for cost in costs),
         all_source_and_member_values_match=True,
-        scope='Two distinct IDs share equal title/body content. Every known old member key is checked. Public query metadata exposes UUIDs, not move or content clocks.')
+        scope='Two distinct IDs have equal title/body content. UUID stability is required per record and its member layouts, without cross-record UUID equality. Every known old member key is checked. Public metadata exposes UUIDs, not clocks.')
 
 
 def cohort(node):

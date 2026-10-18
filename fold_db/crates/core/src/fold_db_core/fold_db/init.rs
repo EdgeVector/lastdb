@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use tracing::info;
 
 use crate::db_operations::DbOperations;
@@ -218,6 +219,16 @@ impl FoldDB {
         // Create QueryExecutor for handling all query operations
         let query_executor = QueryExecutor::new(&db_ops, Arc::clone(&schema_manager));
         info!("Created QueryExecutor for query operations");
+
+        if crate::fold_db_core::query::hash_range_query::preload_receiver_controls(&db_ops)
+            .boxed()
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                "native receiver controls remain unknown after startup preload; queries retry their ordinary read"
+            );
+        }
 
         let author_clock_state = Self::load_author_clock_state(&db_ops, &signer).await?;
 

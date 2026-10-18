@@ -81,7 +81,8 @@ Only audited idempotency, schema-index, small retained side records, and main up
 The separately frozen `protein_move_supplement.py` adds five bucket-only member moves: A→B→C→A→B→A.
 Two source IDs share identical title and body content. Only one source bucket changes.
 Each ack precedes one batched read of both source IDs and every known old and new member key.
-The gate requires complete values, old-key absence, unchanged shared content UUIDs, and the unrelated record at A.
+The gate requires complete values, old-key absence, unchanged UUIDs per record and member layout, and the unrelated record at A.
+Equal content across the two records does not require equal UUIDs across those records.
 A normal reopen follows the first return to A. Two more moves then reuse the earlier content.
 Public query metadata exposes UUIDs, not the internal move and content clocks. The report must retain that observation limit.
 The gate follows `docs/lastdb-canonical-model.md:132-133`; it does not change the main v5 workflow.

@@ -4,15 +4,16 @@ use super::super::MutationManager;
 use super::prepared::{SiblingMove, SiblingOrigin, SiblingUpdate, SourceId};
 use super::protein_batch::{schema_storage_prefix, ProteinFoldMetadata};
 use super::protein_key_fields::ProteinKeyFields;
-use crate::atom::Atom;
-use crate::db_operations::atom_store::PerKeyRecord;
-use crate::schema::types::{KeyValue, Mutation, Schema};
+use crate::atom::{molecule_key_codec, Atom, MoleculeHashRange};
+use crate::db_operations::atom_store::{ChangedKey, MoleculeHeader, PerKeyRecord};
+use crate::schema::types::field::build_storage_key;
+use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
-use std::collections::{BTreeMap, HashMap};
+use chrono::Utc;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub(super) struct ProteinMoveInput<'a> {
     pub(super) schema: &'a Schema,
-    pub(super) mutations: &'a [Mutation],
     pub(super) keys: &'a [KeyValue],
     pub(super) eligible: &'a [(usize, &'a Atom, &'a str)],
     pub(super) fields: &'a ProteinKeyFields,
@@ -22,7 +23,6 @@ pub(super) struct ProteinMoveInput<'a> {
 struct MoveRequest {
     index: usize,
     source_molecule: String,
-    protein: String,
     molecule: String,
     old: KeyValue,
     new: KeyValue,
@@ -30,11 +30,17 @@ struct MoveRequest {
     value: Option<String>,
     source_slot: usize,
     old_slot: usize,
+    new_slot: usize,
     association_slots: Vec<usize>,
 }
 
 type Slot = (String, String, String);
 type UpdateIndex = HashMap<(usize, String, String, String, String), usize>;
+
+struct MoveState {
+    records: Vec<Option<PerKeyRecord>>,
+    headers: HashMap<String, MoleculeHeader>,
+}
 
 impl MutationManager {
     pub(super) async fn prepare_protein_moves(
@@ -51,36 +57,16 @@ impl MutationManager {
         if requests.is_empty() {
             return Ok(Vec::new());
         }
-        let mut groups = vec![Vec::new(); slots.len()];
-        for ((molecule, hash, range), position) in slots {
-            groups[position] = self
-                .db_ops
-                .atoms()
-                .key_codec_for_molecule(&molecule)
-                .api_hash_range_record_keys_for_read(&molecule, &hash, &range)
-                .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
-        }
-        let records = self
-            .db_ops
-            .atoms()
-            .load_first_present_candidate(schema_storage_prefix(input.schema, None), &groups)
-            .await?;
-        if records.len() != groups.len() {
-            return Err(SchemaError::StorageRead {
-                detail: "protein move winner count differs".into(),
-            });
-        }
+        let state = self.read_move_state(input, slots, &requests).await?;
         let mut index = update_index(updates, origins);
         let mut movements = Vec::new();
         for request in requests {
-            let Some(source) = records[request.source_slot].as_ref() else {
+            let Some(source) = state.records[request.source_slot].as_ref() else {
                 continue;
             };
-            let updated = self
-                .ensure_moved_value(input, &request, source, updates, origins, &mut index)
-                .await?;
-            let Some(updated) = updated else { continue };
-            let Some(old) = records[request.old_slot].as_ref() else {
+            let updated =
+                self.ensure_moved_value(&request, source, &state, updates, origins, &mut index);
+            let Some(old) = state.records[request.old_slot].as_ref() else {
                 continue;
             };
             // An equal body alone does not establish which record owns a
@@ -89,7 +75,7 @@ impl MutationManager {
                 || old.meta != source.meta
                 || (old.entry.lww_key() != source.entry.lww_key()
                     && !request.association_slots.iter().any(|&slot| {
-                        records[slot]
+                        state.records[slot]
                             .as_ref()
                             .is_some_and(|record| record.entry.lww_key() == old.entry.lww_key())
                     }))
@@ -107,15 +93,61 @@ impl MutationManager {
         Ok(movements)
     }
 
-    async fn ensure_moved_value(
+    async fn read_move_state(
         &self,
         input: &ProteinMoveInput<'_>,
+        slots: BTreeMap<Slot, usize>,
+        requests: &[MoveRequest],
+    ) -> Result<MoveState, SchemaError> {
+        let atoms = self.db_ops.atoms();
+        let prefix = schema_storage_prefix(input.schema, None);
+        let mut groups = vec![Vec::new(); slots.len()];
+        for ((molecule, hash, range), position) in slots {
+            groups[position] = atoms
+                .key_codec_for_molecule(&molecule)
+                .api_hash_range_record_keys_for_read(&molecule, &hash, &range)
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+        }
+        let molecules: BTreeSet<_> = requests.iter().map(|request| &request.molecule).collect();
+        let keys: Vec<_> = molecules
+            .iter()
+            .map(|uuid| build_storage_key(prefix, &molecule_key_codec::header_key(uuid)))
+            .collect();
+        let headers = async {
+            atoms
+                .raw()
+                .get_items::<MoleculeHeader>(&keys)
+                .await
+                .map_err(|error| SchemaError::StorageRead {
+                    detail: format!("read protein move headers: {error}"),
+                })
+        };
+        let (records, headers) =
+            tokio::try_join!(atoms.load_first_present_candidate(prefix, &groups), headers)?;
+        if records.len() != groups.len() || headers.len() != molecules.len() {
+            return Err(SchemaError::StorageRead {
+                detail: "protein move winner or header count differs".into(),
+            });
+        }
+        Ok(MoveState {
+            records,
+            headers: molecules
+                .into_iter()
+                .zip(headers)
+                .filter_map(|(uuid, header)| header.map(|header| (uuid.clone(), header)))
+                .collect(),
+        })
+    }
+
+    fn ensure_moved_value(
+        &self,
         request: &MoveRequest,
         source: &PerKeyRecord,
+        state: &MoveState,
         updates: &mut Vec<SiblingUpdate>,
         origins: &mut Vec<SiblingOrigin>,
         index: &mut UpdateIndex,
-    ) -> Result<Option<usize>, SchemaError> {
+    ) -> usize {
         let key = update_key(request);
         let existing = index.get(&key).copied();
         let unchanged = request
@@ -128,56 +160,48 @@ impl MutationManager {
                 origins[existing].replacement =
                     Some((source.entry.atom_uuid.clone(), source.meta.clone()));
             }
-            return Ok(Some(existing));
+            return existing;
         }
-        let Some(protein) = input
-            .metadata
-            .1
-            .get(&request.protein)
-            .and_then(Option::as_ref)
-        else {
-            return Ok(None);
-        };
-        let layout = input.schema.key.as_ref().and_then(|key| {
-            key.hash_field
-                .as_deref()
-                .map(|hash| (hash, key.range_field.as_deref()))
+        let hash = request.new.hash.clone().unwrap_or_default();
+        let range = request.new.range.clone().unwrap_or_default();
+        let destination = state.records[request.new_slot].as_ref();
+        let base = destination.map(|record| (record.entry.clone(), record.meta.clone()));
+        let records = destination
+            .map(|record| {
+                vec![(
+                    hash.clone(),
+                    range.clone(),
+                    record.entry.clone(),
+                    record.meta.clone(),
+                )]
+            })
+            .unwrap_or_default();
+        let header = state.headers.get(&request.molecule);
+        let mut data = MoleculeHashRange::from_write_records(
+            request.molecule.clone(),
+            header.map_or(0, |header| header.version),
+            header.map_or_else(Utc::now, |header| header.updated_at),
+            records,
+        );
+        data.set_atom_uuid_from_values(
+            hash.clone(),
+            range.clone(),
+            source.entry.atom_uuid.clone(),
+            self.signer.as_ref(),
+        );
+        let position = updates.len();
+        updates.push((
+            request.molecule.clone(),
+            data,
+            HashSet::from([ChangedKey::hash_range(hash, range)]),
+        ));
+        origins.push(SiblingOrigin {
+            source: request.trigger.clone(),
+            base,
+            replacement: Some((source.entry.atom_uuid.clone(), source.meta.clone())),
         });
-        let planned = self
-            .db_ops
-            .atoms()
-            .protein_sibling_tip_updates_for_loaded_protein(
-                protein,
-                &request.source_molecule,
-                layout,
-                &input.fields.after[&request.index],
-                &source.entry.atom_uuid,
-                self.signer.as_ref(),
-                super::apply::mutation_author_clock(&input.mutations[request.index]),
-                schema_storage_prefix(input.schema, Some(&request.source_molecule)),
-            )
-            .await?;
-        for (molecule, data, changed, base) in planned {
-            let hash = request.new.hash.as_deref().unwrap_or_default();
-            let range = request.new.range.as_deref().unwrap_or_default();
-            if molecule != request.molecule
-                || !changed
-                    .iter()
-                    .any(|key| key.disk_hash() == hash && key.disk_range() == range)
-            {
-                continue;
-            }
-            let position = updates.len();
-            updates.push((molecule, data, changed));
-            origins.push(SiblingOrigin {
-                source: request.trigger.clone(),
-                base,
-                replacement: Some((source.entry.atom_uuid.clone(), source.meta.clone())),
-            });
-            index.insert(key, position);
-            return Ok(Some(position));
-        }
-        Ok(None)
+        index.insert(key, position);
+        position
     }
 }
 
@@ -237,6 +261,10 @@ fn move_requests(
                     slots,
                     (member.molecule_uuid.clone(), old.0.clone(), old.1.clone()),
                 );
+                let new_slot = slot_index(
+                    slots,
+                    (member.molecule_uuid.clone(), new.0.clone(), new.1.clone()),
+                );
                 let association_slots = std::iter::once(&member.hash_field)
                     .chain(member.range_field.as_ref())
                     .filter_map(|name| input.schema.runtime_fields.get(name))
@@ -256,7 +284,6 @@ fn move_requests(
                 requests.push(MoveRequest {
                     index: idx,
                     source_molecule: source.clone(),
-                    protein: owner.clone(),
                     molecule: member.molecule_uuid.clone(),
                     old: pair_key(old),
                     new: pair_key(new),
@@ -264,6 +291,7 @@ fn move_requests(
                     value,
                     source_slot,
                     old_slot,
+                    new_slot,
                     association_slots,
                 });
             }

@@ -194,6 +194,11 @@ impl PackRuntime {
         else {
             return Ok(None);
         };
+        context.account_memory_record(
+            &mut call,
+            path.hash.len() + path.range.len(),
+            tip_metadata_bytes(&selection.entry, selection.metadata.as_ref())?,
+        )?;
         if !super::super::logical_paths::core_read::note_partition(
             Some(Arc::clone(self)),
             scope,
@@ -248,7 +253,7 @@ impl PackRuntime {
         context.account_memory_record(
             &mut crate::read_receipts::lock(&context.call),
             path.hash.len() + path.range.len(),
-            selected.bytes,
+            tip_metadata_bytes(&selected.entry, selected.metadata.as_ref())?,
         )?;
         if !super::super::logical_paths::core_read::note_partition(
             Some(Arc::clone(self)),
@@ -273,4 +278,15 @@ impl PackRuntime {
 
 fn selection_lock_error() -> StorageError {
     StorageError::BackendError("complete key selection lock is unavailable".into())
+}
+
+fn tip_metadata_bytes(
+    entry: &crate::atom::AtomEntry,
+    metadata: Option<&crate::atom::KeyMetadata>,
+) -> StorageResult<usize> {
+    serde_json::to_vec(&(entry, metadata))
+        .map(|bytes| bytes.len())
+        .map_err(|_| {
+            StorageError::SerializationError("native tip metadata byte accounting failed".into())
+        })
 }

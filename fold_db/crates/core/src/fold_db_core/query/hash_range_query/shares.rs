@@ -6,6 +6,35 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 mod receivers;
 
+/// Resolve the existing receiver controls before native query service starts.
+/// Failure leaves them unknown, so a later query uses the ordinary read path.
+pub(crate) async fn preload_receiver_controls(
+    ops: &crate::db_operations::DbOperations,
+) -> crate::storage::error::StorageResult<()> {
+    use crate::storage::disk_pack::PackReadScope;
+    use futures::FutureExt;
+
+    let store = ops.namespaced_store();
+    if store.disk_pack_runtime().is_none() {
+        return Ok(());
+    }
+    let Some(scope) = PackReadScope::for_store(&store).await? else {
+        return Ok(());
+    };
+    scope
+        .run_result(
+            async {
+                receivers::namespaces(ops).await.map(|_| ()).map_err(|_| {
+                    crate::storage::StorageError::BackendError(
+                        "native receiver control preload failed".into(),
+                    )
+                })
+            }
+            .boxed(),
+        )
+        .await
+}
+
 impl HashRangeQueryProcessor {
     /// Look up active `ShareSubscription`s and return a deduped list of
     /// `from:{sender_hash}` namespace prefixes to scan. Returns an empty
