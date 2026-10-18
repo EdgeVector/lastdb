@@ -100,10 +100,9 @@ impl MutationManager {
     pub(super) fn prepare_protein_sibling_slots(
         &self,
         schema: &Schema,
-        mutations: &[Mutation],
-        keys: &[KeyValue],
         eligible: &[(usize, &Atom, &str)],
         metadata: &ProteinFoldMetadata,
+        key_fields: &HashMap<usize, HashMap<String, String>>,
     ) -> Vec<PreparedSlotRevision> {
         if !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
             || schema_is_scoped(schema)
@@ -127,7 +126,7 @@ impl MutationManager {
             else {
                 continue;
             };
-            let fields = super::apply::sibling_key_fields(schema, &keys[*idx], &mutations[*idx]);
+            let fields = &key_fields[idx];
             for member in &protein.members {
                 if member.molecule_uuid == *entry_molecule
                     && entry_layout.is_none_or(|(hash, range)| {
@@ -136,7 +135,7 @@ impl MutationManager {
                 {
                     continue;
                 }
-                let Some((hash, range)) = member.tip_coords_from_fields(&fields) else {
+                let Some((hash, range)) = member.tip_coords_from_fields(fields) else {
                     continue;
                 };
                 if observed.insert((member.molecule_uuid.clone(), hash.clone(), range.clone())) {

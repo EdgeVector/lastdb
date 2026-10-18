@@ -158,6 +158,28 @@ fn empty_molecule(uuid: &str, version: u64) -> MoleculeHashRange {
     MoleculeHashRange::from_write_records(uuid.to_string(), version, chrono::Utc::now(), Vec::new())
 }
 
+/// A moved unchanged value keeps its Atom but uses the accepted move clock.
+fn sibling_source(
+    source: &SlotHead,
+    replacement: Option<&(String, Option<KeyMetadata>)>,
+) -> SlotHead {
+    let mut source = source.clone();
+    if let Some((atom, metadata)) = replacement {
+        let entry = &source.entry;
+        source.entry = AtomEntry::thin_with_author(
+            atom.clone(),
+            entry.written_at,
+            entry.logical_counter,
+            entry.lww_device().to_owned(),
+            entry.mutation_uuid.clone(),
+            String::new(),
+        )
+        .with_origin_device(entry.origin_device.clone());
+        source.metadata.clone_from(metadata);
+    }
+    source
+}
+
 fn winning_sources(
     delta: &PreparedSchemaDelta,
     schema: &Schema,
@@ -208,6 +230,9 @@ impl MutationManager {
             delta.atom_results.clone(),
         );
         let sources = winning_sources(delta, &prospective, &accepted);
+        delta
+            .sibling_moves
+            .retain(|movement| sources.contains_key(&movement.source));
         heads.record_schema(&prospective, &delta.changed_keys);
         delta.schema = prospective;
         let graph_reads = crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
@@ -218,6 +243,7 @@ impl MutationManager {
             let Some(source) = sources.get(&origin.source) else {
                 continue;
             };
+            let source = sibling_source(source, origin.replacement.as_ref());
             if changed.is_empty() {
                 continue;
             }
@@ -249,7 +275,7 @@ impl MutationManager {
                 if let Some(base) = base {
                     base.overlay(&mut rebased, hash, range);
                 }
-                Self::apply_sibling_source(&mut rebased, key, source);
+                Self::apply_sibling_source(&mut rebased, key, &source);
                 heads.record_slot(&uuid, &rebased, key);
             }
             delta.sibling_updates.push((uuid, rebased, changed));

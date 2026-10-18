@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 mod cloud_purge_membership;
+mod memory;
 
 /// Sentinel local storage prefix for the legacy unprefixed personal instance.
 /// Catalog `instance_id` stays `None`; org-sync `storage_prefixes` uses this
@@ -43,11 +44,15 @@ pub struct DbCatalogEntry {
 #[derive(Clone)]
 pub struct DbCatalogStore {
     entries: Arc<TypedKvStore<dyn KvStore>>,
+    runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
 }
 
 impl DbCatalogStore {
-    pub(crate) fn new(entries: Arc<TypedKvStore<dyn KvStore>>) -> Self {
-        Self { entries }
+    pub(crate) fn new(
+        entries: Arc<TypedKvStore<dyn KvStore>>,
+        runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+    ) -> Self {
+        Self { entries, runtime }
     }
 
     /// Insert or replace one exact `(database, schema)` reference.
@@ -65,8 +70,7 @@ impl DbCatalogStore {
         schema_name: &str,
     ) -> StorageResult<Option<DbCatalogEntry>> {
         validate_identity(db_locator, schema_name)?;
-        self.entries
-            .get_item(&entry_key(db_locator, schema_name))
+        self.get_entry_from_memory(&entry_key(db_locator, schema_name))
             .await
     }
 

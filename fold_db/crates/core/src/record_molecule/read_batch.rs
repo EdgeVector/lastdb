@@ -17,7 +17,7 @@ struct SelectedAtom {
     record: Option<PerKeyRecord>,
 }
 
-pub(super) async fn load_record_tip_atoms(
+pub(crate) async fn load_record_tip_atoms(
     db_ops: &DbOperations,
     molecule: &str,
     keys: &[KeyValue],

@@ -38,6 +38,7 @@ pub(in crate::fold_db_core::mutation_manager) struct PreparedSchemaDelta {
         HashSet<ChangedKey>,
     )>,
     pub sibling_origins: Vec<super::prepared::SiblingOrigin>,
+    pub sibling_moves: Vec<super::prepared::SiblingMove>,
     /// Resident revisions used to prepare the protein sibling updates.
     ///
     /// Sibling molecules can belong to another schema lane. Their revisions
@@ -227,7 +228,9 @@ impl MutationManager {
         tombstone_id: u64,
         delete_winning_slots: Option<&HashSet<(String, String, String)>>,
     ) -> PurgeApplyOutcome {
-        if schema_is_scoped(schema) {
+        if schema_is_scoped(schema)
+            || !crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
+        {
             return PurgeApplyOutcome::scoped();
         }
         let mut schema_tombstones = Vec::new();

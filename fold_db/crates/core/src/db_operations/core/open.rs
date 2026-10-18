@@ -175,13 +175,18 @@ impl DbOperations {
 
         // Domain stores
         let schema_store = {
-            let store = SchemaStore::new(schemas_store, schema_states_store, superseded_by_store);
+            let store = SchemaStore::new(
+                schemas_store,
+                schema_states_store,
+                superseded_by_store,
+                store.disk_pack_runtime(),
+            );
             match atom_content_key {
                 Some(key) => store.with_catalog_unwrap_key(key),
                 None => store,
             }
         };
-        let db_catalog = DbCatalogStore::new(db_catalog_store);
+        let db_catalog = DbCatalogStore::new(db_catalog_store, store.disk_pack_runtime());
         let molecule_keys = MoleculeKeyStore::new(
             molecule_keys_store,
             molecule_wrap_key,

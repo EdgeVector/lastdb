@@ -199,6 +199,7 @@ async fn proof_schema_store(
         Arc::new(TypedKvStore::new(bodies)),
         Arc::new(TypedKvStore::new(states)),
         Arc::new(TypedKvStore::new(successors)),
+        store.disk_pack_runtime(),
     )
     .with_catalog_unwrap_key(*key))
 }

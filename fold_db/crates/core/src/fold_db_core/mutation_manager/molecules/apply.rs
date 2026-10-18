@@ -1,5 +1,6 @@
 //! Apply atom writes to in-memory molecules.
 
+use futures::FutureExt;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -169,7 +170,6 @@ impl MutationManager {
         atom_results: &[(usize, String, crate::atom::Atom)],
     ) -> Result<super::PreparedSiblingUpdates, SchemaError> {
         let store = self.db_ops.atoms();
-        let keypair = self.signer.as_ref();
         let mut sibling_updates = Vec::new();
         let mut sibling_origins = Vec::new();
 
@@ -177,23 +177,31 @@ impl MutationManager {
 
         let eligible =
             eligible_protein_atoms(schema, schema_mutations, mutation_key_values, atom_results);
-        let member_uuids: Vec<&str> = eligible.iter().map(|(_, _, mol_uuid)| *mol_uuid).collect();
+        let member_uuids = super::protein_key_fields::member_ids(schema);
         let metadata =
             load_protein_fold_metadata(store, &member_uuids, schema_storage_prefix(schema, None))
                 .await?;
-        let prepared = self.prepare_protein_sibling_slots(
-            schema,
-            schema_mutations,
-            mutation_key_values,
-            &eligible,
-            &metadata,
-        );
-        let (owners_by_molecule, proteins_by_uuid) = metadata;
+        if metadata.0.values().all(Option::is_none) {
+            return Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new()));
+        }
+        let key_maps = self
+            .protein_key_fields(
+                schema,
+                schema_mutations,
+                mutation_key_values,
+                atom_results,
+                &eligible,
+                &metadata,
+            )
+            .boxed()
+            .await?;
+        let prepared =
+            self.prepare_protein_sibling_slots(schema, &eligible, &metadata, &key_maps.after);
+        let (owners_by_molecule, proteins_by_uuid) = &metadata;
 
         // Keep the atom order. Two fields can target the same sibling slot,
         // and the later tip must still observe the earlier update.
-        for (idx, atom, mol_uuid) in eligible {
-            let key_value = &mutation_key_values[idx];
+        for &(idx, atom, mol_uuid) in &eligible {
             let mutation = &schema_mutations[idx];
             let Some(protein_uuid) = owners_by_molecule.get(mol_uuid).and_then(Option::as_ref)
             else {
@@ -208,8 +216,6 @@ impl MutationManager {
                     ))
                 })?;
 
-            let fields = sibling_key_fields(schema, key_value, mutation);
-
             let entry_layout = schema.key.as_ref().and_then(|key| {
                 key.hash_field
                     .as_deref()
@@ -221,9 +227,9 @@ impl MutationManager {
                     protein,
                     mol_uuid,
                     entry_layout,
-                    &fields,
+                    &key_maps.after[&idx],
                     atom.uuid(),
-                    keypair,
+                    self.signer.as_ref(),
                     author_clock,
                     schema_storage_prefix(schema, Some(mol_uuid)),
                 )
@@ -234,46 +240,32 @@ impl MutationManager {
                     sibling_origins.push(super::prepared::SiblingOrigin {
                         source: (idx, mol_uuid.to_string(), atom.uuid().to_string()),
                         base,
+                        replacement: None,
                     });
                 }
             }
         }
-        Ok((sibling_updates, prepared, sibling_origins))
+        let moves = self
+            .prepare_protein_moves(
+                &super::protein_moves::ProteinMoveInput {
+                    schema,
+                    mutations: schema_mutations,
+                    keys: mutation_key_values,
+                    eligible: &eligible,
+                    fields: &key_maps,
+                    metadata: &metadata,
+                },
+                &mut sibling_updates,
+                &mut sibling_origins,
+            )
+            .boxed()
+            .await?;
+        Ok((sibling_updates, prepared, sibling_origins, moves))
     }
-}
-
-/// Key fields of the entry plus any string-like payload fields (multi-key fold
-/// needs both board and milestone in the field map).
-pub(super) fn sibling_key_fields(
-    schema: &Schema,
-    key_value: &KeyValue,
-    mutation: &Mutation,
-) -> HashMap<String, String> {
-    let mut fields: HashMap<String, String> = HashMap::new();
-    if let Some(ref key) = schema.key {
-        if let (Some(hf), Some(h)) = (key.hash_field.as_ref(), key_value.hash.as_ref()) {
-            fields.insert(hf.clone(), h.clone());
-        }
-        if let (Some(rf), Some(r)) = (key.range_field.as_ref(), key_value.range.as_ref()) {
-            fields.insert(rf.clone(), r.clone());
-        }
-    }
-    // Include sibling key fields if present on the mutation payload
-    // (multi-key fold needs both board and milestone in the field map).
-    for (k, v) in &mutation.fields_and_values {
-        if let Some(s) = v.as_str() {
-            fields.entry(k.clone()).or_insert_with(|| s.to_string());
-        } else if !v.is_null() {
-            fields
-                .entry(k.clone())
-                .or_insert_with(|| v.to_string().trim_matches('"').to_string());
-        }
-    }
-    fields
 }
 
 /// The imported author clock of a mutation, with the sync device that wrote it.
-fn mutation_author_clock(mutation: &Mutation) -> Option<TipAuthor> {
+pub(super) fn mutation_author_clock(mutation: &Mutation) -> Option<TipAuthor> {
     mutation.imported_written_at.map(|written_at| {
         let device_id = if mutation.author_clock_writer_id.is_empty() {
             match &mutation.provenance {

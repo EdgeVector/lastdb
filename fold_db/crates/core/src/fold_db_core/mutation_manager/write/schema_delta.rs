@@ -121,7 +121,7 @@ impl MutationManager {
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
     ) -> Result<super::super::molecules::PreparedSiblingUpdates, SchemaError> {
         let fold_start = std::time::Instant::now();
-        let (sibling_updates, sibling_prepared, sibling_origins) = self
+        let (sibling_updates, sibling_prepared, sibling_origins, sibling_moves) = self
             .build_protein_sibling_updates(
                 schema,
                 schema_mutations,
@@ -134,7 +134,12 @@ impl MutationManager {
             "  - protein_sibling_fold",
             fold_start.elapsed(),
         );
-        Ok((sibling_updates, sibling_prepared, sibling_origins))
+        Ok((
+            sibling_updates,
+            sibling_prepared,
+            sibling_origins,
+            sibling_moves,
+        ))
     }
 
     /// Prepare one schema group's atoms, restored tips, and persist capacity.
@@ -179,7 +184,7 @@ impl MutationManager {
                 timing_breakdown,
             )
             .await?;
-        let (sibling_updates, sibling_prepared, sibling_origins) = self
+        let (sibling_updates, sibling_prepared, sibling_origins, sibling_moves) = self
             .prepare_sibling_phase(
                 &schema,
                 &schema_mutations,
@@ -219,6 +224,7 @@ impl MutationManager {
             share_prefixes,
             sibling_updates,
             sibling_origins,
+            sibling_moves,
             sibling_prepared,
             idempotency_entries,
             changed_keys,

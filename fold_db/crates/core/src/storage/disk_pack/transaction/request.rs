@@ -94,14 +94,39 @@ fn protect_paths(
     delay: Option<std::time::Duration>,
 ) -> StorageResult<Option<std::time::Duration>> {
     let paths = std::mem::take(&mut *pending.paths.lock().expect("native private paths"));
-    if delay.is_none() {
-        return Ok(None);
-    }
-    let protection = match super::super::logical_paths::PathProtection::reserve(runtime, &paths) {
+    let absences = std::mem::take(&mut *pending.absences.lock().expect("native private absences"));
+    let definitions = std::mem::take(
+        &mut *pending
+            .definitions
+            .lock()
+            .expect("native private definitions"),
+    )
+    .into_values()
+    .collect();
+    let owner = pending
+        .raw_memory_reservation
+        .lock()
+        .expect("native model reservation")
+        .clone();
+    let changes =
+        super::super::logical_paths::controls::expanded_coordinates(&pending.changed_coordinates());
+    let publication = super::super::logical_paths::PathPublication {
+        definitions,
+        owner,
+        changed_sources: changes,
+        early: delay.is_some(),
+    };
+    let protection = match super::super::logical_paths::PathProtection::reserve(
+        runtime,
+        &paths,
+        &absences,
+        publication,
+    ) {
         Ok(protection) => protection,
         Err(StorageError::WriteResourceLimit { .. }) => return Ok(None),
         Err(error) => return Err(error),
     };
+    let delay = delay.filter(|_| protection.memory_ready());
     *pending
         .path_protection
         .lock()

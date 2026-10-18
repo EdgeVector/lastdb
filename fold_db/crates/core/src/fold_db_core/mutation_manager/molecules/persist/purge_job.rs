@@ -1,6 +1,7 @@
 //! Persist-lane hard-erasure purge job.
 
 use super::*;
+use futures::FutureExt;
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn run_purge_job(
@@ -13,7 +14,18 @@ impl MutationManager {
         let original_flags = native
             .as_ref()
             .map(|_| (job.validated_present, job.retry_requires_finalize));
-        let attempt = self.attempt_purge_stages(job);
+        let attempt = async {
+            let result = self.attempt_purge_stages(job).await?;
+            if let Some(runtime) = &native {
+                self.stage_purge_core_paths(job, runtime)
+                    .boxed()
+                    .await
+                    .map_err(PurgeAttemptError::Retry)?;
+                self.reserve_native_core_memory(runtime)
+                    .map_err(PurgeAttemptError::Retry)?;
+            }
+            Ok(result)
+        };
         let attempt = async {
             // The lane task no longer has the request's logical-commit scope,
             // and LastStore can move its writes onto spawn_blocking. Hold both
@@ -24,7 +36,7 @@ impl MutationManager {
                 .capture_router()
                 .map(|router| router.enter_kv_suppress());
             crate::sync::capture::with_capture_suppressed(
-                crate::storage::disk_pack::transaction::scope(native, attempt),
+                crate::storage::disk_pack::transaction::scope(native.clone(), attempt),
             )
             .await
         };

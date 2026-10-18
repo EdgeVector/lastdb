@@ -152,6 +152,26 @@ pub(crate) fn lookup(
     let context = ReadContext::captured(&runtime).ok_or_else(missing_context)?;
     let (key, atom, metadata, writer, _) = selection.entry;
     let path = binding.path(scope, &molecule, key, atom);
+    let captured = super::read::captured_lookup(&runtime, &context, &path.core())?;
+    if captured.is_absent() {
+        return Ok(None);
+    }
+    if let Some(selected) = captured.into_tip() {
+        let sources = context.core_model.source_coordinates(&path.core());
+        if selected.atom.uuid() == atom
+            && selected.metadata == *metadata
+            && source::body_matches_coordinates(&sources, &selection.primary)
+        {
+            let mut call = crate::read_receipts::lock(&context.call);
+            context.account_memory_record(&mut call, path.id()?.len(), selected.bytes)?;
+            let value = binding.value(&molecule, &selected.atom, metadata.clone(), writer.clone());
+            if value.is_some() {
+                crate::read_receipts::warm_hit();
+            }
+            return Ok(value);
+        }
+        return Ok(None);
+    }
     let tip = core_read::selected_tip(Some(Arc::clone(&runtime)), scope, &molecule, key, atom)?;
     let view = runtime.view.read().expect("native current core lookup");
     if view.revision != context.revision {

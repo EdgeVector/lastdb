@@ -7,6 +7,46 @@ use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory
 use std::sync::Arc;
 
 impl MoleculeKeyStore {
+    /// Stage metadata, never plaintext key material, from the final private view.
+    pub(crate) async fn stage_current_metadata(
+        &self,
+        runtime: &crate::storage::disk_pack::PackRuntime,
+        molecules: &[String],
+    ) -> StorageResult<()> {
+        let mut molecules: Vec<_> = molecules
+            .iter()
+            .flat_map(|molecule| crate::atom::molecule_uuid_read_candidates(molecule))
+            .collect();
+        molecules.sort();
+        molecules.dedup();
+        let keys: Vec<_> = molecules
+            .iter()
+            .map(|molecule| metadata_key(molecule))
+            .collect();
+        let values = self.entries.get_items::<BundleMetadata>(&keys).await?;
+        for ((key, molecule), metadata) in keys.into_iter().zip(molecules).zip(values) {
+            if metadata.as_ref().is_some_and(|metadata| {
+                metadata.version != BUNDLE_VERSION || metadata.molecule_uuid != molecule
+            }) {
+                return Err(StorageError::InvalidOperation(
+                    "molecule key metadata does not match its identity".into(),
+                ));
+            }
+            let bytes = metadata.as_ref().map_or(256, |value| {
+                value.molecule_uuid.capacity().saturating_add(256)
+            });
+            crate::storage::disk_pack::transaction::stage_core_memory(
+                runtime,
+                Arc::as_ptr(&self.cache) as usize,
+                key.clone(),
+                metadata,
+                core_memory_sources("molecule_keys", key.as_bytes()),
+                bytes,
+            )?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn metadata_from_memory(
         &self,
         molecule_uuid: &str,

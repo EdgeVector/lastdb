@@ -50,7 +50,6 @@ pub struct PackRuntime {
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
     resident: Arc<ResidentGraph>,
-    logical: Arc<Mutex<LogicalResidentSet>>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     schema_keys: schema_keys::SchemaKeys,
     published: AtomicU64,
@@ -206,8 +205,7 @@ impl PackNamespacedStore {
                 flush_notify: tokio::sync::Notify::new(),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
-                resident: Arc::new(ResidentGraph::new().with_metrics(Arc::clone(&metrics))),
-                logical: Arc::new(Mutex::new(LogicalResidentSet::new().with_metrics(metrics))),
+                resident: Arc::new(ResidentGraph::new().with_metrics(metrics)),
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 schema_keys: schema_keys::SchemaKeys::new(),
                 published: AtomicU64::new(frontier),
@@ -291,17 +289,12 @@ impl NamespacedStore for PackNamespacedStore {
         self.runtime.flush().await
     }
 
-    fn logical_resident_set(&self) -> Option<Arc<Mutex<LogicalResidentSet>>> {
-        Some(Arc::clone(&self.runtime.logical))
-    }
-
     fn disk_pack_runtime(&self) -> Option<Arc<PackRuntime>> {
         Some(Arc::clone(&self.runtime))
     }
 
     fn plaintext_read_cache(&self) -> Option<Arc<Mutex<LogicalResidentSet>>> {
-        // The native cache holds exactly the stored bytes. A second plaintext
-        // cache would double admission and could mix committed generations.
+        // Typed logical values live in CoreWarmSet, with one publication owner.
         None
     }
 }

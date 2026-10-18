@@ -1,6 +1,7 @@
 //! Persist-lane deferred resident-write job.
 
 use super::*;
+use futures::FutureExt;
 
 impl MutationManager {
     /// Produce all stored bytes in the native request's private preparation
@@ -52,6 +53,10 @@ impl MutationManager {
             self.settle_deferred_atom_births(job, commit_id).await?;
             self.store_deferred_schema(job, commit_id).await?;
             self.store_deferred_side_records(job, commit_id).await?;
+            if let Some(runtime) = &native {
+                self.stage_native_paths(job, runtime).boxed().await?;
+                self.reserve_native_core_memory(runtime)?;
+            }
 
             Ok::<(), SchemaError>(())
         };
@@ -60,7 +65,7 @@ impl MutationManager {
                 .capture_router()
                 .map(|router| router.enter_kv_suppress());
             crate::sync::capture::with_capture_suppressed(
-                crate::storage::disk_pack::transaction::scope(native, persist_body),
+                crate::storage::disk_pack::transaction::scope(native.clone(), persist_body),
             )
             .await
         };
@@ -154,6 +159,7 @@ impl MutationManager {
         commit_id: u64,
     ) -> Result<(), SchemaError> {
         let mut timing = std::collections::HashMap::new();
+        self.persist_sibling_key_moves(job).boxed().await?;
         self.persist_modified_molecules(
             &mut job.schema,
             &job.modified_fields,

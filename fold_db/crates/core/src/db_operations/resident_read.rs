@@ -1,16 +1,10 @@
-//! Resident-first atom resolution — the T0 fast path for batch atom loads.
+//! Legacy unprefixed atom reads can reuse ResidentGraph values. Native reads
+//! use the captured typed core model, current authorized core values, and the
+//! captured disk root. They do not inspect a second raw write buffer.
 //!
-//! Wraps [`crate::db_operations::atom_store::AtomStore::get_atoms_located`]
-//! with a per-uuid resident check. Atoms are content-addressed, so serving a
-//! known uuid from resident can never return a different answer than storage —
-//! there is no completeness problem the way there is for tip/range sets. Hits
-//! skip storage entirely; misses batch through the normal located load into
-//! the warm set.
-//!
-//! Only legacy unprefixed reads consult the live typed graph. Native pack reads
-//! use the same graph owner's immutable keyed write root, then clean warm
-//! records and their captured committed disk root. A local
-//! selected tip with no atom is an integrity failure, never record absence.
+//! Reuse preserves the full Atom metadata and selected physical copy; a UUID
+//! alone does not certify interchangeable copies. Misses use the normal batch
+//! loader. A selected tip without its Atom is an integrity failure.
 
 use crate::atom::{Atom, AtomPartition};
 use crate::db_operations::DbOperations;
@@ -18,7 +12,7 @@ use crate::schema::types::SchemaError;
 use std::sync::Arc;
 
 /// The mutable legacy typed graph is not part of a captured native read root.
-/// Native reads use the immutable write graph below the typed store instead.
+/// Native reads use CoreWarmSet and its immutable typed read versions instead.
 pub(crate) fn graph_reads_enabled(db_ops: &DbOperations) -> bool {
     db_ops.namespaced_store().disk_pack_runtime().is_none()
 }

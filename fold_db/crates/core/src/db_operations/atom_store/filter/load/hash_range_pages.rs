@@ -229,39 +229,25 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         keys: &[(String, String)],
     ) -> Result<Option<MoleculeData>, SchemaError> {
-        let codec = self.key_codec_for_molecule(molecule_uuid);
-        let mut groups = Vec::with_capacity(keys.len());
-        for (hash, range) in keys {
-            groups.push(
-                codec
-                    .api_hash_range_record_keys_for_read(molecule_uuid, hash, range)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?,
-            );
-        }
+        let api_keys: Vec<_> = keys
+            .iter()
+            .map(|(hash, range)| {
+                crate::schema::types::key_value::KeyValue::new(
+                    Some(hash.clone()),
+                    Some(range.clone()),
+                )
+            })
+            .collect();
         let hits = self
-            .load_first_present_candidate_with_key(storage_prefix, &groups)
+            .load_query_tip_records(storage_prefix, molecule_uuid, &api_keys)
             .await?;
         let mut records = Vec::with_capacity(keys.len());
-        for (((hash, range), candidates), hit) in keys.iter().zip(&groups).zip(hits) {
-            let api_key = crate::schema::types::key_value::KeyValue::new(
-                Some(hash.clone()),
-                Some(range.clone()),
-            );
-            if let Some((base, rec)) = hit {
-                self.note_selected_query_tip_candidates(
-                    storage_prefix,
-                    molecule_uuid,
-                    &api_key,
-                    &rec,
-                    &base,
-                    candidates,
-                )?;
+        for ((hash, range), hit) in keys.iter().zip(hits) {
+            if let Some((_, rec)) = hit {
                 // Option I: echo the API pair the caller supplied, so
                 // `apply_hash_range_filter` — pure string comparison,
                 // no codec — can match it.
                 records.push((hash.clone(), range.clone(), rec.entry, rec.meta));
-            } else {
-                self.note_missing_query_key(storage_prefix, molecule_uuid, &api_key, candidates)?;
             }
         }
         Ok(Some(MoleculeHashRange::from_per_key_records(

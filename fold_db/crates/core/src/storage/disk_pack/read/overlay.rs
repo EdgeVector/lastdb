@@ -1,4 +1,4 @@
-//! Read the captured write graph before any clean warm record or disk bytes.
+//! Private preparation reads its existing immutable flush-log prefix.
 
 use super::super::transaction::{PendingBatch, PendingRecord};
 use super::ReadContext;
@@ -14,7 +14,12 @@ impl ReadContext {
     ) -> Option<Arc<PendingRecord>> {
         pending
             .and_then(|batch| batch.lookup(collection, key))
-            .or_else(|| self.graph.get(collection, key))
+            .or_else(|| {
+                self.accepted
+                    .iter()
+                    .rev()
+                    .find_map(|batch| batch.lookup(collection, key))
+            })
     }
 
     pub(in crate::storage::disk_pack) fn overlay_rows(
@@ -24,12 +29,12 @@ impl ReadContext {
         start: &[u8],
         end: &[u8],
     ) -> Vec<Arc<PendingRecord>> {
-        let mut rows: BTreeMap<_, _> = self
-            .graph
-            .range(collection, start, end)
-            .into_iter()
-            .map(|record| (record.key.clone(), record))
-            .collect();
+        let mut rows = BTreeMap::new();
+        for batch in self.accepted.iter() {
+            for record in batch.matching(collection, start, end) {
+                rows.insert(record.key.clone(), record);
+            }
+        }
         if let Some(batch) = pending {
             for record in batch.matching(collection, start, end) {
                 rows.insert(record.key.clone(), record);

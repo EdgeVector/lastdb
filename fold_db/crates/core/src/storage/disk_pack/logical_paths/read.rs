@@ -3,6 +3,24 @@ use super::*;
 use crate::schema::types::key_value::KeyValue;
 use crate::storage::disk_pack::read::ReadContext;
 
+/// Dirty values belong to the captured core revision, including after a flush.
+pub(super) fn captured_lookup(
+    runtime: &PackRuntime,
+    context: &ReadContext,
+    path: &CorePath,
+) -> StorageResult<crate::resident::CoreWarmLookup> {
+    let selected = context.core_model.lookup(path);
+    if !selected.is_unknown() {
+        let view = runtime.view.read().expect("captured core path hold");
+        let mut core = runtime.core.lock().expect("captured core path retention");
+        context.hold_core(&mut core, std::slice::from_ref(path))?;
+        if view.revision == context.revision {
+            let _ = core.lookup(path);
+        }
+    }
+    Ok(selected)
+}
+
 impl PackRuntime {
     pub(super) fn admit_field_path(
         self: &Arc<Self>,

@@ -57,14 +57,14 @@ impl AtomStore {
             .iter()
             .map(|key| delete_barrier_key(key.as_bytes()))
             .collect();
-        let captured = crate::storage::disk_pack::read_snapshot_active(
-            self.namespaced_store
-                .as_ref()
-                .and_then(|store| store.disk_pack_runtime()),
-        );
-        // Native query snapshots contain accepted and durable raw barriers.
-        // The pending map is private Delete preparation: consulting it could
-        // cache an absence whose barrier disappears after failed convergence.
+        let captured = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime())
+            .is_some_and(|runtime| runtime.captured_view_active());
+        // Native views read their own captured disk and private staged barriers.
+        // The global pending map can contain a different Delete that later
+        // fails, so it cannot establish an absence in a captured typed model.
         // Other readers still take pending first across its durable handoff.
         let pending: Vec<Option<DeleteBarrier>> = if captured {
             vec![None; keys.len()]

@@ -1,6 +1,7 @@
 //! Persist-lane storage-slot purge job.
 
 use super::*;
+use futures::FutureExt;
 
 impl MutationManager {
     /// Run one legacy storage-slot drain page through its schema lane.
@@ -21,14 +22,23 @@ impl MutationManager {
                 job.retry_requires_finalize,
             )
         });
-        let attempt = self.attempt_storage_slot_purge_stages(job);
+        let attempt = async {
+            self.attempt_storage_slot_purge_stages(job).await?;
+            if let Some(runtime) = &native {
+                self.stage_storage_slot_core_paths(job, runtime)
+                    .boxed()
+                    .await?;
+                self.reserve_native_core_memory(runtime)?;
+            }
+            Ok::<_, SchemaError>(())
+        };
 
         let attempt = async {
             let _kv_suppress = self
                 .capture_router()
                 .map(|router| router.enter_kv_suppress());
             crate::sync::capture::with_capture_suppressed(
-                crate::storage::disk_pack::transaction::scope(native, attempt),
+                crate::storage::disk_pack::transaction::scope(native.clone(), attempt),
             )
             .await
         };

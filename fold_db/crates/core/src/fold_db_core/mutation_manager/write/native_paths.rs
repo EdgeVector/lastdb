@@ -2,11 +2,17 @@
 
 use super::super::molecules::DeferredPersistJob;
 use super::*;
-use crate::atom::{Atom, AtomEntry, KeyMetadata};
+use crate::atom::{AtomEntry, KeyMetadata};
+use crate::storage::disk_pack::logical_paths::source::CertifiedAtom;
 use crate::storage::disk_pack::logical_paths::{schema_identity, LogicalPath, LogicalPathRecord};
 use crate::storage::disk_pack::{transaction, PackRuntime};
+use futures::FutureExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+mod bindings;
+mod positive;
+mod removed;
 
 struct ChangedTip {
     molecule: String,
@@ -25,87 +31,89 @@ struct Binding {
 }
 
 impl MutationManager {
-    pub(super) async fn stage_native_paths(
+    pub(in crate::fold_db_core::mutation_manager) fn reserve_native_core_memory(
+        &self,
+        runtime: &PackRuntime,
+    ) -> Result<(), SchemaError> {
+        let bytes = transaction::memory_quote(runtime)?;
+        if let Some(reservation) = self.try_reserve_defer(bytes) {
+            transaction::retain_raw_memory_reservation(runtime, reservation)?;
+        } else {
+            transaction::require_durable(runtime)?;
+        }
+        Ok(())
+    }
+
+    pub(in crate::fold_db_core::mutation_manager) async fn stage_native_paths(
         &self,
         job: &DeferredPersistJob,
         runtime: &PackRuntime,
     ) -> Result<(), SchemaError> {
-        if !self.resident_mode.acks_on_resident() {
-            return Ok(());
+        self.stage_native_scope(job, runtime, job.storage_prefix.as_deref(), true)
+            .boxed()
+            .await?;
+        if job.storage_prefix.is_none() {
+            for scope in &job.share_prefixes {
+                self.stage_native_scope(job, runtime, Some(scope), false)
+                    .boxed()
+                    .await?;
+            }
         }
-        if job.storage_prefix.is_some() || !job.share_prefixes.is_empty() {
-            return Ok(transaction::require_durable(runtime)?);
-        }
+        Ok(())
+    }
+
+    async fn stage_native_scope(
+        &self,
+        job: &DeferredPersistJob,
+        runtime: &PackRuntime,
+        scope: Option<&str>,
+        siblings: bool,
+    ) -> Result<(), SchemaError> {
+        self.stage_native_headers(job, runtime, scope, siblings)?;
+        let mut atom_ids: Vec<_> = job
+            .deferred_atoms
+            .iter()
+            .flatten()
+            .map(|(atom, _)| atom.uuid().to_owned())
+            .collect();
+        atom_ids.sort();
+        atom_ids.dedup();
+        self.db_ops
+            .atoms()
+            .stage_atom_locators(runtime, scope, &atom_ids)
+            .await?;
         if !self
             .db_ops
             .atoms()
-            .molecule_ref_edges_v2_complete(None)
+            .molecule_ref_edges_v2_complete(scope)
             .await?
         {
-            return Ok(transaction::require_durable(runtime)?);
+            transaction::require_durable(runtime)?;
         }
         if !runtime.write_has_feature(laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS) {
-            return Ok(transaction::require_durable(runtime)?);
+            transaction::require_durable(runtime)?;
         }
-        let tips = changed_tips(job);
-        let molecules: std::collections::BTreeSet<_> =
-            tips.iter().map(|tip| tip.molecule.clone()).collect();
-        let bindings = futures::future::try_join_all(molecules.iter().map(|molecule| async {
-            Ok::<_, SchemaError>((molecule.clone(), self.path_bindings(job, molecule).await?))
-        }))
-        .await?;
-        let bindings: BTreeMap<_, _> = bindings.into_iter().collect();
-        if bindings.values().any(Option::is_none) {
-            return Ok(transaction::require_durable(runtime)?);
-        }
-        let Some(atoms) = self
-            .path_atoms(&tips, job.storage_prefix.as_deref())
-            .await?
-        else {
+        let tips = changed_tips(job, siblings);
+        self.stage_native_controls(runtime, scope, &tips)
+            .boxed()
+            .await?;
+        let bindings = self
+            .native_path_bindings(job, runtime, scope, &tips)
+            .await?;
+        let Some(atoms) = self.path_atoms(&tips, scope).await? else {
             return Ok(transaction::require_durable(runtime)?);
         };
-        let mut records = Vec::new();
-        for tip in &tips {
-            let (atom_key, _) = self.path_atom_target(tip, job.storage_prefix.as_deref())?;
-            let atom = &atoms[&atom_key];
-            let sources = self.path_sources(tip, job.storage_prefix.as_deref())?;
-            for binding in bindings[&tip.molecule]
-                .as_ref()
-                .expect("complete path bindings")
-            {
-                if binding.envelope
-                    && !crate::record_molecule::parse_document_fields(atom.content())
-                        .is_some_and(|fields| fields.contains_key(&binding.name))
-                {
-                    continue;
-                }
-                let record = LogicalPathRecord::from_atom(
-                    LogicalPath {
-                        scope: job.storage_prefix.clone(),
-                        schema: binding.schema.clone(),
-                        field: binding.field.clone(),
-                        molecule: tip.molecule.clone(),
-                        hash: tip.hash.clone(),
-                        range: tip.range.clone(),
-                        atom: tip.entry.atom_uuid.clone(),
-                    },
-                    Arc::clone(atom),
-                    tip.entry.clone(),
-                    tip.metadata.clone(),
-                )?
-                .with_sources(sources.clone());
-                if records.len() >= 10_000 {
-                    return Ok(transaction::require_durable(runtime)?);
-                }
-                records.push(record);
-            }
-        }
+        let Some(records) = self.native_path_records(scope, &tips, &atoms, &bindings)? else {
+            return Ok(transaction::require_durable(runtime)?);
+        };
         match transaction::stage_paths(runtime, records) {
             Err(crate::storage::StorageError::WriteResourceLimit { .. }) => {
-                Ok(transaction::require_durable(runtime)?)
+                transaction::require_durable(runtime)?;
             }
-            result => Ok(result?),
+            result => result?,
         }
+        self.stage_removed_job_paths(job, runtime, scope, siblings)
+            .await
     }
 
     /// Name each accepted tip spelling and the current atom placement candidate.
@@ -113,6 +121,7 @@ impl MutationManager {
         &self,
         tip: &ChangedTip,
         scope: Option<&str>,
+        atom_key: &str,
     ) -> Result<Vec<String>, SchemaError> {
         let atoms = self.db_ops.atoms();
         let codec = atoms.key_codec_for_molecule(&tip.molecule);
@@ -122,7 +131,7 @@ impl MutationManager {
             .into_iter()
             .map(|key| crate::schema::types::field::build_storage_key(scope, &key))
             .collect();
-        sources.push(self.path_atom_target(tip, scope)?.0);
+        sources.push(atom_key.to_owned());
         Ok(sources)
     }
 
@@ -138,12 +147,12 @@ impl MutationManager {
         Ok((key, partition))
     }
 
-    /// Fetch exact physical targets, then share only identical full core values.
+    /// Fetch preferred targets, retaining each body's certified actual copy.
     async fn path_atoms(
         &self,
         tips: &[ChangedTip],
         storage_prefix: Option<&str>,
-    ) -> Result<Option<BTreeMap<String, Arc<Atom>>>, SchemaError> {
+    ) -> Result<Option<BTreeMap<String, CertifiedAtom>>, SchemaError> {
         let mut targets = BTreeMap::new();
         for tip in tips {
             let (key, partition) = self.path_atom_target(tip, storage_prefix)?;
@@ -163,189 +172,39 @@ impl MutationManager {
             .atoms()
             .get_atoms_located(&slots, storage_prefix)
             .await?;
+        let expected: Vec<_> = fetched
+            .into_iter()
+            .map(|atom| {
+                atom.ok_or_else(|| SchemaError::StorageRead {
+                    detail: "native write path has no staged or stored atom content".into(),
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
+        let certified = crate::storage::disk_pack::logical_paths::source::certified_atoms(
+            runtime,
+            storage_prefix,
+            &expected,
+        )?;
         let mut bytes = 0usize;
         let mut atoms = BTreeMap::new();
-        let mut shared: BTreeMap<String, Vec<Arc<Atom>>> = BTreeMap::new();
-        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
-        for ((target, (id, partition)), atom) in targets.into_iter().zip(fetched) {
-            let atom = atom.ok_or_else(|| SchemaError::StorageRead {
-                detail: "native write path has no staged or stored atom content".into(),
-            })?;
-            if !crate::storage::disk_pack::logical_paths::source::certified_atom(
-                runtime.clone(),
-                storage_prefix,
-                id,
-                Some(&partition),
-                &target,
-                &atom,
-            )? {
-                return Ok(None);
-            }
+        for ((target, _), atom) in targets.into_iter().zip(certified) {
+            let Some(atom) = atom else { return Ok(None) };
             bytes = bytes.saturating_add(
-                serde_json::to_vec(&atom)
+                serde_json::to_vec(atom.atom.as_ref())
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))?
                     .len(),
             );
             if bytes > 128 * 1024 * 1024 {
                 return Ok(None);
             }
-            let variants = shared.entry(atom.uuid().to_owned()).or_default();
-            let atom = if let Some(existing) = variants.iter().find(|value| value.as_ref() == &atom)
-            {
-                Arc::clone(existing)
-            } else {
-                let atom = Arc::new(atom);
-                variants.push(Arc::clone(&atom));
-                atom
-            };
             atoms.insert(target, atom);
         }
         Ok(Some(atoms))
     }
-
-    async fn path_bindings(
-        &self,
-        job: &DeferredPersistJob,
-        molecule: &str,
-    ) -> Result<Option<Vec<Binding>>, SchemaError> {
-        let mut bindings = schema_bindings(&job.schema, molecule)?;
-        if bindings.is_empty() && job.schema.molecule_uuid.as_deref() == Some(molecule) {
-            return Ok(None);
-        }
-        let edges = self
-            .db_ops
-            .atoms()
-            .molecule_ref_edges_for_molecule(molecule, None)
-            .await?;
-        if !edges.complete {
-            return Ok(None);
-        }
-        if edges.edges.iter().any(|edge| {
-            !matches!(
-                edge.edge_type.as_str(),
-                "schema-field" | "schema-record" | "protein-member"
-            )
-        }) {
-            return Ok(None);
-        }
-        let sources = edges
-            .edges
-            .iter()
-            .filter(|edge| matches!(edge.edge_type.as_str(), "schema-field" | "schema-record"));
-        let resolved = futures::future::try_join_all(sources.map(|edge| async move {
-            if edge.edge_type == "schema-record" {
-                self.resolve_record_source(&edge.source, molecule).await
-            } else {
-                Ok(self
-                    .resolve_path_source(&edge.source, molecule)
-                    .await?
-                    .map(|binding| vec![binding]))
-            }
-        }))
-        .await?;
-        for resolved in resolved {
-            let Some(resolved) = resolved else {
-                return Ok(None);
-            };
-            for binding in resolved {
-                if !bindings.contains(&binding) {
-                    bindings.push(binding);
-                    if bindings.len() > 10_000 {
-                        return Ok(None);
-                    }
-                }
-            }
-        }
-        Ok((!bindings.is_empty()).then_some(bindings))
-    }
-
-    async fn resolve_record_source(
-        &self,
-        source: &str,
-        molecule: &str,
-    ) -> Result<Option<Vec<Binding>>, SchemaError> {
-        let Some(name) = source
-            .strip_prefix("schema:")
-            .and_then(|source| source.strip_suffix(":record"))
-        else {
-            return Ok(None);
-        };
-        let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
-        let Some(schema) = snapshot
-            .schema
-            .filter(|schema| schema.molecule_uuid.as_deref() == Some(molecule))
-        else {
-            return Ok(None);
-        };
-        let bindings = schema_bindings(&schema, molecule)?;
-        Ok((!bindings.is_empty()).then_some(bindings))
-    }
-
-    async fn resolve_path_source(
-        &self,
-        source: &str,
-        molecule: &str,
-    ) -> Result<Option<Binding>, SchemaError> {
-        let Some(source) = source.strip_prefix("schema:") else {
-            return Ok(None);
-        };
-        let candidates: Vec<_> = source
-            .match_indices(":field:")
-            .map(|(at, _)| (&source[..at], &source[at + 7..]))
-            .collect();
-        if candidates.len() > 64 {
-            return Ok(None);
-        }
-        let values = futures::future::try_join_all(candidates.into_iter().map(
-            |(schema, field)| async move {
-                let snapshot = self.db_ops.schemas().read_snapshot(schema).await?;
-                let Some(schema) = snapshot.schema else {
-                    return Ok::<_, SchemaError>(None);
-                };
-                Ok(schema_bindings(&schema, molecule)?
-                    .into_iter()
-                    .find(|binding| binding.name == field))
-            },
-        ))
-        .await?;
-        let mut found = values.into_iter().flatten();
-        let Some(binding) = found.next() else {
-            return Ok(None);
-        };
-        Ok(found.next().is_none().then_some(binding))
-    }
 }
 
-fn schema_bindings(
-    schema: &crate::schema::types::Schema,
-    molecule: &str,
-) -> Result<Vec<Binding>, SchemaError> {
-    let envelope = schema.molecule_uuid.as_deref() == Some(molecule);
-    if schema.runtime_fields.len() > 10_000 {
-        return Ok(Vec::new());
-    }
-    let mut bindings = Vec::new();
-    for (name, field) in &schema.runtime_fields {
-        if crate::record_molecule::is_record_molecule_field(name) {
-            continue;
-        }
-        if !envelope && field.common().molecule_uuid().map(String::as_str) != Some(molecule) {
-            continue;
-        }
-        let Some(identity) = schema.field_hashes.get(name).filter(|id| !id.is_empty()) else {
-            return Ok(Vec::new());
-        };
-        bindings.push(Binding {
-            schema: schema_identity(schema)?,
-            field: identity.clone(),
-            name: name.clone(),
-            envelope,
-        });
-    }
-    Ok(bindings)
-}
-
-fn changed_tips(job: &DeferredPersistJob) -> Vec<ChangedTip> {
+fn changed_tips(job: &DeferredPersistJob, include_siblings: bool) -> Vec<ChangedTip> {
     let entry = job.modified_fields.iter().filter_map(|(name, keys)| {
         let field = job.schema.runtime_fields.get(name)?;
         Some((
@@ -357,6 +216,7 @@ fn changed_tips(job: &DeferredPersistJob) -> Vec<ChangedTip> {
     let siblings = job
         .sibling_updates
         .iter()
+        .filter(|_| include_siblings)
         .map(|(molecule, data, keys)| (molecule.as_str(), data, keys));
     let mut tips = BTreeMap::new();
     for (molecule, data, keys) in entry.chain(siblings) {

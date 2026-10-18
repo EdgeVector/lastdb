@@ -8,6 +8,8 @@ mod persist;
 mod prepare;
 mod prepared;
 mod protein_batch;
+mod protein_key_fields;
+mod protein_moves;
 mod restore;
 mod scoped_gate;
 mod storage_links;
@@ -21,5 +23,5 @@ pub(in crate::fold_db_core::mutation_manager) use persist::{
     PurgeEnvelope, ResidentPurgeSlot, StorageSlotPurgeEnvelope,
 };
 pub(in crate::fold_db_core::mutation_manager) use prepared::{
-    PreparedSiblingUpdates, PreparedSlotRevision,
+    PreparedSiblingUpdates, PreparedSlotRevision, SiblingMove,
 };

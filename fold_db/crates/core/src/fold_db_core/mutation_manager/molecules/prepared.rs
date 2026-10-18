@@ -19,11 +19,22 @@ pub(in crate::fold_db_core::mutation_manager) type AcceptedSources =
 pub(in crate::fold_db_core::mutation_manager) struct SiblingOrigin {
     pub source: SourceId,
     pub base: Option<(crate::atom::AtomEntry, Option<crate::atom::KeyMetadata>)>,
+    pub replacement: Option<(String, Option<crate::atom::KeyMetadata>)>,
+}
+
+#[derive(Clone)]
+pub(in crate::fold_db_core::mutation_manager) struct SiblingMove {
+    pub source: SourceId,
+    pub molecule_uuid: String,
+    pub old_key: crate::schema::types::KeyValue,
+    pub new_key: crate::schema::types::KeyValue,
+    pub expected_old: crate::db_operations::atom_store::PerKeyRecord,
 }
 pub(in crate::fold_db_core::mutation_manager) type PreparedSiblingUpdates = (
     Vec<SiblingUpdate>,
     Vec<PreparedSlotRevision>,
     Vec<SiblingOrigin>,
+    Vec<SiblingMove>,
 );
 
 /// The lease prevents a completed slot from losing its revision identity.

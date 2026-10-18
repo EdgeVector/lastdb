@@ -4,6 +4,13 @@ use super::super::*;
 use crate::resident::{CoreMemorySource, CoreMemoryValue, CoreWarmSet};
 use std::any::Any;
 
+impl PackRuntime {
+    /// Both queries and private write preparation own one complete native view.
+    pub(crate) fn captured_view_active(&self) -> bool {
+        super::ReadContext::active(self)
+    }
+}
+
 /// Enumerate the same alternate coordinates as an ordinary native exact read.
 pub(crate) fn core_memory_sources(namespace: &str, key: &[u8]) -> Vec<CoreMemorySource> {
     kv::coordinates(namespace, key)
@@ -32,6 +39,15 @@ pub(crate) fn core_memory_get<T: Any + Send + Sync>(
     let Some(context) = super::ReadContext::captured(&runtime) else {
         return Ok(None);
     };
+    if let Some(value) = context.core_model.memory_get(owner, name) {
+        return super::snapshots::read_snapshot_insert_arc(
+            Some(runtime),
+            owner,
+            name.to_owned(),
+            value,
+        )
+        .map(Some);
+    }
     let view = runtime.view.read().map_err(|_| lock_error())?;
     if view.revision != context.revision {
         return Ok(None);
@@ -65,6 +81,9 @@ pub(crate) fn core_memory_insert<T: Any + Send + Sync>(
     }
     let runtime = runtime.ok_or_else(lock_error)?;
     let context = super::ReadContext::captured(&runtime).ok_or_else(lock_error)?;
+    if let Some(value) = context.core_model.memory_get(owner, &name) {
+        return super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name, value);
+    }
     let view = runtime.view.read().map_err(|_| lock_error())?;
     let value = if view.revision == context.revision {
         let mut core = runtime.core.lock().map_err(|_| lock_error())?;

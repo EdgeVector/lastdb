@@ -54,6 +54,18 @@ impl CoreWarmSet {
             });
         }
         self.ensure_path(path)?;
+        let owned = self
+            .owned_slots
+            .get(&path.slot())
+            .filter(|previous| {
+                previous.value.as_ref().is_some_and(|previous| {
+                    previous.entry == value.entry
+                        && previous.metadata == value.metadata
+                        && previous.atom.as_ref() == value.atom.as_ref()
+                })
+            })
+            .cloned()
+            .unwrap_or_else(|| model::CoreModelSlot::clean(Some(value.clone())));
         let slot = path.slot();
         let previous = self
             .molecules
@@ -74,6 +86,7 @@ impl CoreWarmSet {
                 value.metadata,
             );
         self.mark_slot(&slot, false, dirty_sequence);
+        self.owned_slots.insert(slot, owned);
         self.touch(path);
         Ok(())
     }
@@ -90,6 +103,8 @@ impl CoreWarmSet {
         self.forget_slot_sources(&slot);
         self.forget_slot_value(&slot);
         self.mark_slot(&slot, true, dirty_sequence);
+        self.owned_slots
+            .insert(slot, model::CoreModelSlot::clean(None));
         self.touch(path);
         Ok(())
     }
@@ -146,6 +161,26 @@ impl CoreWarmSet {
             entry,
             metadata,
         );
+        if let Some(previous) = self.owned_slots.get(&slot) {
+            let mut value = previous.value.clone();
+            if let Some(value) = &mut value {
+                value.entry = molecule
+                    .get_atom_entry(&slot.hash, &slot.range)
+                    .expect("refreshed tip")
+                    .clone();
+                value.metadata = molecule.get_key_metadata(&slot.hash, &slot.range).cloned();
+            }
+            self.owned_slots.insert(
+                slot.clone(),
+                Arc::new(model::CoreModelSlot {
+                    value,
+                    sources: previous.sources.clone(),
+                    owner: previous.owner.clone(),
+                    metadata_charge: previous.metadata_charge.clone(),
+                    charged_bytes: previous.charged_bytes,
+                }),
+            );
+        }
         for owner in self.slot_owners.get(&slot).into_iter().flatten() {
             if let Some(state) = self.paths.get_mut(owner) {
                 state.tip_authorized = false;

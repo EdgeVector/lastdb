@@ -9,6 +9,95 @@ use crate::storage::disk_pack::read::ReadContext;
 static KEY_LEASES: u8 = 0;
 
 impl PackRuntime {
+    /// Domain membership remains mutable, so selection holds the view boundary.
+    pub(crate) fn with_schema_key_selection<T>(&self, select: impl FnOnce() -> T) -> Option<T> {
+        if transaction::PendingBatch::current(self).is_some() || !field::provenance_current() {
+            return None;
+        }
+        let context = ReadContext::captured(self)?;
+        let view = self.view.read().ok()?;
+        (view.revision == context.revision).then(select)
+    }
+
+    pub(crate) fn captured_core_model(&self) -> Option<crate::resident::CoreModelSnapshot> {
+        if transaction::PendingBatch::current(self).is_some() {
+            return None;
+        }
+        Some(ReadContext::captured(self)?.core_model.clone())
+    }
+
+    /// A selected row can keep the body's real location, including a protein
+    /// sibling's copy. A mismatched row never changes the selected-tip receipt.
+    pub(crate) fn schema_key_tip_for_record(
+        self: &Arc<Self>,
+        scope: Option<&str>,
+        molecule: &str,
+        key: &KeyValue,
+        expected: &PerKeyRecord,
+    ) -> StorageResult<bool> {
+        if transaction::PendingBatch::current(self).is_some() || !field::provenance_current() {
+            return Ok(false);
+        }
+        let Some(context) = ReadContext::captured(self) else {
+            return Ok(false);
+        };
+        let path = crate::resident::CorePath {
+            scope: scope.map(str::to_owned),
+            schema: String::new(),
+            field: String::new(),
+            molecule: molecule.to_owned(),
+            hash: key.hash.clone().unwrap_or_default(),
+            range: key.range.clone().unwrap_or_default(),
+        };
+        let captured = context.core_model.lookup(&path);
+        let sources = if captured.is_unknown() {
+            let Some(binding) = field::FieldScope::current() else {
+                return Ok(false);
+            };
+            let view = self.view.read().map_err(|_| selection_lock_error())?;
+            if view.revision != context.revision {
+                return Ok(false);
+            }
+            let path = binding.path(scope, molecule, key, "").core();
+            let mut core = self.core.lock().map_err(|_| selection_lock_error())?;
+            if !core.path_authorized(&path) {
+                return Ok(false);
+            }
+            context.hold_core(&mut core, std::slice::from_ref(&path))?;
+            let Some(selected) = core.lookup(&path).into_tip() else {
+                return Ok(false);
+            };
+            if selected.entry != expected.entry || selected.metadata != expected.meta {
+                return Ok(false);
+            }
+            core.source_coordinates(&path)
+        } else {
+            let Some(selected) = captured.into_tip() else {
+                return Ok(false);
+            };
+            if selected.entry != expected.entry || selected.metadata != expected.meta {
+                return Ok(false);
+            }
+            context.core_model.source_coordinates(&path)
+        };
+        let Some(body) = super::super::logical_paths::source::body_location_from_coordinates(
+            &sources,
+            &expected.entry.atom_uuid,
+        )?
+        else {
+            return Ok(false);
+        };
+        super::super::logical_paths::core_read::note_partition(
+            Some(Arc::clone(self)),
+            scope,
+            molecule,
+            key,
+            &expected.entry,
+            expected.meta.as_ref(),
+            body.partition.as_ref(),
+        )
+    }
+
     /// A query retains this same domain through every key and value chunk.
     pub(crate) fn schema_key_lease(
         self: &Arc<Self>,
@@ -60,10 +149,13 @@ impl PackRuntime {
         if transaction::PendingBatch::current(self).is_some() || !field::provenance_current() {
             return Ok(None);
         }
-        let Some(binding) = field::FieldScope::current() else {
+        let Some(context) = ReadContext::captured(self) else {
             return Ok(None);
         };
-        let Some(context) = ReadContext::captured(self) else {
+        if let Some(value) = self.snapshot_key_tip(&context, scope, molecule, api_key)? {
+            return Ok(Some(value));
+        }
+        let Some(binding) = field::FieldScope::current() else {
             return Ok(None);
         };
         let view = self.view.read().map_err(|_| selection_lock_error())?;
@@ -116,6 +208,65 @@ impl PackRuntime {
         Ok(Some(Some(PerKeyRecord {
             entry: selection.entry,
             meta: selection.metadata,
+        })))
+    }
+
+    fn snapshot_key_tip(
+        self: &Arc<Self>,
+        context: &Arc<ReadContext>,
+        scope: Option<&str>,
+        molecule: &str,
+        key: &KeyValue,
+    ) -> StorageResult<Option<Option<PerKeyRecord>>> {
+        let path = crate::resident::CorePath {
+            scope: scope.map(str::to_owned),
+            schema: String::new(),
+            field: String::new(),
+            molecule: molecule.to_owned(),
+            hash: key.hash.clone().unwrap_or_default(),
+            range: key.range.clone().unwrap_or_default(),
+        };
+        let selected = context.core_model.lookup(&path);
+        if selected.is_unknown() {
+            return Ok(None);
+        }
+        if selected.is_absent() {
+            context.account_memory_record(
+                &mut crate::read_receipts::lock(&context.call),
+                path.hash.len() + path.range.len(),
+                0,
+            )?;
+            crate::read_receipts::warm_hit();
+            return Ok(Some(None));
+        }
+        let selected = selected.into_tip().expect("known positive typed tip");
+        let location = super::super::logical_paths::source::body_location_from_coordinates(
+            &context.core_model.source_coordinates(&path),
+            &selected.entry.atom_uuid,
+        )?
+        .ok_or_else(selection_lock_error)?;
+        context.account_memory_record(
+            &mut crate::read_receipts::lock(&context.call),
+            path.hash.len() + path.range.len(),
+            selected.bytes,
+        )?;
+        if !super::super::logical_paths::core_read::note_partition(
+            Some(Arc::clone(self)),
+            scope,
+            molecule,
+            key,
+            &selected.entry,
+            selected.metadata.as_ref(),
+            location.partition.as_ref(),
+        )? {
+            return Err(StorageError::ReadResourceLimit {
+                detail: "captured core tip cannot retain its atom location".into(),
+            });
+        }
+        crate::read_receipts::warm_hit();
+        Ok(Some(Some(PerKeyRecord {
+            entry: selected.entry,
+            meta: selected.metadata,
         })))
     }
 }

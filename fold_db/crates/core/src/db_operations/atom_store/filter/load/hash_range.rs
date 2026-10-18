@@ -78,6 +78,7 @@ impl AtomStore {
                 ))
             })?;
 
+        let keys = self.merge_captured_tip_keys(storage_prefix, molecule_uuid, keys)?;
         // A legacy/current forked pair is ONE record. Excluding the legacy half
         // here rather than at the read boundary is what keeps the window and
         // `total_count` measured in rows: the boundary's collapse only fires

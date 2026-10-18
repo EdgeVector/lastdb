@@ -12,10 +12,13 @@ mod admission;
 mod keys;
 mod lifecycle;
 mod memory;
+mod model;
 mod sources;
 
 pub(crate) use memory::CoreMemorySource;
+pub(crate) use memory::PreparedCoreMemory;
 pub use memory::{CoreMemoryStats, CoreMemoryValue};
+pub(crate) use model::{CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate};
 
 /// Stable identity of one used field path. Its current atom is not its key.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -156,11 +159,13 @@ struct SharedAtom {
 #[derive(Default)]
 pub(crate) struct CoreWarmSet {
     memory: memory::CoreMemory,
+    model: model::CoreModel,
     molecules: HashMap<MoleculeKey, MoleculeHashRange>,
     // A content UUID does not identify the immutable metadata of a full atom.
     // The UUID buckets share only fully equal atoms and own no retained bytes.
     atoms: HashMap<AtomKey, Vec<Weak<SharedAtom>>>,
     slot_atoms: HashMap<SlotKey, Arc<SharedAtom>>,
+    owned_slots: HashMap<SlotKey, Arc<model::CoreModelSlot>>,
     paths: HashMap<CorePath, PathState>,
     slot_owners: HashMap<SlotKey, HashSet<CorePath>>,
     order: BTreeMap<u64, CorePath>,

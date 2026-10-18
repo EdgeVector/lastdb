@@ -1,0 +1,1290 @@
+{
+  "queries": [
+    {
+      "db_locator": null,
+      "file_read_calls": 1,
+      "phase": "scoped-personal-first-read",
+      "raw_requested_family_keys": {
+        "conflict_control": 2,
+        "molecule_encryption_keys": 4
+      },
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-7",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 317,
+          "utc": "2026-10-18T18:12:49.300555Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 318,
+          "utc": "2026-10-18T18:12:49.300636Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 319,
+          "utc": "2026-10-18T18:12:49.300645Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 320,
+          "utc": "2026-10-18T18:12:49.300651Z"
+        },
+        {
+          "family": "conflict_control",
+          "keys": 1,
+          "line": 321,
+          "utc": "2026-10-18T18:12:49.301573Z"
+        },
+        {
+          "family": "conflict_control",
+          "keys": 1,
+          "line": 322,
+          "utc": "2026-10-18T18:12:49.304442Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:49.304943+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-7",
+        "started_utc": "2026-10-18T18:12:49.300161+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 5,
+      "phase": "scoped-empty-definitions-and-keys",
+      "raw_requested_family_keys": {
+        "database_membership": 1,
+        "generation_pointer": 2,
+        "tip": 2
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-8",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 323,
+          "utc": "2026-10-18T18:12:49.309107Z"
+        },
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 324,
+          "utc": "2026-10-18T18:12:49.309396Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 325,
+          "utc": "2026-10-18T18:12:49.309803Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 326,
+          "utc": "2026-10-18T18:12:49.309820Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:49.310117+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-8",
+        "started_utc": "2026-10-18T18:12:49.308905+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 1,
+      "phase": "scoped-personal-first-read",
+      "raw_requested_family_keys": {
+        "generation_pointer": 2,
+        "molecule_encryption_keys": 4
+      },
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-9",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 327,
+          "utc": "2026-10-18T18:12:49.310416Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 328,
+          "utc": "2026-10-18T18:12:49.314644Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 329,
+          "utc": "2026-10-18T18:12:49.315021Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 330,
+          "utc": "2026-10-18T18:12:49.315033Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 331,
+          "utc": "2026-10-18T18:12:49.315149Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 332,
+          "utc": "2026-10-18T18:12:49.316366Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:49.320759+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-9",
+        "started_utc": "2026-10-18T18:12:49.310226+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 5,
+      "phase": "scoped-empty-definitions-and-keys",
+      "raw_requested_family_keys": {
+        "database_membership": 1,
+        "generation_pointer": 2,
+        "molecule_header": 1,
+        "tip": 2
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-10",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 333,
+          "utc": "2026-10-18T18:12:49.325167Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 334,
+          "utc": "2026-10-18T18:12:49.325672Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 335,
+          "utc": "2026-10-18T18:12:49.326592Z"
+        },
+        {
+          "family": "molecule_header",
+          "keys": 1,
+          "line": 336,
+          "utc": "2026-10-18T18:12:49.330254Z"
+        },
+        {
+          "family": "tip",
+          "keys": 2,
+          "line": 337,
+          "utc": "2026-10-18T18:12:49.333574Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:49.334226+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-10",
+        "started_utc": "2026-10-18T18:12:49.324992+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 6,
+      "phase": "scoped-after-create",
+      "raw_requested_family_keys": {
+        "database_membership": 1
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-13",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 481,
+          "utc": "2026-10-18T18:12:51.495586Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:51.504238+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-13",
+        "started_utc": "2026-10-18T18:12:51.495025+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "personal-unchanged-after-scoped-create",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-14",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:51.515215+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-14",
+        "started_utc": "2026-10-18T18:12:51.510195+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 6,
+      "phase": "scoped-after-create",
+      "raw_requested_family_keys": {
+        "database_membership": 1
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-15",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 482,
+          "utc": "2026-10-18T18:12:51.516353Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:51.528712+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-15",
+        "started_utc": "2026-10-18T18:12:51.515884+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "personal-unchanged-after-scoped-create",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-16",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:51.533838+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-16",
+        "started_utc": "2026-10-18T18:12:51.529572+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 6,
+      "phase": "scoped-after-update",
+      "raw_requested_family_keys": {
+        "database_membership": 1
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-19",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 611,
+          "utc": "2026-10-18T18:12:51.875577Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:51.883994+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-19",
+        "started_utc": "2026-10-18T18:12:51.875095+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "personal-unchanged-after-scoped-update",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-20",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:51.892824+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-20",
+        "started_utc": "2026-10-18T18:12:51.888045+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 6,
+      "phase": "scoped-after-update",
+      "raw_requested_family_keys": {
+        "database_membership": 1
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-21",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 612,
+          "utc": "2026-10-18T18:12:51.894144Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:51.901985+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-21",
+        "started_utc": "2026-10-18T18:12:51.893516+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "personal-unchanged-after-scoped-update",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-22",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:51.910778+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-22",
+        "started_utc": "2026-10-18T18:12:51.907057+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 6,
+      "phase": "scoped-after-delete",
+      "raw_requested_family_keys": {
+        "database_membership": 1
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-25",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 782,
+          "utc": "2026-10-18T18:12:52.284147Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:52.292898+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-25",
+        "started_utc": "2026-10-18T18:12:52.283559+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "personal-unchanged-after-scoped-delete",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-26",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:52.302655+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-26",
+        "started_utc": "2026-10-18T18:12:52.297569+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 6,
+      "phase": "scoped-after-delete",
+      "raw_requested_family_keys": {
+        "database_membership": 1
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-27",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 783,
+          "utc": "2026-10-18T18:12:52.303553Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:52.311540+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-27",
+        "started_utc": "2026-10-18T18:12:52.303141+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "personal-unchanged-after-scoped-delete",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-28",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:52.320815+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-28",
+        "started_utc": "2026-10-18T18:12:52.316151+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 6,
+      "phase": "scoped-after-create",
+      "raw_requested_family_keys": {
+        "database_membership": 1
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-31",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 905,
+          "utc": "2026-10-18T18:12:52.552572Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:52.560491+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-31",
+        "started_utc": "2026-10-18T18:12:52.552398+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "personal-unchanged-after-scoped-create",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-32",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:52.565209+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-32",
+        "started_utc": "2026-10-18T18:12:52.560862+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 6,
+      "phase": "scoped-after-create",
+      "raw_requested_family_keys": {
+        "database_membership": 1
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-33",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 906,
+          "utc": "2026-10-18T18:12:52.569779Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:52.573671+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-33",
+        "started_utc": "2026-10-18T18:12:52.569557+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 0,
+      "phase": "personal-unchanged-after-scoped-create",
+      "raw_requested_family_keys": {},
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-34",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:52.574486+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-34",
+        "started_utc": "2026-10-18T18:12:52.573986+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 77,
+      "phase": "scoped-normal-reopen",
+      "raw_requested_family_keys": {
+        "atom": 8,
+        "conflict_control": 2,
+        "database_membership": 1,
+        "generation_pointer": 8,
+        "molecule_encryption_keys": 8,
+        "record_delete": 4,
+        "schema": 1,
+        "schema_state": 1,
+        "tip": 16
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-38",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [
+        {
+          "family": "schema",
+          "keys": 1,
+          "line": 1002,
+          "utc": "2026-10-18T18:12:53.498377Z"
+        },
+        {
+          "family": "schema_state",
+          "keys": 1,
+          "line": 1003,
+          "utc": "2026-10-18T18:12:53.498670Z"
+        },
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 1004,
+          "utc": "2026-10-18T18:12:53.499002Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1005,
+          "utc": "2026-10-18T18:12:53.499162Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1006,
+          "utc": "2026-10-18T18:12:53.499315Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1007,
+          "utc": "2026-10-18T18:12:53.499500Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1008,
+          "utc": "2026-10-18T18:12:53.499637Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1009,
+          "utc": "2026-10-18T18:12:53.499779Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1010,
+          "utc": "2026-10-18T18:12:53.499913Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1011,
+          "utc": "2026-10-18T18:12:53.500055Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1012,
+          "utc": "2026-10-18T18:12:53.500188Z"
+        },
+        {
+          "family": "tip",
+          "keys": 4,
+          "line": 1013,
+          "utc": "2026-10-18T18:12:53.501812Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1014,
+          "utc": "2026-10-18T18:12:53.502070Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1015,
+          "utc": "2026-10-18T18:12:53.502086Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1016,
+          "utc": "2026-10-18T18:12:53.502109Z"
+        },
+        {
+          "family": "atom",
+          "keys": 2,
+          "line": 1017,
+          "utc": "2026-10-18T18:12:53.502371Z"
+        },
+        {
+          "family": "tip",
+          "keys": 4,
+          "line": 1018,
+          "utc": "2026-10-18T18:12:53.502605Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1019,
+          "utc": "2026-10-18T18:12:53.502759Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1020,
+          "utc": "2026-10-18T18:12:53.502769Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1021,
+          "utc": "2026-10-18T18:12:53.502783Z"
+        },
+        {
+          "family": "tip",
+          "keys": 4,
+          "line": 1022,
+          "utc": "2026-10-18T18:12:53.502896Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1023,
+          "utc": "2026-10-18T18:12:53.502956Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1024,
+          "utc": "2026-10-18T18:12:53.502964Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1025,
+          "utc": "2026-10-18T18:12:53.503054Z"
+        },
+        {
+          "family": "tip",
+          "keys": 4,
+          "line": 1026,
+          "utc": "2026-10-18T18:12:53.503154Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1027,
+          "utc": "2026-10-18T18:12:53.503222Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1028,
+          "utc": "2026-10-18T18:12:53.503231Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1029,
+          "utc": "2026-10-18T18:12:53.503242Z"
+        },
+        {
+          "family": "atom",
+          "keys": 6,
+          "line": 1030,
+          "utc": "2026-10-18T18:12:53.503355Z"
+        },
+        {
+          "family": "conflict_control",
+          "keys": 1,
+          "line": 1031,
+          "utc": "2026-10-18T18:12:53.503545Z"
+        },
+        {
+          "family": "conflict_control",
+          "keys": 1,
+          "line": 1032,
+          "utc": "2026-10-18T18:12:53.503552Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:53.503888+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-38",
+        "started_utc": "2026-10-18T18:12:53.498137+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 13,
+      "phase": "personal-normal-reopen",
+      "raw_requested_family_keys": {
+        "atom": 8,
+        "generation_pointer": 8,
+        "record_delete": 4,
+        "tip": 16
+      },
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-39",
+      "schema": "CoreOwnedScopedHash",
+      "trace_entries": [
+        {
+          "family": "tip",
+          "keys": 4,
+          "line": 1033,
+          "utc": "2026-10-18T18:12:53.504323Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1034,
+          "utc": "2026-10-18T18:12:53.504643Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1035,
+          "utc": "2026-10-18T18:12:53.504652Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1036,
+          "utc": "2026-10-18T18:12:53.504664Z"
+        },
+        {
+          "family": "atom",
+          "keys": 2,
+          "line": 1037,
+          "utc": "2026-10-18T18:12:53.504715Z"
+        },
+        {
+          "family": "tip",
+          "keys": 4,
+          "line": 1038,
+          "utc": "2026-10-18T18:12:53.504853Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1039,
+          "utc": "2026-10-18T18:12:53.504913Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1040,
+          "utc": "2026-10-18T18:12:53.504922Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1041,
+          "utc": "2026-10-18T18:12:53.504932Z"
+        },
+        {
+          "family": "tip",
+          "keys": 4,
+          "line": 1042,
+          "utc": "2026-10-18T18:12:53.504963Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1043,
+          "utc": "2026-10-18T18:12:53.505021Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1044,
+          "utc": "2026-10-18T18:12:53.505029Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1045,
+          "utc": "2026-10-18T18:12:53.505038Z"
+        },
+        {
+          "family": "tip",
+          "keys": 4,
+          "line": 1046,
+          "utc": "2026-10-18T18:12:53.505067Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1047,
+          "utc": "2026-10-18T18:12:53.505124Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1048,
+          "utc": "2026-10-18T18:12:53.505132Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1049,
+          "utc": "2026-10-18T18:12:53.505141Z"
+        },
+        {
+          "family": "atom",
+          "keys": 6,
+          "line": 1050,
+          "utc": "2026-10-18T18:12:53.505181Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:53.505596+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-39",
+        "started_utc": "2026-10-18T18:12:53.504074+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": "lastdb://org/core-owned/generated",
+      "file_read_calls": 84,
+      "phase": "scoped-normal-reopen",
+      "raw_requested_family_keys": {
+        "atom": 8,
+        "database_membership": 1,
+        "generation_pointer": 8,
+        "molecule_encryption_keys": 8,
+        "molecule_header": 1,
+        "record_delete": 4,
+        "schema": 1,
+        "schema_state": 1,
+        "tip": 32
+      },
+      "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-40",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [
+        {
+          "family": "schema",
+          "keys": 1,
+          "line": 1051,
+          "utc": "2026-10-18T18:12:53.505962Z"
+        },
+        {
+          "family": "schema_state",
+          "keys": 1,
+          "line": 1052,
+          "utc": "2026-10-18T18:12:53.506200Z"
+        },
+        {
+          "family": "database_membership",
+          "keys": 1,
+          "line": 1053,
+          "utc": "2026-10-18T18:12:53.506418Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1054,
+          "utc": "2026-10-18T18:12:53.506556Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1055,
+          "utc": "2026-10-18T18:12:53.506688Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1056,
+          "utc": "2026-10-18T18:12:53.506828Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1057,
+          "utc": "2026-10-18T18:12:53.506961Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1058,
+          "utc": "2026-10-18T18:12:53.507099Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1059,
+          "utc": "2026-10-18T18:12:53.507230Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1060,
+          "utc": "2026-10-18T18:12:53.507379Z"
+        },
+        {
+          "family": "molecule_encryption_keys",
+          "keys": 1,
+          "line": 1061,
+          "utc": "2026-10-18T18:12:53.507510Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1062,
+          "utc": "2026-10-18T18:12:53.507778Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1063,
+          "utc": "2026-10-18T18:12:53.513605Z"
+        },
+        {
+          "family": "molecule_header",
+          "keys": 1,
+          "line": 1064,
+          "utc": "2026-10-18T18:12:53.519242Z"
+        },
+        {
+          "family": "tip",
+          "keys": 8,
+          "line": 1065,
+          "utc": "2026-10-18T18:12:53.519766Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1066,
+          "utc": "2026-10-18T18:12:53.520031Z"
+        },
+        {
+          "family": "atom",
+          "keys": 2,
+          "line": 1067,
+          "utc": "2026-10-18T18:12:53.520437Z"
+        },
+        {
+          "family": "tip",
+          "keys": 8,
+          "line": 1068,
+          "utc": "2026-10-18T18:12:53.520926Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1069,
+          "utc": "2026-10-18T18:12:53.521011Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1070,
+          "utc": "2026-10-18T18:12:53.521021Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1071,
+          "utc": "2026-10-18T18:12:53.521115Z"
+        },
+        {
+          "family": "tip",
+          "keys": 8,
+          "line": 1072,
+          "utc": "2026-10-18T18:12:53.521623Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1073,
+          "utc": "2026-10-18T18:12:53.521709Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1074,
+          "utc": "2026-10-18T18:12:53.521718Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1075,
+          "utc": "2026-10-18T18:12:53.521736Z"
+        },
+        {
+          "family": "tip",
+          "keys": 8,
+          "line": 1076,
+          "utc": "2026-10-18T18:12:53.522245Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1077,
+          "utc": "2026-10-18T18:12:53.522290Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1078,
+          "utc": "2026-10-18T18:12:53.522298Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1079,
+          "utc": "2026-10-18T18:12:53.522315Z"
+        },
+        {
+          "family": "atom",
+          "keys": 6,
+          "line": 1080,
+          "utc": "2026-10-18T18:12:53.522583Z"
+        }
+      ],
+      "window": {
+        "db_locator": "lastdb://org/core-owned/generated",
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:53.523266+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "core-owned-1568d7d94c3a4ecd9670db24edceb923-scoped-40",
+        "started_utc": "2026-10-18T18:12:53.505781+00:00",
+        "variant": "core-owned-candidate"
+      }
+    },
+    {
+      "db_locator": null,
+      "file_read_calls": 20,
+      "phase": "personal-normal-reopen",
+      "raw_requested_family_keys": {
+        "atom": 8,
+        "generation_pointer": 8,
+        "molecule_header": 1,
+        "record_delete": 4,
+        "tip": 32
+      },
+      "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-41",
+      "schema": "CoreOwnedScopedHashRange",
+      "trace_entries": [
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1081,
+          "utc": "2026-10-18T18:12:53.523848Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1082,
+          "utc": "2026-10-18T18:12:53.529362Z"
+        },
+        {
+          "family": "molecule_header",
+          "keys": 1,
+          "line": 1083,
+          "utc": "2026-10-18T18:12:53.534756Z"
+        },
+        {
+          "family": "tip",
+          "keys": 8,
+          "line": 1084,
+          "utc": "2026-10-18T18:12:53.535305Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1085,
+          "utc": "2026-10-18T18:12:53.535548Z"
+        },
+        {
+          "family": "atom",
+          "keys": 2,
+          "line": 1086,
+          "utc": "2026-10-18T18:12:53.535655Z"
+        },
+        {
+          "family": "tip",
+          "keys": 8,
+          "line": 1087,
+          "utc": "2026-10-18T18:12:53.536049Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1088,
+          "utc": "2026-10-18T18:12:53.536225Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1089,
+          "utc": "2026-10-18T18:12:53.536234Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1090,
+          "utc": "2026-10-18T18:12:53.536250Z"
+        },
+        {
+          "family": "tip",
+          "keys": 8,
+          "line": 1091,
+          "utc": "2026-10-18T18:12:53.536602Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1092,
+          "utc": "2026-10-18T18:12:53.536679Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1093,
+          "utc": "2026-10-18T18:12:53.536687Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1094,
+          "utc": "2026-10-18T18:12:53.536702Z"
+        },
+        {
+          "family": "tip",
+          "keys": 8,
+          "line": 1095,
+          "utc": "2026-10-18T18:12:53.537050Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1096,
+          "utc": "2026-10-18T18:12:53.537124Z"
+        },
+        {
+          "family": "generation_pointer",
+          "keys": 1,
+          "line": 1097,
+          "utc": "2026-10-18T18:12:53.537132Z"
+        },
+        {
+          "family": "record_delete",
+          "keys": 1,
+          "line": 1098,
+          "utc": "2026-10-18T18:12:53.537146Z"
+        },
+        {
+          "family": "atom",
+          "keys": 6,
+          "line": 1099,
+          "utc": "2026-10-18T18:12:53.537248Z"
+        }
+      ],
+      "window": {
+        "diagnostics": "off",
+        "finished_utc": "2026-10-18T18:12:53.537787+00:00",
+        "operation": "diagnostic-call-window",
+        "path": "/api/query",
+        "request_id": "temperature-1568d7d94c3a4ecd9670db24edceb923-core-owned-candidate-41",
+        "started_utc": "2026-10-18T18:12:53.523464+00:00",
+        "variant": "core-owned-candidate"
+      }
+    }
+  ],
+  "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/candidate-scoped-window-trace-v4",
+  "scope": "Time-window association of fixed family logs. Background calls can share a window. Raw requested keys do not equal file reads. The strict zero-file candidate receipt remains failed."
+}

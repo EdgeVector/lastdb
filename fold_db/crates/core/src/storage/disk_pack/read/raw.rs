@@ -1,4 +1,4 @@
-//! Read the captured write graph before the retained disk root.
+//! Ordinary raw reads use disk; private preparation can read its own flush log.
 
 use super::*;
 

@@ -51,7 +51,7 @@ impl AtomStore {
     /// Under [`crate::atom::AtomKeyEncoding::Flat`] step 1 and step 3 are both
     /// unreachable (no prefixed bodies, so no locator rows), leaving exactly the
     /// single flat read this path has always done.
-    pub async fn get_atom_by_uuid_in_partition(
+    pub(super) async fn get_atom_by_uuid_captured(
         &self,
         atom_uuid: &str,
         partition_hint: Option<&crate::atom::AtomPartition>,
@@ -67,32 +67,20 @@ impl AtomStore {
                 storage_prefix,
                 &atom_key_codec::storage_key(prefixed, Some(hint), atom_uuid),
             );
-            if let Some(raw) = self.get_atom_value(&key).await? {
-                return Ok(Some(
-                    self.decode_atom_at_source(
-                        &key,
-                        &raw,
-                        storage_prefix,
-                        partition_hint,
-                        &primary,
-                    )
-                    .await?,
-                ));
+            if let Some(atom) = self
+                .load_atom_at_source(&key, storage_prefix, partition_hint, &primary)
+                .await?
+            {
+                return Ok(Some(atom));
             }
         }
 
         let flat_key = build_storage_key(storage_prefix, &atom_key_codec::flat_key(atom_uuid));
-        if let Some(raw) = self.get_atom_value(&flat_key).await? {
-            return Ok(Some(
-                self.decode_atom_at_source(
-                    &flat_key,
-                    &raw,
-                    storage_prefix,
-                    partition_hint,
-                    &primary,
-                )
-                .await?,
-            ));
+        if let Some(atom) = self
+            .load_atom_at_source(&flat_key, storage_prefix, partition_hint, &primary)
+            .await?
+        {
+            return Ok(Some(atom));
         }
 
         let Some(partition) = self
@@ -105,19 +93,8 @@ impl AtomStore {
             storage_prefix,
             &atom_key_codec::storage_key(prefixed, Some(&partition), atom_uuid),
         );
-        match self.get_atom_value(&located_key).await? {
-            Some(raw) => Ok(Some(
-                self.decode_atom_at_source(
-                    &located_key,
-                    &raw,
-                    storage_prefix,
-                    partition_hint,
-                    &primary,
-                )
-                .await?,
-            )),
-            None => Ok(None),
-        }
+        self.load_atom_at_source(&located_key, storage_prefix, partition_hint, &primary)
+            .await
     }
 
     /// Batch counterpart of [`Self::get_atom_by_uuid_in_partition`]: load many
@@ -142,7 +119,7 @@ impl AtomStore {
     /// flat keys this path has always built and steps 2–3 are unreachable, so
     /// the shipped encoding pays nothing — not even an extra comparison per
     /// row.
-    pub async fn get_atoms_located(
+    pub(super) async fn get_atoms_located_captured(
         &self,
         slots: &[(&str, Option<crate::atom::AtomPartition>)],
         storage_prefix: Option<&str>,
@@ -220,17 +197,13 @@ impl AtomStore {
                 build_storage_key(storage_prefix, &atom_locator_codec::locator_key(slots[i].0))
             })
             .collect();
-        let locators = self
-            .main_store
-            .get_items::<Value>(&locator_keys)
-            .await
-            .map_err(SchemaError::from)?;
+        let locators = self.load_atom_partitions(&locator_keys).await?;
 
         // Only the rows that named a readable partition are worth a third read.
         let mut located_idx: Vec<usize> = Vec::new();
         let mut located_keys: Vec<String> = Vec::new();
-        for (&i, raw) in unresolved.iter().zip(locators) {
-            let Some(partition) = raw.as_ref().and_then(atom_locator_codec::decode_value) else {
+        for (&i, partition) in unresolved.iter().zip(locators) {
+            let Some(partition) = partition else {
                 continue;
             };
             located_idx.push(i);
@@ -275,14 +248,6 @@ impl AtomStore {
         Ok(())
     }
 
-    pub(super) async fn get_atom_value(&self, key: &str) -> Result<Option<Vec<u8>>, SchemaError> {
-        self.main_store
-            .inner()
-            .get(key.as_bytes())
-            .await
-            .map_err(SchemaError::from)
-    }
-
     /// The partition a body was written under, from its locator row.
     ///
     /// `None` for every degraded case — no row, an unreadable value, a value
@@ -295,20 +260,11 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Option<crate::atom::AtomPartition>, SchemaError> {
         let key = build_storage_key(storage_prefix, &atom_locator_codec::locator_key(atom_uuid));
-        let raw = self
-            .main_store
-            .get_item::<Value>(&key)
-            .await
-            .map_err(SchemaError::from)?;
-        let Some(raw) = raw else {
-            return Ok(None);
-        };
-        let partition = atom_locator_codec::decode_value(&raw);
-        if partition.is_none() {
-            // Not fatal — we fall back to the flat key — but it means a row we
-            // wrote no longer round-trips, which is worth seeing.
-            tracing::warn!(atom_uuid, "unreadable atom locator value; using flat key");
-        }
-        Ok(partition)
+        Ok(self
+            .load_atom_partitions(&[key])
+            .await?
+            .into_iter()
+            .next()
+            .flatten())
     }
 }

@@ -46,7 +46,7 @@ impl AtomStore {
             }
         }
 
-        for (molecule_uuid, slots) in slots_by_molecule {
+        for (molecule_uuid, slots) in &slots_by_molecule {
             let Some(pointer) = self
                 .active_molecule_generation(molecule_uuid, storage_prefix)
                 .await?
@@ -55,7 +55,7 @@ impl AtomStore {
             };
             let mut generation_keys = Vec::new();
             let mut generation_slots = Vec::new();
-            for &slot in &slots {
+            for &slot in slots {
                 if let Some(key) = molecule_key_codec::molecule_generation_bound_for_record_bound(
                     molecule_uuid,
                     &pointer.generation,
@@ -82,7 +82,7 @@ impl AtomStore {
 
             let mut delete_keys = Vec::new();
             let mut delete_slots = Vec::new();
-            for &slot in &slots {
+            for &slot in slots {
                 if let Some(key) =
                     molecule_key_codec::molecule_generation_delete_bound_for_record_bound(
                         molecule_uuid,
@@ -108,6 +108,7 @@ impl AtomStore {
                 }
             }
         }
+        self.merge_captured_exact_tips(storage_prefix, base_keys, slots_by_molecule, &mut hit)?;
         Ok(hit)
     }
 
@@ -127,16 +128,16 @@ impl AtomStore {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
-        let codec = self.key_codec_for_molecule(molecule_uuid);
-        let groups: Vec<Vec<String>> = keys
+        let api_keys: Vec<_> = keys
             .iter()
             .map(|(hash, range)| {
-                codec
-                    .api_hash_range_record_keys_for_read(molecule_uuid, hash, range)
-                    .map_err(|error| SchemaError::InvalidData(error.to_string()))
+                crate::schema::types::key_value::KeyValue::new(
+                    Some(hash.clone()),
+                    Some(range.clone()),
+                )
             })
-            .collect::<Result<_, _>>()?;
-        self.load_first_present_candidate_with_key(storage_prefix, &groups)
+            .collect();
+        self.load_query_tip_records(storage_prefix, molecule_uuid, &api_keys)
             .await
     }
 }

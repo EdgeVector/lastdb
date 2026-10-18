@@ -5,6 +5,42 @@ use crate::resident::CoreWarmSet;
 use crate::schema::types::field::build_storage_key;
 use crate::storage::laststore::native_routing;
 
+/// Include the base tip affected by generation records and every slot affected
+/// by a structural replacement. Dirty model coverage uses the same controls.
+pub(in crate::storage::disk_pack) fn expanded_coordinates(
+    changes: &[(String, String)],
+) -> Vec<(String, String)> {
+    let mut sources = changes.to_vec();
+    for (collection, key) in changes {
+        let Ok(raw) = native_routing::decode(key) else {
+            continue;
+        };
+        if !native_routing::read_candidates(&raw).contains(&collection.as_str()) {
+            continue;
+        }
+        let Ok(raw) = std::str::from_utf8(&raw) else {
+            continue;
+        };
+        let Some((scope, bare, family)) = control_coordinate(raw) else {
+            continue;
+        };
+        let molecule = bare[family.len()..]
+            .split([':', '\0'])
+            .next()
+            .unwrap_or_default();
+        if molecule.is_empty() || family == "mgp:v1:" {
+            continue;
+        }
+        let affected = generation_tip(molecule, bare, family)
+            .unwrap_or_else(|| molecule_key_codec::molecule_generation_pointer_key(molecule));
+        let affected = build_storage_key(scope, &affected);
+        sources.extend(super::super::kv::coordinates("main", affected.as_bytes()));
+    }
+    sources.sort();
+    sources.dedup();
+    sources
+}
+
 pub(in crate::storage::disk_pack) fn invalidate(
     core: &mut CoreWarmSet,
     changes: &[(String, String)],

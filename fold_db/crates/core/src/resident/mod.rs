@@ -11,8 +11,7 @@
 //!
 //! - [`ResidentGraph`] (`graph*`, `coverage`, `types`) is built by every
 //!   `DbOperations`, in every mode. Native storage and `DbOperations` share
-//!   this owner. Native writes use its immutable keyed write graph; a read
-//!   captures that root together with its disk root. Its legacy per-slot
+//!   this owner. Native logical values live in the shared core model. Its legacy per-slot
 //!   revisions are the mutation
 //!   concurrency gate (`mutation_manager/molecules/apply_gate.rs`), and
 //!   protein sibling rebase reads tips from it. The mode only decides whether
@@ -23,8 +22,8 @@
 //! - [`CoreWarmSet`] owns native logical read state: typed definitions,
 //!   complete selected keys, sparse current tips, confirmed absence, and full
 //!   atom objects. Calls hold their selected paths; a separate recency list
-//!   controls retention. The raw write graph and held disk roots supply a
-//!   call's captured state when the current model no longer matches it.
+//!   controls retention. An immutable typed core view and a held disk root
+//!   supply each call's state when later writes change the current model.
 //! - [`logical_set::LogicalResidentSet`] retains compatibility read state for
 //!   the non-native LastStore adapter (`storage/laststore/logical_path/`).
 //!
@@ -79,7 +78,6 @@ mod lane;
 mod ledger;
 mod logical_set;
 mod metrics;
-mod native_write_graph;
 mod types;
 mod worker;
 
@@ -91,6 +89,9 @@ pub use config::{
 };
 pub(crate) use core_set::CoreMemorySource;
 pub use core_set::{CoreMemoryStats, CoreMemoryValue};
+pub(crate) use core_set::{
+    CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate, PreparedCoreMemory,
+};
 pub(crate) use core_set::{CorePath, CoreWarmLookup, CoreWarmSet, CoreWarmSlot};
 pub(crate) use graph::OwnedSlotRead;
 pub(crate) use graph::ResidentOverlayEntry;
@@ -106,7 +107,6 @@ pub use logical_set::{
     ResidentKey, Tip, RESIDENT_KEY_CAP, RESIDENT_KEY_CAP_ENV,
 };
 pub use metrics::{ResidentMetrics, ResidentMetricsSnapshot};
-pub(crate) use native_write_graph::{NativeWriteGraph, NativeWriteRecord};
 pub use types::{
     DirtyKey, ResidentAtom, ResidentKeySetCompleteness, ResidentKeySetSnapshot, ResidentKind,
     ResidentMoleculeKey, ResidentSlotControl, ResidentSlotState, ResidentTip, ResolveOutcome,

@@ -20,6 +20,7 @@ impl CoreWarmSet {
 
     /// A completed older flush cannot clear the sequence of a newer write.
     pub(crate) fn complete_flush(&mut self, sequence: u64) {
+        self.complete_model_flush(sequence);
         let mut unknown = Vec::new();
         for (path, state) in &mut self.paths {
             if state.dirty.is_some_and(|dirty| dirty <= sequence) {
@@ -114,6 +115,7 @@ impl CoreWarmSet {
     }
 
     pub(super) fn forget_slot_value(&mut self, slot: &SlotKey) {
+        self.owned_slots.remove(slot);
         let (previous, empty) = match self.molecules.get_mut(&slot.molecule) {
             Some(molecule) => (
                 molecule.forget_loaded_slot(&slot.hash, &slot.range),

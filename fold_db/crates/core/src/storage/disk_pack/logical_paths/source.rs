@@ -1,9 +1,12 @@
 //! Full decoded atoms and source coordinates belong to one read or write call.
 use super::*;
 use crate::atom::Atom;
+use std::collections::BTreeMap;
 
 const MAX_SOURCE_ENTRIES: usize = 10_000;
 const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
+mod certified;
+pub(crate) use certified::{certified_atoms, CertifiedAtom};
 static SOURCE_CACHE: u8 = 0;
 
 pub(in crate::storage::disk_pack) struct BodyLocation {
@@ -15,8 +18,15 @@ pub(in crate::storage::disk_pack) fn body_location(
     path: &crate::resident::CorePath,
     atom: &str,
 ) -> StorageResult<Option<BodyLocation>> {
-    for (_, key) in core.source_coordinates(path) {
-        let raw = crate::storage::laststore::native_routing::decode(&key)?;
+    body_location_from_coordinates(&core.source_coordinates(path), atom)
+}
+
+pub(in crate::storage::disk_pack) fn body_location_from_coordinates(
+    coordinates: &[(String, String)],
+    atom: &str,
+) -> StorageResult<Option<BodyLocation>> {
+    for (_, key) in coordinates {
+        let raw = crate::storage::laststore::native_routing::decode(key)?;
         let Ok(raw) = std::str::from_utf8(&raw) else {
             continue;
         };
@@ -34,6 +44,10 @@ pub(super) fn body_matches(
     path: &crate::resident::CorePath,
     requested: &str,
 ) -> bool {
+    body_matches_coordinates(&core.source_coordinates(path), requested)
+}
+
+pub(super) fn body_matches_coordinates(coordinates: &[(String, String)], requested: &str) -> bool {
     let Some(first) = crate::kind_partition::read_forms(requested)
         .into_iter()
         .next()
@@ -48,7 +62,7 @@ pub(super) fn body_matches(
         return false;
     };
     let encoded = crate::storage::laststore::native_routing::encode(first.as_bytes());
-    core.source_coordinates(path)
+    coordinates
         .iter()
         .any(|(actual_collection, key)| actual_collection == collection && key == &encoded)
 }
@@ -290,18 +304,6 @@ pub(super) fn atom_facts(
 fn scoped(scope: Option<&str>, atom: &str, hint: Option<&crate::atom::AtomPartition>) -> String {
     serde_json::to_string(&(scope, atom, hint.map(crate::atom::AtomPartition::as_str)))
         .expect("atom scope tuple")
-}
-
-pub(crate) fn certified_atom(
-    runtime: Option<Arc<PackRuntime>>,
-    scope: Option<&str>,
-    atom: &str,
-    hint: Option<&crate::atom::AtomPartition>,
-    primary: &str,
-    expected: &Atom,
-) -> StorageResult<bool> {
-    Ok(atom_facts(runtime, scope, atom, hint)?
-        .is_some_and(|facts| facts.primary(primary) && facts.atom.as_ref() == expected))
 }
 
 pub(super) fn source_for_request(

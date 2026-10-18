@@ -37,7 +37,7 @@ impl SchemaCore {
             return Ok(None);
         }
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
-        let cache = Arc::as_ptr(&self.schemas) as usize;
+        let cache = self.db_ops.schemas().snapshot_owner();
         let key = "\0native_schema_name_directory";
         if let Some(directory) = core_memory_get(runtime.clone(), cache, key)? {
             return Ok(Some(directory));
@@ -102,7 +102,7 @@ impl SchemaCore {
         name: &str,
     ) -> Result<Arc<CoreMemoryValue<SchemaReadSnapshot>>, SchemaError> {
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
-        let cache = Arc::as_ptr(&self.schemas) as usize;
+        let cache = self.db_ops.schemas().snapshot_owner();
         if let Some(snapshot) = core_memory_get(runtime.clone(), cache, name)? {
             return Ok(snapshot);
         }
@@ -124,7 +124,7 @@ impl SchemaCore {
     ) -> Result<Option<Option<Schema>>, SchemaError> {
         let snapshot = read_snapshot_get::<CoreMemoryValue<SchemaReadSnapshot>>(
             self.db_ops.namespaced_store().disk_pack_runtime(),
-            Arc::as_ptr(&self.schemas) as usize,
+            self.db_ops.schemas().snapshot_owner(),
             name,
         )?;
         Ok(snapshot.map(|snapshot| snapshot.schema.clone()))
@@ -136,7 +136,7 @@ impl SchemaCore {
     ) -> Result<Option<SchemaState>, SchemaError> {
         Ok(read_snapshot_get::<CoreMemoryValue<SchemaReadSnapshot>>(
             self.db_ops.namespaced_store().disk_pack_runtime(),
-            Arc::as_ptr(&self.schemas) as usize,
+            self.db_ops.schemas().snapshot_owner(),
             name,
         )?
         .map(|snapshot| snapshot.state))

@@ -145,6 +145,14 @@ impl MutationManager {
                 &delta.changed_keys,
             ));
             lock_keys.extend(Self::sibling_molecule_lock_keys(&delta.sibling_updates));
+            lock_keys.extend(delta.sibling_moves.iter().map(|movement| {
+                Self::molecule_persist_lock_key(
+                    &movement.molecule_uuid,
+                    movement.old_key.hash.as_deref(),
+                    movement.old_key.range.as_deref(),
+                    None,
+                )
+            }));
         }
         lock_keys
     }
@@ -167,7 +175,7 @@ impl MutationManager {
             } else {
                 delta.original_atom_results.clone()
             };
-            let (sibling_updates, sibling_prepared, sibling_origins) = self
+            let (sibling_updates, sibling_prepared, sibling_origins, sibling_moves) = self
                 .build_protein_sibling_updates(
                     &delta.schema,
                     &delta.schema_mutations,
@@ -178,6 +186,7 @@ impl MutationManager {
             delta.sibling_prepared = sibling_prepared;
             delta.sibling_updates = sibling_updates;
             delta.sibling_origins = sibling_origins;
+            delta.sibling_moves = sibling_moves;
         }
         Ok(())
     }

@@ -42,6 +42,7 @@ impl MutationManager {
                 .then(|| delta.mutation_key_values.clone()),
             schema_name: delta.schema_name.clone(),
             sibling_updates,
+            sibling_moves: std::mem::take(&mut delta.sibling_moves),
             molecule_write_guards: Vec::new(),
             batch_dirty_keys,
             defer_reservation: delta.defer_reservation.take(),

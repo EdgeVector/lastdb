@@ -180,7 +180,7 @@ impl AtomStore {
     /// **Must** be used instead of `raw().get_items::<Atom>(…)` — deserializing
     /// sealed rows straight into [`Atom`] leaves `content` as `ENC:…` ciphertext
     /// and leaks into query / hash-key paths.
-    pub async fn get_atoms_by_storage_keys(
+    pub(super) async fn get_atoms_by_storage_keys_captured(
         &self,
         keys: &[String],
     ) -> Result<Vec<Option<crate::atom::Atom>>, crate::schema::SchemaError> {
@@ -188,9 +188,21 @@ impl AtomStore {
             .namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
+        let captured = runtime
+            .as_ref()
+            .map(|runtime| runtime.captured_atoms(keys))
+            .transpose()?
+            .unwrap_or_else(|| vec![None; keys.len()]);
         let forms: Vec<Vec<String>> = keys
             .iter()
-            .map(|key| crate::kind_partition::read_forms(key))
+            .zip(&captured)
+            .map(|(key, atom)| {
+                if atom.is_some() {
+                    Vec::new()
+                } else {
+                    crate::kind_partition::read_forms(key)
+                }
+            })
             .collect();
         let lookup: Vec<Vec<u8>> = forms
             .iter()
@@ -205,7 +217,16 @@ impl AtomStore {
             .map_err(crate::schema::SchemaError::from)?;
         let mut raw_iter = raw.into_iter();
         let mut out = Vec::with_capacity(keys.len());
-        for (requested, key_forms) in keys.iter().zip(forms) {
+        for ((requested, key_forms), captured) in keys.iter().zip(forms).zip(captured) {
+            if let Some(atom) = captured {
+                crate::storage::disk_pack::logical_paths::source::note_atom(
+                    runtime.clone(),
+                    requested,
+                    &atom,
+                )?;
+                out.push(Some(atom.as_ref().clone()));
+                continue;
+            }
             let mut hit = None;
             for key in key_forms {
                 let item = raw_iter.next().flatten();
@@ -241,23 +262,28 @@ impl AtomStore {
         )
     }
 
-    pub(super) async fn decode_atom_at_source(
+    pub(super) async fn load_atom_at_source(
         &self,
         key: &str,
-        raw: &[u8],
         scope: Option<&str>,
         hint: Option<&crate::atom::AtomPartition>,
         primary: &str,
-    ) -> Result<crate::atom::Atom, crate::schema::SchemaError> {
-        let atom = self.decode_atom_bytes(raw).await?;
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        crate::storage::disk_pack::logical_paths::source::note_atom(runtime.clone(), key, &atom)?;
-        crate::storage::disk_pack::logical_paths::source::bind_atom(
-            runtime, scope, key, &atom, hint, primary,
-        )?;
+    ) -> Result<Option<crate::atom::Atom>, crate::schema::SchemaError> {
+        let atom = self
+            .get_atoms_by_storage_keys(&[key.to_owned()])
+            .await?
+            .into_iter()
+            .next()
+            .flatten();
+        if let Some(atom) = &atom {
+            let runtime = self
+                .namespaced_store
+                .as_ref()
+                .and_then(|store| store.disk_pack_runtime());
+            crate::storage::disk_pack::logical_paths::source::bind_atom(
+                runtime, scope, key, atom, hint, primary,
+            )?;
+        }
         Ok(atom)
     }
 }

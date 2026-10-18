@@ -18,7 +18,7 @@ impl MutationManager {
     /// rewrites the header), which takes a gate no per-slot writer holds — the
     /// molecule-wide state it touches is guarded by the short commit lock in
     /// [`crate::db_operations::AtomStore::lock_molecule_commit`] instead.
-    pub(super) fn molecule_persist_lock_key(
+    pub(in crate::fold_db_core::mutation_manager) fn molecule_persist_lock_key(
         molecule_uuid: &str,
         hash: Option<&str>,
         range: Option<&str>,

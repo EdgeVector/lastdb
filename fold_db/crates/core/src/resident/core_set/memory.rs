@@ -7,7 +7,21 @@ use std::ops::Deref;
 
 const MAX_ENTRIES: usize = 10_000;
 const MEMORY_BYTES: usize = 16 * 1024 * 1024;
-type MemoryKey = (usize, String);
+pub(super) type MemoryKey = (usize, String);
+
+/// An immutable charged definition, prepared before its publication boundary.
+#[derive(Clone)]
+pub(crate) struct PreparedCoreMemory {
+    pub(crate) key: MemoryKey,
+    pub(super) value: Arc<dyn Any + Send + Sync>,
+    sources: Arc<Vec<CoreMemorySource>>,
+}
+
+impl PreparedCoreMemory {
+    pub(crate) fn sources(&self) -> &[CoreMemorySource] {
+        self.sources.as_slice()
+    }
+}
 
 /// An immutable core object. Its charge survives purge while a call holds it.
 pub struct CoreMemoryValue<T> {
@@ -89,6 +103,93 @@ impl Default for CoreMemory {
 }
 
 impl CoreMemory {
+    pub(super) fn prepare<T: Any + Send + Sync>(
+        &mut self,
+        key: MemoryKey,
+        value: T,
+        sources: Vec<CoreMemorySource>,
+        bytes: usize,
+    ) -> Result<PreparedCoreMemory, CoreCapacity> {
+        let bytes = allocation_bound(&key, &sources, bytes);
+        if sources.is_empty() || bytes > MEMORY_BYTES {
+            self.refused = self.refused.saturating_add(1);
+            return Err(memory_capacity());
+        }
+        let mut charge = None;
+        for _ in 0..=32 {
+            charge = self.budget.reserve_temporary(bytes).ok();
+            if charge.is_some() {
+                break;
+            }
+            let Some((_, oldest)) = self.order.first_key_value() else {
+                break;
+            };
+            let oldest = oldest.clone();
+            self.remove(&oldest);
+            self.purged = self.purged.saturating_add(1);
+        }
+        let Some(charge) = charge else {
+            self.refused = self.refused.saturating_add(1);
+            return Err(memory_capacity());
+        };
+        self.reserve_install(1)?;
+        Ok(PreparedCoreMemory {
+            key,
+            value: Arc::new(CoreMemoryValue {
+                value,
+                _charge: Some(charge),
+            }),
+            sources: Arc::new(sources),
+        })
+    }
+
+    pub(super) fn reserve_install(&mut self, count: usize) -> Result<(), CoreCapacity> {
+        if count > MAX_ENTRIES {
+            return Err(memory_capacity());
+        }
+        while self.entries.len().saturating_add(count) > MAX_ENTRIES {
+            let Some((_, key)) = self.order.first_key_value() else {
+                return Err(memory_capacity());
+            };
+            let key = key.clone();
+            self.remove(&key);
+            self.purged = self.purged.saturating_add(1);
+        }
+        self.entries
+            .try_reserve(count)
+            .map_err(|_| memory_capacity())?;
+        self.sources
+            .try_reserve(count.saturating_mul(64))
+            .map_err(|_| memory_capacity())?;
+        Ok(())
+    }
+
+    pub(super) fn install_prepared(&mut self, definition: PreparedCoreMemory) {
+        let PreparedCoreMemory {
+            key,
+            value,
+            sources,
+        } = definition;
+        let sources = sources.as_ref().clone();
+        self.remove(&key);
+        for source in &sources {
+            self.sources
+                .entry(source.clone())
+                .or_default()
+                .insert(key.clone());
+        }
+        self.clock = self.clock.wrapping_add(1);
+        self.order.insert(self.clock, key.clone());
+        self.entries.insert(
+            key,
+            Entry {
+                value,
+                sources,
+                tick: self.clock,
+            },
+        );
+    }
+
     pub(super) fn get<T: Any + Send + Sync>(
         &mut self,
         owner: usize,
@@ -231,13 +332,13 @@ fn allocation_bound(key: &MemoryKey, sources: &[CoreMemorySource], bytes: usize)
             .saturating_add(1024),
         |total, source| {
             total
-                .saturating_add(source.collection.capacity().saturating_mul(2))
+                .saturating_add(source.collection.capacity().saturating_mul(3))
                 .saturating_add(
                     source
                         .key
                         .as_ref()
                         .map_or(0, String::capacity)
-                        .saturating_mul(2),
+                        .saturating_mul(3),
                 )
                 .saturating_add(key.1.capacity())
                 .saturating_add(512)
@@ -246,6 +347,17 @@ fn allocation_bound(key: &MemoryKey, sources: &[CoreMemorySource], bytes: usize)
 }
 
 impl CoreWarmSet {
+    pub(crate) fn prepare_memory<T: Any + Send + Sync>(
+        &mut self,
+        owner: usize,
+        name: String,
+        value: T,
+        sources: Vec<CoreMemorySource>,
+        bytes: usize,
+    ) -> Result<PreparedCoreMemory, CoreCapacity> {
+        self.memory.prepare((owner, name), value, sources, bytes)
+    }
+
     pub(crate) fn memory_get<T: Any + Send + Sync>(
         &mut self,
         owner: usize,
@@ -274,5 +386,11 @@ impl CoreWarmSet {
 
     pub(crate) fn memory_stats(&self) -> CoreMemoryStats {
         self.memory.stats()
+    }
+}
+
+fn memory_capacity() -> CoreCapacity {
+    CoreCapacity {
+        detail: "typed core definition allowance refused the publication",
     }
 }

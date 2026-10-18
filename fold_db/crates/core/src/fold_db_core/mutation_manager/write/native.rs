@@ -68,14 +68,7 @@ impl MutationManager {
                 request
                     .runtime
                     .record_read_stage("stored-stages-done", deltas.len());
-                if memory_ack {
-                    let bytes = transaction::memory_quote(&request.runtime)?;
-                    if let Some(reservation) = self.try_reserve_defer(bytes) {
-                        transaction::retain_raw_memory_reservation(&request.runtime, reservation)?;
-                    } else {
-                        transaction::require_durable(&request.runtime)?;
-                    }
-                }
+                self.reserve_native_core_memory(&request.runtime)?;
                 Ok::<_, SchemaError>(ids)
             })
             .await?;
@@ -166,6 +159,7 @@ fn private_job(
             .then(|| delta.mutation_key_values.clone()),
         schema_name: delta.schema_name.clone(),
         sibling_updates: delta.sibling_updates.clone(),
+        sibling_moves: delta.sibling_moves.clone(),
         molecule_write_guards: Vec::new(),
         batch_dirty_keys: Vec::new(),
         defer_reservation: None,

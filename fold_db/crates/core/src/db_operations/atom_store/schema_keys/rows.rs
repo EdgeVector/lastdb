@@ -18,30 +18,16 @@ impl AtomStore {
         if !crate::storage::disk_pack::read_snapshot_active(runtime.clone()) {
             return Ok(());
         }
-        let required = self.atom_key_encoding().writes_partition_prefix();
-        if let Some(selected) = crate::storage::disk_pack::logical_paths::core_read::selected_tip(
-            runtime.clone(),
-            scope,
-            molecule,
-            api_key,
-            &record.entry.atom_uuid,
-        )? {
-            let matching = selected.entry == record.entry && selected.metadata == record.meta;
-            if matching && (selected.sources.is_some() || selected.tip_source.is_none()) {
-                let partition =
-                    crate::storage::disk_pack::logical_paths::core_read::selected_partition(
-                        runtime.clone(),
-                        scope,
-                        molecule,
-                        api_key,
-                        &record.entry.atom_uuid,
-                    )?;
-                // A preloaded row can echo a reconstructed key. Keep its
-                // already selected copy, including a certified fallback body.
-                if !required || partition.is_some() {
-                    return Ok(());
-                }
-            }
+        if runtime
+            .as_ref()
+            .map(|runtime| runtime.schema_key_tip_for_record(scope, molecule, api_key, record))
+            .transpose()?
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+        if self.has_selected_query_tip(scope, molecule, api_key, record)? {
+            return Ok(());
         }
         // A range row has a physical location without a point-read source.
         // Keep that location first; candidates cannot grant missing authority.
@@ -89,6 +75,18 @@ impl AtomStore {
         base: &str,
         candidates: &[String],
     ) -> Result<(), SchemaError> {
+        if self
+            .schema_keys_runtime()
+            .as_ref()
+            .map(|runtime| runtime.schema_key_tip_for_record(scope, molecule, api_key, record))
+            .transpose()?
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+        if self.has_selected_query_tip(scope, molecule, api_key, record)? {
+            return Ok(());
+        }
         self.retain_selected_query_tip(scope, molecule, api_key, record, base)?;
         crate::storage::disk_pack::logical_paths::core_read::note_candidates(
             self.schema_keys_runtime(),
@@ -99,6 +97,43 @@ impl AtomStore {
             candidates,
         )?;
         Ok(())
+    }
+
+    /// A reconstructed API key must not replace the already selected atom copy.
+    fn has_selected_query_tip(
+        &self,
+        scope: Option<&str>,
+        molecule: &str,
+        api_key: &KeyValue,
+        record: &PerKeyRecord,
+    ) -> Result<bool, SchemaError> {
+        use crate::storage::disk_pack::logical_paths::core_read;
+        let runtime = self.schema_keys_runtime();
+        let Some(selected) = core_read::selected_tip(
+            runtime.clone(),
+            scope,
+            molecule,
+            api_key,
+            &record.entry.atom_uuid,
+        )?
+        else {
+            return Ok(false);
+        };
+        if selected.entry != record.entry
+            || selected.metadata != record.meta
+            || (selected.sources.is_none() && selected.tip_source.is_some())
+        {
+            return Ok(false);
+        }
+        Ok(!self.atom_key_encoding().writes_partition_prefix()
+            || core_read::selected_partition(
+                runtime,
+                scope,
+                molecule,
+                api_key,
+                &record.entry.atom_uuid,
+            )?
+            .is_some())
     }
 
     /// Location-only rows can reuse bodies without direct-tip authority.

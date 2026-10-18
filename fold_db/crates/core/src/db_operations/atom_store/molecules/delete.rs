@@ -234,7 +234,7 @@ impl AtomStore {
     /// a generation pointer read, and under a small warm set each one loads a
     /// hash group. `load_exact_per_key_records` reads the same rows in one
     /// `get_items` and reads each molecule's generation pointer once, with the
-    /// same merge rules as [`Self::get_per_key_unfiltered`].
+    /// same merge rules as [`Self::load_exact_per_key_records`].
     async fn read_removed_slots(
         &self,
         removals: &[MoleculeKeyRemoval<'_>],

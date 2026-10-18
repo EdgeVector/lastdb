@@ -1,0 +1,69 @@
+# Ordinary API discovery
+
+The first expanded operational run uses the immutable before executable `a0ad6190…` and frozen driver v1.
+It passes the preceding completion gates and the new create and warm-update cohorts.
+The mixed batch then exposes an incorrect driver assumption.
+Delete followed by create for the same key leaves that key absent in both Hash and HashRange.
+All ten mutations receive an ack. The other updated values and the new key are correct.
+
+The source review finds that `write/batch_inner.rs` separates erasures and enqueues them after the create/update work.
+It finds no input-order promise or duplicate-key rejection at that entry.
+The failed run therefore does not establish a product input-order defect.
+The corrected migration workload uses independent keys within one mixed batch.
+It uses separate acknowledged delete and create calls for same-key reuse.
+The first driver's identity and all failed receipts stay unchanged in [before-operations-v1](before-operations-v1/result.json).
+
+The first run starts and normally stops 12 node sessions. It produces no benchmark result.
+The owned root remains for receipt and cleanup review: `/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.halrvksu`.
+No gate changes merely because a product call fails. Each driver correction receives a separate identity and a fresh generated run.
+
+The corrected v2 run passes the logical create, update, durable, delete, separate reinsert, and concurrent revision cohorts.
+It then reaches the protein workflow. Both initial schemas return revision 10 and shared atom UUIDs after their bootstrap creates.
+A source-only title/body update receives an ack, but the first sibling query still returns revision 10 instead of revision 11.
+The proof stops without a value-gate change. The source review must settle the propagation barrier and binding state before interpretation.
+The [protein receipt extract](protein-discovery-v2.json) retains the exact schema declarations, mutation requests, responses, and read receipts.
+
+All 15 v2 node sessions stop normally. The host lock is free before the root agent starts the candidate build.
+The v2 root remains for review: `/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.kpheucku`.
+Neither discovery run supplies benchmark timings.
+
+The independent v3 named-database workflow creates both local catalog memberships and confirms personal values and scoped absence.
+The scoped create then receives a queued ack, but the first scoped Hash read returns no record.
+The [scoped extract](scoped-discovery-v3.json) retains all exact local requests, database headers, and responses.
+The value gate stays unchanged. The root remains `/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6bfj75vg`.
+Its one node stops normally.
+
+The independent v3 pressure workflow passes its complete value checks, reported byte-cap checks, queue drain, and recovery write.
+The before program exposes no new core-model ownership counters. Their absence is recorded, not treated as zero.
+This result does not prove captured-body ownership from the new model.
+The one node stops normally. Its root remains `/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.f8skb6ye`.
+
+The independent v3 replay workflow cannot boot the native packed store with the existing local proof engine.
+The guarded synthetic engine arms, then the native store refuses activation without its complete backup and cloud-sync gate.
+The source exits with code 1 before health. No replay request or generated-owner provision occurs.
+The driver does not bypass the gate or select another store.
+The exact log and exit receipt remain in [before-replay-v3](before-replay-v3/result.json).
+The inactive root remains `/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tw4eg12d`.
+
+All discovery processes exit before the next root build. All roots remain for paired-proof and supported cleanup review.
+Only the main workflows that pass the full candidate acceptance can establish completion.
+
+The first candidate `be38c44c…` fails the v4 scoped workflow before its first scoped mutation.
+The first personal Hash value read returns correct fields and four warm hits, but it requires one file call.
+The strict zero-file gate stays failed in `candidate-scoped-v4`.
+The private executable and exact source hashes remain. A separate full product source archive does not exist for this diagnostic build.
+The final benchmark requires an immutable committed source tree before its release; no be38 source recovery claim applies.
+
+Separate diagnostics retain that failed gate and continue only the file-count gate after exact values pass.
+All scoped creates, updates, deletes, recreates, personal values, and reopen values then pass.
+These diagnostic results do not establish strict acceptance.
+The final wall-clock diagnostic associates personal Hash with molecule-key and conflict-control raw reads.
+It associates personal HashRange with molecule-key and generation-pointer raw reads.
+Each six-file scoped read has one raw database-membership key within its request window.
+The [family association](candidate-scoped-window-families.json) preserves exact windows and log line numbers.
+Raw requested keys differ from file calls. A concurrent background call can share a time window.
+
+Driver v5 corrects one source-backed protein expectation. A Hash delete preserves differently shaped HashRange membership.
+`fold_db/crates/core/src/fold_db_core/mutation_manager/cas.rs::protein_delete_peers` explicitly excludes those differently shaped peers.
+The prior driver and receipts stay unchanged. The partial shared-field and key-move gates stay strict.
+The initial protein creates address both key layouts through per-field molecules; they do not claim record-envelope creation.

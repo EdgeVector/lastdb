@@ -25,12 +25,10 @@ impl AtomStore {
             let Some(alias) = self.ready_key_lease(&runtime, scope, &uid) else {
                 return Ok(None);
             };
-            if !alias
-                .page(1, None, true)
-                .map_err(key_error)?
-                .keys
-                .is_empty()
-            {
+            let Some(page) = runtime.with_schema_key_selection(|| alias.page(1, None, true)) else {
+                return Ok(None);
+            };
+            if !page.map_err(key_error)?.keys.is_empty() {
                 return Ok(None);
             }
         }
@@ -39,15 +37,18 @@ impl AtomStore {
         let mut cursor = after.map(|(range, hash)| (range.to_string(), hash.to_string()));
         while output.len() < want {
             let ask = (want - output.len()).min(1024);
-            let page = lease
-                .page(
+            let Some(page) = runtime.with_schema_key_selection(|| {
+                lease.page(
                     ask,
                     cursor
                         .as_ref()
                         .map(|(range, hash)| (range.as_str(), hash.as_str())),
                     true,
                 )
-                .map_err(key_error)?;
+            }) else {
+                return Ok(None);
+            };
+            let page = page.map_err(key_error)?;
             if let Some(last) = page.keys.last() {
                 cursor = Some((last.range.clone(), last.hash.clone()));
             } else if !page.exhausted {

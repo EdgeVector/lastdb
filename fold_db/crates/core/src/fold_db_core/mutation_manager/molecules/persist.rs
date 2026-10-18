@@ -33,6 +33,7 @@ pub(crate) struct DeferredPersistJob {
     /// Durable-stored here so multi-key fold does not await flush before ack
     /// under `LASTDB_RESIDENT_MODE=write`.
     pub sibling_updates: Vec<(String, MoleculeData, HashSet<ChangedKey>)>,
+    pub(in crate::fold_db_core::mutation_manager) sibling_moves: Vec<super::prepared::SiblingMove>,
     /// Apply gates no longer travel with the persist job (PR 3). The persist
     /// lane serializes durable order. The field stays so a mid-rollout job
     /// constructed with leftover guards still drops them after persist.
@@ -337,6 +338,7 @@ impl MutationManager {
 }
 
 mod deferred_job;
+mod key_moves;
 mod lane_writer;
 mod locks;
 mod purge_job;
