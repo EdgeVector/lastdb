@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for the resident bars: boot lastdbd on a FRESH EMPTY home and
+# Shared helpers for schema comparison: boot lastdbd on a FRESH EMPTY home and
 # load synthetic data. The bars never copy ~/.lastdb (Tom, 2026-10-12: a copy
 # of the primary's home costs disk the machine does not have).
 #
@@ -23,8 +23,8 @@ SYN_BOOT_TIMEOUT_SECS="${LASTDB_BAR_BOOT_TIMEOUT_SECS:-120}"
 SYN_LAUNCHD_PLIST="${LASTDB_LAUNCHD_PLIST:-$HOME/Library/LaunchAgents/com.tomtang.lastdbd-primary-506.plist}"
 
 # LASTDB_* tuning from the live LaunchAgent, minus the keys the bar owns, so
-# the probe runs the config that serves. Resident mode and the home path are
-# set by the bar. The status sampler is set to 1 s so /api/status resident
+# the probe runs the config that serves. The home path is
+# set by the caller. The status sampler is set to 1 s so /api/status
 # counters are current when the bar reads them (the default is 60 s).
 syn_live_env_pairs() {
   [ -f "$SYN_LAUNCHD_PLIST" ] || return 0
@@ -33,7 +33,7 @@ syn_live_env_pairs() {
         $1 ~ /^ *LASTDB_/ {
           key=$1; gsub(/^ +| +$/,"",key)
           if (key == "LASTDB_HOME" || key == "FOLDDB_HOME" || key == "LASTDB_DATA_DIR") next
-          if (key == "LASTDB_RESIDENT_MODE" || key == "LASTDB_SELF_METRICS_SAMPLE_SECS") next
+          if (key == "LASTDB_RESIDENT_MODE" || key == "LASTDB_ENGINE" || key == "LASTDB_DISK_PACK" || key == "LASTDB_SELF_METRICS_SAMPLE_SECS") next
           val=$2; gsub(/^ +| +$/,"",val)
           if (key != "" && val != "") print key "=" val
         }'
@@ -59,11 +59,11 @@ syn_curl() {
   curl -sS --max-time "$SYN_OP_TIMEOUT_SECS" --unix-socket "$SYN_SOCK" -H 'Host: localhost' "$@"
 }
 
-# syn_boot <bin> <mode> [ENV=VAL ...]: fresh home, node up, identity ready.
+# syn_boot <bin> [ENV=VAL ...]: fresh home, native node up, identity ready.
 # The home path stays short: sockaddr_un caps the socket path at 103 bytes.
 syn_boot() {
-  local bin="$1" mode="$2"
-  shift 2
+  local bin="$1"
+  shift
   syn_load_env_pairs
   SYN_HOME="$(mktemp -d /private/tmp/lbar.XXXXXX)"
   SYN_SOCK="$SYN_HOME/data/folddb.sock"
@@ -71,10 +71,10 @@ syn_boot() {
     cd "$SYN_HOME"
     [ -z "$SYN_NOFILE_LIMIT" ] || ulimit -n "$SYN_NOFILE_LIMIT"
     exec env -u SENTRY_DSN -u FOLD_SENTRY_DSN \
+      -u LASTDB_RESIDENT_MODE -u LASTDB_ENGINE -u LASTDB_DISK_PACK \
       HOME="$SYN_HOME" FOLDDB_DISABLE_KEYCHAIN=1 \
       ${SYN_ENV_PAIRS[@]+"${SYN_ENV_PAIRS[@]}"} \
       LASTDB_SELF_METRICS_SAMPLE_SECS=1 \
-      LASTDB_RESIDENT_MODE="$mode" \
       "$@" \
       "$bin" --data-dir "$SYN_HOME"
   ) >"$SYN_HOME.boot.log" 2>&1 </dev/null &
@@ -93,7 +93,7 @@ syn_boot() {
     sleep 1
   done
   [ "$ok" = "ok" ] || { echo "node not healthy in ${SYN_BOOT_TIMEOUT_SECS}s" >&2; return 1; }
-  log "boot: $bin mode=$mode home=$SYN_HOME ready after ${i}s"
+  log "boot: $bin native home=$SYN_HOME ready after ${i}s"
 }
 
 # syn_declare: register the synthetic schema; sets SYN_SCHEMA_ID.

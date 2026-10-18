@@ -94,6 +94,7 @@ mod converge;
 mod converge_candidates;
 mod converge_plan;
 mod converge_steps;
+mod core_live;
 mod delete_barrier_flush;
 mod delete_candidates;
 mod guarded;
@@ -101,7 +102,6 @@ mod guarded_prepare;
 mod guarded_steps;
 mod helpers;
 mod storage_slot;
-mod storage_slot_resident;
 mod target_chain;
 
 pub(super) use absent::absent_purge_targets;
@@ -113,15 +113,14 @@ pub(crate) use delete_candidates::{delete_candidates_for_key, plan_normal_delete
 use guarded::execute_guarded_purge;
 
 pub use storage_slot::*;
-pub(in crate::fold_db_core) use storage_slot_resident::resident_api_keys_for_storage_slots;
 
 // Re-export helpers for sibling modules under `fold_db_core`.
 pub(super) use helpers::{
-    atom_ref_cutover_ready, collect_event_atom_uuids, collect_live_atom_uuids,
-    collect_resident_live_atom_uuids, collect_retained_chain_atoms_for_storage_slots,
-    collect_target_chain, current_atom_for_key, describe_key, field_key_matches_value,
-    refresh_runtime_field_molecules, refresh_runtime_field_molecules_for_purge_keys,
-    remove_key_from_field, storage_form_keys, validate_purge_key_shape,
+    atom_ref_cutover_ready, collect_core_live_atom_uuids, collect_event_atom_uuids,
+    collect_live_atom_uuids, collect_retained_chain_atoms_for_storage_slots, collect_target_chain,
+    current_atom_for_key, describe_key, field_key_matches_value, refresh_runtime_field_molecules,
+    refresh_runtime_field_molecules_for_purge_keys, remove_key_from_field, storage_form_keys,
+    validate_purge_key_shape,
 };
 
 type OwnedMoleculeKeyRemoval = (
@@ -238,7 +237,6 @@ pub(super) struct PurgeScope<'a> {
 
 /// How a purge proves reachability and what it evicts afterwards.
 pub(super) struct PurgeMode {
-    pub(super) evict_resident: bool,
     pub(super) reachability: PurgeReachability,
     pub(super) precomputed_retained: Option<HashSet<String>>,
     /// Who asked, for the delete ledger row.

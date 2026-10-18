@@ -159,9 +159,8 @@ impl MutationManager {
     /// explicit bind).
     ///
     /// Returns in-memory sibling molecule updates only — **no durable store**.
-    /// The write path publishes them to resident under write-mode and defers
-    /// (or inline-stores) durable put with the entry batch so sibling flush is
-    /// not on the mutation hot path.
+    /// The native request stages these tips with its entry tips and publishes
+    /// every accepted logical effect in one core-model boundary.
     pub(in crate::fold_db_core::mutation_manager) async fn fold_protein_siblings_after_write(
         &self,
         schema: &Schema,
@@ -182,7 +181,7 @@ impl MutationManager {
             load_protein_fold_metadata(store, &member_uuids, schema_storage_prefix(schema, None))
                 .await?;
         if metadata.0.values().all(Option::is_none) {
-            return Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new()));
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
         }
         let key_maps = self
             .protein_key_fields(
@@ -195,8 +194,6 @@ impl MutationManager {
             )
             .boxed()
             .await?;
-        let prepared =
-            self.prepare_protein_sibling_slots(schema, &eligible, &metadata, &key_maps.after);
         let (owners_by_molecule, proteins_by_uuid) = &metadata;
 
         // Keep the atom order. Two fields can target the same sibling slot,
@@ -259,7 +256,7 @@ impl MutationManager {
             )
             .boxed()
             .await?;
-        Ok((sibling_updates, prepared, sibling_origins, moves))
+        Ok((sibling_updates, sibling_origins, moves))
     }
 }
 

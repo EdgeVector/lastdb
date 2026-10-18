@@ -94,7 +94,7 @@ impl AtomStore {
     /// 2026-08-17, that exclusive `purge_commit` hold averaged ~8.6 s for a
     /// single-record purge while `records_purged=1` — the per-field durable
     /// round trips were pure overhead once the slot lists were already in
-    /// hand. The end state is identical: every named `mk:` / retired-marker
+    /// hand. The end state is identical: every named `mk:`
     /// key is gone and each molecule header is bumped to the post-removal
     /// `version`/`updated_at`.
     ///
@@ -135,13 +135,6 @@ impl AtomStore {
         mut extra_keys: Vec<Vec<u8>>,
         trailing_keys: Vec<Vec<u8>>,
     ) -> Result<(), SchemaError> {
-        let _coverage = self.invalidate_coverage_during(
-            removals
-                .iter()
-                .filter(|(_, _, _, prefix)| prefix.is_none())
-                .map(|(uuid, _, _, _)| *uuid),
-            None,
-        );
         let mut plan = SlotRemovalPlan {
             trailing_keys,
             ..SlotRemovalPlan::default()
@@ -273,7 +266,7 @@ impl AtomStore {
         }
         plan.molecule_count += 1;
         plan.slot_count += removed_slots.len();
-        plan.keys.reserve(removed_slots.len() * 3);
+        plan.keys.reserve(removed_slots.len());
         for (hash, range) in *removed_slots {
             Self::plan_slot_removal(molecule_uuid, hash, range, *storage_prefix, current, plan)?;
         }
@@ -327,29 +320,6 @@ impl AtomStore {
         }
         plan.keys
             .push(build_storage_key(storage_prefix, &base_key).into_bytes());
-        // Derived markers for this slot. Both features are retired
-        // (`HASH_RANGE_PAGE_INDEX_ENABLED` / `HASH_RANGE_HASH_KEY_LOOKUP_ENABLED`
-        // are `false`), so nothing co-writes them any more — but a store
-        // written before they were retired still carries rows, and the
-        // whole-molecule delete this replaces reaped them. Deleting a
-        // marker can only cost a reader the derived shortcut and send it to
-        // the authoritative `mk:` scan, which is already the missing-marker
-        // fallback; KEEPING one would leave a row that names a purged
-        // record. For a compliance verb that trade is one-sided.
-        plan.keys.push(
-            build_storage_key(
-                storage_prefix,
-                &molecule_key_codec::hash_range_page_index_key(molecule_uuid, hash, range),
-            )
-            .into_bytes(),
-        );
-        plan.keys.push(
-            build_storage_key(
-                storage_prefix,
-                &molecule_key_codec::hash_key_lookup_key(molecule_uuid, hash),
-            )
-            .into_bytes(),
-        );
         Ok(())
     }
 }

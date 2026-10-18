@@ -17,15 +17,9 @@ pub(super) async fn current_storage_slot_targets<'a>(
         .await?;
     let candidates: Vec<_> = targets
         .iter()
-        .zip(keys)
         .zip(current)
-        .filter_map(|((target, key), current)| {
+        .filter_map(|(target, current)| {
             let current = current?;
-            // A newer resident Put can already occupy the next lane envelope.
-            // Never erase its disk base or its graph revision control.
-            if db_ops.resident().has_tip_for_storage_key(&key) {
-                return None;
-            }
             let field = schema.runtime_fields.get(&target.field_name)?;
             if current_atom_for_key(field, &target.storage_key).as_deref()
                 != Some(current.entry.atom_uuid.as_str())

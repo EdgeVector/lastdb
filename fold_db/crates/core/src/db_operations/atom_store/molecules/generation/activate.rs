@@ -63,13 +63,6 @@ impl AtomStore {
             return Ok(Vec::new());
         }
 
-        let _coverage = self.invalidate_coverage_during(
-            activations
-                .iter()
-                .map(|activation| activation.molecule_uuid.as_str()),
-            storage_prefix,
-        );
-
         let automatic_gc_uuids: Vec<String> = activations
             .iter()
             .flat_map(|activation| {

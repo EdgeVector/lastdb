@@ -2,20 +2,6 @@
 
 use super::*;
 
-/// `POST /api/db/purge-schemaidx` — delete retired full-atom-copy secondary index.
-pub(in crate::exec) async fn execute_db_purge_schemaidx_route(
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    match host.db.purge_schemaidx().await {
-        Ok(report) => json_ok(&envelope(
-            &serde_json::json!({ "purge_schemaidx": report }),
-            ctx.user_id.as_str(),
-        )),
-        Err(e) => error_response(500, &format!("purge-schemaidx failed: {e}"), ctx),
-    }
-}
-
 /// `POST /api/db/gc-atoms` — delete unreferenced atom: rows.
 pub(in crate::exec) async fn execute_db_gc_atoms_route(
     req: &UdsRequest,

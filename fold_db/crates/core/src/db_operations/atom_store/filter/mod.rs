@@ -1,7 +1,7 @@
-//! Filtered molecule loads and HashRange page-index scans.
+//! Filtered molecule loads and selected page records.
 
 mod load;
-mod page_index;
+mod page_records;
 mod partition_page;
 mod per_key;
 

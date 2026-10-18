@@ -93,16 +93,8 @@ const AT_REST_BINARY_FLAG_DEFLATED: u8 = 0x01;
 const AT_REST_BINARY_KNOWN_FLAGS: u8 = AT_REST_BINARY_FLAG_DEFLATED;
 
 /// True when `value` carries an at-rest envelope marker (`ENC:`, `ENZ:`, or
-/// `ENB:`) — i.e. it was sealed through this codec (or the equivalent KvStore
-/// seam). Lets migration sweeps and dual-read paths tell legacy plaintext rows
-/// from sealed ones.
-///
-/// This **must** cover every supported marker. Callers use it to answer "is
-/// this already sealed?", and two of them are load-bearing: Operation Trinity
-/// strict open rejects anything unsealed, and `reseal_atom_json_if_plain`
-/// skips anything already sealed. A predicate that only knew `ENC:` would make
-/// every compressed atom look like unsealed plaintext — read failures on a
-/// strict primary, and an infinite reseal loop on the migrate path.
+/// `ENB:`). All current markers must match: an encrypted atom read rejects
+/// anything unencrypted, including a compressed value with an unknown marker.
 #[must_use]
 pub fn is_sealed_at_rest(value: &[u8]) -> bool {
     value.starts_with(AT_REST_ENC_PREFIX.as_bytes())

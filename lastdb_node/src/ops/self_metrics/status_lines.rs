@@ -174,9 +174,8 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
         )
     };
     Some(format!(
-        "Memory budget: hash_group_warm={} / {} groups={} ({}) · resident_graph={} / {} ({}) · \
-         deferred={} / {} lane_fair_share={} write_through>={} heaviest_lane={} \
-         refuse_bytes={} refuse_entries={} write_throughs={} · charged={} · projection={} ± {} diverged={} · \
+        "Memory admission: deferred={} / {} lane_fair_share={} heaviest_lane={} \
+         refuse_bytes={} refuse_entries={} · reserve={} · projection={} ± {} diverged={} · \
          footprint={} over_limit={} runtime_degraded={} · implied_multiplier={ratio} · \
          allocator={} allocator_committed={} allocator_reserved={} \
          malloc_in_use={} malloc_held_free={} footprint_net={} footprint_sticky={} \
@@ -185,21 +184,12 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
          compressor={} purge_failed={} malloc_released_last_purge={} \
          in_flight_loads={} in_flight_bytes={} \
          peak_request_bytes={} slowest_request_ms={} eviction_events={} effective_warm={}",
-        format_bytes(memory.warm_resident_bytes),
-        format_bytes(memory.warm_budget_bytes),
-        memory.warm_resident_groups,
-        HASH_GROUP_WARM_BOUNDS,
-        format_bytes(memory.resident_graph_bytes),
-        format_bytes(memory.resident_graph_budget_bytes),
-        RESIDENT_GRAPH_BOUNDS,
         format_bytes(memory.deferred_persist_bytes),
         format_bytes(memory.deferred_persist_cap_bytes),
         format_bytes(memory.deferred_lane_fair_share_bytes),
-        format_bytes(memory.deferred_write_through_bytes),
         heaviest,
         memory.deferred_lane_refuse_bytes,
         memory.deferred_lane_refuse_entries,
-        memory.deferred_write_throughs,
         format_bytes(memory.charged_budget_bytes),
         format_bytes(memory.projected_total_bytes),
         format_bytes(memory.projection_tolerance_bytes),
@@ -209,9 +199,17 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
             .map_or_else(|| "unavailable".to_string(), format_bytes),
         memory.footprint_over_limit,
         memory.runtime_degraded,
-        if memory.allocator_name.is_empty() { "unavailable" } else { &memory.allocator_name },
-        memory.allocator_committed_bytes.map_or_else(|| "unavailable".to_string(), format_bytes),
-        memory.allocator_reserved_bytes.map_or_else(|| "unavailable".to_string(), format_bytes),
+        if memory.allocator_name.is_empty() {
+            "unavailable"
+        } else {
+            &memory.allocator_name
+        },
+        memory
+            .allocator_committed_bytes
+            .map_or_else(|| "unavailable".to_string(), format_bytes),
+        memory
+            .allocator_reserved_bytes
+            .map_or_else(|| "unavailable".to_string(), format_bytes),
         memory
             .malloc_bytes_in_use
             .map_or_else(|| "unavailable".to_string(), format_bytes),
@@ -220,10 +218,9 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
             .map_or_else(|| "unavailable".to_string(), format_bytes),
         format_bytes(memory.footprint_net_bytes),
         memory.footprint_sticky,
-        memory.footprint_delta_per_evicted_byte.map_or_else(
-            || "unavailable".to_string(),
-            |ratio| format!("{ratio:.3}"),
-        ),
+        memory
+            .footprint_delta_per_evicted_byte
+            .map_or_else(|| "unavailable".to_string(), |ratio| format!("{ratio:.3}"),),
         memory.governor_state,
         format_held_secs(memory.governor_state_held_secs),
         if memory.host_pressure.is_empty() {
@@ -386,7 +383,9 @@ fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         lines.push(read_cost_status_line(rc));
     }
     lines.push(resident_status_line(&snapshot.resident));
-    lines.push(dual_read_status_line(&snapshot.dual_read));
+    if snapshot.dual_read.gets.as_wire_u64().is_some() {
+        lines.push(dual_read_status_line(&snapshot.dual_read));
+    }
     if let Some(line) = integrity_status_line(&snapshot.integrity) {
         lines.push(line);
     }

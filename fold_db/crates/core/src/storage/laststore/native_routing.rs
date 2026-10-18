@@ -1,4 +1,4 @@
-//! Share the existing logical-main routing with the native disk backend.
+//! Canonical current-key routing for the native disk backend.
 use super::*;
 
 pub(in crate::storage) fn read_candidates(key: &[u8]) -> Vec<&'static str> {

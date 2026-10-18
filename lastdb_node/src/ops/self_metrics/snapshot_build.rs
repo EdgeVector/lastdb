@@ -27,7 +27,7 @@ pub(super) async fn build_snapshot(
     let dirs = DirReport::measure(host);
     let footprint = current_phys_footprint();
     let namespaced_store = host.db.db_ops().namespaced_store();
-    let resident = ResidentHealth::from_graph(host.db.db_ops().resident());
+    let resident = ResidentHealth::from_metrics(host.db.db_ops().resident_metrics());
     let (memory_budget, read_cost) = memory_budget_health(
         host,
         &namespaced_store,
@@ -281,7 +281,6 @@ pub(super) fn persist_lane_row_is_visible(
         || row.refuse_bytes > 0
         || row.refuse_entries > 0
         || row.refuse_unhealthy > 0
-        || row.write_throughs > 0
         || row.unhealthy_lanes > 0
         || row.quarantined > 0
         || row.breaker_trips > 0

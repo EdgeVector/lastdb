@@ -11,11 +11,8 @@ use crate::schema::SchemaError;
 use super::super::helpers::ModifiedFieldKeys;
 use super::super::MutationManager;
 
-/// Everything one deferred durable persist owns while it runs.
+/// Prepared molecule effects staged within one complete native transaction.
 pub(crate) struct DeferredPersistJob {
-    /// The request author clock must reach durable metadata before this data.
-    pub(in crate::fold_db_core::mutation_manager) author_clock_barrier:
-        Option<super::super::author_clock::AuthorClockPersistBarrier>,
     pub deferred_atoms: Option<Vec<(crate::atom::Atom, Option<crate::atom::AtomPartition>)>>,
     pub storage_prefix: Option<String>,
     pub search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
@@ -29,31 +26,9 @@ pub(crate) struct DeferredPersistJob {
     pub retention_write: Option<(Vec<crate::schema::types::KeyValue>, u64)>,
     pub retention_hash_partitions: Option<Vec<crate::schema::types::KeyValue>>,
     pub schema_name: String,
-    /// Protein sibling tip updates prepared on the hot path (memory only).
-    /// Durable-stored here so multi-key fold does not await flush before ack
-    /// under `LASTDB_RESIDENT_MODE=write`.
+    /// Protein sibling tips staged in the same native transaction as the source.
     pub sibling_updates: Vec<(String, MoleculeData, HashSet<ChangedKey>)>,
     pub(in crate::fold_db_core::mutation_manager) sibling_moves: Vec<super::prepared::SiblingMove>,
-    /// Apply gates no longer travel with the persist job (PR 3). The persist
-    /// lane serializes durable order. The field stays so a mid-rollout job
-    /// constructed with leftover guards still drops them after persist.
-    pub molecule_write_guards: Vec<MoleculeGateGuard>,
-    /// Resident dirty keys this batch installed pre-ack (tips + deferred atom
-    /// bodies, see [`MutationManager::resident_batch_dirty_keys`]). Atom keys
-    /// clear after the FULL durable put succeeds; molecule tips clear only if
-    /// the resident tip still names the atom UUID this job persisted. On failure
-    /// they stay dirty so the persist worker retries and eviction is refused.
-    pub batch_dirty_keys: Vec<crate::resident::DirtyKey>,
-    /// Charge on the deferred-write byte window. Moved into the task, so it is
-    /// returned on EVERY exit — including the early error returns and a panic —
-    /// and a failed persist cannot permanently shrink the window. `None` when
-    /// the request waits for durable completion after gate release (no RSS
-    /// write-behind charge).
-    pub defer_reservation: Option<crate::memory_budget::DeferReservation>,
-    /// Slot revisions recorded under the apply gate, copied onto the envelope.
-    pub slot_revisions: Vec<crate::resident::PersistSlotRevision>,
-    /// Same placement log as the request. The lane task cannot see the task-local.
-    pub batch_log: Option<std::sync::Arc<crate::durable_flush::BatchPlacementLog>>,
 }
 
 /// One held molecule write gate, which books how long it was held when it
@@ -239,33 +214,6 @@ impl MutationManager {
         Ok(())
     }
 
-    /// Fill a persist-lane slot that the request reserved before resident apply.
-    /// The accepted reservation makes this operation infallible.
-    pub(in crate::fold_db_core::mutation_manager) fn fill_reserved_persist(
-        &self,
-        job: DeferredPersistJob,
-        reservation: crate::resident::PersistReservation<LanePersistJob>,
-        completion: Option<tokio::sync::oneshot::Sender<crate::request_phases::RequestCounts>>,
-        pending_task: crate::fold_db_core::pending_task_tracker::PendingTask,
-    ) {
-        let bytes = job
-            .defer_reservation
-            .as_ref()
-            .map_or(1, |r| r.bytes().max(1));
-        let slot_revisions = job.slot_revisions.clone();
-        let mut envelope = crate::resident::PersistEnvelope::new(
-            LanePersistJob::Write {
-                job: Box::new(job),
-                counts: crate::request_phases::RequestCounts::default(),
-                counts_completion: completion,
-                _pending_task: pending_task,
-            },
-            bytes,
-        );
-        envelope.slot_revisions = slot_revisions;
-        reservation.fill(envelope);
-    }
-
     /// Persist a batch of molecules under `storage_prefix`, rewriting each molecule's
     /// **full current key set** (delete-prefix-then-write for per-key kinds).
     /// Used for share-prefix fan-out, where the destination prefix is written
@@ -345,7 +293,7 @@ mod purge_job;
 mod purge_resident;
 mod purge_types;
 mod quarantine_records;
-mod resident_publish;
+mod sibling;
 mod storage_slot_job;
 pub(in crate::fold_db_core::mutation_manager) use lane_writer::*;
 pub(crate) use purge_types::*;

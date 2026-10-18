@@ -19,12 +19,6 @@ impl AtomStore {
         items: Vec<(String, Value)>,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
-        let _coverage = self.invalidate_coverage_during(
-            items.iter().filter_map(|(key, _)| {
-                crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(key)
-            }),
-            storage_prefix,
-        );
         let plan = self.atom_ref_v2_mutations_for_v1_items(&items, storage_prefix)?;
         let CompactEdgePlan {
             active_edges,

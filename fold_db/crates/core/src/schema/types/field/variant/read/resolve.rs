@@ -1,4 +1,3 @@
-// lint:file-size-ok resolve_hash_key_fast is split into helpers; the helpers stay in this module
 use super::*;
 pub(super) type TipMatch = (
     KeyValue,
@@ -139,23 +138,6 @@ impl FieldVariant {
 
         let storage_prefix = self.common().storage_prefix();
 
-        // A HashRange HashKey is a partition enumeration, not a point read.
-        // Unbounded reads with pending writes use the general overlay path.
-        // Pages merge bounded resident and durable tip windows before counting
-        // visible rows. Hash fields remain true point reads below.
-        if matches!(self.kind, FieldKind::HashRange)
-            && crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix)
-        {
-            let authoritative = matches!(
-                db_ops.resident().key_set_completeness_for(&molecule_uuid),
-                ResidentKeySetCompleteness::Complete { .. }
-            );
-            let pending_overlay = db_ops.resident().molecule_has_dirty(&molecule_uuid);
-            if authoritative || (pending_overlay && window.is_none()) {
-                return Ok(None);
-            }
-        }
-
         // A window that selects nothing selects nothing on every path below, and
         // saying so here keeps the empty case from depending on which branch a
         // field kind happens to take.
@@ -164,17 +146,6 @@ impl FieldVariant {
             Some(KeyWindow::Offset { limit: 0, .. } | KeyWindow::After { limit: 0, .. })
         ) {
             return Ok(Some(HashMap::new()));
-        }
-
-        if let Some(hit) = self.resident_hash_point_read(
-            db_ops,
-            &molecule_uuid,
-            hash,
-            storage_prefix,
-            &window,
-            include_tombstones,
-        ) {
-            return Ok(Some(hit));
         }
 
         let (matches, window_applied) = match self.kind {
@@ -212,74 +183,6 @@ impl FieldVariant {
         .map(Some)
     }
 
-    /// Resident-first point read for a `Hash` field `HashKey` filter.
-    pub(super) fn resident_hash_point_read(
-        &self,
-        db_ops: &Arc<DbOperations>,
-        molecule_uuid: &str,
-        hash: &str,
-        storage_prefix: Option<&str>,
-        window: &Option<KeyWindow>,
-        include_tombstones: bool,
-    ) -> Option<HashMap<KeyValue, FieldValue>> {
-        // Resident-first HashKey path: serve tip+atom from T0 when both are
-        // present (second+ resolve is a hit; cold path rehydrates below).
-        // A `Hash` field's `HashKey` read is a point read — one row, or none —
-        // so any window past the first row is empty and a window that includes
-        // it changes nothing.
-        if matches!(self.kind, FieldKind::Hash)
-            && crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix)
-            && window
-                .as_ref()
-                .is_none_or(|window| matches!(window, KeyWindow::Offset { offset: 0, .. }))
-        {
-            if let Some(tip_out) = db_ops.resident().resolve_tip(molecule_uuid, hash, "") {
-                if let Some(atom_out) = db_ops.resident().resolve_atom(&tip_out.value.atom_uuid) {
-                    let atom = &atom_out.value;
-                    if include_tombstones || !crate::atom::is_tombstone_value(&atom.content) {
-                        let mut resolved = HashMap::new();
-                        resolved.insert(
-                            KeyValue::new(Some(hash.to_string()), None),
-                            FieldValue {
-                                value: atom.content.clone(),
-                                atom_uuid: atom.uuid.clone(),
-                                source_file_name: tip_out
-                                    .value
-                                    .key_metadata
-                                    .as_ref()
-                                    .and_then(|m| m.source_file_name.clone())
-                                    .or_else(|| atom.source_file_name.clone()),
-                                metadata: tip_out
-                                    .value
-                                    .key_metadata
-                                    .as_ref()
-                                    .and_then(|m| m.metadata.clone())
-                                    .or_else(|| atom.metadata.clone())
-                                    .or_else(|| {
-                                        atom.file_blob_ref.as_ref().map(|r| {
-                                            let mut m = HashMap::new();
-                                            m.insert("file_blob_ref".to_string(), r.clone());
-                                            m
-                                        })
-                                    }),
-                                molecule_uuid: Some(molecule_uuid.to_string()),
-                                molecule_version: None,
-                                writer_pubkey: (!tip_out.value.writer_pubkey.is_empty())
-                                    .then_some(tip_out.value.writer_pubkey.clone()),
-                                written_at: atom
-                                    .created_at
-                                    .and_then(|t| t.timestamp_nanos_opt())
-                                    .and_then(|ns| u64::try_from(ns).ok()),
-                            },
-                        );
-                        return Some(resolved);
-                    }
-                }
-            }
-        }
-        None
-    }
-
     /// Tip record for a single `Hash` field key (empty when absent).
     pub(super) async fn hash_field_tip_match(
         db_ops: &Arc<DbOperations>,
@@ -307,33 +210,6 @@ impl FieldVariant {
         window: &Option<KeyWindow>,
         include_tombstones: bool,
     ) -> Result<(Vec<TipMatch>, bool), SchemaError> {
-        let use_resident =
-            crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix);
-        let cached = use_resident
-            .then(|| {
-                if let Some(window) = &window {
-                    db_ops
-                        .resident()
-                        .resolve_partition_window(molecule_uuid, hash, window, include_tombstones)
-                        .or_else(|| {
-                            db_ops.resident().resolve_exact_page(
-                                molecule_uuid,
-                                hash,
-                                window,
-                                include_tombstones,
-                            )
-                        })
-                } else {
-                    db_ops
-                        .resident()
-                        .resolve_partition_interval(molecule_uuid, hash, "", None)
-                }
-            })
-            .flatten();
-        if let Some(tips) = cached {
-            let matches = Self::resident_tips_to_matches(db_ops, molecule_uuid, tips)?;
-            return Ok((matches, window.is_some()));
-        }
         Self::scan_hash_range_matches(
             db_ops,
             molecule_uuid,
@@ -341,45 +217,8 @@ impl FieldVariant {
             storage_prefix,
             window,
             include_tombstones,
-            use_resident,
         )
         .await
-    }
-
-    pub(super) fn resident_tips_to_matches(
-        db_ops: &Arc<DbOperations>,
-        molecule_uuid: &str,
-        tips: Vec<crate::resident::ResidentTip>,
-    ) -> Result<Vec<TipMatch>, SchemaError> {
-        let codec = db_ops.atoms().key_codec_for_molecule(molecule_uuid);
-        tips.into_iter()
-            .map(|tip| {
-                let key = codec
-                    .api_hash_range_record_keys_for_read(molecule_uuid, &tip.hash, &tip.range)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?
-                    .into_iter()
-                    .next()
-                    .expect("primary tip key");
-                let mut entry = crate::atom::AtomEntry::thin_with_author(
-                    tip.atom_uuid,
-                    tip.written_at,
-                    tip.logical_counter,
-                    tip.device_id,
-                    tip.mutation_uuid,
-                    String::new(),
-                );
-                entry.writer_pubkey = tip.writer_pubkey;
-                entry.origin_device = tip.origin_device;
-                Ok((
-                    KeyValue::new(Some(tip.hash), Some(tip.range)),
-                    crate::db_operations::atom_store::PerKeyRecord {
-                        entry,
-                        meta: tip.key_metadata,
-                    },
-                    key,
-                ))
-            })
-            .collect::<Result<Vec<_>, SchemaError>>()
     }
 
     /// Stamp molecule uuid/version/writer onto a resolved field map.

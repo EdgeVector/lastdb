@@ -2,13 +2,6 @@
 
 use super::*;
 
-#[derive(Debug, Clone)]
-pub(crate) struct ResidentPurgeSlot {
-    pub(in crate::fold_db_core::mutation_manager) molecule_uuid: String,
-    pub(in crate::fold_db_core::mutation_manager) hash: String,
-    pub(in crate::fold_db_core::mutation_manager) range: String,
-}
-
 pub(crate) struct PurgeCompletion {
     pub(in crate::fold_db_core::mutation_manager) result:
         Result<Vec<String>, crate::schema::SchemaError>,
@@ -51,9 +44,6 @@ pub(crate) struct PurgeEnvelope {
     pub(in crate::fold_db_core::mutation_manager) retention_keys:
         Option<Vec<crate::schema::types::KeyValue>>,
     pub(in crate::fold_db_core::mutation_manager) verb: crate::fold_db_core::purge::HardEraseVerb,
-    pub(in crate::fold_db_core::mutation_manager) tombstone_id: u64,
-    pub(in crate::fold_db_core::mutation_manager) schema_tombstones: Vec<(String, String, String)>,
-    pub(in crate::fold_db_core::mutation_manager) slots: Vec<ResidentPurgeSlot>,
     /// Retained-chain atoms collected off the persist lane. `None` for
     /// barrierless cutover and for Skip-Delete converge.
     pub(in crate::fold_db_core::mutation_manager) guarded_complement_retained:
@@ -98,15 +88,6 @@ pub(crate) struct StorageSlotPurgeCompletion {
 
 /// One ordered durable action on a schema persist lane.
 pub(crate) enum LanePersistJob {
-    Write {
-        job: Box<DeferredPersistJob>,
-        // Only durable callers await these counts. Post-ack resident work
-        // belongs to the worker metrics, never to an already-returned request.
-        counts: crate::request_phases::RequestCounts,
-        counts_completion:
-            Option<tokio::sync::oneshot::Sender<crate::request_phases::RequestCounts>>,
-        _pending_task: crate::fold_db_core::pending_task_tracker::PendingTask,
-    },
     Purge {
         job: Box<PurgeEnvelope>,
         _pending_task: crate::fold_db_core::pending_task_tracker::PendingTask,

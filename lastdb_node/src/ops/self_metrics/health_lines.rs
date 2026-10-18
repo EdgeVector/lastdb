@@ -177,84 +177,29 @@ pub(super) fn file_blob_status_line(f: &FileBlobHealth) -> Option<String> {
     ))
 }
 
-/// One line for `lastdb status`: resident graph T0 activity and deferred drain.
-///
-/// `graph_budget=` is the ResidentGraph byte cap (`LASTDB_RESIDENT_BYTES`).
-/// The logical-key memory limit is the `Logical keys:` line.
+/// Native values have dedicated core counters. These counters describe only
+/// queued background purge work, not a second logical value store.
 pub(super) fn resident_status_line(r: &ResidentHealth) -> String {
-    let graph_budget = if r.budget_bytes == 0 {
-        "unbounded".to_string()
-    } else {
-        format_bytes(r.budget_bytes)
-    };
-    // Three readings, not two. `completed=0 total_us=0` is what a daemon that
-    // predates these counters produces AND what a node whose acked writes have
-    // never reached disk produces, and under `LASTDB_RESIDENT_MODE=write` the
-    // second is a durability emergency. Say "unavailable from this daemon"
-    // rather than print a zero this process never measured; a live snapshot is
-    // always `Some`, so the fallback can only be reached by an older payload.
-    // Within `Some`, `completed=` still separates "no samples yet" from
-    // "genuinely instant".
     let deferred = match (
         r.deferred_persist_completed.value,
         r.deferred_persist_us.value,
     ) {
         (Availability::Measured(completed), Availability::Measured(total_us)) => format!(
-            "deferred_persist completed={completed} total_us={total_us} avg_us={} ({})",
+            "completion samples={completed} total_us={total_us} avg_us={} ({})",
             total_us.checked_div(completed).unwrap_or(0),
             r.deferred_persist_completed.window.qualifier(),
         ),
-        _ => "deferred_persist unavailable from this daemon".to_string(),
-    };
-    // The two non-hit outcomes were one counter until 2026-08-17, and a daemon
-    // staged behind the CLI still serves only the total. Rendering the split as
-    // 0/0 next to a large total would be a false zero of exactly the kind
-    // `deferred_persist completed=0` already taught us to avoid, so say the
-    // split is unavailable instead of implying both halves are empty.
-    let key_set = if r.key_set_misses > 0 && r.key_set_overlays == 0 && r.key_set_unknowns == 0 {
-        format!(
-            "key_set hit/miss/demote={}/{}/{} (overlay/unknown split unavailable from this daemon)",
-            r.key_set_hits, r.key_set_misses, r.key_set_demotes,
-        )
-    } else {
-        format!(
-            "key_set hit/overlay/unknown/demote={}/{}/{}/{} complete={}",
-            r.key_set_hits,
-            r.key_set_overlays,
-            r.key_set_unknowns,
-            r.key_set_demotes,
-            r.key_set_marked_complete,
-        )
+        _ => "completion samples unavailable".to_string(),
     };
     format!(
-        "Resident: entries={} revision_slots={} bytes={} graph_budget={} hits schema/molecule/atom/blob/protein={}/{}/{}/{}/{} \
-         rehydrates={}/{}/{}/{}/{} {key_set} \
-         persist enqueued/flushed/failed={}/{}/{} \
-         lanes depth/age_ms/fail/lag={}/{}/{}/{} \
-         {deferred} evicted={} dirty_refused={}",
-        r.resident_entries,
-        r.revision_slots,
-        format_bytes(r.resident_bytes),
-        graph_budget,
-        r.schema_hits,
-        r.molecule_hits,
-        r.atom_hits,
-        r.file_blob_hits,
-        r.protein_hits,
-        r.schema_rehydrates,
-        r.molecule_rehydrates,
-        r.atom_rehydrates,
-        r.file_blob_rehydrates,
-        r.protein_rehydrates,
+        "Background purge work: enqueued/flushed/failed={}/{}/{} \
+         lanes depth/age_ms/fail={}/{}/{} {deferred}",
         r.persist_enqueued,
         r.persist_flushed,
         r.deferred_persist_failed,
         r.persist_lane_depth,
         r.persist_lane_oldest_age_ms,
         r.persist_lane_failures,
-        r.resident_minus_durable_revision,
-        r.evicted,
-        r.evict_refused_dirty,
     )
 }
 

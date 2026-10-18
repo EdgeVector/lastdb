@@ -6,8 +6,6 @@ use crate::schema::SchemaError;
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::super::helpers::hash_range_page_index_complete_item;
-use super::super::helpers::{hash_key_lookup_item, hash_range_page_index_item_for_record_key};
 use super::super::types::{ChangedKey, MoleculeData, MoleculeHeader, PerKeyRecord};
 use super::super::AtomStore;
 

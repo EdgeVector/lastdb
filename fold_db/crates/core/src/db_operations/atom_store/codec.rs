@@ -193,61 +193,63 @@ impl AtomStore {
             .map(|runtime| runtime.captured_atoms(keys))
             .transpose()?
             .unwrap_or_else(|| vec![None; keys.len()]);
-        let forms: Vec<Vec<String>> = keys
-            .iter()
-            .zip(&captured)
-            .map(|(key, atom)| {
-                if atom.is_some() {
-                    Vec::new()
-                } else {
-                    crate::kind_partition::read_forms(key)
-                }
-            })
-            .collect();
-        let lookup: Vec<Vec<u8>> = forms
-            .iter()
-            .flatten()
-            .map(|key| key.as_bytes().to_vec())
-            .collect();
-        let raw = self
-            .main_store
-            .inner()
-            .get_many(lookup)
-            .await
-            .map_err(crate::schema::SchemaError::from)?;
-        let mut raw_iter = raw.into_iter();
+        let raw = self.load_cold_atom_bytes(keys, &captured).await?;
         let mut out = Vec::with_capacity(keys.len());
-        for ((requested, key_forms), captured) in keys.iter().zip(forms).zip(captured) {
-            if let Some(atom) = captured {
+        for ((requested, raw), captured) in keys.iter().zip(raw).zip(captured) {
+            let atom = match captured {
+                Some(atom) => Some(atom.as_ref().clone()),
+                None => match raw {
+                    Some(value) => Some(self.decode_atom_bytes(&value).await?),
+                    None => None,
+                },
+            };
+            if let Some(atom) = &atom {
                 crate::storage::disk_pack::logical_paths::source::note_atom(
                     runtime.clone(),
                     requested,
-                    &atom,
+                    atom,
                 )?;
-                out.push(Some(atom.as_ref().clone()));
-                continue;
             }
-            let mut hit = None;
-            for key in key_forms {
-                let item = raw_iter.next().flatten();
-                if hit.is_none() {
-                    hit = item.map(|bytes| (key, bytes));
-                }
-            }
-            out.push(match hit {
-                Some((_, value)) => {
-                    let atom = self.decode_atom_bytes(&value).await?;
-                    crate::storage::disk_pack::logical_paths::source::note_atom(
-                        runtime.clone(),
-                        requested,
-                        &atom,
-                    )?;
-                    Some(atom)
-                }
-                None => None,
-            });
+            out.push(atom);
         }
         Ok(out)
+    }
+
+    /// Read exact current keys first; only a missed flat key needs its alias.
+    async fn load_cold_atom_bytes(
+        &self,
+        keys: &[String],
+        captured: &[Option<Arc<crate::atom::Atom>>],
+    ) -> Result<Vec<Option<Vec<u8>>>, crate::schema::SchemaError> {
+        let cold: Vec<_> = captured
+            .iter()
+            .enumerate()
+            .filter(|(_, atom)| atom.is_none())
+            .map(|(index, _)| index)
+            .collect();
+        let lookup = cold
+            .iter()
+            .map(|&index| keys[index].as_bytes().to_vec())
+            .collect();
+        let values = self.main_store.inner().get_many(lookup).await?;
+        let mut raw = vec![None; keys.len()];
+        let mut missing = Vec::new();
+        for (index, value) in cold.into_iter().zip(values) {
+            if value.is_none() {
+                if let Some(alias) = crate::kind_partition::form_twin(&keys[index]) {
+                    missing.push((index, alias.into_bytes()));
+                }
+            }
+            raw[index] = value;
+        }
+        if !missing.is_empty() {
+            let lookup = missing.iter().map(|(_, alias)| alias.clone()).collect();
+            let values = self.main_store.inner().get_many(lookup).await?;
+            for ((index, _), value) in missing.into_iter().zip(values) {
+                raw[index] = value;
+            }
+        }
+        Ok(raw)
     }
 
     pub(crate) fn primary_atom_key(

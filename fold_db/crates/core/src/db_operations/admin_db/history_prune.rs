@@ -1,4 +1,4 @@
-//! Mutation-history clear, schema-index and ref-blob purge, and the prefix row scanner.
+//! Mutation-history clear, ref-blob purge, and the prefix row scanner.
 
 use super::*;
 
@@ -144,20 +144,6 @@ impl AtomStore {
             .per_schema
             .sort_by_key(|b| std::cmp::Reverse(b.history_rows_deleted));
         Ok(report)
-    }
-
-    /// Delete all `schemaidx:` keys (atom UUID markers + sentinel), forcing the
-    /// next schema listing to rebuild the secondary index from canonical atoms.
-    pub async fn purge_schemaidx(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Result<SchemaIdxPurgeReport, SchemaError> {
-        let (keys_deleted, bytes_freed_approx) =
-            self.purge_schema_secondary_index(storage_prefix).await?;
-        Ok(SchemaIdxPurgeReport {
-            keys_deleted,
-            bytes_freed_approx,
-        })
     }
 
     /// Measure (and optionally delete) legacy `ref:` whole-molecule blobs in

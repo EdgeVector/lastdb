@@ -33,7 +33,7 @@
 //! a cutover reads to decide whether its fallback arm can be deleted. It is not
 //! "every read that fell through to a non-target collection", because some
 //! planes are consulted **by design and forever**:
-//! [`CollectionPlaneRole::HistoryAdjacent`] is append-only mass that is not
+//! The historical HistoryAdjacent role is append-only mass that is not
 //! rebuildable from tips, so a fallthrough there is architecture, not debt.
 //!
 //! Counting those as legacy is not a cosmetic error. Until 2026-08-06 this
@@ -54,7 +54,6 @@
 //! See `brain get papercut-dual-read-legacy-hits-counts-by-design-planes` and
 //! `sop-migration-code-sunset` (this counter is a `class=residue` probe).
 
-use crate::mini_cutover::plane_roles::{classify_collection_plane, CollectionPlaneRole};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -70,7 +69,7 @@ struct DualReadMetrics {
     /// expected to reach zero. This is the number a cutover probe reads.
     legacy_hits: AtomicU64,
     /// Fell through to a non-target collection that is consulted **by design**
-    /// and will never reach zero (see [`is_by_design_fallthrough`]). Reported
+    /// and will never reach zero. Reported
     /// so the traffic is visible, never counted as debt.
     by_design_hits: AtomicU64,
     /// Misses (no collection held the key).
@@ -82,37 +81,6 @@ struct DualReadMetrics {
     /// By-design fallthroughs attributed the same way, so excluding them from
     /// `legacy_hits` hides nothing — the traffic is still named.
     by_design_by_collection: [AtomicU64; ATTRIBUTED_COLLECTIONS.len()],
-}
-
-/// Is a fallthrough onto `collection` **by design** rather than residue?
-///
-/// True only for planes that are consulted forever by construction. Today that
-/// is [`CollectionPlaneRole::HistoryAdjacent`] — append-only mass that is "not
-/// rebuildable-from-tips without a proof", so no drain will ever empty it.
-///
-/// Two deliberate choices:
-///
-/// - **Only `HistoryAdjacent` is excluded.** Every other role — including
-///   `Unknown` and an unclassifiable `None` collection — stays counted as
-///   legacy. Under-excluding leaves a cutover looking not-yet-done, which
-///   costs a re-measure; over-excluding hides live residue and authorizes
-///   deleting a fallback that is still serving reads. Only one of those is
-///   recoverable, so the predicate is deliberately narrow.
-/// - **The drain list wins over the role.** `field_tip_versions` classifies
-///   `HistoryAdjacent` but is named in [`TIP_RESIDUE_LEGACY_COLLECTIONS`], so
-///   an explicit drain is expected to empty it. Drain-listed collections are
-///   residue regardless of plane role.
-#[must_use]
-pub fn is_by_design_fallthrough(collection: &str) -> bool {
-    if TIP_RESIDUE_LEGACY_COLLECTIONS.contains(&collection)
-        || INDEX_RESIDUE_LEGACY_COLLECTIONS.contains(&collection)
-    {
-        return false;
-    }
-    matches!(
-        classify_collection_plane(collection),
-        CollectionPlaneRole::HistoryAdjacent
-    )
 }
 
 /// Every collection a legacy fallthrough can resolve on, in report order.
@@ -215,60 +183,6 @@ impl DualReadMetricsSnapshot {}
 #[must_use]
 pub fn dual_read_metrics_snapshot() -> DualReadMetricsSnapshot {
     DUAL_READ.snapshot()
-}
-
-/// Record one dual-read resolution for a logical-main point get.
-///
-/// `candidate_index` is 0 for the write-target collection, >0 for any
-/// fallthrough. `collection` is the collection that produced the hit (ignored
-/// on miss — pass `None` for miss).
-///
-/// A fallthrough onto a by-design plane ([`is_by_design_fallthrough`]) is
-/// attributed and counted in `by_design_hits`, then returns — it must not
-/// reach `legacy_hits`, which means "residue still being served". An unnamed
-/// collection (`None`) counts as residue: not knowing what served a read is
-/// not evidence that it was by design.
-///
-/// Takes no key: the tip-family prefix buckets that needed one were deleted
-/// with the tip-family sunset (2026-08-07), which also let the caller stop
-/// cloning every key into a `Vec` on the logical-main get path.
-pub(crate) fn record_dual_read_get(candidate_index: Option<usize>, collection: Option<&str>) {
-    record_dual_read_get_inner(candidate_index, collection);
-}
-
-fn record_dual_read_get_inner(candidate_index: Option<usize>, collection: Option<&str>) {
-    DUAL_READ.gets.fetch_add(1, Ordering::Relaxed);
-    let Some(idx) = candidate_index else {
-        DUAL_READ.misses.fetch_add(1, Ordering::Relaxed);
-        return;
-    };
-    if idx == 0 {
-        DUAL_READ.target_hits.fetch_add(1, Ordering::Relaxed);
-        return;
-    }
-
-    if collection.is_some_and(is_by_design_fallthrough) {
-        DUAL_READ.by_design_hits.fetch_add(1, Ordering::Relaxed);
-        if let Some(idx) = collection.and_then(attributed_collection_index) {
-            DUAL_READ.by_design_by_collection[idx].fetch_add(1, Ordering::Relaxed);
-        }
-        return;
-    }
-
-    DUAL_READ.legacy_hits.fetch_add(1, Ordering::Relaxed);
-
-    // Attribute every legacy hit, not just the three tip-plane ones. A hit on a
-    // collection missing from the table is silently unattributed — the table is
-    // the report, so add the collection there rather than widening this arm.
-    if let Some(idx) = collection.and_then(attributed_collection_index) {
-        DUAL_READ.by_collection[idx].fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-fn attributed_collection_index(collection: &str) -> Option<usize> {
-    ATTRIBUTED_COLLECTIONS
-        .iter()
-        .position(|name| *name == collection)
 }
 
 // ── Tip residue copy-verify (compact path skeleton) ─────────────────────────

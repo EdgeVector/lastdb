@@ -1,43 +1,6 @@
 use super::*;
 
 impl AtomStore {
-    /// Probe and delete the retired HashRange page-index completeness marker.
-    /// Returns whether the marker was present.
-    async fn clear_legacy_page_index_marker(
-        &self,
-        molecule_uuid: &str,
-        storage_prefix: Option<&str>,
-        include_hash_range_page_index: bool,
-    ) -> Result<bool, SchemaError> {
-        let legacy_page_index_complete_key = build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::legacy_hash_range_page_index_complete_key(molecule_uuid),
-        );
-        let legacy_page_index_complete = if include_hash_range_page_index {
-            self.main_store
-                .exists_item(&legacy_page_index_complete_key)
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!(
-                        "probe legacy HashRange page index marker {molecule_uuid}: {e}"
-                    ))
-                })?
-        } else {
-            false
-        };
-        if legacy_page_index_complete {
-            self.main_store
-                .delete_item(&legacy_page_index_complete_key)
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!(
-                        "delete legacy HashRange page index marker {molecule_uuid}: {e}"
-                    ))
-                })?;
-        }
-        Ok(legacy_page_index_complete)
-    }
-
     /// Archived tip versions for the tip-version chain (`tv:{id}`).
     fn tip_version_items(
         data: &MoleculeData,
@@ -75,37 +38,6 @@ impl AtomStore {
         Ok(())
     }
 
-    /// Derived HashRange page-index rows for a full rewrite, plus the
-    /// completeness marker when the legacy marker was absent.
-    fn page_index_items(
-        molecule_uuid: &str,
-        records: &[(String, PerKeyRecord)],
-        header: &MoleculeHeader,
-        legacy_page_index_complete: bool,
-        storage_prefix: Option<&str>,
-    ) -> Vec<(String, Value)> {
-        let mut items: Vec<(String, Value)> = records
-            .iter()
-            .filter_map(|(base_key, _)| {
-                hash_range_page_index_item_for_record_key(molecule_uuid, base_key, storage_prefix)
-            })
-            .collect();
-        if !legacy_page_index_complete {
-            // Stamp the marker with the header this full rewrite is writing:
-            // the index emitted just above is derived from exactly these
-            // records, so a later rebuild at an unchanged header is provably
-            // a no-op and can be skipped.
-            items.push(hash_range_page_index_complete_item(
-                molecule_uuid,
-                header.version,
-                header.updated_at,
-                false,
-                storage_prefix,
-            ));
-        }
-        items
-    }
-
     /// Serialized generation tip records keyed for storage.
     fn tip_record_items(
         records: &[(String, PerKeyRecord)],
@@ -125,9 +57,9 @@ impl AtomStore {
             .collect()
     }
 
-    /// Tip versions, backrefs, atom-ref edges, optional retired page/hash
-    /// indexes, and the molecule header row for one activation batch.
-    async fn activation_structural_items(
+    /// Tip versions, backrefs, atom-ref edges, and the molecule header row
+    /// for one activation batch.
+    fn activation_structural_items(
         &self,
         molecule_uuid: &str,
         data: &MoleculeData,
@@ -135,24 +67,7 @@ impl AtomStore {
         header: &MoleculeHeader,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, Value)>, SchemaError> {
-        // Page index (`mhr:`) is retired — see HASH_RANGE_PAGE_INDEX_ENABLED.
-        let include_hash_range_page_index =
-            super::super::super::helpers::HASH_RANGE_PAGE_INDEX_ENABLED;
-        let legacy_page_index_complete = self
-            .clear_legacy_page_index_marker(
-                molecule_uuid,
-                storage_prefix,
-                include_hash_range_page_index,
-            )
-            .await?;
-        let mut items: Vec<(String, Value)> = Vec::with_capacity(
-            records.len()
-                + if include_hash_range_page_index {
-                    records.len() * 2 + 3
-                } else {
-                    2
-                },
-        );
+        let mut items: Vec<(String, Value)> = Vec::with_capacity(records.len() + 2);
         // The complete tips land in an immutable generation. Ordinary writers
         // keep appending live `mk:` changes while that body is built; the final
         // pointer and the structural rows below share one small activation
@@ -175,24 +90,6 @@ impl AtomStore {
             records,
             storage_prefix,
         )?);
-        if include_hash_range_page_index {
-            items.extend(Self::page_index_items(
-                molecule_uuid,
-                records,
-                header,
-                legacy_page_index_complete,
-                storage_prefix,
-            ));
-        }
-        // HashKey lookup markers (`mhk:`) — retired co-write; see
-        // HASH_RANGE_HASH_KEY_LOOKUP_ENABLED.
-        if super::super::super::helpers::HASH_RANGE_HASH_KEY_LOOKUP_ENABLED {
-            items.extend(Self::hash_key_lookup_items_for_records(
-                molecule_uuid,
-                records,
-                storage_prefix,
-            )?);
-        }
         let header_value = serde_json::to_value(header)
             .map_err(|e| SchemaError::InvalidData(format!("serialize molecule header: {e}")))?;
         items.push((
@@ -240,9 +137,13 @@ impl AtomStore {
             updated_at: data.updated_at(),
         };
 
-        let mut items = self
-            .activation_structural_items(molecule_uuid, data, &records, &header, storage_prefix)
-            .await?;
+        let mut items = self.activation_structural_items(
+            molecule_uuid,
+            data,
+            &records,
+            &header,
+            storage_prefix,
+        )?;
         let tip_items = self.append_activation_tip_items(&mut items, &records, storage_prefix)?;
 
         refuse_legacy_ref_blob_store_items(&items)?;

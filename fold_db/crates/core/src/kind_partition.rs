@@ -1,17 +1,11 @@
-//! Kind-as-partition keys for remaining flat LastStore kinds.
+//! Current flat and compound storage-key layouts.
 //!
-//! Decision `decision-2026-09-06-lastdb-sorted-groups-and-two-read-verbs`: a
-//! flat key's kind is its partition. `tv:abc` becomes `tv\0abc` so LastStore
-//! `partition_of` returns `tv\0` instead of hashing the whole id.
-//!
-//! Write the anchored form. Dual-read the colon form for one release. Compaction
-//! (sibling card) rewrites old keys. Do not flip
-//! `LASTDB_READS_REQUIRE_PARTITION` here.
-//!
-//! Already-partitioned encodings keep their existing `\0` (atom bodies under
-//! `AtomKeyEncoding::PartitionPrefix`, sparse `mord:{M}\0…`, `aref:` edges
-//! with a separator after the atom). This module only rewrites a kind whose
-//! first separator is still `:`.
+//! Flat kinds use `kind\0id`. Some compound kinds use `kind:...\0id`,
+//! including located atoms, sparse order entries, and atom-reference edges.
+//! A broad logical `kind:` prefix must include both current shapes. Its
+//! results retain the requested prefix spelling, so a later exact typed read
+//! can need the flat-key alias. This is a codec contract, not a migration.
+//! Keys with an existing compound separator keep that identity unchanged.
 
 /// Kinds whose remaining flat form is `kind:rest` and whose write form is
 /// `kind\0rest`. Longest token first so `gcatoms-probe-ref` wins a prefix race.
@@ -38,7 +32,7 @@ pub fn anchored(kind: &str, rest: &str) -> String {
     format!("{kind}{KIND_PARTITION_SEP}{rest}")
 }
 
-/// `kind:rest` — the pre-anchor form kept for dual-read.
+/// `kind:rest` — the logical prefix spelling for a flat key.
 #[must_use]
 pub fn flat(kind: &str, rest: &str) -> String {
     format!("{kind}:{rest}")
@@ -111,7 +105,7 @@ pub fn rewrite_key_like(key: &str, like: &str) -> String {
     form_twin(key).unwrap_or_else(|| key.to_string())
 }
 
-/// Logical rest used to dedupe a dual-read walk (`kind` + rest, org included).
+/// Logical identity for a current prefix union (`kind` + rest, org included).
 #[must_use]
 pub fn logical_row_id(key: &str) -> String {
     let (org, bare) = strip_org(key);
@@ -185,7 +179,7 @@ fn strip_org(key: &str) -> (Option<&str>, &str) {
     (None, key)
 }
 
-/// Inclusive start and exclusive end covering `kind\0` and leftover `kind:` rows.
+/// Inclusive start and exclusive end for both current kind-prefix layouts.
 ///
 /// `atom:` sorts after `atom\0`, so a colon-only range misses every new write.
 /// `mk:` is not a kind-as-partition kind; the range stays the colon prefix.
@@ -205,7 +199,7 @@ pub fn colon_plane_bounds(colon_prefix: &str) -> (String, String) {
 
 /// Return the half-open byte range for one physical prefix.
 ///
-/// This range does not join a kind-partition key with its legacy twin. Use it
+/// This range does not join a flat key with its alias. Use it
 /// when a caller must stay inside one molecule, generation, or other identity.
 #[must_use]
 pub fn exact_prefix_bounds(prefix: &str) -> (String, String) {
@@ -222,7 +216,7 @@ fn exclusive_prefix_end(prefix: &str) -> String {
     String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
-/// Point-read order: anchored write form first, then the colon tail.
+/// Prefix enumeration order: flat write form first, then compound prefix form.
 #[must_use]
 pub fn read_forms(key: &str) -> Vec<String> {
     let Some(twin) = form_twin(key) else {
@@ -235,7 +229,7 @@ pub fn read_forms(key: &str) -> Vec<String> {
     }
 }
 
-/// Union a prefix walk with its kind-form twin. Anchored rows win.
+/// Union current prefix layouts, retaining the first physical result for a key.
 #[must_use]
 pub fn merge_scan_rows(
     requested_prefix: &str,

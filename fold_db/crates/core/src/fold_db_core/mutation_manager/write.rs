@@ -27,6 +27,7 @@ mod erase_guards;
 mod erasure;
 mod hard_erasure;
 mod hard_erasure_process;
+mod layout;
 mod molecule_keys;
 mod native;
 mod native_paths;
@@ -35,7 +36,6 @@ use erasure::estimate_retained_atom_set_bytes;
 mod replay;
 mod schema_delta;
 mod schema_delta_helpers;
-mod schema_delta_persist;
 mod timing;
 
 /// Whether a batch is a caller's request or the replay of one already applied.
@@ -87,7 +87,6 @@ pub(in crate::fold_db_core::mutation_manager) struct HardErasureOptions<'a> {
     pub(in crate::fold_db_core::mutation_manager) storage_prefix: Option<&'a str>,
     pub(in crate::fold_db_core::mutation_manager) missing: super::super::purge::PurgeMissingPolicy,
     pub(in crate::fold_db_core::mutation_manager) verb: super::super::purge::HardEraseVerb,
-    pub(in crate::fold_db_core::mutation_manager) evict_resident: bool,
     pub(in crate::fold_db_core::mutation_manager) precomputed_retained: Option<HashSet<String>>,
     pub(in crate::fold_db_core::mutation_manager) emit_derived_events: bool,
 }

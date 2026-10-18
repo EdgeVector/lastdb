@@ -88,6 +88,7 @@ pub fn print_subscription_status(status: &serde_json::Value) {
 ///
 /// Stripe test card: `4242 4242 4242 4242`, any future expiry, any CVC.
 pub async fn setup_paid(home: &Path, api_url: &str, force: bool) -> Result<(), String> {
+    require_cloud_activation_supported()?;
     let (keypair, _seed, created) = ensure_identity(home, force)?;
     if created {
         eprintln!("Created new identity at {}/identity.key", home.display());
@@ -167,6 +168,7 @@ pub fn auth_refresh_callback(
         let api_url = api_url.clone();
         let keypair = Arc::clone(&keypair);
         Box::pin(async move {
+            require_cloud_activation_supported()?;
             tracing::info!(target: "lastdbd::cloud", "sync auth expired; re-registering device");
             let device_id = home
                 .join("data")

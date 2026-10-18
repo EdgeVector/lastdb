@@ -8,6 +8,9 @@ pub(in crate::exec) async fn execute_sync_cloud_on_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    if let Err(error) = host.db.require_cloud_sync_supported() {
+        return error_response(409, &error, ctx);
+    }
     if crate::cloud::cloud_sync_file_state(&host.home) == "unset" {
         return error_response(400, "cloud sync is not configured", ctx);
     }

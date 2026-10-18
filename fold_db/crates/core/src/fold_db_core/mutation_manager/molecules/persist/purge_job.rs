@@ -7,7 +7,6 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn run_purge_job(
         &self,
         job: &mut PurgeEnvelope,
-        slot_revisions: &[crate::resident::PersistSlotRevision],
     ) -> Result<(), SchemaError> {
         let has_completion = job.completion.is_some();
         let native = self.db_ops.namespaced_store().disk_pack_runtime();
@@ -57,7 +56,6 @@ impl MutationManager {
         }
         match result {
             Ok(result) => {
-                self.finish_purge_resident_turn(job, slot_revisions).await?;
                 if job.completion.is_some() {
                     job.pending_completion = Some(PurgeCompletion {
                         result: Ok(result),
@@ -67,7 +65,6 @@ impl MutationManager {
                 Ok(())
             }
             Err(PurgeAttemptError::Missing(error)) => {
-                self.finish_purge_resident_turn(job, slot_revisions).await?;
                 if job.completion.is_some() {
                     job.pending_completion = Some(PurgeCompletion {
                         result: Err(error),
@@ -75,10 +72,7 @@ impl MutationManager {
                     });
                 } else {
                     tracing::warn!(error = %error, "terminal persist-lane purge target absent");
-                    self.db_ops
-                        .resident()
-                        .metrics()
-                        .record_persist_lane_failure();
+                    self.db_ops.resident_metrics().record_persist_lane_failure();
                 }
                 Ok(())
             }
@@ -104,7 +98,6 @@ impl MutationManager {
                     // This envelope owns a revision, not every future
                     // value of the key. Complete its turn before the
                     // revision-conditional resident cleanup below.
-                    evict_resident: false,
                     precomputed_retained: job.guarded_complement_retained.clone(),
                     emit_derived_events: false,
                 },

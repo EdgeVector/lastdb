@@ -20,12 +20,12 @@ pub mod metadata_store;
 pub mod molecule_key_store;
 mod public_key_operations;
 pub mod public_key_store;
-pub mod resident_read;
 pub mod retired_intents;
 mod schema_operations;
 pub mod schema_store;
 pub mod search_index;
 mod storage_breakdown;
+pub mod tip_atoms;
 // Re-exports
 pub(crate) use admin_db::GcAtomsRunScope;
 pub use admin_db::{
@@ -42,7 +42,7 @@ pub use admin_db::{
     MoleculeKeyRow, MoleculeKeysReport, MoleculeTombstoneFlagStat, OrderLogAudit,
     OrderLogBloatAudit, OrderLogBloatRow, OrderLogBloatSchemaStat, OrderLogRepairReport,
     OrderLogShortRow, OrderLogZeroLiveCompactionReport, ProteinGcReport,
-    SchemaCurrentStorageReport, SchemaHistoryClearStat, SchemaHistoryStat, SchemaIdxPurgeReport,
+    SchemaCurrentStorageReport, SchemaHistoryClearStat, SchemaHistoryStat,
     SchemaLogicalStorageReport, SchemaLogicalStorageRow, SchemaOrderLogStat, SchemaRecordKey,
     SchemaRecordKeysReport, SchemaStorageReport, SupersededVersionRetentionCheckpoint,
     SupersededVersionRetentionOptions, SupersededVersionRetentionReport, ThinTipMigrateReport,
@@ -58,11 +58,10 @@ pub use atom_store::{
 };
 pub(crate) use atom_store::{automatic_gc_audit_id, ChangedKey, FilterLayout, OneDSlot};
 pub use atom_store::{
-    mk_full_scans, AtomGcAuditDecision, AtomGcAuditResult, AtomGcCandidate, AtomGcCandidatePage,
+    AtomGcAuditDecision, AtomGcAuditResult, AtomGcCandidate, AtomGcCandidatePage,
     AtomGcReapOptions, AtomGcReapReport, AtomStore, DroppedSchemaReapCursor,
     DroppedSchemaReapPhase, DroppedSchemaReapReport, DroppedSchemaTipProbe, DroppedSchemaTipProof,
-    MoleculeData, ResealAtomContentStats, DEFAULT_ATOM_GC_GRACE_WINDOW,
-    MAX_DROPPED_SCHEMA_REAP_OPS,
+    MoleculeData, DEFAULT_ATOM_GC_GRACE_WINDOW, MAX_DROPPED_SCHEMA_REAP_OPS,
 };
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,

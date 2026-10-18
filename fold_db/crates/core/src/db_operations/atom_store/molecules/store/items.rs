@@ -198,7 +198,7 @@ impl AtomStore {
     }
 
     /// Build one molecule's items for a changed-key write.
-    pub(in super::super) async fn changed_key_store_items(
+    pub(in super::super) fn changed_key_store_items(
         &self,
         molecule_uuid: &str,
         data: &MoleculeData,
@@ -211,17 +211,7 @@ impl AtomStore {
             updated_at: data.updated_at(),
         };
 
-        // Page index (`mhr:`) is retired — see HASH_RANGE_PAGE_INDEX_ENABLED.
-        let include_hash_range_page_index =
-            super::super::super::helpers::HASH_RANGE_PAGE_INDEX_ENABLED;
-        let mut items: Vec<(String, Value)> = Vec::with_capacity(
-            records.len()
-                + if include_hash_range_page_index {
-                    records.len() * 2 + 2
-                } else {
-                    2
-                },
-        );
+        let mut items: Vec<(String, Value)> = Vec::with_capacity(records.len() + 2);
         for (base_key, rec) in &records {
             let value = serde_json::to_value(rec)
                 .map_err(|e| SchemaError::InvalidData(format!("serialize per-key record: {e}")))?;
@@ -240,23 +230,6 @@ impl AtomStore {
             &records,
             storage_prefix,
         )?);
-        if include_hash_range_page_index {
-            items.extend(records.iter().filter_map(|(base_key, _)| {
-                hash_range_page_index_item_for_record_key(molecule_uuid, base_key, storage_prefix)
-            }));
-        }
-        // HashKey lookup markers (`mhk:`) — retired co-write; see
-        // HASH_RANGE_HASH_KEY_LOOKUP_ENABLED.
-        if super::super::super::helpers::HASH_RANGE_HASH_KEY_LOOKUP_ENABLED {
-            items.extend(
-                self.hash_key_lookup_items_for_changed_records(
-                    molecule_uuid,
-                    &records,
-                    storage_prefix,
-                )
-                .await?,
-            );
-        }
         let header_value = serde_json::to_value(&header)
             .map_err(|e| SchemaError::InvalidData(format!("serialize molecule header: {e}")))?;
         items.push((
@@ -266,98 +239,6 @@ impl AtomStore {
             ),
             header_value,
         ));
-        Ok(items)
-    }
-
-    pub(in super::super) fn hash_key_lookup_items_for_records(
-        molecule_uuid: &str,
-        records: &[(String, PerKeyRecord)],
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<(String, Value)>, SchemaError> {
-        let mut by_hash: HashMap<String, Option<(String, PerKeyRecord)>> = HashMap::new();
-        for (base_key, rec) in records {
-            let Some((hash, range)) =
-                molecule_key_codec::decode_hash_range(base_key, molecule_uuid)
-            else {
-                continue;
-            };
-            by_hash
-                .entry(hash)
-                .and_modify(|slot| {
-                    if slot
-                        .as_ref()
-                        .is_none_or(|(seen_range, _)| seen_range != &range)
-                    {
-                        *slot = None;
-                    }
-                })
-                .or_insert_with(|| Some((range, rec.clone())));
-        }
-
-        by_hash
-            .into_iter()
-            .map(|(hash, unique)| {
-                let unique_ref = unique.as_ref().map(|(range, rec)| (range.as_str(), rec));
-                hash_key_lookup_item(molecule_uuid, &hash, unique_ref, storage_prefix)
-            })
-            .collect()
-    }
-
-    pub(in super::super) async fn hash_key_lookup_items_for_changed_records(
-        &self,
-        molecule_uuid: &str,
-        records: &[(String, PerKeyRecord)],
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<(String, Value)>, SchemaError> {
-        let mut changed_by_hash: HashMap<String, Vec<(String, PerKeyRecord)>> = HashMap::new();
-        for (base_key, rec) in records {
-            let Some((hash, range)) =
-                molecule_key_codec::decode_hash_range(base_key, molecule_uuid)
-            else {
-                continue;
-            };
-            changed_by_hash
-                .entry(hash)
-                .or_default()
-                .push((range, rec.clone()));
-        }
-
-        let mut items = Vec::with_capacity(changed_by_hash.len());
-        for (hash, changed) in changed_by_hash {
-            let mut by_range: HashMap<String, PerKeyRecord> = HashMap::new();
-            let existing = self
-                .scan_per_key_prefix_paged(
-                    &molecule_key_codec::hash_range_scan_prefix_for_hash(molecule_uuid, &hash),
-                    storage_prefix,
-                    2,
-                )
-                .await?;
-            for (base_key, rec) in existing {
-                if let Some((_, range)) = molecule_key_codec::decode_hash_range_any(&base_key)
-                    .or_else(|| molecule_key_codec::decode_hash_range(&base_key, molecule_uuid))
-                {
-                    by_range.insert(range, rec);
-                }
-            }
-            for (range, rec) in changed {
-                by_range.insert(range, rec);
-            }
-
-            let unique = if by_range.len() == 1 {
-                by_range
-                    .iter()
-                    .next()
-                    .map(|(range, rec)| (range.as_str(), rec))
-            } else {
-                None
-            };
-            items.push(hash_key_lookup_item(
-                molecule_uuid,
-                &hash,
-                unique,
-                storage_prefix,
-            )?);
-        }
         Ok(items)
     }
 }

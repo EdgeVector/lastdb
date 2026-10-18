@@ -20,6 +20,18 @@ impl QueryExecutor {
                 schema.name
             )));
         }
+        crate::schema::require_native_logical_layout(
+            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+            &schema.schema_type,
+        )?;
+        crate::schema::require_native_logical_filter(
+            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+            query.filter.as_ref(),
+        )?;
+        crate::schema::require_native_current_read(
+            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
+            query.as_of.is_some(),
+        )?;
 
         self.db_ops
             .molecule_keys()
@@ -60,17 +72,6 @@ impl QueryExecutor {
         // but no execution path applied it, so queries silently
         // returned the unfiltered key-based result set.
         let results = apply_value_filters(results, query.value_filters.as_deref());
-        // include_tombstones exposes legacy tombstone *values*. A
-        // resident Delete is record absence, including while its
-        // durable erase is queued. It must never reveal the old body.
-        // Overlay stamps cover personal and org-prefix erasures;
-        // count already filters both, so the page must too.
-        let results = if crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
-            filter_schema_key_tombstones(results, self.db_ops.resident(), &query.schema_name)
-        } else {
-            results
-        };
-
         Ok(results)
     }
 

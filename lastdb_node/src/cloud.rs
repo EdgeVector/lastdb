@@ -24,6 +24,9 @@
 //!
 //! Scope note: personal-prefix sync only. Org-share sync targets (the desktop
 //! node's phase-2 bootstrap) are not configured by the minimal daemon yet.
+//!
+//! Native cutover: activation and active enrollment are disabled. The entry
+//! guards run before identity, account, credential, or worker changes.
 
 use std::future::Future;
 use std::io::{Read as _, Write as _};
@@ -35,6 +38,10 @@ use fold_db::sync::auth::SyncAuth;
 use fold_db::sync::AuthRefreshCallback;
 
 use crate::host::{self, CLOUD_SYNC_CONFIG_FILE, IDENTITY_KEY_FILE};
+
+fn require_cloud_activation_supported() -> Result<(), String> {
+    Err(fold_db::FoldDB::CLOUD_SYNC_DISABLED.into())
+}
 
 mod backup_markers;
 mod billing;

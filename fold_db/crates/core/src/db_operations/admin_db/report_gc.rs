@@ -4,13 +4,6 @@ use crate::storage::traits::PhysicalScanCursor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-/// Report from purging the schema secondary index.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SchemaIdxPurgeReport {
-    pub keys_deleted: u64,
-    pub bytes_freed_approx: u64,
-}
-
 /// Report from measuring/purging legacy `ref:` whole-molecule blobs
 /// (cold `legacy_blob_refs` collection).
 #[derive(Debug, Clone, Serialize, Deserialize)]

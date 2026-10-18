@@ -156,6 +156,7 @@ pub(crate) fn start(
     fresh_from_local: bool,
     accept_local_damage: bool,
 ) -> Result<serde_json::Value, String> {
+    host.db.require_cloud_sync_supported()?;
     if accept_local_damage && !fresh_from_local {
         return Err("local damage acceptance requires fresh-from-local mode".into());
     }

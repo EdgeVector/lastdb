@@ -306,19 +306,6 @@ async fn recover_api_hash_range(
     let api_range = crate::crypto::E2eKeys::ope_decode_range_plaintext(range)
         .unwrap_or_else(|| range.to_string());
 
-    if crate::db_operations::resident_read::tip_reads_resident_first(db.db_ops(), None) {
-        if let Some(tip) = db.resident().resolve_tip(hash_molecule, hash, range) {
-            let atom = crate::db_operations::resident_read::get_atom_for_tip(
-                db.db_ops(),
-                &tip.value.atom_uuid,
-            )
-            .await?;
-            if let Some(api_hash) = atom.content().as_str().filter(|s| !s.is_empty()) {
-                return Ok((api_hash.to_string(), api_range));
-            }
-        }
-    }
-
     let mut record_keys: Vec<String> = Vec::new();
     push_unique(
         &mut record_keys,
@@ -356,11 +343,9 @@ async fn recover_api_hash_range(
         let Some(rec) = rec else {
             continue;
         };
-        let atom = crate::db_operations::resident_read::get_atom_for_tip(
-            db.db_ops(),
-            &rec.entry.atom_uuid,
-        )
-        .await?;
+        let atom =
+            crate::db_operations::tip_atoms::get_atom_for_tip(db.db_ops(), &rec.entry.atom_uuid)
+                .await?;
         if let Some(api_hash) = atom.content().as_str().filter(|s| !s.is_empty()) {
             return Ok((api_hash.to_string(), api_range));
         }

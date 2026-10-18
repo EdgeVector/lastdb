@@ -32,7 +32,7 @@ pub(crate) fn certified_atoms(
             continue;
         };
         // A logical body source names its native write collection. A receipt
-        // from a legacy collection cannot authorize a different physical copy.
+        // from another collection cannot authorize a different physical copy.
         if facts.source.collection
             != crate::storage::laststore::native_routing::write_collection(key.as_bytes())
         {

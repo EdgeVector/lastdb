@@ -37,7 +37,7 @@ impl AtomStore {
 
         // Paged 1-D reads. `SampleN` is that page at offset 0.
         // Range stops at the filled window (one `mk:{M}:\0` partition).
-        // Hash, while the page index is off, decodes every `mk:` body and
+        // Hash decodes every `mk:` body and
         // then truncates. Those are not the same body bound.
         let page_window = match filter {
             F::Page { offset, limit } => Some((*offset, *limit)),
@@ -240,27 +240,10 @@ impl AtomStore {
         ))
     }
 
-    /// Page window for the Hash slot: the retired-index scan or the `mhr:` index.
-    async fn load_1d_hash_window(
-        &self,
-        target: OneDPageTarget<'_>,
-        after: Option<(String, String)>,
-        want: usize,
-        fill: PageFill,
-    ) -> Result<Vec<(String, String, AtomEntry, Option<KeyMetadata>)>, SchemaError> {
-        if !super::super::super::helpers::HASH_RANGE_PAGE_INDEX_ENABLED {
-            return self
-                .load_1d_hash_window_scanned(target, after, want, fill)
-                .await;
-        }
-        self.load_1d_hash_window_indexed(target, after, want, fill)
-            .await
-    }
-
     /// Page index retired: scan authoritative `mk:{M}:*` (hash-major).
     /// Product paths should key-restrict; this serves residual full-field /
     /// hash-only page walks only.
-    async fn load_1d_hash_window_scanned(
+    async fn load_1d_hash_window(
         &self,
         target: OneDPageTarget<'_>,
         after: Option<(String, String)>,
@@ -309,64 +292,6 @@ impl AtomStore {
             record.1 = EMPTY_KEY_COMPONENT.to_string();
         }
         Ok(decoded)
-    }
-
-    /// Hash-slot page window served from the derived `mhr:` page index,
-    /// rebuilding or repairing the index first when it is missing or stale.
-    async fn load_1d_hash_window_indexed(
-        &self,
-        target: OneDPageTarget<'_>,
-        after: Option<(String, String)>,
-        want: usize,
-        fill: PageFill,
-    ) -> Result<Vec<(String, String, AtomEntry, Option<KeyMetadata>)>, SchemaError> {
-        let OneDPageTarget {
-            molecule_uuid,
-            header,
-            storage_prefix,
-        } = target;
-        if !self
-            .hash_range_page_index_complete(molecule_uuid, storage_prefix)
-            .await?
-        {
-            self.rebuild_hash_range_page_index(molecule_uuid, storage_prefix, header)
-                .await?;
-        }
-        let (mut records, stale) = self
-            .load_hash_range_page_window_filled(
-                molecule_uuid,
-                storage_prefix,
-                after.clone(),
-                want,
-                fill,
-            )
-            .await?;
-        if stale {
-            self.repair_hash_range_page_index(molecule_uuid, storage_prefix, header)
-                .await?;
-            records = self
-                .load_hash_range_page_window_filled(
-                    molecule_uuid,
-                    storage_prefix,
-                    after,
-                    want,
-                    fill,
-                )
-                .await?
-                .0;
-        }
-        // Hold the pre-index contract exactly: the `mk:` scan this
-        // replaced decoded through `decode_1d_records`, which keeps the
-        // hash and DISCARDS the range for a Hash slot. The index knows
-        // the real range, so echoing it here would start surfacing a
-        // non-empty range for a mis-oriented record where the old path
-        // returned `("", ...)`. A hash-only molecule's ranges are empty
-        // anyway; this only matters for legacy mis-oriented rows, and
-        // there the old shape is the compatible one.
-        for record in &mut records {
-            record.1 = EMPTY_KEY_COMPONENT.to_string();
-        }
-        Ok(records)
     }
 
     /// Point-get a 1-D slot under the unified key layout.

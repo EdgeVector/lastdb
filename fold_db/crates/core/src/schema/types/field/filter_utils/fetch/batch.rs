@@ -50,10 +50,7 @@ pub(crate) async fn fetch_field_atom_batches(
         .iter()
         .map(|(_, entry)| (entry.1.as_str(), entry.4.clone()))
         .collect();
-    let atoms = crate::db_operations::resident_read::get_atoms_located_resident_first(
-        db_ops, &slots, prefix,
-    )
-    .await?;
+    let atoms = crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &slots, prefix).await?;
     for ((index, entry), atom) in misses.into_iter().zip(atoms) {
         let batch = &batches[index];
         let Some(atom) = atom else {

@@ -25,15 +25,8 @@ impl AtomStore {
                 hit.into_iter().collect()
             }
             F::HashKey(hash) => {
-                if let Some(unique) = self
-                    .get_unique_hash_key_record(molecule_uuid, hash, storage_prefix)
+                self.scan_hash_range_all_ranges(molecule_uuid, storage_prefix, hash)
                     .await?
-                {
-                    vec![unique]
-                } else {
-                    self.scan_hash_range_all_ranges(molecule_uuid, storage_prefix, hash)
-                        .await?
-                }
             }
             F::HashRangePrefix { hash, prefix } => {
                 self.scan_hash_range_prefix(molecule_uuid, storage_prefix, hash, prefix)

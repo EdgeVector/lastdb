@@ -79,7 +79,7 @@ bind. Guide: fold `docs/app-developers-multi-key-proteins.md` · brain
 
 You do **not** need the full engine lecture for day-to-day CRUD. Minimum:
 
-1. **Schema** — names fields and keying mode (`Single` | `Hash` | `Range` | `HashRange`). Catalog, not the row store.
+1. **Schema** — names fields and the supported logical key type: `Hash` or `HashRange`. Older template metadata can retain other forms.
 2. **Field** — each field has its own **molecule** (tip index): “for this key, which atom is current?” Same key coordinates `(hash[, range])` across fields assemble a logical row at read time.
 3. **Atom** — immutable, content-addressed field value (`atom:{uuid}`).
    **Size fence:** each atom's content is hard-capped (default **256 KiB** serialized JSON; env `LASTDB_MAX_ATOM_CONTENT_BYTES`, absolute max 1 MiB). Many small fields may be packed into one atom up to the fence. A list or log that grows is one record per entry in a HashRange schema. Atoms are **not** a blob store — packs/files go in file-blob/CAS with a pointer. See `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.

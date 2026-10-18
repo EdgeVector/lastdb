@@ -13,7 +13,6 @@ pub struct PersistLaneCounters {
     pub(super) refuse_bytes: AtomicU64,
     pub(super) refuse_entries: AtomicU64,
     pub(super) refuse_unhealthy: AtomicU64,
-    pub(super) write_throughs: AtomicU64,
     /// Envelopes moved to quarantine (process lifetime).
     pub(super) quarantined: AtomicU64,
     /// Quarantine-breaker trips (process lifetime). Each trip closed one
@@ -45,7 +44,6 @@ impl PersistLaneOccupancy {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PersistLanePressure {
     pub fair_share_bytes: u64,
-    pub write_through_threshold_bytes: u64,
     pub heaviest_schema: String,
     pub heaviest_bytes: u64,
     pub queued_entries: u64,
@@ -54,7 +52,6 @@ pub struct PersistLanePressure {
     pub refuse_bytes: u64,
     pub refuse_entries: u64,
     pub refuse_unhealthy: u64,
-    pub write_throughs: u64,
     pub unhealthy_lanes: u64,
     /// Envelopes moved to quarantine since process start.
     pub quarantined: u64,
@@ -91,10 +88,6 @@ impl PersistLaneCounters {
         self.refuse_unhealthy.load(Ordering::Relaxed)
     }
 
-    pub fn write_throughs(&self) -> u64 {
-        self.write_throughs.load(Ordering::Relaxed)
-    }
-
     pub fn quarantined(&self) -> u64 {
         self.quarantined.load(Ordering::Relaxed)
     }
@@ -117,9 +110,5 @@ impl PersistLaneCounters {
 
     pub fn record_refuse_unhealthy(&self) {
         self.refuse_unhealthy.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_write_through(&self) {
-        self.write_throughs.fetch_add(1, Ordering::Relaxed);
     }
 }

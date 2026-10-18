@@ -69,36 +69,6 @@ impl MutationManager {
             .collect()
     }
 
-    /// Slot-gate identities for prepared protein-sibling tip updates.
-    pub(in crate::fold_db_core::mutation_manager) fn sibling_molecule_lock_keys(
-        sibling_updates: &[(String, MoleculeData, HashSet<ChangedKey>)],
-    ) -> Vec<String> {
-        sibling_updates
-            .iter()
-            .flat_map(|(molecule_uuid, _data, changed)| {
-                if changed.is_empty() {
-                    return vec![Self::molecule_persist_lock_key(
-                        molecule_uuid,
-                        None,
-                        None,
-                        None,
-                    )];
-                }
-                changed
-                    .iter()
-                    .map(|key| {
-                        Self::molecule_persist_lock_key(
-                            molecule_uuid,
-                            Some(key.disk_hash()),
-                            Some(key.disk_range()),
-                            None,
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect()
-    }
-
     /// Acquire already-collected slot gates in one stable global order.
     pub(in crate::fold_db_core::mutation_manager) async fn acquire_molecule_write_lock_keys(
         &self,

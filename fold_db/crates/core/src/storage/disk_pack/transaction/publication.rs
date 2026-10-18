@@ -23,6 +23,10 @@ struct Changes {
 pub(super) struct PendingPublications(Mutex<Changes>);
 
 impl PendingPublications {
+    pub(super) fn is_empty(&self) -> StorageResult<bool> {
+        Ok(self.lock()?.entries.is_empty())
+    }
+
     fn lock(&self) -> StorageResult<std::sync::MutexGuard<'_, Changes>> {
         self.0.lock().map_err(|_| {
             StorageError::BackendError("native metadata publication lock is poisoned".into())

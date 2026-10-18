@@ -113,23 +113,6 @@ impl SyncEngine {
         }
     }
 
-    /// Packing lock and cloud-pause slot this engine shares with plane compaction.
-    ///
-    /// FoldDB init starts the local cadence before `set_sync_engine`. Pass
-    /// these Arcs into [`crate::fold_db_core::fold_db::FoldDbInit`] so the
-    /// coordinator's local compactor uses the same mutex a later cut takes.
-    pub(crate) fn packing_slots(
-        &self,
-    ) -> (
-        crate::sync::capture::plane_compactor::BackupPublishTargetSlot,
-        Arc<Mutex<Option<u64>>>,
-    ) {
-        (
-            Arc::clone(&self.backup_publish_target),
-            Arc::clone(&self.cloud_sync_disabled_at),
-        )
-    }
-
     /// Set a callback that refreshes authentication credentials on 401.
     ///
     /// When the sync engine encounters an auth error (expired token, etc.),

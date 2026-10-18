@@ -92,8 +92,9 @@ pub(super) async fn remove_slots_and_persist(
                 inputs.candidate_atoms,
                 inputs.history_referenced_by_retained,
                 chain_referenced_by_retained,
+                storage_slots,
                 acct,
-            )
+            )?
         } else {
             Vec::new()
         };
@@ -125,7 +126,6 @@ pub(super) async fn remove_slots_and_persist(
 /// molecule rows are gone.
 pub(super) struct GuardedErasure {
     pub(super) report: BulkPurgeReport,
-    pub(super) atoms_to_delete: Vec<String>,
     pub(super) keys_to_delete: Vec<Vec<u8>>,
     pub(super) tip_debits: Vec<(String, u64)>,
     pub(super) live_head_debits: Vec<(String, String, u64)>,
@@ -211,6 +211,7 @@ pub(super) async fn prepare_guarded_erasure(
             db_ops,
             schema,
             inputs.candidate_atoms,
+            storage_slots,
             &mut atoms_to_delete,
         )
         .await?;
@@ -238,7 +239,6 @@ pub(super) async fn prepare_guarded_erasure(
     };
     Ok(GuardedErasure {
         report,
-        atoms_to_delete,
         keys_to_delete,
         tip_debits,
         live_head_debits,

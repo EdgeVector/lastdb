@@ -57,8 +57,7 @@ impl MutationManager {
         Ok(ids)
     }
 
-    /// Validate one schema's erasures, reserve a persist-lane slot, apply the
-    /// resident tombstones under the apply gate and fill the lane envelope.
+    /// Validate one schema's erasures and reserve its ordered durable purge.
     /// Returns the completion receiver when the caller waits for durability.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn enqueue_schema_purge_envelope(
@@ -102,25 +101,14 @@ impl MutationManager {
 
         let delete_publication = if verb == super::super::super::purge::HardEraseVerb::Delete {
             Some(
-                self.prepare_delete_publication(&schema, &schema_erasures, storage_prefix)
+                self.prepare_delete_publication(&schema, &schema_erasures)
                     .await?,
             )
         } else {
             None
         };
 
-        let tombstone_id = self.db_ops.resident().next_tombstone_id();
-        let purge_apply = self.purge_apply_gate_transaction(
-            &schema,
-            &schema_erasures,
-            tombstone_id,
-            delete_publication.as_ref().map(|plan| &plan.winning),
-        );
         crate::sync::capture::mark_logical_commit_published();
-        let schema_tombstones = purge_apply.schema_tombstones;
-        let slots = purge_apply.slots;
-        let slot_revisions = purge_apply.slot_revisions;
-
         let (completion, receiver) = if wait_for_durable {
             let (tx, rx) = tokio::sync::oneshot::channel();
             (Some(tx), Some(rx))
@@ -138,21 +126,17 @@ impl MutationManager {
             search_batch: plan.search_batch,
             retention_keys: plan.retention_keys,
             verb,
-            tombstone_id,
-            schema_tombstones,
-            slots,
             guarded_complement_retained: plan.guarded_complement_retained,
             completion,
             pending_completion: None,
         };
-        let mut envelope = crate::resident::PersistEnvelope::new(
+        let envelope = crate::resident::PersistEnvelope::new(
             super::super::molecules::LanePersistJob::Purge {
                 job: Box::new(job),
                 _pending_task: pending_task,
             },
             purge_bytes,
         );
-        envelope.slot_revisions = slot_revisions;
         // Enqueue under the slot gates so successors cannot precede this revision.
         reservation.fill(envelope);
         drop(delete_publication);
@@ -257,7 +241,7 @@ impl MutationManager {
     async fn acquire_purge_apply_guards(
         &self,
         schema: &crate::schema::Schema,
-        schema_name: &str,
+        _schema_name: &str,
         schema_erasures: &[Mutation],
     ) -> Result<Vec<super::super::molecules::MoleculeGateGuard>, SchemaError> {
         let mut changed: HashMap<String, HashSet<crate::db_operations::ChangedKey>> =
@@ -271,19 +255,7 @@ impl MutationManager {
             }
         }
 
-        const PURGE_APPLY_GATE_RETRIES: usize = 64;
-        let mut prepared = self.prepared_slot_revisions(schema, &changed);
-        for _ in 0..PURGE_APPLY_GATE_RETRIES {
-            let guards = self.acquire_molecule_write_locks(schema, &changed).await;
-            if self.prepared_revisions_match(&prepared) {
-                return Ok(guards);
-            }
-            drop(guards);
-            prepared = self.prepared_slot_revisions(schema, &changed);
-        }
-        Err(SchemaError::InvalidData(format!(
-            "purge apply-gate revision retries exceeded for schema '{schema_name}'"
-        )))
+        Ok(self.acquire_molecule_write_locks(schema, &changed).await)
     }
 }
 

@@ -15,13 +15,6 @@ pub trait NamespacedStore: Send + Sync {
         None
     }
 
-    /// Optional plaintext cache for the encrypting seam. Native homes cache stored bytes once.
-    fn plaintext_read_cache(
-        &self,
-    ) -> Option<Arc<std::sync::Mutex<crate::resident::LogicalResidentSet>>> {
-        self.logical_resident_set()
-    }
-
     /// Open or create a namespace (Last Store collection / logical partition)
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>>;
 
@@ -62,13 +55,6 @@ pub trait NamespacedStore: Send + Sync {
     fn laststore_backup_source(
         &self,
     ) -> Option<Arc<crate::storage::laststore::LastStoreNamespacedStore>> {
-        None
-    }
-
-    /// Shared logical resident set, when this backend has one.
-    fn logical_resident_set(
-        &self,
-    ) -> Option<Arc<std::sync::Mutex<crate::resident::LogicalResidentSet>>> {
         None
     }
 

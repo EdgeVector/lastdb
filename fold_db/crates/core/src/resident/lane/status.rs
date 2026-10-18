@@ -78,7 +78,6 @@ impl<T: Send + 'static> PersistLaneSet<T> {
         let heaviest = self.heaviest_occupancy();
         PersistLanePressure {
             fair_share_bytes: self.max_bytes,
-            write_through_threshold_bytes: crate::memory_budget::write_through_threshold_bytes(),
             heaviest_schema: heaviest
                 .as_ref()
                 .map_or_else(String::new, |row| row.schema_name.clone()),
@@ -91,7 +90,6 @@ impl<T: Send + 'static> PersistLaneSet<T> {
             refuse_bytes: self.metrics.refuse_bytes(),
             refuse_entries: self.metrics.refuse_entries(),
             refuse_unhealthy: self.metrics.refuse_unhealthy(),
-            write_throughs: self.metrics.write_throughs(),
             unhealthy_lanes: self.metrics.unhealthy_lanes(),
             quarantined: self.metrics.quarantined(),
             breaker_trips: self.metrics.breaker_trips(),

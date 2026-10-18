@@ -42,6 +42,7 @@ where
     Fut: Future<Output = Result<Registered, String>>,
     W: FnOnce(&Path, &str) -> Result<PendingOwnerOnlyFile, String>,
 {
+    require_cloud_activation_supported()?;
     let invite_code = invite_code.trim();
     if invite_code.is_empty() {
         return Err("the DEV reuse-existing-identity invite is empty".to_string());
@@ -111,6 +112,7 @@ pub async fn connect(
     invite_code: Option<&str>,
     force: bool,
 ) -> Result<(), String> {
+    require_cloud_activation_supported()?;
     let identity = prepare_connect_identity(
         home,
         ConnectIdentityMode::Standard { invite_code, force },

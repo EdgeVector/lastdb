@@ -62,7 +62,8 @@ The earlier spike measurements found higher exact-read and write costs.
 The core memory report gives the newer comparison against the preceding branch build.
 The earlier candidate used `NativeWriteGraph` for accepted raw records.
 The final native route removes that graph and its duplicate compatibility values.
-Legacy backend compatibility remains separate from native reads and writes.
+The next cutover removes the legacy logical backend from normal startup.
+Cloud stays disabled. An empty home initializes directly; no migration code is required.
 
 The earlier preload candidate passes both 256-record generated Mini workloads, a selected 20,000-record workload, and separate key-budget and path-purge cases.
 The [results report](lastdb-schema-range-preload-results.md) records the matched source identities, values, elapsed times, memory, disk size, and regressions.

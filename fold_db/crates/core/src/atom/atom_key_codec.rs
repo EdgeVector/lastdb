@@ -1,90 +1,24 @@
-//! Atom **storage key** codec — the one place that builds and parses the key an
-//! atom body is stored under.
+//! Current atom body storage-key codecs.
 //!
-//! ## Why this module exists
+//! The atom UUID identifies content. A molecule tip names that UUID; the
+//! storage key also describes the physical placement of the selected copy.
+//! Callers add an optional storage scope with `build_storage_key`.
 //!
-//! A schema read is two passes over two collections:
-//!
-//! 1. walk the tip plane (`tips`; `field_tips` dual-read was pruned after the
-//!    2026-07-31 zero-hit soak) for the partition's per-key records, keyed
-//!    `mk:{M}:{esc(hash)}\0{range}`;
-//! 2. fetch each row's body from `atoms`.
-//!
-//! Pass 1 is physically bounded: the tip id carries a `\0`, so under
-//! `HashGroupKey::PartitionPrefix` (the primary's layout since 2026-07-27)
-//! LastStore places every row of a partition in the same
-//! `hash_group_partition_fanout` groups. Pass 2 was not: the body key was
-//! `atom:{uuid}`, which carries no `\0`, so `partition_of` returned the whole id
-//! and placement fell back to full-key hashing — a partition's N bodies
-//! scattered across *every* group of the largest collection in the store.
-//! Measured with a locality probe over LastStore hash groups: a
-//! 128-row partition over 256 groups touched 108 atom groups instead of 16, and
-//! the scatter grows with partition size until it saturates the collection.
-//!
-//! [`AtomKeyEncoding::PartitionPrefix`] gives the body key the same partition
-//! prefix its tip already carries, so both passes resolve the same bounded group
-//! set.
-//!
-//! ## Identity is unchanged
-//!
-//! The atom UUID remains the whole identity: it is content-addressed, it is what
-//! a tip stores (`AtomEntry::atom_uuid`), and it is what the API surfaces. Only
-//! the *storage key* gains a locality prefix. Schema → Molecule → Atom → file
-//! blob is untouched.
-//!
-//! ## Key shapes (BASE keys — callers add `{storage_prefix}:` via
-//! [`crate::schema::types::field::build_storage_key`])
-//!
-//! | encoding | key |
+//! | Encoding | Current key |
 //! |---|---|
-//! | [`AtomKeyEncoding::Flat`] | `atom:{uuid}` |
-//! | [`AtomKeyEncoding::PartitionPrefix`], partition known | `atom:mk:{M}:{esc(hash)}\0{uuid}` |
-//! | [`AtomKeyEncoding::PartitionPrefix`], partition unknown | `atom:{uuid}` |
+//! | [`AtomKeyEncoding::Flat`] | `atom\0{uuid}` |
+//! | [`AtomKeyEncoding::PartitionPrefix`], slot known | `atom:mk:{M}:{esc(hash)}\0{uuid}` |
+//! | [`AtomKeyEncoding::PartitionPrefix`], slot unknown | `atom\0{uuid}` |
 //!
-//! Both shapes start with `atom:`, so `MAIN_KEY_PREFIX_COLLECTIONS` routing and
-//! every `atom:` prefix scan keep working unchanged.
+//! Both layouts remain current. Located copies keep their owning molecule and
+//! hash in the key. UUID-only callers can use the locator to select a copy.
+//! A broad logical `atom:` prefix includes both layouts through the physical
+//! adapter's current-prefix union. It does not imply an old-engine fallback.
 //!
-//! The unknown-partition case is a **defined placement, not a panic**: atoms
-//! reached without their owning slot (GC candidates, orphan sweeps, the uuid-only
-//! `GET /api/atom/{uuid}` surface) resolve in the flat namespace rather than
-//! forcing every caller to invent a partition.
-//!
-//! ## Status
-//!
-//! [`AtomKeyEncoding::Flat`] is the default for a **fresh** home. It is no
-//! longer "the only encoding any shipped home uses": the primary has run under
-//! `PartitionPrefix` since 2026-07-27, and its rekey finished with 949,863
-//! bodies carrying **only** a prefixed key. `PartitionPrefix` is safe to enable
-//! on a new empty home, and on a populated home only after
-//! [`crate::db_operations::AtomStore::rekey_atoms_to_partition_prefix`] dual-writes
-//! every tip-referenced body (locator + prefixed key). Live primary flip is
-//! Tom-gated (`lastdb-safe-upgrade`). See brain
-//! `design-lastdb-atom-key-partition-locality`.
-//!
-//! ## How a boot picks the encoding
-//!
-//! Config may *start* a migration; it must not be the only record that the
-//! migration happened. The encoding a home is written under is therefore
-//! persisted **in the home** at [`ATOM_KEY_ENCODING_MARKER_KEY`], and a boot
-//! resolves it as:
-//!
-//! 1. [`ATOM_KEY_ENCODING_ENV`], when set — an explicit operator override;
-//! 2. else the home marker;
-//! 3. else [`AtomKeyEncoding::Flat`].
-//!
-//! Before this existed the env var was the *only* input, and dropping it from a
-//! migrated home did not fail — it silently served short pages, because
-//! [`crate::db_operations::AtomStore::get_atoms_located`] returns after step 1
-//! under `Flat` and never reaches the flat fallback or the `aloc:` backstop. A
-//! CoW clone of the primary booted without the var resolved 220 of 411 rows and
-//! reported 191 unresolved; 8 of the 13 `lastdbd-primary` plist backups on disk
-//! at the time carried no such var, including the one you would restore to roll
-//! back the cutover. Brain:
-//! `lastdb-atom-encoding-is-env-only-a-flat-boot-silently-hides-migrated-bodies`.
-//!
-//! A `Flat` boot against a home that still holds prefixed keys is refused
-//! outright — see
-//! [`crate::db_operations::AtomStore::resolve_boot_encoding`].
+//! [`ATOM_KEY_ENCODING_ENV`] selects an explicit placement policy. Otherwise
+//! boot uses the saved home marker, then [`AtomKeyEncoding::Flat`] for a new
+//! home. The marker prevents an accidental policy change from hiding bodies.
+//! Normal native startup does not convert older database formats.
 
 use crate::atom::molecule_key_codec;
 

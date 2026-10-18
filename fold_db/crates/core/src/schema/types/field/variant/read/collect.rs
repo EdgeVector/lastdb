@@ -110,8 +110,7 @@ impl FieldVariant {
     ///
     /// This is a fail-closed integrity primitive. A public query can omit a
     /// dangling atom and report the skip. Aggregate repair cannot do that: an
-    /// omitted row would certify an undercount. Resident overlays receive the
-    /// same treatment, including a key whose resident tip is absent.
+    /// omitted row would certify an undercount.
     pub(crate) async fn collect_authoritative_hash_partition(
         &mut self,
         db_ops: &Arc<DbOperations>,
@@ -130,108 +129,21 @@ impl FieldVariant {
         let storage_prefix = self.common().storage_prefix().map(ToString::to_string);
         let filter = HashRangeFilter::HashKey(hash.to_string());
 
-        let (resident_live, resident_tombstones) = self.capture_resident_hash_partition(
-            db_ops,
-            hash,
-            &molecule_uuid,
-            storage_prefix.as_deref(),
-        )?;
-
         self.refresh_for_read(db_ops, &filter, false).await?;
-        let pending = self.authoritative_hash_partition_pending(
-            db_ops,
-            hash,
-            &molecule_uuid,
-            &filter,
-            &resident_live,
-            &resident_tombstones,
-        )?;
-
-        let returned_keys: HashSet<KeyValue> =
-            pending.iter().map(|(key, ..)| key.clone()).collect();
-        if resident_live.keys().any(|key| !returned_keys.contains(key)) {
-            return Err(SchemaError::InvalidData(
-                "authoritative field walk omitted a live resident key".into(),
-            ));
-        }
+        let pending =
+            self.authoritative_hash_partition_pending(db_ops, hash, &molecule_uuid, &filter)?;
 
         Self::hydrate_authoritative_matches(db_ops, pending, storage_prefix.as_deref()).await
     }
 
-    /// Capture the active resident generation for one hash partition: each
-    /// live resident tip with its real convergence winner, and the tombstoned
-    /// keys. Both are empty when reads do not go through the resident set.
-    fn capture_resident_hash_partition(
-        &self,
-        db_ops: &Arc<DbOperations>,
-        hash: &str,
-        molecule_uuid: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<
-        (
-            HashMap<KeyValue, crate::resident::ResidentTip>,
-            HashSet<KeyValue>,
-        ),
-        SchemaError,
-    > {
-        // Capture the active resident generation before hydration. The normal
-        // overlay intentionally installs unsigned molecule entries, so repair
-        // must retain each resident tip's real convergence winner separately.
-        let mut resident_live: HashMap<KeyValue, crate::resident::ResidentTip> = HashMap::new();
-        let mut resident_tombstones = HashSet::new();
-        if crate::db_operations::resident_read::tip_reads_resident_first(db_ops, storage_prefix) {
-            let start = crate::resident::ResidentMoleculeKey::new(hash.to_string(), String::new());
-            let end = crate::resident::ResidentMoleculeKey::new(format!("{hash}\0"), String::new());
-            let snapshot =
-                db_ops
-                    .resident()
-                    .resident_key_set_range(molecule_uuid, Some(&start), Some(&end));
-            let resident_active = matches!(
-                snapshot.completeness,
-                ResidentKeySetCompleteness::Complete { .. }
-            ) || (db_ops.resident().molecule_has_dirty(molecule_uuid)
-                && (!snapshot.keys.is_empty() || !snapshot.tombstones.is_empty()));
-            if resident_active {
-                for key in snapshot.keys {
-                    let tip = db_ops
-                        .resident()
-                        .resolve_tip(molecule_uuid, &key.hash, &key.range)
-                        .ok_or_else(|| {
-                            SchemaError::InvalidData(
-                                "authoritative field walk found a resident key without a tip"
-                                    .into(),
-                            )
-                        })?
-                        .value;
-                    let key = match self.kind {
-                        FieldKind::Hash => KeyValue::new(Some(key.hash), None),
-                        FieldKind::HashRange => KeyValue::new(Some(key.hash), Some(key.range)),
-                        _ => unreachable!("field kind checked above"),
-                    };
-                    resident_live.insert(key, tip);
-                }
-                resident_tombstones.extend(snapshot.tombstones.into_iter().map(
-                    |key| match self.kind {
-                        FieldKind::Hash => KeyValue::new(Some(key.hash), None),
-                        FieldKind::HashRange => KeyValue::new(Some(key.hash), Some(key.range)),
-                        _ => unreachable!("field kind checked above"),
-                    },
-                ));
-            }
-        }
-        Ok((resident_live, resident_tombstones))
-    }
-
     /// Walk the refreshed hash partition into `(api key, tip entry, partition)`
-    /// rows, failing closed when the walk disagrees with the resident set.
+    /// records, with the full winner metadata from the selected molecule.
     fn authoritative_hash_partition_pending(
         &mut self,
         db_ops: &Arc<DbOperations>,
         hash: &str,
         molecule_uuid: &str,
         filter: &HashRangeFilter,
-        resident_live: &HashMap<KeyValue, crate::resident::ResidentTip>,
-        resident_tombstones: &HashSet<KeyValue>,
     ) -> Result<
         Vec<(
             KeyValue,
@@ -280,42 +192,19 @@ impl FieldVariant {
                     "authoritative field walk mapped multiple storage slots to one API key".into(),
                 ));
             }
-            if resident_tombstones.contains(&api_key) {
+            let entry = self
+                .atom_entry_at_key(&storage_key)
+                .cloned()
+                .ok_or_else(|| {
+                    SchemaError::InvalidData(
+                        "authoritative field walk found a key without a tip entry".into(),
+                    )
+                })?;
+            if entry.atom_uuid != atom_uuid {
                 return Err(SchemaError::InvalidData(
-                    "authoritative field walk retained a resident tombstone".into(),
+                    "authoritative field walk found a changed tip".into(),
                 ));
             }
-            let entry = if let Some(tip) = resident_live.get(&api_key) {
-                if tip.atom_uuid != atom_uuid {
-                    return Err(SchemaError::InvalidData(
-                        "authoritative field walk disagrees with the resident tip".into(),
-                    ));
-                }
-                crate::atom::AtomEntry::thin_with_author(
-                    tip.atom_uuid.clone(),
-                    tip.written_at,
-                    tip.logical_counter,
-                    tip.device_id.clone(),
-                    tip.mutation_uuid.clone(),
-                    String::new(),
-                )
-                .with_origin_device(tip.origin_device.clone())
-            } else {
-                let entry = self
-                    .atom_entry_at_key(&storage_key)
-                    .cloned()
-                    .ok_or_else(|| {
-                        SchemaError::InvalidData(
-                            "authoritative field walk found a key without a tip entry".into(),
-                        )
-                    })?;
-                if entry.atom_uuid != atom_uuid {
-                    return Err(SchemaError::InvalidData(
-                        "authoritative field walk found a changed tip".into(),
-                    ));
-                }
-                entry
-            };
             pending.push((api_key, entry, self.partition_hint(&storage_key)));
         }
         Ok(pending)
@@ -336,12 +225,9 @@ impl FieldVariant {
             .iter()
             .map(|(_, entry, partition)| (entry.atom_uuid.as_str(), partition.clone()))
             .collect();
-        let atoms = crate::db_operations::resident_read::get_atoms_located_resident_first(
-            db_ops,
-            &slots,
-            storage_prefix,
-        )
-        .await?;
+        let atoms =
+            crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &slots, storage_prefix)
+                .await?;
         let mut authoritative = Vec::with_capacity(pending.len());
         for ((key, entry, _), atom) in pending.into_iter().zip(atoms) {
             let atom = atom.ok_or_else(|| {

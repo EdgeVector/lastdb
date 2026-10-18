@@ -1,8 +1,8 @@
-//! Explicit native disk backend with complete-request admission and captured read roots.
+//! Native disk backend with complete-request admission and captured read roots.
 
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
-use crate::resident::{LogicalResidentSet, ResidentGraph, ResidentMetrics};
+use crate::resident::ResidentMetrics;
 use laststore::disk_pack::home::{
     DiskHome, HomeBuilder, HomeDescriptor, HomeJournal, HomeMutation,
 };
@@ -49,7 +49,7 @@ pub struct PackRuntime {
     flush_notify: tokio::sync::Notify,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
-    resident: Arc<ResidentGraph>,
+    resident_metrics: Arc<ResidentMetrics>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     schema_keys: schema_keys::SchemaKeys,
     published: AtomicU64,
@@ -69,13 +69,6 @@ pub struct PackNamespacedStore {
 struct PackKvStore {
     runtime: Arc<PackRuntime>,
     namespace: String,
-}
-
-pub(crate) fn requested(path: &Path) -> bool {
-    path.join(NODE_MARKER).exists()
-        || path.join("laststore-pack-home-v1").exists()
-        || path.join("laststore-native-source-sealed-v1").exists()
-        || env_flag::var_parse("LASTDB_DISK_PACK").unwrap_or(false)
 }
 
 fn map(error: laststore::Error) -> StorageError {
@@ -104,7 +97,7 @@ fn budget() -> ReadBudget {
 }
 
 impl PackNamespacedStore {
-    /// Open an explicitly fenced native node store, or create an empty requested home.
+    /// Open a native node store, or create the native format in an empty home.
     /// The caller must reject cloud sync until its native transfer gate is wired.
     pub fn open(path: &Path) -> StorageResult<Self> {
         let space_policy = space::policy_from_env()?;
@@ -142,15 +135,10 @@ impl PackNamespacedStore {
                 ));
             }
         } else {
-            if !env_flag::var_parse("LASTDB_DISK_PACK").unwrap_or(false) {
-                return Err(StorageError::InvalidOperation(
-                    "native creation requires explicit selection".into(),
-                ));
-            }
             std::fs::create_dir_all(path)?;
             if std::fs::read_dir(path)?.next().is_some() {
                 return Err(StorageError::InvalidOperation(
-                    "native creation refuses a nonempty legacy home".into(),
+                    "native creation requires an empty home; old-format data is unsupported".into(),
                 ));
             }
             // Empty construction has no data-dependent output: one empty tree,
@@ -180,7 +168,7 @@ impl PackNamespacedStore {
         Ok(store)
     }
 
-    /// Open a completed converted or restored native home with its original node identity.
+    /// Open the native physical home beneath the node format fence.
     pub(crate) fn open_home(path: &Path) -> StorageResult<Self> {
         let space_policy = space::policy_from_env()?;
         space::validate_resident_policy()?;
@@ -205,7 +193,7 @@ impl PackNamespacedStore {
                 flush_notify: tokio::sync::Notify::new(),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
-                resident: Arc::new(ResidentGraph::new().with_metrics(metrics)),
+                resident_metrics: metrics,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 schema_keys: schema_keys::SchemaKeys::new(),
                 published: AtomicU64::new(frontier),
@@ -220,9 +208,9 @@ impl PackNamespacedStore {
 }
 
 impl PackRuntime {
-    /// Native write reads and DbOperations share the same resident graph owner.
-    pub(crate) fn resident_graph(&self) -> Arc<ResidentGraph> {
-        Arc::clone(&self.resident)
+    /// Share one process counter owner with DbOperations and its background work.
+    pub(crate) fn resident_metrics(&self) -> Arc<ResidentMetrics> {
+        Arc::clone(&self.resident_metrics)
     }
 }
 
@@ -291,10 +279,5 @@ impl NamespacedStore for PackNamespacedStore {
 
     fn disk_pack_runtime(&self) -> Option<Arc<PackRuntime>> {
         Some(Arc::clone(&self.runtime))
-    }
-
-    fn plaintext_read_cache(&self) -> Option<Arc<Mutex<LogicalResidentSet>>> {
-        // Typed logical values live in CoreWarmSet, with one publication owner.
-        None
     }
 }

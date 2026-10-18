@@ -68,12 +68,8 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
         .iter()
         .map(|(_, atom_uuid, _, _, partition)| (atom_uuid.as_str(), partition.clone()))
         .collect();
-    let atoms = crate::db_operations::resident_read::get_atoms_located_resident_first(
-        db_ops,
-        &slots,
-        storage_prefix,
-    )
-    .await?;
+    let atoms =
+        crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &slots, storage_prefix).await?;
 
     for ((key, atom_uuid, key_meta, writer_pubkey, partition), atom) in
         misses.into_iter().zip(atoms)

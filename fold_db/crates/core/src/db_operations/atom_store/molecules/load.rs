@@ -4,7 +4,6 @@ use crate::atom::{molecule_key_codec, MoleculeHashRange};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde_json::Value;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::super::helpers::strip_record_prefix;
 use super::super::types::{ChangedKey, MoleculeData, MoleculeHeader, PerKeyRecord};
@@ -17,16 +16,6 @@ type MaterializedRows = Vec<(
     crate::atom::AtomEntry,
     Option<crate::atom::KeyMetadata>,
 )>;
-
-/// Process-local count of full `mk:{M}:*` prefix scans (`load_all_mk_records`).
-/// Test/ops surface for proving zero-yield purge probes no longer pay this cost.
-static MK_FULL_SCANS: AtomicU64 = AtomicU64::new(0);
-
-/// How many times this process has fully scanned a field's `mk:` tips.
-/// Used by purge zero-yield regression tests; not a product metric.
-pub fn mk_full_scans() -> u64 {
-    MK_FULL_SCANS.load(Ordering::Relaxed)
-}
 
 impl AtomStore {
     /// Load a molecule stored in the per-key layout, reconstructing entries
@@ -54,13 +43,12 @@ impl AtomStore {
             SchemaError::InvalidData(format!("parse molecule header {molecule_uuid}: {e}"))
         })?;
 
-        // Authoritative load is `mk:{M}:*` (hash-major tips). The derived `mhr:`
-        // page index is retired (HASH_RANGE_PAGE_INDEX_ENABLED=false): product
-        // paths must key-restrict; residual full loads scan `mk:` only.
+        // Authoritative load is `mk:{M}:*` (hash-major tips). Product paths
+        // must key-restrict; residual full loads use those tips directly.
         // SampleN reads those tips. The product load does not return `mord:`,
         // `moc:`, or a legacy inline `hash_range_order`.
         let records = self
-            .load_molecule_records_via_page_index(molecule_uuid, &header, storage_prefix)
+            .load_all_mk_records(molecule_uuid, storage_prefix)
             .await?;
         let molecule = MoleculeHashRange::from_per_key_records(
             molecule_uuid.to_string(),
@@ -102,7 +90,6 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         page_rows: usize,
     ) -> Result<(MaterializedRows, MaterializeReadCost), SchemaError> {
-        MK_FULL_SCANS.fetch_add(1, Ordering::Relaxed);
         let scan_prefix = build_storage_key(
             storage_prefix,
             &molecule_key_codec::molecule_record_prefix(molecule_uuid),
@@ -135,72 +122,6 @@ impl AtomStore {
             out.push((hash, range, r.entry, r.meta));
         }
         Ok((out, cost))
-    }
-
-    /// Full materialize of authoritative `mk:{M}:*` tips.
-    ///
-    /// When the derived page index is enabled this preferred `mhr:` then fell
-    /// back to `mk:`. With the page index retired, always scan `mk:`.
-    async fn load_molecule_records_via_page_index(
-        &self,
-        molecule_uuid: &str,
-        header: &MoleculeHeader,
-        storage_prefix: Option<&str>,
-    ) -> Result<
-        Vec<(
-            String,
-            String,
-            crate::atom::AtomEntry,
-            Option<crate::atom::KeyMetadata>,
-        )>,
-        SchemaError,
-    > {
-        let _ = header;
-        if super::super::helpers::HASH_RANGE_PAGE_INDEX_ENABLED {
-            use super::super::filter::PageFill;
-
-            if !self
-                .hash_range_page_index_complete(molecule_uuid, storage_prefix)
-                .await?
-            {
-                self.rebuild_hash_range_page_index(molecule_uuid, storage_prefix, header)
-                    .await?;
-            }
-
-            let (mut records, stale) = self
-                .load_hash_range_page_window_filled(
-                    molecule_uuid,
-                    storage_prefix,
-                    None,
-                    usize::MAX,
-                    PageFill::StoredRows,
-                )
-                .await?;
-            if stale {
-                self.repair_hash_range_page_index(molecule_uuid, storage_prefix, header)
-                    .await?;
-                records = self
-                    .load_hash_range_page_window_filled(
-                        molecule_uuid,
-                        storage_prefix,
-                        None,
-                        usize::MAX,
-                        PageFill::StoredRows,
-                    )
-                    .await?
-                    .0;
-            }
-
-            if self
-                .hash_range_page_index_complete(molecule_uuid, storage_prefix)
-                .await?
-            {
-                return Ok(records);
-            }
-        }
-
-        self.load_all_mk_records(molecule_uuid, storage_prefix)
-            .await
     }
 
     /// Load a molecule for a **keyed write** that will touch only `changed`,

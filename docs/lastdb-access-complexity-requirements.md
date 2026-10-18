@@ -62,7 +62,8 @@ After readiness, exact queries keep their direct lookup route.
 Ranges seek within one named hash and examine the required candidates in memory.
 They do not enumerate unrelated hashes or reload schema membership for each call.
 This policy adds no public query without a key; unselected schemas keep their current keyed routes.
-Implementation remains incomplete.
+The selected route is built in the native engine. The policy remains opt-in.
+The [native write report](proofs/core-owned-writes-20261018/RESULTS.md) separates its product evidence from remaining runtime gaps.
 
 ## Forbidden: full scan
 

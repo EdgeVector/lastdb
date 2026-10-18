@@ -1,8 +1,8 @@
 //! Atom preparation, molecule apply/persist, and per-key store paths.
 
 mod apply;
-mod apply_gate;
 pub(in crate::fold_db_core::mutation_manager) mod batch_rebase;
+mod delta;
 mod field_atom;
 mod persist;
 mod prepare;
@@ -11,17 +11,10 @@ mod protein_batch;
 mod protein_key_fields;
 mod protein_moves;
 mod restore;
-mod scoped_gate;
-mod storage_links;
-mod warm_release;
 
-pub(in crate::fold_db_core::mutation_manager) use apply_gate::{
-    ApplyGateOutcome, PreparedSchemaDelta,
-};
+pub(in crate::fold_db_core::mutation_manager) use delta::PreparedSchemaDelta;
 pub(in crate::fold_db_core::mutation_manager) use persist::{
     DeferredLaneWriter, DeferredPersistJob, LanePersistJob, MoleculeGateGuard, PurgeCompletion,
-    PurgeEnvelope, ResidentPurgeSlot, StorageSlotPurgeEnvelope,
+    PurgeEnvelope, StorageSlotPurgeEnvelope,
 };
-pub(in crate::fold_db_core::mutation_manager) use prepared::{
-    PreparedSiblingUpdates, PreparedSlotRevision, SiblingMove,
-};
+pub(in crate::fold_db_core::mutation_manager) use prepared::{PreparedSiblingUpdates, SiblingMove};

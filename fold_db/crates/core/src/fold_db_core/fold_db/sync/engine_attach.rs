@@ -7,7 +7,8 @@ impl FoldDB {
         &self,
         engine: Arc<crate::sync::SyncEngine>,
         capture_enabled: bool,
-    ) {
+    ) -> Result<(), String> {
+        self.require_cloud_sync_supported()?;
         self.register_sync_schema_reloaders(&engine).await;
         // From here a local write names this sync device on its tip, and the
         // tip decision knows which writes came from another device.
@@ -91,5 +92,6 @@ impl FoldDB {
             .set_mutation_intent_applier(self.mutation_intent_replay_applier(materializer))
             .await;
         self.sync_coordinator.set_engine(engine);
+        Ok(())
     }
 }

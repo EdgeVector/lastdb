@@ -3,19 +3,18 @@ use super::*;
 /// Operator-facing resident graph telemetry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResidentHealth {
-    /// Approximate resident graph bytes charged against the resident budget.
+    /// Historical graph-cache wire field. Native values use core_model counters.
     pub resident_bytes: u64,
-    /// Number of charged resident entries.
+    /// Historical graph-cache wire field; always zero.
     pub resident_entries: u64,
-    /// Revision identities retained by active tips, calls, or pending writes.
+    /// Historical graph revision wire field; always zero.
     #[serde(
         default = "default_keys_instant_gauge",
         serialize_with = "serialize_gauge_wire",
         deserialize_with = "deserialize_keys_instant"
     )]
     pub revision_slots: Gauge,
-    /// Configured ResidentGraph byte budget (`LASTDB_RESIDENT_BYTES`).
-    /// `0` means unbounded. This does not size the logical resident set.
+    /// Historical graph budget wire field; zero does not describe native limits.
     pub budget_bytes: u64,
     pub schema_hits: u64,
     pub schema_rehydrates: u64,
@@ -30,17 +29,9 @@ pub struct ResidentHealth {
     pub persist_enqueued: u64,
     pub persist_flushed: u64,
     pub deferred_persist_failed: u64,
-    /// Deferred durable persists (mode=write background tasks) that finished,
-    /// success or failure — the denominator for `deferred_persist_us`.
-    ///
-    /// [`Availability::Unavailable`] means the daemon does not report the field,
-    /// not that nothing has completed. Those two readings demand opposite
-    /// responses: under `LASTDB_RESIDENT_MODE=write` the client is acked before
-    /// the durable put, so a genuine `Measured(0)` after hours of uptime says no
-    /// acked write has ever been made durable — the one reading that would
-    /// justify emergency action on a primary. A daemon staged behind the CLI
-    /// produced a false zero on the primary on 2026-08-06 while the deferred
-    /// path was in fact healthy (historical mislabel #3).
+    /// Completed queued background purge tasks, success or failure. Native
+    /// logical request durability uses the native accepted/completed frontier.
+    /// An unavailable gauge is not a measured zero.
     #[serde(default = "default_deferred_persist_completed_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_deferred_persist_completed")]
@@ -211,29 +202,16 @@ impl Default for ResidentHealth {
 }
 
 impl ResidentHealth {
-    pub(super) fn from_graph(graph: &fold_db::ResidentGraph) -> Self {
-        let s = graph.metrics().snapshot();
-        let mut health = Self::from_snapshot(
-            s,
-            graph.resident_bytes(),
-            graph.resident_entries() as u64,
-            graph.budget_bytes(),
-        );
-        health.revision_slots = g_instant(graph.revision_slot_count() as u64, Unit::Keys);
-        health
+    pub(super) fn from_metrics(metrics: &fold_db::ResidentMetrics) -> Self {
+        Self::from_snapshot(metrics.snapshot())
     }
 
-    pub(crate) fn from_snapshot(
-        s: fold_db::resident::ResidentMetricsSnapshot,
-        resident_bytes: u64,
-        resident_entries: u64,
-        budget_bytes: u64,
-    ) -> Self {
+    pub(crate) fn from_snapshot(s: fold_db::resident::ResidentMetricsSnapshot) -> Self {
         Self {
-            resident_bytes,
-            resident_entries,
+            resident_bytes: 0,
+            resident_entries: 0,
             revision_slots: default_keys_instant_gauge(),
-            budget_bytes,
+            budget_bytes: 0,
             schema_hits: s.schema_hit,
             schema_rehydrates: s.schema_rehydrate,
             molecule_hits: s.molecule_hit,

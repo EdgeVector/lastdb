@@ -80,7 +80,7 @@ trap syn_cleanup EXIT INT TERM
 dump_catalog() {
   local label="$1" bin="$2" outfile="$3" i=0 ready=""
   log "[$label] boot $bin on a fresh empty home"
-  syn_boot "$bin" off || fail "[$label] node did not boot"
+  syn_boot "$bin" || fail "[$label] node did not boot"
   syn_declare || fail "[$label] synthetic schema declare failed"
 
   while [ "$i" -lt "$SCHEMAS_READY_TIMEOUT_SECS" ]; do

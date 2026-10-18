@@ -1,7 +1,7 @@
 //! Core schema objects shared only across compatible captured native views.
 
 use super::{Schema, SchemaCore, SchemaState};
-use crate::db_operations::schema_store::SchemaReadSnapshot;
+use crate::db_operations::schema_store::{snapshot_bytes, snapshot_sources, SchemaReadSnapshot};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{
     core_memory_get, core_memory_insert, read_snapshot_active, read_snapshot_get, CoreMemoryValue,
@@ -107,13 +107,13 @@ impl SchemaCore {
             return Ok(snapshot);
         }
         let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
-        let bytes = memory::snapshot_bytes(&snapshot)?;
+        let bytes = snapshot_bytes(&snapshot)?;
         Ok(core_memory_insert(
             runtime,
             cache,
             name.to_string(),
             snapshot,
-            memory::snapshot_sources(name),
+            snapshot_sources(name),
             bytes,
         )?)
     }

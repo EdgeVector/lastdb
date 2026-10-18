@@ -52,7 +52,7 @@ impl HashRangeQueryProcessor {
             .and_then(|key| key.hash_field.as_deref())
             .filter(|hash_field| count_field_names.iter().any(|name| name == hash_field))
             .map(ToString::to_string);
-        let (mut keys, key_field_molecule, key_field_storage_prefix) = self
+        let (mut keys, key_field_molecule) = self
             .gather_count_keys(
                 schema,
                 &count_field_names,
@@ -71,13 +71,6 @@ impl HashRangeQueryProcessor {
             )
             .await?;
         }
-        self.overlay_resident_count_keys(
-            &mut keys,
-            key_field_molecule.as_deref(),
-            key_field_storage_prefix.as_deref(),
-            filter,
-        );
-
         if let Some(molecule_uuid) = key_field_molecule {
             if self.db_ops.atoms().key_codec().encoding() != crate::atom::HashKeyEncoding::Plain {
                 Self::collapse_legacy_plain_twins(&mut keys, |api_hash| {
@@ -87,18 +80,6 @@ impl HashRangeQueryProcessor {
                         .ok()
                 });
             }
-        }
-
-        // Skip Deletes ack by stamping a resident schema-key tombstone and
-        // flushing the hard erase later. Count must match query_internal.
-        if crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops) {
-            let resident = self.db_ops.resident();
-            let schema_name = schema.name.as_str();
-            keys.retain(|kv| {
-                let hash = kv.hash.as_deref().unwrap_or("");
-                let range = kv.range.as_deref().unwrap_or("");
-                !resident.is_schema_key_tombstoned(schema_name, hash, range)
-            });
         }
 
         // Mirror the page path's named-layout retain. Shared-molecule
@@ -115,38 +96,6 @@ impl HashRangeQueryProcessor {
         .await?;
 
         Ok(keys.len())
-    }
-
-    /// Return the resident key interval for a partition count.
-    ///
-    /// The read resolver has the same interval rule. Keep this count-side
-    /// copy explicit because the count must make its window decision before
-    /// the page resolver runs.
-    fn resident_partition_interval(
-        filter: Option<&HashRangeFilter>,
-    ) -> Option<(String, String, Option<String>)> {
-        match filter? {
-            HashRangeFilter::HashKey(hash) => Some((hash.clone(), String::new(), None)),
-            HashRangeFilter::HashRangeRange { hash, start, end } => {
-                Some((hash.clone(), start.clone(), Some(end.max(start).clone())))
-            }
-            HashRangeFilter::HashRangePrefix { hash, prefix } => {
-                let mut upper = prefix.clone();
-                let end = loop {
-                    let Some(ch) = upper.pop() else { break None };
-                    let next = match ch as u32 + 1 {
-                        0xD800 => 0xE000,
-                        n => n,
-                    };
-                    if let Some(next) = char::from_u32(next) {
-                        upper.push(next);
-                        break Some(upper);
-                    }
-                };
-                Some((hash.clone(), prefix.clone(), end))
-            }
-            _ => None,
-        }
     }
 
     /// Drop the legacy plain-key half of every mixed-encoding twin, so the

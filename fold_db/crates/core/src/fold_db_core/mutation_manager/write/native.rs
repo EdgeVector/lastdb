@@ -13,38 +13,81 @@ pub(super) struct NativeRequest<'a> {
     pub author_clock: Option<super::super::author_clock::AuthorClockPersistBarrier>,
 }
 
+struct NativeCommit {
+    already_seen_ids: Vec<String>,
+    mutation_ids: Vec<String>,
+}
+
 impl MutationManager {
-    pub(super) async fn commit_native_request(
+    pub(super) async fn write_native_batch(
+        &self,
+        request: NativeRequest<'_>,
+        operations: ResidentCommitOperations,
+        start: std::time::Instant,
+        mut state: super::create_update_batch::BatchState,
+    ) -> Result<ResidentCommitReceipt, SchemaError> {
+        let committed = self.commit_native_request(request, &mut state).await?;
+        if committed.mutation_ids.is_empty() {
+            return self
+                .finish_all_duplicate_batch(
+                    committed.already_seen_ids,
+                    state.force_durable,
+                    &state.timing_breakdown,
+                    start,
+                    state.stages,
+                )
+                .await;
+        }
+        Ok(Self::build_commit_receipt(
+            committed.already_seen_ids,
+            &committed.mutation_ids,
+            operations,
+            start,
+            state,
+        ))
+    }
+
+    async fn commit_native_request(
         &self,
         request: NativeRequest<'_>,
         state: &mut super::create_update_batch::BatchState,
-    ) -> Result<Vec<String>, SchemaError> {
+    ) -> Result<NativeCommit, SchemaError> {
         // The clock queue uses native storage too. Complete its barrier before
         // taking the request's exclusive storage gate, never while owning it.
         if let Some(clock) = request.author_clock {
             clock.wait().await?;
         }
-        let memory_ack = self.resident_mode.acks_on_resident()
-            && !state.force_durable
-            && !crate::fold_db_core::mutation_sync_flush_enabled();
-        let ids =
+        let memory_ack =
+            !state.force_durable && !crate::fold_db_core::mutation_sync_flush_enabled();
+        let committed =
             transaction::request_scope(Some(Arc::clone(&request.runtime)), memory_ack, async {
                 request
                     .runtime
                     .record_read_stage("request-start", request.mutations.len());
-                // Recheck inside the exclusive native gate. A prior native request
-                // can commit while this request waits to enter preparation.
-                let ids: Vec<_> = request
-                    .mutations
+                // Compare once inside the exclusive native gate. A prior
+                // request can commit while this request waits to enter it.
+                let started = std::time::Instant::now();
+                let (already_seen_ids, mutations, hashes) = self
+                    .filter_idempotent_mutations(request.mutations, request.storage_prefix)
+                    .await?;
+                Self::add_timing(
+                    &mut state.timing_breakdown,
+                    "idempotency_check",
+                    started.elapsed(),
+                );
+                let mutation_ids = mutations
                     .iter()
                     .map(|mutation| mutation.uuid.clone())
                     .collect();
-                let (_, mutations, hashes) = self
-                    .filter_idempotent_mutations(request.mutations, request.storage_prefix)
-                    .await?;
                 request
                     .runtime
                     .record_read_stage("idempotency-done", mutations.len());
+                if mutations.is_empty() {
+                    return Ok::<_, SchemaError>(NativeCommit {
+                        already_seen_ids,
+                        mutation_ids,
+                    });
+                }
                 self.check_batch_preconditions(&mutations, request.storage_prefix)
                     .await?;
                 request
@@ -55,7 +98,6 @@ impl MutationManager {
                         mutations,
                         hashes,
                         request.storage_prefix,
-                        state.force_durable,
                         &mut state.timing_breakdown,
                         &mut state.stages,
                     )
@@ -69,21 +111,26 @@ impl MutationManager {
                     .runtime
                     .record_read_stage("stored-stages-done", deltas.len());
                 self.reserve_native_core_memory(&request.runtime)?;
-                Ok::<_, SchemaError>(ids)
+                Ok::<_, SchemaError>(NativeCommit {
+                    already_seen_ids,
+                    mutation_ids,
+                })
             })
             .await?;
+        if committed.mutation_ids.is_empty() {
+            return Ok(committed);
+        }
         crate::sync::capture::mark_logical_commit_published();
         self.finalize_batch(&mut state.timing_breakdown, state.force_durable)
             .await?;
-        Ok(ids)
+        Ok(committed)
     }
 
     pub(super) async fn commit_native_deltas(
         &self,
         deltas: &mut [PreparedSchemaDelta],
         runtime: &Arc<PackRuntime>,
-    ) -> Result<Vec<String>, SchemaError> {
-        let mut ids = Vec::new();
+    ) -> Result<(), SchemaError> {
         let mut heads = super::super::molecules::batch_rebase::BatchSlotHeads::default();
         for delta in deltas {
             let (mutation_events, modified_fields) =
@@ -113,18 +160,8 @@ impl MutationManager {
                 })?;
             }
             transaction::retain(runtime, delta.pending_persist_task.take())?;
-            transaction::retain(runtime, delta.defer_reservation.take())?;
-            // Native requests use the one complete storage owner, not separate
-            // schema lanes. An unused lane ticket returns its capacity here.
-            drop(delta.lane_reservation.take());
-            ids.extend(
-                delta
-                    .schema_mutations
-                    .iter()
-                    .map(|mutation| mutation.uuid.clone()),
-            );
         }
-        Ok(ids)
+        Ok(())
     }
 }
 
@@ -135,7 +172,6 @@ fn private_job(
     modified_fields: super::super::helpers::ModifiedFieldKeys,
 ) -> DeferredPersistJob {
     DeferredPersistJob {
-        author_clock_barrier: None,
         deferred_atoms: delta.deferred_atoms.clone(),
         storage_prefix: schema
             .runtime_fields
@@ -160,10 +196,5 @@ fn private_job(
         schema_name: delta.schema_name.clone(),
         sibling_updates: delta.sibling_updates.clone(),
         sibling_moves: delta.sibling_moves.clone(),
-        molecule_write_guards: Vec::new(),
-        batch_dirty_keys: Vec::new(),
-        defer_reservation: None,
-        slot_revisions: Vec::new(),
-        batch_log: crate::durable_flush::current(),
     }
 }

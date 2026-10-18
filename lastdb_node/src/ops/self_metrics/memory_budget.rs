@@ -1,14 +1,11 @@
 use super::*;
 
-/// What `LASTDB_HASH_GROUP_WARM_BYTES` / `warm_budget_bytes` bounds.
-///
-/// Tips and atoms take the unpublished loader. This byte budget bounds the
-/// hash-group warm set for every other collection.
-pub const HASH_GROUP_WARM_BOUNDS: &str = "hash-group warm set for non-logical collections \
-    (indexes, schema_index, atom_ref_edges_v2, keep_small, metadata, cas_blobs)";
+/// Historical process projection input. Native pool charges are separate.
+pub const HASH_GROUP_WARM_BOUNDS: &str =
+    "conservative process reserve input; use native core pool counters";
 
-/// What `LASTDB_RESIDENT_BYTES` / `resident.budget_bytes` bounds.
-pub const RESIDENT_GRAPH_BOUNDS: &str = "ResidentGraph (LASTDB_RESIDENT_MODE=write)";
+/// Retired graph wire fields; the native core has its own current counters.
+pub const RESIDENT_GRAPH_BOUNDS: &str = "retired graph fields; use core_model";
 
 /// What `resident_key_count` / `resident_key_budget` bound.
 ///
@@ -39,8 +36,6 @@ pub struct MemoryBudgetHealth {
     #[serde(default)]
     pub deferred_lane_fair_share_bytes: u64,
     #[serde(default)]
-    pub deferred_write_through_bytes: u64,
-    #[serde(default)]
     pub deferred_heaviest_lane: String,
     #[serde(default)]
     pub deferred_heaviest_lane_bytes: u64,
@@ -48,8 +43,6 @@ pub struct MemoryBudgetHealth {
     pub deferred_lane_refuse_bytes: u64,
     #[serde(default)]
     pub deferred_lane_refuse_entries: u64,
-    #[serde(default)]
-    pub deferred_write_throughs: u64,
     pub charged_budget_bytes: u64,
     #[serde(default)]
     pub projected_total_bytes: u64,
@@ -231,12 +224,10 @@ impl MemoryBudgetHealth {
             deferred_persist_bytes,
             deferred_persist_cap_bytes,
             deferred_lane_fair_share_bytes: persist_lanes.fair_share_bytes,
-            deferred_write_through_bytes: persist_lanes.write_through_threshold_bytes,
             deferred_heaviest_lane: persist_lanes.heaviest_schema.clone(),
             deferred_heaviest_lane_bytes: persist_lanes.heaviest_bytes,
             deferred_lane_refuse_bytes: persist_lanes.refuse_bytes,
             deferred_lane_refuse_entries: persist_lanes.refuse_entries,
-            deferred_write_throughs: persist_lanes.write_throughs,
             charged_budget_bytes,
             projected_total_bytes: budget.projected_total_bytes,
             projection_tolerance_bytes: runtime.map_or_else(

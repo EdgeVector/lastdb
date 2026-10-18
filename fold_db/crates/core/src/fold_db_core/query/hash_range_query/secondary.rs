@@ -59,7 +59,7 @@ impl HashRangeQueryProcessor {
         Ok(())
     }
 
-    /// Resolve one storage prefix's keys: resident tips first, then durable slots.
+    /// Resolve one storage prefix's keys through the core model and disk root.
     async fn secondary_current_for_prefix(
         &self,
         context: &SecondaryFieldContext<'_>,
@@ -82,62 +82,18 @@ impl HashRangeQueryProcessor {
         if slots.is_empty() {
             return Ok(());
         }
-        // Resident tips are keyed in API form. Keep that as the invariant:
-        // `disk_slot_for_key` returns API-form `(hash, range)`, durable
-        // storage encodes on lookup, and resident probes use the same API
-        // slot. This avoids blinding an already-blinded co-key page key.
-        let use_resident_tips = crate::db_operations::resident_read::tip_reads_resident_first(
-            &self.db_ops,
-            prefix.as_deref(),
-        );
-        let mut storage_slots = Vec::with_capacity(slots.len());
-        let mut storage_kv_for_slots = Vec::with_capacity(kv_for_slots.len());
-        for ((h, r), kv) in slots.iter().zip(kv_for_slots.iter()) {
-            if use_resident_tips {
-                if let Some(tip) = self.db_ops.resident().resolve_tip(context.molecule, h, r) {
-                    let tip = tip.value;
-                    if !include_tombstones
-                        && tip.key_metadata.as_ref().is_some_and(|m| m.tombstoned)
-                    {
-                        continue;
-                    }
-                    let tip_key = self
-                        .db_ops
-                        .atoms()
-                        .key_codec_for_molecule(context.molecule)
-                        .api_hash_range_record_key(context.molecule, h, r)
-                        .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                    let partition = crate::atom::AtomPartition::from_record_key(&tip_key);
-                    pending.push((
-                        context.name.to_string(),
-                        kv.clone(),
-                        tip.atom_uuid,
-                        tip.key_metadata,
-                        (!tip.writer_pubkey.is_empty()).then_some(tip.writer_pubkey),
-                        prefix.clone(),
-                        partition,
-                    ));
-                    continue;
-                }
-            }
-            storage_slots.push((h.clone(), r.clone()));
-            storage_kv_for_slots.push(kv.clone());
-        }
-        if storage_slots.is_empty() {
-            return Ok(());
-        }
         self.secondary_current_load_slots(
             context,
             &prefix,
             include_tombstones,
-            &storage_slots,
-            &storage_kv_for_slots,
+            &slots,
+            &kv_for_slots,
             pending,
         )
         .await
     }
 
-    /// Batch-load durable records for the slots the resident set did not answer.
+    /// Batch-load selected records for keys not covered by the complete core result.
     async fn secondary_current_load_slots(
         &self,
         context: &SecondaryFieldContext<'_>,

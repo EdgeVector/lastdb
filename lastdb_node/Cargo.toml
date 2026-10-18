@@ -36,31 +36,6 @@ path = "src/bin/lastdb_local_maintain/main.rs"
 [[bin]]
 bench = false
 test = false
-name = "lastdb_docstore_smoke"
-path = "src/bin/lastdb_docstore_smoke.rs"
-required-features = ["storage-v2"]
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb_laststore_empty_home_smoke"
-path = "src/bin/lastdb_laststore_empty_home_smoke.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb_reseal_atom_content"
-path = "src/bin/lastdb_reseal_atom_content.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb_recompress_atom_content"
-path = "src/bin/lastdb_recompress_atom_content.rs"
-
-[[bin]]
-bench = false
-test = false
 name = "lastdb_storage_recovery_rollback_proof"
 path = "src/bin/lastdb_storage_recovery_rollback_proof.rs"
 
@@ -71,7 +46,6 @@ path = "src/bin/lastdb_storage_recovery_rollback_proof.rs"
 # / ephemeral nodes stay silent.
 default = ["sentry-telemetry", "purging-allocator"]
 sentry-telemetry = ["dep:sentry", "observability/sentry"]
-storage-v2 = ["dep:lastdb_docstore"]
 # The shipped daemon uses mimalloc so LRU eviction returns freed pages to the
 # kernel. Disable default features, then re-enable the product features without
 # this one, to build the system-allocator comparison binary.
@@ -86,7 +60,6 @@ observability = { workspace = true, features = ["otel"] }
 lastdb_uds = { workspace = true }
 lastdb_identity = { workspace = true }
 lastdb_host = { workspace = true }
-lastdb_docstore = { workspace = true, optional = true }
 folddb_profile = { workspace = true }
 schema_types = { workspace = true }
 schema_service_client = { workspace = true }

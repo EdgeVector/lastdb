@@ -336,9 +336,6 @@ pub enum DataRoute {
     /// record molecule R. OWNER socket only. Body:
     /// `{ schema, hash, range }`. Not collection compact (`/api/db/compact`).
     CompactRecord,
-    /// `POST /api/db/purge-schemaidx` — delete retired `schemaidx:` full-atom
-    /// copies (and sentinel). OWNER socket only.
-    DbPurgeSchemaIdx,
     /// `POST /api/db/gc-atoms` — prune tombstoned tip-version chains, then
     /// delete unreferenced `atom:` rows. Body:
     /// `{ dry_run?: bool }` (default true).

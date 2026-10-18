@@ -4,7 +4,7 @@ use crate::db_operations::{
     AtomDeleteLedgerEntry, AtomGcReport, AtomPartitionRekeyOptions, AtomPartitionRekeyReport,
     DanglingTipRepairOptions, DanglingTipRepairReport, DbInventory, DroppedSchemaReapCursor,
     HistoryClearReport, LegacyKeyForkAudit, LegacyRefBlobPurgeReport, OrderLogAudit,
-    ProteinGcReport, SchemaCurrentStorageReport, SchemaIdxPurgeReport, SchemaLogicalStorageReport,
+    ProteinGcReport, SchemaCurrentStorageReport, SchemaLogicalStorageReport,
     SchemaLogicalStorageRow, SchemaRecordKey, SchemaRecordKeysReport, SchemaStorageReport,
     SupersededVersionRetentionCheckpoint, SupersededVersionRetentionOptions,
     SupersededVersionRetentionReport, ThinTipMigrateReport, TipHistoryDrainCheckpoint,

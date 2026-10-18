@@ -8,10 +8,6 @@ impl NamespacedStore for EncryptingNamespacedStore {
         self.inner.disk_pack_runtime()
     }
 
-    fn plaintext_read_cache(&self) -> Option<Arc<Mutex<LogicalResidentSet>>> {
-        self.inner.plaintext_read_cache()
-    }
-
     async fn restore_durability_barrier(&self) -> StorageResult<()> {
         self.inner.restore_durability_barrier().await
     }
@@ -30,25 +26,15 @@ impl NamespacedStore for EncryptingNamespacedStore {
         self.inner.laststore_backup_source()
     }
 
-    fn logical_resident_set(&self) -> Option<Arc<Mutex<LogicalResidentSet>>> {
-        self.inner.logical_resident_set()
-    }
-
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
         let inner_store = self.inner.open_namespace(name).await?;
 
         if self.should_encrypt(name) {
-            // Once a namespace has been proven clean, the strict marker becomes
-            // the authority for that namespace: missing `ENC:` is rejected
-            // instead of dual-read as plaintext. Namespaces without a strict
-            // marker still honor the store's global migration mode.
-            // No dual-read arm: an un-enveloped value in an encrypted
-            // namespace reads as absent, so there is nothing to decide here.
-            let mut kv = EncryptingKvStore::new(name, inner_store, self.crypto.clone());
-            if let Some(set) = self.inner.plaintext_read_cache() {
-                kv = kv.with_logical(set);
-            }
-            Ok(Arc::new(kv))
+            Ok(Arc::new(EncryptingKvStore::new(
+                name,
+                inner_store,
+                self.crypto.clone(),
+            )))
         } else {
             // Non-sensitive namespaces: pass through without encryption
             Ok(inner_store)

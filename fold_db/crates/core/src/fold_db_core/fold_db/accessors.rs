@@ -85,7 +85,7 @@ impl FoldDB {
     }
 
     /// Resident graph (T0 rehydrate / hit metrics). Shared via DbOperations.
-    pub fn resident(&self) -> &std::sync::Arc<crate::resident::ResidentGraph> {
-        self.db_ops.resident()
+    pub fn resident_metrics(&self) -> &std::sync::Arc<crate::resident::ResidentMetrics> {
+        self.db_ops.resident_metrics()
     }
 }

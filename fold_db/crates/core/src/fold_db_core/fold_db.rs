@@ -55,8 +55,6 @@ pub struct FoldDB {
     /// Periodic storage flusher (memory-first mutation durability).
     /// See [`super::mutation_flush`].
     pub(crate) background_flush: super::mutation_flush::BackgroundFlushTask,
-    /// Periodic resident-graph dirty drain (T1). See [`crate::resident`].
-    pub(crate) background_persist: crate::resident::BackgroundPersistTask,
     /// Periodic orphan `protein:` reaper. See [`super::protein_reaper`].
     pub(crate) background_protein_reaper: super::protein_reaper::BackgroundProteinReaperTask,
     /// Periodic bounded tip-history chain drain. See [`super::tip_history_drain`].
@@ -90,7 +88,6 @@ impl Drop for FoldDB {
         // shutdown awaits this task; Drop cannot await from a synchronous
         // destructor and uses the best-effort fallback.
         self.background_flush.abort();
-        self.background_persist.stop();
         self.mutation_manager.persist_lanes().stop();
         self.background_protein_reaper.stop();
         self.background_tip_history_drain.stop();

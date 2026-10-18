@@ -142,7 +142,6 @@ pub(super) fn persist_lane_rows(
         refuse_bytes: persist_lanes.refuse_bytes,
         refuse_entries: persist_lanes.refuse_entries,
         refuse_unhealthy: persist_lanes.refuse_unhealthy,
-        write_throughs: persist_lanes.write_throughs,
         unhealthy_lanes: persist_lanes.unhealthy_lanes,
         fair_share_bytes: persist_lanes.fair_share_bytes,
         quarantined: persist_lanes.quarantined,

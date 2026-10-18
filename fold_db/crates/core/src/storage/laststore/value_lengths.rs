@@ -1,6 +1,7 @@
-//! Raw value length preflight follows the same canonical and legacy routing.
+//! Raw value length preflight follows canonical current-key placement.
 
 use super::*;
+use std::collections::BTreeMap;
 
 pub(crate) fn raw_value_lengths<F: FnMut(u64) -> StorageResult<()>>(
     source: &LastStore,

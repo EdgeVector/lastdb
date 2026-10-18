@@ -10,11 +10,16 @@ impl FoldDB {
         &self,
         engine: Arc<crate::sync::SyncEngine>,
     ) -> crate::error::FoldDbResult<()> {
-        self.set_sync_engine(Arc::clone(&engine)).await;
+        self.require_cloud_sync_supported()
+            .map_err(crate::error::FoldDbError::Config)?;
+        self.set_sync_engine(Arc::clone(&engine))
+            .await
+            .map_err(crate::error::FoldDbError::Config)?;
         self.apply_org_sync_targets_from_store().await?;
         engine.finish_primary_resume().await;
         engine.start_laststore_backup_uploader();
-        self.start_sync(engine.config.sync_interval_ms);
+        self.start_sync(engine.config.sync_interval_ms)
+            .map_err(crate::error::FoldDbError::Config)?;
         Ok(())
     }
 }

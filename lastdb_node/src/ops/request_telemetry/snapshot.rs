@@ -88,8 +88,6 @@ pub struct PersistLaneOpRow {
     #[serde(default)]
     pub refuse_unhealthy: u64,
     #[serde(default)]
-    pub write_throughs: u64,
-    #[serde(default)]
     pub unhealthy_lanes: u64,
     #[serde(default)]
     pub fair_share_bytes: u64,

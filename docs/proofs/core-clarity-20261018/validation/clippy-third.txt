@@ -1,0 +1,18 @@
+host_cargo_lock=held pid=3638 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
+    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)
+    Checking lastdb_uds v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_uds)
+    Checking lastdb_identity v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_identity)
+    Checking generate_schema_org_classifications v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/scripts/generate_schema_org_classifications)
+    Checking lastdb_host v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_host)
+    Checking lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)
+error: the borrowed expression implements the required traits
+   --> lastdb_node/src/bin/lastdb/restore_phases/cloud_generation.rs:325:42
+    |
+325 |         .map_err(|error| runtime_failure(&format!("attach generation replay engine: {error}")))?;
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `format!("attach generation replay engine: {error}")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#needless_borrows_for_generic_args
+    = note: `-D clippy::needless-borrows-for-generic-args` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::needless_borrows_for_generic_args)]`
+
+error: could not compile `lastdb_node` (bin "lastdb") due to 1 previous error

@@ -218,7 +218,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbNativeBackup
         | DataRoute::DbStampPurgedAtomRetirements
         | DataRoute::CompactRecord
-        | DataRoute::DbPurgeSchemaIdx
         | DataRoute::DbGcAtoms
         | DataRoute::DbReapDroppedSchema
         | DataRoute::DbGcFileBlobs

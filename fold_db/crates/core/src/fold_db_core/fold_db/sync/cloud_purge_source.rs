@@ -12,6 +12,8 @@ impl FoldDB {
         data_dir: &str,
         e2e_keys: &crate::crypto::E2eKeys,
     ) -> crate::error::FoldDbResult<Arc<crate::sync::SyncEngine>> {
+        self.require_cloud_sync_supported()
+            .map_err(crate::error::FoldDbError::Config)?;
         if let Some(engine) = self.sync_engine() {
             return Ok(engine);
         }

@@ -122,7 +122,6 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
         DbReclaimCommand::StampPurgedAtomRetirements { execute, json } => {
             db_stamp_purged_atom_retirements(socket, execute, json)
         }
-        DbReclaimCommand::PurgeSchemaidx { json } => db_purge_schemaidx(socket, json),
         DbReclaimCommand::ReapDroppedSchema {
             schema,
             fields,

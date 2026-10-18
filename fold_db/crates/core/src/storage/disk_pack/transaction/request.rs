@@ -68,6 +68,16 @@ where
         WRITE.scope(Arc::clone(&pending), future),
     )
     .await??;
+    if pending.is_empty()? {
+        // Preserve an explicit durability fence without adding an empty batch.
+        let durable = reply != Reply::Memory || pending.durable_only.load(Ordering::Acquire);
+        let target = durable.then(|| runtime.seal_queue());
+        drop(gate);
+        if let Some(target) = target {
+            runtime.wait_for_queue(target).await?;
+        }
+        return Ok(result);
+    }
     let operations = pending.freeze_operations();
     let delay = delay.filter(|_| {
         !pending.durable_only.load(Ordering::Acquire) && pending.has_reserved_raw_memory()

@@ -122,32 +122,6 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
             return Err(envelope);
         }
 
-        // Release this envelope's slot turns so later envelopes on the same
-        // slots can run. The durable row keeps its older value; the resident
-        // dirty pins stay, so eviction cannot drop the in-memory value.
-        let lock_keys = envelope
-            .slot_revisions
-            .iter()
-            .map(|ticket| {
-                MutationManager::molecule_persist_lock_key(
-                    &ticket.molecule_uuid,
-                    Some(&ticket.disk_hash),
-                    Some(&ticket.disk_range),
-                    None,
-                )
-            })
-            .collect();
-        let _guards = self.mm.acquire_molecule_write_lock_keys(lock_keys).await;
-        if let Err(turn_error) = self
-            .mm
-            .complete_resident_persist_turn(&envelope.slot_revisions)
-        {
-            tracing::error!(
-                error = %turn_error,
-                key = %key,
-                "quarantined envelope could not release its resident persist turn"
-            );
-        }
         tracing::error!(
             key = %key,
             bytes = envelope.bytes,
@@ -169,7 +143,6 @@ impl DeferredLaneWriter {
         envelope: &mut crate::resident::PersistEnvelope<LanePersistJob>,
     ) -> Result<(), String> {
         let author_clock_barrier = match &envelope.payload {
-            LanePersistJob::Write { job, .. } => job.author_clock_barrier.as_ref(),
             LanePersistJob::Purge { job, .. } => job.author_clock_barrier.as_ref(),
             LanePersistJob::StorageSlotPurge { .. } => None,
         };
@@ -178,18 +151,6 @@ impl DeferredLaneWriter {
                 .wait()
                 .await
                 .map_err(|error| format!("author clock durability wait failed: {error}"))?;
-        }
-        let owns_resident_turn = matches!(
-            &envelope.payload,
-            LanePersistJob::Write { .. } | LanePersistJob::Purge { .. }
-        );
-        if owns_resident_turn {
-            self.mm
-                .db_ops
-                .resident()
-                .wait_for_persist_turn(&envelope.slot_revisions)
-                .await
-                .map_err(|error| format!("resident persist turn wait failed: {error}"))?;
         }
         Ok(())
     }
@@ -203,58 +164,10 @@ impl DeferredLaneWriter {
         envelope: &mut crate::resident::PersistEnvelope<LanePersistJob>,
     ) -> LaneStep {
         match &mut envelope.payload {
-            LanePersistJob::Write {
-                job,
-                counts,
-                counts_completion,
-                ..
-            } => {
-                let batch_log = job.batch_log.clone();
-                // Flush and phase scopes must not copy the full durable
-                // write future into each worker poll frame.
-                let attempt = Box::pin(self.mm.run_deferred_job(
-                    job,
-                    envelope.commit_id,
-                    &envelope.slot_revisions,
-                ));
-                let attempt = async move {
-                    if let Some(log) = batch_log {
-                        crate::durable_flush::scope(log, attempt).await
-                    } else {
-                        attempt.await
-                    }
-                };
-                if counts_completion.is_some() {
-                    let (result, _, attempt_counts) =
-                        crate::request_phases::run_with_phases(attempt).await;
-                    counts.molecules_persisted = counts
-                        .molecules_persisted
-                        .saturating_add(attempt_counts.molecules_persisted);
-                    counts.molecule_store_commits = counts
-                        .molecule_store_commits
-                        .saturating_add(attempt_counts.molecule_store_commits);
-                    match result {
-                        Ok(()) => LaneStep::Done(counts_completion.take().map(|tx| {
-                            let counts = *counts;
-                            Box::new(move || {
-                                let _ = tx.send(counts);
-                            }) as Box<dyn FnOnce() + Send>
-                        })),
-                        Err(error) => LaneStep::Failed(error),
-                    }
-                } else {
-                    match attempt.await {
-                        Ok(()) => LaneStep::Done(None),
-                        Err(error) => LaneStep::Failed(error),
-                    }
-                }
-            }
-            LanePersistJob::Purge { job, .. } => {
-                match self.mm.run_purge_job(job, &envelope.slot_revisions).await {
-                    Ok(()) => LaneStep::Done(purge_release_hook(job)),
-                    Err(error) => LaneStep::Failed(error),
-                }
-            }
+            LanePersistJob::Purge { job, .. } => match self.mm.run_purge_job(job).await {
+                Ok(()) => LaneStep::Done(purge_release_hook(job)),
+                Err(error) => LaneStep::Failed(error),
+            },
             LanePersistJob::StorageSlotPurge { job, .. } => {
                 match self.mm.run_storage_slot_purge_job(job).await {
                     Ok(()) => LaneStep::Done(storage_slot_release_hook(job)),

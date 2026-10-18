@@ -309,7 +309,6 @@ async fn replay(
     progress: Option<&fold_db::sync::engine::RestoreProgress>,
     data_path: &Path,
 ) -> Phase<fold_db::sync::engine::MutationLogReplayReport> {
-    std::env::set_var("LASTDB_RESIDENT_MODE", "off");
     std::env::set_var("LASTDB_MUTATION_SYNC_FLUSH", "1");
     let data = data_path.to_string_lossy().to_string();
     let database = fold_db::FoldDB::for_restore(
@@ -320,7 +319,10 @@ async fn replay(
     )
     .await
     .map_err(|_| runtime_failure("open database for read-only generation replay"))?;
-    database.set_sync_engine(Arc::clone(&engine.engine)).await;
+    database
+        .set_sync_engine(Arc::clone(&engine.engine))
+        .await
+        .map_err(|error| runtime_failure(format!("attach generation replay engine: {error}")))?;
     let frontier =
         fold_db::sync::snapshot_log::Frontier::from_writer_hwm(root.writer_frontier.clone());
     let replay = engine

@@ -24,7 +24,6 @@ pub(crate) fn is_deterministic_decode_error(error: &SchemaError) -> bool {
 
 pub(super) fn lane_job_schema(job: &LanePersistJob) -> &str {
     match job {
-        LanePersistJob::Write { job, .. } => job.schema_name.as_str(),
         LanePersistJob::Purge { job, .. } => job
             .erasures
             .first()
@@ -39,25 +38,6 @@ pub(super) fn describe_lane_job(
 ) -> String {
     const MAX_KEYS: usize = 8;
     match &envelope.payload {
-        LanePersistJob::Write { job, .. } => {
-            let slots: Vec<String> = envelope
-                .slot_revisions
-                .iter()
-                .take(MAX_KEYS)
-                .map(|slot| {
-                    format!(
-                        "{}/{}/{}",
-                        slot.molecule_uuid, slot.disk_hash, slot.disk_range
-                    )
-                })
-                .collect();
-            format!(
-                "write job schema={} slots={} [{}]",
-                job.schema_name,
-                envelope.slot_revisions.len(),
-                slots.join(", ")
-            )
-        }
         LanePersistJob::Purge { job, .. } => {
             let keys: Vec<String> = job
                 .erasures
@@ -109,30 +89,11 @@ pub(super) fn quarantine_record(
         })
         .collect();
     let job = match &envelope.payload {
-        LanePersistJob::Write { job, .. } => {
-            let atoms: Vec<&crate::atom::Atom> = job
-                .deferred_atoms
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .map(|(atom, _)| atom)
-                .collect();
-            serde_json::json!({
-                "kind": "write",
-                "schema": job.schema_name,
-                "storage_prefix": job.storage_prefix,
-                "atoms": atoms,
-                "mutation_events": job.mutation_events,
-                "idempotency_entries": job.idempotency_entries,
-                "sibling_updates": job.sibling_updates.len(),
-            })
-        }
         LanePersistJob::Purge { job, .. } => serde_json::json!({
             "kind": "purge",
             "schema": lane_job_schema(&envelope.payload),
             "verb": format!("{:?}", job.verb),
             "storage_prefix": job.storage_prefix,
-            "tombstone_id": job.tombstone_id,
             "erasures": job.erasures,
         }),
         LanePersistJob::StorageSlotPurge { job, .. } => serde_json::json!({

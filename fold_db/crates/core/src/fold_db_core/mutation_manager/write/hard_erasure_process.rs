@@ -219,7 +219,6 @@ impl MutationManager {
             options.verb,
             &mut acct,
             super::super::super::purge::PurgeMode {
-                evict_resident: options.evict_resident,
                 reachability: super::super::super::purge::PurgeReachability::AtomRefEdges,
                 precomputed_retained: None,
                 caller,
@@ -271,7 +270,6 @@ impl MutationManager {
             options.verb,
             &mut acct,
             super::super::super::purge::PurgeMode {
-                evict_resident: options.evict_resident,
                 reachability: super::super::super::purge::PurgeReachability::GuardedComplement,
                 precomputed_retained: options.precomputed_retained.clone(),
                 caller,

@@ -59,26 +59,18 @@ impl FoldDB {
         }
     }
 
-    /// Resident-primary policy controls memory and admission. Schema persist
-    /// lanes own mutation atoms and tips, so no second writer drains the
-    /// same dirty graph in production.
-    pub(super) fn log_resident_policy() -> crate::resident::BackgroundPersistTask {
+    /// Log native memory admission and flush delay.
+    pub(super) fn log_resident_policy() {
         let resident_policy = crate::resident::ResidentPolicy::from_env();
         info!(
             target: "fold_node::database",
-            mode = resident_policy.mode.as_str(),
             budget_bytes = resident_policy.budget_bytes,
             persist_ms = ?resident_policy.persist_interval.map(|d| d.as_millis() as u64),
-            "resident policy (T0 graph budget + persist cadence)"
+            "native memory policy and flush delay"
         );
-        // The resident graph budget above is one of several this process
-        // chooses; nothing used to compute their sum. Log the whole accounted
-        // number against the RSS guard here, at boot, so a configuration that
-        // cannot fit is visible BEFORE the guard kills the node rather than
-        // after (2026-07-29 restart loop, brain
-        // `lastdb-resident-write-hard-dirty-bytes-cap`).
+        // This remains conservative process headroom after the graph cache
+        // removal. Actual native pool charges have their own status counters.
         crate::memory_budget::process_memory_budget().log_at_boot();
-        crate::resident::BackgroundPersistTask::disabled()
     }
 
     /// Opt-in bounded reaper for the unbounded `protein:` class — see

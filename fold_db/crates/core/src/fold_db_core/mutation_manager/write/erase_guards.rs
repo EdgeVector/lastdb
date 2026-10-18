@@ -145,17 +145,6 @@ impl MutationManager {
         if slots.is_empty() {
             return Ok(spared);
         }
-        for (index, cutoff, _, (uuid, hash, range)) in &slots {
-            let newer = crate::db_operations::resident_read::graph_reads_enabled(&self.db_ops)
-                && self
-                    .db_ops
-                    .resident()
-                    .resolve_tip(uuid, hash, range)
-                    .is_some_and(|tip| tip.value.written_at >= *cutoff);
-            if newer {
-                spared.insert(*index);
-            }
-        }
         let mk_keys: Vec<String> = slots.iter().map(|slot| slot.2.clone()).collect();
         let disk_tips = self
             .db_ops

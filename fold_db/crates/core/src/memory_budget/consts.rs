@@ -28,9 +28,6 @@ pub const DEFERRED_BYTES_ENV: &str = "LASTDB_RESIDENT_MAX_DEFERRED_BYTES";
 /// Env: percent of the deferred window one persist lane may occupy (1–100).
 pub const LANE_FAIR_SHARE_PERCENT_ENV: &str = "LASTDB_DEFER_LANE_FAIR_SHARE_PERCENT";
 
-/// Env: batches at or above this size persist inline (no deferred reservation).
-pub const WRITE_THROUGH_BYTES_ENV: &str = "LASTDB_DEFER_WRITE_THROUGH_BYTES";
-
 /// The two states behind a `DeferredPersistGauge::try_reserve` refusal.
 ///
 /// They are not degrees of the same thing. `Disabled` is a configuration an
@@ -59,7 +56,7 @@ pub const DEFAULT_RSS_LIMIT_MB: u64 = 16384;
 /// before the defer window is hard-latched closed.
 ///
 /// A 1–2 MiB jitter against a tight ceiling (Sentry RUST-3M: 12290 vs 12288)
-/// must not permanently disable mode=write. Only a real runaway — at least this
+/// must not permanently disable memory acknowledgments. Only a real runaway — at least this
 /// fraction, and not less than [`FOOTPRINT_HARD_OVERRUN_MIN_BYTES`] — latches.
 pub const FOOTPRINT_HARD_OVERRUN_FRACTION: f64 = 0.05;
 
@@ -231,26 +228,10 @@ pub const FLOOR_DEFERRED_BYTES: u64 = 64 * 1024 * 1024;
 /// Headroom may raise the cap above [`FLOOR_DEFERRED_BYTES`], but not without
 /// bound: a 512 MiB ceiling was this module's first bug and re-admitted the
 /// 2026-07-29 256 MiB balloon (`the_incident_burst_stops_at_the_byte_window_not_the_count_window`).
-/// Fair share plus write-through stop one pack from occupying the whole
-/// window; this ceiling still bounds acked-but-unpersisted state.
+/// The complete-request cap still bounds acknowledged state before its disk flush.
 pub const MAX_DEFERRED_BYTES: u64 = 128 * 1024 * 1024;
 
 /// Default share of [`ProcessMemoryBudget::deferred_cap_bytes`] one persist
 /// lane may occupy. A lastgit pack lane at 100% of 64 MiB was the 2026-09-02
 /// starvation shape.
 pub const DEFAULT_LANE_FAIR_SHARE_PERCENT: u8 = 50;
-
-/// Batches at or above this size skip the deferred window and persist inline.
-///
-/// A multi-MiB pack reservation is the wrong tenant for a window sized to
-/// absorb one 500 ms cadence of ordinary records. Write-through keeps the
-/// pack durable without occupying bytes that small writers need.
-pub const DEFAULT_WRITE_THROUGH_BYTES: u64 = 4 * 1024 * 1024;
-
-/// Fixed charge per deferred task for state the byte cap cannot measure
-/// cheaply (the `Schema` clone, mutation events, held write guards).
-///
-/// A floor, not a measurement — the atom bodies are the term that actually
-/// scales with load, and they are measured exactly. The task **count** cap
-/// (`LASTDB_RESIDENT_MAX_DEFERRED`) is what bounds this unmeasured state.
-pub const PER_DEFERRED_TASK_BYTES: u64 = 64 * 1024;

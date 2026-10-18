@@ -6,7 +6,7 @@ use super::*;
 impl MutationManager {
     /// Receipt for a batch whose every mutation the idempotency filter
     /// recognised as already applied.
-    pub(super) async fn finish_all_duplicate_batch(
+    pub(in crate::fold_db_core::mutation_manager::write) async fn finish_all_duplicate_batch(
         &self,
         already_seen_ids: Vec<String>,
         force_durable: bool,
@@ -100,7 +100,6 @@ impl MutationManager {
         new_mutations: Vec<Mutation>,
         new_hashes: Vec<String>,
         storage_prefix: Option<&str>,
-        force_durable: bool,
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
         stages: &mut ResidentCommitStages,
     ) -> Result<Vec<PreparedSchemaDelta>, SchemaError> {
@@ -148,7 +147,6 @@ impl MutationManager {
                     schema_mutations,
                     idempotency_entries,
                     storage_prefix,
-                    force_durable,
                     timing_breakdown,
                 ),
             )

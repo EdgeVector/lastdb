@@ -19,6 +19,7 @@ impl MutationManager {
         storage_prefix: Option<&str>,
         origin_device: &str,
     ) -> Result<Vec<String>, SchemaError> {
+        self.validate_native_mutation_layouts(&mutations)?;
         stamp_replay_origin_device(&mut mutations, origin_device);
         let has_aggregate = mutations
             .iter()

@@ -93,26 +93,6 @@ impl Atom {
         }
     }
 
-    /// Restore trusted in-memory parts without serialization, rehashing, or
-    /// changing the original creation time.
-    pub(crate) fn from_stored_parts(
-        uuid: String,
-        source_schema_name: String,
-        source_file_name: Option<String>,
-        metadata: Option<HashMap<String, String>>,
-        created_at: DateTime<Utc>,
-        content: Value,
-    ) -> Self {
-        Self {
-            uuid,
-            source_schema_name,
-            source_file_name,
-            metadata,
-            created_at,
-            content,
-        }
-    }
-
     /// Sets the source file name for atoms created from file uploads
     #[must_use]
     pub fn with_source_file_name(mut self, file_name: String) -> Self {
