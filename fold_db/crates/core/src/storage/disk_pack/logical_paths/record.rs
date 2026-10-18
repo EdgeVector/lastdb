@@ -26,16 +26,17 @@ pub(crate) fn lookup(
     let binding = field::FieldScope::record(schema)?;
     let path = binding.path(scope, molecule, key, "");
     let captured = super::read::captured_lookup(&runtime, &context, &path.core())?;
-    if !captured.is_unknown() {
+    if captured.is_absent() {
         let mut call = crate::read_receipts::lock(&context.call);
-        let selected = captured.into_tip();
-        context.account_memory_record(
-            &mut call,
-            path.id()?.len(),
-            selected.as_ref().map_or(0, |value| value.bytes),
-        )?;
+        context.account_memory_record(&mut call, path.id()?.len(), 0)?;
         crate::read_receipts::warm_hit();
-        return Ok(Some(selected.map(|value| value.atom)));
+        return Ok(Some(None));
+    }
+    if let Some(selected) = captured.into_value() {
+        let mut call = crate::read_receipts::lock(&context.call);
+        context.account_memory_record(&mut call, path.id()?.len(), selected.bytes)?;
+        crate::read_receipts::warm_hit();
+        return Ok(Some(Some(selected.atom)));
     }
     let view = runtime.view.read().expect("record envelope captured view");
     if view.revision != context.revision {
@@ -57,7 +58,7 @@ pub(crate) fn lookup(
         crate::read_receipts::warm_hit();
         return Ok(Some(None));
     }
-    let Some(selected) = selected.into_tip() else {
+    let Some(selected) = selected.into_value() else {
         return Ok(None);
     };
     context.account_memory_record(&mut call, path.id()?.len(), selected.bytes)?;
@@ -71,7 +72,7 @@ pub(crate) fn admit(
     scope: Option<&str>,
     molecule: &str,
     key: &KeyValue,
-    tip: (&str, &PerKeyRecord, &[String]),
+    tip: (&str, &PerKeyRecord, &[String], crate::atom::AtomKeyEncoding),
     hint: Option<&AtomPartition>,
 ) -> StorageResult<()> {
     let Some(runtime) = runtime else {
@@ -83,7 +84,7 @@ pub(crate) fn admit(
     let Some(context) = ReadContext::captured(&runtime) else {
         return Ok(());
     };
-    let (base, record, candidates) = tip;
+    let (base, record, candidates, encoding) = tip;
     let source = crate::schema::types::field::build_storage_key(scope, base);
     core_read::note_winning_tip(
         Some(Arc::clone(&runtime)),
@@ -101,6 +102,7 @@ pub(crate) fn admit(
         key,
         &record.entry.atom_uuid,
         candidates,
+        encoding,
     )?;
     let binding = field::FieldScope::record(schema)?;
     let path = binding.path(scope, molecule, key, &record.entry.atom_uuid);

@@ -1,6 +1,6 @@
 # Schema range key preload design
 
-Status: selected route built and measured in the development branch, 2026-10-17. The policy remains opt-in.
+Status: selected route merged in [PR 214](https://github.com/EdgeVector/lastdb/pull/214), 2026-10-18. The policy remains opt-in.
 Tom selected first-use preload for selected schemas after the [memory and disk study](lastdb-schema-range-preload-study.md).
 The [logical design](lastdb-logical-warm-set-design.md) defines common values, fields, and publication rules.
 The [work plan](lastdb-logical-warm-set-plan.md) defines the build sequence.
@@ -13,6 +13,8 @@ The first query waits for all its required membership keys across all hashes.
 Concurrent first queries share one load.
 Only keys and essential membership flags enter this complete part of the logical set.
 Full tips and atom values remain partial and enter the normal warm set when required.
+Selected tips can remain without values after a call that does not fetch values.
+The same logical record gains its full atom after a value fetch; the key preload does not fetch all tips.
 
 After the load, ranges select keys from the logical set.
 The resolver uses known current tips and atoms, then fetches missing paths in batches.
@@ -157,7 +159,7 @@ Publish key membership, current warm paths, dirty state, and reserved flush work
 An insert adds its key; a delete removes or changes its current visibility as the existing contract requires.
 A key move removes its old membership and adds its new membership in one publication.
 An overwrite that preserves membership needs no complete-key rebuild.
-Known tip or atom purge leaves key membership intact.
+Logical-record purge removes its selected tip and value together and leaves complete key membership intact.
 
 The native publication route observes accepted raw changes before its logical boundary becomes visible.
 Ordinary tip changes and `mgd` or `mgr` changes maintain complete candidate keys without a full reload.

@@ -1,10 +1,10 @@
 # LastDB logical warm set design
 
-Status: selected schema preload and shared core memory are built in the development branch, 2026-10-18.
+Status: native storage and shared core memory merged in [PR 214](https://github.com/EdgeVector/lastdb/pull/214), 2026-10-18.
 The [core model spike](lastdb-core-model-warm-spike.md) records the earlier implementation.
-The wider caller cutover remains incomplete.
+The retention choice below extends the full-record model with selected tips that do not yet hold values.
 The [schema preload design](lastdb-schema-range-preload-design.md) defines the first-query load and complete logical key part.
-The [work plan](lastdb-logical-warm-set-plan.md) makes that preload part of the next implementation.
+The [work plan](lastdb-logical-warm-set-plan.md) records the implementation and its evidence limits.
 The [fast range design](lastdb-fast-range-design.md) defines disk work for the initial load and fallback route.
 The [schema key study](lastdb-schema-range-preload-study.md) preserves the synthetic memory and disk-component measurements.
 
@@ -171,8 +171,37 @@ That key alone is not a known tip or a full logical path under the 10,000-record
 | Known tip | The current AtomEntry and metadata are known; its atom data is not loaded. | Fetch atom data only when the call needs it. |
 | Known value | The current tip and its full atom object are known. | Use the existing core operation. |
 
-This is a required change to the spike. CoreWarmSlot currently requires a full Atom.
-The core molecule already stores AtomEntry references. Key enumeration, count, and lookahead can use those references without full atom data.
+### Retention choice
+
+A tip links one key to its current atom and includes the key metadata.
+The atom contains the value. A known tip does not establish that its value is in memory.
+The core keeps a selected tip without its value when a call needs only the tip.
+A later value fetch adds the full atom to that same logical record.
+A metadata-only call preserves an already retained full value when the tip is unchanged.
+Accepted writes retain complete values and their memory charges through flush and any older calls that still hold them.
+
+The earlier implementation retains only complete records and confirmed absence.
+Its selected tips live only within one call, so repeated counts can repeat disk tip reads.
+The mixed choice permits reuse of those selected tips without a second warm set or a separate tip limit.
+Complete range keys remain smaller: they contain candidate keys and visibility flags, without a tip or an atom.
+Preload does not fetch every tip or value.
+
+| Choice | Repeated value read | Repeated call that needs only tips | Retention cost |
+|---|---|---|---|
+| Complete records only | Reuses a retained full atom. | Can repeat tip reads when no value fetch follows. | Fewer retained record states. |
+| Selected tips, with values added when used | Reuses the same retained full atom. | Reuses valid selected tips that fit the warm set. | One additional state under the same record limit and purge rule. |
+
+The second choice is intentional. A tip alone never becomes an absent value or a complete range answer.
+Source changes invalidate the tip and its value together.
+The selected physical copy and all required source controls remain part of that authority.
+An unverified or capacity-refused tip stays local to its call; the read still uses its ordinary disk route.
+Only selected tips enter this part of memory, within the 10,000 logical-record limit.
+Large counts can exceed that limit and still require disk tip reads.
+
+Current tip-only admission adds no atom payload to memory.
+For comparison, 10,000 distinct 64 KiB values contain 625 MiB of payload before metadata and allocation costs.
+Counts already omit those values; the added benefit is reuse of their tips across calls.
+This calculation is not a measured speed gain or a whole-process memory bound.
 
 The path consumes one budget slot in either known-tip or known-value state.
 An exact absent path also consumes one slot.
@@ -485,13 +514,12 @@ Purge removes one schema path.
 Remove an actual core slot only after its last required owner leaves.
 Then remove its atom object after its last required reference leaves.
 
-Tip and value purge preserves complete key membership.
+Logical-record purge removes its tip and value together and preserves complete key membership.
 A separate whole-domain key purge clears readiness before removal and can require another preload on the next query.
 Capacity refusal uses DiskOnly rather than a failed full load on every query.
 A ready call retains its complete-domain lifetime reference across all chunks.
 Clean key purge does not change the logical change number, so that number alone cannot protect the key domain.
-A body-only release can leave an exact tip known.
-Other retained records remain useful.
+This design adds no independent body purge policy. Other retained records remain useful.
 
 Bound temporary cursor pages and selected atom batches.
 Count active path holds and dirty paths against the path budget.
@@ -518,20 +546,18 @@ If local disk omits cloud-only data, a local miss remains unknown.
 A future cloud fetch must use the same boundary and local-write precedence rules.
 If that source is unavailable, return an error rather than claim absence.
 
-## Current source gaps
+## Earlier proposal and current boundaries
 
-| Area | Current gap | Required change |
+The original proposal predates complete selected keys and the native cutover.
+The table below records the current boundaries; historical source gaps remain in the earlier proof reports.
+
+| Area | Current behavior | Limit |
 |---|---|---|
-| Core admission | Full Atom required for every admitted path; ordered membership requires an AtomEntry. | Add key-only membership, known-tip state, and a slot-specific resolved atom association. |
-| Exact batches | Some loaders discard the winning encoded source. | Preserve the actual source in the fetch result. |
-| Document copies | Reads bypass the owner; projection can follow predicates and windows. | Resolve precedence before common selection, predicates, and page rules. |
-| Sample | Existing selection can materialize membership before truncation. | Use ready schema keys, sparse value batches, and the existing sample order and cap. |
-| Ranges | A partial core molecule cannot establish complete membership. | Add the first-query complete key gate and an explicit fallback selector. |
-| Preload lifecycle | No complete schema key part or shared load state exists. | Add bounded one-loader ownership, concurrent-write capture, readiness, purge, and refusal. |
-| Value order | Final output can lose a non-projected sort field and use different tie order. | Retain internal sort metadata and one comparator. |
-| Counts | Tip counts can differ from visible values. | Define key and filtered counts explicitly. |
-| Writers | Durable and shared paths can bypass typed publication. | Complete the caller inventory before compatibility removal. |
-| Metadata | Raw accepted state also serves schemas and controls. | Give those records a current authority inside the read boundary. |
-| Read boundary | The physical frontier does not identify the covered logical change number. | Publish the root and its covered logical number together. |
+| Logical records | Unknown, confirmed absence, selected tip, or selected tip with its full atom. | Tips require complete current-source authority; values retain their selected physical copy. |
+| Complete keys | Selected schemas preload complete candidates separately from partial records. | Readiness does not prove an exact visible count or that all values are in memory. |
+| Purge | One logical-record limit and recency order cover tips and full records. | A purge removes both together; this design adds no independent body purge. |
+| Writes | Covered changes enter the core together; uncovered operations finish on disk before success. | Accepted writes cannot become tip-only before flush. |
+| Evidence | The merge report records fresh synthetic API results for the native cutover. | Those earlier results do not measure this tip-retention change or every caller and database size. |
+| Cloud | Activation remains disabled. | Future backup and restore work must preserve the same read and publication rules. |
 
 Source detail and the execution order appear in the [work plan](lastdb-logical-warm-set-plan.md).

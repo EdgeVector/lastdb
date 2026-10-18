@@ -62,6 +62,7 @@ impl AtomStore {
             api_key,
             &record.entry.atom_uuid,
             &candidates,
+            self.atom_key_encoding(),
         )?;
         Ok(())
     }
@@ -95,6 +96,7 @@ impl AtomStore {
             api_key,
             &record.entry.atom_uuid,
             candidates,
+            self.atom_key_encoding(),
         )?;
         Ok(())
     }

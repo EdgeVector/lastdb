@@ -30,6 +30,31 @@ impl CoreWarmSet {
         self.forget_slot_sources(&path.slot());
     }
 
+    /// Check the complete replacement before removing any certified source edge.
+    /// Refusal leaves existing source links and retained values unchanged.
+    pub(crate) fn replace_sources(
+        &mut self,
+        path: &CorePath,
+        sources: &[(String, String)],
+    ) -> bool {
+        if !self.paths.contains_key(path) {
+            return false;
+        }
+        let mut distinct = HashSet::new();
+        for source in sources {
+            distinct.insert(source);
+            if distinct.len() > MAX_SLOT_SOURCES {
+                return false;
+            }
+        }
+        self.clear_sources(path);
+        for (collection, key) in distinct {
+            let linked = self.link_source(path, collection, key);
+            debug_assert!(linked, "validated replacement source bound");
+        }
+        true
+    }
+
     /// Bounded source coordinates contain no additional tip or atom values.
     pub(crate) fn source_coordinates(&self, path: &CorePath) -> Vec<(String, String)> {
         self.slot_sources

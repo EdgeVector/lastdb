@@ -118,6 +118,7 @@ impl FieldVariant {
             api_key,
             atom_uuid,
             &candidates,
+            db_ops.atoms().atom_key_encoding(),
         )?;
         Ok(())
     }

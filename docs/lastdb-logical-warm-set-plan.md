@@ -1,6 +1,8 @@
 # LastDB logical warm set work plan
 
-Status: selected schema preload, shared core memory, and the native logical write cutover are complete in the development branch, 2026-10-18.
+Status: selected schema preload, shared core memory, and native storage merged in [PR 214](https://github.com/EdgeVector/lastdb/pull/214), 2026-10-18.
+The [retention choice](lastdb-logical-warm-set-design.md#retention-choice) adds selected tips without values to the same logical warm set.
+Calls that fetch values retain full records. Accepted writes remain complete through flush.
 The [write report](proofs/core-owned-writes-20261018/RESULTS.md) records the earlier source, product checks, and matched measurements.
 The [native cutover review](proofs/core-clarity-20261018/REVIEW.md) records the later default-engine change and source cleanup.
 The [cutover validation](proofs/core-clarity-20261018/VALIDATION.md) identifies its separate source, release, and checks.
@@ -32,7 +34,8 @@ A loading schema never supplies a falsely complete partial answer.
 
 ## Current state
 
-The branch is `fix/core-owned-writes`, with native cutover source `a60b27d43f11fd6d1f3cf514d1579229d2256d5c`.
+The merged native source is `30c15b616ccdbd032e8e2d7d6c4c68d926e13aeb`.
+The earlier branch `fix/core-owned-writes` includes native cutover source `a60b27d43f11fd6d1f3cf514d1579229d2256d5c`.
 The later product commit `436cc86ad82c4ca2486e0b7f55e4a1b840dfeaed` corrects the public refusal's selector list.
 The cutover results separate the full API workflows from that response-only check.
 The earlier matched measurements use product source `7876211b6d64dff43ceddd602656017b74860fe9` and merged main `011b29f3a74eac3eb3a977678630c40345157ed4`.
@@ -281,7 +284,12 @@ A ready range seeks within its named hash and selects ordered memory keys.
 
 Check known warm tips before a missing-tip batch, then resolve missing atoms in a dependent batch.
 Collect paths across fields and keys; do not await one physical request for each key.
-Keep known absence, known membership, known tip, and known full value distinct.
+Keep unknown, confirmed absence, selected tip, and full value distinct in the shared record lookup.
+Known membership stays in the separate complete-key part; it does not establish a selected tip.
+Retain only selected verified tips. Add a value after its fetch, without another path-budget slot.
+Preserve a matching retained full value after a metadata-only call.
+Keep dirty writes complete and retain their memory owners through older captured reads.
+Use the same recency order, source invalidation, and whole-record purge for tips and full values.
 Preserve full metadata and the slot-specific atom association.
 Admit confirmed absence only after every possible winner and required delete barrier is checked.
 Retain those source dependencies exactly as for a present tip.

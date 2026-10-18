@@ -156,7 +156,7 @@ pub(crate) fn lookup(
     if captured.is_absent() {
         return Ok(None);
     }
-    if let Some(selected) = captured.into_tip() {
+    if let Some(selected) = captured.into_value() {
         let sources = context.core_model.source_coordinates(&path.core());
         if selected.atom.uuid() == atom
             && selected.metadata == *metadata
@@ -181,7 +181,7 @@ pub(crate) fn lookup(
     let mut core = runtime.core.lock().expect("native shared core model");
     let path_key = path.core();
     context.hold_core(&mut core, std::slice::from_ref(&path_key))?;
-    let Some(selected) = core.lookup(&path_key).into_tip() else {
+    let Some(selected) = core.lookup(&path_key).into_value() else {
         laststore::record_logical_warm_misses(1);
         return Ok(None);
     };

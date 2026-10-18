@@ -91,6 +91,54 @@ impl CoreWarmSet {
         Ok(())
     }
 
+    /// Retain a selected tip without a body. Identical full values keep their
+    /// body and reservation owner; an unflushed value cannot be replaced here.
+    /// The caller supplies the exact sources and authorizes the resulting tip.
+    pub(crate) fn admit_tip(
+        &mut self,
+        path: &CorePath,
+        tip: CoreWarmTip,
+    ) -> Result<bool, CoreCapacity> {
+        let slot = path.slot();
+        let identical = self.molecules.get(&slot.molecule).is_some_and(|molecule| {
+            molecule.get_atom_entry(&slot.hash, &slot.range) == Some(&tip.entry)
+                && molecule.get_key_metadata(&slot.hash, &slot.range) == tip.metadata.as_ref()
+        });
+        if !identical
+            && self
+                .slot_owners
+                .get(&slot)
+                .into_iter()
+                .flatten()
+                .any(|owner| {
+                    self.paths
+                        .get(owner)
+                        .is_some_and(|state| state.dirty.is_some())
+                })
+        {
+            return Err(CoreCapacity {
+                detail: "tip-only retention cannot replace an unflushed core value",
+            });
+        }
+        self.ensure_path(path)?;
+        let retains_value = identical && self.slot_atom(&slot, &tip.entry.atom_uuid).is_some();
+        if !retains_value {
+            self.forget_slot_value(&slot);
+        }
+        self.molecules
+            .entry(slot.molecule.clone())
+            .or_insert_with(|| MoleculeHashRange::with_partial_uuid(path.molecule.clone()))
+            .insert_loaded_slot_verbatim(
+                slot.hash.clone(),
+                slot.range.clone(),
+                tip.entry,
+                tip.metadata,
+            );
+        self.mark_slot(&slot, false, None);
+        self.touch(path);
+        Ok(retains_value)
+    }
+
     /// Admit a confirmed absent key under the caller's captured publication lock.
     /// The caller must link every possible winning source before authorization.
     pub(crate) fn admit_absent(
@@ -109,7 +157,7 @@ impl CoreWarmSet {
         Ok(())
     }
 
-    /// Select the current full atom or confirmed absence under the caller's lock.
+    /// Select a known tip, a full value, or absence under the caller's lock.
     pub(crate) fn lookup(&mut self, path: &CorePath) -> CoreWarmLookup {
         let known = self.paths.get(path).is_some_and(|state| state.known);
         if !known {
@@ -123,7 +171,7 @@ impl CoreWarmSet {
         }
         if let Some(selected) = self.select(path) {
             self.hits = self.hits.saturating_add(1);
-            CoreWarmLookup::tip(selected)
+            selected
         } else {
             self.misses = self.misses.saturating_add(1);
             CoreWarmLookup::unknown()
@@ -189,16 +237,19 @@ impl CoreWarmSet {
         true
     }
 
-    fn select(&self, path: &CorePath) -> Option<CoreWarmSelection> {
+    fn select(&self, path: &CorePath) -> Option<CoreWarmLookup> {
         let slot = path.slot();
         let molecule = self.molecules.get(&slot.molecule)?;
         let entry = molecule.get_atom_entry(&slot.hash, &slot.range)?.clone();
-        let atom = self.slot_atom(&slot, &entry.atom_uuid)?;
-        Some(CoreWarmSelection {
-            entry,
-            metadata: molecule.get_key_metadata(&slot.hash, &slot.range).cloned(),
-            atom: Arc::clone(&atom.value),
-            bytes: atom.bytes,
+        let metadata = molecule.get_key_metadata(&slot.hash, &slot.range).cloned();
+        Some(match self.slot_atom(&slot, &entry.atom_uuid) {
+            Some(atom) => CoreWarmLookup::value(CoreWarmSelection {
+                entry,
+                metadata,
+                atom: Arc::clone(&atom.value),
+                bytes: atom.bytes,
+            }),
+            None => CoreWarmLookup::Tip(CoreWarmTip { entry, metadata }),
         })
     }
 

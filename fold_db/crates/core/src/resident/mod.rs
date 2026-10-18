@@ -45,7 +45,7 @@ pub use core_set::{CoreMemoryStats, CoreMemoryValue};
 pub(crate) use core_set::{
     CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate, PreparedCoreMemory,
 };
-pub(crate) use core_set::{CorePath, CoreWarmLookup, CoreWarmSet, CoreWarmSlot};
+pub(crate) use core_set::{CorePath, CoreWarmLookup, CoreWarmSet, CoreWarmSlot, CoreWarmTip};
 pub use key_cap::{
     init_resident_key_cap_from_env, parse_resident_key_cap, resident_key_cap, RESIDENT_KEY_CAP,
     RESIDENT_KEY_CAP_ENV,

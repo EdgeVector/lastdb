@@ -37,7 +37,7 @@ impl CoreModelSnapshot {
                             selected[position] = None;
                             conflicting.insert(position);
                         } else {
-                            selected[position] = slot.lookup().into_tip();
+                            selected[position] = slot.lookup().into_value();
                         }
                     }
                 }

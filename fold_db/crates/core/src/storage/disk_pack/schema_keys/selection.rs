@@ -63,7 +63,6 @@ impl PackRuntime {
             if !core.path_authorized(&path) {
                 return Ok(false);
             }
-            context.hold_core(&mut core, std::slice::from_ref(&path))?;
             let Some(selected) = core.lookup(&path).into_tip() else {
                 return Ok(false);
             };
@@ -168,7 +167,6 @@ impl PackRuntime {
         if !core.path_authorized(&path) {
             return Ok(None);
         }
-        context.hold_core(&mut core, std::slice::from_ref(&path))?;
         let selection = core.lookup(&path);
         if selection.is_unknown() {
             return Ok(None);
