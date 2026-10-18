@@ -52,7 +52,7 @@ impl FieldVariant {
         self.require_native_read(db_ops, filter.as_ref(), as_of.is_some())?;
         captured_field_read(
             db_ops,
-            self.resolve_value_windowed_captured(db_ops, filter, window, as_of, include_tombstones)
+            self.resolve_value_windowed_captured(db_ops, filter, window, include_tombstones)
                 .boxed(),
         )
         .await
@@ -63,27 +63,19 @@ impl FieldVariant {
         db_ops: &Arc<DbOperations>,
         filter: Option<HashRangeFilter>,
         window: Option<KeyWindow>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         use crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix;
 
-        let filter_now = filter.as_ref().filter(|_| as_of.is_none());
         let core = self
-            .resolve_core_model(db_ops, filter_now, window.clone(), include_tombstones)
+            .resolve_core_model(db_ops, filter.as_ref(), window.clone(), include_tombstones)
             .await?;
         if let Some(values) = core {
             return Ok(values);
         }
 
         if let Some(resolved) = self
-            .resolve_hash_key_fast(
-                db_ops,
-                filter.as_ref(),
-                window.clone(),
-                as_of,
-                include_tombstones,
-            )
+            .resolve_hash_key_fast(db_ops, filter.as_ref(), window.clone(), include_tombstones)
             .await?
         {
             self.record_resolved_tip_keys(&resolved);
@@ -92,7 +84,7 @@ impl FieldVariant {
 
         let storage_prefix_owned: Option<String> = self.common().storage_prefix.clone();
         let mut matches_with_meta = self
-            .collect_matches(db_ops, filter, as_of, include_tombstones)
+            .collect_matches(db_ops, filter, None, include_tombstones)
             .await?;
 
         if let Some(window) = window {
@@ -139,13 +131,8 @@ impl FieldVariant {
         db_ops: &Arc<DbOperations>,
         filter: Option<&HashRangeFilter>,
         window: Option<KeyWindow>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<Option<HashMap<KeyValue, FieldValue>>, SchemaError> {
-        if as_of.is_some() {
-            return Ok(None);
-        }
-
         let Some(HashRangeFilter::HashKey(hash)) = filter else {
             return Ok(None);
         };

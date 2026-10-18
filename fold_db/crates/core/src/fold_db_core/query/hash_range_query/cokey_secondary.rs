@@ -22,59 +22,37 @@ impl HashRangeQueryProcessor {
 
     /// Match every secondary field against the page keys, collecting the atom
     /// bodies still to resolve.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "mirrors the co-key plan inputs; bundling them into a struct would only move the argument list"
-    )]
     pub(super) async fn collect_cokey_secondary_pending(
         &self,
         schema: &mut Schema,
         secondary: Vec<String>,
         fanout_keys: &[KeyValue],
         fanout_sources: &HashMap<KeyValue, KeySource>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
         request_concurrency: Option<usize>,
     ) -> Result<Vec<SecondaryPending>, SchemaError> {
         let mut pending: Vec<SecondaryPending> = Vec::new();
-        if as_of.is_some() {
-            for fname in &secondary {
-                // History: hydrate + rewind per storage prefix, keep page_keys.
-                self.secondary_matches_as_of(
-                    schema,
-                    fname,
-                    fanout_keys,
-                    fanout_sources,
-                    as_of,
-                    include_tombstones,
-                    &mut pending,
-                )
-                .await?;
-            }
-        } else {
-            // Each field has a separate molecule. Overlap its slot load, but
-            // preserve field order when collecting pending atom bodies.
-            let configured = std::env::var("LASTDB_QUERY_SECONDARY_CONCURRENCY").ok();
-            let concurrency =
-                secondary_field_concurrency(configured.as_deref(), request_concurrency);
-            let schema: &Schema = schema;
-            let mut fields = stream::iter(secondary.into_iter().map(|fname| async move {
-                let mut field_pending = Vec::new();
-                self.secondary_matches_current(
-                    schema,
-                    &fname,
-                    fanout_keys,
-                    fanout_sources,
-                    include_tombstones,
-                    &mut field_pending,
-                )
-                .await?;
-                Ok::<_, SchemaError>(field_pending)
-            }))
-            .buffered(concurrency);
-            while let Some(field_pending) = fields.next().await {
-                pending.extend(field_pending?);
-            }
+        // Each field has a separate molecule. Overlap its slot load, but
+        // preserve field order when collecting pending atom bodies.
+        let configured = std::env::var("LASTDB_QUERY_SECONDARY_CONCURRENCY").ok();
+        let concurrency = secondary_field_concurrency(configured.as_deref(), request_concurrency);
+        let schema: &Schema = schema;
+        let mut fields = stream::iter(secondary.into_iter().map(|fname| async move {
+            let mut field_pending = Vec::new();
+            self.secondary_matches_current(
+                schema,
+                &fname,
+                fanout_keys,
+                fanout_sources,
+                include_tombstones,
+                &mut field_pending,
+            )
+            .await?;
+            Ok::<_, SchemaError>(field_pending)
+        }))
+        .buffered(concurrency);
+        while let Some(field_pending) = fields.next().await {
+            pending.extend(field_pending?);
         }
         Ok(pending)
     }

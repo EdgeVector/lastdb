@@ -141,16 +141,21 @@ is not checked until you touch it.
   line with `lint:allow-ok <reason>`).
 - Brain: `preference-fold-code-size-limits`.
 
-## Not dead code: do not remove without the owner
+## Current memory and disk boundary
 
-An env var that defaults to off does not mean the code is unused or
-experimental. Check what the live node runs before calling anything dead.
+Normal startup and direct logical constructors use native packed storage.
+`CoreWarmSet` owns logical records, definitions, and complete selected keys.
+The private native queue retains prepared disk bytes until flush. Ordinary
+reads cannot use that queue. Explicit durability and resource limits can
+require disk completion before the ack.
 
-- `fold_db/crates/core/src/resident/` (ResidentGraph, persist lane,
-  LogicalResidentSet) is production code. The live node has run
-  `LASTDB_RESIDENT_MODE=write`, and the graph is the mutation concurrency gate
-  in every mode. Read the module doc in `resident/mod.rs` and
-  `docs/lastdb-rehydrate.md` first.
+- `fold_db/crates/core/src/resident/` holds the core model, memory charges,
+  logical-record limit, and shared counters. Read its module doc and
+  `docs/lastdb-rehydrate.md` before a change.
+- `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
+  No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.
+- Empty homes initialize directly. Older nonempty formats receive an error;
+  startup does not migrate data. Cloud activation stays disabled for this round.
 - Dead-code passes use a compiler cascade and a zero-reference scan. Nothing
   else counts as proof.
 

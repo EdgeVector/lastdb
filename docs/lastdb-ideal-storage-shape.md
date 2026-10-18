@@ -1,5 +1,9 @@
 # Ideal LastDB On-Disk / Collection Shape (with Proteins)
 
+Historical July 29 layout proposal. The [current memory and disk design](lastdb-rehydrate.md)
+and [native cutover results](proofs/core-clarity-20261018/RESULTS.md) supersede its dual-read and migration plan.
+The metadata below records the earlier plan. Use the current design for implementation work.
+
 | Field | Value |
 |-------|--------|
 | **Status** | **Approved — ship track open (rev 3)** — Tom 2026-07-29 (“drive it”) |

@@ -7,8 +7,8 @@
 > Brain: `brain get concepts-lastdb-canonical-model` · this file:
 > `docs/lastdb-canonical-model.md`
 
-**Audience:** anyone designing an app against LastDB (Mini `lastdbd`, the
-desktop node, or embedded). Agents: also read
+**Audience:** anyone designing an app against LastDB (Mini `lastdbd` or
+embedded). Agents: also read
 `docs/lastdb-agent-access-model.md` for day-to-day usage rules.
 
 ---
@@ -69,8 +69,9 @@ pack many small fields up to the fence, but it is not a blob store.
 
 The atom's data is what points at durable bytes on disk:
 
-- **Physically**, the selected disk engine finds the file bytes from the atom identity.
-  Native storage uses packed files and keyed trees. The older engine uses hash-group files.
+- **Physically**, the native disk engine finds the file bytes from the atom identity.
+  Native storage uses packed files and keyed trees.
+  Older physical tools remain separate from the logical database constructors.
   File positions remain storage details; molecule tips retain atom identities.
 - **File-scale payloads** (packs, attachments, anything past the atom fence)
   are **content-addressed file blobs** (CAS: `blobs/sha256/…`); the atom holds

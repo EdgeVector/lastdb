@@ -21,7 +21,7 @@ impl FieldVariant {
         self.require_native_read(db_ops, filter.as_ref(), as_of.is_some())?;
         captured_field_read(
             db_ops,
-            self.collect_matches_captured(db_ops, filter, as_of, include_tombstones)
+            self.collect_matches_captured(db_ops, filter, include_tombstones)
                 .boxed(),
         )
         .await
@@ -31,55 +31,38 @@ impl FieldVariant {
         &mut self,
         db_ops: &Arc<DbOperations>,
         filter: Option<HashRangeFilter>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<Vec<KeyedAtomMatch>, SchemaError> {
-        if as_of.is_none() {
-            if let Some(filter) = filter.as_ref() {
-                if let Some(matches) =
-                    crate::storage::disk_pack::logical_paths::core_filter::matches(
-                        db_ops.namespaced_store().disk_pack_runtime(),
-                        self.common().storage_prefix(),
-                        self.common().molecule_uuid().map(String::as_str),
-                        self.kind,
-                        filter,
-                        include_tombstones,
-                    )?
-                {
-                    return Ok(matches);
-                }
+        if let Some(filter) = filter.as_ref() {
+            if let Some(matches) = crate::storage::disk_pack::logical_paths::core_filter::matches(
+                db_ops.namespaced_store().disk_pack_runtime(),
+                self.common().storage_prefix(),
+                self.common().molecule_uuid().map(String::as_str),
+                self.kind,
+                filter,
+                include_tombstones,
+            )? {
+                return Ok(matches);
             }
         }
-        let effective_filter = filter.or(Some(HashRangeFilter::Page {
+        let effective_filter = filter.unwrap_or(HashRangeFilter::Page {
             offset: 0,
             limit: DEFAULT_UNFILTERED_PAGE_LIMIT,
-        }));
+        });
 
-        match (as_of, effective_filter.as_ref()) {
-            (None, Some(filter)) => {
-                self.refresh_for_read(db_ops, filter, include_tombstones)
-                    .await?;
-            }
-            _ => self.refresh_from_db(db_ops).await?,
-        }
-
-        if let Some(as_of) = as_of {
-            self.rewind_to(db_ops, as_of).await?;
-        }
+        self.refresh_for_read(db_ops, &effective_filter, include_tombstones)
+            .await?;
 
         // In-memory apply uses string compare on molecule range slots. Under
         // OPE those slots stay storage-form (see load_filtered_molecule), so
         // API plaintext prefixes like "todo#" must be rewritten to OPE space
         // first — otherwise HashRangePrefix drops every match after a correct
         // storage scan.
-        let results = match (
-            effective_filter.as_ref(),
-            self.common().molecule_uuid().map(String::as_str),
-        ) {
-            (Some(filter), Some(mol_uuid)) => {
+        let results = match self.common().molecule_uuid().map(String::as_str) {
+            Some(mol_uuid) => {
                 let codec = db_ops.atoms().key_codec_for_molecule(mol_uuid);
                 let expanded = crate::schema::types::field::filter_utils::expand_filter_range_bounds_for_apply(
-                    filter,
+                    &effective_filter,
                     &codec,
                     mol_uuid,
                 )
@@ -91,7 +74,7 @@ impl FieldVariant {
                 }
                 crate::schema::types::field::HashRangeFilterResult::new(merged)
             }
-            _ => self.apply_filter(effective_filter),
+            None => self.apply_filter(Some(effective_filter)),
         };
         let remap_ope_range = db_ops.atoms().key_codec().range_encoding().writes_ope();
 

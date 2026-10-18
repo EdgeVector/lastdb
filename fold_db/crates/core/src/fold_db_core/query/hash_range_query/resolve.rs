@@ -1,4 +1,4 @@
-//! Primary and secondary key resolution (current head and `as_of`), plus pending-atom lookup.
+//! Current primary and secondary key resolution, plus pending-atom lookup.
 
 use super::*;
 use crate::schema::types::FieldVariant;
@@ -6,17 +6,12 @@ use crate::schema::types::FieldVariant;
 impl HashRangeQueryProcessor {
     /// Resolve the primary field (with share-namespace merge) and record
     /// which storage prefix owns each key (personal wins on collision).
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the window rides alongside the filter it bounds; bundling them into a struct would only move the argument list"
-    )]
     pub(super) async fn resolve_primary(
         &self,
         schema: &mut Schema,
         primary_name: &str,
         filter: Option<HashRangeFilter>,
         window: Option<KeyWindow>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
         received_from_namespaces: &[String],
     ) -> Result<(HashMap<KeyValue, FieldValue>, HashMap<KeyValue, KeySource>), SchemaError> {
@@ -67,7 +62,6 @@ impl HashRangeQueryProcessor {
                             primary_name,
                             filter.as_ref(),
                             received_from_namespaces,
-                            as_of,
                             include_tombstones,
                             own_prefix,
                             &mut sources,
@@ -82,7 +76,6 @@ impl HashRangeQueryProcessor {
                             window,
                             requested_window,
                             received_from_namespaces,
-                            as_of,
                             include_tombstones,
                             own_prefix,
                             &mut sources,
@@ -104,7 +97,6 @@ impl HashRangeQueryProcessor {
         primary_name: &str,
         filter: Option<&HashRangeFilter>,
         received_from_namespaces: &[String],
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
         own_prefix: KeySource,
         sources: &mut HashMap<KeyValue, KeySource>,
@@ -113,7 +105,7 @@ impl HashRangeQueryProcessor {
             .resolve_value(
                 &self.db_ops,
                 Some(full_span_page()),
-                as_of,
+                None,
                 include_tombstones,
             )
             .await?;
@@ -126,7 +118,6 @@ impl HashRangeQueryProcessor {
                     field,
                     namespace,
                     Some(full_span_page()),
-                    as_of,
                     include_tombstones,
                 )
                 .await
@@ -182,7 +173,6 @@ impl HashRangeQueryProcessor {
         window: Option<KeyWindow>,
         requested_window: Option<KeyWindow>,
         received_from_namespaces: &[String],
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
         own_prefix: KeySource,
         sources: &mut HashMap<KeyValue, KeySource>,
@@ -192,7 +182,7 @@ impl HashRangeQueryProcessor {
                 &self.db_ops,
                 filter.clone(),
                 window,
-                as_of,
+                None,
                 include_tombstones,
             )
             .await?;
@@ -205,7 +195,6 @@ impl HashRangeQueryProcessor {
                     field,
                     namespace,
                     filter.clone(),
-                    as_of,
                     include_tombstones,
                 )
                 .await

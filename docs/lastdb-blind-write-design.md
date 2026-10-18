@@ -1,5 +1,10 @@
 # Blind write path: ack from memory with no read first
 
+Status: historical proposal. The [current memory and disk design](lastdb-rehydrate.md)
+and [native cutover report](proofs/core-clarity-20261018/RESULTS.md) supersede its serving path.
+Native create/update requests prepare related protein changes before the core publication.
+Cloud activation stays disabled. The proposal and measurements below retain their original scope.
+
 Status (2026-10-13): design for Tom's review. Nothing here is built. It follows
 `docs/lastdb-warm-set-design.md` (the warm set and the write queue) and changes
 its write path. Made by four readers who listed every read on the ack path, one

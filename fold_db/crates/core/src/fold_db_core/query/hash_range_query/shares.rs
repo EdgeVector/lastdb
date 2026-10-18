@@ -61,7 +61,6 @@ impl HashRangeQueryProcessor {
         field: &FieldVariant,
         namespace: &str,
         filter: Option<HashRangeFilter>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
@@ -74,7 +73,7 @@ impl HashRangeQueryProcessor {
             .common_mut()
             .set_storage_prefix(Some(namespace.to_string()));
         cloned
-            .resolve_value(&self.db_ops, filter, as_of, include_tombstones)
+            .resolve_value(&self.db_ops, filter, None, include_tombstones)
             .await
     }
 

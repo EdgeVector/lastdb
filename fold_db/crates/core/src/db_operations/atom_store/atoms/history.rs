@@ -6,8 +6,7 @@ impl AtomStore {
     /// When `storage_prefix` is `Some`, the scan prefix is `{storage_prefix}:history:{mol}:`.
     /// Exact prefix only (no bare dual-read).
     ///
-    /// Prefer the tip-version chain (`prev_tip_id` / `tv:`) for new `as_of`
-    /// work; this remains for legacy `history:` rows.
+    /// This is a history inspection and purge API, not a historical query view.
     pub async fn get_mutation_events(
         &self,
         molecule_uuid: &str,
@@ -85,37 +84,5 @@ impl AtomStore {
             .await
             .map_err(|e| SchemaError::InvalidData(format!("load tip version {version_id}: {e}")))?;
         Ok(raw)
-    }
-
-    /// Walk a tip-version chain from `head` until `written_at <= as_of_nanos`.
-    /// Returns `None` if the slot did not exist yet at that time (chain ends
-    /// while still after `as_of`). Caps walk length to avoid cycles.
-    pub async fn tip_entry_at_as_of(
-        &self,
-        head: &crate::atom::AtomEntry,
-        as_of_nanos: u64,
-        storage_prefix: Option<&str>,
-    ) -> Result<Option<crate::atom::AtomEntry>, SchemaError> {
-        const MAX_WALK: usize = 1_000_000;
-        let mut cur = head.clone();
-        for _ in 0..MAX_WALK {
-            if cur.written_at <= as_of_nanos {
-                return Ok(Some(cur));
-            }
-            if cur.prev_tip_id.is_empty() {
-                return Ok(None);
-            }
-            match self
-                .get_tip_version(&cur.prev_tip_id, storage_prefix)
-                .await?
-            {
-                Some(prev) => cur = prev,
-                // Missing node (legacy depth-1 atom-id prev, or GC): stop.
-                None => return Ok(None),
-            }
-        }
-        Err(SchemaError::InvalidData(
-            "tip version chain exceeded max walk length".into(),
-        ))
     }
 }

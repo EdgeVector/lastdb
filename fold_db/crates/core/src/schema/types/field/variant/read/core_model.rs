@@ -4,7 +4,7 @@ use super::*;
 use crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix;
 
 impl FieldVariant {
-    /// A missing filter also declines historical caller paths.
+    /// A missing filter cannot certify an exact key selection.
     pub(super) async fn resolve_core_model(
         &self,
         db_ops: &Arc<DbOperations>,

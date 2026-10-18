@@ -14,7 +14,6 @@
 
 mod access;
 mod filter;
-mod history;
 mod kind;
 mod read;
 mod value;

@@ -7,7 +7,6 @@ struct QuerySelection<'a> {
     fields: &'a [String],
     filter: Option<HashRangeFilter>,
     window: Option<KeyWindow>,
-    as_of: Option<DateTime<Utc>>,
     include_tombstones: bool,
     request_concurrency: Option<usize>,
 }
@@ -20,8 +19,8 @@ struct PredicateSelection<'a> {
 }
 
 impl HashRangeQueryProcessor {
-    /// Single co-key query path for all filters, field counts, share
-    /// namespaces, and optional `as_of`.
+    /// Single current co-key query path for all filters, field counts and share
+    /// namespaces. A supplied `as_of` is rejected before resolution.
     pub async fn query_with_filter(
         &self,
         schema: &mut Schema,
@@ -84,7 +83,6 @@ impl HashRangeQueryProcessor {
             fields,
             filter,
             window,
-            as_of,
             include_tombstones,
             request_concurrency,
         };
@@ -101,7 +99,6 @@ impl HashRangeQueryProcessor {
             fields,
             filter,
             window,
-            as_of,
             include_tombstones,
             request_concurrency,
         } = query;
@@ -123,7 +120,6 @@ impl HashRangeQueryProcessor {
             fields,
             filter,
             window,
-            as_of,
             include_tombstones,
             &received_from_namespaces,
             request_concurrency,
@@ -158,7 +154,6 @@ impl HashRangeQueryProcessor {
                 fields,
                 filter,
                 window,
-                as_of,
                 include_tombstones,
                 request_concurrency,
             },
@@ -190,7 +185,6 @@ impl HashRangeQueryProcessor {
             fields,
             filter,
             window: _,
-            as_of,
             include_tombstones,
             request_concurrency,
         } = query;
@@ -220,7 +214,6 @@ impl HashRangeQueryProcessor {
                 &scan_fields,
                 pass_a_filter,
                 None,
-                as_of,
                 include_tombstones,
                 &received_from_namespaces,
                 request_concurrency,
@@ -256,7 +249,6 @@ impl HashRangeQueryProcessor {
             fields,
             &kept_keys,
             &kept_sources,
-            as_of,
             include_tombstones,
         )
         .await

@@ -132,10 +132,9 @@ impl SyncEngine {
         // timestamps), and routed every Range conflict to
         // `FieldKey::Hash` because the bare string can't disambiguate
         // hash- from range-keyed molecules. The MutationEvent shape
-        // must reflect the actual key, otherwise the history row no
-        // longer matches the live molecule entry and
-        // `FieldVariant::rewind_to` silently skips it. See
-        // `molecule_hash_range.rs::merge_conflict_field_key_preserves_hash_range_with_colons`.
+        // must reflect the actual key so history inspection and purge can
+        // match the event to its molecule entry. Keep both components typed;
+        // a display string can contain colons in either component.
         let field_key = conflict.field_key.clone();
 
         // Store as mutation event in history

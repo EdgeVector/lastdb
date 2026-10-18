@@ -12,7 +12,7 @@
 | Durable homes | |
 |---|---|
 | **Canonical model (umbrella)** | `docs/lastdb-canonical-model.md` · `concepts-lastdb-canonical-model` |
-| **rehydrate / resident graph** | `docs/lastdb-rehydrate.md` · `concepts-lastdb-rehydrate` |
+| **Core logical memory and native disk** | `docs/lastdb-rehydrate.md` · `concepts-lastdb-rehydrate` |
 | **Requirement (complexity + no scan)** | `docs/lastdb-access-complexity-requirements.md` · `requirement-lastdb-access-complexity` |
 | Brain concept | `brain get concepts-lastdb-agent-access-model` |
 | Workspace | `docs/lastdb-agent-access-model.md` (this file) |
