@@ -1,0 +1,23 @@
+{
+  "all_receipt_sizes_and_hashes_match": true,
+  "binary_sha256": "0c4598fa3ddf54bf6e29f5447dbbe46c0d1c29f47ee760170e332bc9d8d30142",
+  "errors": [],
+  "exact_roots_removed": 2,
+  "normal_node_sessions": 8,
+  "passed": true,
+  "roots": [
+    {
+      "absent": true,
+      "cleanup_exit_code": 0,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.wli_a3i5"
+    },
+    {
+      "absent": true,
+      "cleanup_exit_code": 0,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.gfy07yeo"
+    }
+  ],
+  "scope": "Exact supported cleanup after root review. No further product operation.",
+  "seal_sha256": "d4d29afca73086a2d9ec0b53075052a1d2caca2146337259bf190ba1a32d35e0",
+  "sealed_receipt_files_checked": 102
+}

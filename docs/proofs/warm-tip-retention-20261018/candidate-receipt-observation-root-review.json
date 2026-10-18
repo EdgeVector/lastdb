@@ -1,0 +1,40 @@
+{
+  "checked_utc": "2026-10-18T23:36:14.798617+00:00",
+  "complete": true,
+  "reviewed_by": "root independent receipt and ownership check",
+  "runs": [
+    {
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.8ilm06qe",
+      "files_verified": 9,
+      "owner_uid": 501,
+      "device": 16777231,
+      "inode": 1466278948,
+      "mode": "0700",
+      "checks": [
+        {
+          "command": [
+            "lsof",
+            "-Fpn",
+            "+D",
+            "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.8ilm06qe"
+          ],
+          "exit_code": 1,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "ps",
+            "-p",
+            "21774,21848",
+            "-o",
+            "pid=,command="
+          ],
+          "exit_code": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ]
+    }
+  ]
+}

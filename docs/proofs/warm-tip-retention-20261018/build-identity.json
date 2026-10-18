@@ -1,0 +1,25 @@
+{
+  "product_commit": "6666df553a4a98bdde28891dcb6adb8f3c487bef",
+  "tree": "2a872863c6aa2d1a2be279ad46be16df72f6d7fc",
+  "binary_sha256": "6931f2468cfc2d3605ca7bbbb886c998995d9485f7ff9633a04f60a39f71969e",
+  "source_inventory_sha256": "8b4c594caf0ed1832842bd66e89bf5e5a167a40b21cbe902eefe6f152ac70542",
+  "verified_committed_product_inputs": 1883,
+  "all_match_git_blobs": true,
+  "normal_default_feature_release": true,
+  "build_command": [
+    "scripts/ci/with-fold-host-cargo-lock.sh",
+    "--timeout",
+    "600",
+    "--",
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd"
+  ],
+  "source_manifest_sha256": "6c6e54abed29928072fb984d32c02cb4cfbde71ce920cc5428413c86afcfdb89",
+  "identity_capture_scope": "Post-build inventory matches all committed product inputs. Rust and Cargo inputs were clean at build start and remain unchanged. No claim of a pre-build manifest capture."
+}

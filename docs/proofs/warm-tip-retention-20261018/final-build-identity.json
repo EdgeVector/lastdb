@@ -1,0 +1,25 @@
+{
+  "product_commit": "fe2886070e8d4a51c829b0bf3949c74d64e5e5ef",
+  "tree": "f5a08adc51eed522f54e1c88922b764ef33834a4",
+  "binary_sha256": "01f18e8b6872edbc542dcd0fb3767215362f3bb0d942ec9ce73e96c7ed1640e2",
+  "source_inventory_sha256": "ca5f5be2649ae7aa8210d67db1cc8809f64a20006654aa5c9b080995802f6370",
+  "verified_committed_product_inputs": 1883,
+  "all_match_git_blobs": true,
+  "normal_default_feature_release": true,
+  "build_command": [
+    "scripts/ci/with-fold-host-cargo-lock.sh",
+    "--timeout",
+    "600",
+    "--",
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd"
+  ],
+  "source_manifest_sha256": "e7b5d4ac81a675344cc12f9b91b5f6c6eff5e47baa4e6f7f0fc0c6e203c19f74",
+  "identity_capture_scope": "Inventory captured during the build; all inputs match committed product source. No Rust or Cargo input changes during the build or operations."
+}
