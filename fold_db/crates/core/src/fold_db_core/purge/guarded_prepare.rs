@@ -1,5 +1,6 @@
 //! Target resolution and molecule removal of the guarded purge; see `guarded.rs`.
 
+use super::guarded_atoms::{account_atom_erasures, push_atom_storage_keys, AtomErasureAccounting};
 use super::guarded_steps::*;
 use super::*;
 
@@ -128,14 +129,13 @@ pub(super) struct GuardedErasure {
     pub(super) report: BulkPurgeReport,
     pub(super) keys_to_delete: Vec<Vec<u8>>,
     pub(super) tip_debits: Vec<(String, u64)>,
-    pub(super) live_head_debits: Vec<(String, String, u64)>,
-    pub(super) file_pointer_atoms_purged: u64,
+    pub(super) atom_accounting: AtomErasureAccounting,
 }
 
 /// Collect every storage key the final batch delete removes.
 pub(super) async fn collect_keys_to_delete(
     db_ops: &Arc<DbOperations>,
-    schema_name: &str,
+    storage_prefix: Option<&str>,
     inputs: &GuardedRemovalInputs<'_>,
     tip_version_backref_keys: Vec<Vec<u8>>,
     atoms_to_delete: &[String],
@@ -155,7 +155,7 @@ pub(super) async fn collect_keys_to_delete(
             Vec::new()
         };
     let key_set_start = std::time::Instant::now();
-    push_atom_storage_keys(db_ops, schema_name, atoms_to_delete, &mut keys_to_delete).await?;
+    push_atom_storage_keys(db_ops, storage_prefix, atoms_to_delete, &mut keys_to_delete).await?;
     acct.record(
         crate::request_phases::RequestPhase::PurgeDelete,
         key_set_start.elapsed(),
@@ -177,6 +177,7 @@ pub(super) async fn prepare_guarded_erasure(
     let PurgeScope {
         db_ops,
         schema_name,
+        storage_prefix,
         ..
     } = scope;
     let chain_referenced_by_retained = retained_chain_atoms(
@@ -222,11 +223,17 @@ pub(super) async fn prepare_guarded_erasure(
         &mut atoms_to_delete,
     )
     .await?;
-    let (file_pointer_atoms_purged, live_head_debits) =
-        account_blob_and_live_head_debits(db_ops, &atoms_to_delete, &live_head_atoms, acct).await?;
+    let atom_accounting = account_atom_erasures(
+        db_ops,
+        &atoms_to_delete,
+        &live_head_atoms,
+        storage_prefix,
+        acct,
+    )
+    .await?;
     let keys_to_delete = collect_keys_to_delete(
         db_ops,
-        schema_name,
+        storage_prefix,
         inputs,
         tip_version_backref_keys,
         &atoms_to_delete,
@@ -247,8 +254,7 @@ pub(super) async fn prepare_guarded_erasure(
         report,
         keys_to_delete,
         tip_debits,
-        live_head_debits,
-        file_pointer_atoms_purged,
+        atom_accounting,
     })
 }
 

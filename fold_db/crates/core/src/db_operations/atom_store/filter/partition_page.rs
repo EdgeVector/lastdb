@@ -246,7 +246,7 @@ impl AtomStore {
         let pointer = self
             .active_molecule_generation(molecule, storage_prefix)
             .await?;
-        let end = FilterUtils::create_prefix_end(prefix);
+        let end = FilterUtils::create_prefix_end(prefix)?;
         let mut cursor = after.map(str::to_owned);
         let mut output = Vec::new();
         while output.len() < limit {

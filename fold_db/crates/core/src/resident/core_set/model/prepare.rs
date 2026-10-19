@@ -178,7 +178,11 @@ impl CoreWarmSet {
         ))
     }
 
-    fn share_model_atom(&self, key: &MoleculeKey, value: &mut CoreWarmSlot) {
+    pub(in crate::resident::core_set) fn share_model_atom(
+        &self,
+        key: &MoleculeKey,
+        value: &mut CoreWarmSlot,
+    ) {
         let atom = AtomKey {
             scope: key.scope.clone(),
             uuid: value.atom.uuid().to_owned(),

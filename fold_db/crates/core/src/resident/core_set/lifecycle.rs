@@ -35,6 +35,45 @@ impl CoreWarmSet {
         }
     }
 
+    /// Explicit pressure relief changes retention, not the stage-one admission
+    /// policy. Shared or call-held atoms remain measured after their path leaves.
+    pub(crate) fn purge_clean_to_bytes(&mut self, target: usize) -> (usize, usize, usize) {
+        let before = self.byte_stats().used_bytes;
+        let victims: Vec<_> = self
+            .order
+            .values()
+            .filter(|path| {
+                self.paths
+                    .get(*path)
+                    .is_some_and(|state| state.holds == 0 && state.dirty.is_none())
+            })
+            .cloned()
+            .collect();
+        let mut purged = 0;
+        for path in victims {
+            if self.bytes.used() <= target {
+                break;
+            }
+            let slot = path.slot();
+            let allocations = [
+                self.slot_atoms
+                    .get(&slot)
+                    .map(|atom| Arc::as_ptr(&atom.value) as usize),
+                self.owned_slots
+                    .get(&slot)
+                    .and_then(|slot| slot.value.as_ref())
+                    .map(|value| Arc::as_ptr(&value.atom) as usize),
+            ];
+            self.drop_path(&path);
+            for allocation in allocations.into_iter().flatten() {
+                self.bytes.release_dead_atom(allocation);
+            }
+            purged += 1;
+        }
+        self.purged = self.purged.saturating_add(purged as u64);
+        (purged, before, self.byte_stats().used_bytes)
+    }
+
     /// Check the entire reservation before any purge or path insertion.
     pub(super) fn make_room(&mut self, requested: &[CorePath]) -> Result<(), CoreCapacity> {
         let cap = super::super::resident_key_cap();

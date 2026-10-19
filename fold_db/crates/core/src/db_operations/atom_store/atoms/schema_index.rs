@@ -1,6 +1,30 @@
 use super::*;
 
 impl AtomStore {
+    /// Remove current markers from their own namespace using each atom's
+    /// source schema, which can differ from the schema that removes its tip.
+    pub(crate) async fn remove_atom_schema_markers(
+        &self,
+        atoms: &[(String, String)],
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        if atoms.is_empty() {
+            return Ok(());
+        }
+        let keys = atoms
+            .iter()
+            .map(|(schema, uuid)| {
+                build_storage_key(
+                    storage_prefix,
+                    &schema_index_codec::record_key(schema, uuid),
+                )
+                .into_bytes()
+            })
+            .collect();
+        self.schema_index_store.inner().batch_delete(keys).await?;
+        Ok(())
+    }
+
     /// Read items under exactly one storage scope; no bare fallback.
     pub(crate) async fn scan_exact_storage_prefix<T: DeserializeOwned + Send + Sync>(
         &self,

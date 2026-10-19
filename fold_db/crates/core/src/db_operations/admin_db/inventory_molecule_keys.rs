@@ -23,7 +23,7 @@ impl AtomStore {
             storage_prefix,
             &molecule_key_codec::molecule_record_prefix(molecule),
         );
-        let mol_end = FilterUtils::create_prefix_end(&mol_prefix);
+        let mol_end = FilterUtils::create_prefix_end(&mol_prefix)?;
         let mut page_start = mol_prefix.clone();
         let mut skip_head: Option<String> = None;
         let mut rows_out: Vec<MoleculeKeyRow> = Vec::new();
@@ -173,7 +173,7 @@ impl AtomStore {
 
         let mut distinct = BTreeMap::new();
         for prefix in prefixes {
-            let end = FilterUtils::create_prefix_end(prefix);
+            let end = FilterUtils::create_prefix_end(prefix)?;
             let mut cursor: Option<String> = None;
             loop {
                 if distinct.len() >= want {

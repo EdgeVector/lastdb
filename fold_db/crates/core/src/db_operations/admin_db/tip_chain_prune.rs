@@ -78,7 +78,7 @@ impl AtomStore {
         // the set stays empty and the pass carries no per-key residue at all.
         let mut tv_keys_skip: HashSet<String> = HashSet::new();
 
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
+        let mk_end = FilterUtils::create_prefix_end(&mk_prefix)?;
         // A logical `mk:` page is row-bounded but not physically bounded: its
         // k-way merge resolves every tips group before it can return the first
         // row. The primary measured 281-350 seconds for that first request.

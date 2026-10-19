@@ -66,7 +66,7 @@ impl MutationManager {
     /// read per surviving CAS mutation), not queueing, and the two have
     /// opposite remedies. The same window also carries the `must_exist`
     /// update gate. It is the same class of work — one persisted-head read per
-    /// guarded mutation, under the same locks — so it shares the phase rather
+    /// guarded mutation, under the same native gate — so it shares the phase rather
     /// than minting a second name for the same number.
     pub(in crate::fold_db_core::mutation_manager::write) async fn check_batch_preconditions(
         &self,

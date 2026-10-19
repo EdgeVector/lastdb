@@ -118,7 +118,8 @@ impl AtomStore {
                 return Ok(false);
             }
         }
-        let edge_end = FilterUtils::create_prefix_end(FRESH_HOME_EDGE_PLANE);
+        let edge_end = FilterUtils::create_prefix_end(FRESH_HOME_EDGE_PLANE)
+            .map_err(|error| StorageError::InvalidOperation(error.to_string()))?;
         self.plane_proven_empty(FRESH_HOME_EDGE_PLANE, &edge_end)
             .await
     }

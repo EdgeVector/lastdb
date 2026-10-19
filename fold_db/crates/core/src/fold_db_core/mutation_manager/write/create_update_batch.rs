@@ -42,15 +42,8 @@ impl MutationManager {
 
         self.reject_derived_and_blocked(&mutations)?;
 
-        // Keep each compare-and-set lock through idempotency, validation,
-        // and commit. A same-key writer cannot change the compared state.
-        let lock_wait_start = std::time::Instant::now();
-        let _cas_guards = self.acquire_cas_locks(&mutations).await;
-        crate::request_phases::add_phase(
-            crate::request_phases::RequestPhase::LockWait,
-            lock_wait_start.elapsed(),
-        );
-
+        // The native transaction gate covers every condition and its complete
+        // publication, including unguarded writes through shared molecules.
         Self::log_batch_start(mutations.len());
 
         let start_time = std::time::Instant::now();

@@ -2,6 +2,7 @@
 
 use super::*;
 
+use super::guarded_atoms::AtomErasureAccounting;
 use super::guarded_prepare::*;
 use super::guarded_steps::*;
 
@@ -21,6 +22,7 @@ pub(super) async fn execute_guarded_purge(
         db_ops,
         schema_manager,
         schema_name,
+        storage_prefix,
     } = scope;
     let precomputed_retained = purge.mode.precomputed_retained.take();
     let caller = purge.mode.caller;
@@ -42,8 +44,12 @@ pub(super) async fn execute_guarded_purge(
         report,
         keys_to_delete,
         tip_debits,
-        live_head_debits,
-        file_pointer_atoms_purged,
+        atom_accounting:
+            AtomErasureAccounting {
+                live_head_debits,
+                file_pointer_atoms_purged,
+                schema_markers,
+            },
     } = prepare_guarded_erasure(
         scope,
         &mut schema,
@@ -60,12 +66,12 @@ pub(super) async fn execute_guarded_purge(
         schema_name,
         ledger_descriptor,
         &report,
-        keys_to_delete.len(),
+        keys_to_delete.len().saturating_add(schema_markers.len()),
         file_pointer_atoms_purged,
     );
     let ledger_handle = db_ops
         .atoms()
-        .begin_delete_ledger_row(None, ledger_entry)
+        .begin_delete_ledger_row(storage_prefix, ledger_entry)
         .await?;
     // Resolve the debit once. `store_schema` below rebinds shared molecules,
     // so a second resolution at commit could name a different schema.
@@ -78,6 +84,10 @@ pub(super) async fn execute_guarded_purge(
         .await?;
 
     batch_delete_keys(db_ops, keys_to_delete, acct).await?;
+    db_ops
+        .atoms()
+        .remove_atom_schema_markers(&schema_markers, storage_prefix)
+        .await?;
     finalize_schema_after_purge(db_ops, schema_manager, schema_name, schema, acct).await?;
     // The destructive flush precedes the durable meter debit. A crash in
     // this short gap leaves meter trust incomplete rather than a false debit.

@@ -228,9 +228,12 @@ impl MutationManager {
                 .collect();
             Some(
                 super::super::super::purge::plan_guarded_complement_retained(
-                    &self.db_ops,
-                    &self.schema_manager,
-                    schema_name,
+                    super::super::super::purge::PurgeScope {
+                        db_ops: &self.db_ops,
+                        schema_manager: &self.schema_manager,
+                        schema_name,
+                        storage_prefix,
+                    },
                     &keys,
                 )
                 .await?,

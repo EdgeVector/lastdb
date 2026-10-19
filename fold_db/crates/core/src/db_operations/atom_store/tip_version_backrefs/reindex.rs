@@ -19,7 +19,7 @@ impl AtomStore {
         page: usize,
     ) -> Result<(Vec<(Vec<u8>, Vec<u8>)>, bool), SchemaError> {
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
+        let mk_end = FilterUtils::create_prefix_end(&mk_prefix)?;
         let start = status
             .after_tip_key
             .clone()

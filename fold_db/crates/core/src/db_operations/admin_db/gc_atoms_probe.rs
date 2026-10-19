@@ -99,7 +99,7 @@ impl AtomStore {
             _ => unreachable!(),
         };
         let prefix = build_storage_key(storage_prefix, marker_prefix);
-        let end = FilterUtils::create_prefix_end(&prefix);
+        let end = FilterUtils::create_prefix_end(&prefix)?;
         let page = self
             .raw()
             .inner()

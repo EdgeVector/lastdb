@@ -11,6 +11,8 @@ A normal logical record follows one schema, field, molecule, and key to one atom
 The normal warm limit is 10,000 logical records.
 A call holds its selected records. The purge skips those records and writes that still await flush.
 File contents stay outside this model. An atom can return a file reference and its access metadata.
+Reads and writes reuse an equal complete atom object when one is already available.
+An equal UUID alone cannot combine copies with different atom metadata.
 
 ## Read
 
@@ -46,6 +48,9 @@ Both steps of a field query use the same bounded reader for the other fields.
 There is no separate whole-record value or record-compaction write route.
 Native file packing combines the disk work without a second logical value representation.
 When a write omits declared key fields, preparation supplies their known values from the lookup key.
+Create and Update refuse a declared key field whose value differs from the caller's key.
+The refusal occurs before any member of that source batch changes data.
+Delete and Purge create no key-field atoms.
 This keeps the record available to field conditions without a separate membership source.
 An atom identity includes its source schema and value. A write through another schema can change that identity for the same value.
 Related molecules still share the current selected atom. A normal reopen retains that atom identity.
@@ -142,6 +147,7 @@ Both Delete forms remove tips and keep shared atom bodies. The `must_exist` opti
 Delete crosses Hash and HashRange layouts only for complete records with the same field names and canonical field identities.
 Partial membership records keep their separate deletion boundary.
 The explicit Purge route retains its separate destructive rules.
+Delete and Purge check the caller's conditions in the same database scope as the removal.
 Both Purge paths check shared references after removal of the target tips.
 A failed reference check stops publication before atom removal.
 An invalid peer-key value receives an explicit refusal before any deletion starts.
@@ -158,6 +164,15 @@ The native flush delay is at most 500 ms. `LASTDB_RESIDENT_PERSIST_MS` can selec
 A crash can lose a write that received an ack before its flush.
 Write reservations, core metadata, schema definitions, and complete keys have separate allowances.
 Their limits do not define one whole-process memory cap.
+
+The node's memory relief uses the current native core model.
+An explicit request first waits for accepted writes at the disk barrier.
+It then removes clean logical records in least-recently-used order.
+Held records and unflushed records stay protected.
+The report gives the remaining bytes and says whether the requested target was met.
+Definitions, complete keys, and write metadata keep their separate allowances.
+Host pressure uses the same native measurements and clean-record purge.
+These controls do not enforce the planned warm byte admission limit.
 
 Each queued disk extension reserves only its additional file and journal bytes.
 The earlier request keeps its reservations until the extension succeeds.

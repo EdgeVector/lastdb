@@ -88,7 +88,7 @@ impl AtomStore {
             storage_prefix,
             &molecule_key_codec::history_molecule_prefix(molecule_uuid),
         );
-        let end = FilterUtils::create_prefix_end(&prefix);
+        let end = FilterUtils::create_prefix_end(&prefix)?;
         let start = progress
             .after_history_key
             .clone()

@@ -102,7 +102,7 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         limit: usize,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        let end = crate::schema::types::field::FilterUtils::create_prefix_end(base_prefix);
+        let end = crate::schema::types::field::FilterUtils::create_prefix_end(base_prefix)?;
         if let Some(rows) = self
             .captured_tip_page(storage_prefix, base_prefix, &end, limit)
             .await?
@@ -190,7 +190,7 @@ impl AtomStore {
         if want == 0 {
             return Ok(Vec::new());
         }
-        let base_end = FilterUtils::create_prefix_end(base_prefix);
+        let base_end = FilterUtils::create_prefix_end(base_prefix)?;
         let mut cursor: Option<String> = after.map(ToString::to_string);
         let mut kept: Vec<(String, PerKeyRecord)> = Vec::new();
 

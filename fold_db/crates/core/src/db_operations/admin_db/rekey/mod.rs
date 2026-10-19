@@ -163,7 +163,7 @@ impl AtomStore {
         } = walk;
 
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
+        let mk_end = FilterUtils::create_prefix_end(&mk_prefix)?;
 
         // Keyset cursor. `after_tip_key` is exclusive, but the range start is
         // inclusive, so start *at* the cursor and drop that one row: the

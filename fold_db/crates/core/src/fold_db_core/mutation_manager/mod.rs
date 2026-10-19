@@ -3,7 +3,7 @@
 //! Layout:
 //! - [`helpers`] — free helpers (tombstone, key normalize, native-index allowlist, derived guard)
 //! - [`write`] — public write entry points, purge peel, batch pipeline, finalize
-//! - [`cas`] — CAS locks, purge barriers, preconditions, idempotency
+//! - [`cas`] — write preconditions and idempotency; aggregate guards retain their own locks
 //! - [`dedupe`] — per-molecule write dedupe (`LASTDB_WRITE_DEDUPE`)
 //! - [`molecules`] — atom prep, molecule apply/persist
 //! - [`receipt`] — what one logical resident commit answers to its caller
@@ -14,12 +14,12 @@ mod author_clock;
 mod cas;
 mod cas_current_state;
 mod cas_idempotency;
-mod cas_locks;
 mod cas_preconditions;
 pub mod dedupe;
 pub(super) mod helpers;
 mod index;
 mod molecules;
+mod purge_locks;
 pub mod receipt;
 mod retired_replay;
 mod write;
@@ -179,20 +179,10 @@ pub struct MutationManager {
     /// written for the second (brain
     /// `incident-primary-lastdbd-restart-loop-10-11gb-rss-after-0231-183-cutover`).
     defer_gauge: Arc<DeferredPersistGauge>,
-    /// Per-key async locks that serialize the compare-and-apply of CAS
-    /// mutations on this node. A CAS mutation's read of the current head and
-    /// its write must not interleave with another same-key writer, or two
-    /// concurrent CAS writers could both observe the same "expected" state and
-    /// both apply (silent last-write-wins — exactly what CAS must prevent).
-    ///
-    /// The map hands out one `tokio::sync::Mutex` per `(schema, key)` string;
-    /// a batch containing CAS mutations grabs the locks for its keys (sorted,
-    /// to avoid deadlock) before it checks preconditions and holds them until
-    /// the write commits. Non-CAS writes never touch this map, so the default
-    /// write path is unchanged. Entries are cleaned up when the last holder
-    /// drops (`Arc` strong count reaches 1 under the map guard), so the map
-    /// does not grow without bound.
-    cas_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Aggregate guard and target ownership spans several native transactions.
+    /// Ordinary write conditions use the native write boundary. Idle aggregate
+    /// lock entries leave this map on the next lock acquisition.
+    aggregate_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Resident high-water author clock for this device. Boot point-loads the
     /// durable state once; requests only serialize the small in-memory
     /// advance/sign step. Ordered persistence runs behind the T0 ACK.
@@ -221,9 +211,7 @@ pub struct MutationManager {
     /// Same-named schemas from different apps serialize their guarded purges.
     /// [`PurgeStats`] reports the cost of those critical sections.
     ///
-    /// Schema-name cardinality is small and bounded, so entries are not reaped
-    /// — unlike the per-key `cas_locks` map, this one does not grow without
-    /// bound.
+    /// Entries follow schema-name cardinality, rather than record-key cardinality.
     purge_barrier: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
     /// Per-schema purge accounting; see [`PurgeStats`]. Written once per
     /// completed purge pass (a rare verb), read by the status/ops surfaces, so
@@ -315,7 +303,7 @@ impl MutationManager {
             pending_tasks,
             search_outbox_inbox,
             defer_gauge,
-            cas_locks: std::sync::Mutex::new(HashMap::new()),
+            aggregate_locks: std::sync::Mutex::new(HashMap::new()),
             author_clock_state: std::sync::Mutex::new(author_clock_state),
             author_clock_persist: Some(author_clock_persist),
             purge_barrier,
@@ -358,7 +346,7 @@ impl MutationManager {
             pending_tasks,
             search_outbox_inbox,
             defer_gauge,
-            cas_locks: std::sync::Mutex::new(HashMap::new()),
+            aggregate_locks: std::sync::Mutex::new(HashMap::new()),
             author_clock_state: std::sync::Mutex::new(
                 crate::schema::types::MutationAuthorClockState::default(),
             ),
@@ -537,23 +525,5 @@ impl MutationManager {
             measured_footprint_bytes,
             crate::memory_budget::process_memory_budget(),
         )
-    }
-
-    /// Wait until no deferred persist tasks remain in flight, or `timeout`.
-    ///
-    /// Shed uses this so already-admitted writes land before the warm set is
-    /// trimmed. New requests are never refused; they persist inline if the
-    /// window is empty.
-    pub async fn wait_deferred_idle(&self, timeout: std::time::Duration) -> bool {
-        let deadline = std::time::Instant::now() + timeout;
-        loop {
-            if self.defer_gauge.in_flight_count() == 0 {
-                return true;
-            }
-            if std::time::Instant::now() >= deadline {
-                return self.defer_gauge.in_flight_count() == 0;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
     }
 }

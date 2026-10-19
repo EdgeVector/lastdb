@@ -223,6 +223,11 @@ impl QueryExecutor {
                             .set_storage_prefix(Some(prefix.to_string()));
                     }
                 }
+                if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+                    runtime
+                        .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
+                        .await?;
+                }
                 let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
                 let count = self
                     .hash_range_processor

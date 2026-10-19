@@ -106,8 +106,6 @@ use super::keep_small::{
     MeterDomainTrust, MeterTrustPayload,
 };
 
-use helpers::schema_index_codec;
-
 async fn lock_target_stripes(
     locks: &[Arc<tokio::sync::Mutex<()>>],
     target_ids: &[String],
@@ -341,19 +339,5 @@ impl AtomStore {
     pub async fn flush(&self) -> Result<(), crate::storage::StorageError> {
         self.main_store.inner().flush().await?;
         self.schema_index_store.inner().flush().await
-    }
-
-    /// Storage key of a **legacy** `schemaidx:` record for `(schema, atom_uuid)`.
-    /// Kept so hard-removal (`purge_record`) can still delete leftover index
-    /// copies written by older binaries.
-    pub(crate) fn schema_index_key(
-        storage_prefix: Option<&str>,
-        schema_name: &str,
-        atom_uuid: &str,
-    ) -> String {
-        build_storage_key(
-            storage_prefix,
-            &schema_index_codec::record_key(schema_name, atom_uuid),
-        )
     }
 }

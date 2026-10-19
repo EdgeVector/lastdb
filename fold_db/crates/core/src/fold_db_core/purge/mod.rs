@@ -78,6 +78,7 @@ mod core_live;
 mod delete_barrier_flush;
 mod delete_candidates;
 mod guarded;
+mod guarded_atoms;
 mod guarded_prepare;
 mod guarded_steps;
 mod helpers;
@@ -207,12 +208,34 @@ pub(super) enum PurgeReachability {
     AtomRefEdges,
 }
 
-/// What every purge entry point is aimed at: one schema of one node.
+/// What every purge entry point is aimed at: one schema in one database scope.
 #[derive(Clone, Copy)]
 pub(super) struct PurgeScope<'a> {
     pub(super) db_ops: &'a Arc<DbOperations>,
     pub(super) schema_manager: &'a Arc<SchemaCore>,
     pub(super) schema_name: &'a str,
+    pub(super) storage_prefix: Option<&'a str>,
+}
+
+impl PurgeScope<'_> {
+    /// Definitions are global; every data load uses the selected database.
+    fn schema(&self) -> Result<crate::schema::Schema, SchemaError> {
+        let mut schema = self
+            .schema_manager
+            .get_schema_metadata(self.schema_name)?
+            .ok_or_else(|| {
+                SchemaError::InvalidData(format!(
+                    "Schema '{}' not found for purge",
+                    self.schema_name
+                ))
+            })?;
+        crate::fold_db_core::mutation_manager::helpers::clear_storage_prefix_on_schema(&mut schema);
+        crate::fold_db_core::mutation_manager::helpers::apply_storage_prefix_to_schema(
+            &mut schema,
+            self.storage_prefix,
+        );
+        Ok(schema)
+    }
 }
 
 /// How a purge proves reachability and what it evicts afterwards.

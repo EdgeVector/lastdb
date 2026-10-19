@@ -1,18 +1,11 @@
-//! Merge compatible encoded key lanes in API range order before tip resolution.
+//! Select one fixed-encoding range window before batched current-tip resolution.
 
 use super::*;
 use crate::atom::MoleculeKeyCodec;
 use crate::resident::core_keys::CoreKeyRange;
 use crate::schema::types::field::KeyWindow;
-use std::collections::BTreeMap;
 
-struct ReadyLane {
-    lease: CoreKeyLease,
-    hash: String,
-    prefix: Option<String>,
-    encoding_index: usize,
-}
-type SelectedLanes = (Vec<CoreStoredKey>, Option<String>);
+type SelectedWindow = (Vec<CoreStoredKey>, Option<String>);
 
 impl AtomStore {
     pub(crate) async fn preloaded_window(
@@ -47,15 +40,15 @@ impl AtomStore {
             return Ok(None);
         };
         let codec = self.key_codec_for_molecule(molecule)?;
-        let Some(lanes) = self.ready_hash_lanes(&runtime, molecule, api_hash, scope, &codec)?
-        else {
+        let Some(lease) = self.ready_key_lease(&runtime, scope, molecule) else {
             return Ok(None);
         };
+        let hash = codec.storage_hash(molecule, api_hash).map_err(key_error)?;
         let mut output = Vec::new();
         while output.len() < limit {
             let ask = skip.saturating_add(limit - output.len()).clamp(1, 1024);
             let Some(selected) = runtime.with_schema_key_selection(|| {
-                select_lanes(&lanes, &codec, molecule, after.as_deref(), ask)
+                select_window(&lease, &hash, &codec, molecule, after.as_deref(), ask)
             }) else {
                 return Ok(None);
             };
@@ -77,27 +70,23 @@ impl AtomStore {
             if runtime.schema_key_lease(scope, molecule).is_none() {
                 return Ok(None);
             }
-            let mut union = BTreeMap::new();
             for (base, record) in rows {
                 let (_, range) = molecule_key_codec::decode_hash_range_any(&base)
                     .ok_or_else(|| key_error("invalid ready tip coordinates"))?;
                 let range = decode_range(&codec, range);
-                union.entry(range).or_insert((base, record));
-            }
-            for (range, row) in union {
                 if frontier.as_ref().is_some_and(|last| range > *last) {
                     break;
                 }
                 if after.as_ref().is_some_and(|cursor| range <= *cursor) {
                     continue;
                 }
-                if !include_tombstones && row.1.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
+                if !include_tombstones && record.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
                     continue;
                 }
                 if skip > 0 {
                     skip -= 1;
                 } else {
-                    output.push(row);
+                    output.push((base, record));
                 }
                 if output.len() == limit {
                     break;
@@ -111,95 +100,34 @@ impl AtomStore {
         }
         Ok(Some(output))
     }
-
-    fn ready_hash_lanes(
-        &self,
-        runtime: &Arc<PackRuntime>,
-        molecule: &str,
-        api_hash: &str,
-        scope: Option<&str>,
-        codec: &MoleculeKeyCodec,
-    ) -> Result<Option<Vec<ReadyLane>>, SchemaError> {
-        let mut lanes = Vec::new();
-        let Some(lease) = self.ready_key_lease(runtime, scope, molecule) else {
-            return Ok(None);
-        };
-        let families = if codec.range_encoding().writes_ope() {
-            let ranges = codec
-                .storage_range_read_candidates(molecule, "\0")
-                .map_err(key_error)?;
-            let families: Vec<_> = ranges
-                .iter()
-                .map(|range| Some(range[..6].to_string()))
-                .collect();
-            if families
-                .iter()
-                .collect::<std::collections::HashSet<_>>()
-                .len()
-                != families.len()
-            {
-                return Ok(None);
-            }
-            families
-        } else {
-            vec![None]
-        };
-        for hash in codec
-            .storage_hash_read_candidates(molecule, api_hash)
-            .map_err(key_error)?
-        {
-            for (encoding_index, prefix) in families.iter().enumerate() {
-                lanes.push(ReadyLane {
-                    lease: lease.clone(),
-                    hash: hash.clone(),
-                    prefix: prefix.clone(),
-                    encoding_index,
-                });
-            }
-        }
-        Ok(Some(lanes))
-    }
 }
 
-fn select_lanes(
-    lanes: &[ReadyLane],
+fn select_window(
+    lease: &CoreKeyLease,
+    hash: &str,
     codec: &MoleculeKeyCodec,
     molecule: &str,
     after: Option<&str>,
     ask: usize,
-) -> Result<SelectedLanes, SchemaError> {
-    let mut selected = Vec::new();
-    let mut frontier: Option<String> = None;
-    for lane in lanes {
-        if after.is_none() && lane.prefix.is_some() && lane.encoding_index == 0 {
-            let mut empty = CoreKeyRange::all(&lane.hash, 1);
-            empty.start = std::ops::Bound::Included("");
-            empty.end = std::ops::Bound::Included("");
-            empty.include_tombstones = true;
-            selected.extend(lane.lease.select(empty).map_err(key_error)?.keys);
-        }
-        let encoded_after = after
-            .filter(|range| !range.is_empty() || lane.prefix.is_none())
-            .map(|range| codec.storage_range_read_candidates(molecule, range))
-            .transpose()
-            .map_err(key_error)?;
-        let mut request = CoreKeyRange::all(&lane.hash, ask);
-        request.after = encoded_after
-            .as_ref()
-            .and_then(|forms| forms.get(lane.encoding_index))
-            .map(String::as_str);
-        request.prefix = lane.prefix.as_deref();
-        request.include_tombstones = true;
-        let page = lane.lease.select(request).map_err(key_error)?;
-        if !page.exhausted {
-            if let Some(last) = page.keys.last() {
-                let range = decode_range(codec, last.range.clone());
-                frontier = Some(frontier.map_or(range.clone(), |current| current.min(range)));
-            }
-        }
-        selected.extend(page.keys);
-    }
-    Ok((selected, frontier))
+) -> Result<SelectedWindow, SchemaError> {
+    let encoded_after = after
+        .map(|range| codec.storage_range(molecule, range))
+        .transpose()
+        .map_err(key_error)?;
+    let mut request = CoreKeyRange::all(hash, ask);
+    request.after = encoded_after.as_deref();
+    request.include_tombstones = true;
+    let page = lease.select(request).map_err(key_error)?;
+    let frontier = if page.exhausted {
+        None
+    } else {
+        let last = page
+            .keys
+            .last()
+            .ok_or_else(|| key_error("ready range window does not advance"))?;
+        Some(decode_range(codec, last.range.clone()))
+    };
+    Ok((page.keys, frontier))
 }
 
 fn decode_range(codec: &MoleculeKeyCodec, range: String) -> String {

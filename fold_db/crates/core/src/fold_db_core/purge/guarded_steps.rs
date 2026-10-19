@@ -224,81 +224,6 @@ pub(super) async fn collect_unreferenced_by_reverse_edges(
     Ok(reverse_edge_reads)
 }
 
-/// File-blob accounting happens after reverse-edge decisions and before atom
-/// deletion. A still-referenced candidate never contributes a debit.
-/// Returns `(file_pointer_atoms_purged, live_head_debits)`.
-pub(super) async fn account_blob_and_live_head_debits(
-    db_ops: &Arc<DbOperations>,
-    atoms_to_delete: &[String],
-    live_head_atoms: &HashSet<String>,
-    acct: &mut PurgeCommitAccounting,
-) -> Result<(u64, Vec<(String, String, u64)>), SchemaError> {
-    let mut file_pointer_atoms_purged: u64 = 0;
-    let mut live_head_debits: Vec<(String, String, u64)> = Vec::new();
-    let blob_accounting_start = std::time::Instant::now();
-    for uuid in atoms_to_delete {
-        let Some(atom) = helpers::atom_load_for_hard_erase(
-            db_ops.atoms().get_atom_by_uuid(uuid, None).await,
-            uuid,
-        )?
-        else {
-            continue;
-        };
-        if live_head_atoms.contains(uuid) {
-            let logical = db_ops
-                .atoms()
-                .keep_small()
-                .live_atom_bytes(uuid)
-                .unwrap_or_else(|| serde_json::to_vec(&atom).map_or(0, |v| v.len() as u64));
-            live_head_debits.push((atom.source_schema_name().to_string(), uuid.clone(), logical));
-        }
-        let refs = crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata());
-        if !refs.is_empty() {
-            file_pointer_atoms_purged = file_pointer_atoms_purged.saturating_add(1);
-        }
-    }
-    acct.record(
-        crate::request_phases::RequestPhase::PurgeDelete,
-        blob_accounting_start.elapsed(),
-    );
-    Ok((file_pointer_atoms_purged, live_head_debits))
-}
-
-/// Append the per-atom storage keys (flat, partition-prefix, locator, schema
-/// index) to `keys_to_delete`.
-pub(super) async fn push_atom_storage_keys(
-    db_ops: &Arc<DbOperations>,
-    schema_name: &str,
-    atoms_to_delete: &[String],
-    keys_to_delete: &mut Vec<Vec<u8>>,
-) -> Result<(), SchemaError> {
-    let atom_key_encoding = db_ops.atoms().atom_key_encoding();
-    for uuid in atoms_to_delete {
-        keys_to_delete.push(
-            build_storage_key(None, &crate::atom::atom_key_codec::flat_key(uuid)).into_bytes(),
-        );
-        if atom_key_encoding.writes_partition_prefix() {
-            if let Some(partition) = db_ops.atoms().lookup_atom_partition(uuid, None).await? {
-                let key = crate::atom::atom_key_codec::storage_key(
-                    crate::atom::AtomKeyEncoding::PartitionPrefix,
-                    Some(&partition),
-                    uuid,
-                );
-                keys_to_delete.push(build_storage_key(None, &key).into_bytes());
-            }
-        }
-        keys_to_delete.push(
-            build_storage_key(None, &crate::atom::atom_locator_codec::locator_key(uuid))
-                .into_bytes(),
-        );
-        keys_to_delete.push(
-            crate::db_operations::atom_store::AtomStore::schema_index_key(None, schema_name, uuid)
-                .into_bytes(),
-        );
-    }
-    Ok(())
-}
-
 /// Store, reload, and flush the schema after the destructive writes.
 pub(super) async fn finalize_schema_after_purge(
     db_ops: &Arc<DbOperations>,
@@ -308,6 +233,7 @@ pub(super) async fn finalize_schema_after_purge(
     acct: &mut PurgeCommitAccounting,
 ) -> Result<(), SchemaError> {
     let finalize_start = std::time::Instant::now();
+    crate::fold_db_core::mutation_manager::helpers::clear_storage_prefix_on_schema(&mut schema);
     schema.sync_molecule_uuids();
     let stored = db_ops.store_schema(schema_name, &schema).await;
     let reloaded = match stored {

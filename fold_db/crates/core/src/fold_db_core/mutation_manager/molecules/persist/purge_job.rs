@@ -15,6 +15,11 @@ impl MutationManager {
             .as_ref()
             .map(|_| (job.validated_present, job.retry_requires_finalize));
         let attempt = async {
+            // Both erasure verbs accept caller conditions. Compare before any
+            // selected tip or body is removed, under the native write gate.
+            self.check_cas_preconditions(&job.erasures, job.storage_prefix.as_deref())
+                .await
+                .map_err(PurgeAttemptError::Rejected)?;
             let current_delete = native.as_ref().filter(|_| job.verb.is_delete());
             let result = match current_delete {
                 Some(runtime) => self.attempt_current_delete_stages(job, runtime).await?,
@@ -214,9 +219,12 @@ impl MutationManager {
             .map(|mutation| mutation.key_value.clone())
             .collect();
         match crate::fold_db_core::purge::validate_purge_targets_present(
-            &self.db_ops,
-            &self.schema_manager,
-            schema_name,
+            crate::fold_db_core::purge::PurgeScope {
+                db_ops: &self.db_ops,
+                schema_manager: &self.schema_manager,
+                schema_name,
+                storage_prefix: job.storage_prefix.as_deref(),
+            },
             &keys,
             job.verb,
         )

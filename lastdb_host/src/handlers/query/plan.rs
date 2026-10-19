@@ -86,6 +86,18 @@ impl<H: HostNode> QueryRun<'_, H> {
             ));
         }
 
+        // Descending range order retains ascending hashes for equal ranges.
+        // A reverse slice of ascending keys cannot preserve that tie order
+        // across hashes. Resolve only this explicit K-key batch, then use the
+        // normal formatter and offset; single-hash requests keep push-down.
+        // A tombstone-inclusive read declines the live count and likewise
+        // needs its selected set before a descending offset can be chosen.
+        if descending_cross_hash_batch(&query)
+            || (matches!(query.sort_order, Some(SortOrder::Desc)) && total.is_none())
+        {
+            return self.bounded_fallback(query).await;
+        }
+
         let overfetch_limit = limit.saturating_add(1);
         let window = if let Some(after) = cursor.clone() {
             KeyWindow::after(after, overfetch_limit)

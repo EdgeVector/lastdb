@@ -6,7 +6,7 @@ use crate::schema::types::key_value::KeyValue;
 use std::collections::HashMap;
 use std::ops::Bound;
 
-use super::{FilterUtils, DEFAULT_UNFILTERED_PAGE_LIMIT};
+use super::DEFAULT_UNFILTERED_PAGE_LIMIT;
 
 fn key_tuple_after(key: &KeyValue, after: &KeyValue) -> bool {
     (
@@ -271,7 +271,15 @@ fn hash_range_atoms_with_prefix(
             })
             .unwrap_or_default();
     }
-    hash_range_atoms_in_range(m, hash, prefix, &FilterUtils::create_prefix_end(prefix))
+    m.atom_entries_for_hash(hash)
+        .map(|range_map| {
+            range_map
+                .range::<str, _>((Bound::Included(prefix), Bound::Unbounded))
+                .take_while(|(range, _)| range.starts_with(prefix))
+                .map(|(range, entry)| (range.clone(), entry.atom_uuid.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// `(hash, range, atom_uuid)` triples for every hash in `start..end`
