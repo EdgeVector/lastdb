@@ -1,4 +1,4 @@
-//! Resident and storage-slot purge envelopes and the persist-lane job enum.
+//! Purge envelope and the persist-lane job enum.
 
 use super::*;
 
@@ -46,61 +46,19 @@ pub(crate) struct PurgeEnvelope {
     /// reload, or flush fails. The next attempt must repeat those final stages
     /// even when its idempotent `Skip` pass finds no durable trace.
     pub(in crate::fold_db_core::mutation_manager) retry_requires_finalize: bool,
-    pub(in crate::fold_db_core::mutation_manager) search_batch:
-        Option<crate::db_operations::search_index::IndexChangeBatch>,
     pub(in crate::fold_db_core::mutation_manager) retention_keys:
         Option<Vec<crate::schema::types::KeyValue>>,
     pub(in crate::fold_db_core::mutation_manager) verb: crate::fold_db_core::purge::HardEraseVerb,
-    /// Retained-chain atoms collected off the persist lane. `None` for
-    /// barrierless cutover and for Skip-Delete converge.
-    pub(in crate::fold_db_core::mutation_manager) guarded_complement_retained:
-        Option<std::collections::HashSet<String>>,
     pub(in crate::fold_db_core::mutation_manager) completion:
         Option<tokio::sync::oneshot::Sender<PurgeCompletion>>,
     /// Set when the purge is terminal. The lane sends it after byte release.
     pub(in crate::fold_db_core::mutation_manager) pending_completion: Option<PurgeCompletion>,
 }
 
-/// Retained durable intent for one legacy storage-slot drain page.
-///
-/// `evidence_checkpoint` records a slot before its first destructive store
-/// operation. `search_batch` is built once and then retained byte-for-byte
-/// across Search delivery retries.
-pub(crate) struct StorageSlotPurgeEnvelope {
-    pub(in crate::fold_db_core::mutation_manager) schema_name: String,
-    pub(in crate::fold_db_core::mutation_manager) targets:
-        Vec<crate::fold_db_core::purge::StorageSlotPurgeTarget>,
-    pub(in crate::fold_db_core::mutation_manager) evidence_checkpoint:
-        Vec<crate::fold_db_core::purge::StorageSlotPurgeEvidence>,
-    /// True after the destructive core and all schema finalization complete.
-    /// A Search-only retry must not enter that core again.
-    pub(in crate::fold_db_core::mutation_manager) durable_complete: bool,
-    /// A failed core attempt can remove rows before schema finalization fails.
-    /// The next successful attempt must replay those final stages.
-    pub(in crate::fold_db_core::mutation_manager) retry_requires_finalize: bool,
-    pub(in crate::fold_db_core::mutation_manager) search_batch:
-        Option<crate::db_operations::search_index::IndexChangeBatch>,
-    pub(in crate::fold_db_core::mutation_manager) completion:
-        Option<tokio::sync::oneshot::Sender<StorageSlotPurgeCompletion>>,
-    /// Set when the page is terminal. The lane sends it after byte release.
-    pub(in crate::fold_db_core::mutation_manager) pending_completion:
-        Option<StorageSlotPurgeCompletion>,
-}
-
-pub(crate) struct StorageSlotPurgeCompletion {
-    pub(in crate::fold_db_core::mutation_manager) evidence:
-        Vec<crate::fold_db_core::purge::StorageSlotPurgeEvidence>,
-    pub(in crate::fold_db_core::mutation_manager) phases: crate::request_phases::RequestPhaseTotals,
-}
-
 /// One ordered durable action on a schema persist lane.
 pub(crate) enum LanePersistJob {
     Purge {
         job: Box<PurgeEnvelope>,
-        _pending_task: crate::fold_db_core::pending_task_tracker::PendingTask,
-    },
-    StorageSlotPurge {
-        job: Box<StorageSlotPurgeEnvelope>,
         _pending_task: crate::fold_db_core::pending_task_tracker::PendingTask,
     },
 }

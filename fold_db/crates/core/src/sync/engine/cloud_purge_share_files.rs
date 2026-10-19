@@ -91,7 +91,7 @@ fn atom_keys(snapshot: &Snapshot) -> SyncResult<Vec<String>> {
                     .map_err(|_| error("invalid share key"))?,
             )
             .map_err(|_| error("invalid share key"))?;
-            if crate::atom::atom_key_codec::uuid_of(&key).is_some() {
+            if crate::atom::atom_key_codec::body_uuid_of(&key).is_some() {
                 keys.push(key);
             }
         }

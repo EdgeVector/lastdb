@@ -162,7 +162,7 @@ impl LogicalPathRecord {
                 None => Some(source.as_str()),
             };
             let Some(base) = base else { continue };
-            if crate::atom::atom_key_codec::uuid_of(base) == Some(self.path.atom.as_str()) {
+            if crate::atom::atom_key_codec::body_uuid_of(base) == Some(self.path.atom.as_str()) {
                 let collection =
                     crate::storage::laststore::native_routing::write_collection(source.as_bytes());
                 let encoded = crate::storage::laststore::native_routing::encode(source.as_bytes());

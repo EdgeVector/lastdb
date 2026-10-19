@@ -26,12 +26,6 @@ pub(super) fn db_repair_command(socket: &Path, action: DbRepairCommand) -> Resul
             execute,
             json,
         } => db_repair_hashrange_key_fields(socket, &schema, &hash, execute, json),
-        DbRepairCommand::DrainLegacyTombstones {
-            schema,
-            execute,
-            max_keys,
-            json,
-        } => db_drain_legacy_tombstones(socket, schema.as_deref(), execute, max_keys, json),
         DbRepairCommand::DrainLegacyKeyForks {
             execute,
             max_keys,

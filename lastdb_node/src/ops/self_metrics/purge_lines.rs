@@ -12,20 +12,17 @@ pub fn purge_stats_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     names.sort();
     let mut lines = Vec::with_capacity(names.len() + 1);
     lines.push(format!(
-        "Purge stats: {} schema(s), process totals. exclusive_hold_us is purge critical-section time; delta the totals.",
+        "Purge stats: {} schema(s), process totals; delta the totals.",
         names.len()
     ));
     for name in names {
         let s = &snapshot.purge_stats[name];
         lines.push(format!(
-            "  {name}: purges={} records_purged={} exclusive_hold_us={} schema_barrier_acquisitions={} purge_target_slots={} purge_candidate_atoms={} purge_reverse_edge_reads={} last_purge_finished_unix_ms={}",
+            "  {name}: purges={} records_purged={} purge_target_slots={} purge_atoms_deleted={} last_purge_finished_unix_ms={}",
             s.purges,
             s.records_purged,
-            s.exclusive_hold_us,
-            s.schema_barrier_acquisitions,
             s.purge_target_slots,
-            s.purge_candidate_atoms,
-            s.purge_reverse_edge_reads,
+            s.purge_atoms_deleted,
             s.last_purge_finished_unix_ms
         ));
     }
@@ -40,9 +37,7 @@ pub fn purge_stats_table_lines(
     snapshot: &StatusSnapshot,
     labels: &crate::request_telemetry::SchemaLabels,
 ) -> Vec<String> {
-    use crate::request_telemetry::{
-        aligned_table, human_age, human_count, human_duration_us, schema_cell,
-    };
+    use crate::request_telemetry::{aligned_table, human_age, human_count, schema_cell};
 
     if snapshot.purge_stats.is_empty() {
         return vec!["Purge stats: none since process start.".to_string()];
@@ -58,11 +53,8 @@ pub fn purge_stats_table_lines(
                 schema_cell(Some(name), labels),
                 human_count(stats.purges),
                 human_count(stats.records_purged),
-                human_count(stats.schema_barrier_acquisitions),
                 human_count(stats.purge_target_slots),
-                human_count(stats.purge_candidate_atoms),
-                human_count(stats.purge_reverse_edge_reads),
-                human_duration_us(stats.exclusive_hold_us),
+                human_count(stats.purge_atoms_deleted),
                 human_age(
                     fold_db::clock::unix_millis(),
                     stats.last_purge_finished_unix_ms,
@@ -79,15 +71,12 @@ pub fn purge_stats_table_lines(
             "SCHEMA",
             "PURGES",
             "RECORDS",
-            "BARRIERS",
             "TARGET SLOTS",
-            "CANDIDATES",
-            "EDGE READS",
-            "CRITICAL SECTION",
+            "ATOMS DELETED",
             "LAST",
         ],
         &rows,
-        &[false, true, true, true, true, true, true, true, true],
+        &[false, true, true, true, true, true],
     ));
     lines
 }
@@ -132,12 +121,11 @@ pub fn local_retention_lines(snapshot: &StatusSnapshot) -> Vec<String> {
             policy.hash_partitions.join(",")
         };
         lines.push(format!(
-            "  {name}: ttl_seconds={} source={} hash_partitions={} records_reaped={} exclusive_hold_us={} exclusive_hold_semantics=purge_critical_section last_purge_finished_unix_ms={}",
+            "  {name}: ttl_seconds={} source={} hash_partitions={} records_reaped={} last_purge_finished_unix_ms={}",
             policy.ttl_seconds,
             policy.source.as_str(),
             partitions,
             purge.records_purged,
-            purge.exclusive_hold_us,
             purge.last_purge_finished_unix_ms,
         ));
     }

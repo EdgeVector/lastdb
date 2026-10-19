@@ -90,9 +90,6 @@ pub(super) async fn dispatch_maintenance_repair(
         DataRoute::DbTombstoneFlagAudit => {
             heap_route!(execute_db_tombstone_flag_audit_route, req, ctx, host).await
         }
-        DataRoute::DbDrainLegacyTombstones => {
-            heap_route!(execute_db_drain_legacy_tombstones_route, req, ctx, host).await
-        }
         DataRoute::DbLegacyKeyForkAudit => {
             heap_route!(execute_db_legacy_key_fork_audit_route, req, ctx, host).await
         }

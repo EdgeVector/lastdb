@@ -73,7 +73,6 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/db/reseal-at-rest", Scope::Owner, "POST", DataRoute::DbResealAtRest),
     row("/api/db/reap-unsealed", Scope::Owner, "POST", DataRoute::DbReapUnsealed),
     row("/api/db/tombstone-flag-audit", Scope::Owner, "POST", DataRoute::DbTombstoneFlagAudit),
-    row("/api/db/drain-legacy-tombstones", Scope::Owner, "POST", DataRoute::DbDrainLegacyTombstones),
     row("/api/db/legacy-key-fork-audit", Scope::Owner, "POST", DataRoute::DbLegacyKeyForkAudit),
     row("/api/db/order-log-audit", Scope::Owner, "POST", DataRoute::DbOrderLogAudit),
     row("/api/db/pin-log-audit", Scope::Owner, "POST", DataRoute::DbPinLogAudit),

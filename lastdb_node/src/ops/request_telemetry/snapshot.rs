@@ -76,11 +76,6 @@ pub struct PersistLaneOpRow {
     pub reserved_entries: u64,
     #[serde(default)]
     pub oldest_age_ms: u64,
-    /// Process-lifetime purge critical-section time for this schema.
-    ///
-    /// The wire name stays unchanged for compatibility.
-    #[serde(default)]
-    pub exclusive_hold_us: u64,
     #[serde(default)]
     pub refuse_bytes: u64,
     #[serde(default)]

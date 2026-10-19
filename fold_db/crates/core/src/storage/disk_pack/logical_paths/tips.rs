@@ -83,7 +83,7 @@ fn body_sources(
         let decoded = crate::storage::laststore::native_routing::decode(&source.1)?;
         if std::str::from_utf8(&decoded)
             .ok()
-            .and_then(atom_key_codec::uuid_of)
+            .and_then(atom_key_codec::body_uuid_of)
             == Some(atom)
         {
             body.push(source);

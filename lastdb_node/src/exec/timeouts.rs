@@ -193,14 +193,12 @@ pub(super) fn mutation_requests_cloud_publication_wait(req: &UdsRequest) -> bool
 ///
 /// **This match is deliberately exhaustive — do not add a `_` arm.** Every
 /// route added since this list was written that walks the whole keyspace
-/// (`drain-legacy-tombstones`, `tombstone-flag-audit`, `order-log-audit`, `order-log-bloat-audit`,
+/// (`tombstone-flag-audit`, `order-log-audit`, `order-log-bloat-audit`,
 /// `drain-plane-residue`) silently inherited the 90s default because the old
 /// catch-all classified anything unlisted as short work. On a real store that
-/// is not "slow" — it is fatal: `drain-legacy-tombstones` must walk ~1.9M keys
-/// to find the tombstones it is asked to drain, so it 503'd at 90s **before
-/// returning a resume cursor**, which meant no progress ever persisted and
-/// retrying started from zero (measured 2026-08-08 on the primary: 830,474
-/// tombstones, unreachable at both `--max-keys 5000` and `--max-keys 500`).
+/// is not "slow" — it is fatal: a whole-keyspace audit
+/// 503'd at 90s **before returning a resume cursor**, which meant no progress
+/// ever persisted and retrying started from zero.
 ///
 /// Forcing a compile error on a new variant is the point. A route author must
 /// decide "is this bounded per-request work, or does it scan the store?" —
@@ -232,7 +230,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbReapUnsealed
         | DataRoute::DbDeleteLedger
         | DataRoute::DbTombstoneFlagAudit
-        | DataRoute::DbDrainLegacyTombstones
         | DataRoute::DbLegacyKeyForkAudit
         | DataRoute::DbOrderLogAudit
         | DataRoute::DbPinLogAudit

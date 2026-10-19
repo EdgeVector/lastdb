@@ -42,37 +42,23 @@ use crate::memory_budget::{
 };
 use crate::schema::SchemaCore;
 
-/// Process-lifetime work totals for one schema's purges.
+/// Process-lifetime work totals for one schema's purges and deletes.
 ///
-/// [`crate::request_phases::RequestPhase::PurgeBarrier`] measures the purge's
-/// exclusive acquisition wait. `exclusive_hold_us` measures the guarded
-/// critical sections after acquisition. Ordinary writes do not take this
-/// barrier; their durable order comes from the schema persist lane.
-///
-/// Keyed, like the barrier itself, by schema NAME. See the `purge_barrier`
-/// field docs for why that scope is load-bearing rather than incidental.
+/// An erase takes the native write gate and no schema barrier, so the stats
+/// carry counts and no lock time.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PurgeStats {
-    /// Completed purge passes over this schema.
+    /// Completed erase passes over this schema.
     pub purges: u64,
     /// Records removed across those passes.
     pub records_purged: u64,
-    /// Total time in guarded purge critical sections.
-    ///
-    /// The wire name stays unchanged for compatibility. This is not blocked-
-    /// writer time because ordinary writes do not take the purge barrier.
-    pub exclusive_hold_us: u64,
-    /// Unix milliseconds at which the most recent pass released the barrier.
-    /// Zero means no purge has run on this schema since process start.
+    /// Unix milliseconds at which the most recent pass finished.
+    /// Zero means no erase has run on this schema since process start.
     pub last_purge_finished_unix_ms: u64,
-    /// Schema-wide exclusive barrier acquisitions since process start.
-    pub schema_barrier_acquisitions: u64,
-    /// Exact molecule slots addressed by purge passes.
+    /// Exact molecule slots removed by erase passes.
     pub purge_target_slots: u64,
-    /// Distinct candidate atoms considered for deletion.
-    pub purge_candidate_atoms: u64,
-    /// Candidate `AtomRefEdges` partitions read by barrierless purge.
-    pub purge_reverse_edge_reads: u64,
+    /// Atom bodies deleted because their count reached zero.
+    pub purge_atoms_deleted: u64,
 }
 
 /// Cumulative [`PurgeStats`] per schema name, since process start.
@@ -92,45 +78,22 @@ impl PurgeLedger {
     /// `finished_unix_ms` is passed in rather than read from the clock here so
     /// the ledger stays a pure fold — the caller owns the one `SystemTime`
     /// read, and tests own the timeline.
-    pub fn record(
-        &self,
-        schema_name: &str,
-        records_purged: u64,
-        exclusive_hold: std::time::Duration,
-        finished_unix_ms: u64,
-    ) {
-        let hold_us = u64::try_from(exclusive_hold.as_micros()).unwrap_or(u64::MAX);
+    pub fn record(&self, schema_name: &str, records_purged: u64, finished_unix_ms: u64) {
         let mut map = self.by_schema.lock().expect("purge_stats poisoned");
         let entry = map.entry(schema_name.to_string()).or_default();
         entry.purges = entry.purges.saturating_add(1);
         entry.records_purged = entry.records_purged.saturating_add(records_purged);
-        entry.exclusive_hold_us = entry.exclusive_hold_us.saturating_add(hold_us);
         // Last-writer-wins rather than max: a clock that steps backwards should
         // report the most recent purge this process actually ran, and a purge
         // is rare enough that two passes never race for a meaningful ordering.
         entry.last_purge_finished_unix_ms = finished_unix_ms;
     }
 
-    pub fn record_schema_barrier_acquisition(&self, schema_name: &str) {
-        let mut map = self.by_schema.lock().expect("purge_stats poisoned");
-        let entry = map.entry(schema_name.to_string()).or_default();
-        entry.schema_barrier_acquisitions = entry.schema_barrier_acquisitions.saturating_add(1);
-    }
-
-    pub fn record_path(
-        &self,
-        schema_name: &str,
-        target_slots: u64,
-        candidate_atoms: u64,
-        reverse_edge_reads: u64,
-    ) {
+    pub fn record_path(&self, schema_name: &str, target_slots: u64, atoms_deleted: u64) {
         let mut map = self.by_schema.lock().expect("purge_stats poisoned");
         let entry = map.entry(schema_name.to_string()).or_default();
         entry.purge_target_slots = entry.purge_target_slots.saturating_add(target_slots);
-        entry.purge_candidate_atoms = entry.purge_candidate_atoms.saturating_add(candidate_atoms);
-        entry.purge_reverse_edge_reads = entry
-            .purge_reverse_edge_reads
-            .saturating_add(reverse_edge_reads);
+        entry.purge_atoms_deleted = entry.purge_atoms_deleted.saturating_add(atoms_deleted);
     }
 
     /// Every schema that has been purged since process start. Cumulative, so
@@ -201,30 +164,6 @@ pub struct MutationManager {
     /// before resident apply, so overload rejects without changing product
     /// state. The worker owns a pending-task guard until the row lands.
     author_clock_persist: Option<author_clock::AuthorClockPersistQueue>,
-    /// Per-schema barrier for guarded destructive purge critical sections.
-    ///
-    /// A guarded-complement purge uses a schema-wide reachability snapshot.
-    /// Distinct persist lanes can address one schema name, so the barrier
-    /// serializes their guarded purge sections in the shared atom namespace.
-    ///
-    /// A guarded purge takes this barrier in EXCLUSIVE (`write`) mode for its
-    /// snapshot-to-delete window. The schema persist lane gives ordinary
-    /// writes their durable order, so they do not take this barrier.
-    ///
-    /// Keyed by schema NAME, and that scope is load-bearing — do not "fix" it
-    /// to a schema id. Atom identity is `SHA256(schema_NAME, content)`
-    /// (`Atom::generate_content_uuid`), so two distinct schema *ids* that share
-    /// a display name share one content-addressed atom space. The barrier
-    /// prevents concurrent guarded purge sections in that shared space. Any
-    /// change to `generate_content_uuid`'s scope must also change this key.
-    ///
-    /// Same-named schemas from different apps serialize their guarded purges.
-    /// [`PurgeStats`] reports the cost of those critical sections.
-    ///
-    /// Schema-name cardinality is small and bounded, so entries are not reaped
-    /// — unlike the per-key `cas_locks` map, this one does not grow without
-    /// bound.
-    purge_barrier: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
     /// Per-schema purge accounting; see [`PurgeStats`]. Written once per
     /// completed purge pass (a rare verb), read by the status/ops surfaces, so
     /// a plain mutex is cheaper than the atomics a hot-path counter would need.
@@ -272,7 +211,6 @@ impl MutationManager {
             policy.max_deferred_persists,
         ));
         let write_dedupe = dedupe::parse_write_dedupe(std::env::var(dedupe::WRITE_DEDUPE_ENV).ok());
-        let purge_barrier = Arc::new(std::sync::Mutex::new(HashMap::new()));
         let purge_stats = Arc::new(PurgeLedger::default());
         let capture_router = Arc::new(std::sync::RwLock::new(None));
         let writer = Arc::new(molecules::DeferredLaneWriter {
@@ -284,7 +222,6 @@ impl MutationManager {
                 search_outbox_inbox.clone(),
                 Arc::clone(&defer_gauge),
                 write_dedupe,
-                Arc::clone(&purge_barrier),
                 Arc::clone(&purge_stats),
                 Arc::clone(&capture_router),
             ),
@@ -318,7 +255,6 @@ impl MutationManager {
             cas_locks: std::sync::Mutex::new(HashMap::new()),
             author_clock_state: std::sync::Mutex::new(author_clock_state),
             author_clock_persist: Some(author_clock_persist),
-            purge_barrier,
             purge_stats,
             molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
             write_dedupe,
@@ -343,7 +279,6 @@ impl MutationManager {
         search_outbox_inbox: Option<PathBuf>,
         defer_gauge: Arc<DeferredPersistGauge>,
         write_dedupe: bool,
-        purge_barrier: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
         purge_stats: Arc<PurgeLedger>,
         capture_router: std::sync::Arc<
             std::sync::RwLock<
@@ -363,7 +298,6 @@ impl MutationManager {
                 crate::schema::types::MutationAuthorClockState::default(),
             ),
             author_clock_persist: None,
-            purge_barrier,
             purge_stats,
             molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
             write_dedupe,

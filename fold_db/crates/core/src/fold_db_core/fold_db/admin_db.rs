@@ -50,24 +50,6 @@ pub struct PhotoBlobMigrateReport {
     pub errors: Vec<String>,
 }
 
-/// One bounded, resumable legacy-tombstone drain pass.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct LegacyTombstoneDrainReport {
-    pub dry_run: bool,
-    pub keys_scanned: u64,
-    pub keys_unreadable: u64,
-    pub atoms_fetched: u64,
-    pub atoms_missing: u64,
-    pub tombstones_found: u64,
-    pub tombstones_drained: u64,
-    pub unowned_tombstones: u64,
-    pub search_tombstones_queued: u64,
-    pub per_schema_drained: BTreeMap<String, u64>,
-    pub more_remaining: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_after_key: Option<String>,
-}
-
 fn field_molecule_uuids(schema: &Schema) -> Vec<String> {
     let mut mols = Vec::new();
     for field in schema.runtime_fields.values() {

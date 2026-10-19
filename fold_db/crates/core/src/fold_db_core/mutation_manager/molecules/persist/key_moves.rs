@@ -88,7 +88,10 @@ impl MutationManager {
                 )
             })
             .collect();
-        atoms.remove_molecules_keys_batch(&removals).await
+        atoms
+            .remove_molecules_keys_batch(&removals)
+            .await
+            .map(|_| ())
     }
 }
 

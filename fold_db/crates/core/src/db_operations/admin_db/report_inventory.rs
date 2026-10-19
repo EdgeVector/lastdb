@@ -290,29 +290,6 @@ pub struct TombstoneFlagBackfillReport {
     pub next_after_key: Option<String>,
 }
 
-/// One tombstoned storage slot discovered by the bounded owner walk.
-///
-/// Storage hash/range segments are intentionally not serializable or
-/// debuggable: they may be BlindV1/OpeV1 material and only travel directly to
-/// the guarded storage-slot purge implementation.
-pub(crate) struct LegacyTombstoneSlot {
-    pub molecule_uuid: String,
-    pub storage_hash: String,
-    pub storage_range: String,
-    pub atom_uuid: String,
-}
-
-/// Internal result of one bounded storage-cursor tombstone discovery pass.
-pub(crate) struct LegacyTombstoneScan {
-    pub keys_scanned: u64,
-    pub keys_unreadable: u64,
-    pub atoms_fetched: u64,
-    pub atoms_missing: u64,
-    pub slots: Vec<LegacyTombstoneSlot>,
-    pub more_remaining: bool,
-    pub next_after_key: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaHistoryStat {
     pub schema_name: String,

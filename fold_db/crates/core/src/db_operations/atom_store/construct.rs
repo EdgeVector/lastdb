@@ -91,6 +91,7 @@ impl AtomStore {
             peer_apply_seen: Arc::default(),
             peer_apply_durable: Arc::default(),
             peer_apply_lock: Arc::default(),
+            counter_events: Arc::default(),
             local_origin_device: Arc::default(),
             conflict_record_gate: Arc::default(),
             conflict_record_epoch: Arc::default(),

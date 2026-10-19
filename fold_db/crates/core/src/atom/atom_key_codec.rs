@@ -21,18 +21,46 @@ pub const ATOM_PREFIX: &str = "atom:";
 /// The tag after the NUL of a body key.
 const BODY_TAG: &str = "b";
 
+/// The tag after the NUL of a counter key.
+const COUNTER_TAG: &str = "c";
+
 /// Body key `atom:{uuid}\0b`.
 #[must_use]
 pub fn body_key(atom_uuid: &str) -> String {
     format!("{ATOM_PREFIX}{atom_uuid}\0{BODY_TAG}")
 }
 
-/// The atom UUID inside a body key, with or without a storage scope.
-///
-/// Returns `None` for a key that is not an atom body key.
+/// Counter key `atom:{uuid}\0c`. The counter and the body of one atom share a hash group.
 #[must_use]
-pub fn uuid_of(key: &str) -> Option<&str> {
+pub fn counter_key(atom_uuid: &str) -> String {
+    format!("{ATOM_PREFIX}{atom_uuid}\0{COUNTER_TAG}")
+}
+
+/// Split an atom record key into its UUID and tag, with or without a storage scope.
+fn split(key: &str) -> Option<(&str, &str)> {
     let rest = kind_partition::rest_of(key, "atom")?;
     let (uuid, tag) = rest.split_once('\0')?;
-    (!uuid.is_empty() && tag == BODY_TAG).then_some(uuid)
+    (!uuid.is_empty() && matches!(tag, BODY_TAG | COUNTER_TAG)).then_some((uuid, tag))
+}
+
+/// The atom UUID inside a body key or counter key, with or without a storage scope.
+///
+/// Returns `None` for a key that is not an atom record key.
+#[must_use]
+pub fn uuid_of(key: &str) -> Option<&str> {
+    split(key).map(|(uuid, _)| uuid)
+}
+
+/// The atom UUID inside a body key. `None` for a counter key or any other key.
+#[must_use]
+pub fn body_uuid_of(key: &str) -> Option<&str> {
+    split(key)
+        .filter(|(_, tag)| *tag == BODY_TAG)
+        .map(|(uuid, _)| uuid)
+}
+
+/// True when `key` is a counter key, with or without a storage scope.
+#[must_use]
+pub fn is_counter_key(key: &str) -> bool {
+    split(key).is_some_and(|(_, tag)| tag == COUNTER_TAG)
 }

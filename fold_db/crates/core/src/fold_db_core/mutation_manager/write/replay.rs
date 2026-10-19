@@ -207,18 +207,15 @@ impl MutationManager {
             storage_prefix,
         )?;
 
-        // The source log carries full field bodies. Write them before the
-        // history references; a failed write leaves the replay cursor in place.
+        // The source log carries full field bodies. The history rows hold
+        // references to the atoms they name, and the bodies join the batch of
+        // those references; a failed write leaves the replay cursor in place.
         self.db_ops
             .atoms()
-            .batch_store_atoms_borrowed(&located, storage_prefix)
-            .await?;
-        self.db_ops
-            .atoms()
-            .batch_store_suppressed_put_events(events, storage_prefix)
+            .batch_store_suppressed_put_events(events, &located, storage_prefix)
             .await?;
         // The download cursor can advance when this callback returns. Flush
-        // the atom bodies, history rows, and reference edges first, including
+        // the atom bodies, history rows, and counters first, including
         // when LastStore defers ordinary batch flushes.
         self.db_ops.atoms().flush().await.map_err(|error| {
             SchemaError::InvalidData(format!("flush suppressed Put history: {error}"))

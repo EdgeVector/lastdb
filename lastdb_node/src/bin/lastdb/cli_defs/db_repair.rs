@@ -52,22 +52,6 @@ pub(crate) enum DbRepairCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Dry-run or execute a bounded, resumable hard drain of legacy
-    /// tombstone-content tips. The CLI follows daemon cursors until complete.
-    DrainLegacyTombstones {
-        /// Drain only this schema's field molecules (default: whole store).
-        #[arg(long)]
-        schema: Option<String>,
-        /// Hard-erase matching slots and queue Search tombstones.
-        #[arg(long)]
-        execute: bool,
-        /// Records one daemon call decides before returning a resume cursor.
-        #[arg(long)]
-        max_keys: Option<usize>,
-        /// Emit raw aggregate JSON only.
-        #[arg(long)]
-        json: bool,
-    },
     /// Drain forked legacy/plain tips whose current twin resolves to a live atom.
     /// Dry-run by default; a legacy-only key is never deleted.
     DrainLegacyKeyForks {

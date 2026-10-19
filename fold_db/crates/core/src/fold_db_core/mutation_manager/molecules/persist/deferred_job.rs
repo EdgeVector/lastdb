@@ -11,80 +11,14 @@ impl MutationManager {
         job: &mut DeferredPersistJob,
     ) -> Result<(), SchemaError> {
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
-        self.store_deferred_atoms(job).await?;
-        if let Some(runtime) = &runtime {
-            runtime.record_read_stage(
-                "atom-stores-done",
-                job.deferred_atoms.as_ref().map_or(0, Vec::len),
-            );
-        }
+        // The planner writes each body in the batch of the first tip that names
+        // it, so no body is stored before the tips of this job.
         self.persist_deferred_molecules(job).await?;
         if let Some(runtime) = &runtime {
             runtime.record_read_stage("molecule-stores-done", job.modified_fields.len());
         }
-        self.settle_deferred_atom_births(job).await?;
-        if let Some(runtime) = &runtime {
-            runtime.record_read_stage(
-                "birth-settle-done",
-                job.deferred_atoms.as_ref().map_or(0, Vec::len),
-            );
-        }
         self.store_deferred_schema(job).await?;
         self.store_deferred_side_records(job).await
-    }
-
-    /// Keep the Atom batch private until every stage succeeds.
-    async fn store_deferred_atoms(&self, job: &DeferredPersistJob) -> Result<(), SchemaError> {
-        let Some(located) = job.deferred_atoms.as_deref().filter(|l| !l.is_empty()) else {
-            return Ok(());
-        };
-        // The tip phase of this job writes each atom's count and cancels its GC
-        // candidate, so the birth rows are not written here. The settle step
-        // after the tip phase covers an atom that no tip took.
-        self.db_ops
-            .atoms()
-            .batch_store_atoms_tip_follows(located, job.storage_prefix.as_deref())
-            .await
-            .map_err(|error| {
-                tracing::error!(
-                    error = %error,
-                    schema = %job.schema_name,
-                    "deferred resident-write atom store failed"
-                );
-                error
-            })?;
-
-        if job.storage_prefix.is_none() {
-            for share_prefix in &job.share_prefixes {
-                self.db_ops
-                    .atoms()
-                    .batch_store_atoms_borrowed(located, Some(share_prefix))
-                    .await?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Give every atom that no tip took its birth rows, so it stays reclaimable.
-    async fn settle_deferred_atom_births(
-        &self,
-        job: &DeferredPersistJob,
-    ) -> Result<(), SchemaError> {
-        let Some(located) = job.deferred_atoms.as_deref().filter(|l| !l.is_empty()) else {
-            return Ok(());
-        };
-        self.db_ops
-            .atoms()
-            .settle_atom_births(located, job.storage_prefix.as_deref())
-            .await
-            .map_err(|error| {
-                tracing::error!(
-                    error = %error,
-                    schema = %job.schema_name,
-                    "deferred resident-write atom birth settle failed"
-                );
-                error
-            })
     }
 
     /// Persist modified molecules, then the protein sibling tip updates.
@@ -93,16 +27,22 @@ impl MutationManager {
         job: &mut DeferredPersistJob,
     ) -> Result<(), SchemaError> {
         self.persist_sibling_key_moves(job).boxed().await?;
-        self.persist_modified_molecules(&mut job.schema, &job.modified_fields, &job.share_prefixes)
-            .await
-            .map_err(|error| {
-                tracing::error!(
-                    error = %error,
-                    schema = %job.schema_name,
-                    "deferred resident-write molecule persist failed"
-                );
-                error
-            })?;
+        let bodies = job.deferred_atoms.as_deref().unwrap_or_default();
+        self.persist_modified_molecules(
+            &mut job.schema,
+            &job.modified_fields,
+            &job.share_prefixes,
+            bodies,
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(
+                error = %error,
+                schema = %job.schema_name,
+                "deferred resident-write molecule persist failed"
+            );
+            error
+        })?;
 
         let prefix = job
             .schema
@@ -110,7 +50,7 @@ impl MutationManager {
             .values()
             .find_map(|field| field.common().storage_prefix())
             .map(str::to_string);
-        self.persist_sibling_tip_updates(&job.sibling_updates, prefix.as_deref())
+        self.persist_sibling_tip_updates(&job.sibling_updates, bodies, prefix.as_deref())
             .await
             .map_err(|error| {
                 tracing::error!(

@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::db_operations::atom_store::SealedAtom;
 use crate::db_operations::{ChangedKey, MoleculeData, MoleculeGateHoldStats};
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
@@ -79,6 +80,7 @@ impl MutationManager {
         schema: &mut Schema,
         modified_fields: &ModifiedFieldKeys,
         share_prefixes: &[String],
+        bodies: &[SealedAtom],
     ) -> Result<(), SchemaError> {
         let mut molecules_to_store: Vec<(String, &MoleculeData, HashSet<ChangedKey>)> = Vec::new();
         let field_names: Vec<String> = modified_fields.keys().cloned().collect();
@@ -114,6 +116,7 @@ impl MutationManager {
             );
             self.store_molecules_changed_unlocked(
                 &molecules_to_store,
+                bodies,
                 request_storage_prefix.as_deref(),
             )
             .await?;
@@ -125,7 +128,7 @@ impl MutationManager {
             // a personal-namespace product and must not dual-write org data.
             if request_storage_prefix.is_none() && had_molecules {
                 for share_prefix in share_prefixes {
-                    self.store_molecules_split(&molecules_to_store, Some(share_prefix))
+                    self.store_molecules_split(&molecules_to_store, bodies, Some(share_prefix))
                         .await?;
                 }
             }
@@ -171,6 +174,7 @@ impl MutationManager {
     async fn store_molecules_changed_unlocked(
         &self,
         molecules: &[(String, &MoleculeData, HashSet<ChangedKey>)],
+        bodies: &[SealedAtom],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         if molecules.is_empty() {
@@ -200,7 +204,7 @@ impl MutationManager {
         );
         self.db_ops
             .atoms()
-            .store_molecules_changed_keys_batch_ref(&batch, storage_prefix)
+            .store_molecules_changed_keys_batch_ref(&batch, bodies, storage_prefix)
             .await?;
         Ok(())
     }
@@ -215,6 +219,7 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn store_molecules_split(
         &self,
         molecules: &[(String, &MoleculeData, HashSet<ChangedKey>)],
+        bodies: &[SealedAtom],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         // Per-key molecules use immutable generations. The selected generation
@@ -268,6 +273,7 @@ impl MutationManager {
             .atoms()
             .store_molecule_generations_batch(
                 generations,
+                bodies,
                 storage_prefix,
                 crate::db_operations::atom_store::MoleculeKeyDomain::Storage,
             )
@@ -286,7 +292,6 @@ mod purge_resident;
 mod purge_types;
 mod quarantine_records;
 mod sibling;
-mod storage_slot_job;
 pub(in crate::fold_db_core::mutation_manager) use lane_writer::*;
 pub(crate) use purge_types::*;
 pub(crate) use quarantine_records::*;

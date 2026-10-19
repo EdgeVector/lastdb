@@ -133,71 +133,6 @@ impl AtomStore {
         Ok(protein)
     }
 
-    /// One-time tip backfill when adding a new key as a self-maintaining member.
-    ///
-    /// For each tip currently present on `source_molecule` under keys that can
-    /// be re-derived via `source_member` / `new_member` field maps built from
-    /// `records` (each record is a full field map), set the new member's tip to
-    /// the same atom as the source tip.
-    pub async fn protein_backfill_member_tips(
-        &self,
-        source_molecule_uuid: &str,
-        new_member: &ProteinMember,
-        records: &[HashMap<String, String>],
-        keypair: &Ed25519KeyPair,
-    ) -> Result<usize, SchemaError> {
-        let source_protein = self
-            .protein_of_molecule(source_molecule_uuid)
-            .await?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "source molecule {source_molecule_uuid} is not a protein member"
-                ))
-            })?;
-        let protein = self.protein_get(&source_protein).await?.ok_or_else(|| {
-            SchemaError::InvalidData(format!("protein {source_protein} not found"))
-        })?;
-        let source_member = protein
-            .member_for_molecule(source_molecule_uuid)
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "protein missing source member {source_molecule_uuid}"
-                ))
-            })?;
-
-        // Ensure new member is bound.
-        if !protein.contains_molecule(&new_member.molecule_uuid) {
-            self.protein_add_member(&source_protein, new_member.clone())
-                .await?;
-        }
-
-        let mut filled = 0usize;
-        for fields in records {
-            let Some((src_hash, src_range)) = source_member.tip_coords_from_fields(fields) else {
-                continue;
-            };
-            let Some((dst_hash, dst_range)) = new_member.tip_coords_from_fields(fields) else {
-                continue;
-            };
-            let Some(entry) = self
-                .protein_get_member_tip(source_molecule_uuid, &src_hash, &src_range)
-                .await?
-            else {
-                continue;
-            };
-            self.protein_set_member_tip(
-                &new_member.molecule_uuid,
-                &dst_hash,
-                &dst_range,
-                &entry,
-                keypair,
-            )
-            .await?;
-            filled += 1;
-        }
-        Ok(filled)
-    }
-
     /// Read tip atom uuid at a member's key coordinates (None if absent).
     pub async fn protein_get_member_tip(
         &self,
@@ -225,32 +160,5 @@ impl AtomStore {
             .put_item(&protein_record_key(&protein.uuid), protein)
             .await
             .map_err(|e| SchemaError::InvalidData(format!("write protein {}: {e}", protein.uuid)))
-    }
-
-    /// Set (or create) a tip on a molecule at (hash, range).
-    async fn protein_set_member_tip(
-        &self,
-        molecule_uuid: &str,
-        hash: &str,
-        range: &str,
-        tip: &AtomEntry,
-        keypair: &Ed25519KeyPair,
-    ) -> Result<(), SchemaError> {
-        let (molecule_uuid, mol, changed, _) = self
-            .protein_member_tip_update(
-                molecule_uuid,
-                hash,
-                range,
-                tip,
-                keypair,
-                ProteinTipScope {
-                    honor_tip_lww: false,
-                    storage_prefix: None,
-                },
-            )
-            .await?;
-        self.store_molecule_changed_keys(&molecule_uuid, &mol, &changed, None)
-            .await?;
-        Ok(())
     }
 }

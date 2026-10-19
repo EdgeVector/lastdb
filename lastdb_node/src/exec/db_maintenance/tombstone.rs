@@ -1,4 +1,4 @@
-//! Owner-socket routes that audit and drain tombstones and audit legacy key forks.
+//! Owner-socket routes that audit tombstones and legacy key forks.
 
 use super::*;
 
@@ -53,56 +53,6 @@ pub(in crate::exec) async fn execute_db_tombstone_flag_audit_route(
             ctx.user_id.as_str(),
         )),
         Err(e) => mapped_error_response("tombstone-flag-audit failed", e, ctx),
-    }
-}
-
-/// `POST /api/db/drain-legacy-tombstones` — discover and optionally hard-erase
-/// one bounded page of tombstone-content storage slots.
-pub(in crate::exec) async fn execute_db_drain_legacy_tombstones_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize, Default)]
-    struct Body {
-        #[serde(default)]
-        schema: Option<String>,
-        #[serde(default)]
-        dry_run: Option<bool>,
-        #[serde(default)]
-        max_keys: Option<usize>,
-        #[serde(default)]
-        after_key: Option<String>,
-    }
-    let body: Body = if req.body.is_empty() {
-        Body::default()
-    } else {
-        match serde_json::from_slice(&req.body) {
-            Ok(body) => body,
-            Err(error) => {
-                return error_response(
-                    400,
-                    &format!("invalid /api/db/drain-legacy-tombstones body: {error}"),
-                    ctx,
-                )
-            }
-        }
-    };
-    match host
-        .db
-        .drain_legacy_tombstones(
-            body.schema.as_deref(),
-            body.dry_run.unwrap_or(true),
-            body.max_keys.unwrap_or(50_000),
-            body.after_key.as_deref(),
-        )
-        .await
-    {
-        Ok(report) => json_ok(&envelope(
-            &serde_json::json!({ "legacy_tombstone_drain": report }),
-            ctx.user_id.as_str(),
-        )),
-        Err(error) => mapped_error_response("legacy-tombstone drain failed", error, ctx),
     }
 }
 

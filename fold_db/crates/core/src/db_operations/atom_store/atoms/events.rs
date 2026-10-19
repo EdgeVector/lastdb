@@ -1,18 +1,23 @@
 use super::*;
+use crate::db_operations::atom_store::counter::{event_atoms, RecordRefs, TipChangeSet};
 
 impl AtomStore {
     /// Keep imported Puts that lost to a Delete without changing a tip.
     /// The caller supplies stable keys so replay of one source mutation is
-    /// idempotent. Each history row and its atom edge share one durable batch.
+    /// idempotent. Each history row holds one reference to each atom it names,
+    /// and the planner writes the rows, the references and the bodies of atoms
+    /// that gain their first reference in one batch.
     pub(crate) async fn batch_store_suppressed_put_events(
         &self,
         events: Vec<(String, MutationEvent)>,
+        bodies: &[SealedAtom],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         if events.is_empty() {
             return Ok(());
         }
-        let mut items = Vec::with_capacity(events.len() * 2);
+        let mut rows = Vec::with_capacity(events.len());
+        let mut records = Vec::with_capacity(events.len());
         let mut keys = Vec::with_capacity(events.len());
         for (key, event) in events {
             if event.kind != crate::atom::MutationEventKind::SuppressedPut {
@@ -20,12 +25,11 @@ impl AtomStore {
                     "suppressed Put history requires a suppressed Put event".into(),
                 ));
             }
-            items.extend(self.mutation_history_atom_ref_edge_items(
-                &key,
-                &event,
-                storage_prefix,
-            )?);
-            items.push((
+            records.push(RecordRefs {
+                key: key.clone(),
+                atoms: event_atoms(&event),
+            });
+            rows.push((
                 key.clone(),
                 serde_json::to_value(event).map_err(|error| {
                     SchemaError::InvalidData(format!("serialize suppressed Put history: {error}"))
@@ -33,8 +37,18 @@ impl AtomStore {
             ));
             keys.push(key);
         }
-        self.batch_put_items_with_atom_ref_v2(items, storage_prefix)
+        let commit = self
+            .commit_tip_changes(TipChangeSet {
+                scope: storage_prefix,
+                tips: Vec::new(),
+                bodies,
+                body_source: None,
+                records,
+                rows,
+                deletes: Vec::new(),
+            })
             .await?;
+        self.account_stored_bodies(bodies, &commit);
         for key in keys {
             crate::atom::legacy_history_memo::invalidate_for_event_key(&key);
         }

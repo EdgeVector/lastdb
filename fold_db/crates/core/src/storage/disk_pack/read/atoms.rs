@@ -24,7 +24,7 @@ impl PackRuntime {
                 (
                     collection,
                     encoded,
-                    crate::atom::atom_key_codec::uuid_of(key)
+                    crate::atom::atom_key_codec::body_uuid_of(key)
                         .unwrap_or_default()
                         .to_owned(),
                 )

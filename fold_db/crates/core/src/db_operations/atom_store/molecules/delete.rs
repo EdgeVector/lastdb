@@ -3,9 +3,10 @@
 use crate::atom::molecule_key_codec;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
-use crate::storage::KvMutation;
-use std::collections::HashMap;
+use serde_json::Value;
+use std::collections::{BTreeMap, HashMap};
 
+use super::super::counter::{TipChange, TipChangeSet, TipCommit};
 use super::super::types::{MoleculeData, MoleculeHeader};
 use super::super::{AtomStore, PerKeyRecord};
 
@@ -16,158 +17,92 @@ type MoleculeKeyRemoval<'a> = (
     Option<&'a str>,
 );
 
-/// Keys, header writes, and tip edges gathered while planning a slot removal.
+/// The keys and rows of the slot removals of one storage scope.
 #[derive(Default)]
 struct SlotRemovalPlan {
-    keys: Vec<Vec<u8>>,
-    headers: Vec<(String, serde_json::Value)>,
-    trailing_keys: Vec<Vec<u8>>,
-    removed_tip_edges: Vec<(Option<String>, super::super::AtomRefEdge)>,
-    molecule_count: usize,
-    slot_count: usize,
+    /// Storage keys of the `mk:` records that the removal deletes.
+    keys: Vec<String>,
+    /// Molecule headers and generation-delete markers.
+    rows: Vec<(String, Value)>,
 }
 
 impl AtomStore {
-    /// Remove EXACTLY the named slots from per-key molecules in **one**
-    /// durable delete and **one** durable header put, leaving every other
-    /// slot's row untouched.
+    /// Remove named slots from many per-key molecules in **one** batch with the
+    /// counter changes that the removed tips cause.
     ///
     /// `removed_slots` are **storage-form** `(hash, range)` pairs: the segments
     /// the molecule is keyed by. `data` is the molecule **after** the removal;
     /// only its header (`version`/`updated_at`) is read.
     ///
     /// Purge of a multi-field schema (BoardCards has 24 fields) used to pay one
-    /// `batch_delete` + header put per field. Measured on the primary
-    /// 2026-08-17, that exclusive `purge_commit` hold averaged ~8.6 s for a
-    /// single-record purge. The end state is identical: every named `mk:` key
-    /// is gone and each molecule header is bumped to the post-removal
-    /// `version`/`updated_at`.
-    ///
-    /// The `mord:`/`moc:` order log stays as it is. Removing `mk:` rows can
-    /// only widen the `moc:{M} >= count(mk:{M}:…)` margin that
-    /// `db order-log-audit` checks, never invert it. Rows are deleted before
-    /// the header is bumped, so a crash leaves the erasure durable and only the
-    /// header version behind.
-    ///
-    /// Empty `removed_slots` entries are skipped. An all-empty batch is a
-    /// no-op (no store call).
+    /// delete and one header put per field, and measured ~8.6 s of exclusive
+    /// hold for one record. Now one planner call per storage scope writes every
+    /// tip delete, every counter change, every body delete at zero, and every
+    /// header. The `mord:`/`moc:` order log stays as it is: removing `mk:` rows
+    /// can only widen the `moc:{M} >= count(mk:{M}:…)` margin that
+    /// `db order-log-audit` checks, never invert it.
     pub(crate) async fn remove_molecules_keys_batch(
         &self,
         removals: &[MoleculeKeyRemoval<'_>],
-    ) -> Result<(), SchemaError> {
-        self.remove_molecules_keys_with_extra_batch(removals, Vec::new())
+    ) -> Result<TipCommit, SchemaError> {
+        self.remove_molecules_keys_with_rows(removals, Vec::new())
             .await
     }
 
-    /// Remove exact molecule slots and caller-supplied derived rows in one
-    /// durable delete batch, then bump the affected molecule headers.
-    ///
-    /// Barrierless purge uses `extra_keys` for the reverse-reference rows that
-    /// describe the removed tips and tip versions. The authoritative row and
-    /// its shadow edge therefore cannot survive in opposite states.
-    pub(crate) async fn remove_molecules_keys_with_extra_batch(
+    /// [`Self::remove_molecules_keys_batch`] with caller rows (delete barriers,
+    /// ledger rows) that join the same batch.
+    pub(crate) async fn remove_molecules_keys_with_rows(
         &self,
         removals: &[MoleculeKeyRemoval<'_>],
-        extra_keys: Vec<Vec<u8>>,
-    ) -> Result<(), SchemaError> {
-        self.remove_molecules_keys_with_extra_and_trailing_batch(removals, extra_keys, Vec::new())
-            .await
-    }
-
-    /// Remove source rows before the caller-supplied trailing derived rows.
-    ///
-    /// Compact reverse edges use `trailing_keys`. LastStore applies these
-    /// deletes after every source delete and before one durability barrier.
-    /// A crash can retain an extra edge, but it cannot leave a source row with
-    /// its compact edge missing.
-    pub(crate) async fn remove_molecules_keys_with_extra_and_trailing_batch(
-        &self,
-        removals: &[MoleculeKeyRemoval<'_>],
-        mut extra_keys: Vec<Vec<u8>>,
-        trailing_keys: Vec<Vec<u8>>,
-    ) -> Result<(), SchemaError> {
-        let mut plan = SlotRemovalPlan {
-            trailing_keys,
-            ..SlotRemovalPlan::default()
-        };
-
+        extra_rows: Vec<(String, Value)>,
+    ) -> Result<TipCommit, SchemaError> {
         let current = self.read_removed_slots(removals).await?;
+        let mut plans: BTreeMap<Option<&str>, SlotRemovalPlan> = BTreeMap::new();
         for removal in removals {
-            Self::plan_molecule_removal(removal, &current, &mut plan)?;
+            let plan = plans.entry(removal.3).or_default();
+            Self::plan_molecule_removal(removal, &current, plan)?;
         }
-        let SlotRemovalPlan {
-            mut keys,
-            headers,
-            mut trailing_keys,
-            removed_tip_edges,
-            molecule_count,
-            slot_count,
-        } = plan;
-
-        keys.append(&mut extra_keys);
-        keys.sort_unstable();
-        keys.dedup();
-        trailing_keys.sort_unstable();
-        trailing_keys.dedup();
-        keys.retain(|key| trailing_keys.binary_search(key).is_err());
-
-        if keys.is_empty() && trailing_keys.is_empty() {
-            return Ok(());
+        let mut extra_rows = Some(extra_rows);
+        let mut total = TipCommit::default();
+        for (scope, plan) in plans {
+            let mut rows = plan.rows;
+            rows.extend(extra_rows.take().unwrap_or_default());
+            let commit = self
+                .commit_tip_changes(TipChangeSet {
+                    scope,
+                    tips: plan
+                        .keys
+                        .into_iter()
+                        .map(|key| TipChange { key, new: None })
+                        .collect(),
+                    bodies: &[],
+                    body_source: None,
+                    records: Vec::new(),
+                    rows,
+                    deletes: Vec::new(),
+                })
+                .await
+                .map_err(|e| {
+                    SchemaError::InvalidData(format!("Failed to remove slots from molecules: {e}"))
+                })?;
+            total.absorb(commit);
         }
-
-        let mut ref_atoms: Vec<String> = removed_tip_edges
-            .iter()
-            .map(|(_, edge)| edge.atom_uuid.clone())
-            .collect();
-        ref_atoms.sort_unstable();
-        ref_atoms.dedup();
-        let _count_guards = self.lock_atom_ref_counts(&ref_atoms).await;
-        let count_mutations = self
-            .removed_tip_edge_count_mutations(removed_tip_edges)
-            .await?;
-
-        let result = if trailing_keys.is_empty() && count_mutations.is_empty() {
-            self.main_store.inner().batch_delete(keys).await
-        } else {
-            let mut mutations =
-                Vec::with_capacity(keys.len() + count_mutations.len() + trailing_keys.len());
-            mutations.extend(keys.into_iter().map(KvMutation::delete));
-            mutations.extend(count_mutations);
-            mutations.extend(trailing_keys.into_iter().map(KvMutation::delete));
-            self.main_store.inner().batch_mutate(mutations).await
-        };
-        result.map_err(|e| {
-            SchemaError::InvalidData(format!(
-                "Failed to remove {slot_count} slot(s) from {molecule_count} molecule(s): {e}"
-            ))
-        })?;
-
-        self.main_store.batch_put_items(headers).await.map_err(|e| {
-            SchemaError::InvalidData(format!(
-                "Failed to bump headers after removing slots from {molecule_count} molecule(s): {e}"
-            ))
-        })
-    }
-
-    /// Live-ref-count mutations for the tip edges that the removal retires.
-    async fn removed_tip_edge_count_mutations(
-        &self,
-        removed_tip_edges: Vec<(Option<String>, super::super::AtomRefEdge)>,
-    ) -> Result<Vec<KvMutation>, SchemaError> {
-        let mut count_mutations = Vec::new();
-        let mut by_prefix: HashMap<Option<String>, HashMap<Vec<u8>, super::super::AtomRefEdge>> =
-            HashMap::new();
-        for (prefix, edge) in removed_tip_edges {
-            let key = edge.storage_key_v2(prefix.as_deref())?.into_bytes();
-            by_prefix.entry(prefix).or_default().insert(key, edge);
+        if let Some(rows) = extra_rows.filter(|rows| !rows.is_empty()) {
+            // No slot was named. Keep the caller rows in the request batch.
+            let commit = self
+                .commit_tip_changes(TipChangeSet {
+                    scope: None,
+                    tips: Vec::new(),
+                    bodies: &[],
+                    body_source: None,
+                    records: Vec::new(),
+                    rows,
+                    deletes: Vec::new(),
+                })
+                .await?;
+            total.absorb(commit);
         }
-        for (prefix, inactive) in by_prefix {
-            count_mutations.extend(
-                self.atom_live_ref_count_mutations(&HashMap::new(), &inactive, prefix.as_deref())
-                    .await?,
-            );
-        }
-        Ok(count_mutations)
+        Ok(total)
     }
 
     /// The physical record of every slot the removals name, in one grouped read
@@ -215,8 +150,6 @@ impl AtomStore {
         if removed_slots.is_empty() {
             return Ok(());
         }
-        plan.molecule_count += 1;
-        plan.slot_count += removed_slots.len();
         plan.keys.reserve(removed_slots.len());
         for (hash, range) in *removed_slots {
             Self::plan_slot_removal(molecule_uuid, hash, range, *storage_prefix, current, plan)?;
@@ -228,7 +161,7 @@ impl AtomStore {
         };
         let header_value = serde_json::to_value(&header)
             .map_err(|e| SchemaError::InvalidData(format!("serialize molecule header: {e}")))?;
-        plan.headers.push((
+        plan.rows.push((
             build_storage_key(
                 *storage_prefix,
                 &molecule_key_codec::header_key(molecule_uuid),
@@ -238,8 +171,9 @@ impl AtomStore {
         Ok(())
     }
 
-    /// Plan the deletes for one removed slot: its row, its generation-delete
-    /// marker, its live tip edge, and its derived markers.
+    /// Plan the deletes for one removed slot: its row and its generation-delete
+    /// marker. The planner reads the stored row, so it also finds the atom whose
+    /// reference this removal ends.
     fn plan_slot_removal(
         molecule_uuid: &str,
         hash: &str,
@@ -250,16 +184,10 @@ impl AtomStore {
     ) -> Result<(), SchemaError> {
         let base_key = molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range);
         if let Some(current) = current.get(&build_storage_key(storage_prefix, &base_key)) {
-            let edge = Self::live_tip_ref_edge(molecule_uuid, hash, range, &current.entry);
-            if let Ok(edge_key) = edge.storage_key_v2(storage_prefix) {
-                plan.trailing_keys.push(edge_key.into_bytes());
-                plan.removed_tip_edges
-                    .push((storage_prefix.map(str::to_string), edge));
-            }
             let marker = super::super::MoleculeGenerationDelete {
                 shadow: current.entry.clone(),
             };
-            plan.headers.push((
+            plan.rows.push((
                 build_storage_key(
                     storage_prefix,
                     &molecule_key_codec::molecule_generation_delete_key(molecule_uuid, hash, range),
@@ -269,8 +197,7 @@ impl AtomStore {
                 })?,
             ));
         }
-        plan.keys
-            .push(build_storage_key(storage_prefix, &base_key).into_bytes());
+        plan.keys.push(build_storage_key(storage_prefix, &base_key));
         Ok(())
     }
 }

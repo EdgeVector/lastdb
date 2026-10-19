@@ -65,7 +65,7 @@ impl AtomStore {
     }
 
     pub(crate) fn atom_uuid_from_body_key(key: &str) -> Option<&str> {
-        crate::atom::atom_key_codec::uuid_of(key)
+        crate::atom::atom_key_codec::body_uuid_of(key)
     }
 
     pub(super) fn automatic_gc_atoms_probe_result(

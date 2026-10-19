@@ -98,7 +98,7 @@ async fn personal_atom_keys(ops: &DbOperations) -> SyncResult<Vec<String>> {
         crate::sync::cloud_purge::org_rows::main_rows(&source, &admission)?
             .into_keys()
             .filter(|key| {
-                crate::atom::atom_key_codec::uuid_of(
+                crate::atom::atom_key_codec::body_uuid_of(
                     crate::sync::cloud_purge::org_rows::bare(key).1,
                 )
                 .is_some()

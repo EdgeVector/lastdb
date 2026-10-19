@@ -1,4 +1,4 @@
-//! Attribution roots, protein reverse-membership erasure, and guarded storage-slot purge.
+//! Attribution roots and protein reverse-membership erasure.
 
 use std::collections::{HashMap, HashSet};
 
@@ -10,29 +10,6 @@ use crate::schema::SchemaError;
 
 use super::attribution::{attribution_events, live_write_attribution_path};
 use super::MutationManager;
-
-/// Conservative heap charge for the retained-atom set held by a purge retry.
-///
-/// `HashSet::capacity` states the element capacity, not the raw bucket count.
-/// Charging twice that capacity covers the table load factor and small-table
-/// rounding. Each charged bucket includes a `String` header and control data.
-/// The string allocation uses its capacity because the retry owns that heap.
-pub(super) fn estimate_retained_atom_set_bytes(retained: Option<&HashSet<String>>) -> u64 {
-    const RAW_BUCKETS_PER_ELEMENT_CAPACITY: u64 = 2;
-    const CONTROL_BYTES_PER_BUCKET: u64 = 8;
-
-    retained.map_or(0, |set| {
-        let element_capacity = u64::try_from(set.capacity()).unwrap_or(u64::MAX);
-        let raw_buckets = element_capacity.saturating_mul(RAW_BUCKETS_PER_ELEMENT_CAPACITY);
-        let string_header_bytes = u64::try_from(std::mem::size_of::<String>()).unwrap_or(u64::MAX);
-        let table_bytes = raw_buckets
-            .saturating_mul(string_header_bytes.saturating_add(CONTROL_BYTES_PER_BUCKET));
-
-        set.iter().fold(table_bytes, |total, atom| {
-            total.saturating_add(u64::try_from(atom.capacity()).unwrap_or(u64::MAX))
-        })
-    })
-}
 
 impl MutationManager {
     /// Persist the durable attribution root for a batch, then append its
@@ -265,97 +242,5 @@ impl MutationManager {
             reverse.author_clock_writer_id = erasure.author_clock_writer_id.clone();
         }
         Some(reverse)
-    }
-
-    /// Purge exact storage-form slots discovered by an owner scan.
-    ///
-    /// This is intentionally separate from `MutationType::Purge`: its inputs
-    /// are already BlindV1/OpeV1-encoded and must never pass through API-key
-    /// validation or encoding. Each bounded chunk holds the same per-schema
-    /// exclusive barrier as logical purge across reachability snapshot and
-    /// destructive commit.
-    ///
-    /// # Cost
-    ///
-    /// The schema-wide `O(F·R)` work — resolving live molecules and collecting
-    /// the atoms retained history names — is done **once** here, not once per
-    /// chunk. Doing it per chunk made the drain `O(N/CHUNK · F·R)`: measured on
-    /// the primary's 943k-tombstone population at 25–35 s per 64-slot chunk,
-    /// ~2 records/sec, ~130 hours for the store. `PURGE_BARRIER_CHUNK` bounds
-    /// one guarded purge critical section. It was the wrong place to pay the
-    /// schema cost. See [`prepare_storage_slot_purge`].
-    ///
-    /// Missing slots are skipped, not refused: tombstone atoms are
-    /// content-addressed, so all fields of one tombstoned record share a single
-    /// atom and an earlier chunk legitimately erases what a later chunk still
-    /// lists. Refusing there aborted the whole drain with a 500.
-    pub async fn purge_storage_slots_guarded(
-        &self,
-        schema_name: &str,
-        targets: &[crate::fold_db_core::purge::StorageSlotPurgeTarget],
-    ) -> Result<Vec<crate::fold_db_core::purge::StorageSlotPurgeEvidence>, SchemaError> {
-        if targets.is_empty() {
-            return Ok(Vec::new());
-        }
-        let schema = self
-            .schema_manager
-            .get_schema_metadata(schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "Schema '{schema_name}' not found for storage-slot purge"
-                ))
-            })?;
-        crate::fold_db_core::purge::validate_storage_slot_purge_targets(
-            schema_name,
-            &schema,
-            targets,
-        )?;
-        let bytes = targets
-            .iter()
-            .fold(0_u64, |total, target| {
-                // The envelope can retain the target, its evidence copy, and
-                // one Search change. Include fixed collection overhead too.
-                total.saturating_add(target.approx_bytes().saturating_mul(3).saturating_add(256))
-            })
-            .max(1);
-        let lane_key = crate::resident::PersistLaneKey::new("", schema_name);
-        let reservation = self
-            .persist_lanes
-            .reserve(lane_key, bytes)
-            .map_err(|kind| SchemaError::PersistQueueFull {
-                schema: schema_name.to_string(),
-                kind: match kind {
-                    crate::resident::PersistLaneFull::Entries => "entries".into(),
-                    crate::resident::PersistLaneFull::Bytes => "bytes".into(),
-                    crate::resident::PersistLaneFull::Unhealthy => "unhealthy".into(),
-                },
-            })?;
-        let (completion, receiver) = tokio::sync::oneshot::channel();
-        let pending_task = self.pending_tasks.begin();
-        let job = super::super::molecules::StorageSlotPurgeEnvelope {
-            schema_name: schema_name.to_string(),
-            targets: targets.to_vec(),
-            evidence_checkpoint: Vec::with_capacity(targets.len()),
-            durable_complete: false,
-            retry_requires_finalize: false,
-            search_batch: None,
-            completion: Some(completion),
-            pending_completion: None,
-        };
-        let envelope = crate::resident::PersistEnvelope::new(
-            super::super::molecules::LanePersistJob::StorageSlotPurge {
-                job: Box::new(job),
-                _pending_task: pending_task,
-            },
-            bytes,
-        );
-        reservation.fill(envelope);
-        let completion = receiver.await.map_err(|_| {
-            SchemaError::InvalidData(
-                "storage-slot purge lane stopped before completion".to_string(),
-            )
-        })?;
-        crate::request_phases::add_purge_totals(&completion.phases);
-        Ok(completion.evidence)
     }
 }

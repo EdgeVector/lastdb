@@ -403,10 +403,6 @@ pub enum DataRoute {
     /// the flag onto them. Body: `{ schema?: string, dry_run?: bool }`
     /// (default: whole store, dry run).
     DbTombstoneFlagAudit,
-    /// `POST /api/db/drain-legacy-tombstones` — bounded, resumable hard erase
-    /// of tombstone-content `mk:` slots. Body:
-    /// `{ schema?: string, dry_run?: bool, max_keys?: usize, after_key?: string }`.
-    DbDrainLegacyTombstones,
     /// `POST /api/db/legacy-key-fork-audit` — audit or drain legacy/plain
     /// HashKey-encoding tips. Body:
     /// `{ dry_run?: bool, max_keys?: usize, after_key?: string }`.

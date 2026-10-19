@@ -286,7 +286,7 @@ fn reachable_atom_keys(
     for key in physical.keys() {
         let (scope, bare) = org_rows::bare(key);
         if scope == instance {
-            if let Some(id) = crate::atom::atom_key_codec::uuid_of(bare) {
+            if let Some(id) = crate::atom::atom_key_codec::body_uuid_of(bare) {
                 if owners.contains_key(id) {
                     keys.entry(id.to_string()).or_insert_with(|| key.clone());
                 }

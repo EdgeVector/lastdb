@@ -7,7 +7,6 @@ mod flag_classify;
 mod flags;
 mod fork_classify;
 mod key_forks;
-mod legacy_slots;
 
 /// Atom bodies per batched fetch. Bounds peak memory on a store whose live set
 /// is far larger than the tombstoned one.

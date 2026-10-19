@@ -27,7 +27,7 @@ pub(in crate::storage::disk_pack) fn body_present_in_coordinates(
         let Ok(raw) = std::str::from_utf8(&raw) else {
             continue;
         };
-        if crate::atom::atom_key_codec::uuid_of(raw) == Some(atom) {
+        if crate::atom::atom_key_codec::body_uuid_of(raw) == Some(atom) {
             return Ok(true);
         }
     }
@@ -212,7 +212,7 @@ pub(crate) fn note_atom(
     let Ok(decoded) = std::str::from_utf8(&decoded) else {
         return Ok(());
     };
-    if crate::atom::atom_key_codec::uuid_of(decoded) != Some(atom.uuid()) {
+    if crate::atom::atom_key_codec::body_uuid_of(decoded) != Some(atom.uuid()) {
         return Ok(());
     }
     let bytes = 192

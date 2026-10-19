@@ -54,55 +54,62 @@ impl AtomStore {
 
     /// Build immutable bases, then select every field generation in one batch.
     /// Ordinary writers continue to use `mk:` rows while each base is built.
+    ///
+    /// The activation copies tips into `storage_prefix`. An atom that has no
+    /// counter in that scope gets its body from `bodies`, or from the personal
+    /// scope, in the same batch as the tip that names it.
     pub(crate) async fn activate_prepared_molecule_generations(
         &self,
         activations: Vec<PreparedMoleculeGenerationActivation>,
+        bodies: &[SealedAtom],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<String>, SchemaError> {
         if activations.is_empty() {
             return Ok(Vec::new());
         }
 
-        let automatic_gc_uuids: Vec<String> = activations
-            .iter()
-            .flat_map(|activation| {
-                self.automatic_gc_tip_reference_uuids(&activation.activation_items, storage_prefix)
-            })
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        let automatic_gc_guards = self.lock_automatic_gc_atoms(&automatic_gc_uuids).await;
         let (generation_items, mut ready) =
             Self::stage_generation_bodies(activations, storage_prefix)?;
         self.write_generation_bodies(generation_items).await?;
 
-        // Only the selector batch takes exact-slot locks. One LastStore
-        // transaction activates every field or restores every prior selector.
+        // Only the selector batch takes exact-slot locks. One native batch
+        // activates every field or restores every prior selector.
         let tip_keys = Self::activation_tip_keys(&ready, storage_prefix);
         let tip_guards = self.lock_tip_commits(&tip_keys).await;
         let publication_guards = self.lock_tip_publications(&tip_keys).await;
 
-        let mut activation_items: Vec<(String, Value)> = ready
+        let activation_items: Vec<(String, Value)> = ready
             .iter_mut()
             .flat_map(|item| std::mem::take(&mut item.activation_items))
             .collect();
-        self.retain_durable_tip_winners(&mut activation_items)
-            .await?;
-
+        let winners = self.retain_durable_tip_winners(activation_items).await?;
+        let mut tips = winners.tips;
+        let mut rows = winners.rows;
         for item in &ready {
-            self.tombstone_stale_direct_rows(item, storage_prefix, &mut activation_items)
+            self.tombstone_stale_direct_rows(item, storage_prefix, &mut tips)
                 .await?;
-            activation_items.push(Self::generation_pointer_item(item, storage_prefix)?);
+            rows.push(Self::generation_pointer_item(item, storage_prefix)?);
         }
 
-        self.batch_put_items_with_atom_ref_v2(activation_items, storage_prefix)
+        let accounted = super::super::store::accounted_items(&tips, &rows)?;
+        let commit = self
+            .commit_tip_changes(TipChangeSet {
+                scope: storage_prefix,
+                tips,
+                bodies,
+                body_source: Some(None),
+                records: Vec::new(),
+                rows,
+                deletes: Vec::new(),
+            })
             .await
             .map_err(|error| {
                 SchemaError::InvalidData(format!("activate molecule generation batch: {error}"))
             })?;
+        self.account_stored_bodies(bodies, &commit);
+        self.account_keep_small_items(&accounted);
         drop(publication_guards);
         drop(tip_guards);
-        drop(automatic_gc_guards);
 
         let generations = ready.iter().map(|item| item.generation.clone()).collect();
         self.reclaim_expired_generations(ready, storage_prefix)
@@ -239,12 +246,13 @@ impl AtomStore {
     }
 
     /// Tombstone the direct rows that the new generation shadows, unless a
-    /// concurrent write already replaced them.
+    /// concurrent write already replaced them. The tombstoned row names the
+    /// same atom, so the planner sees no change of references.
     async fn tombstone_stale_direct_rows(
         &self,
         item: &ReadyMoleculeGenerationActivation,
         storage_prefix: Option<&str>,
-        activation_items: &mut Vec<(String, Value)>,
+        tips: &mut Vec<TipChange>,
     ) -> Result<(), SchemaError> {
         let stale_keys: Vec<String> = item
             .stale_direct
@@ -266,7 +274,7 @@ impl AtomStore {
                     item.molecule_uuid
                 ))
             })?;
-        for ((((hash, range), old), key), current) in
+        for (((_, old), key), current) in
             item.stale_direct.iter().zip(stale_keys).zip(current_stale)
         {
             let Some(mut current) = current else {
@@ -276,22 +284,10 @@ impl AtomStore {
                 continue;
             }
             current.meta.get_or_insert_with(Default::default).tombstoned = true;
-            activation_items.push(self.inactive_atom_ref_tip_edge_item(
-                &item.molecule_uuid,
-                hash,
-                range,
-                &old.entry,
-                storage_prefix,
-            )?);
-            activation_items.push((
+            tips.push(TipChange {
                 key,
-                serde_json::to_value(current).map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "serialize stale direct tombstone for molecule {}: {error}",
-                        item.molecule_uuid
-                    ))
-                })?,
-            ));
+                new: Some(current),
+            });
         }
         Ok(())
     }

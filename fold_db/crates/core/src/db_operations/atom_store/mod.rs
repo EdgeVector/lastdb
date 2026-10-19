@@ -29,6 +29,7 @@ mod boot;
 mod codec;
 mod conflict_record;
 mod construct;
+pub(crate) mod counter;
 mod delete_barriers;
 mod dropped_schema_reap;
 mod filter;
@@ -55,6 +56,7 @@ pub use atom_ref_gc::{
     AtomGcAuditDecision, AtomGcAuditResult, AtomGcCandidate, AtomGcCandidatePage,
     AtomGcReapOptions, AtomGcReapReport, GraceGateVerdict, DEFAULT_ATOM_GC_GRACE_WINDOW,
 };
+pub(crate) use atoms::SealedAtom;
 pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use dropped_schema_reap::{
@@ -254,6 +256,8 @@ pub struct AtomStore {
     atom_ref_count_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
     /// Serializes the one exact catalog-transition recovery registry row.
     catalog_atom_ref_transition_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Totals and recent faults of the atom counter planner.
+    counter_events: Arc<counter::CounterEvents>,
     /// Sync device id of this node. Empty until a sync engine attaches. The
     /// tip decision treats a write from any other non-empty device as a write
     /// from a peer. See [`AtomStore::local_origin_device`].
@@ -280,6 +284,11 @@ pub struct AtomStore {
 }
 
 impl AtomStore {
+    /// The planner report: bodies created and deleted, and counter faults.
+    pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
+        &self.counter_events
+    }
+
     /// This store's identity in the legacy-history memo.
     #[must_use]
     pub(crate) fn store_id(&self) -> crate::atom::legacy_history_memo::StoreId {

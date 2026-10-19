@@ -9,9 +9,10 @@ use std::collections::BTreeSet;
 use std::collections::{BTreeMap, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::super::counter::{TipChange, TipChangeSet};
 use super::super::{
     AtomStore, MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot,
-    PerKeyRecord,
+    PerKeyRecord, SealedAtom,
 };
 
 mod activate;

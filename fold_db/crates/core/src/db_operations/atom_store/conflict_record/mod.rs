@@ -31,7 +31,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-pub(crate) use write::TipConflictDigest;
+pub(crate) use write::{Recorded, TipConflictDigest};
 
 /// One molecule of a tip store: its uuid, the molecule, and the changed keys in API form.
 pub(in super::super) type StoreMolecule<'a> = (
@@ -236,7 +236,7 @@ impl AtomStore {
         molecules: &[StoreMolecule<'_>],
         decisions: Vec<DurableTipDecision>,
         storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<Recorded, SchemaError> {
         let mut conflicts = Vec::new();
         for (molecule_uuid, data, _) in molecules {
             for pending in data.pending_tip_conflicts() {
@@ -250,9 +250,7 @@ impl AtomStore {
             }
         }
         conflicts.retain(|conflict| self.is_recordable(conflict.kind, conflict.incoming()));
-        self.record_tip_conflicts(conflicts, storage_prefix)
-            .await
-            .map(|_| ())
+        self.record_tip_conflicts(conflicts, storage_prefix).await
     }
 
     fn conflict_from_pending(

@@ -57,3 +57,4 @@ mod read;
 mod schema_index;
 mod scope;
 mod write;
+pub(crate) use write::SealedAtom;

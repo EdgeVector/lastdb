@@ -101,17 +101,13 @@ impl MutationManager {
     ) -> Result<Vec<String>, PurgeAttemptError> {
         self.validate_purge_job_targets(job).await?;
 
-        let result = match self
+        let outcome = match self
             .process_hard_erasures_durable(
                 job.erasures.clone(),
                 super::super::super::write::HardErasureOptions {
                     storage_prefix: job.storage_prefix.as_deref(),
                     missing: crate::fold_db_core::purge::PurgeMissingPolicy::Skip,
                     verb: job.verb,
-                    // This envelope owns a revision, not every future
-                    // value of the key. Complete its turn before the
-                    // revision-conditional resident cleanup below.
-                    precomputed_retained: job.guarded_complement_retained.clone(),
                 },
             )
             .await
@@ -164,13 +160,49 @@ impl MutationManager {
             .map_err(PurgeAttemptError::Retry)?;
         }
 
-        if let Some(batch) = &job.search_batch {
-            self.publish_purge_search(batch)
+        if let Some(batch) = self
+            .erased_search_batch(schema_name, job, &outcome.spared)
+            .map_err(PurgeAttemptError::Retry)?
+        {
+            self.publish_purge_search(&batch)
                 .await
                 .map_err(PurgeAttemptError::Retry)?;
         }
 
-        Ok(result)
+        Ok(outcome.ids)
+    }
+
+    /// The Search tombstones of the erasures that the erase did not spare. A
+    /// key that the erase spared still has a newer tip, so Search keeps it.
+    fn erased_search_batch(
+        &self,
+        schema_name: &str,
+        job: &PurgeEnvelope,
+        spared: &[crate::schema::types::KeyValue],
+    ) -> Result<Option<IndexChangeBatch>, SchemaError> {
+        let Some(schema) = self.schema_manager.get_schema_metadata(schema_name)? else {
+            return Ok(None);
+        };
+        let spared: HashSet<String> = spared
+            .iter()
+            .map(crate::schema::types::KeyValue::to_storage_key)
+            .collect();
+        let erasures: Vec<_> = job
+            .erasures
+            .iter()
+            .filter(|mutation| !spared.contains(&mutation.key_value.to_storage_key()))
+            .cloned()
+            .collect();
+        let keys: Vec<_> = erasures
+            .iter()
+            .map(|mutation| mutation.key_value.clone())
+            .collect();
+        Ok(Self::build_index_change_batch(
+            schema_name,
+            &schema,
+            &erasures,
+            &keys,
+        ))
     }
 
     /// Search sees a tombstone only after the entire native deletion commits.
@@ -219,6 +251,7 @@ impl MutationManager {
             schema_name,
             &keys,
             job.verb,
+            job.storage_prefix.as_deref(),
         )
         .await
         .map_err(PurgeAttemptError::Retry)?

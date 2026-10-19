@@ -6,8 +6,10 @@ use crate::schema::SchemaError;
 use serde_json::Value;
 use std::collections::HashMap;
 
+use super::super::conflict_record::Recorded;
+use super::super::counter::{TipChange, TipChangeSet};
 use super::super::types::{ChangedKey, MoleculeData, MoleculeHeader, PerKeyRecord};
-use super::super::AtomStore;
+use super::super::{AtomStore, SealedAtom};
 
 fn is_tip_item_key(key: &str) -> bool {
     key.starts_with("mk:") || key.contains(":mk:")
@@ -76,6 +78,7 @@ pub(crate) enum MoleculeKeyDomain {
 }
 
 mod changed_keys;
+pub(in crate::db_operations::atom_store) use changed_keys::accounted_items;
 mod generation_activation;
 mod items;
 mod single;
