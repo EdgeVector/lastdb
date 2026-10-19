@@ -54,6 +54,7 @@ impl CoreWarmSet {
             });
         }
         self.ensure_path(path)?;
+        self.track_atom(&value.atom);
         let owned = self
             .owned_slots
             .get(&path.slot())
@@ -269,11 +270,22 @@ impl CoreWarmSet {
     }
 
     fn insert_path(&mut self, path: &CorePath) {
+        let slot = path.slot();
+        if !self.slot_owners.contains_key(&slot) {
+            self.charge_slot(&slot);
+        }
         self.slot_owners
-            .entry(path.slot())
+            .entry(slot)
             .or_default()
             .insert(path.clone());
-        self.paths.insert(path.clone(), PathState::default());
+        let charge = self.charge_path(path);
+        self.paths.insert(
+            path.clone(),
+            PathState {
+                charge,
+                ..PathState::default()
+            },
+        );
         self.touch(path);
     }
 

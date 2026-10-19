@@ -66,6 +66,11 @@ pub(super) struct SelfMetricLogLine {
     pub(super) eviction_events: u64,
     #[serde(default)]
     pub(super) effective_warm_budget_bytes: u64,
+    /// Warm set byte gauge, next to the footprint fields above.
+    #[serde(default)]
+    pub(super) core_warm_used_bytes: u64,
+    #[serde(default)]
+    pub(super) core_warm_limit_bytes: u64,
     pub(super) cpu_percent: Option<f64>,
     pub(super) home_bytes: Option<u64>,
     pub(super) home_size_walks: u64,
@@ -134,6 +139,8 @@ impl From<&StatusSnapshot> for SelfMetricLogLine {
             slowest_request_ms: s.memory_budget.slowest_request_ms,
             eviction_events: s.memory_budget.eviction_events,
             effective_warm_budget_bytes: s.memory_budget.effective_warm_budget_bytes,
+            core_warm_used_bytes: s.memory_budget.core_warm.used_bytes,
+            core_warm_limit_bytes: s.memory_budget.core_warm.limit_bytes,
             cpu_percent: s.cpu_percent,
             home_bytes: s.home_bytes,
             home_size_walks: s.home_size_walks,

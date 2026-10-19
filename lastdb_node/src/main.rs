@@ -162,6 +162,14 @@ fn init_resident_key_cap() -> Result<(), String> {
             fold_db::resident::RESIDENT_KEY_CAP
         );
     }
+    let warm_bytes = fold_db::resident::init_core_warm_bytes_from_env()?;
+    if warm_bytes != fold_db::resident::DEFAULT_CORE_WARM_BYTES {
+        eprintln!(
+            "lastdbd: {}={warm_bytes} (default {})",
+            fold_db::resident::CORE_WARM_BYTES_ENV,
+            fold_db::resident::DEFAULT_CORE_WARM_BYTES
+        );
+    }
     Ok(())
 }
 

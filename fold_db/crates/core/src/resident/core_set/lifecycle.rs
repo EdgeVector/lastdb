@@ -102,12 +102,14 @@ impl CoreWarmSet {
             return;
         };
         self.order.remove(&state.tick);
+        self.release_path(state.charge);
         let slot = path.slot();
         let last_owner = self.slot_owners.get_mut(&slot).is_some_and(|owners| {
             owners.remove(path);
             owners.is_empty()
         });
         if last_owner {
+            self.release_slot(&slot);
             self.slot_owners.remove(&slot);
             self.forget_slot_sources(&slot);
             self.forget_slot_value(&slot);
