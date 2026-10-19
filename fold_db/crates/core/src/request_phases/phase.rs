@@ -251,12 +251,9 @@ pub enum RequestPhase {
     /// because "the sort is the cost" is a claim that should be checkable
     /// before anyone rewrites a comparator.
     HydrateSort,
-    /// Query only: the post-hoc value-filter retain applied after the sort.
-    ///
-    /// Normally zero — the executor's `apply_value_filters` already dropped
-    /// every row whose concrete value failed — so a non-zero reading here is
-    /// itself information: it means rows survived the executor's filter and
-    /// were dropped only after being hydrated, formatted and sorted.
+    /// Query only: numeric and field conditions over the first pass's captured
+    /// values, before ordering, the predicate limit and projected-value reads.
+    /// This excludes key discovery and atom fetch time.
     HydrateFilter,
     /// Query only: per-field merge-conflict annotation of the formatted rows.
     /// Historically a per-molecule storage walk; expected to fall to ~0 once

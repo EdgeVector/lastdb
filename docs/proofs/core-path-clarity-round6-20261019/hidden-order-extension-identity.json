@@ -1,0 +1,9 @@
+{
+  "base_input_sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835",
+  "extension_bytes": 1414,
+  "extension_input_sha256": "8dea44e30f7ce40138716f9bf2e66e42b8300beeab725bb901041f30883527fc",
+  "no_helpers_edited": true,
+  "no_product_calls": true,
+  "unchanged_helper_identity_path": "operation-helper-identity.json",
+  "unchanged_helper_identity_sha256": "35267be9f19bfa25be1b1e3da5779ce2cda1fd8c4f9890b83ee0fdbed4536222"
+}

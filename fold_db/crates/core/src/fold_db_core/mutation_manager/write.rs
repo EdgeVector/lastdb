@@ -89,7 +89,6 @@ pub(in crate::fold_db_core::mutation_manager) struct HardErasureOptions<'a> {
     pub(in crate::fold_db_core::mutation_manager) missing: super::super::purge::PurgeMissingPolicy,
     pub(in crate::fold_db_core::mutation_manager) verb: super::super::purge::HardEraseVerb,
     pub(in crate::fold_db_core::mutation_manager) precomputed_retained: Option<HashSet<String>>,
-    pub(in crate::fold_db_core::mutation_manager) emit_derived_events: bool,
 }
 
 impl WriteOrigin {

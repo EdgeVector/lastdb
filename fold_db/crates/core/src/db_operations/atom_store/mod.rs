@@ -150,6 +150,8 @@ pub struct AtomStore {
     /// Retired outcome roots commit exclusively; reclaim retains a shared fence
     /// through its final deletion. Every clone shares the same fence.
     retired_intent_retention_gate: Arc<tokio::sync::RwLock<()>>,
+    /// Serialize protein membership selection and orphan reclamation across clones.
+    protein_membership_gate: Arc<tokio::sync::Mutex<()>>,
     /// When set (plain packaging homes), atom `content` is sealed at rest
     /// while metadata stays plaintext. `None` leaves content unsealed (tests
     /// / legacy dual-read of plain content).

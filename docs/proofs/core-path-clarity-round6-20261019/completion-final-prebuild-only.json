@@ -1,0 +1,14 @@
+{
+  "capture_preserved": true,
+  "normal_release_builds": 0,
+  "product_calls": 0,
+  "reason": "Root reports required workspace Clippy future-layout depth overflow. A later minimal boxed Purge dispatch replaces this source. No normal release build, product call, synthetic home or node used it.",
+  "snapshot": {
+    "path": "completion-final-source-inputs/source-inputs.json",
+    "sha256": "07bd6129c0d5d1a73af167d1a3f51d6331203fa45cc7a0a42e453e21c74f5824"
+  },
+  "source_commit": "ebd14f57206a55e1ae21844eb3c020440aee7eef",
+  "source_inventory_sha256": "38e8a827275d23fe7ced76c0de11596d6ce31bf4c53eb8ddd62dd4660acef0da",
+  "state": "superseded_prebuild_capture_only",
+  "synthetic_homes": 0
+}

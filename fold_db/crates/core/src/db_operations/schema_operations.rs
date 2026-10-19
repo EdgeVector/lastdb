@@ -5,6 +5,7 @@
 use super::core::DbOperations;
 use crate::db_operations::atom_store::MoleculeRefEdge;
 use crate::schema::{Schema, SchemaError, SchemaNameClaim, SchemaRetentionPolicy, SchemaState};
+use futures::{future::BoxFuture, FutureExt};
 use std::collections::HashMap;
 
 mod attribution;
@@ -39,7 +40,19 @@ impl DbOperations {
         self.schemas().get_schema_state(schema_name).await
     }
 
-    pub async fn store_schema(
+    pub fn store_schema<'a>(
+        &'a self,
+        schema_name: &'a str,
+        schema: &'a Schema,
+    ) -> BoxFuture<'a, Result<(), SchemaError>> {
+        crate::storage::disk_pack::transaction::scope(
+            self.namespaced_store().disk_pack_runtime(),
+            self.store_schema_in_scope(schema_name, schema),
+        )
+        .boxed()
+    }
+
+    async fn store_schema_in_scope(
         &self,
         schema_name: &str,
         schema: &Schema,
@@ -170,7 +183,18 @@ impl DbOperations {
         self.schemas().get_all_schema_states().await
     }
 
-    pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
+    pub fn drop_schema<'a>(
+        &'a self,
+        schema_name: &'a str,
+    ) -> BoxFuture<'a, Result<bool, SchemaError>> {
+        crate::storage::disk_pack::transaction::scope(
+            self.namespaced_store().disk_pack_runtime(),
+            self.drop_schema_in_scope(schema_name),
+        )
+        .boxed()
+    }
+
+    async fn drop_schema_in_scope(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let old = self.schemas().get_schema(schema_name).await?;
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
             schema_molecule_ref_edges(schema_name, existing)

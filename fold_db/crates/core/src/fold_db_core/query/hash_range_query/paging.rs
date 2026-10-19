@@ -1,6 +1,7 @@
 //! API page-key recovery and named-layout key handling.
 
 use super::*;
+use crate::schema::types::key_value::scalar_key_coordinate;
 
 impl HashRangeQueryProcessor {
     /// Recover API-form page keys from a **storage-form** primary walk.
@@ -56,15 +57,16 @@ impl HashRangeQueryProcessor {
 
         let mut recovered = HashMap::new();
         for (storage_key, value) in primary_vals {
-            let (Some(storage_hash), Some(api_hash)) =
-                (storage_key.hash.as_deref(), value.value.as_str())
-            else {
+            let (Some(storage_hash), Some(api_hash)) = (
+                storage_key.hash.as_deref(),
+                scalar_key_coordinate(&value.value),
+            ) else {
                 continue;
             };
             if self
                 .db_ops
                 .atoms()
-                .storage_hash(&mol_uuid, api_hash)
+                .storage_hash(&mol_uuid, &api_hash)
                 .is_ok_and(|blinded| blinded == storage_hash)
             {
                 recovered.insert(
@@ -203,8 +205,24 @@ impl HashRangeQueryProcessor {
     ///
     /// Used to drop sibling-layout tips that share a molecule with this
     /// schema's hash field (same storage hash, different field value).
-    pub(super) fn named_layout_hash(filter: &Option<HashRangeFilter>) -> Option<&str> {
-        match filter.as_ref()? {
+    pub(super) fn named_layout_hash<'a>(
+        schema: &Schema,
+        primary_name: Option<&str>,
+        filter: Option<&'a HashRangeFilter>,
+    ) -> Option<&'a str> {
+        // Hash coordinates remain authoritative even when a caller stores a
+        // different payload in its declared hash field. Only shared HashRange
+        // layouts need the extra field-value disambiguation below.
+        if !matches!(
+            schema.schema_type,
+            crate::schema::types::schema::DeclarativeSchemaType::HashRange
+        ) {
+            return None;
+        }
+        if primary_name != Some(schema.key.as_ref()?.hash_field.as_deref()?) {
+            return None;
+        }
+        match filter? {
             HashRangeFilter::HashKey(hash)
             | HashRangeFilter::HashRangePrefix { hash, .. }
             | HashRangeFilter::HashRangeRange { hash, .. }
@@ -215,50 +233,24 @@ impl HashRangeQueryProcessor {
     }
 
     pub(super) fn field_value_is_hash(fv: &FieldValue, hash: &str) -> bool {
-        match &fv.value {
-            Value::String(s) => s == hash,
-            other => other.as_str() == Some(hash),
-        }
-    }
-
-    /// Membership indexes (BoardCards) use a three-part range
-    /// (`column#position#slug`). Graph-edge planes use a two-part range
-    /// (`type#slug`). Count of `#` is the layout discriminator — not a
-    /// schema-name special case.
-    pub(super) fn named_layout_membership_bypass(key: &KeyValue) -> bool {
-        key.range
-            .as_deref()
-            .is_some_and(|range| range.bytes().filter(|&b| b == b'#').count() >= 2)
-    }
-
-    /// Keep a shared-molecule tip when the named hash-field equals the filter
-    /// hash, or when the range is a membership index (see
-    /// [`Self::named_layout_membership_bypass`]).
-    ///
-    /// `fv` is `None` when count has not hydrated the hash-field body. Then
-    /// only the membership bypass keeps the key — graph-edge keys must wait
-    /// for a value.
-    pub(super) fn named_layout_keep(wanted: &str, key: &KeyValue, fv: Option<&FieldValue>) -> bool {
-        fv.is_some_and(|fv| Self::field_value_is_hash(fv, wanted))
-            || Self::named_layout_membership_bypass(key)
+        scalar_key_coordinate(&fv.value).as_deref() == Some(hash)
     }
 
     pub(super) fn retain_named_layout_primary(
+        schema: &Schema,
+        primary_name: &str,
         filter: &Option<HashRangeFilter>,
         primary_vals: &mut HashMap<KeyValue, FieldValue>,
         page_keys: &mut Vec<KeyValue>,
         key_sources: &mut HashMap<KeyValue, KeySource>,
     ) {
-        let Some(wanted) = Self::named_layout_hash(filter) else {
+        let Some(wanted) = Self::named_layout_hash(schema, Some(primary_name), filter.as_ref())
+        else {
             return;
         };
-        // Graph-edge planes share a molecule and a two-part range (`type#slug`).
-        // Keep a tip when the named hash-field equals the filter hash.
-        // Membership indexes (BoardCards) use a three-part range
-        // (`column#position#slug`). After a multi-key expand the catalog
-        // hash_field can be a payload (`milestone`) while rows stay under the
-        // original partition. Dropping those tips empties every board read.
-        primary_vals.retain(|k, fv| Self::named_layout_keep(wanted, k, Some(fv)));
+        // Only an actual named hash-field spine can disambiguate mapped
+        // HashRange layouts by its values. Range punctuation has no meaning.
+        primary_vals.retain(|_, fv| Self::field_value_is_hash(fv, wanted));
         page_keys.retain(|k| primary_vals.contains_key(k));
         key_sources.retain(|k, _| primary_vals.contains_key(k));
     }
@@ -280,5 +272,17 @@ impl HashRangeQueryProcessor {
             }
         }
         selected[0].clone()
+    }
+
+    /// One selected non-primary field can supply keys when the spine is empty.
+    /// Both reads and counts pass normalized fields, including `fields: []`.
+    pub(super) fn cokey_fallback_field<'a>(
+        selected: &'a [String],
+        primary: &str,
+    ) -> Option<&'a str> {
+        selected
+            .iter()
+            .find(|field| field.as_str() != primary)
+            .map(String::as_str)
     }
 }

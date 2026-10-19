@@ -1,0 +1,47 @@
+{
+  "accepted_source_binary": "Pending corrected final source and root independent release authorization.",
+  "base_input_path": "operation-inputs.json",
+  "base_input_sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835",
+  "no_product_operations_started": true,
+  "query_cases": [
+    {
+      "body": {
+        "fields": [
+          "status"
+        ],
+        "filter": {
+          "HashKey": "projected-group"
+        },
+        "limit": 32,
+        "schema_name": "Round6ProjectionEmpty"
+      },
+      "expected_record_ids": [],
+      "expected_status": 200,
+      "label": "empty-key-only-baseline",
+      "ordered": true,
+      "strict_projection": true
+    },
+    {
+      "body": {
+        "fields": [
+          "status"
+        ],
+        "filter": {
+          "HashKey": "projected-group"
+        },
+        "limit": 32,
+        "order_by": {
+          "field": "payload",
+          "order": "asc"
+        },
+        "schema_name": "Round6ProjectionEmpty"
+      },
+      "expected_record_ids": [],
+      "expected_status": 200,
+      "label": "empty-key-only-hidden-order",
+      "ordered": true,
+      "strict_projection": true
+    }
+  ],
+  "scope": "Two ordinary query items in the same future fresh Round6 home, after the main seed. They prove that a hidden sort field cannot create membership when the requested key field has no tip. No new executable helper or test suite."
+}

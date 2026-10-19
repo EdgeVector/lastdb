@@ -8,11 +8,15 @@ impl HashRangeQueryProcessor {
         &self,
         schema: &Schema,
         predicates: &[FieldPredicate],
+        value_filters: &[crate::schema::types::ValueFilter],
         order_by: Option<&QueryOrderBy>,
     ) -> Result<Vec<String>, SchemaError> {
         let mut fields = Vec::new();
         for predicate in predicates {
             fields.push(predicate.field_name().to_string());
+        }
+        for filter in value_filters {
+            fields.push(filter.field_name().to_string());
         }
         if let Some(order_by) = order_by {
             fields.push(order_by.field.clone());
@@ -51,7 +55,7 @@ impl HashRangeQueryProcessor {
         for field in &fields {
             if !schema.runtime_fields.contains_key(field) {
                 return Err(SchemaError::InvalidField(format!(
-                    "field predicate references unknown field '{field}' on schema '{}'",
+                    "query condition references unknown field '{field}' on schema '{}'",
                     schema.name
                 )));
             }
@@ -63,6 +67,7 @@ impl HashRangeQueryProcessor {
         &self,
         pass_a: &CokeyRows,
         predicates: &[FieldPredicate],
+        value_filters: &[crate::schema::types::ValueFilter],
     ) -> Vec<KeyValue> {
         let mut keys: Vec<KeyValue> = pass_a
             .page_keys
@@ -75,18 +80,28 @@ impl HashRangeQueryProcessor {
                 {
                     return false;
                 }
-                predicates.iter().all(|predicate| {
+                let matches_predicates = predicates.iter().all(|predicate| {
                     let value = pass_a
                         .fields
                         .get(predicate.field_name())
                         .and_then(|values| values.get(*key))
                         .map(|field| &field.value);
                     field_predicate_matches(predicate, value)
-                })
+                });
+                // Numeric filters retain the established missing-value policy:
+                // only a concrete value that fails its comparison drops a key.
+                matches_predicates
+                    && value_filters.iter().all(|filter| {
+                        pass_a
+                            .fields
+                            .get(filter.field_name())
+                            .and_then(|values| values.get(*key))
+                            .is_none_or(|field| filter.matches(&field.value))
+                    })
             })
             .cloned()
             .collect();
-        keys.sort_by_key(KeyValue::to_storage_key);
+        keys.sort_by(KeyValue::cmp_page_order);
         keys
     }
 
@@ -109,7 +124,7 @@ impl HashRangeQueryProcessor {
                 Some(SortOrder::Desc) => primary.reverse(),
                 _ => primary,
             };
-            ordered.then_with(|| a.to_storage_key().cmp(&b.to_storage_key()))
+            ordered.then_with(|| a.cmp_page_order(b))
         });
     }
 
@@ -119,10 +134,9 @@ impl HashRangeQueryProcessor {
         fields: &[String],
         page_keys: &[KeyValue],
         key_sources: &HashMap<KeyValue, KeySource>,
-        include_tombstones: bool,
-        request_concurrency: Option<usize>,
+        options: &FieldQueryOptions<'_>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let selected = Self::exact_key_selected_fields(schema, fields);
+        let selected = Self::exact_key_selected_fields(schema, fields, options.order_by);
         let mut result: HashMap<String, HashMap<KeyValue, FieldValue>> = selected
             .iter()
             .map(|field| (field.clone(), HashMap::new()))
@@ -137,17 +151,21 @@ impl HashRangeQueryProcessor {
                 selected,
                 page_keys,
                 key_sources,
-                include_tombstones,
-                request_concurrency,
+                options.include_tombstones,
+                options.secondary_concurrency,
             )
             .await?;
-        self.fill_cokey_secondaries(schema, pending, include_tombstones, &mut result)
+        self.fill_cokey_secondaries(schema, pending, options.include_tombstones, &mut result)
             .await?;
         Ok(result)
     }
 
-    /// Fields pass B hydrates: the projection, plus the key field for identity.
-    fn exact_key_selected_fields(schema: &Schema, fields: &[String]) -> Vec<String> {
+    /// Pass B retains key and sort helpers without changing candidate discovery.
+    fn exact_key_selected_fields(
+        schema: &Schema,
+        fields: &[String],
+        order_by: Option<&QueryOrderBy>,
+    ) -> Vec<String> {
         let mut selected: Vec<String> = if fields.is_empty() {
             schema.runtime_field_names()
         } else {
@@ -169,6 +187,14 @@ impl HashRangeQueryProcessor {
                 && !selected.iter().any(|field| field == key_field)
             {
                 selected.push(key_field.clone());
+            }
+        }
+        // The host orders its formatted rows after the core returns its field
+        // maps. Keep this captured value internally, then let its formatter
+        // remove the helper from the public projection and metadata.
+        if let Some(order_by) = order_by {
+            if !selected.contains(&order_by.field) {
+                selected.push(order_by.field.clone());
             }
         }
         selected

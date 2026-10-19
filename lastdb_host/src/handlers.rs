@@ -38,7 +38,7 @@ use fold_db::schema::types::operations::{
 };
 use fold_db::schema::types::{
     AggregateFinalize, AggregateRepair, AggregateSet, KeyValue, Mutation, MutationType, Schema,
-    SchemaError, ValueFilter,
+    SchemaError,
 };
 use fold_db::schema::SchemaState;
 use futures::StreamExt;

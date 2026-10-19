@@ -2,51 +2,48 @@
 
 use super::*;
 
+pub(super) struct CokeySelection<'a> {
+    pub fields: &'a [String],
+    /// Key discovery uses the caller's projection, not condition-only fields.
+    /// None uses `fields`, as in a normal projection read.
+    pub key_fields: Option<&'a [String]>,
+    pub filter: Option<HashRangeFilter>,
+    pub window: Option<KeyWindow>,
+    pub include_tombstones: bool,
+    pub received_from_namespaces: &'a [String],
+    pub request_concurrency: Option<usize>,
+}
+
 impl HashRangeQueryProcessor {
     /// Co-key plan: primary defines keys; secondaries fill those keys only.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the window rides alongside the filter it bounds; bundling them into a struct would only move the argument list"
-    )]
     pub(super) async fn query_cokey(
         &self,
         schema: &mut Schema,
-        fields: &[String],
-        filter: Option<HashRangeFilter>,
-        window: Option<KeyWindow>,
-        include_tombstones: bool,
-        received_from_namespaces: &[String],
-        request_concurrency: Option<usize>,
+        selection: CokeySelection<'_>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        self.query_cokey_with_sources(
-            schema,
+        self.query_cokey_with_sources(schema, selection)
+            .await
+            .map(|rows| rows.fields)
+    }
+
+    pub(super) async fn query_cokey_with_sources(
+        &self,
+        schema: &mut Schema,
+        selection: CokeySelection<'_>,
+    ) -> Result<CokeyRows, SchemaError> {
+        let CokeySelection {
             fields,
+            key_fields,
             filter,
             window,
             include_tombstones,
             received_from_namespaces,
             request_concurrency,
-        )
-        .await
-        .map(|rows| rows.fields)
-    }
-
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the window rides alongside the filter it bounds; bundling them into a struct would only move the argument list"
-    )]
-    pub(super) async fn query_cokey_with_sources(
-        &self,
-        schema: &mut Schema,
-        fields: &[String],
-        filter: Option<HashRangeFilter>,
-        window: Option<KeyWindow>,
-        include_tombstones: bool,
-        received_from_namespaces: &[String],
-        request_concurrency: Option<usize>,
-    ) -> Result<CokeyRows, SchemaError> {
+        } = selection;
         let selected = Self::cokey_selected_fields(schema, fields);
-        if selected.is_empty() {
+        let key_selected = key_fields.map(|fields| Self::cokey_selected_fields(schema, fields));
+        let key_selected = key_selected.as_deref().unwrap_or(&selected);
+        if selected.is_empty() || key_selected.is_empty() {
             return Ok(CokeyRows {
                 fields: HashMap::new(),
                 page_keys: Vec::new(),
@@ -57,45 +54,58 @@ impl HashRangeQueryProcessor {
         let (primary_name, primary_vals, page_keys, key_sources) = self
             .resolve_cokey_primary_page(
                 schema,
-                &selected,
+                key_selected,
                 filter,
                 window,
                 include_tombstones,
                 received_from_namespaces,
             )
             .await?;
-        let mut result: HashMap<String, HashMap<KeyValue, FieldValue>> = HashMap::new();
-        result.insert(primary_name.clone(), primary_vals);
+        let mut rows = CokeyRows {
+            fields: HashMap::from([(primary_name.clone(), primary_vals)]),
+            page_keys,
+            key_sources,
+        };
+        self.fill_cokey_projection(
+            schema,
+            &selected,
+            &primary_name,
+            &mut rows,
+            include_tombstones,
+            request_concurrency,
+        )
+        .await?;
+        tracing::debug!(
+            fields = rows.fields.len(),
+            page_keys = rows.page_keys.len(),
+            "HashRangeQueryProcessor::query_cokey: done"
+        );
+        Ok(rows)
+    }
 
-        // F=1: done. Empty secondaries still get empty maps when multi-field
-        // and page is empty so clients see a complete field set.
+    /// Projected fields use only the keys and source namespaces already chosen.
+    async fn fill_cokey_projection(
+        &self,
+        schema: &mut Schema,
+        selected: &[String],
+        primary_name: &str,
+        rows: &mut CokeyRows,
+        include_tombstones: bool,
+        request_concurrency: Option<usize>,
+    ) -> Result<(), SchemaError> {
         if selected.len() == 1 && selected[0] == primary_name {
-            tracing::debug!(
-                primary = %primary_name,
-                keys = page_keys.len(),
-                "HashRangeQueryProcessor::query_cokey: single-field done"
-            );
-            return Ok(CokeyRows {
-                fields: result,
-                page_keys,
-                key_sources,
-            });
+            return Ok(());
         }
-
         let secondary: Vec<String> = selected
             .iter()
-            .filter(|fname| *fname != &primary_name)
+            .filter(|fname| fname.as_str() != primary_name)
             .cloned()
             .collect();
         for fname in &secondary {
-            result.entry(fname.clone()).or_default();
+            rows.fields.entry(fname.clone()).or_default();
         }
-        if page_keys.is_empty() {
-            return Ok(CokeyRows {
-                fields: result,
-                page_keys,
-                key_sources,
-            });
+        if rows.page_keys.is_empty() {
+            return Ok(());
         }
 
         // --- 2. Secondary fields for page_keys only ---
@@ -108,8 +118,8 @@ impl HashRangeQueryProcessor {
             .collect_cokey_secondary_pending(
                 schema,
                 secondary,
-                &page_keys,
-                &key_sources,
+                &rows.page_keys,
+                &rows.key_sources,
                 include_tombstones,
                 request_concurrency,
             )
@@ -117,19 +127,10 @@ impl HashRangeQueryProcessor {
 
         // --- 3. Atom batches for secondary bodies (grouped by storage prefix) ---
         if !pending.is_empty() {
-            self.fill_cokey_secondaries(schema, pending, include_tombstones, &mut result)
+            self.fill_cokey_secondaries(schema, pending, include_tombstones, &mut rows.fields)
                 .await?;
         }
 
-        tracing::debug!(
-            fields = result.len(),
-            page_keys = page_keys.len(),
-            "HashRangeQueryProcessor::query_cokey: done"
-        );
-        Ok(CokeyRows {
-            fields: result,
-            page_keys,
-            key_sources,
-        })
+        Ok(())
     }
 }

@@ -112,7 +112,6 @@ impl MutationManager {
                     // value of the key. Complete its turn before the
                     // revision-conditional resident cleanup below.
                     precomputed_retained: job.guarded_complement_retained.clone(),
-                    emit_derived_events: false,
                 },
             )
             .await

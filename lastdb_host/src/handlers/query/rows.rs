@@ -4,7 +4,7 @@ use super::*;
 
 /// Execute a query under the given access context and return the formatted JSON
 /// rows — `{ key, fields, metadata, author_pub_key }` — with the deterministic
-/// `(range, hash)` total order, post-hoc value filtering, and per-field
+/// `(range, hash)` total order and per-field
 /// merge-conflict annotation. This is the single copy of what both hosts'
 /// `execute_query_json_with_context` used to do.
 ///
@@ -93,7 +93,7 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
 ) -> Result<(Vec<Value>, RowDrops), HostError> {
     let sort_order = query.sort_order.clone();
     let order_by = query.order_by.clone();
-    let value_filters = query.value_filters.clone();
+    let sort_helper = unprojected_sort_field(&query);
 
     // Scope the tally to this request. Atom hydration happens inside
     // `query_with_access`, so the scope has to wrap that call and nothing
@@ -107,11 +107,8 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
     // the one step whose cost is a storage-plane artifact rather than a
     // function of how many rows the caller asked for.
     //
-    // The span is ALSO reported as four sub-phases that partition it exactly
-    // (`hydrate_atoms`/`hydrate_format`/`hydrate_sort`/`hydrate_filter`), so
-    // that a slow read says WHICH of storage, rendering, ordering or
-    // post-filtering is slow. `hydrate` itself stays because it is the series
-    // every rollup written before the carve carries.
+    // Three sub-phases separate core reads, formatting and final ordering.
+    // HydrateFilter is a nested detail inside the core's first-pass reads.
     let hydrate_started = std::time::Instant::now();
     let (result, drops) = match window {
         Some(window) => match window {
@@ -153,7 +150,7 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
         &result_map,
         sort_order.as_ref(),
         order_by.as_ref(),
-        value_filters.as_deref(),
+        sort_helper.as_deref(),
     );
     request_phases::add_phase(RequestPhase::Hydrate, hydrate_started.elapsed());
 
@@ -166,19 +163,22 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
 }
 
 /// Format a query result map into the `/api/query` row envelopes, imposing the
-/// deterministic `(range, hash)` total order and post-hoc value filtering. Split
-/// out so the (rare) result-union path can format each pool separately.
+/// deterministic `(range, hash)` total order. Conditions already selected the
+/// keys in the core's captured first pass.
 pub(in crate::handlers) fn format_rows(
     result_map: &HashMap<String, HashMap<KeyValue, fold_db::schema::types::field::FieldValue>>,
     sort_order: Option<&SortOrder>,
     order_by: Option<&QueryOrderBy>,
-    value_filters: Option<&[ValueFilter]>,
+    sort_helper: Option<&str>,
 ) -> Vec<Value> {
     let format_started = std::time::Instant::now();
     let records_map = fold_db::fold_db_core::query::records_from_field_map(result_map);
     let mut results: Vec<Value> = records_map
         .into_iter()
-        .map(|(key, record)| {
+        .map(|(key, mut record)| {
+            if let Some(field) = sort_helper {
+                record.metadata.remove(field);
+            }
             let author_pub_key = record
                 .metadata
                 .values()
@@ -201,20 +201,22 @@ pub(in crate::handlers) fn format_rows(
     // always-ascending tiebreaker (opaque content hash — reversing it is churn).
     let sort_started = std::time::Instant::now();
     results.sort_by(|a, b| {
-        let primary = order_by
-            .and_then(|order_by| {
-                let af = a.get("fields")?.get(&order_by.field);
-                let bf = b.get("fields")?.get(&order_by.field);
-                Some(compare_json_values(af, bf, order_by.order.as_ref()))
-            })
-            .unwrap_or_else(|| {
-                let a_range = a["key"]["range"].as_str().unwrap_or("");
-                let b_range = b["key"]["range"].as_str().unwrap_or("");
-                match sort_order {
-                    Some(SortOrder::Desc) => b_range.cmp(a_range),
-                    _ => a_range.cmp(b_range),
-                }
-            });
+        let primary = if let Some(order_by) = order_by {
+            let af = a
+                .get("fields")
+                .and_then(|fields| fields.get(&order_by.field));
+            let bf = b
+                .get("fields")
+                .and_then(|fields| fields.get(&order_by.field));
+            compare_json_values(af, bf, order_by.order.as_ref())
+        } else {
+            let a_range = a["key"]["range"].as_str().unwrap_or("");
+            let b_range = b["key"]["range"].as_str().unwrap_or("");
+            match sort_order {
+                Some(SortOrder::Desc) => b_range.cmp(a_range),
+                _ => a_range.cmp(b_range),
+            }
+        };
         primary
             .then_with(|| {
                 let a_range = a["key"]["range"].as_str().unwrap_or("");
@@ -230,28 +232,23 @@ pub(in crate::handlers) fn format_rows(
 
     request_phases::add_phase(RequestPhase::HydrateSort, sort_started.elapsed());
 
-    // Value filters (AND). A filter whose target field is absent from a row is
-    // treated as "does not apply", not an automatic failure — the executor's
-    // `apply_value_filters` already dropped every row whose CONCRETE value
-    // failed the predicate, so a stricter rule here would blank sparse or
-    // partially-access-stripped rows.
-    let filter_started = std::time::Instant::now();
-    if let Some(filters) = value_filters {
-        results.retain(|record| {
-            let Some(fields) = record.get("fields") else {
-                return false;
-            };
-            filters
-                .iter()
-                .all(|filter| match fields.get(filter.field_name()) {
-                    Some(v) => filter.matches(v),
-                    None => true,
-                })
-        });
+    if let Some(field) = sort_helper {
+        for row in &mut results {
+            if let Some(fields) = row.get_mut("fields").and_then(Value::as_object_mut) {
+                fields.remove(field);
+            }
+        }
     }
-    request_phases::add_phase(RequestPhase::HydrateFilter, filter_started.elapsed());
-
     results
+}
+
+/// The core retains this sort value without changing projection key discovery.
+fn unprojected_sort_field(query: &Query) -> Option<String> {
+    let field = &query.order_by.as_ref()?.field;
+    if query.fields.is_empty() || query.fields.contains(field) {
+        return None;
+    }
+    Some(field.clone())
 }
 
 pub(in crate::handlers) fn compare_json_values(

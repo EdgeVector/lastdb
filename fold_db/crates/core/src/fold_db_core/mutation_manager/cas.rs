@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::{KeyValue, Mutation, MutationType, Schema};
 use crate::schema::SchemaError;
 
@@ -35,17 +36,14 @@ fn protein_delete_key_value(
     let Some(value) = values.get(field) else {
         return Ok(None);
     };
-    if let Some(value) = value.as_str() {
-        return Ok(Some(value.to_string()));
-    }
-    if value.is_null() || value.is_array() || value.is_object() {
-        // A stable key-value refusal must finish the Delete request rather
-        // than retain its durable envelope for a storage retry.
-        return Err(SchemaError::InvalidField(format!(
-            "protein delete key field '{field}' for sibling schema '{schema_name}' must be a scalar"
-        )));
-    }
-    Ok(Some(value.to_string()))
+    scalar_key_coordinate(value)
+        .map(|value| Some(value.into_owned()))
+        .ok_or_else(|| {
+            // A stable refusal must finish Delete instead of a storage retry.
+            SchemaError::InvalidField(format!(
+                "protein delete key field '{field}' for sibling schema '{schema_name}' must be a scalar"
+            ))
+        })
 }
 
 /// One sibling schema that a protein delete must reach:

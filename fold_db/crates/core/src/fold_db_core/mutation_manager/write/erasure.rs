@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::db_operations::AttributionPendingScope;
+use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, MutationType};
 use crate::schema::SchemaError;
@@ -238,12 +239,8 @@ impl MutationManager {
             return None;
         }
 
-        let hash = row
-            .get(peer_hash_field)
-            .and_then(serde_json::Value::as_str)?;
-        let range = row
-            .get(peer_range_field)
-            .and_then(serde_json::Value::as_str)?;
+        let hash = row.get(peer_hash_field).and_then(scalar_key_coordinate)?;
+        let range = row.get(peer_range_field).and_then(scalar_key_coordinate)?;
         let key_value = KeyValue::new(Some(hash.to_string()), Some(range.to_string()));
 
         let mut reverse = Mutation::new(

@@ -1,0 +1,8 @@
+host_cargo_lock=held pid=6718 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
+    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)
+    Checking lastdb_uds v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_uds)
+    Checking lastdb_identity v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_identity)
+    Checking generate_schema_org_classifications v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/scripts/generate_schema_org_classifications)
+    Checking lastdb_host v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_host)
+    Checking lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 44.37s

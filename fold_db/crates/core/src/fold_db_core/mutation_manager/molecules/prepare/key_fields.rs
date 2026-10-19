@@ -1,6 +1,7 @@
 //! Normalize omitted declared key fields in the same private field batch.
 
 use super::super::super::MutationManager;
+use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{FieldValueType, KeyValue, Mutation, MutationType, Schema};
 use crate::schema::SchemaError;
@@ -126,15 +127,6 @@ fn note_key_field_conflict(schema_name: &str, field_name: &str, payload: &str, c
             conflicts = seen,
             "HashRange range field value differs from key_value; keeping the payload value"
         );
-    }
-}
-
-fn scalar_key_coordinate(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::String(value) => Some(value.clone()),
-        serde_json::Value::Number(value) => Some(value.to_string()),
-        serde_json::Value::Bool(value) => Some(value.to_string()),
-        _ => None,
     }
 }
 

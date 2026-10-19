@@ -1,0 +1,51 @@
+{
+  "binary_sha256": "efe05898cfd8f3a5c6ca233e78adfb5575ab86f2c650db3f280f3dcb1a6b9f1b",
+  "extension_identity_sha256": "2a73f4d446a7b73ed8940a41afdcf6e7e79db4684a7ebff5f6fe9ee10ca4b0da",
+  "extension_query_items": 2,
+  "extra_environment": {
+    "LASTDB_BACKGROUND_FLUSH_MS": "500",
+    "LASTDB_MUTATION_SYNC_FLUSH": "0",
+    "LASTDB_RESIDENT_KEY_CAP": "10000",
+    "LASTDB_RESIDENT_MAX_DEFERRED": "512",
+    "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "134217728",
+    "LASTDB_RESIDENT_PERSIST_MS": "500",
+    "LASTDB_SCHEMA_KEY_BYTES": "134217728",
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "CoreOwnedWritesHashRange"
+  },
+  "helper_identity_sha256": "35267be9f19bfa25be1b1e3da5779ce2cda1fd8c4f9890b83ee0fdbed4536222",
+  "hidden_order_extension_sha256": "8dea44e30f7ce40138716f9bf2e66e42b8300beeab725bb901041f30883527fc",
+  "merged_release_identity_sha256": "7c9a24362bb7b37d1c84ab8c829b4f5c25a5d0b9a916d1dbda7d9f518d697e03",
+  "operation_input_sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835",
+  "owner_creator_pid": 50181,
+  "planned": {
+    "cohort_read_calls": 74,
+    "main_seed_records": 16,
+    "reopen_main_query_items": 12,
+    "static_query_items": 74,
+    "typed_protein_query_items": 12,
+    "typed_protein_seed_records": 2
+  },
+  "prior_results": [
+    {
+      "complete": false,
+      "path": "ordinary-product/result.json",
+      "role": "Separate immutable source-labeled prior run; never relabeled or continued.",
+      "sha256": "4f87c3dc9626ead251df58aa1a1260b388bbe48ea0d88c576bb2e8f3b7597e3c"
+    },
+    {
+      "complete": false,
+      "path": "completion-product/result.json",
+      "role": "Separate immutable source-labeled prior run; never relabeled or continued.",
+      "sha256": "1bd01a8484ce1fdf2c71a272613612ed46d665030a0a69895aa6ddb324b2664f"
+    },
+    {
+      "complete": true,
+      "path": "current-product/result.json",
+      "role": "Separate immutable source-labeled prior run; never relabeled or continued.",
+      "sha256": "0ae88a0a53c4f866935c6b9fd65550f2d75904a4d369071d9eda0813d70257b3"
+    }
+  ],
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp._rjca65o",
+  "scope": "Frozen ordinary generated API operations only; no benchmark or fixture suite. Generic measure.Run inputs describe helper configuration, not actual record totals. Requests use the identical canonical static plan plus unchanged cohorts.run.",
+  "source_commit": "3dfcf8d658a7f9d8efdd55cc0635c0322e0ef88f"
+}

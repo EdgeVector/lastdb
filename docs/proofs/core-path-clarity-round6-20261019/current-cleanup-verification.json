@@ -1,0 +1,34 @@
+{
+  "all_owned_roots": {
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.4vus5ve_": "absent",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tkh5m_5i": "absent",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zspijre0": "absent"
+  },
+  "all_sealed_files_unchanged": true,
+  "approved_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.4vus5ve_",
+  "both_earlier_results_remain_failed": true,
+  "complete": true,
+  "current_result_remains_complete": true,
+  "current_seal_unchanged": true,
+  "fresh_creator_and_node_process_check": {
+    "command": [
+      "ps",
+      "-p",
+      "23859,23865,24734,24735,25133,25897",
+      "-o",
+      "pid=,command="
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "root_absent": true,
+  "scope": "Only the exact independently reviewed current synthetic root was reclaimed. No new product operation, source/helper edit, build or other cleanup.",
+  "sealed_file_counts": {
+    "completion-seal.json": 9,
+    "current-seal.json": 9,
+    "diagnostic-seal.json": 9
+  },
+  "sealed_files_verified": 27,
+  "supported_cleanup_result": "current-cleanup-result.json"
+}

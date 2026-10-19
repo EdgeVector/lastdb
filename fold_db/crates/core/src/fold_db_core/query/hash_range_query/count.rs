@@ -72,7 +72,8 @@ impl HashRangeQueryProcessor {
                 &received_from_namespaces,
             )
             .await?;
-        if keys.is_empty() {
+        let used_named_spine = !keys.is_empty();
+        if !used_named_spine {
             self.extend_count_keys_from_fallback(
                 schema,
                 fields,
@@ -93,13 +94,11 @@ impl HashRangeQueryProcessor {
             }
         }
 
-        // Mirror the page path's named-layout retain. Shared-molecule
-        // graph-edge schemas union inbound and outbound tips under one
-        // HashKey; count used to report that union while the page dropped
-        // sibling-layout tips, so `has_more` never went false.
+        // A projection fallback establishes its own keys. Its empty named
+        // spine cannot authorize a field-value check over those keys.
         self.retain_count_to_named_layout(
             schema,
-            key_hash_field.as_deref(),
+            key_hash_field.as_deref().filter(|_| used_named_spine),
             filter,
             &received_from_namespaces,
             &mut keys,
@@ -160,11 +159,7 @@ impl HashRangeQueryProcessor {
         legacy.len()
     }
 
-    /// Apply the page path's named-layout retain to the counted key set.
-    ///
-    /// Graph-edge keys need the named hash-field body. Membership-index keys
-    /// (`#` count ≥ 2) stay without a body load, matching
-    /// [`super::HashRangeQueryProcessor::retain_named_layout_primary`].
+    /// Mirror the actual named-spine check from the page path.
     async fn retain_count_to_named_layout(
         &self,
         schema: &Schema,
@@ -173,28 +168,16 @@ impl HashRangeQueryProcessor {
         received_from_namespaces: &[String],
         keys: &mut HashSet<KeyValue>,
     ) -> Result<(), SchemaError> {
-        let filter_owned = filter.cloned();
-        let Some(wanted) = Self::named_layout_hash(&filter_owned) else {
+        let Some(wanted) = Self::named_layout_hash(schema, hash_field_name, filter) else {
             return Ok(());
         };
         let wanted = wanted.to_string();
-        if keys.iter().all(Self::named_layout_membership_bypass) {
-            return Ok(());
-        }
         let Some(field_name) = hash_field_name else {
-            keys.retain(Self::named_layout_membership_bypass);
             return Ok(());
         };
         let Some(field) = schema.runtime_fields.get(field_name) else {
-            keys.retain(Self::named_layout_membership_bypass);
             return Ok(());
         };
-
-        let need: HashSet<KeyValue> = keys
-            .iter()
-            .filter(|key| !Self::named_layout_membership_bypass(key))
-            .cloned()
-            .collect();
 
         let binding =
             crate::storage::disk_pack::logical_paths::field::FieldScope::new(schema, field_name)?;
@@ -208,7 +191,7 @@ impl HashRangeQueryProcessor {
                         self.live_field_matches_flag_only(field, None, filter)
                             .await?
                             .into_iter()
-                            .filter(|(key, _, _, _, _)| need.contains(key)),
+                            .filter(|(key, _, _, _, _)| keys.contains(key)),
                         field.common().storage_prefix(),
                         field.common().molecule_uuid().map(String::as_str),
                         Some(schema.name.as_str()),
@@ -228,7 +211,7 @@ impl HashRangeQueryProcessor {
                             )
                             .await?
                             .into_iter()
-                            .filter(|(key, _, _, _, _)| need.contains(key)),
+                            .filter(|(key, _, _, _, _)| keys.contains(key)),
                             Some(namespace.as_str()),
                             field.common().molecule_uuid().map(String::as_str),
                             Some(schema.name.as_str()),
@@ -241,7 +224,10 @@ impl HashRangeQueryProcessor {
             })
             .await?;
 
-        keys.retain(|key| Self::named_layout_keep(&wanted, key, vals.get(key)));
+        keys.retain(|key| {
+            vals.get(key)
+                .is_some_and(|value| Self::field_value_is_hash(value, &wanted))
+        });
         Ok(())
     }
 
@@ -339,25 +325,11 @@ impl HashRangeQueryProcessor {
     /// the number of rows in the table, is not counting rows. Mirroring the
     /// read's primary keeps `total_count` and `has_more` describing one row set.
     fn count_field_names(schema: &Schema, fields: &[String]) -> Vec<String> {
-        let key_field_name = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
-            .filter(|field_name| schema.runtime_fields.contains_key(*field_name));
-
-        if let Some(key_field_name) = key_field_name {
-            return vec![key_field_name.clone()];
+        let selected = Self::cokey_selected_fields(schema, fields);
+        if selected.is_empty() {
+            return Vec::new();
         }
-
-        // No key field to count by. Take the read's primary — its first
-        // selected field — not the union of all of them.
-        if let Some(primary) = fields.first() {
-            return vec![primary.clone()];
-        }
-
-        // Unprojected AND keyless: there is no primary to mirror, so the whole
-        // live row set is the honest answer.
-        schema.runtime_field_names()
+        vec![Self::cokey_primary_field(schema, &selected)]
     }
 
     /// Projection fallback for a multi-key sibling whose own key field has no
@@ -365,15 +337,7 @@ impl HashRangeQueryProcessor {
     /// rows, matching `query_cokey_with_sources`.
     fn count_fallback_field(schema: &Schema, fields: &[String]) -> Option<String> {
         let primary = Self::count_field_names(schema, fields).into_iter().next()?;
-        if fields.iter().any(|field| field == &primary) {
-            return None;
-        }
-        fields
-            .iter()
-            .find(|field| {
-                field.as_str() != primary.as_str()
-                    && schema.runtime_fields.contains_key(field.as_str())
-            })
-            .cloned()
+        let selected = Self::cokey_selected_fields(schema, fields);
+        Self::cokey_fallback_field(&selected, &primary).map(ToString::to_string)
     }
 }

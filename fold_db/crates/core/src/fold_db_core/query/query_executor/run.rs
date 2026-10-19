@@ -3,8 +3,7 @@
 use super::*;
 
 impl QueryExecutor {
-    /// Gate, scope and read one schema, then apply value filters and drop
-    /// key-tombstoned records.
+    /// Gate, scope and read one schema through the current field conditions.
     pub(super) async fn run_query_on_schema(
         &self,
         mut schema: Schema,
@@ -53,17 +52,8 @@ impl QueryExecutor {
                 .await?;
         }
 
-        let results = self
-            .read_scoped_results(&mut schema, &mut query, window)
-            .await?;
-
-        // Numeric post-filters on field values (`value_filters`) — the
-        // LLM agent populates this for prompts like "price < 600". The
-        // struct + LLM prompt have advertised the field for a while
-        // but no execution path applied it, so queries silently
-        // returned the unfiltered key-based result set.
-        let results = apply_value_filters(results, query.value_filters.as_deref());
-        Ok(results)
+        self.read_scoped_results(&mut schema, &mut query, window)
+            .await
     }
 
     /// Read every query shape through the same field-molecule processor.
@@ -79,11 +69,14 @@ impl QueryExecutor {
                 &query.fields,
                 query.filter.take(),
                 window,
-                query.field_predicates.as_deref(),
-                query.order_by.as_ref(),
-                query.predicate_limit,
-                query.include_tombstones,
-                query.secondary_concurrency,
+                FieldQueryOptions {
+                    predicates: query.field_predicates.as_deref(),
+                    value_filters: query.value_filters.as_deref(),
+                    order_by: query.order_by.as_ref(),
+                    predicate_limit: query.predicate_limit,
+                    include_tombstones: query.include_tombstones,
+                    secondary_concurrency: query.secondary_concurrency,
+                },
             )
             .await
     }

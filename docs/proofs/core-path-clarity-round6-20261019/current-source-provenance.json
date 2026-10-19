@@ -1,0 +1,303 @@
+{
+  "build_command": [
+    "scripts/ci/with-fold-host-cargo-lock.sh",
+    "--timeout",
+    "600",
+    "--",
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd"
+  ],
+  "build_state": "Normal default release and exact post-build source/Git/host-setting checks pass. Root independent release review remains required before API operations.",
+  "committed_discovery_equal": true,
+  "committed_git_blobs": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "7ce1056b71877534b30bb58a51891ecc0b1ca42a",
+    "source_files_checked": 1876,
+    "source_mismatches": []
+  },
+  "delta": {
+    "added": {},
+    "changed": {
+      "fold_db/crates/core/src/db_operations/admin_db/gc_orphans/proteins.rs": {
+        "bytes": 3334,
+        "sha256": "049f7adffbe4093d4948211ee1c1510f06b4c17baf7552bd45e532397ba1d889"
+      },
+      "fold_db/crates/core/src/db_operations/atom_store/construct.rs": {
+        "bytes": 5459,
+        "sha256": "30c52b694f796937162181057b465765592bb0d7cf9278b0bc71a0f1ababef15"
+      },
+      "fold_db/crates/core/src/db_operations/atom_store/filter/load/one_d.rs": {
+        "bytes": 16959,
+        "sha256": "619ea9b599df764fdb971efa18155be5fed2716c8ee7b531a35fb6494732fda4"
+      },
+      "fold_db/crates/core/src/db_operations/atom_store/filter/load/one_d/exact.rs": {
+        "bytes": 2914,
+        "sha256": "982c62b85af9af5c8e868936faaedd0c9f86752bde887c296959780bb729b2bf"
+      },
+      "fold_db/crates/core/src/db_operations/atom_store/locks.rs": {
+        "bytes": 11882,
+        "sha256": "e638c0dfd08d8347619887927bcae7da213116f9442ef32229feb4188b355247"
+      },
+      "fold_db/crates/core/src/db_operations/atom_store/mod.rs": {
+        "bytes": 16760,
+        "sha256": "c076238b6cba6a35a320a51a6d14d07bf92e23e395ae96d2b278501ef24c8130"
+      },
+      "fold_db/crates/core/src/db_operations/schema_operations.rs": {
+        "bytes": 7725,
+        "sha256": "a6dd3d423957e49689b4b82e1b156d1aa1eded197c45e31c02969498d9da7f24"
+      },
+      "fold_db/crates/core/src/fold_db_core/mutation_manager/cas.rs": {
+        "bytes": 12028,
+        "sha256": "09919f866d3d79bf6c926053f8616fa4a68ed9178a15e183410774b0ded0cea2"
+      },
+      "fold_db/crates/core/src/fold_db_core/mutation_manager/index.rs": {
+        "bytes": 4053,
+        "sha256": "cec674e27d10ad5175eb52c5cb4cee31c989d188472bfea5870a4e3993a78f45"
+      },
+      "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/lane_writer.rs": {
+        "bytes": 6921,
+        "sha256": "e92c3e3e72ccb090850e6b3768f64265ee20cafaee36180858c1fd5297f8488d"
+      },
+      "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/purge_job.rs": {
+        "bytes": 9077,
+        "sha256": "8022b45575b00a8e28ef193545ede1799e688c08bcf211c3a1f60dc0c6cf5472"
+      },
+      "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/prepare/key_fields.rs": {
+        "bytes": 11542,
+        "sha256": "b2c15215a35b6a8d5e1533b7ccd61fc7723d5e42f143c764f5dcbeea30679445"
+      },
+      "fold_db/crates/core/src/fold_db_core/mutation_manager/write.rs": {
+        "bytes": 12016,
+        "sha256": "0541c962c2cbd5c2230dc05463fdead9975f256982b6e35ae663e655c9494786"
+      },
+      "fold_db/crates/core/src/fold_db_core/mutation_manager/write/erasure.rs": {
+        "bytes": 15521,
+        "sha256": "e8274534d19ac0c3f2f3adccfd8da466b94df1380f465b6a0a98393b386fb275"
+      },
+      "fold_db/crates/core/src/fold_db_core/mutation_manager/write/hard_erasure_process.rs": {
+        "bytes": 11502,
+        "sha256": "5b6f64d688b9f685aeedddc991c3539355b765b02ebff198c3aeed18ebbe0063"
+      },
+      "fold_db/crates/core/src/fold_db_core/query/hash_range_query.rs": {
+        "bytes": 7018,
+        "sha256": "64118b19eca9b0b7e78d81a3c19282f81d64fb96e7915ad58ce96099ac9d5557"
+      },
+      "fold_db/crates/core/src/fold_db_core/query/hash_range_query/cokey.rs": {
+        "bytes": 4625,
+        "sha256": "8cdd686ed1aa74aa95595d4108610325e4aed41e6552401744a2e8166ebd915f"
+      },
+      "fold_db/crates/core/src/fold_db_core/query/hash_range_query/cokey_primary.rs": {
+        "bytes": 4374,
+        "sha256": "8e01f9029fc5716d598bbeed92a0e55fcc50bd598ee8859217ecd90c445e7db1"
+      },
+      "fold_db/crates/core/src/fold_db_core/query/hash_range_query/count.rs": {
+        "bytes": 15061,
+        "sha256": "cb10b27ca7410c9c22d25d866705f6670700b3015178f026effd210d71daa362"
+      },
+      "fold_db/crates/core/src/fold_db_core/query/hash_range_query/fields.rs": {
+        "bytes": 7509,
+        "sha256": "99fcb2ccac0977d1f6764da3c0a221ea939b511e06aebfb1b027b1495ef2d5b6"
+      },
+      "fold_db/crates/core/src/fold_db_core/query/hash_range_query/filter.rs": {
+        "bytes": 6705,
+        "sha256": "88d2d2b70680315496de6d0ce00065260ee40d3eca7355ec7a2653a4f7fd59bd"
+      },
+      "fold_db/crates/core/src/fold_db_core/query/hash_range_query/paging.rs": {
+        "bytes": 13333,
+        "sha256": "9b2df58839a865923a8699d9dd700a7099384438559128f993d5633ed3800b75"
+      },
+      "fold_db/crates/core/src/fold_db_core/query/query_executor.rs": {
+        "bytes": 11862,
+        "sha256": "b99ff55c5b6d2ab3aa6706d6717a4944dfbf0abf516c7533d7254310bcbaf8f0"
+      },
+      "fold_db/crates/core/src/fold_db_core/query/query_executor/run.rs": {
+        "bytes": 3074,
+        "sha256": "9352b4dca038782a6861c6fc37fba79adbc350f1a068cf31fa72668fa87429ba"
+      },
+      "fold_db/crates/core/src/protein/ops.rs": {
+        "bytes": 12010,
+        "sha256": "e25f31cd6fe3bbcc9dfc697bbf4307de22754334a9ab28b3f77b93ec0bd9f4fb"
+      },
+      "fold_db/crates/core/src/request_phases/phase.rs": {
+        "bytes": 23072,
+        "sha256": "faf9b4e726802148ed8f28fc5768b827517265f5a5cc3964228c18256cbc8ef3"
+      },
+      "fold_db/crates/core/src/schema/field_hash_coherence.rs": {
+        "bytes": 15462,
+        "sha256": "400a092ec10a55e13e321e2782a6374b02bd984e07dc3b081dbe54011b793f95"
+      },
+      "fold_db/crates/core/src/schema/types/key_value.rs": {
+        "bytes": 6677,
+        "sha256": "6c7a1350247148bd6bf302047d09d021ec65abe3a581cbd7c1c41aba0d8b21ca"
+      },
+      "fold_db/crates/core/src/schema/types/operations/mod.rs": {
+        "bytes": 14903,
+        "sha256": "bf5d0bf565063ba242150af8b3681228d3926a16ab47562dab9869ee5b9931d2"
+      },
+      "lastdb_host/src/handlers.rs": {
+        "bytes": 3012,
+        "sha256": "52aa7e1648f0dc743d49efefabb3ca5605e47455b4fac6a2e80e43ad910fcc0d"
+      },
+      "lastdb_host/src/handlers/query/rows.rs": {
+        "bytes": 10369,
+        "sha256": "c8cd94ffbf6e65c039daa6047e304d48742534b47ecd082744720886acae9acd"
+      }
+    },
+    "removed": [
+      "fold_db/crates/core/src/fold_db_core/query/query_executor/value_filters.rs"
+    ],
+    "unchanged_count": 1845
+  },
+  "failed_prior_release": {
+    "binary_sha256": "09bb592cc26a331d346d88a7dc48f25653f9538c476d1f83f36bbbb67beb172d",
+    "diagnostic_seal_path": "diagnostic-seal.json",
+    "diagnostic_seal_sha256": "1bc5a84403609f5032eb7ae0e371c7b3b87eef840473d2aed311d5c2b17dfe48",
+    "release_identity_path": "final-release-identity.json",
+    "release_identity_sha256": "90ff412f17ccb2839a61f87f97edf0e797c26d1825d4200678de3a8853a214fb",
+    "role": "Initial failed ordinary release remains complete=false and immutable. The completion release uses the identical frozen requests on a separate fresh synthetic home; it does not reinterpret the earlier failure.",
+    "run_result_path": "ordinary-product/result.json",
+    "run_result_sha256": "4f87c3dc9626ead251df58aa1a1260b388bbe48ea0d88c576bb2e8f3b7597e3c",
+    "source_commit": "b5b0018e64c2ad01931a684ad75a37237bc27f17",
+    "source_snapshot_path": "final-source-inputs/source-inputs.json",
+    "source_snapshot_sha256": "15b6be15264456bc5ee27bc5a1c5d91ba21966e12af642caf2b2fbf0b30a205c"
+  },
+  "failed_prior_releases": [
+    {
+      "binary_sha256": "09bb592cc26a331d346d88a7dc48f25653f9538c476d1f83f36bbbb67beb172d",
+      "diagnostic_seal_path": "diagnostic-seal.json",
+      "diagnostic_seal_sha256": "1bc5a84403609f5032eb7ae0e371c7b3b87eef840473d2aed311d5c2b17dfe48",
+      "release_identity_path": "final-release-identity.json",
+      "release_identity_sha256": "90ff412f17ccb2839a61f87f97edf0e797c26d1825d4200678de3a8853a214fb",
+      "role": "Initial failed ordinary release remains complete=false and immutable. The completion release uses the identical frozen requests on a separate fresh synthetic home; it does not reinterpret the earlier failure.",
+      "run_result_path": "ordinary-product/result.json",
+      "run_result_sha256": "4f87c3dc9626ead251df58aa1a1260b388bbe48ea0d88c576bb2e8f3b7597e3c",
+      "source_commit": "b5b0018e64c2ad01931a684ad75a37237bc27f17",
+      "source_snapshot_path": "final-source-inputs/source-inputs.json",
+      "source_snapshot_sha256": "15b6be15264456bc5ee27bc5a1c5d91ba21966e12af642caf2b2fbf0b30a205c"
+    },
+    {
+      "binary_sha256": "3be4956d99c670de4b59375969d64139df65d30375acbd01198593e21529dc29",
+      "diagnostic_seal_path": "completion-seal.json",
+      "diagnostic_seal_sha256": "1bc0cdf494231f8b4254aa7d69ea4714cb840e46ccd0ca683e9d9d0a63fa8bf3",
+      "release_identity_path": "ship-release-identity.json",
+      "release_identity_sha256": "4bb7a8227762628e9dc8068cb6314da9f1c46903e5194c273575307948ee09f0",
+      "role": "Failed cold Hash count after reopen remains complete=false and immutable. The next fresh current-product uses identical requests and does not relabel this failure.",
+      "run_result_path": "completion-product/result.json",
+      "run_result_sha256": "1bd01a8484ce1fdf2c71a272613612ed46d665030a0a69895aa6ddb324b2664f",
+      "source_commit": "c20b11e977e695efcd5ede080643a54c7b9728ea",
+      "source_snapshot_path": "ship-source-inputs/source-inputs.json",
+      "source_snapshot_sha256": "38f4ecfc52164089679fe84323b4fb0a6474b00cbed8a0cba94ae6a04a976d01"
+    }
+  ],
+  "failed_sealed_files_verified_unchanged": 18,
+  "host_settings": {
+    "environment": {
+      "AR": null,
+      "CARGO_BUILD_JOBS": null,
+      "CARGO_BUILD_TARGET": null,
+      "CARGO_ENCODED_RUSTFLAGS": null,
+      "CARGO_INCREMENTAL": null,
+      "CARGO_TARGET_DIR": null,
+      "CC": null,
+      "CFLAGS": null,
+      "CXX": null,
+      "CXXFLAGS": null,
+      "LDFLAGS": null,
+      "MACOSX_DEPLOYMENT_TARGET": null,
+      "RUSTC": null,
+      "RUSTC_WORKSPACE_WRAPPER": null,
+      "RUSTC_WRAPPER": null,
+      "RUSTFLAGS": null,
+      "RUSTUP_TOOLCHAIN": null,
+      "RUST_MIN_STACK": null,
+      "SCCACHE_DISABLE": null,
+      "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+    },
+    "external_config_inputs": {
+      "/Users/tomtang/.cargo/config.toml": {
+        "bytes": 1804,
+        "sha256": "7d77c98e55bcb03544522c0538660d8dae49682d0cd625416b78fe26427ff751"
+      },
+      "/Users/tomtang/.rustup/settings.toml": {
+        "bytes": 638,
+        "sha256": "c6eadecb58fb52813b4875a490207964f9096a507d35d195e3de2f85ade7a61c"
+      }
+    },
+    "machine": "arm64",
+    "memory_bytes": 38654705664,
+    "processor": "Apple M4 Max",
+    "system": "macOS-26.5.2-arm64-arm-64bit",
+    "tools": {
+      "cargo": {
+        "path": "/Users/tomtang/.cargo/bin/cargo",
+        "realpath": "/Users/tomtang/.cargo/bin/rustup",
+        "version": "cargo 1.96.1 (356927216 2026-06-26)\nrelease: 1.96.1\ncommit-hash: 356927216a2d746168cf76e5e88cc3f4b58e029d\ncommit-date: 2026-06-26\nhost: aarch64-apple-darwin\nlibgit2: 1.9.2 (sys:0.20.4 vendored)\nlibcurl: 8.7.1 (sys:0.4.87+curl-8.19.0 system ssl:(SecureTransport) LibreSSL/3.3.6)\nssl: OpenSSL 3.5.4 30 Sep 2025\nos: Mac OS 26.5.2 [64-bit]"
+      },
+      "rustc": {
+        "path": "/Users/tomtang/.cargo/bin/rustc",
+        "realpath": "/Users/tomtang/.cargo/bin/rustup",
+        "version": "rustc 1.96.1 (31fca3adb 2026-06-26)\nbinary: rustc\ncommit-hash: 31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd\ncommit-date: 2026-06-26\nhost: aarch64-apple-darwin\nrelease: 1.96.1\nLLVM version: 22.1.2"
+      }
+    }
+  },
+  "identity_helpers": {
+    "docs/proofs/core-memory-completion-20261018/source_identity.py": {
+      "bytes": 10259,
+      "sha256": "29aa86f75e416408ea32d10b19b55f706e0239cffdb367ec5fa5dd167d7fe361"
+    },
+    "docs/proofs/core-owned-writes-20261018/capture_before.py": {
+      "bytes": 4972,
+      "sha256": "4756409f329b737c2e5f43768fa1559d0c35d860e33fbb993c975c99b8b81064"
+    }
+  },
+  "previous_prebuild_captures": [
+    {
+      "path": "completion-prebuild-only.json",
+      "role": "Superseded pre-build capture only. No normal release or product operation used it; full capture remains unchanged.",
+      "sha256": "ef5ea97b51a8566a5d7498b4e1362dffae4607151b9be71e5b7fc210ad5976fd",
+      "source_commit": "003f2d5840197426c4c339d59e2159bea0154356"
+    },
+    {
+      "path": "completion-final-prebuild-only.json",
+      "role": "Superseded pre-build capture only; no normal release build or product operation used it.",
+      "sha256": "e059e798583714780603c362931ec707dc213562f81b7ab4b962717f9b7c5518",
+      "source_commit": "ebd14f57206a55e1ae21844eb3c020440aee7eef"
+    },
+    {
+      "path": "accepted-prebuild-only.json",
+      "role": "Superseded pre-build capture only; no normal release build or product operation used it.",
+      "sha256": "5c1b7171b4dd8c91bb5b0d5e41fb9b7d387d75add347f1d1ac8f1c39c6697a18",
+      "source_commit": "7ce7d6a266515919f88da5f04890194b9f8fbfa4"
+    }
+  ],
+  "product_operations_started": false,
+  "reference": {
+    "path": "docs/proofs/core-path-clarity-round5-20261019/final-source-inputs.json",
+    "release_identity_path": "docs/proofs/core-path-clarity-round5-20261019/final-release-identity.json",
+    "release_identity_sha256": "a4a3f298887545e6a95826067cfa71ff954d87d5cb764888cd43ebe805b4c990",
+    "sha256": "6c7d95ca4a8a16326a380f4efac7a1398136a898f8c8249977592e2597ea3f1c",
+    "source_commit": "f9a5dc7b188a3e493c6c4a21834b71d083344c19",
+    "source_input_count": 1877,
+    "source_inventory_sha256": "8239a83fa1198e35d50ccc1d9a525f9f1bcda3abe2120c9f60f0805747e5a9d4"
+  },
+  "release_identity": {
+    "binary_sha256": "44cbb843110030779eb38d2c75c5620f30043c4b0e4971fe6c010d2d79081196",
+    "path": "current-release-identity.json",
+    "sha256": "6c65ac2f3c2577caf4a90d119a42c98a6538b7ad57cb5d6c4b452df00f6c9fe3"
+  },
+  "snapshot_local_path": "docs/proofs/core-path-clarity-round6-20261019/current-source-inputs/source-inputs.json",
+  "snapshot_policy": "Full snapshot stays local and ignored. Reconstruct source_files from the tracked Round5 reference; remove listed paths and replace/add listed identities.",
+  "snapshot_sha256_before_build": "0fa4d791547d9938848df0958b66dee595c4a43eb0599ba003d91fbc1ccfaeae",
+  "source_commit": "7ce1056b71877534b30bb58a51891ecc0b1ca42a",
+  "source_input_count": 1876,
+  "source_inventory_sha256": "b186c0e1200b1e3572ce76a7f281e2d02ea84d934af712df6f22aa45fd153842",
+  "source_tree": "3483de43d64e74ae3c01c43dfbfdc093142c3055",
+  "two_pass_capture_equal": true,
+  "version": 1
+}

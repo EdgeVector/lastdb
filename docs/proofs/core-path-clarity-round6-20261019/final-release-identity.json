@@ -1,0 +1,59 @@
+{
+  "binary": "target/release/lastdbd",
+  "binary_sha256": "09bb592cc26a331d346d88a7dc48f25653f9538c476d1f83f36bbbb67beb172d",
+  "committed_discovery_equal": true,
+  "discovery_equal_before_and_after_build": true,
+  "extension_helper_identity_sha256": "2a73f4d446a7b73ed8940a41afdcf6e7e79db4684a7ebff5f6fe9ee10ca4b0da",
+  "extension_input_sha256": "8dea44e30f7ce40138716f9bf2e66e42b8300beeab725bb901041f30883527fc",
+  "host_settings_unchanged": true,
+  "input_sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835",
+  "normal_build": {
+    "command": [
+      "scripts/ci/with-fold-host-cargo-lock.sh",
+      "--timeout",
+      "600",
+      "--",
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "lastdb_node",
+      "--bin",
+      "lastdbd"
+    ],
+    "exit_code": 0,
+    "log": "validation/release-build-final.txt",
+    "log_sha256": "ee47a95818705ca9745cdde828af39bd346f655c538db2b2cdf35e5773925690",
+    "result": "validation/release-build-final-result.json",
+    "result_sha256": "38bc516be70278ca49c1f2fe6bc755ca314f0e6276de17a785ef8d5a03c164ea"
+  },
+  "operation_helper_identity_sha256": "35267be9f19bfa25be1b1e3da5779ce2cda1fd8c4f9890b83ee0fdbed4536222",
+  "product_calls": 0,
+  "scope": "Normal default final release from exact committed source. Root independent binary/source review remains required before any fresh ordinary API operation. No benchmark comparison.",
+  "source_commit": "b5b0018e64c2ad01931a684ad75a37237bc27f17",
+  "source_files_unchanged_after_build": true,
+  "source_git_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "b5b0018e64c2ad01931a684ad75a37237bc27f17",
+    "source_files_checked": 1876,
+    "source_mismatches": []
+  },
+  "source_input_count": 1876,
+  "source_inventory_sha256": "885ad52a10b6782a5da78af7c82c427754d583deabe387c362bfca19173d4749",
+  "source_manifest": "final-source-inputs/source-inputs.json",
+  "source_manifest_policy": "The ignored full snapshot retains its pre-build bytes. This separate release identity verifies source and binary after build; final-source-provenance.json reconstructs the source inventory from the tracked Round5 reference.",
+  "source_manifest_sha256": "15b6be15264456bc5ee27bc5a1c5d91ba21966e12af642caf2b2fbf0b30a205c",
+  "state": "release_verified",
+  "superseded_source_and_release_bytes_unchanged": true,
+  "superseded_unused_release": {
+    "binary_sha256": "31c4a8cb3b5d276b287662a6040cd701bcd521a2ea7cf4e955481bd0c1506880",
+    "path": "superseded-release.json",
+    "role": "Verified but superseded unused build. No product calls, synthetic homes or node sessions used it. Its source/build/identity remains unchanged.",
+    "sha256": "e5a868fbf4d2609966edf6e59a9e55cc9dd2b14022a7f548f3c3864864dbc74d",
+    "source_commit": "3cf7b857b945c598608dc41d12cf21fc1a709483"
+  },
+  "synthetic_homes": 0,
+  "two_postbuild_captures_equal": true,
+  "verified_utc": "2026-10-19T16:07:43.453221+00:00"
+}

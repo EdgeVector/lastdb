@@ -1,6 +1,7 @@
 use super::key_config::KeyConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// Represents resolved key values for hash and range components.
@@ -115,7 +116,7 @@ impl KeyValue {
 fn resolve_field_as_string(fields: &HashMap<String, Value>, field_name: &str) -> Option<String> {
     // 1. Try direct field access
     if let Some(value) = fields.get(field_name) {
-        return value_to_string(value);
+        return scalar_key_coordinate(value).map(Cow::into_owned);
     }
     // 2. Try dotted path (e.g., "parent.child")
     if let Some(dot) = field_name.find('.') {
@@ -123,7 +124,7 @@ fn resolve_field_as_string(fields: &HashMap<String, Value>, field_name: &str) ->
         if let Some(parent_val) = fields.get(parent) {
             if let Some(obj) = parent_val.as_object() {
                 if let Some(child_val) = obj.get(child) {
-                    return value_to_string(child_val);
+                    return scalar_key_coordinate(child_val).map(Cow::into_owned);
                 }
             }
         }
@@ -131,11 +132,12 @@ fn resolve_field_as_string(fields: &HashMap<String, Value>, field_name: &str) ->
     None
 }
 
-fn value_to_string(value: &Value) -> Option<String> {
+/// The same scalar representation supplies lookup coordinates and comparisons.
+pub(crate) fn scalar_key_coordinate(value: &Value) -> Option<Cow<'_, str>> {
     match value {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        Value::Bool(b) => Some(b.to_string()),
+        Value::String(s) => Some(Cow::Borrowed(s)),
+        Value::Number(n) => Some(Cow::Owned(n.to_string())),
+        Value::Bool(b) => Some(Cow::Owned(b.to_string())),
         _ => None,
     }
 }

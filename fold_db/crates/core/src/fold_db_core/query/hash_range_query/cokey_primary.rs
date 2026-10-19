@@ -57,6 +57,8 @@ impl HashRangeQueryProcessor {
         // Prefix both returned the union (12 = 5 out + 7 in).
         let had_named_spine_keys = !page_keys.is_empty();
         Self::retain_named_layout_primary(
+            schema,
+            &primary_name,
             &filter,
             &mut primary_vals,
             &mut page_keys,
@@ -69,23 +71,21 @@ impl HashRangeQueryProcessor {
         // key field. Prefer the key spine, then fall back to the projection only
         // when that spine is empty so sibling-key reads remain addressable.
         // Do not fall back after dropping sibling-layout tips: that re-opens
-        // the union when the caller omitted the hash field from `selected`.
-        let (primary_vals, page_keys, key_sources) = if page_keys.is_empty()
-            && !had_named_spine_keys
-            && !selected.iter().any(|field| field == &primary_name)
-        {
-            let fallback = selected[0].clone();
+        // the union. Projecting the empty key field does not block fallback.
+        let fallback = Self::cokey_fallback_field(selected, &primary_name)
+            .filter(|_| page_keys.is_empty() && !had_named_spine_keys);
+        let (primary_vals, page_keys, key_sources) = if let Some(fallback) = fallback {
             let (values, sources) = self
                 .resolve_primary(
                     schema,
-                    &fallback,
+                    fallback,
                     filter,
                     window,
                     include_tombstones,
                     received_from_namespaces,
                 )
                 .await?;
-            primary_name = fallback;
+            primary_name = fallback.to_string();
             self.rename_page_to_api_keys(schema, &primary_name, values, sources)
         } else {
             (primary_vals, page_keys, key_sources)

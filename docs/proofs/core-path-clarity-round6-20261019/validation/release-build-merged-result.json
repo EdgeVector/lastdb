@@ -1,0 +1,22 @@
+{
+  "command": [
+    "scripts/ci/with-fold-host-cargo-lock.sh",
+    "--timeout",
+    "600",
+    "--",
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd"
+  ],
+  "completed_unix_seconds": 1792429046.787991,
+  "exit_code": 0,
+  "log": "validation/release-build-merged.txt",
+  "new_product_operations_started": false,
+  "source_commit": "3dfcf8d658a7f9d8efdd55cc0635c0322e0ef88f",
+  "started_unix_seconds": 1792428912.252912
+}

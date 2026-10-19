@@ -1,0 +1,24 @@
+{
+  "all_sealed_files_unchanged": true,
+  "approved_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tkh5m_5i",
+  "complete": true,
+  "completion_seal_unchanged": true,
+  "failed_completion_result_remains_false": true,
+  "fresh_creator_and_node_process_check": {
+    "command": [
+      "ps",
+      "-p",
+      "93026,93035,93471,93473,93474,93600",
+      "-o",
+      "pid=,command="
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "root_absent": true,
+  "scope": "Only this exact independently reviewed synthetic root was reclaimed. No API, build, source capture/helper edit or other cleanup. New source capture waits for root final checks and SHA.",
+  "sealed_completion_files_checked": 9,
+  "sealed_initial_files_checked": 9,
+  "supported_cleanup_result": "completion-cleanup-result.json"
+}
