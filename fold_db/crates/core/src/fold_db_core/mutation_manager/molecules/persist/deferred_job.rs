@@ -103,25 +103,18 @@ impl MutationManager {
         job: &mut DeferredPersistJob,
         commit_id: u64,
     ) -> Result<(), SchemaError> {
-        let mut timing = std::collections::HashMap::new();
         self.persist_sibling_key_moves(job).boxed().await?;
-        self.persist_modified_molecules(
-            &mut job.schema,
-            &job.modified_fields,
-            &job.mutation_events,
-            &job.share_prefixes,
-            &mut timing,
-        )
-        .await
-        .map_err(|error| {
-            tracing::error!(
-                error = %error,
-                schema = %job.schema_name,
-                commit_id,
-                "deferred resident-write molecule persist failed"
-            );
-            error
-        })?;
+        self.persist_modified_molecules(&mut job.schema, &job.modified_fields, &job.share_prefixes)
+            .await
+            .map_err(|error| {
+                tracing::error!(
+                    error = %error,
+                    schema = %job.schema_name,
+                    commit_id,
+                    "deferred resident-write molecule persist failed"
+                );
+                error
+            })?;
 
         let prefix = job
             .schema

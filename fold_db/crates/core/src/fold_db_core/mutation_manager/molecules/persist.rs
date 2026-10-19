@@ -1,9 +1,8 @@
-//! Persist modified molecules and mutation events.
+//! Persist current molecule changes and their transient reference effects.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::atom::MutationEvent;
 use crate::db_operations::{ChangedKey, MoleculeData, MoleculeGateHoldStats};
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
@@ -19,7 +18,6 @@ pub(crate) struct DeferredPersistJob {
     pub share_prefixes: Vec<String>,
     pub schema: Schema,
     pub modified_fields: ModifiedFieldKeys,
-    pub mutation_events: Vec<MutationEvent>,
     /// Idempotency decisions for this schema group. They become visible only
     /// after the data stages ahead of them succeed on the same lane.
     pub idempotency_entries: Vec<(String, String)>,
@@ -80,9 +78,7 @@ impl MutationManager {
         &self,
         schema: &mut Schema,
         modified_fields: &ModifiedFieldKeys,
-        mutation_events: &[MutationEvent],
         share_prefixes: &[String],
-        timing_breakdown: &mut HashMap<&str, std::time::Duration>,
     ) -> Result<(), SchemaError> {
         let mut molecules_to_store: Vec<(String, &MoleculeData, HashSet<ChangedKey>)> = Vec::new();
         let field_names: Vec<String> = modified_fields.keys().cloned().collect();
@@ -103,8 +99,7 @@ impl MutationManager {
         // (X-LastDB-Db). The molecule was loaded under that same prefix by
         // `restore_missing_molecules`, so writing only the changed keys +
         // header here is sufficient and leaves no untouched key stranded.
-        // Also writes archived tip versions (`tv:`) only when point-in-time
-        // history was explicitly enabled. Mini's default thin-tip writes emit none.
+        // Current tip references retire with the replaced tips in this batch.
         let request_storage_prefix = field_names
             .iter()
             .find_map(|name| schema.runtime_fields.get(name))
@@ -138,21 +133,17 @@ impl MutationManager {
 
         drop(molecules_to_store);
 
-        // Drain in-memory pending tip versions after a successful store so the
-        // next write does not re-buffer the same archives.
+        // Clear effects after the successful store so the next write does not
+        // repeat the same reverse-reference or conflict changes.
         for field_name in field_names {
             if let Some(mol) = schema
                 .runtime_fields
                 .get_mut(&field_name)
                 .and_then(|f| f.molecule_data_mut())
             {
-                let _ = mol.take_pending_tip_versions();
+                mol.clear_pending_tip_effects();
             }
         }
-
-        // No `history:` MutationEvent log — tip-version chain is the history.
-        let _ = mutation_events;
-        let _ = timing_breakdown;
 
         Ok(())
     }

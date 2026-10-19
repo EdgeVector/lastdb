@@ -111,8 +111,7 @@ impl HashRangeQueryProcessor {
                 request_concurrency,
             )
             .await?;
-        let mut kept_keys =
-            self.matching_field_predicate_keys(&pass_a, predicates.unwrap_or(&[]))?;
+        let mut kept_keys = self.matching_field_predicate_keys(&pass_a, predicates.unwrap_or(&[]));
         if let Some(order_by) = order_by {
             self.sort_keys_by_field(&mut kept_keys, &pass_a.fields, order_by);
         }
@@ -130,6 +129,7 @@ impl HashRangeQueryProcessor {
             &kept_keys,
             &pass_a.key_sources,
             include_tombstones,
+            request_concurrency,
         )
         .await
     }

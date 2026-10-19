@@ -88,7 +88,7 @@ impl MoleculeHashRange {
         } else {
             None
         };
-        let mut entry = AtomEntry {
+        let entry = AtomEntry {
             atom_uuid: tip.atom_uuid,
             written_at,
             logical_counter: tip.logical_counter,
@@ -136,7 +136,7 @@ impl MoleculeHashRange {
                 replaced = Some(existing.clone());
             }
         }
-        entry.prev_tip_id = self.archive_current_tip(&hash_value, &range_value, &entry.atom_uuid);
+        self.record_replaced_tip(&hash_value, &range_value, &entry.atom_uuid);
         self.version += 1;
         if let Some(replaced) = replaced {
             let conflict = (TipConflictKind::Replaced, entry.clone(), replaced);

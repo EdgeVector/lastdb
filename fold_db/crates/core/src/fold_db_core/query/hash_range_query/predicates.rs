@@ -2,11 +2,7 @@
 
 use super::*;
 
-pub(super) fn field_predicate_matches(
-    predicate: &FieldPredicate,
-    fields: &HashMap<String, Value>,
-) -> bool {
-    let value = fields.get(predicate.field_name());
+pub(super) fn field_predicate_matches(predicate: &FieldPredicate, value: Option<&Value>) -> bool {
     match predicate {
         FieldPredicate::Eq { value: target, .. } => value == Some(target),
         FieldPredicate::In { values, .. } => value.is_some_and(|v| values.iter().any(|t| t == v)),

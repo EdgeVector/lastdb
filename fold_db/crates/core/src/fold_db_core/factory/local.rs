@@ -15,6 +15,7 @@ use crate::storage::node_config_store::NodeConfigStore;
 use std::sync::Arc;
 
 use super::boot::{assert_critical_namespaces_decryptable, map_boot_decrypt_error};
+use super::FoldDbOptions;
 use boot_wiring::{open_db_operations, verify_boot_decrypt_integrity};
 
 /// Identify the key that encrypts local personal data.
@@ -41,20 +42,12 @@ pub(super) fn store_seam_crypto(
     }
 }
 
-pub(super) struct LocalFoldDbOptions {
-    pub(super) at_rest_keyring: Option<Arc<Keyring>>,
-    pub(super) search_outbox_inbox: Option<std::path::PathBuf>,
-}
-
 pub(super) async fn create_local_fold_db(
     path: &std::path::Path,
     e2e_keys: &E2eKeys,
     signer: Arc<Ed25519KeyPair>,
-    options: LocalFoldDbOptions,
+    options: FoldDbOptions,
 ) -> FoldDbResult<Arc<FoldDB>> {
-    let path_str = path
-        .to_str()
-        .ok_or_else(|| FoldDbError::Config("Invalid storage path".to_string()))?;
     let base_store = open_store::open_primary_store(path)?;
     let config_store = NodeConfigStore::with_namespaced_store(
         Arc::clone(&base_store),
@@ -68,11 +61,9 @@ pub(super) async fn create_local_fold_db(
     verify_boot_decrypt_integrity(&store_stack.enc_store).await?;
     let fold_db = FoldDB::initialize_from_init(FoldDbInit {
         db_ops: Arc::new(db_ops),
-        db_path: path_str.to_string(),
         signer,
         search_outbox_inbox: options.search_outbox_inbox,
         mutation_log_capture: Some(store_stack.mutation_log_capture),
-        packing_slots: None,
     })
     .await
     .map_err(|e| map_boot_decrypt_error(e.to_string()))?;

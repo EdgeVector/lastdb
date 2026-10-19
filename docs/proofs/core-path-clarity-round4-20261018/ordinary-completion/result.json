@@ -1,0 +1,266 @@
+{
+  "binary_sha256": "4b35587b13611906d130b00d581965e0266299f684d6b9ab2b56e391a59e6d8b",
+  "checks": [
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "source-current",
+      "phase": "protein-initial",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-9",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "peer-current",
+      "phase": "protein-initial",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-9",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "source-unrelated",
+      "phase": "protein-initial",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-9",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "peer-unrelated",
+      "phase": "protein-initial",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-9",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "source-current",
+      "phase": "protein-after-source-key-change",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-11",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "peer-current",
+      "phase": "protein-after-source-key-change",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-11",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "source-unrelated",
+      "phase": "protein-after-source-key-change",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-11",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "peer-unrelated",
+      "phase": "protein-after-source-key-change",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-11",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 0,
+      "keys_fields_order_and_identities_match": true,
+      "label": "old-peer-absent",
+      "phase": "protein-after-source-key-change",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-11",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "source-current",
+      "phase": "protein-after-reverse-peer-update",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-13",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "peer-current",
+      "phase": "protein-after-reverse-peer-update",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-13",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "source-unrelated",
+      "phase": "protein-after-reverse-peer-update",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-13",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "peer-unrelated",
+      "phase": "protein-after-reverse-peer-update",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-13",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 0,
+      "keys_fields_order_and_identities_match": true,
+      "label": "old-peer-absent",
+      "phase": "protein-after-reverse-peer-update",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-13",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hash-exact-null",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-18",
+      "secondary_concurrency": 0
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hash-exact-absent-missing",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-18",
+      "secondary_concurrency": 0
+    },
+    {
+      "expected_record_count": 2,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hashrange-bounded-absent",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-18",
+      "secondary_concurrency": 0
+    },
+    {
+      "expected_record_count": 2,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hashrange-bounded-ascending-two",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-18",
+      "secondary_concurrency": 0
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hash-exact-null",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-19",
+      "secondary_concurrency": 1
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hash-exact-absent-missing",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-19",
+      "secondary_concurrency": 1
+    },
+    {
+      "expected_record_count": 2,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hashrange-bounded-absent",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-19",
+      "secondary_concurrency": 1
+    },
+    {
+      "expected_record_count": 2,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hashrange-bounded-ascending-two",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-19",
+      "secondary_concurrency": 1
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hash-exact-null",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-20",
+      "secondary_concurrency": 8
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hash-exact-absent-missing",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-20",
+      "secondary_concurrency": 8
+    },
+    {
+      "expected_record_count": 2,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hashrange-bounded-absent",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-20",
+      "secondary_concurrency": 8
+    },
+    {
+      "expected_record_count": 2,
+      "keys_fields_order_and_identities_match": true,
+      "label": "hashrange-bounded-ascending-two",
+      "phase": "reopened-predicates",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-20",
+      "secondary_concurrency": 8
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "source-current",
+      "phase": "protein-after-normal-reopen",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-21",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "peer-current",
+      "phase": "protein-after-normal-reopen",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-21",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "source-unrelated",
+      "phase": "protein-after-normal-reopen",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-21",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 1,
+      "keys_fields_order_and_identities_match": true,
+      "label": "peer-unrelated",
+      "phase": "protein-after-normal-reopen",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-21",
+      "secondary_concurrency": null
+    },
+    {
+      "expected_record_count": 0,
+      "keys_fields_order_and_identities_match": true,
+      "label": "old-peer-absent",
+      "phase": "protein-after-normal-reopen",
+      "request_id": "temperature-380db1a8decf4209a5340c72e7b751f6-completion-21",
+      "secondary_concurrency": null
+    }
+  ],
+  "complete": true,
+  "error": null,
+  "expected_query_items": 31,
+  "original_complete_false_preserved": true,
+  "query_items_checked": 31,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.cjdjksuq",
+  "scope": "Bounded fresh ordinary API completion. No benchmark or timing comparison. Unchanged wire requests from the frozen original input.",
+  "skipped_passed_phase": {
+    "already_passed_items": 63,
+    "name": "initial-predicates",
+    "no_repeat": true
+  },
+  "source_commit": "e91e9b299cc37f36c0600251349b306ed4181ef5"
+}

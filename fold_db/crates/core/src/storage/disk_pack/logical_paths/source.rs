@@ -48,23 +48,25 @@ pub(super) fn body_matches(
 }
 
 pub(super) fn body_matches_coordinates(coordinates: &[(String, String)], requested: &str) -> bool {
-    let Some(first) = crate::kind_partition::read_forms(requested)
-        .into_iter()
-        .next()
-    else {
+    let Some((collection, encoded)) = primary_coordinate(requested) else {
         return false;
     };
-    let Some(collection) =
-        crate::storage::laststore::native_routing::read_candidates(first.as_bytes())
-            .into_iter()
-            .next()
-    else {
-        return false;
-    };
-    let encoded = crate::storage::laststore::native_routing::encode(first.as_bytes());
     coordinates
         .iter()
         .any(|(actual_collection, key)| actual_collection == collection && key == &encoded)
+}
+
+fn primary_coordinate(requested: &str) -> Option<(&'static str, String)> {
+    let first = crate::kind_partition::read_forms(requested)
+        .into_iter()
+        .next()?;
+    let collection = crate::storage::laststore::native_routing::read_candidates(first.as_bytes())
+        .into_iter()
+        .next()?;
+    Some((
+        collection,
+        crate::storage::laststore::native_routing::encode(first.as_bytes()),
+    ))
 }
 
 #[derive(Clone)]
@@ -88,17 +90,10 @@ struct SourceKey {
 
 impl SourceKey {
     fn primary(&self, requested: &str) -> bool {
-        let Some(first) = crate::kind_partition::read_forms(requested)
-            .into_iter()
-            .next()
-        else {
+        let Some((collection, key)) = primary_coordinate(requested) else {
             return false;
         };
-        crate::storage::laststore::native_routing::read_candidates(first.as_bytes())
-            .into_iter()
-            .next()
-            == Some(self.collection.as_str())
-            && crate::storage::laststore::native_routing::encode(first.as_bytes()) == self.key
+        collection == self.collection && key == self.key
     }
 }
 

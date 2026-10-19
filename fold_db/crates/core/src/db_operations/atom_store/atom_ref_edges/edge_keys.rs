@@ -1,6 +1,5 @@
 use super::super::fresh_home_edges::ATOM_REF_V2_FRESH_HOME_MARKER;
 use super::*;
-// lint:file-size-ok moved verbatim from the parent module; one method family per file
 
 // Edge key builders, history edge items and active-edge lookups.
 impl AtomStore {
@@ -343,7 +342,7 @@ impl AtomStore {
         records: &[(String, PerKeyRecord)],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, Value)>, SchemaError> {
-        let mut out = Vec::with_capacity(records.len() + data.pending_replaced_tips().len() * 2);
+        let mut out = Vec::with_capacity(records.len() + data.pending_replaced_tips().len());
 
         for (record_key, record) in records {
             let Some((disk_hash, disk_range)) =
@@ -360,7 +359,7 @@ impl AtomStore {
             )?;
         }
 
-        for (api_hash, api_range, old, archived_version_id) in data.pending_replaced_tips() {
+        for (api_hash, api_range, old) in data.pending_replaced_tips() {
             let disk_hash = self.storage_hash(molecule_uuid, api_hash)?;
             let disk_range = self.storage_range(molecule_uuid, api_range)?;
             push_edge_item(
@@ -368,13 +367,6 @@ impl AtomStore {
                 tip_edge(molecule_uuid, &disk_hash, &disk_range, old, false),
                 storage_prefix,
             )?;
-            if let Some(version_id) = archived_version_id {
-                push_edge_item(
-                    &mut out,
-                    history_edge(molecule_uuid, &disk_hash, &disk_range, version_id, old),
-                    storage_prefix,
-                )?;
-            }
         }
         Ok(out)
     }

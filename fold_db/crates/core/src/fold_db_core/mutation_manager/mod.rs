@@ -243,10 +243,6 @@ pub struct MutationManager {
     /// skips the tip's `written_at` refresh, which is the per-slot LWW
     /// tie-break. See [`dedupe`] for the full contract.
     write_dedupe: bool,
-    /// Coarse explicit policy hook for callers that require per-slot `as_of`
-    /// history. Mini leaves this false by default; schema-scoped retention can
-    /// replace the DB-wide switch when that policy surface lands.
-    tip_history_enabled: std::sync::atomic::AtomicBool,
     /// Sync engine used by administrative capture status and direct callers.
     capture_engine: std::sync::RwLock<Option<std::sync::Arc<crate::sync::SyncEngine>>>,
     /// Bounded post-ack capture queue shared with the serving store wrapper.
@@ -326,7 +322,6 @@ impl MutationManager {
             purge_stats,
             molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
             write_dedupe,
-            tip_history_enabled: std::sync::atomic::AtomicBool::new(false),
             capture_engine: std::sync::RwLock::new(None),
             capture_router,
             persist_lanes,
@@ -372,7 +367,6 @@ impl MutationManager {
             purge_stats,
             molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
             write_dedupe,
-            tip_history_enabled: std::sync::atomic::AtomicBool::new(false),
             capture_engine: std::sync::RwLock::new(None),
             capture_router,
             persist_lanes: Arc::new(crate::resident::PersistLaneSet::disabled()),
@@ -492,12 +486,6 @@ impl MutationManager {
     /// this cut; the GC timestamp guard protects bodies from those writes.
     pub(crate) async fn wait_for_atom_gc_persist_cut(&self, timeout: std::time::Duration) -> bool {
         self.pending_tasks.wait_for_completion(timeout).await
-    }
-
-    #[inline]
-    fn tip_history_enabled_for_writes(&self) -> bool {
-        self.tip_history_enabled
-            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Admit one deferred persist of `bytes`, or refuse.

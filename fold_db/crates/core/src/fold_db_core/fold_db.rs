@@ -57,15 +57,12 @@ pub struct FoldDB {
     pub(crate) background_flush: super::mutation_flush::BackgroundFlushTask,
     /// Periodic orphan `protein:` reaper. See [`super::protein_reaper`].
     pub(crate) background_protein_reaper: super::protein_reaper::BackgroundProteinReaperTask,
-    /// Periodic bounded tip-history chain drain. See [`super::tip_history_drain`].
-    pub(crate) background_tip_history_drain:
-        super::tip_history_drain::BackgroundTipHistoryDrainTask,
     /// Periodic atom-reclaim janitor after live Delete converge. See
     /// [`super::atom_reclaim_janitor`].
     pub(crate) background_atom_reclaim_janitor:
         super::atom_reclaim_janitor::BackgroundAtomReclaimJanitorTask,
-    /// Coordinates the optional cloud sync engine lifecycle.
-    /// In local mode this holds no engine and all sync operations are no-ops.
+    /// Owns local maintenance cadences and their shared packing lock.
+    /// The optional cloud engine is absent during the native cutover.
     sync_coordinator: SyncCoordinator,
     /// Post-commit mutation-log capture engine slot. Present on factory-built
     /// stores even while Cloud Sync is off so live enable can start capture.
@@ -90,7 +87,6 @@ impl Drop for FoldDB {
         self.background_flush.abort();
         self.mutation_manager.persist_lanes().stop();
         self.background_protein_reaper.stop();
-        self.background_tip_history_drain.stop();
         self.background_atom_reclaim_janitor.stop();
         // Abort the background sync task to prevent tokio panic:
         // "Cannot drop a runtime in a context where blocking is not allowed"

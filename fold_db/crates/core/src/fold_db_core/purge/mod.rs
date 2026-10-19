@@ -21,26 +21,15 @@
 //! own verb. There is nothing left for the admin restore endpoint to undo
 //! after either.
 //!
-//! The historical reach is planned from the **tip-version chain**, not
-//! from `history:`. Those rows' only writer is test-only code — the
-//! production write path retired them when the `tv:` chain replaced them
-//! — so a plan built from them collapsed to the live head, and every
-//! superseded value of a purged key survived while
-//! `BulkPurgeReport::history_rows_deleted` reported 0 because nothing had
-//! run. The `history:` scan is still here for legacy stores that do carry
-//! those rows; on a current store it contributes nothing. Card
-//! `lastdb-purge-never-prunes-the-tip-version-chain`.
+//! Current logical writes keep only the current tip. They create no `tv:`
+//! history nodes or archived-tip reverse references. An updated-then-purged
+//! current key therefore has no history chain to walk; superseded atom bodies
+//! become reclaim candidates rather than retained history. `gc-atoms` reaps
+//! unreferenced bodies, then `gc-file-blobs` reaps blobs nothing references.
 //!
-//! **Thin-tip limit of that reach:** minting `tv:` rows is policy-gated
-//! (`MutationManager::set_tip_history_enabled_for_writes`) and the settled
-//! Mini default is OFF — ordinary updates replace the head and archive
-//! nothing. On such a store an updated-then-purged key has no chain to
-//! walk, `tip_versions_pruned` is honestly 0, and the superseded body
-//! atoms survive this verb as unreferenced residue. That is by design,
-//! not a planner gap: the erasure contract is completed by the layered
-//! sweep — `gc-atoms` reaps the unreferenced bodies, then `gc-file-blobs`
-//! reaps blobs nothing references. Brain:
-//! `papercut-purge-update-superseded-atom-survives-no-tv-rows-written`.
+//! The explicit physical cleanup routes still understand existing `tv:`
+//! chains and old `history:` rows. Their historical reach comes from the
+//! tip-version chain; current logical writes do not create either format.
 //!
 //! Deleting a chain node and deleting the atom it names are separate
 //! decisions, and conflating them is how this path breaks a sibling. A

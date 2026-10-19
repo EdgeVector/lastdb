@@ -4,7 +4,7 @@ use futures::FutureExt;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::atom::{Atom, MutationEvent, TipAuthor};
+use crate::atom::{Atom, TipAuthor};
 use crate::db_operations::ChangedKey;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
@@ -22,16 +22,10 @@ impl MutationManager {
         schema_mutations: &[Mutation],
         mutation_key_values: &[KeyValue],
         atom_results: Vec<(usize, String, Atom)>,
-    ) -> (
-        Vec<MutationEvent>,
-        ModifiedFieldKeys,
-        super::prepared::AcceptedSources,
-    ) {
+    ) -> (ModifiedFieldKeys, super::prepared::AcceptedSources) {
         // field_name -> the keys touched on that field's molecule this batch.
-        // A field present with an empty ChangedKey set still persists (e.g. Single empty slot).
+        // An empty changed-key set can still carry a molecule header update.
         let mut modified_fields: HashMap<String, HashSet<ChangedKey>> = HashMap::new();
-        // History-off: always empty. Previous version is tip `prev_atom_uuid`.
-        let mutation_events: Vec<MutationEvent> = Vec::new();
         let mut accepted_sources = HashMap::new();
         let mut slot_heads = super::batch_rebase::BatchSlotHeads::default();
 
@@ -90,7 +84,7 @@ impl MutationManager {
         }
 
         slot_heads.overlay_changed_schema(schema, &modified_fields);
-        (mutation_events, modified_fields, accepted_sources)
+        (modified_fields, accepted_sources)
     }
 
     fn write_field_atom(
@@ -101,11 +95,6 @@ impl MutationManager {
         field_name: &str,
         atom: &Atom,
     ) -> bool {
-        if self.tip_history_enabled_for_writes() {
-            if let Some(molecule) = field.molecule.as_mut() {
-                molecule.set_tip_history_enabled(true);
-            }
-        }
         field.write_mutation(
             key,
             crate::schema::types::field::WriteContext {

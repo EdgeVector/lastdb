@@ -1,6 +1,7 @@
 //! Moved verbatim out of the parent module; see the parent for context.
 
 use super::*;
+use std::collections::HashMap;
 
 impl MutationManager {
     /// Write-gate key for one molecule *tip slot*.

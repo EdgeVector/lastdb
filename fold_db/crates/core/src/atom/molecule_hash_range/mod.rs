@@ -57,27 +57,17 @@ pub struct MoleculeHashRange {
     /// Structure: HashMap<hash_value, BTreeMap<range_value, KeyMetadata>>
     #[serde(default)]
     key_metadata: HashMap<String, BTreeMap<String, KeyMetadata>>,
-    /// Tip versions archived this in-memory session, to persist as `tv:{id}`.
-    /// Each entry is `(version_id, tip_snapshot)` where the snapshot is the
-    /// prior head (including its own `prev_tip_id` link). Not serialized.
-    #[serde(skip)]
-    pending_tip_versions: Vec<(String, AtomEntry)>,
     /// Prior tips replaced or removed in this in-memory session.
     ///
-    /// The reverse-reference plane needs this transient delta even when the
-    /// thin-tip policy does not retain a `tv:` history node. Each tuple is
-    /// `(hash, range, old_tip, archived_version_id)`.
+    /// Current reverse references use this transient delta to retire the old
+    /// tip. Each tuple is `(hash, range, old_tip)`; no stored history is created.
     #[serde(skip)]
-    pending_replaced_tips: Vec<(String, String, AtomEntry, Option<String>)>,
+    pending_replaced_tips: Vec<(String, String, AtomEntry)>,
     /// Tip decisions in this in-memory session between writes of different
     /// atoms from different sync devices. The persist step records them
     /// before it writes the tips. Not serialized.
     #[serde(skip)]
     pending_tip_conflicts: Vec<PendingTipConflict>,
-    /// Whether overwrites archive prior heads into `tv:` history. Mini's
-    /// settled thin-tip policy keeps this disabled by default.
-    #[serde(skip)]
-    tip_history_enabled: bool,
 }
 
 mod compact_key;

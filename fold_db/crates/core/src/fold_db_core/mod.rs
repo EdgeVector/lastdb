@@ -18,7 +18,6 @@ pub mod orchestration;
 pub mod pending_task_tracker;
 pub mod protein_reaper;
 pub mod query;
-pub mod tip_history_drain;
 
 pub mod mutation_manager;
 pub mod purge;
@@ -41,10 +40,6 @@ pub use protein_reaper::{
     PROTEIN_REAPER_MS_ENV,
 };
 pub use sync_coordinator::{AutomaticGcAtomsStatus, SyncCoordinator};
-pub use tip_history_drain::{
-    BackgroundTipHistoryDrainTask, TipHistoryDrainPolicy, DEFAULT_TIP_HISTORY_DRAIN_MAX_KEYS,
-    DEFAULT_TIP_HISTORY_DRAIN_MS, TIP_HISTORY_DRAIN_MAX_KEYS_ENV, TIP_HISTORY_DRAIN_MS_ENV,
-};
 
 pub use fold_db::{
     CatalogDeleteReclaimResult, CatalogReclaimResult, DbSchemaShareResult, FoldDB,

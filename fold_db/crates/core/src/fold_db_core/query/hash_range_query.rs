@@ -28,8 +28,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-use super::formatter::records_from_field_map;
-
 mod cokey;
 mod cokey_primary;
 mod cokey_secondary;

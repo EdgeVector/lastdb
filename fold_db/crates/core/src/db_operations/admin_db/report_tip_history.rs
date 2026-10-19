@@ -3,10 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Controls one bounded pass of automatic tip-history chain drain.
+/// Controls one explicit bounded pass of tip-history chain drain.
 ///
 /// See [`AtomStore::drain_tip_history_chains`]. This is the reclaim path for
-/// legacy `tv:` chains left after tip history became opt-in — not a substitute
+/// legacy `tv:` chains in physical data — not a substitute
 /// for orphan-atom GC and never a collection compact.
 #[derive(Debug, Clone, Default)]
 pub struct TipHistoryDrainOptions {
@@ -22,7 +22,12 @@ pub struct TipHistoryDrainOptions {
     pub storage_prefix: Option<String>,
 }
 
-/// Durable checkpoint for the background tip-history drain scheduler.
+impl TipHistoryDrainOptions {
+    /// Default bounded page size for the manual maintenance request.
+    pub const DEFAULT_MAX_KEYS: usize = 256;
+}
+
+/// Durable checkpoint for explicit resumable tip-history maintenance.
 ///
 /// Stored under [`TIP_HISTORY_DRAIN_CHECKPOINT_KEY`] so interrupted passes
 /// resume without redoing the prefix already cleared.
@@ -49,7 +54,7 @@ pub struct TipHistoryDrainCheckpoint {
     pub sweep_complete: bool,
 }
 
-/// Meta key for the automatic tip-history drain checkpoint (personal plane).
+/// Meta key for explicit resumable tip-history maintenance (personal plane).
 pub const TIP_HISTORY_DRAIN_CHECKPOINT_KEY: &str = "tvh-meta:drain:v1";
 
 /// Controls one bounded pass of 7-day superseded-version retention on **live**

@@ -1,0 +1,31 @@
+host_cargo_lock=held pid=96741 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
+    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)
+   Compiling lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)
+error[E0425]: cannot find type `HashMap` in this scope
+  --> fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/locks.rs:43:24
+   |
+43 |         changed_keys: &HashMap<String, HashSet<ChangedKey>>,
+   |                        ^^^^^^^ not found in this scope
+   |
+help: consider importing one of these structs
+   |
+ 3 + use crate::fold_db_core::mutation_manager::HashMap;
+   |
+ 3 + use std::collections::HashMap;
+   |
+
+error[E0425]: cannot find type `HashMap` in this scope
+   --> fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/locks.rs:130:24
+    |
+130 |         changed_keys: &HashMap<String, HashSet<ChangedKey>>,
+    |                        ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these structs
+    |
+  3 + use crate::fold_db_core::mutation_manager::HashMap;
+    |
+  3 + use std::collections::HashMap;
+    |
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `fold_db` (lib) due to 2 previous errors

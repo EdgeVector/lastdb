@@ -217,13 +217,6 @@ impl AtomStore {
                 .map_err(|e| SchemaError::InvalidData(format!("serialize per-key record: {e}")))?;
             items.push((build_storage_key(storage_prefix, base_key), value));
         }
-        push_pending_tip_version_items(&mut items, data, storage_prefix)?;
-        items.extend(self.pending_tip_version_backref_items(
-            molecule_uuid,
-            data,
-            &records,
-            storage_prefix,
-        )?);
         items.extend(self.pending_atom_ref_edge_items(
             molecule_uuid,
             data,
@@ -241,25 +234,4 @@ impl AtomStore {
         ));
         Ok(items)
     }
-}
-
-/// Serialize the molecule's pending tip versions into storage items.
-fn push_pending_tip_version_items(
-    items: &mut Vec<(String, Value)>,
-    data: &MoleculeData,
-    storage_prefix: Option<&str>,
-) -> Result<(), SchemaError> {
-    for (version_id, entry) in data.pending_tip_versions() {
-        let value = serde_json::to_value(entry).map_err(|e| {
-            SchemaError::InvalidData(format!("serialize tip version {version_id}: {e}"))
-        })?;
-        items.push((
-            build_storage_key(
-                storage_prefix,
-                &molecule_key_codec::tip_version_key(version_id),
-            ),
-            value,
-        ));
-    }
-    Ok(())
 }

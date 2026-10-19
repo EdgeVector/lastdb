@@ -102,7 +102,7 @@ pub(in crate::exec) async fn execute_db_drain_tip_history_route(
         #[serde(default)]
         after_key: Option<String>,
         /// When true, resume from and advance the durable automatic-drain
-        /// checkpoint (same path as the background scheduler).
+        /// checkpoint for this explicit maintenance request.
         #[serde(default)]
         from_checkpoint: Option<bool>,
     }
@@ -130,7 +130,7 @@ pub(in crate::exec) async fn execute_db_drain_tip_history_route(
         dry_run: body.dry_run.unwrap_or(true),
         max_keys: body
             .max_keys
-            .unwrap_or(fold_db::fold_db_core::DEFAULT_TIP_HISTORY_DRAIN_MAX_KEYS),
+            .unwrap_or(fold_db::db_operations::TipHistoryDrainOptions::DEFAULT_MAX_KEYS),
         max_prunes: body.max_prunes,
         after_key: body.after_key,
         storage_prefix: None,

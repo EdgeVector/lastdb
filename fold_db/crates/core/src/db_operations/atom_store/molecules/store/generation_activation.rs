@@ -1,27 +1,6 @@
 use super::*;
 
 impl AtomStore {
-    /// Archived tip versions for the tip-version chain (`tv:{id}`).
-    fn tip_version_items(
-        data: &MoleculeData,
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<(String, Value)>, SchemaError> {
-        let mut items = Vec::new();
-        for (version_id, entry) in data.pending_tip_versions() {
-            let value = serde_json::to_value(entry).map_err(|e| {
-                SchemaError::InvalidData(format!("serialize tip version {version_id}: {e}"))
-            })?;
-            items.push((
-                build_storage_key(
-                    storage_prefix,
-                    &molecule_key_codec::tip_version_key(version_id),
-                ),
-                value,
-            ));
-        }
-        Ok(items)
-    }
-
     /// A full rewrite requires the molecule's complete key set. A write tail
     /// or a partial warm molecule cannot replace that complete set.
     fn refuse_partial_full_rewrite(
@@ -57,8 +36,7 @@ impl AtomStore {
             .collect()
     }
 
-    /// Tip versions, backrefs, atom-ref edges, and the molecule header row
-    /// for one activation batch.
+    /// Current atom-ref edges and the molecule header for one activation batch.
     fn activation_structural_items(
         &self,
         molecule_uuid: &str,
@@ -72,18 +50,7 @@ impl AtomStore {
         // keep appending live `mk:` changes while that body is built; the final
         // pointer and the structural rows below share one small activation
         // batch.
-        items.extend(Self::tip_version_items(data, storage_prefix)?);
-        // Derived atom -> archived-tip access pattern. These rows land in the
-        // same durable batch as their authoritative `tv:` nodes, including
-        // replay/full-rewrite paths.
-        items.extend(self.pending_tip_version_backref_items(
-            molecule_uuid,
-            data,
-            records,
-            storage_prefix,
-        )?);
-        // Shadow atom-reference edges share this durable batch with the `mk:`
-        // tips and optional `tv:` history rows they describe.
+        // Current atom-reference edges share the activation boundary.
         items.extend(self.pending_atom_ref_edge_items(
             molecule_uuid,
             data,

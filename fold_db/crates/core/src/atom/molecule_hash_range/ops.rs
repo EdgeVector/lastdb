@@ -74,7 +74,7 @@ impl MoleculeHashRange {
         {
             return;
         }
-        let prev_tip_id = self.archive_current_tip(&hash_value, &range_value, &atom_uuid);
+        self.record_replaced_tip(&hash_value, &range_value, &atom_uuid);
         let value_changed = self.get_atom_uuid(&hash_value, &range_value) != Some(&atom_uuid);
         if value_changed {
             self.version += 1;
@@ -88,71 +88,34 @@ impl MoleculeHashRange {
                 logical_counter,
                 device_id,
                 mutation_uuid,
-                prev_tip_id,
+                String::new(),
             ),
         );
         self.updated_at = Utc::now();
     }
 
-    /// If this slot already has a different atom, archive the current tip as a
-    /// tip-version node and return its id for the new head's `prev_tip_id` when
-    /// point-in-time history was explicitly enabled. Thin tips are the default,
-    /// so ordinary Mini writes replace the head without growing `tv:` forever.
-    pub(super) fn archive_current_tip(
-        &mut self,
-        hash: &str,
-        range: &str,
-        new_atom_uuid: &str,
-    ) -> String {
+    /// Retain the prior tip until persistence retires its reverse reference.
+    /// This is a private write effect, not stored atom history.
+    pub(super) fn record_replaced_tip(&mut self, hash: &str, range: &str, new_atom_uuid: &str) {
         let Some(old) = self.get_atom_entry(hash, range).cloned() else {
-            return String::new();
+            return;
         };
         if old.atom_uuid == new_atom_uuid {
-            // Same content (e.g. device-only no-op already filtered); keep chain.
-            return old.prev_tip_id;
+            return;
         }
-        let version_id = self
-            .tip_history_enabled
-            .then(|| uuid::Uuid::new_v4().to_string());
-        self.pending_replaced_tips.push((
-            hash.to_string(),
-            range.to_string(),
-            old.clone(),
-            version_id.clone(),
-        ));
-        if let Some(version_id) = version_id {
-            self.pending_tip_versions.push((version_id.clone(), old));
-            version_id
-        } else {
-            String::new()
-        }
+        self.pending_replaced_tips
+            .push((hash.to_string(), range.to_string(), old));
     }
 
-    /// Explicitly opt this in-memory molecule into full per-slot history.
-    ///
-    /// This flag is not serialized: Mini remains thin after every load, while
-    /// specialized callers may request history before mutating a molecule.
-    /// Existing `prev_tip_id` / `tv:` chains remain readable and reclaimable.
-    pub fn set_tip_history_enabled(&mut self, enabled: bool) {
-        self.tip_history_enabled = enabled;
-    }
-
-    /// Drain tip versions archived since the last persist (to write as `tv:`).
-    pub(crate) fn take_pending_tip_versions(&mut self) -> Vec<(String, AtomEntry)> {
+    /// Clear replacement and conflict effects after their successful store.
+    pub(crate) fn clear_pending_tip_effects(&mut self) {
         self.pending_replaced_tips.clear();
         self.pending_tip_conflicts.clear();
-        std::mem::take(&mut self.pending_tip_versions)
-    }
-
-    /// Borrow pending tip versions without clearing (for read-only inspection).
-    #[must_use]
-    pub(crate) fn pending_tip_versions(&self) -> &[(String, AtomEntry)] {
-        &self.pending_tip_versions
     }
 
     /// Borrow prior tips replaced or removed since the last durable persist.
     #[must_use]
-    pub(crate) fn pending_replaced_tips(&self) -> &[(String, String, AtomEntry, Option<String>)] {
+    pub(crate) fn pending_replaced_tips(&self) -> &[(String, String, AtomEntry)] {
         &self.pending_replaced_tips
     }
 
@@ -205,7 +168,6 @@ impl MoleculeHashRange {
                 hash_value.to_string(),
                 range_value.to_string(),
                 entry.clone(),
-                None,
             ));
             self.remove_key_metadata(hash_value, range_value);
             self.version += 1;
