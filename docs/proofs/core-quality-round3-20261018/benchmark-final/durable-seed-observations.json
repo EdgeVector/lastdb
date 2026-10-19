@@ -1,0 +1,622 @@
+{
+  "groups": [
+    {
+      "geometry": "hash",
+      "label": "before-off",
+      "max_ms": 538.848125,
+      "median_ms": 377.89425,
+      "min_ms": 276.455833,
+      "observations": [
+        {
+          "elapsed_nanos": 403179875,
+          "request_id": "temperature-19e855ec5c2c4387bac70a0abc109765-before-off-r1-3",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 276455833,
+          "request_id": "temperature-19e855ec5c2c4387bac70a0abc109765-before-off-r1-5",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 340569708,
+          "request_id": "temperature-19e855ec5c2c4387bac70a0abc109765-before-off-r1-7",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 502282833,
+          "request_id": "temperature-19e855ec5c2c4387bac70a0abc109765-before-off-r1-9",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 357454791,
+          "request_id": "temperature-b663fc4513944a878b247f658f07c58e-before-off-r2-3",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 371909875,
+          "request_id": "temperature-b663fc4513944a878b247f658f07c58e-before-off-r2-5",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 383878625,
+          "request_id": "temperature-b663fc4513944a878b247f658f07c58e-before-off-r2-7",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 538848125,
+          "request_id": "temperature-b663fc4513944a878b247f658f07c58e-before-off-r2-9",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        }
+      ],
+      "observed_p95_ms": 538.848125,
+      "samples": 8,
+      "values_ms": [
+        403.179875,
+        276.455833,
+        340.569708,
+        502.282833,
+        357.454791,
+        371.909875,
+        383.878625,
+        538.848125
+      ]
+    },
+    {
+      "geometry": "hashrange",
+      "label": "before-off",
+      "max_ms": 698.953542,
+      "median_ms": 407.5723335,
+      "min_ms": 380.514708,
+      "observations": [
+        {
+          "elapsed_nanos": 380514708,
+          "request_id": "temperature-19e855ec5c2c4387bac70a0abc109765-before-off-r1-12",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 388476917,
+          "request_id": "temperature-19e855ec5c2c4387bac70a0abc109765-before-off-r1-14",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 386038250,
+          "request_id": "temperature-19e855ec5c2c4387bac70a0abc109765-before-off-r1-16",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 525804750,
+          "request_id": "temperature-19e855ec5c2c4387bac70a0abc109765-before-off-r1-18",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 413434750,
+          "request_id": "temperature-b663fc4513944a878b247f658f07c58e-before-off-r2-12",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 401709917,
+          "request_id": "temperature-b663fc4513944a878b247f658f07c58e-before-off-r2-14",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 469050959,
+          "request_id": "temperature-b663fc4513944a878b247f658f07c58e-before-off-r2-16",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 698953542,
+          "request_id": "temperature-b663fc4513944a878b247f658f07c58e-before-off-r2-18",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        }
+      ],
+      "observed_p95_ms": 698.953542,
+      "samples": 8,
+      "values_ms": [
+        380.514708,
+        388.476917,
+        386.03825,
+        525.80475,
+        413.43475,
+        401.709917,
+        469.050959,
+        698.953542
+      ]
+    },
+    {
+      "geometry": "hash",
+      "label": "before-on",
+      "max_ms": 533.484667,
+      "median_ms": 372.7823335,
+      "min_ms": 262.874542,
+      "observations": [
+        {
+          "elapsed_nanos": 372265125,
+          "request_id": "temperature-21d090ad382548c2835fb5255bd6993a-before-on-r1-3",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 262874542,
+          "request_id": "temperature-21d090ad382548c2835fb5255bd6993a-before-on-r1-5",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 396606750,
+          "request_id": "temperature-21d090ad382548c2835fb5255bd6993a-before-on-r1-7",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 533484667,
+          "request_id": "temperature-21d090ad382548c2835fb5255bd6993a-before-on-r1-9",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 346933959,
+          "request_id": "temperature-ab450804419d4659bbd94bffbf8b14d8-before-on-r2-3",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 373299542,
+          "request_id": "temperature-ab450804419d4659bbd94bffbf8b14d8-before-on-r2-5",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 272064667,
+          "request_id": "temperature-ab450804419d4659bbd94bffbf8b14d8-before-on-r2-7",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 378017083,
+          "request_id": "temperature-ab450804419d4659bbd94bffbf8b14d8-before-on-r2-9",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        }
+      ],
+      "observed_p95_ms": 533.484667,
+      "samples": 8,
+      "values_ms": [
+        372.265125,
+        262.874542,
+        396.60675,
+        533.484667,
+        346.933959,
+        373.299542,
+        272.064667,
+        378.017083
+      ]
+    },
+    {
+      "geometry": "hashrange",
+      "label": "before-on",
+      "max_ms": 525.593792,
+      "median_ms": 403.9079375,
+      "min_ms": 265.24325,
+      "observations": [
+        {
+          "elapsed_nanos": 390622625,
+          "request_id": "temperature-21d090ad382548c2835fb5255bd6993a-before-on-r1-12",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 404579333,
+          "request_id": "temperature-21d090ad382548c2835fb5255bd6993a-before-on-r1-14",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 413933666,
+          "request_id": "temperature-21d090ad382548c2835fb5255bd6993a-before-on-r1-16",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 525593792,
+          "request_id": "temperature-21d090ad382548c2835fb5255bd6993a-before-on-r1-18",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 265243250,
+          "request_id": "temperature-ab450804419d4659bbd94bffbf8b14d8-before-on-r2-12",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 520083625,
+          "request_id": "temperature-ab450804419d4659bbd94bffbf8b14d8-before-on-r2-14",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 389258708,
+          "request_id": "temperature-ab450804419d4659bbd94bffbf8b14d8-before-on-r2-16",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 403236542,
+          "request_id": "temperature-ab450804419d4659bbd94bffbf8b14d8-before-on-r2-18",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        }
+      ],
+      "observed_p95_ms": 525.593792,
+      "samples": 8,
+      "values_ms": [
+        390.622625,
+        404.579333,
+        413.933666,
+        525.593792,
+        265.24325,
+        520.083625,
+        389.258708,
+        403.236542
+      ]
+    },
+    {
+      "geometry": "hash",
+      "label": "current-off",
+      "max_ms": 672.203791,
+      "median_ms": 379.1353755,
+      "min_ms": 303.167792,
+      "observations": [
+        {
+          "elapsed_nanos": 339257709,
+          "request_id": "temperature-a2ce48abea3645d7a46d8775a104b882-current-off-r1-3",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 303167792,
+          "request_id": "temperature-a2ce48abea3645d7a46d8775a104b882-current-off-r1-5",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 472065542,
+          "request_id": "temperature-a2ce48abea3645d7a46d8775a104b882-current-off-r1-7",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 672203791,
+          "request_id": "temperature-a2ce48abea3645d7a46d8775a104b882-current-off-r1-9",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 353197375,
+          "request_id": "temperature-d269857fca684d5ea05803c0a07f1611-current-off-r2-3",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 375357542,
+          "request_id": "temperature-d269857fca684d5ea05803c0a07f1611-current-off-r2-5",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 382913209,
+          "request_id": "temperature-d269857fca684d5ea05803c0a07f1611-current-off-r2-7",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 523071875,
+          "request_id": "temperature-d269857fca684d5ea05803c0a07f1611-current-off-r2-9",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        }
+      ],
+      "observed_p95_ms": 672.203791,
+      "samples": 8,
+      "values_ms": [
+        339.257709,
+        303.167792,
+        472.065542,
+        672.203791,
+        353.197375,
+        375.357542,
+        382.913209,
+        523.071875
+      ]
+    },
+    {
+      "geometry": "hashrange",
+      "label": "current-off",
+      "max_ms": 556.012875,
+      "median_ms": 410.599646,
+      "min_ms": 281.113833,
+      "observations": [
+        {
+          "elapsed_nanos": 486028750,
+          "request_id": "temperature-a2ce48abea3645d7a46d8775a104b882-current-off-r1-12",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 313557292,
+          "request_id": "temperature-a2ce48abea3645d7a46d8775a104b882-current-off-r1-14",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 426303875,
+          "request_id": "temperature-a2ce48abea3645d7a46d8775a104b882-current-off-r1-16",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 556012875,
+          "request_id": "temperature-a2ce48abea3645d7a46d8775a104b882-current-off-r1-18",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 394895417,
+          "request_id": "temperature-d269857fca684d5ea05803c0a07f1611-current-off-r2-12",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 281113833,
+          "request_id": "temperature-d269857fca684d5ea05803c0a07f1611-current-off-r2-14",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 385793625,
+          "request_id": "temperature-d269857fca684d5ea05803c0a07f1611-current-off-r2-16",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 512042334,
+          "request_id": "temperature-d269857fca684d5ea05803c0a07f1611-current-off-r2-18",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        }
+      ],
+      "observed_p95_ms": 556.012875,
+      "samples": 8,
+      "values_ms": [
+        486.02875,
+        313.557292,
+        426.303875,
+        556.012875,
+        394.895417,
+        281.113833,
+        385.793625,
+        512.042334
+      ]
+    },
+    {
+      "geometry": "hash",
+      "label": "current-on",
+      "max_ms": 414.250416,
+      "median_ms": 371.9978545,
+      "min_ms": 266.457916,
+      "observations": [
+        {
+          "elapsed_nanos": 362124042,
+          "request_id": "temperature-5f0b34c2254a4b11ab4d3a25e27e7e6a-current-on-r1-3",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 266457916,
+          "request_id": "temperature-5f0b34c2254a4b11ab4d3a25e27e7e6a-current-on-r1-5",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 282275042,
+          "request_id": "temperature-5f0b34c2254a4b11ab4d3a25e27e7e6a-current-on-r1-7",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 414250416,
+          "request_id": "temperature-5f0b34c2254a4b11ab4d3a25e27e7e6a-current-on-r1-9",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 337292292,
+          "request_id": "temperature-ad86392e93e048e2bd0cfafb80919671-current-on-r2-3",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 381871667,
+          "request_id": "temperature-ad86392e93e048e2bd0cfafb80919671-current-on-r2-5",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 407100000,
+          "request_id": "temperature-ad86392e93e048e2bd0cfafb80919671-current-on-r2-7",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 404405208,
+          "request_id": "temperature-ad86392e93e048e2bd0cfafb80919671-current-on-r2-9",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        }
+      ],
+      "observed_p95_ms": 414.250416,
+      "samples": 8,
+      "values_ms": [
+        362.124042,
+        266.457916,
+        282.275042,
+        414.250416,
+        337.292292,
+        381.871667,
+        407.1,
+        404.405208
+      ]
+    },
+    {
+      "geometry": "hashrange",
+      "label": "current-on",
+      "max_ms": 518.840292,
+      "median_ms": 393.24008349999997,
+      "min_ms": 280.251917,
+      "observations": [
+        {
+          "elapsed_nanos": 280251917,
+          "request_id": "temperature-5f0b34c2254a4b11ab4d3a25e27e7e6a-current-on-r1-12",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 402860333,
+          "request_id": "temperature-5f0b34c2254a4b11ab4d3a25e27e7e6a-current-on-r1-14",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 401080917,
+          "request_id": "temperature-5f0b34c2254a4b11ab4d3a25e27e7e6a-current-on-r1-16",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 420765375,
+          "request_id": "temperature-5f0b34c2254a4b11ab4d3a25e27e7e6a-current-on-r1-18",
+          "returned_durability": "durable",
+          "round": 1,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 382438750,
+          "request_id": "temperature-ad86392e93e048e2bd0cfafb80919671-current-on-r2-12",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 381568500,
+          "request_id": "temperature-ad86392e93e048e2bd0cfafb80919671-current-on-r2-14",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 385399250,
+          "request_id": "temperature-ad86392e93e048e2bd0cfafb80919671-current-on-r2-16",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        },
+        {
+          "elapsed_nanos": 518840292,
+          "request_id": "temperature-ad86392e93e048e2bd0cfafb80919671-current-on-r2-18",
+          "returned_durability": "durable",
+          "round": 2,
+          "width": 64
+        }
+      ],
+      "observed_p95_ms": 518.840292,
+      "samples": 8,
+      "values_ms": [
+        280.251917,
+        402.860333,
+        401.080917,
+        420.765375,
+        382.43875,
+        381.5685,
+        385.39925,
+        518.840292
+      ]
+    }
+  ],
+  "reference_scope": "Final Round 3 conceptual cleanup and peer-key completeness fix: PR217 reference 8c0531e6ca032bbc1e5b11379792c3a120f170a6 (reused accepted release 1b79500275f732f15b6405bd0d46d63fe853362790dcd76934cead37651b1c6c; no new reference build) versus final candidate 8c2b0eb89bc140cd453fb80ee5637b378c0513cb (release 264ed137a697526f8f779bca3e70a98ed7b75c614a6a71785486efec256aa003). Both use the current native packed disk engine and logical warm set. Fresh synthetic homes, unchanged V6 requests, two reversed-order rounds, preload on/off. Earlier894c459d measurements remain separately source-labelled.",
+  "scope": "Durable new-key seed-create ACK only,64records per batch. Not durable warm-update samples. Ordered seed batches and current population remain in raw requests."
+}

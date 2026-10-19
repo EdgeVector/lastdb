@@ -1,0 +1,503 @@
+{
+  "version": 1,
+  "scope": "Static request bodies for ordinary generated AggregateSet product operations on an owned fresh synthetic home. No executable driver, suite, primary data, cloud, or migration.",
+  "routes": {
+    "declare": "/api/schemas/seed-system",
+    "mutation": "/api/mutation",
+    "queries": "/api/queries/batch",
+    "repair": "/api/aggregate/repair",
+    "finalize": "/api/aggregate/finalize",
+    "flush": "/api/db/flush"
+  },
+  "notes": [
+    "Submit aggregate_set only through /api/mutation. The batch mutation route refuses this sidecar.",
+    "Declare all three schemas before the first mutation. Keep the returned canonical schema identities in the receipt; substitute them if the ordinary name resolver requires them.",
+    "Read the current summary guard token after a3. Replace $CURRENT_SUMMARY_GUARD_TOKEN in repair before the request.",
+    "Replace $REPAIR_TOKEN in finalize with repair_token returned by the successful repair.",
+    "Read all five exact records in one query batch after each successful mutation and after flush/reopen. The b source/member are absent before b5.",
+    "A logical removal writes a live source amount0 with contribution total0. Do not use physical Delete or Purge for an enrolled source.",
+    "Reopen means stop and restart only the owned synthetic node through its supported command, then repeat the same query batch.",
+    "Repeating an HTTP request creates a new signed mutation. It is not mutation-log replay.",
+    "Exact signed replay is outside this input artifact. The guarded local proof-engine export/replay endpoints need separate explicit operational setup."
+  ],
+  "schemas": [
+    {
+      "isolated_copy": true,
+      "schema": {
+        "name": "ReviewAggregateSources",
+        "descriptive_name": "ReviewAggregateSources",
+        "source": "system_seed",
+        "schema_type": "HashRange",
+        "fields": [
+          "source_hash",
+          "source_id",
+          "amount"
+        ],
+        "key": {
+          "hash_field": "source_hash",
+          "range_field": "source_id"
+        },
+        "field_types": {
+          "source_hash": "String",
+          "source_id": "String",
+          "amount": "Integer"
+        },
+        "field_descriptions": {
+          "source_hash": "Aggregate current-field review ReviewAggregateSources source_hash",
+          "source_id": "Aggregate current-field review ReviewAggregateSources source_id",
+          "amount": "Aggregate current-field review ReviewAggregateSources amount"
+        }
+      }
+    },
+    {
+      "isolated_copy": true,
+      "schema": {
+        "name": "ReviewAggregateMembers",
+        "descriptive_name": "ReviewAggregateMembers",
+        "source": "system_seed",
+        "schema_type": "HashRange",
+        "fields": [
+          "member_hash",
+          "member_id",
+          "__lastdb_aggregate_source_schema",
+          "__lastdb_aggregate_source_key",
+          "__lastdb_aggregate_target_schema",
+          "__lastdb_aggregate_target_key",
+          "__lastdb_aggregate_winner_counter",
+          "__lastdb_aggregate_winner_written_at",
+          "__lastdb_aggregate_winner_writer",
+          "__lastdb_aggregate_winner_mutation",
+          "__lastdb_aggregate_metric_fingerprint",
+          "__lastdb_aggregate_values"
+        ],
+        "key": {
+          "hash_field": "member_hash",
+          "range_field": "member_id"
+        },
+        "field_types": {
+          "member_hash": "String",
+          "member_id": "String",
+          "__lastdb_aggregate_source_schema": "String",
+          "__lastdb_aggregate_source_key": "String",
+          "__lastdb_aggregate_target_schema": "String",
+          "__lastdb_aggregate_target_key": "String",
+          "__lastdb_aggregate_winner_counter": "String",
+          "__lastdb_aggregate_winner_written_at": "String",
+          "__lastdb_aggregate_winner_writer": "String",
+          "__lastdb_aggregate_winner_mutation": "String",
+          "__lastdb_aggregate_metric_fingerprint": "String",
+          "__lastdb_aggregate_values": "Any"
+        },
+        "field_descriptions": {
+          "member_hash": "Aggregate current-field review ReviewAggregateMembers member_hash",
+          "member_id": "Aggregate current-field review ReviewAggregateMembers member_id",
+          "__lastdb_aggregate_source_schema": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_source_schema",
+          "__lastdb_aggregate_source_key": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_source_key",
+          "__lastdb_aggregate_target_schema": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_target_schema",
+          "__lastdb_aggregate_target_key": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_target_key",
+          "__lastdb_aggregate_winner_counter": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_winner_counter",
+          "__lastdb_aggregate_winner_written_at": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_winner_written_at",
+          "__lastdb_aggregate_winner_writer": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_winner_writer",
+          "__lastdb_aggregate_winner_mutation": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_winner_mutation",
+          "__lastdb_aggregate_metric_fingerprint": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_metric_fingerprint",
+          "__lastdb_aggregate_values": "Aggregate current-field review ReviewAggregateMembers __lastdb_aggregate_values"
+        }
+      }
+    },
+    {
+      "isolated_copy": true,
+      "schema": {
+        "name": "ReviewAggregateTotals",
+        "descriptive_name": "ReviewAggregateTotals",
+        "source": "system_seed",
+        "schema_type": "Hash",
+        "fields": [
+          "summary_key",
+          "total",
+          "__lastdb_aggregate_valid",
+          "__lastdb_aggregate_guard_token"
+        ],
+        "key": {
+          "hash_field": "summary_key"
+        },
+        "field_types": {
+          "summary_key": "String",
+          "total": "Integer",
+          "__lastdb_aggregate_valid": "Integer",
+          "__lastdb_aggregate_guard_token": "String"
+        },
+        "field_descriptions": {
+          "summary_key": "Aggregate current-field review ReviewAggregateTotals summary_key",
+          "total": "Aggregate current-field review ReviewAggregateTotals total",
+          "__lastdb_aggregate_valid": "Aggregate current-field review ReviewAggregateTotals __lastdb_aggregate_valid",
+          "__lastdb_aggregate_guard_token": "Aggregate current-field review ReviewAggregateTotals __lastdb_aggregate_guard_token"
+        }
+      }
+    }
+  ],
+  "requests": {
+    "a3": {
+      "type": "mutation",
+      "schema": "ReviewAggregateSources",
+      "mutation_type": "create",
+      "key_value": {
+        "hash": "bucket",
+        "range": "a"
+      },
+      "fields_and_values": {
+        "source_hash": "bucket",
+        "source_id": "a",
+        "amount": 3
+      },
+      "convergence": "sync",
+      "durability": "durable",
+      "aggregate_set": {
+        "target_schema_name": "ReviewAggregateTotals",
+        "target_key_value": {
+          "hash": "bucket"
+        },
+        "member_schema_name": "ReviewAggregateMembers",
+        "member_key_value": {
+          "hash": "bucket",
+          "range": "a"
+        },
+        "contribution": {
+          "total": 3
+        }
+      }
+    },
+    "repair": {
+      "source_schema_name": "ReviewAggregateSources",
+      "source_partition_key_value": {
+        "hash": "bucket"
+      },
+      "target_schema_name": "ReviewAggregateTotals",
+      "target_key_value": {
+        "hash": "bucket"
+      },
+      "member_schema_name": "ReviewAggregateMembers",
+      "expected_guard_token": "$CURRENT_SUMMARY_GUARD_TOKEN"
+    },
+    "finalize": {
+      "source_schema_name": "ReviewAggregateSources",
+      "source_partition_key_value": {
+        "hash": "bucket"
+      },
+      "target_schema_name": "ReviewAggregateTotals",
+      "target_key_value": {
+        "hash": "bucket"
+      },
+      "member_schema_name": "ReviewAggregateMembers",
+      "expected_guard_token": "$REPAIR_TOKEN"
+    },
+    "b5": {
+      "type": "mutation",
+      "schema": "ReviewAggregateSources",
+      "mutation_type": "create",
+      "key_value": {
+        "hash": "bucket",
+        "range": "b"
+      },
+      "fields_and_values": {
+        "source_hash": "bucket",
+        "source_id": "b",
+        "amount": 5
+      },
+      "convergence": "sync",
+      "durability": "durable",
+      "aggregate_set": {
+        "target_schema_name": "ReviewAggregateTotals",
+        "target_key_value": {
+          "hash": "bucket"
+        },
+        "member_schema_name": "ReviewAggregateMembers",
+        "member_key_value": {
+          "hash": "bucket",
+          "range": "b"
+        },
+        "contribution": {
+          "total": 5
+        }
+      }
+    },
+    "a7": {
+      "type": "mutation",
+      "schema": "ReviewAggregateSources",
+      "mutation_type": "update",
+      "key_value": {
+        "hash": "bucket",
+        "range": "a"
+      },
+      "fields_and_values": {
+        "source_hash": "bucket",
+        "source_id": "a",
+        "amount": 7
+      },
+      "convergence": "sync",
+      "durability": "durable",
+      "aggregate_set": {
+        "target_schema_name": "ReviewAggregateTotals",
+        "target_key_value": {
+          "hash": "bucket"
+        },
+        "member_schema_name": "ReviewAggregateMembers",
+        "member_key_value": {
+          "hash": "bucket",
+          "range": "a"
+        },
+        "contribution": {
+          "total": 7
+        }
+      }
+    },
+    "bzero": {
+      "type": "mutation",
+      "schema": "ReviewAggregateSources",
+      "mutation_type": "update",
+      "key_value": {
+        "hash": "bucket",
+        "range": "b"
+      },
+      "fields_and_values": {
+        "source_hash": "bucket",
+        "source_id": "b",
+        "amount": 0
+      },
+      "convergence": "sync",
+      "durability": "durable",
+      "aggregate_set": {
+        "target_schema_name": "ReviewAggregateTotals",
+        "target_key_value": {
+          "hash": "bucket"
+        },
+        "member_schema_name": "ReviewAggregateMembers",
+        "member_key_value": {
+          "hash": "bucket",
+          "range": "b"
+        },
+        "contribution": {
+          "total": 0
+        }
+      }
+    }
+  },
+  "query_batch": {
+    "queries": [
+      {
+        "schema_name": "ReviewAggregateSources",
+        "fields": [
+          "source_hash",
+          "source_id",
+          "amount"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "bucket",
+            "range": "a"
+          }
+        },
+        "limit": 1
+      },
+      {
+        "schema_name": "ReviewAggregateSources",
+        "fields": [
+          "source_hash",
+          "source_id",
+          "amount"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "bucket",
+            "range": "b"
+          }
+        },
+        "limit": 1
+      },
+      {
+        "schema_name": "ReviewAggregateMembers",
+        "fields": [
+          "__lastdb_aggregate_source_schema",
+          "__lastdb_aggregate_source_key",
+          "__lastdb_aggregate_target_schema",
+          "__lastdb_aggregate_target_key",
+          "__lastdb_aggregate_winner_counter",
+          "__lastdb_aggregate_winner_written_at",
+          "__lastdb_aggregate_winner_writer",
+          "__lastdb_aggregate_winner_mutation",
+          "__lastdb_aggregate_metric_fingerprint",
+          "__lastdb_aggregate_values"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "bucket",
+            "range": "a"
+          }
+        },
+        "limit": 1
+      },
+      {
+        "schema_name": "ReviewAggregateMembers",
+        "fields": [
+          "__lastdb_aggregate_source_schema",
+          "__lastdb_aggregate_source_key",
+          "__lastdb_aggregate_target_schema",
+          "__lastdb_aggregate_target_key",
+          "__lastdb_aggregate_winner_counter",
+          "__lastdb_aggregate_winner_written_at",
+          "__lastdb_aggregate_winner_writer",
+          "__lastdb_aggregate_winner_mutation",
+          "__lastdb_aggregate_metric_fingerprint",
+          "__lastdb_aggregate_values"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "bucket",
+            "range": "b"
+          }
+        },
+        "limit": 1
+      },
+      {
+        "schema_name": "ReviewAggregateTotals",
+        "fields": [
+          "summary_key",
+          "total",
+          "__lastdb_aggregate_valid",
+          "__lastdb_aggregate_guard_token"
+        ],
+        "filter": {
+          "HashKey": "bucket"
+        },
+        "limit": 1
+      }
+    ]
+  },
+  "steps": [
+    {
+      "operation": "a3",
+      "route": "mutation",
+      "expected_http": 200,
+      "expected_total": 3,
+      "expected_valid": 0,
+      "source_amounts": {
+        "a": 3
+      },
+      "member_contributions": {
+        "a": {
+          "total": 3
+        }
+      }
+    },
+    {
+      "operation": "read-current-summary-token",
+      "route": "queries",
+      "request": "query_batch",
+      "expected_total": 3,
+      "expected_valid": 0
+    },
+    {
+      "operation": "repair",
+      "route": "repair",
+      "expected_http": 200,
+      "expected_total": 3,
+      "expected_valid": 0
+    },
+    {
+      "operation": "finalize",
+      "route": "finalize",
+      "expected_http": 200,
+      "expected_total": 3,
+      "expected_valid": 1
+    },
+    {
+      "operation": "b5",
+      "route": "mutation",
+      "expected_http": 200,
+      "expected_total": 8,
+      "expected_valid": 1,
+      "source_amounts": {
+        "a": 3,
+        "b": 5
+      },
+      "member_contributions": {
+        "a": {
+          "total": 3
+        },
+        "b": {
+          "total": 5
+        }
+      }
+    },
+    {
+      "operation": "a7",
+      "route": "mutation",
+      "expected_http": 200,
+      "expected_total": 12,
+      "expected_valid": 1,
+      "source_amounts": {
+        "a": 7,
+        "b": 5
+      },
+      "member_contributions": {
+        "a": {
+          "total": 7
+        },
+        "b": {
+          "total": 5
+        }
+      }
+    },
+    {
+      "operation": "bzero",
+      "route": "mutation",
+      "expected_http": 200,
+      "expected_total": 7,
+      "expected_valid": 1,
+      "source_amounts": {
+        "a": 7,
+        "b": 0
+      },
+      "member_contributions": {
+        "a": {
+          "total": 7
+        },
+        "b": {
+          "total": 0
+        }
+      }
+    },
+    {
+      "operation": "flush-and-reopen-owned-synthetic-node",
+      "route": "flush",
+      "expected_total": 7,
+      "expected_valid": 1,
+      "source_amounts": {
+        "a": 7,
+        "b": 0
+      },
+      "member_contributions": {
+        "a": {
+          "total": 7
+        },
+        "b": {
+          "total": 0
+        }
+      }
+    }
+  ],
+  "optional_source_winner_refusal": {
+    "description": "Repeat requests.a7 after its first success, before bzero, as a newly signed public request. The source has no changed payload fields, so the current contract refuses a member-winner advance. This is an explicit refusal check, not replay.",
+    "request": "a7",
+    "route": "mutation",
+    "expected_http": 400,
+    "expected_total": 12,
+    "expected_valid": 1
+  },
+  "source_contracts": [
+    "fold_db/crates/core/src/schema/types/aggregate.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/aggregate/validate/schema_checks.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/aggregate/apply_source/reads.rs",
+    "lastdb_host/src/handlers/mutation/aggregate.rs",
+    "lastdb_host/src/handlers/mutation/batch.rs"
+  ]
+}

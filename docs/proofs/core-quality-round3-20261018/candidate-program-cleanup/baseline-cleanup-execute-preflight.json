@@ -1,0 +1,29 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.p6fmm6cs/program-candidate-lastdbd",
+  "binary_sha256": "4e6a2aa9df6c71ebf4474618ea89557c54cd20d51a337ee61bbbf0f97ca5a732",
+  "checked_utc": "2026-10-19T04:30:24.338986+00:00",
+  "device": 16777231,
+  "inode": 1466668736,
+  "marker": {
+    "creator_pid": 51950,
+    "device": 16777231,
+    "inode": 1466668736,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "open_file_check": {
+    "command": [
+      "lsof",
+      "-Fpn",
+      "+D",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.p6fmm6cs"
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "owner_uid": 501,
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.p6fmm6cs",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.p6fmm6cs"
+}
