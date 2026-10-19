@@ -201,23 +201,20 @@ pub(in crate::handlers) fn format_rows(
     // always-ascending tiebreaker (opaque content hash — reversing it is churn).
     let sort_started = std::time::Instant::now();
     results.sort_by(|a, b| {
-        let primary = match order_by {
-            Some(order_by) => {
-                let af = a
-                    .get("fields")
-                    .and_then(|fields| fields.get(&order_by.field));
-                let bf = b
-                    .get("fields")
-                    .and_then(|fields| fields.get(&order_by.field));
-                compare_json_values(af, bf, order_by.order.as_ref())
-            }
-            None => {
-                let a_range = a["key"]["range"].as_str().unwrap_or("");
-                let b_range = b["key"]["range"].as_str().unwrap_or("");
-                match sort_order {
-                    Some(SortOrder::Desc) => b_range.cmp(a_range),
-                    _ => a_range.cmp(b_range),
-                }
+        let primary = if let Some(order_by) = order_by {
+            let af = a
+                .get("fields")
+                .and_then(|fields| fields.get(&order_by.field));
+            let bf = b
+                .get("fields")
+                .and_then(|fields| fields.get(&order_by.field));
+            compare_json_values(af, bf, order_by.order.as_ref())
+        } else {
+            let a_range = a["key"]["range"].as_str().unwrap_or("");
+            let b_range = b["key"]["range"].as_str().unwrap_or("");
+            match sort_order {
+                Some(SortOrder::Desc) => b_range.cmp(a_range),
+                _ => a_range.cmp(b_range),
             }
         };
         primary
