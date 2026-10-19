@@ -191,20 +191,10 @@ pub struct StatusSnapshot {
     /// Configured node-local TTL policies plus process-lifetime sweep state.
     #[serde(default)]
     pub local_retention: LocalRetentionHealth,
-    /// The automatic `gc-atoms` cadence: unreferenced bytes from the last
-    /// completed lap, lap progress, the last delete and why the last step
-    /// deleted nothing. `None` means the daemon predates this field.
+    /// The atom counter planner: bodies created and deleted, counter faults.
+    /// `None` means the daemon predates this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gc_atoms: Option<fold_db::fold_db_core::AutomaticGcAtomsStatus>,
-    /// Molecule write-gate HOLD accounting — the other end of the
-    /// `molecule_gate` request phase, which measures only the wait.
-    ///
-    /// Defaults to all-zero when read from a daemon predating this field. That
-    /// is indistinguishable from a node that took no gates, so the renderer
-    /// suppresses the line entirely at `count == 0` rather than printing
-    /// "0 holds" and inviting the reader to conclude the gate is never taken.
-    #[serde(default)]
-    pub molecule_gate: MoleculeGateHealth,
+    pub atom_counters: Option<fold_db::db_operations::AtomCounterReport>,
     /// Process-lifetime effectiveness of plaintext compression before sealing.
     ///
     /// `None` means the serving daemon predates this status field. A current

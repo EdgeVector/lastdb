@@ -155,16 +155,11 @@ impl SyncEngine {
             kv.get(&v1_key).await?,
         )
         .await?;
-        let pending = self
-            .automatic_gc_atom_store
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|atoms| {
-                std::str::from_utf8(key)
-                    .ok()
-                    .and_then(|key| atoms.pending_delete_barrier(key))
-            });
+        let pending = self.atom_store.lock().await.as_ref().and_then(|atoms| {
+            std::str::from_utf8(key)
+                .ok()
+                .and_then(|key| atoms.pending_delete_barrier(key))
+        });
         let mut winner = v2;
         for candidate in [
             v1.map(|marker| marker.to_barrier(key)).transpose()?,

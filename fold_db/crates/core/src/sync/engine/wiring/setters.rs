@@ -160,9 +160,9 @@ impl SyncEngine {
         *self.retired_intent_preserver.lock().await = Some(preserver);
     }
 
-    /// Register the serving atom store for automatic-GC pin protection.
-    pub async fn set_automatic_gc_atom_store(&self, atoms: crate::db_operations::AtomStore) {
-        *self.automatic_gc_atom_store.lock().await = Some(atoms);
+    /// Register the serving atom store for replay.
+    pub async fn set_atom_store(&self, atoms: crate::db_operations::AtomStore) {
+        *self.atom_store.lock().await = Some(atoms);
     }
 
     /// Register the local persistence barrier for a named photograph cut.

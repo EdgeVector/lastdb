@@ -30,6 +30,7 @@ mod refs;
 mod report;
 
 pub(crate) use commit::{RecordRefs, TipChange, TipChangeSet, TipCommit};
+pub use read::AtomCounterView;
 pub(crate) use refs::event_atoms;
 pub use report::AtomCounterReport;
 pub(crate) use report::CounterEvents;

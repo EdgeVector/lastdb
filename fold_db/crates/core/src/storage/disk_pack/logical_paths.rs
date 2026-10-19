@@ -67,29 +67,6 @@ pub(crate) fn schema_identity(schema: &Schema) -> StorageResult<String> {
         .map_err(|error| serialization(&error))
 }
 
-/// Storage-only erasure can name existing API paths through their source edges.
-pub(crate) fn retained_slots_for_candidates(
-    runtime: &PackRuntime,
-    scope: Option<&str>,
-    candidates: &[String],
-) -> Vec<(String, String, String)> {
-    let sources: Vec<_> = candidates
-        .iter()
-        .flat_map(|candidate| {
-            let key = crate::schema::types::field::build_storage_key(scope, candidate);
-            super::kv::coordinates("main", key.as_bytes())
-        })
-        .collect();
-    runtime
-        .core
-        .lock()
-        .expect("retained storage-slot paths")
-        .paths_for_sources(&sources)
-        .into_iter()
-        .map(|path| (path.molecule, path.hash, path.range))
-        .collect()
-}
-
 #[derive(Clone)]
 pub(crate) struct LogicalPathRecord {
     pub path: LogicalPath,

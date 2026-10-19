@@ -1,5 +1,4 @@
-//! `AtomStore` constructors, builder hooks and the atom-ref v2 compatibility
-//! shims.
+//! `AtomStore` constructors and builder hooks.
 
 use super::*;
 
@@ -18,34 +17,19 @@ impl AtomStore {
                 ))
             })?,
         ));
-        let schema_index_store = Arc::new(TypedKvStore::new(
-            store
-                .open_namespace("schema_index")
-                .await
-                .map_err(|error| {
-                    crate::schema::SchemaError::InvalidData(format!(
-                        "open atom schema-index namespace: {error}"
-                    ))
-                })?,
-        ));
-        Ok(Self::new(main_store, schema_index_store).with_namespaced_store(store))
+        Ok(Self::new(main_store).with_namespaced_store(store))
     }
 
-    pub(crate) fn new(
-        main_store: Arc<TypedKvStore<dyn KvStore>>,
-        schema_index_store: Arc<TypedKvStore<dyn KvStore>>,
-    ) -> Self {
-        Self::new_with_content_key(main_store, schema_index_store, None)
+    pub(crate) fn new(main_store: Arc<TypedKvStore<dyn KvStore>>) -> Self {
+        Self::new_with_content_key(main_store, None)
     }
 
     pub(crate) fn new_with_content_key(
         main_store: Arc<TypedKvStore<dyn KvStore>>,
-        schema_index_store: Arc<TypedKvStore<dyn KvStore>>,
         content_key: Option<[u8; 32]>,
     ) -> Self {
         Self::new_with_content_and_hash_key_codec(
             main_store,
-            schema_index_store,
             content_key,
             crate::atom::MoleculeKeyCodec::plain(),
         )
@@ -53,13 +37,11 @@ impl AtomStore {
 
     pub(crate) fn new_with_content_and_hash_key_codec(
         main_store: Arc<TypedKvStore<dyn KvStore>>,
-        schema_index_store: Arc<TypedKvStore<dyn KvStore>>,
         content_key: Option<[u8; 32]>,
         key_codec: crate::atom::MoleculeKeyCodec,
     ) -> Self {
         Self {
             main_store,
-            schema_index_store,
             namespaced_store: None,
             retired_intent_retention_gate: Arc::default(),
             protein_membership_gate: Arc::default(),
@@ -67,7 +49,6 @@ impl AtomStore {
             atom_content_binary: crate::atom::atom_content_binary_enabled(),
             key_codec,
             molecule_keys: None,
-            atom_ref_v2_read_ready: Arc::default(),
             molecule_commit_locks: Arc::default(),
             tip_commit_locks: Arc::default(),
             tip_publication_locks: Arc::default(),
@@ -86,26 +67,10 @@ impl AtomStore {
             keep_small_hard_erase_mutation_epoch: Arc::default(),
             keep_small_hard_erase_pending: Arc::default(),
             keep_small_hard_erase_orphaned: Arc::default(),
-            automatic_gc_atoms_generation: Arc::default(),
-            atom_gc_candidates_rearmed: Arc::default(),
-            peer_apply_seen: Arc::default(),
-            peer_apply_durable: Arc::default(),
-            peer_apply_lock: Arc::default(),
             counter_events: Arc::default(),
             local_origin_device: Arc::default(),
             conflict_record_gate: Arc::default(),
             conflict_record_epoch: Arc::default(),
-            automatic_gc_atom_locks: Arc::new(
-                (0..256)
-                    .map(|_| Arc::new(tokio::sync::Mutex::new(())))
-                    .collect(),
-            ),
-            atom_ref_count_locks: Arc::new(
-                (0..256)
-                    .map(|_| Arc::new(tokio::sync::Mutex::new(())))
-                    .collect(),
-            ),
-            catalog_atom_ref_transition_lock: Arc::default(),
             molecule_liveness_locks: Arc::new(
                 (0..256)
                     .map(|_| Arc::new(tokio::sync::Mutex::new(())))

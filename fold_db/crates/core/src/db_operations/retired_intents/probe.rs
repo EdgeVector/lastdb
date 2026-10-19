@@ -208,16 +208,13 @@ async fn proof_atom_store(
     store: &Arc<dyn NamespacedStore>,
     key: &[u8; 32],
 ) -> Result<super::super::AtomStore, SchemaError> {
-    let (main, index) = tokio::try_join!(
-        store.open_namespace("main"),
-        store.open_namespace("schema_index")
-    )
-    .map_err(storage_error)?;
+    let main = store.open_namespace("main").await.map_err(storage_error)?;
     // Exact body reads need no boot resolver work.
-    Ok(super::super::AtomStore::new_with_content_key(
-        Arc::new(TypedKvStore::new(main)),
-        Arc::new(TypedKvStore::new(index)),
-        Some(*key),
+    Ok(
+        super::super::AtomStore::new_with_content_key(
+            Arc::new(TypedKvStore::new(main)),
+            Some(*key),
+        )
+        .with_namespaced_store(Arc::clone(store)),
     )
-    .with_namespaced_store(Arc::clone(store)))
 }

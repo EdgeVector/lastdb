@@ -332,14 +332,6 @@ pub enum DataRoute {
     /// would-retire counts. OWNER only. Body: `{ dry_run?: bool }` (default true).
     /// Execute skips while a backup cut is held. Never stamps missing groups.
     DbStampPurgedAtomRetirements,
-    /// `POST /api/db/gc-atoms` — prune tombstoned tip-version chains, then
-    /// delete unreferenced `atom:` rows. Body:
-    /// `{ dry_run?: bool }` (default true).
-    DbGcAtoms,
-    /// `POST /api/db/reap-dropped-schema` — reap live tips of one dropped
-    /// schema identity via schema_index / drop-receipt molecules. Never scans
-    /// `atom:`. OWNER only. Body: `{ schema, dry_run?: bool, max_ops?: u64 }`.
-    DbReapDroppedSchema,
     /// `POST /api/db/gc-file-blobs` — delete local file-blob rows
     /// (`cas_blobs` + resident `cas_blob:`) no live atom references; the
     /// reclaim path for sealed bytes a purge orphans. OWNER socket only.
@@ -348,10 +340,6 @@ pub enum DataRoute {
     /// `POST /api/db/gc-proteins` — delete empty, unbound `protein:` rows.
     /// OWNER socket only. Body: `{ dry_run?: bool }` (default true).
     DbGcProteins,
-    /// `POST /api/db/purge-ref-blobs` — measure (and optionally delete) legacy
-    /// `ref:` whole-molecule blobs (pre-per-key layout residue). OWNER socket
-    /// only. Body: `{ dry_run?: bool }` (default true).
-    DbPurgeRefBlobs,
     /// `POST /api/db/reclaim-keep-small-legacy` — drop the dead `metadata`
     /// hash group that held the keep-small snapshot before 2026-09-21,
     /// without loading it. OWNER socket only. Body: `{ dry_run?: bool }`
@@ -365,18 +353,6 @@ pub enum DataRoute {
     /// `GET /api/db/unresolved-atoms` — the bounded atom identities behind
     /// skipped reads. Owner socket only; keys can name user data.
     DbUnresolvedAtoms,
-    /// `POST /api/db/drain-tip-history` — one bounded tip-version (`tv:`) chain
-    /// drain pass for legacy live history (opt-in reclaim; never collection
-    /// compact). OWNER only. Body:
-    /// `{ dry_run?: bool, max_keys?: usize, max_prunes?: usize,
-    ///    after_key?: string, from_checkpoint?: bool }`.
-    DbDrainTipHistory,
-    /// `POST /api/db/retain-superseded-versions` — drop `tv:` / tip-chain nodes
-    /// older than 7 days on **live** records only. Tombstoned heads are skipped.
-    /// OWNER only. Dry-run default. Execute skips while a backup cut is held.
-    /// Body: `{ dry_run?: bool, max_keys?: usize, max_prunes?: usize,
-    ///    after_key?: string, from_checkpoint?: bool, retention_seconds?: u64 }`.
-    DbRetainSupersededVersions,
     /// `GET /api/db/delete-ledger` — read the durable atom hard-delete audit
     /// trail (purge + gc-atoms), oldest first. Query: `?limit=N` (0/absent =
     /// all). Read-only; OWNER socket only, because it names which schemas had

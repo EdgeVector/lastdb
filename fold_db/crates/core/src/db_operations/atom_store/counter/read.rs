@@ -17,6 +17,18 @@ use std::collections::{BTreeMap, HashMap};
 /// The native get-many API accepts at most this many keys per call.
 const READ_CHUNK: usize = 10_000;
 
+/// What the counter store says about one atom, for operators.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct AtomCounterView {
+    pub atom: String,
+    /// The count, or `None` when the atom has no counter.
+    pub refs: Option<u64>,
+    pub suspect: bool,
+    /// Blob references held by the counter.
+    pub blobs: usize,
+    pub body_present: bool,
+}
+
 /// A body that the batch writes for an atom that gains its first reference.
 pub(super) struct Offer {
     pub atom: Atom,
@@ -26,6 +38,59 @@ pub(super) struct Offer {
 }
 
 impl AtomStore {
+    /// The counter state and body presence of each atom, in the order given.
+    /// Two reads by key, in batches. The atom ids name the atoms of one scope.
+    pub async fn atom_counter_views(
+        &self,
+        atoms: &[String],
+        scope: Option<&str>,
+    ) -> Result<Vec<AtomCounterView>, SchemaError> {
+        let counter_keys: Vec<String> = atoms
+            .iter()
+            .map(|atom| build_storage_key(scope, &atom_key_codec::counter_key(atom)))
+            .collect();
+        let body_keys: Vec<Vec<u8>> = atoms
+            .iter()
+            .map(|atom| build_storage_key(scope, &atom_key_codec::body_key(atom)).into_bytes())
+            .collect();
+        let mut counters: Vec<Option<AtomCounter>> = Vec::with_capacity(atoms.len());
+        let mut bodies: Vec<bool> = Vec::with_capacity(atoms.len());
+        for (counter_chunk, body_chunk) in counter_keys
+            .chunks(READ_CHUNK)
+            .zip(body_keys.chunks(READ_CHUNK))
+        {
+            counters.extend(
+                self.main_store
+                    .get_items::<AtomCounter>(counter_chunk)
+                    .await
+                    .map_err(|error| {
+                        SchemaError::InvalidData(format!("read atom counters: {error}"))
+                    })?,
+            );
+            bodies.extend(
+                self.main_store
+                    .inner()
+                    .exists_many(body_chunk.to_vec())
+                    .await
+                    .map_err(|error| {
+                        SchemaError::InvalidData(format!("read atom body records: {error}"))
+                    })?,
+            );
+        }
+        Ok(atoms
+            .iter()
+            .zip(counters)
+            .zip(bodies)
+            .map(|((atom, counter), body_present)| AtomCounterView {
+                atom: atom.clone(),
+                refs: counter.as_ref().map(|counter| counter.refs),
+                suspect: counter.as_ref().is_some_and(|counter| counter.suspect),
+                blobs: counter.as_ref().map_or(0, |counter| counter.blobs.len()),
+                body_present,
+            })
+            .collect())
+    }
+
     /// The stored tip record of each key, for the keys that have one.
     pub(super) async fn read_old_tips(
         &self,

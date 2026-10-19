@@ -121,7 +121,6 @@ fn log_runtime_recovered(
 /// The persist-lane row for the status snapshot: the heaviest schema's lane
 /// pressure, or nothing when the lane is idle.
 pub(super) fn persist_lane_rows(
-    host: &Host,
     persist_lanes: &fold_db::resident::PersistLanePressure,
 ) -> Vec<crate::request_telemetry::PersistLaneOpRow> {
     vec![crate::request_telemetry::PersistLaneOpRow {

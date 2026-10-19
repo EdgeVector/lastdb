@@ -168,14 +168,6 @@ pub struct MutationManager {
     /// completed purge pass (a rare verb), read by the status/ops surfaces, so
     /// a plain mutex is cheaper than the atomics a hot-path counter would need.
     purge_stats: Arc<PurgeLedger>,
-    /// Per-molecule write locks serialize restore/apply/persist for one
-    /// molecule/storage-prefix pair.
-    ///
-    /// This covers both the first-write fallback and the established-molecule
-    /// O(changed) path. The latter loads the persisted append-log count before
-    /// applying a changed key; two concurrent writers must not both append a
-    /// different key at the same `mord:{M}:{seq}` slot.
-    molecule_persist_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Per-molecule write dedupe (`LASTDB_WRITE_DEDUPE`). When true, a field
     /// write whose value already equals the stored tip is dropped before the
     /// apply/fold/persist steps ever see it. Off by default: the skip also
@@ -256,7 +248,6 @@ impl MutationManager {
             author_clock_state: std::sync::Mutex::new(author_clock_state),
             author_clock_persist: Some(author_clock_persist),
             purge_stats,
-            molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
             write_dedupe,
             capture_engine: std::sync::RwLock::new(None),
             capture_router,
@@ -299,7 +290,6 @@ impl MutationManager {
             ),
             author_clock_persist: None,
             purge_stats,
-            molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
             write_dedupe,
             capture_engine: std::sync::RwLock::new(None),
             capture_router,
@@ -381,45 +371,6 @@ impl MutationManager {
             .read()
             .expect("capture engine lock poisoned")
             .clone()
-    }
-
-    /// Atom uuids the durable pin log still references.
-    ///
-    /// Empty when the build has no cloud-sync engine or no capture engine is
-    /// installed — both mean no pin-log plane exists to protect. Shared by
-    /// [`crate::fold_db_core::fold_db::FoldDB::gc_orphan_atoms_with`] (the
-    /// manual verb) and [`crate::fold_db_core::atom_reclaim_janitor`] (the
-    /// background janitor) so both feed atom GC the same extra reference
-    /// roots — a pin-log-blind reclaim pass is how an acked write silently
-    /// never reaches the cloud.
-    pub(crate) async fn pending_pin_log_atom_roots(
-        &self,
-    ) -> Result<std::collections::HashSet<String>, crate::schema::SchemaError> {
-        let Some(engine) = self.capture_engine() else {
-            return Ok(std::collections::HashSet::new());
-        };
-        // Fail the pass rather than sweep with a reference set known to be
-        // short: an unreadable pin log is missing referrers, not zero of
-        // them, and atom GC deletes on this answer.
-        engine
-            .pin_log
-            .pending_pin_log_atom_uuids()
-            .await
-            .map_err(|e| {
-                crate::schema::SchemaError::InvalidData(format!(
-                    "collect pin-log atom references: {e}"
-                ))
-            })
-    }
-
-    /// Wait for mutation work that existed at the start of an atom-GC cut.
-    ///
-    /// Deferred envelopes can persist an atom body before the matching tip.
-    /// A reclaim pass must not classify that body during this window. The
-    /// pending-task tracker uses a watermark, so later writes do not extend
-    /// this cut; the GC timestamp guard protects bodies from those writes.
-    pub(crate) async fn wait_for_atom_gc_persist_cut(&self, timeout: std::time::Duration) -> bool {
-        self.pending_tasks.wait_for_completion(timeout).await
     }
 
     /// Admit one deferred persist of `bytes`, or refuse.

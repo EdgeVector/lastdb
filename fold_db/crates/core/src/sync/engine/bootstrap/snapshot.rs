@@ -143,10 +143,6 @@ impl SyncEngine {
         );
         self.drop_fresh_home_before_restore(target).await?;
         let restore_report = self.restore_snapshot_into_store(target, &snapshot).await?;
-        // The install cleared this node's own peer-apply row and wrote nothing
-        // in its place (a snapshot never carries it). The rows now in the store
-        // came from another store: record that before anything can run.
-        self.rewrite_peer_apply_seen_after_restore().await?;
         if target.prefix.is_empty() {
             self.invoke_photograph_restore_barrier()
                 .await

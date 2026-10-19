@@ -13,7 +13,6 @@ use super::report::CounterEvent;
 use crate::atom::Atom;
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord, SealedAtom};
 use crate::schema::SchemaError;
-use crate::storage::KvMutation;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
@@ -217,6 +216,3 @@ impl TipCommit {
         }
     }
 }
-
-/// Used by the builder: one mutation list per run.
-pub(super) type Mutations = Vec<KvMutation>;

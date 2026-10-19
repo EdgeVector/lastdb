@@ -1,80 +1,8 @@
-//! Tip-history drain, superseded-version retention and reclaim-keep-small snapshots.
+//! Reclaim-keep-small snapshots.
 
 use super::*;
 
 impl FoldDB {
-    /// One bounded, resumable pass that drains existing live tip-version
-    /// chains without collection compaction. See
-    /// [`crate::db_operations::AtomStore::drain_tip_history_chains`].
-    pub async fn drain_tip_history_chains(
-        &self,
-        options: TipHistoryDrainOptions,
-    ) -> Result<TipHistoryDrainReport, FoldDbError> {
-        self.db_ops()
-            .atoms()
-            .drain_tip_history_chains(options)
-            .await
-            .map_err(|e| admin_op_error("drain_tip_history_chains", e))
-    }
-
-    /// Drain from the durable automatic-reclaim checkpoint and advance it.
-    pub async fn drain_tip_history_chains_from_checkpoint(
-        &self,
-        options: TipHistoryDrainOptions,
-    ) -> Result<(TipHistoryDrainReport, TipHistoryDrainCheckpoint), FoldDbError> {
-        self.db_ops()
-            .atoms()
-            .drain_tip_history_chains_from_checkpoint(options)
-            .await
-            .map_err(|e| {
-                FoldDbError::Database(format!("drain_tip_history_chains_from_checkpoint: {e}"))
-            })
-    }
-
-    /// Read the durable tip-history drain checkpoint.
-    pub async fn tip_history_drain_checkpoint(
-        &self,
-    ) -> Result<TipHistoryDrainCheckpoint, FoldDbError> {
-        self.db_ops()
-            .atoms()
-            .tip_history_drain_checkpoint(None)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("tip_history_drain_checkpoint: {e}")))
-    }
-
-    /// One bounded pass that drops expired `tv:` nodes on live heads and keeps
-    /// versions inside the 7-day window. Tombstoned heads are skipped.
-    pub async fn retain_superseded_versions(
-        &self,
-        options: SupersededVersionRetentionOptions,
-    ) -> Result<SupersededVersionRetentionReport, FoldDbError> {
-        self.db_ops()
-            .atoms()
-            .retain_superseded_versions(options)
-            .await
-            .map_err(|e| admin_op_error("retain_superseded_versions", e))
-    }
-
-    /// Retention pass from the durable checkpoint (resume / settle).
-    pub async fn retain_superseded_versions_from_checkpoint(
-        &self,
-        options: SupersededVersionRetentionOptions,
-    ) -> Result<
-        (
-            SupersededVersionRetentionReport,
-            SupersededVersionRetentionCheckpoint,
-        ),
-        FoldDbError,
-    > {
-        self.db_ops()
-            .atoms()
-            .retain_superseded_versions_from_checkpoint(options)
-            .await
-            .map_err(|e| {
-                FoldDbError::Database(format!("retain_superseded_versions_from_checkpoint: {e}"))
-            })
-    }
-
     /// Drop the legacy `metadata` hash group that held the keep-small
     /// snapshot, without loading it (`lastdb db reclaim-keep-small-legacy`).
     ///
@@ -122,19 +50,5 @@ impl FoldDB {
                 dry_run,
             })
             .map_err(|e| FoldDbError::Database(format!("reclaim_keep_small_snapshot: {e}")))
-    }
-
-    /// Measure (and optionally delete) legacy `ref:` whole-molecule blobs —
-    /// pre-per-key layout residue the live read path never dual-reads.
-    /// Dry-run by default.
-    pub async fn purge_ref_blobs(
-        &self,
-        dry_run: bool,
-    ) -> Result<LegacyRefBlobPurgeReport, FoldDbError> {
-        self.db_ops()
-            .atoms()
-            .purge_ref_blobs(dry_run, None)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("purge_ref_blobs: {e}")))
     }
 }

@@ -113,12 +113,6 @@ impl MoleculeHashRange {
         self.pending_tip_conflicts.clear();
     }
 
-    /// Borrow prior tips replaced or removed since the last durable persist.
-    #[must_use]
-    pub(crate) fn pending_replaced_tips(&self) -> &[(String, String, AtomEntry)] {
-        &self.pending_replaced_tips
-    }
-
     /// Returns the UUID of the Atom referenced by the specified hash and range values.
     #[must_use]
     pub fn get_atom_uuid(&self, hash_value: &str, range_value: &str) -> Option<&String> {

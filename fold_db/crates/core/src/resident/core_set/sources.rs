@@ -5,26 +5,6 @@ use super::*;
 const MAX_SLOT_SOURCES: usize = 64;
 
 impl CoreWarmSet {
-    /// Recover only existing logical bindings for changed physical sources.
-    pub(crate) fn paths_for_sources(&self, changes: &[(String, String)]) -> Vec<CorePath> {
-        changes
-            .iter()
-            .flat_map(|(collection, key)| {
-                self.source_slots
-                    .get(&SourceKey {
-                        collection: collection.clone(),
-                        key: key.clone(),
-                    })
-                    .into_iter()
-                    .flatten()
-                    .flat_map(|slot| self.slot_owners.get(slot).into_iter().flatten())
-            })
-            .cloned()
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect()
-    }
-
     /// Replace source edges after the normal resolver confirms a retained value.
     pub(crate) fn clear_sources(&mut self, path: &CorePath) {
         self.forget_slot_sources(&path.slot());

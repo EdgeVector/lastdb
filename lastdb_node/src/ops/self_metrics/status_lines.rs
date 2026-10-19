@@ -392,12 +392,9 @@ fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     if let Some(line) = file_blob_status_line(&snapshot.file_blob) {
         lines.push(line);
     }
-    if let Some(line) = molecule_gate_status_line(&snapshot.molecule_gate) {
-        lines.push(line);
-    }
     lines.extend(purge_stats_lines(snapshot));
     lines.extend(local_retention_lines(snapshot));
-    lines.extend(gc_atoms_status_lines(snapshot));
+    lines.extend(atom_counter_status_lines(snapshot));
     lines
 }
 
@@ -420,19 +417,8 @@ pub(super) fn atom_ref_edge_status_line(health: &AtomRefEdgeHealth) -> String {
         Availability::Measured(value) => format_bytes(value),
         Availability::Unavailable(_) => "unavailable".to_string(),
     };
-    let count = |gauge: &Gauge| match gauge.value {
-        Availability::Measured(value) => value.to_string(),
-        Availability::Unavailable(_) => "unavailable".to_string(),
-    };
     format!(
-        "Liveness edges: atom_phase={} atom_v1={} atom_v2={} atom_active={} atom_inactive={} bytes/edge={} projected_final={} molecule_phase={} molecule_bytes={} molecule_complete={} blob_phase={} blob_bytes={} blob_complete={}",
-        health.phase,
-        bytes(&health.v1_bytes),
-        bytes(&health.v2_bytes),
-        count(&health.active_edges),
-        count(&health.inactive_keys),
-        bytes(&health.bytes_per_edge),
-        bytes(&health.projected_final_bytes),
+        "Liveness edges: molecule_phase={} molecule_bytes={} molecule_complete={} blob_phase={} blob_bytes={} blob_complete={}",
         health.molecule_phase,
         bytes(&health.molecule_bytes),
         health
@@ -476,38 +462,3 @@ pub(super) fn at_rest_compression_status_line(stats: Option<&AtRestCompressionHe
         format_bytes(stats.unsealed_reaped_bytes),
     )
 }
-
-/// Molecule write-gate hold time for `lastdb status` / `lastdb ops`.
-///
-/// Renders only once a gate has actually been released. A daemon predating
-/// `molecule_gate` deserializes the field as all-zero, which is the same
-/// reading as a node that genuinely took no gates; printing "0 holds" for both
-/// would state as measured fact something one of them never measured. Absent
-/// is the honest rendering — and the phase-vocabulary skew warning already
-/// tells the operator when the daemon is behind the CLI.
-///
-/// The line deliberately names the mean AND the max. `molecule_gate` wait on
-/// the primary was 95% of one client's mutation wall time while every sample in
-/// the recent ring showed microseconds of wait: a bursty stall. A mean hold
-/// alone averages that away; the max is what makes it visible.
-pub(super) fn molecule_gate_status_line(m: &MoleculeGateHealth) -> Option<String> {
-    let mean_us = m.mean_hold_us()?;
-    let count = match m.hold_count.value {
-        Availability::Measured(n) if n > 0 => n,
-        _ => return None,
-    };
-    let max_us = match m.hold_max_us.value {
-        Availability::Measured(n) => n,
-        Availability::Unavailable(_) => return None,
-    };
-    // Noun + window come from the typed gauges (not hard-coded "now").
-    let count_noun = m.hold_count.unit.noun();
-    let window_q = m.hold_count.window.qualifier();
-    Some(format!(
-        "Molecule gate: {count} {count_noun} {window_q}, mean {:.1}ms, max {:.1}ms held.          Pair with the `molecule_gate` phase, which is WAIT: high wait + low          mean hold is many writers on one key (spread the caller's key); high          wait + high hold is long memory work inside the guarded region.          Restore and persist IO run outside this gate.",
-        mean_us as f64 / 1000.0,
-        max_us as f64 / 1000.0,
-    ))
-}
-
-// lint:file-size-ok moved verbatim from self_metrics.rs; cohesive unit, split further in a later pass

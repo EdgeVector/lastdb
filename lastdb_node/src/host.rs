@@ -432,7 +432,7 @@ impl Host {
 
         let existing_store = data_dir_has_existing_store(&data_path);
 
-        let (keypair, e2e_keys, new_identity) = Self::load_boot_identity(home)?;
+        let (keypair, e2e_keys, _) = Self::load_boot_identity(home)?;
 
         let cloud_sync = load_cloud_sync(home)?;
         let sync_configured = cloud_sync.is_some();
@@ -449,11 +449,6 @@ impl Host {
         .await?;
         // No cloud config, yet an engine: only the local proof engine does that.
         let proof_replay_engine = !sync_configured && db.sync_engine().is_some();
-        // The one path that creates a brand-new home: this boot minted the
-        // identity over a store that did not exist. A restored identity or an
-        // existing store never stamps. Best effort; the call cannot fail boot.
-        Self::record_boot_peer_state(&db, home, new_identity && !existing_store).await?;
-
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         // Mirror the keep set wherever a cut publishes, not only on the
         // operator snapshot route. `lastdb cloud backup-gc` refuses without

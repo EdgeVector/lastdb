@@ -362,3 +362,28 @@ pub(in crate::db_operations) fn inventory_next_page_rows(
         .unwrap_or(INVENTORY_PAGE_ROWS_MAX)
         .clamp(INVENTORY_PAGE_ROWS_MIN, INVENTORY_PAGE_ROWS_MAX)
 }
+
+/// Report from measuring/purging legacy `ref:` whole-molecule blobs
+/// (cold `legacy_blob_refs` collection).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyRefBlobPurgeReport {
+    pub dry_run: bool,
+    /// LastStore collection that hosts `ref:` keys.
+    pub collection: String,
+    /// Keys found under the `ref:` prefix, whether or not this call deleted them.
+    pub keys_found: u64,
+    pub bytes_found_approx: u64,
+    /// Keys whose molecule already has per-key coverage (`mh:` / `mk:`) — safe to delete.
+    pub keys_safe: u64,
+    /// Keys with no per-key coverage — left in place; do not force-delete.
+    pub keys_blocked: u64,
+    pub bytes_safe_approx: u64,
+    pub bytes_blocked_approx: u64,
+    /// `0` on a dry run; number of safe keys deleted after a real execute.
+    pub keys_deleted: u64,
+    /// Sample of blocked keys (capped) for operator follow-up.
+    #[serde(default)]
+    pub blocked_samples: Vec<String>,
+    /// True when no blocked residue remains (and execute finished if not dry-run).
+    pub purge_complete: bool,
+}

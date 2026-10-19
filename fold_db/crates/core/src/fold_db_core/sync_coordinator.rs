@@ -1,11 +1,9 @@
 //! Local storage maintenance and the optional cloud sync engine lifecycle.
 //!
-//! Local atom cleanup and file compaction run without a cloud engine.
-//! The coordinator owns their shared packing lock. Cloud operations require
+//! File compaction runs without a cloud engine. The coordinator owns its
+//! shared packing lock. Cloud operations require
 //! an attached engine; native cloud activation remains disabled.
 
-use crate::clock::unix_secs;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, RwLock};
 
 use tokio::task::JoinHandle;
@@ -13,20 +11,14 @@ use tracing::{debug, info, warn};
 
 use std::sync::Arc;
 
-use crate::db_operations::{
-    AtomGcReapOptions, AtomGcReapReport, AtomStore, AutomaticGcAtomsDeleteOptions,
-    AutomaticGcAtomsProbeOptions, AutomaticGcAtomsProbeResult, DbOperations,
-};
+use crate::db_operations::DbOperations;
 use crate::sync::{SyncEngine, SyncError, SyncState, SyncStatus};
 
 mod background;
 mod backoff;
 mod cadence;
-mod gc_atoms;
 mod shutdown;
 use backoff::*;
-pub use gc_atoms::AutomaticGcAtomsStatus;
-use gc_atoms::*;
 
 /// Coordinates the optional cloud sync engine lifecycle.
 pub struct SyncCoordinator {
@@ -35,10 +27,6 @@ pub struct SyncCoordinator {
     /// Bounded marker-plane drain. It runs outside the serial cloud target
     /// cycle so a large residual queue does not wait for 40 scoped uploads.
     capture_reexport_task: Mutex<Option<JoinHandle<()>>>,
-    /// Local gc-atoms cadence. Independent of `engine.sync()` success.
-    gc_atoms_task: Mutex<Option<JoinHandle<()>>>,
-    /// What the cadence has done, for `lastdb status`.
-    gc_atoms_status: AutomaticGcAtomsStatusCell,
     /// Local plane self-compaction cadence. Independent of cloud sync: a node
     /// booted without `cloud_sync.json` runs the identical sweeps.
     plane_compaction_task: Mutex<Option<JoinHandle<()>>>,
@@ -62,8 +50,6 @@ impl SyncCoordinator {
             engine: Arc::new(RwLock::new(None)),
             task: Mutex::new(None),
             capture_reexport_task: Mutex::new(None),
-            gc_atoms_task: Mutex::new(None),
-            gc_atoms_status: AutomaticGcAtomsStatusCell::default(),
             plane_compaction_task: Mutex::new(None),
             local_plane_compactor: RwLock::new(None),
             backup_publish_target: Arc::new(tokio::sync::Mutex::new(None)),
@@ -157,7 +143,7 @@ impl SyncCoordinator {
         Some(self.engine()?.pending_count().await)
     }
 
-    /// Abort the background sync, gc-atoms, and plane-compaction tasks without
+    /// Abort the background sync and plane-compaction tasks without
     /// a final sync. Called from Drop to avoid tokio panics.
     pub(crate) fn abort_task(&self) {
         if let Some(handle) = self.task.lock().unwrap().take() {
@@ -166,10 +152,6 @@ impl SyncCoordinator {
         }
         if let Some(handle) = self.capture_reexport_task.lock().unwrap().take() {
             debug!("SyncCoordinator: aborting capture re-export drain on drop");
-            handle.abort();
-        }
-        if let Some(handle) = self.gc_atoms_task.lock().unwrap().take() {
-            debug!("SyncCoordinator: aborting automatic gc-atoms cadence on drop");
             handle.abort();
         }
         if let Some(handle) = self.plane_compaction_task.lock().unwrap().take() {

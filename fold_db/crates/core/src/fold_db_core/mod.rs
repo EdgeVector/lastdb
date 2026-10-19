@@ -10,7 +10,6 @@
 //! - [`pending_task_tracker`] — background task bookkeeping
 //! - [`sync_coordinator`] — cloud sync lifecycle (`cloud-sync` feature)
 
-pub mod atom_reclaim_janitor;
 pub mod factory;
 pub mod fold_db;
 pub mod mutation_flush;
@@ -26,10 +25,6 @@ pub mod sync_coordinator;
 pub use query::QueryExecutor;
 pub use query::{HashRangeWatch, HashRangeWatchBounds, HashRangeWatchError, HashRangeWatchEvent};
 
-pub use atom_reclaim_janitor::{
-    AtomReclaimJanitorPolicy, BackgroundAtomReclaimJanitorTask, ATOM_RECLAIM_MS_ENV,
-    DEFAULT_ATOM_RECLAIM_MS,
-};
 pub use mutation_flush::{
     mutation_sync_flush_enabled, BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV,
     DEFAULT_BACKGROUND_FLUSH_MS, MUTATION_SYNC_FLUSH_ENV,
@@ -39,7 +34,7 @@ pub use protein_reaper::{
     BackgroundProteinReaperTask, ProteinReaperPolicy, DEFAULT_PROTEIN_REAPER_MS,
     PROTEIN_REAPER_MS_ENV,
 };
-pub use sync_coordinator::{AutomaticGcAtomsStatus, SyncCoordinator};
+pub use sync_coordinator::SyncCoordinator;
 
 pub use fold_db::{
     CatalogDeleteReclaimResult, CatalogReclaimResult, DbSchemaShareResult, FoldDB,

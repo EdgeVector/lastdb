@@ -36,7 +36,7 @@ mod helpers;
 mod removals;
 mod targets;
 
-pub(crate) use delete_candidates::{delete_candidates_for_key, plan_normal_delete_barriers};
+pub(crate) use delete_candidates::plan_normal_delete_barriers;
 pub(super) use erase::{erase_keys, EraseOptions};
 pub(super) use targets::{absent_purge_targets, validate_purge_targets_present};
 

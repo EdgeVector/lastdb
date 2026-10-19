@@ -22,9 +22,6 @@ mod replay_schema_probe_cmd;
 #[path = "lastdb/retired_intent_probe_cmd.rs"]
 mod retired_intent_probe_cmd;
 use record_get_cmds::*;
-#[path = "lastdb/version_retention_cmds.rs"]
-mod version_retention_cmds;
-use version_retention_cmds::*;
 #[path = "lastdb/db_cmds.rs"]
 mod db_cmds;
 use db_cmds::*;

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::db_operations::atom_store::SealedAtom;
-use crate::db_operations::{ChangedKey, MoleculeData, MoleculeGateHoldStats};
+use crate::db_operations::{ChangedKey, MoleculeData};
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 
@@ -29,50 +29,6 @@ pub(crate) struct DeferredPersistJob {
     pub sibling_updates: Vec<(String, MoleculeData, HashSet<ChangedKey>)>,
     pub(in crate::fold_db_core::mutation_manager) sibling_moves: Vec<super::prepared::SiblingMove>,
 }
-
-/// One held molecule write gate, which books how long it was held when it
-/// drops.
-///
-/// The gate's *wait* side is already reported as the `molecule_gate` request
-/// phase. This is the other side, and the two are only useful together: deep
-/// queue + short holds is a hot key (caller's fix), shallow queue + long holds
-/// is a stall inside the guarded region (write path's fix). See
-/// [`MoleculeGateHoldStats`].
-///
-/// Timing starts at construction — i.e. after `lock_owned()` returned — so the
-/// acquisition wait is not double-counted into the hold.
-pub(crate) struct MoleculeGateGuard {
-    /// Released after this struct's own `Drop` runs — Rust calls `Drop::drop`
-    /// before dropping fields — so the booked duration covers the guarded
-    /// region and not the mutex release. The three relaxed atomic ops that
-    /// booking costs happen while the gate is still held, which is the right
-    /// way round: it cannot under-report a hold, only over-report by the
-    /// nanoseconds it takes to record one.
-    _guard: tokio::sync::OwnedMutexGuard<()>,
-    acquired_at: std::time::Instant,
-    stats: Arc<MoleculeGateHoldStats>,
-}
-
-impl MoleculeGateGuard {
-    fn new(guard: tokio::sync::OwnedMutexGuard<()>, stats: Arc<MoleculeGateHoldStats>) -> Self {
-        Self {
-            _guard: guard,
-            acquired_at: std::time::Instant::now(),
-            stats,
-        }
-    }
-}
-
-impl Drop for MoleculeGateGuard {
-    fn drop(&mut self) {
-        self.stats.record(self.acquired_at.elapsed());
-    }
-}
-
-/// Sweep `molecule_persist_locks` for unreferenced gates once it holds this
-/// many entries. Well above the in-flight write ceiling (QoS admits 64), so a
-/// sweep reclaims nearly the whole map and the next one is far away.
-const MOLECULE_PERSIST_LOCK_REAP_AT: usize = 4096;
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn persist_modified_molecules(
@@ -285,7 +241,6 @@ impl MutationManager {
 mod deferred_job;
 mod key_moves;
 mod lane_writer;
-mod locks;
 mod protein_delete;
 mod purge_job;
 mod purge_resident;

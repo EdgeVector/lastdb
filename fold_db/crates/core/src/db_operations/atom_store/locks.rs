@@ -1,4 +1,4 @@
-//! Molecule, tip, atom-ref, and delete-barrier locks plus GC protection.
+//! Molecule, tip, liveness and delete-barrier locks.
 
 use super::*;
 use futures::{future::BoxFuture, FutureExt};
@@ -206,56 +206,6 @@ impl AtomStore {
             .remove(mk_key))
     }
 
-    /// Active automatic-GC generation, or zero outside a delete sweep.
-    pub(crate) fn automatic_gc_atoms_generation(&self) -> u64 {
-        self.automatic_gc_atoms_generation.load(Ordering::Acquire)
-    }
-
-    /// Publish or clear the automatic-GC generation for write-side guards.
-    pub(crate) fn set_automatic_gc_atoms_generation(&self, generation: u64) {
-        self.automatic_gc_atoms_generation
-            .store(generation, Ordering::Release);
-    }
-
-    /// Serialize body writes and automatic deletes for the named atom UUIDs.
-    ///
-    /// Sorted acquisition gives every multi-atom batch the same lock order.
-    pub(crate) async fn lock_automatic_gc_atoms(
-        &self,
-        atom_uuids: &[String],
-    ) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
-        if atom_uuids.is_empty() {
-            return Vec::new();
-        }
-        let mut stripes = atom_uuids
-            .iter()
-            .map(|uuid| {
-                let mut hasher = DefaultHasher::new();
-                uuid.hash(&mut hasher);
-                hasher.finish() as usize % self.automatic_gc_atom_locks.len()
-            })
-            .collect::<Vec<_>>();
-        stripes.sort_unstable();
-        stripes.dedup();
-        let mut guards = Vec::with_capacity(stripes.len());
-        for stripe in stripes {
-            guards.push(
-                Arc::clone(&self.automatic_gc_atom_locks[stripe])
-                    .lock_owned()
-                    .await,
-            );
-        }
-        guards
-    }
-
-    /// Serialize durable reference-count changes for the named atoms.
-    pub(crate) async fn lock_atom_ref_counts(
-        &self,
-        atom_uuids: &[String],
-    ) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
-        lock_target_stripes(&self.atom_ref_count_locks, atom_uuids).await
-    }
-
     /// Serialize source changes and reclaim checks for molecule targets.
     pub(crate) async fn lock_liveness_molecules(
         &self,
@@ -270,45 +220,5 @@ impl AtomStore {
         blob_refs: &[String],
     ) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
         lock_target_stripes(&self.blob_liveness_locks, blob_refs).await
-    }
-
-    /// Protect atom references added after an automatic probe lap starts.
-    ///
-    /// The marker write uses the same per-atom guards as the delete pass. The
-    /// append path writes the marker before it commits a legacy reference-only
-    /// pin-log row. A marker without a row only retains bytes; a row without a
-    /// marker could lose acknowledged data, so this order fails safe.
-    pub(crate) async fn protect_automatic_gc_atom_references(
-        &self,
-        atom_uuids: &[String],
-        storage_prefix: Option<&str>,
-    ) -> Result<(), crate::schema::SchemaError> {
-        if atom_uuids.is_empty() {
-            return Ok(());
-        }
-        let _guards = self.lock_automatic_gc_atoms(atom_uuids).await;
-        for atom_uuid in atom_uuids {
-            if self
-                .get_atom_by_uuid(atom_uuid, storage_prefix)
-                .await?
-                .is_none()
-            {
-                return Err(crate::schema::SchemaError::InvalidData(format!(
-                    "cannot protect missing pin-log atom {atom_uuid}"
-                )));
-            }
-        }
-        if self.automatic_gc_atoms_generation() == 0 {
-            return Ok(());
-        }
-        let items = self.automatic_gc_reference_marker_items(atom_uuids, storage_prefix)?;
-        if items.is_empty() {
-            return Ok(());
-        }
-        self.raw().batch_put_items(items).await.map_err(|error| {
-            crate::schema::SchemaError::InvalidData(format!(
-                "protect automatic gc-atoms pin-log references: {error}"
-            ))
-        })
     }
 }

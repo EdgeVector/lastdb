@@ -46,9 +46,7 @@ impl FoldDB {
         engine
             .set_mutation_intent_materializer(Arc::clone(&materializer))
             .await;
-        engine
-            .set_automatic_gc_atom_store(self.db_ops.atoms().clone())
-            .await;
+        engine.set_atom_store(self.db_ops.atoms().clone()).await;
         let pending_tasks = Arc::clone(&self.pending_tasks);
         let cut_db_ops = Arc::clone(&self.db_ops);
         let cut_capture_router = self.mutation_log_capture.clone();

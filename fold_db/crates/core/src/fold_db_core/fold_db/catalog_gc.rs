@@ -51,30 +51,17 @@ impl FoldDB {
         let _molecule_guards = self
             .lock_schema_molecules(schema.as_ref(), storage_prefix.as_deref())
             .await;
-        let atom_ref_plan = match (existing.as_ref(), schema.as_ref()) {
-            (Some(_), Some(schema)) => Some(
-                self.db_ops()
-                    .atoms()
-                    .prepare_catalog_atom_ref_removal(
-                        db_locator,
-                        schema_name,
-                        schema,
-                        storage_prefix.as_deref(),
-                    )
-                    .await?,
-            ),
-            _ => None,
-        };
         let deleted = catalog.delete(db_locator, schema_name).await?;
-        if deleted {
-            if let Some(plan) = atom_ref_plan {
-                self.db_ops()
-                    .atoms()
-                    .commit_catalog_atom_ref_removal(plan)
-                    .await?;
-            }
-        } else if let Some(plan) = atom_ref_plan.as_ref() {
-            self.db_ops().atoms().abort_catalog_atom_refs(plan).await?;
+        if let (true, Some(_), Some(schema)) = (deleted, existing.as_ref(), schema.as_ref()) {
+            self.db_ops()
+                .atoms()
+                .unbind_catalog_molecules(
+                    db_locator,
+                    schema_name,
+                    schema,
+                    storage_prefix.as_deref(),
+                )
+                .await?;
         }
         let instance_id = existing.and_then(|entry| entry.instance_id);
         let reclaim = match instance_id.as_deref() {

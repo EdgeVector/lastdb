@@ -22,31 +22,6 @@ pub(super) fn captured_lookup(
 }
 
 impl PackRuntime {
-    /// GC observes current positive slots under the publication lock order.
-    /// The caller excludes its exact targets in the current key codec.
-    pub(crate) fn current_core_atom_uuids<E>(
-        &self,
-        bindings: &[(Option<String>, String)],
-        mut retained: impl FnMut(usize, &str, &str) -> Result<bool, E>,
-    ) -> Result<std::collections::HashSet<String>, E> {
-        let _view = self.view.read().expect("current core GC publication view");
-        let core = self.core.lock().expect("current core GC values");
-        let mut atoms = std::collections::HashSet::new();
-        for (index, (scope, molecule)) in bindings.iter().enumerate() {
-            if let Some(result) = core.with_molecule(scope.as_deref(), molecule, |values| {
-                for (hash, range, uuid) in values.iter_all_atoms() {
-                    if retained(index, hash, range)? {
-                        atoms.insert(uuid.clone());
-                    }
-                }
-                Ok::<(), E>(())
-            }) {
-                result?;
-            }
-        }
-        Ok(atoms)
-    }
-
     pub(super) fn admit_field_path(
         self: &Arc<Self>,
         context: &Arc<ReadContext>,

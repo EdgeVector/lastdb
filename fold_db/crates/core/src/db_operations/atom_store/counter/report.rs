@@ -98,7 +98,7 @@ impl CounterEvents {
 }
 
 /// The planner report in `lastdb status`.
-#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct AtomCounterReport {
     pub bodies_created: u64,
     pub bodies_deleted: u64,

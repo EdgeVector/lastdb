@@ -6,9 +6,6 @@ pub(crate) use db_app_storage_cmds::*;
 #[path = "db_blob_cmds.rs"]
 mod db_blob_cmds;
 pub(crate) use db_blob_cmds::*;
-#[path = "db_gc_atoms_cmds.rs"]
-mod db_gc_atoms_cmds;
-pub(crate) use db_gc_atoms_cmds::*;
 #[path = "db_inventory_print_cmds.rs"]
 mod db_inventory_print_cmds;
 pub(crate) use db_inventory_print_cmds::*;
@@ -30,21 +27,18 @@ use db_proof_cmds::*;
 #[path = "db_put_blob_local_cmds.rs"]
 mod db_put_blob_local_cmds;
 pub(crate) use db_put_blob_local_cmds::*;
-#[path = "db_reap_cmds.rs"]
-mod db_reap_cmds;
-pub(crate) use db_reap_cmds::*;
 #[path = "db_reclaim_cmds.rs"]
 mod db_reclaim_cmds;
 pub(crate) use db_reclaim_cmds::*;
 #[path = "db_unresolved_cmds.rs"]
 mod db_unresolved_cmds;
 pub(crate) use db_unresolved_cmds::*;
+#[path = "db_report_util_cmds.rs"]
+mod db_report_util_cmds;
+pub(crate) use db_report_util_cmds::*;
 #[path = "db_reseal_cmds.rs"]
 mod db_reseal_cmds;
 pub(crate) use db_reseal_cmds::*;
-#[path = "db_retain_cmds.rs"]
-mod db_retain_cmds;
-pub(crate) use db_retain_cmds::*;
 #[path = "db_thin_tips_cmds.rs"]
 mod db_thin_tips_cmds;
 pub(crate) use db_thin_tips_cmds::*;
@@ -56,19 +50,6 @@ mod db_tombstone_cmds;
 pub(crate) use db_tombstone_cmds::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
-    if let DbCommand::Tips(DbTipsCommand::RetainSupersededVersionsOffline {
-        execute,
-        version_cutoff_nanos,
-        json,
-    }) = action
-    {
-        return db_retain_superseded_versions_offline(
-            data_dir,
-            execute,
-            version_cutoff_nanos,
-            json,
-        );
-    }
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
     if lastdb_node::health_alert::probe_health(&socket).is_err() {
         return Err(format!(

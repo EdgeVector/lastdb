@@ -27,37 +27,18 @@ pub mod search_index;
 mod storage_breakdown;
 pub mod tip_atoms;
 // Re-exports
-pub(crate) use admin_db::GcAtomsRunScope;
 pub use admin_db::{
-    AtomGcReport, AutomaticGcAtomsDeleteCheckpoint, AutomaticGcAtomsDeleteOptions,
-    AutomaticGcAtomsDeletePhase, AutomaticGcAtomsDeleteReport, AutomaticGcAtomsDeleteResult,
-    AutomaticGcAtomsGraceGate, AutomaticGcAtomsPinLogReferencePage,
-    AutomaticGcAtomsProbeCheckpoint, AutomaticGcAtomsProbeOptions, AutomaticGcAtomsProbePhase,
-    AutomaticGcAtomsProbeReport, AutomaticGcAtomsProbeResult, DbInventory, GcAtomsPruneCheckpoint,
-    GcAtomsRevalidationTally, HistoryClearReport, LegacyKeyForkAudit, LegacyKeyForkMoleculeStat,
-    LegacyRefBlobPurgeReport, MainKeyClass, MoleculeHashBucketReport, MoleculeHashBucketRow,
-    MoleculeKeyRow, MoleculeKeysReport, MoleculeTombstoneFlagStat, OrderLogAudit,
-    OrderLogBloatAudit, OrderLogBloatRow, OrderLogBloatSchemaStat, OrderLogRepairReport,
-    OrderLogShortRow, OrderLogZeroLiveCompactionReport, ProteinGcReport,
-    SchemaCurrentStorageReport, SchemaHistoryClearStat, SchemaHistoryStat,
-    SchemaLogicalStorageReport, SchemaLogicalStorageRow, SchemaOrderLogStat, SchemaRecordKey,
-    SchemaRecordKeysReport, SchemaStorageReport, SupersededVersionRetentionCheckpoint,
-    SupersededVersionRetentionOptions, SupersededVersionRetentionReport, ThinTipMigrateReport,
-    TipFormatStats, TipHistoryDrainCheckpoint, TipHistoryDrainOptions, TipHistoryDrainReport,
-    TombstoneFlagAudit, TombstoneFlagBackfillReport, GC_ATOMS_DELETE_CHECKPOINT_KEY,
-    GC_ATOMS_PROBE_CHECKPOINT_KEY, GC_ATOMS_PRUNE_CHECKPOINT_KEY,
-    SUPERSEDED_VERSION_RETENTION_CHECKPOINT_KEY, TIP_HISTORY_DRAIN_CHECKPOINT_KEY,
+    DbInventory, HistoryClearReport, LegacyKeyForkAudit, LegacyKeyForkMoleculeStat, MainKeyClass,
+    MoleculeHashBucketReport, MoleculeHashBucketRow, MoleculeKeyRow, MoleculeKeysReport,
+    MoleculeTombstoneFlagStat, OrderLogAudit, OrderLogBloatAudit, OrderLogBloatRow,
+    OrderLogBloatSchemaStat, OrderLogRepairReport, OrderLogShortRow,
+    OrderLogZeroLiveCompactionReport, ProteinGcReport, SchemaCurrentStorageReport,
+    SchemaHistoryClearStat, SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow,
+    SchemaOrderLogStat, SchemaRecordKey, SchemaRecordKeysReport, SchemaStorageReport,
+    ThinTipMigrateReport, TipFormatStats, TombstoneFlagAudit, TombstoneFlagBackfillReport,
 };
-pub use atom_store::{
-    allow_after_peer_apply_from_env, PeerApplyState, ALLOW_AFTER_PEER_APPLY_ENV, PEER_APPLY_KEY,
-};
-pub(crate) use atom_store::{automatic_gc_audit_id, ChangedKey, FilterLayout, OneDSlot};
-pub use atom_store::{
-    AtomGcAuditDecision, AtomGcAuditResult, AtomGcCandidate, AtomGcCandidatePage,
-    AtomGcReapOptions, AtomGcReapReport, AtomStore, DroppedSchemaReapCursor,
-    DroppedSchemaReapPhase, DroppedSchemaReapReport, DroppedSchemaTipProbe, DroppedSchemaTipProof,
-    MoleculeData, DEFAULT_ATOM_GC_GRACE_WINDOW, MAX_DROPPED_SCHEMA_REAP_OPS,
-};
+pub use atom_store::{AtomCounterReport, AtomCounterView, AtomStore, MoleculeData};
+pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,
     AttributionLedger, AttributionObjectKind, AttributionPath, AttributionPendingScope,
@@ -96,7 +77,7 @@ pub(crate) use conflict_operations::{
 };
 pub use core::{
     note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally, DbOperations, KeyForm,
-    MoleculeGateHold, MoleculeGateHoldStats, QueryRowDrops,
+    QueryRowDrops,
 };
 pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;

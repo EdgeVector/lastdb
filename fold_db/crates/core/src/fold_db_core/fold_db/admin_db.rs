@@ -1,20 +1,16 @@
-//! Owner-facing DB admin: inventory + history clear + atom GC + photo blob migrate.
+//! Owner-facing DB admin: inventory + history clear + photo blob migrate.
 
 use crate::db_operations::{
-    AtomDeleteLedgerEntry, AtomGcReport, DbInventory, DroppedSchemaReapCursor, HistoryClearReport,
-    LegacyKeyForkAudit, LegacyRefBlobPurgeReport, OrderLogAudit, ProteinGcReport,
-    SchemaCurrentStorageReport, SchemaLogicalStorageReport, SchemaLogicalStorageRow,
-    SchemaRecordKey, SchemaRecordKeysReport, SchemaStorageReport,
-    SupersededVersionRetentionCheckpoint, SupersededVersionRetentionOptions,
-    SupersededVersionRetentionReport, ThinTipMigrateReport, TipHistoryDrainCheckpoint,
-    TipHistoryDrainOptions, TipHistoryDrainReport, TombstoneFlagBackfillReport,
-    LIVE_ATTRIBUTION_EPOCH_ID,
+    AtomDeleteLedgerEntry, DbInventory, HistoryClearReport, LegacyKeyForkAudit, OrderLogAudit,
+    ProteinGcReport, SchemaCurrentStorageReport, SchemaLogicalStorageReport,
+    SchemaLogicalStorageRow, SchemaRecordKey, SchemaRecordKeysReport, SchemaStorageReport,
+    ThinTipMigrateReport, TombstoneFlagBackfillReport, LIVE_ATTRIBUTION_EPOCH_ID,
 };
 use crate::error::FoldDbError;
 use crate::hex::hex_lower;
 use crate::schema::types::Schema;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::access::AccessContext;
 use crate::schema::types::field::HashRangeFilter;
@@ -26,10 +22,11 @@ use sha2::{Digest, Sha256};
 
 use super::FoldDB;
 
-mod atom_gc;
+mod counters;
 mod error;
 mod maintenance;
 mod order_log;
+mod orphan_gc;
 mod photo_blobs;
 mod repair;
 mod retention;

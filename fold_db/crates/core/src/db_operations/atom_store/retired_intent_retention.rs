@@ -10,7 +10,6 @@ use std::sync::Arc;
 use tokio::sync::{OwnedMutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard};
 
 mod dependencies;
-mod reclaim;
 mod storage;
 
 /// This namespace uses the normal encryption wrapper and default backup role.
@@ -20,7 +19,6 @@ pub(crate) const RETIRED_INTENT_RETENTION_NAMESPACE: &str = "retired_intent_rete
 pub(crate) struct RetiredIntentRetentionGuard {
     store: AtomStore,
     _reclaim: OwnedRwLockWriteGuard<()>,
-    _atoms: Vec<OwnedMutexGuard<()>>,
     _blobs: Vec<OwnedMutexGuard<()>>,
     attempted: bool,
 }
@@ -90,7 +88,6 @@ impl AtomStore {
         Ok(RetiredIntentRetentionGuard {
             store: self.clone(),
             _reclaim: reclaim,
-            _atoms: Vec::new(),
             _blobs: Vec::new(),
             attempted: false,
         })
@@ -107,8 +104,6 @@ impl AtomStore {
         }
         let _reclaim = self.retired_intent_reclaim_guard().await;
         let mut roots = dependency_roots(source_id, envelopes);
-        let ids = dependency_atom_ids(&roots);
-        let _atoms = self.lock_automatic_gc_atoms(&ids).await;
         self.add_referenced_atom_blobs(&mut roots, envelopes)
             .await?;
         let blob_ids: Vec<String> = roots.blobs.iter().cloned().collect();
@@ -143,8 +138,6 @@ impl RetiredIntentRetentionGuard {
             return Err(refused("retired intent retention source is invalid"));
         }
         let mut roots = dependency_roots(source_id, envelopes);
-        let ids = dependency_atom_ids(&roots);
-        self._atoms = self.store.lock_automatic_gc_atoms(&ids).await;
         self.store
             .add_referenced_atom_blobs(&mut roots, envelopes)
             .await?;
@@ -153,16 +146,6 @@ impl RetiredIntentRetentionGuard {
         self.store.require_retired_blob_presence(&blob_ids).await?;
         self.store.commit_retired_source_roots(&roots).await
     }
-}
-
-fn dependency_atom_ids(roots: &SourceRoots) -> Vec<String> {
-    roots
-        .scopes
-        .iter()
-        .flat_map(|scope| scope.atoms.iter().cloned())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
 }
 
 fn dependency_roots(source_id: &str, envelopes: &[MutationEnvelope]) -> SourceRoots {

@@ -10,7 +10,6 @@ impl SyncCoordinator {
         for slot in [
             &self.task,
             &self.capture_reexport_task,
-            &self.gc_atoms_task,
             &self.plane_compaction_task,
         ] {
             if let Some(handle) = slot.lock().unwrap().as_ref() {
@@ -24,10 +23,9 @@ impl SyncCoordinator {
     /// is an error and must not produce a clean shutdown receipt.
     pub async fn join_background_tasks(&self, timeout: Duration) -> Result<(), String> {
         self.request_background_stop();
-        let handles: [(&str, &std::sync::Mutex<Option<JoinHandle<()>>>); 4] = [
+        let handles: [(&str, &std::sync::Mutex<Option<JoinHandle<()>>>); 3] = [
             ("background sync", &self.task),
             ("capture re-export", &self.capture_reexport_task),
-            ("gc-atoms", &self.gc_atoms_task),
             ("plane compaction", &self.plane_compaction_task),
         ];
         let handles: Vec<_> = handles

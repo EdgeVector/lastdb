@@ -171,21 +171,4 @@ pub(crate) enum DbInspectCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Point-read one exact tip of a dropped receipt molecule.
-    /// Returns a key fingerprint and presence booleans, without subject data.
-    ProbeDroppedTip {
-        #[arg(long)]
-        schema: String,
-        #[arg(long)]
-        molecule: String,
-        #[arg(long)]
-        key_hash: String,
-        #[arg(long, default_value = "")]
-        key_range: String,
-        /// Select one storage form by the prior probe fingerprint.
-        #[arg(long)]
-        expected_key_fingerprint: Option<String>,
-        #[arg(long)]
-        json: bool,
-    },
 }

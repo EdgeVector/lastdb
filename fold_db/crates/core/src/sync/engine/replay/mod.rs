@@ -10,5 +10,4 @@ mod fence;
 mod foreign_intent;
 mod merge;
 mod order;
-mod peer_apply;
 mod records;

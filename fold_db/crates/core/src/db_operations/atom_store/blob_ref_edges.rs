@@ -203,7 +203,8 @@ impl AtomStore {
         &self,
         storage_prefix: Option<&str>,
     ) -> Result<BlobRefCompleteness, SchemaError> {
-        let (start, end) = Self::kind_plane_scan_bounds(storage_prefix, "atom:");
+        let (start, end) =
+            crate::kind_partition::colon_plane_bounds(&build_storage_key(storage_prefix, "atom:"));
         let mut edges = Vec::new();
         let mut atoms_read = 0u64;
         let mut cursor: Option<PhysicalScanCursor> = None;
@@ -226,7 +227,10 @@ impl AtomStore {
                 })?;
             for (key, value) in &page.rows {
                 let key = String::from_utf8_lossy(key);
-                let uuid = Self::atom_uuid_from_body_key(&key).ok_or_else(|| {
+                if crate::atom::atom_key_codec::is_counter_key(&key) {
+                    continue;
+                }
+                let uuid = crate::atom::atom_key_codec::body_uuid_of(&key).ok_or_else(|| {
                     SchemaError::InvalidData(format!(
                         "blob reference bootstrap found malformed atom key {key:?}"
                     ))

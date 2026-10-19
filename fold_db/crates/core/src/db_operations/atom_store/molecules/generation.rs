@@ -5,7 +5,6 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use std::collections::BTreeSet;
 use std::collections::{BTreeMap, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 

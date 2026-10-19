@@ -179,42 +179,6 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// GC: prune tip-version history for **tombstoned** tips, then delete
-    /// unreferenced `atom:` rows.
-    ///
-    /// Soft-delete used to leave `tv:` chains pinning every old body atom so
-    /// plain orphan GC could not free them. This command now:
-    /// 1. For each eligible `mk:` tip, drop the `tv:` chain and clear
-    ///    `prev_tip_id`. Default: tombstoned tips only (live tips keep `as_of`
-    ///    history). With `--prune-live-history`: every tip with a non-empty
-    ///    chain (reclaim path for append-heavy live records; drops `as_of`).
-    /// 2. Delete `atom:` rows no remaining tip/tv/history still references.
-    ///
-    /// Default is dry-run. Pass `--execute` to apply.
-    ///
-    /// `--execute` refuses on a node that has applied a peer mutation, or that
-    /// cannot prove it never did (every home an older build created): the atom
-    /// of a lost multi-device write is an ordinary unreferenced atom. Pass
-    /// `--allow-after-peer-apply` to accept that those atoms can be deleted.
-    GcAtoms {
-        /// Limit deletion candidates to one installed source schema.
-        #[arg(long)]
-        schema: Option<String>,
-        #[arg(long)]
-        execute: bool,
-        /// Also prune tip-version history on **live** tips (not only
-        /// tombstoned). Frees body atoms pinned by append-heavy rewrites;
-        /// sacrifices `as_of` depth.
-        #[arg(long)]
-        prune_live_history: bool,
-        /// Accept that the atoms of a LOST multi-device write can be deleted.
-        /// Needed with `--execute` on a node that has applied a peer mutation
-        /// or whose peer history is unknown.
-        #[arg(long)]
-        allow_after_peer_apply: bool,
-        #[arg(long)]
-        json: bool,
-    },
     /// GC: delete local file-blob rows no live atom references.
     ///
     /// The reclaim path for the sealed bytes a purge orphans: purge destroys
@@ -236,15 +200,6 @@ pub(crate) enum DbReclaimCommand {
     /// Bound proteins are protected by their member list and by `molprot:`
     /// back-refs. Default is dry-run. Pass `--execute` to apply.
     GcProteins {
-        #[arg(long)]
-        execute: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Measure (and optionally delete) legacy `ref:{molecule}` whole-molecule
-    /// blobs — pre-per-key layout residue. The live read path never
-    /// dual-reads these. Default is dry-run. Pass `--execute` to apply.
-    PurgeRefBlobs {
         #[arg(long)]
         execute: bool,
         #[arg(long)]
@@ -284,34 +239,6 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         execute: bool,
         /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Reap tips of a dropped schema identity.
-    ///
-    /// Inspects bounded `schemaidx:` and `mk:` pages for one dropped identity.
-    /// Never scans `atom:`. Execute is closed until the delete and meter debit
-    /// use a replayable journal. Use `--cursor` to resume a dry run.
-    ///
-    /// `--field` computes `deterministic_molecule_uuid(schema, field)` and
-    /// ranges those `mk:` prefixes. Use this when reverse edges name no
-    /// molecules (LastGit after a pre-receipt catalog cut).
-    ReapDroppedSchema {
-        /// Canonical name or identity hash of the dropped schema.
-        #[arg(long)]
-        schema: String,
-        /// Field name on the dropped schema. Repeatable. Computes the
-        /// molecule UUID from `{schema}:{field}`.
-        #[arg(long = "field")]
-        fields: Vec<String>,
-        #[arg(long)]
-        execute: bool,
-        /// Max work units this pass (1..=4096; tip proof needs at least 2).
-        #[arg(long, default_value_t = 4096)]
-        max_ops: u64,
-        /// Opaque resume token from the previous page (invalid after restart).
-        #[arg(long)]
-        cursor: Option<String>,
         #[arg(long)]
         json: bool,
     },

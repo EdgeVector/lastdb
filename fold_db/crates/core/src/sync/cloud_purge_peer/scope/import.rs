@@ -158,7 +158,7 @@ pub(super) async fn commit_membership(
         }
     }
     // No request can observe these individual writes: this store is inactive.
-    // Per-entry atom transitions supply crash recovery inside this candidate.
+    // Each binding is one idempotent batch, so a retry converges inside this candidate.
     for old in selected_old {
         let schema = destination
             .schemas()
@@ -166,16 +166,6 @@ pub(super) async fn commit_membership(
             .await
             .map_err(storage)?
             .ok_or_else(|| fail("prior org membership lacks a canonical schema"))?;
-        let removal = destination
-            .atoms()
-            .prepare_catalog_atom_ref_removal(
-                &old.db_locator,
-                &old.schema_name,
-                &schema,
-                old.instance_id.as_deref(),
-            )
-            .await
-            .map_err(storage)?;
         destination
             .db_catalog()
             .delete(&old.db_locator, &old.schema_name)
@@ -183,7 +173,12 @@ pub(super) async fn commit_membership(
             .map_err(storage)?;
         destination
             .atoms()
-            .commit_catalog_atom_refs(removal)
+            .unbind_catalog_molecules(
+                &old.db_locator,
+                &old.schema_name,
+                &schema,
+                old.instance_id.as_deref(),
+            )
             .await
             .map_err(storage)?;
     }
@@ -191,9 +186,9 @@ pub(super) async fn commit_membership(
         let schema = schemas
             .get(&entry.schema_name)
             .ok_or_else(|| fail("org membership schema is absent"))?;
-        let addition = destination
+        destination
             .atoms()
-            .prepare_catalog_atom_refs(
+            .bind_catalog_molecules(
                 &entry.db_locator,
                 &entry.schema_name,
                 schema,
@@ -202,11 +197,6 @@ pub(super) async fn commit_membership(
             .await
             .map_err(storage)?;
         destination.db_catalog().put(entry).await.map_err(storage)?;
-        destination
-            .atoms()
-            .commit_catalog_atom_refs(addition)
-            .await
-            .map_err(storage)?;
     }
     Ok(())
 }

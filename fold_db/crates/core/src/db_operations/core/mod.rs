@@ -13,12 +13,10 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 
-mod gate_hold;
 mod open;
 mod row_drops;
 mod unresolved;
 
-pub use gate_hold::{MoleculeGateHold, MoleculeGateHoldStats};
 pub use row_drops::{
     note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally, KeyForm, QueryRowDrops,
 };
@@ -96,9 +94,6 @@ pub struct DbOperations {
     /// existing status gauge retains its historical dedup contract.
     unresolved_atom_details: Arc<Mutex<UnresolvedAtomIdentityMap>>,
     unresolved_details_capped: Arc<AtomicBool>,
-    /// How long molecule write gates are held — the other end of the
-    /// `molecule_gate` wait phase. See [`MoleculeGateHoldStats`].
-    molecule_gate_hold: Arc<MoleculeGateHoldStats>,
 }
 
 impl DbOperations {

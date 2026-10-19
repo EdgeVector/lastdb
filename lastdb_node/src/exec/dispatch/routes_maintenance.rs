@@ -29,17 +29,10 @@ pub(super) async fn dispatch_maintenance_gc(
             )
             .await
         }
-        DataRoute::DbGcAtoms => heap_route!(execute_db_gc_atoms_route, req, ctx, host).await,
-        DataRoute::DbReapDroppedSchema => {
-            heap_route!(execute_db_reap_dropped_schema_route, req, ctx, host).await
-        }
         DataRoute::DbGcFileBlobs => {
             heap_route!(execute_db_gc_file_blobs_route, req, ctx, host).await
         }
         DataRoute::DbGcProteins => heap_route!(execute_db_gc_proteins_route, req, ctx, host).await,
-        DataRoute::DbPurgeRefBlobs => {
-            heap_route!(execute_db_purge_ref_blobs_route, req, ctx, host).await
-        }
         DataRoute::DbReclaimKeepSmallLegacy => {
             heap_route!(execute_db_reclaim_keep_small_legacy_route, req, ctx, host).await
         }
@@ -66,12 +59,6 @@ pub(super) async fn dispatch_maintenance_repair(
             )),
             Err(error) => error_response(500, &error, ctx),
         },
-        DataRoute::DbDrainTipHistory => {
-            heap_route!(execute_db_drain_tip_history_route, req, ctx, host).await
-        }
-        DataRoute::DbRetainSupersededVersions => {
-            heap_route!(execute_db_retain_superseded_versions_route, req, ctx, host).await
-        }
         DataRoute::DbDeleteLedger => {
             heap_route!(execute_db_delete_ledger_route, req, ctx, host).await
         }

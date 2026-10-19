@@ -19,38 +19,6 @@ impl SyncEngine {
             .map_err(|error| format!("continuous mutation-log append failed: {error}"))
     }
 
-    /// Atom ids a legacy reference-only MutationIntent still needs.
-    pub(super) fn mutation_intent_gc_roots(
-        op: &LogOp,
-    ) -> std::collections::HashMap<Option<String>, Vec<String>> {
-        let mut grouped: std::collections::HashMap<Option<String>, HashSet<String>> =
-            std::collections::HashMap::new();
-        if let LogOp::MutationIntent { mutations } = op {
-            for envelope in mutations {
-                let roots = grouped.entry(envelope.storage_prefix.clone()).or_default();
-                roots.extend(
-                    envelope
-                        .field_atom_uuids
-                        .iter()
-                        .filter(|(field, _)| !envelope.fields_and_values.contains_key(*field))
-                        .map(|(_, uuid)| uuid.clone()),
-                );
-            }
-        }
-        grouped
-            .into_iter()
-            .filter_map(|(prefix, roots)| {
-                if roots.is_empty() {
-                    None
-                } else {
-                    let mut roots = roots.into_iter().collect::<Vec<_>>();
-                    roots.sort_unstable();
-                    Some((prefix, roots))
-                }
-            })
-            .collect()
-    }
-
     /// Record an operation durably, then admit it to the bounded upload queue
     /// if there is room. This method never drops older unsynced entries unless
     /// they exceed the **absolute** upload byte ceiling (config/env
@@ -141,32 +109,6 @@ impl SyncEngine {
                 .await;
         }
         entry.op.strip_sot_field_values();
-        // A record that starts before marker activation must finish its
-        // append before the pin-log scan starts. Once a generation is
-        // active, a legacy reference-only row writes its marker first and
-        // uses the same per-atom guards as deletion. New self-contained
-        // rows have no roots here and pay no marker IO.
-        let activation_guard = self.automatic_gc_pin_log_barrier.lock().await;
-        let activation_pending = self
-            .automatic_gc_pin_log_activation_pending
-            .load(std::sync::atomic::Ordering::Acquire);
-        let atom_store = self.automatic_gc_atom_store.lock().await.clone();
-        let generation = atom_store.as_ref().map_or(
-            0,
-            crate::db_operations::AtomStore::automatic_gc_atoms_generation,
-        );
-        let hold_for_activation = activation_pending && generation == 0;
-        if !hold_for_activation {
-            drop(activation_guard);
-        }
-        Self::protect_intent_gc_roots(
-            &entry.op,
-            atom_store.as_ref(),
-            generation,
-            activation_pending,
-            "pin-log atom references before append",
-        )
-        .await?;
         self.append_mutation_log_entry(entry, targets_snapshot, partitioner_snapshot)
             .await
     }
