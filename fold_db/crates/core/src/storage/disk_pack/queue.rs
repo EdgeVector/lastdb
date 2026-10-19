@@ -15,6 +15,8 @@ struct QueuedRequest {
 
 #[derive(Default)]
 pub(super) struct WriteQueue {
+    // Success clears this list only after disk publication and delivery. A
+    // failure leaves the sealed queue as the owner of every pending reservation.
     requests: Vec<QueuedRequest>,
     prepared: Option<write::PreparedCommit>,
     next_sequence: u64,
@@ -180,8 +182,6 @@ impl PackRuntime {
                 for request in &requests {
                     if let Err(error) = request.deliver().await {
                         self.failed.store(true, Ordering::Release);
-                        *self.failed_requests.lock().expect("native failed requests") =
-                            requests.clone();
                         self.completed.send_modify(|_| {});
                         tracing::error!(%error, "native durable request post-commit delivery requires recovery");
                         return;
@@ -197,14 +197,6 @@ impl PackRuntime {
             }
             Err(error) => {
                 self.failed.store(true, Ordering::Release);
-                *self.failed_requests.lock().expect("native failed requests") = self
-                    .queue
-                    .lock()
-                    .expect("native accepted queue")
-                    .requests
-                    .iter()
-                    .map(|request| Arc::clone(&request.pending))
-                    .collect();
                 // Notify without advancing the covered durable prefix.
                 self.completed.send_modify(|_| {});
                 tracing::error!(%error, "native complete accepted prefix requires recovery");

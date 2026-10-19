@@ -1,0 +1,218 @@
+{
+  "all_creator_pids": [
+    15183,
+    64459,
+    73905,
+    99405
+  ],
+  "all_node_pids": [
+    15186,
+    15703,
+    15883,
+    16005,
+    17486,
+    73949,
+    78479,
+    99406
+  ],
+  "checked_utc": "2026-10-19T17:34:16.445938+00:00",
+  "cumulative_narrow_receipts_match_originals": true,
+  "exact_roots": [
+    {
+      "checked_utc": "2026-10-19T17:34:15.631694+00:00",
+      "device": 16777231,
+      "documented_startup_gate_refusal": false,
+      "independent_supported_preview": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4 (released exact synthetic seed)\n"
+      },
+      "inode": 1468263173,
+      "known_socket_paths_remaining": [],
+      "marker": {
+        "creator_pid": 64459,
+        "device": 16777231,
+        "inode": 1468263173,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 73949,
+          "variant": "before"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 78479,
+          "variant": "before"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 99406,
+          "variant": "candidate-same-home"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "73949,78479,99406",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4"
+    },
+    {
+      "checked_utc": "2026-10-19T17:34:16.123461+00:00",
+      "device": 16777231,
+      "documented_startup_gate_refusal": false,
+      "independent_supported_preview": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565 (released exact synthetic seed)\n"
+      },
+      "inode": 1468304679,
+      "known_socket_paths_remaining": [],
+      "marker": {
+        "creator_pid": 15183,
+        "device": 16777231,
+        "inode": 1468304679,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "normal_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 15186,
+          "variant": "round7candidate"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 15703,
+          "variant": "round7candidate"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 15883,
+          "variant": "round7candidate"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 16005,
+          "variant": "round7candidate"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 17486,
+          "variant": "round7candidate"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "15186,15703,15883,16005,17486",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565"
+    }
+  ],
+  "fresh_process_check": {
+    "command": [
+      "ps",
+      "-p",
+      "15183,15186,15703,15883,16005,17486,64459,73905,73949,78479,99405,99406",
+      "-o",
+      "pid=,command="
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "normal_node_sessions": 8,
+  "scope": "Independent original receipt, root ownership, all-session process, open-file, socket and supported preview review. Exact reclaim only; no product or primary operation.",
+  "seal_hashes": {
+    "cleanup-preview.json": "628319b2ab0bb26fa44676b5dff1cb29f0d0edb7c9916ba1579c102524dcb50a",
+    "cleanup-root-seal.json": "51291db4d014665bd2148a24a1d331cdac742dd494238d5d433b9edf503e1cef",
+    "product-seal.json": "8e59e1c2069e9b09b708bb411811223235087ff715a14e1289b588d201ffed44"
+  },
+  "sealed_original_files_verified": true
+}

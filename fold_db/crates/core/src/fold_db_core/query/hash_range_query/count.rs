@@ -53,21 +53,16 @@ impl HashRangeQueryProcessor {
         let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
 
         let count_field_names = Self::count_field_names(schema, fields);
-        // The read path renames storage keys to API keys only when the primary
-        // IS the schema's declared hash key field (`recover_api_page_keys`), so
-        // the twin collapse below is gated on exactly that condition — and on
-        // the molecule those keys live in, captured while the field is in hand.
         let key_hash_field = schema
             .key
             .as_ref()
             .and_then(|key| key.hash_field.as_deref())
             .filter(|hash_field| count_field_names.iter().any(|name| name == hash_field))
             .map(ToString::to_string);
-        let (mut keys, key_field_molecule) = self
+        let mut keys = self
             .gather_count_keys(
                 schema,
                 &count_field_names,
-                key_hash_field.as_deref(),
                 filter,
                 &received_from_namespaces,
             )
@@ -83,17 +78,6 @@ impl HashRangeQueryProcessor {
             )
             .await?;
         }
-        if let Some(molecule_uuid) = key_field_molecule {
-            if self.db_ops.atoms().key_codec().encoding() != crate::atom::HashKeyEncoding::Plain {
-                Self::collapse_legacy_plain_twins(&mut keys, |api_hash| {
-                    self.db_ops
-                        .atoms()
-                        .storage_hash(&molecule_uuid, api_hash)
-                        .ok()
-                });
-            }
-        }
-
         // A projection fallback establishes its own keys. Its empty named
         // spine cannot authorize a field-value check over those keys.
         self.retain_count_to_named_layout(
@@ -106,57 +90,6 @@ impl HashRangeQueryProcessor {
         .await?;
 
         Ok(keys.len())
-    }
-
-    /// Drop the legacy plain-key half of every mixed-encoding twin, so the
-    /// count describes the rows the read path will actually serve.
-    ///
-    /// A record written before hash blinding has a plain-key molecule entry;
-    /// rewritten after, it gains a blinded one. Both resolve to the same
-    /// record, and the read path knows it: `rename_page_to_api_keys` maps the
-    /// blinded key back to its API form, lands on the plain key already in the
-    /// page, and **deliberately** serves one row — "serving them as two rows is
-    /// the duplicate a caller cannot explain".
-    ///
-    /// The count never learned that rule. It counts storage keys, so it
-    /// over-reports by exactly the number of twinned records, and since
-    /// `has_more` is `served < total_count`, a client draining the set never
-    /// sees it go false. Measured on the primary's brain `Task` partition
-    /// (`4a67db42…`), 2026-08-17: `total_count` 16, `returned_count` 15,
-    /// `has_more` true at `limit=2000` — a complete answer that reports itself
-    /// incomplete. `brain reindex --child-task-index` refuses outright on that
-    /// mismatch, which is the check working.
-    ///
-    /// The check is the inverse of the one `recover_api_page_keys` already runs
-    /// and needs no atom bodies: a key is a legacy twin when blinding its own
-    /// hash yields a *different* hash that the key set also holds under the
-    /// same range. One HMAC per key, and it can only collapse a pair the read
-    /// path is already collapsing. Matching ranges is required, not incidental
-    /// — the recovered API key keeps the blinded entry's range, so a twin with
-    /// a different range renames to a key of its own and stays two rows.
-    ///
-    /// Returns how many keys were dropped.
-    fn collapse_legacy_plain_twins(
-        keys: &mut std::collections::HashSet<KeyValue>,
-        blind: impl Fn(&str) -> Option<String>,
-    ) -> usize {
-        let legacy: Vec<KeyValue> = keys
-            .iter()
-            .filter(|key| {
-                let Some(hash) = key.hash.as_deref() else {
-                    return false;
-                };
-                let Some(blinded) = blind(hash) else {
-                    return false;
-                };
-                blinded != hash && keys.contains(&KeyValue::new(Some(blinded), key.range.clone()))
-            })
-            .cloned()
-            .collect();
-        for key in &legacy {
-            keys.remove(key);
-        }
-        legacy.len()
     }
 
     /// Mirror the actual named-spine check from the page path.

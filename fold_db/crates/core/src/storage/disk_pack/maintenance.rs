@@ -97,8 +97,6 @@ impl PackRuntime {
             ));
         }
         view.current = writer.current().clone();
-        self.published
-            .store(view.current.frontier, Ordering::Release);
         if !options.dry_run {
             let reclaimed = writer.reclaim(&policy).map_err(map)?;
             receipt.files_removed = reclaimed.files_removed;

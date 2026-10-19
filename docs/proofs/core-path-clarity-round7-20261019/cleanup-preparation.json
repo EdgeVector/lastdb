@@ -1,0 +1,47 @@
+{
+  "cleanup_preview": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-path-clarity-round7-20261019/cleanup-preview.json",
+  "cleanup_preview_sha256": "628319b2ab0bb26fa44676b5dff1cb29f0d0edb7c9916ba1579c102524dcb50a",
+  "cleanup_root_seal": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-path-clarity-round7-20261019/cleanup-root-seal.json",
+  "cleanup_root_seal_sha256": "51291db4d014665bd2148a24a1d331cdac742dd494238d5d433b9edf503e1cef",
+  "no_reclaim_executed": true,
+  "postproduct_source_review_sha256": "aad1949149f04fb3f1c72a8b1bcd0c5de703e0e13cf11bd54e1ab3ebe99f894e",
+  "prepared_utc": "2026-10-19T17:33:36.290044+00:00",
+  "product_seal": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-path-clarity-round7-20261019/product-seal.json",
+  "product_seal_sha256": "8e59e1c2069e9b09b708bb411811223235087ff715a14e1289b588d201ffed44",
+  "roots": [
+    {
+      "device": 16777231,
+      "inode": 1468263173,
+      "marker": {
+        "creator_pid": 64459,
+        "device": 16777231,
+        "inode": 1468263173,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "owner_uid": 501,
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4"
+    },
+    {
+      "device": 16777231,
+      "inode": 1468304679,
+      "marker": {
+        "creator_pid": 15183,
+        "device": 16777231,
+        "inode": 1468304679,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "mode": "0o700",
+      "owner_uid": 501,
+      "retained": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565"
+    }
+  ],
+  "scope": "Original baseline, candidate narrow and standard evidence sealed separately. The cumulative narrow receipts prevent two reclaim attempts for one shared home. Both exact roots remain until root independent cleanup approval.",
+  "source_commit": "3de98eff48d662cd8a8c631b953400aa35c03d99"
+}

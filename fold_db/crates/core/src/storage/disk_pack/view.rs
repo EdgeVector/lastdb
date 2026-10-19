@@ -143,7 +143,6 @@ impl PackRuntime {
             .lock()
             .expect("core atomic flush completion")
             .complete_flush(sequence);
-        self.published.store(current.frontier, Ordering::Release);
         view.current = current;
         view.accepted = Arc::new(Vec::new());
         Ok(())

@@ -129,8 +129,8 @@ impl Default for P2pSyncConfig {
 /// Native local storage configuration. Cloud intent still decodes, but the
 /// factory refuses activation until the native cloud gate is complete.
 ///
-/// Uses a custom deserializer to support both the new format and the legacy
-/// `{"type": "local", ...}` / `{"type": "exemem", ...}` JSON formats.
+/// The decoder accepts the current fields directly and refuses obsolete
+/// tagged configurations instead of converting their storage or cloud intent.
 #[derive(Clone, Debug, Serialize)]
 pub struct DatabaseConfig {
     /// Path to the local database directory (Last Store root)
@@ -164,17 +164,9 @@ impl DatabaseConfig {
     }
 }
 
-/// Custom deserializer that handles both new format and legacy tagged enum format.
-///
-/// New format:
+/// Decode the current configuration without a legacy conversion route.
 /// ```json
 /// { "path": "/data", "cloud_sync": { "api_url": "...", "api_key": "..." } }
-/// ```
-///
-/// Legacy formats (auto-migrated):
-/// ```json
-/// { "type": "local", "path": "/data" }
-/// { "type": "exemem", "api_url": "...", "api_key": "..." }
 /// ```
 impl<'de> Deserialize<'de> for DatabaseConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -182,83 +174,28 @@ impl<'de> Deserialize<'de> for DatabaseConfig {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        match value.get("type").and_then(|v| v.as_str()) {
-            Some("local") => Ok(legacy_local_config(&value)),
-            Some("exemem") => legacy_exemem_config::<D::Error>(&value),
-            Some(other) => Err(serde::de::Error::custom(format!(
-                "Unknown database type: '{other}'. Supported: 'local', 'exemem'"
-            ))),
-            None => current_config::<D::Error>(&value),
+        if !value.is_object() {
+            return Err(serde::de::Error::custom(
+                "database configuration must be an object",
+            ));
         }
+        if value.get("type").is_some() {
+            return Err(serde::de::Error::custom(
+                "obsolete tagged database configuration is unsupported; use path, engine, and cloud_sync fields",
+            ));
+        }
+        current_config::<D::Error>(&value)
     }
 }
 
-fn config_path(value: &serde_json::Value) -> PathBuf {
-    value
-        .get("path")
-        .and_then(|v| v.as_str())
-        .map_or_else(|| PathBuf::from("data"), PathBuf::from)
-}
-
-fn legacy_local_config(value: &serde_json::Value) -> DatabaseConfig {
-    DatabaseConfig {
-        path: config_path(value),
-        engine: StorageEngine::Laststore,
-        cloud_sync: None,
-    }
-}
-
-fn legacy_exemem_config<E: serde::de::Error>(
-    value: &serde_json::Value,
-) -> Result<DatabaseConfig, E> {
-    // `api_url` is the only field required on disk — the
-    // per-device secrets (api_key, session_token, user_hash)
-    // are runtime-hydrated from the credential store, so
-    // their absence is expected, not an error.
-    let api_url = value
-        .get("api_url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| E::custom("exemem database config missing required string field 'api_url'"))?
-        .to_string();
-    let api_key = value
-        .get("api_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let session_token = value
-        .get("session_token")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-    let user_hash = value
-        .get("user_hash")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-
-    // Retained for backward compatibility: existing on-disk
-    // node_config.json files written by older versions of run.sh,
-    // org-test.sh, or smoke-test-dmg.sh use this shape and lack a
-    // `path` field. The path is recovered from FOLD_STORAGE_PATH.
-    // All write-side consumers have been migrated to the new
-    // `{path, cloud_sync}` format; this branch can be dropped once
-    // it's safe to assume no user configs remain in the old shape.
-    let path =
-        std::env::var("FOLD_STORAGE_PATH").map_or_else(|_| PathBuf::from("data"), PathBuf::from);
-
-    Ok(DatabaseConfig {
-        path,
-        engine: StorageEngine::Laststore,
-        cloud_sync: Some(CloudSyncConfig {
-            api_url,
-            api_key,
-            session_token,
-            user_hash,
-            p2p_sync: None,
-        }),
-    })
-}
-
-/// New format: direct struct fields.
+/// Current fields retain their normal validation before factory activation.
 fn current_config<E: serde::de::Error>(value: &serde_json::Value) -> Result<DatabaseConfig, E> {
+    let path = value
+        .get("path")
+        .map(|value| serde_json::from_value::<PathBuf>(value.clone()))
+        .transpose()
+        .map_err(E::custom)?
+        .unwrap_or_else(|| PathBuf::from("data"));
     let engine = value
         .get("engine")
         .or_else(|| value.get("storage_engine"))
@@ -277,7 +214,7 @@ fn current_config<E: serde::de::Error>(value: &serde_json::Value) -> Result<Data
         .map_err(E::custom)?;
 
     Ok(DatabaseConfig {
-        path: config_path(value),
+        path,
         engine,
         cloud_sync,
     })

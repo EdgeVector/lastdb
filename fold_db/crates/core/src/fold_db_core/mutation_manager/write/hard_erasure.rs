@@ -1,4 +1,4 @@
-//! Moved verbatim out of the parent module; see the parent for context.
+//! Ordered durable erasure envelopes and completion ownership.
 
 use super::erase_guards::PurgeEnqueue;
 use super::*;
@@ -10,7 +10,6 @@ impl MutationManager {
         storage_prefix: Option<&str>,
         missing: super::super::super::purge::PurgeMissingPolicy,
         verb: super::super::super::purge::HardEraseVerb,
-        wait_for_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<Vec<String>, SchemaError> {
         let ids: Vec<String> = erasures
@@ -41,7 +40,6 @@ impl MutationManager {
                     schema_erasures,
                     storage_prefix,
                     (missing, verb),
-                    wait_for_durable,
                     author_clock_barrier.clone(),
                 )
                 .await?;
@@ -61,7 +59,7 @@ impl MutationManager {
     }
 
     /// Validate one schema's erasures and reserve its ordered durable purge.
-    /// Returns the completion receiver when the caller waits for durability.
+    /// Every queued envelope returns its durable completion receiver.
     pub(super) async fn enqueue_schema_purge_envelope(
         &self,
         schema_name: String,
@@ -71,7 +69,6 @@ impl MutationManager {
             super::super::super::purge::PurgeMissingPolicy,
             super::super::super::purge::HardEraseVerb,
         ),
-        wait_for_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<PurgeEnqueue, SchemaError> {
         let (schema, mut job, purge_bytes) = self
@@ -112,15 +109,10 @@ impl MutationManager {
         };
 
         crate::sync::capture::mark_logical_commit_published();
-        let (completion, receiver) = if wait_for_durable {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            (Some(tx), Some(rx))
-        } else {
-            (None, None)
-        };
+        let (completion, receiver) = tokio::sync::oneshot::channel();
         let pending_task = self.pending_tasks.begin();
         job.author_clock_barrier = author_clock_barrier;
-        job.completion = completion;
+        job.completion = Some(completion);
         let envelope = crate::resident::PersistEnvelope::new(
             super::super::molecules::LanePersistJob::Purge {
                 job: Box::new(job),
