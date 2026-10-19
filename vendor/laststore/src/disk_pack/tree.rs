@@ -2,6 +2,7 @@ use super::bytes::*;
 use super::page::Page;
 use super::{corrupt, key_layout, ReadCall};
 use crate::Result;
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -119,7 +120,27 @@ impl ReadCall {
         if key.len() < prefix.len() {
             return Ok(Ordering::Greater);
         }
-        Ok(self.full_key(tree, entry)?.as_slice().cmp(key))
+        Ok(self.key_bytes(tree, entry)?.as_ref().cmp(key))
+    }
+
+    /// The full key of `entry`, borrowed from the page when it has no overflow
+    /// pages. Applies the same budget, length, and digest checks as
+    /// [`Self::full_key`]; only an overflow key allocates.
+    pub(super) fn key_bytes<'a>(
+        &mut self,
+        tree: &TreeRoot,
+        entry: &'a [u8],
+    ) -> Result<Cow<'a, [u8]>> {
+        if key_layout::overflow(entry) != 0 {
+            return self.full_key(tree, entry).map(Cow::Owned);
+        }
+        let length = u32_at(entry, 0) as usize;
+        self.charge(length as u64)?;
+        let key = key_layout::inline(entry);
+        if key.len() != length || digest(key) != key_layout::key_digest(entry) {
+            return Err(corrupt("full key length or digest"));
+        }
+        Ok(Cow::Borrowed(key))
     }
 
     pub(super) fn full_key(&mut self, tree: &TreeRoot, entry: &[u8]) -> Result<Vec<u8>> {
@@ -132,15 +153,18 @@ impl ReadCall {
         key.extend_from_slice(key_layout::inline(entry));
         let mut next = key_layout::overflow(entry);
         let mut seen = HashSet::new();
-        let directory = self
-            .root
-            .join(tree.kind.directory())
-            .join(tree.object.to_string());
+        // Only an overflow chain reads pages, so build the path on first use.
+        let mut directory = None;
         while next != 0 {
             if seen.len() >= 5 || !seen.insert(next) {
                 return Err(corrupt("key overflow cycle or limit"));
             }
-            let page = self.page(&directory, tree.object, next)?;
+            let directory = directory.get_or_insert_with(|| {
+                self.root
+                    .join(tree.kind.directory())
+                    .join(tree.object.to_string())
+            });
+            let page = self.page(directory, tree.object, next)?;
             if page.kind() != 4
                 || page.auxiliary() != (length - inline) as u64
                 || key.len() + page.payload().len() > length
@@ -166,10 +190,10 @@ impl ReadCall {
     ) -> Result<()> {
         let before = position
             .checked_sub(1)
-            .map(|index| self.full_key(tree, page.entry(index)))
+            .map(|index| self.key_bytes(tree, page.entry(index)))
             .transpose()?;
         let after = (position < page.count())
-            .then(|| self.full_key(tree, page.entry(position)))
+            .then(|| self.key_bytes(tree, page.entry(position)))
             .transpose()?;
         if before
             .as_deref()
