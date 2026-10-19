@@ -1,0 +1,5160 @@
+{
+  "protein": {
+    "classification_query_batch": {
+      "queries": [
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-00"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-01"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-02"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-03"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-04"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-05"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-06"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-07"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-08"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-09"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-10"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-11"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-12"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-13"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-14"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-15"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        }
+      ]
+    },
+    "later_delete_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-00"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-01"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-02"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-03"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-04"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-05"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-06"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-07"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-08"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-09"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-10"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-11"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-12"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-13"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-14"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-15"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        }
+      ]
+    },
+    "mixed_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-00@generated.invalid",
+            "name": "updated-00"
+          },
+          "key_value": {
+            "hash": "user-00"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-00"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-01@generated.invalid",
+            "name": "updated-01"
+          },
+          "key_value": {
+            "hash": "user-01"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-01"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-02@generated.invalid",
+            "name": "updated-02"
+          },
+          "key_value": {
+            "hash": "user-02"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-02"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-03@generated.invalid",
+            "name": "updated-03"
+          },
+          "key_value": {
+            "hash": "user-03"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-03"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-04@generated.invalid",
+            "name": "updated-04"
+          },
+          "key_value": {
+            "hash": "user-04"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-04"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-05@generated.invalid",
+            "name": "updated-05"
+          },
+          "key_value": {
+            "hash": "user-05"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-05"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-06@generated.invalid",
+            "name": "updated-06"
+          },
+          "key_value": {
+            "hash": "user-06"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-06"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-07@generated.invalid",
+            "name": "updated-07"
+          },
+          "key_value": {
+            "hash": "user-07"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-07"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-08@generated.invalid",
+            "name": "updated-08"
+          },
+          "key_value": {
+            "hash": "user-08"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-08"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-09@generated.invalid",
+            "name": "updated-09"
+          },
+          "key_value": {
+            "hash": "user-09"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-09"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-10@generated.invalid",
+            "name": "updated-10"
+          },
+          "key_value": {
+            "hash": "user-10"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-10"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-11@generated.invalid",
+            "name": "updated-11"
+          },
+          "key_value": {
+            "hash": "user-11"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-11"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-12@generated.invalid",
+            "name": "updated-12"
+          },
+          "key_value": {
+            "hash": "user-12"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-12"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-13@generated.invalid",
+            "name": "updated-13"
+          },
+          "key_value": {
+            "hash": "user-13"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-13"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-14@generated.invalid",
+            "name": "updated-14"
+          },
+          "key_value": {
+            "hash": "user-14"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-14"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "new-15@generated.invalid",
+            "name": "updated-15"
+          },
+          "key_value": {
+            "hash": "user-15"
+          },
+          "mutation_type": "update",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "user-15"
+          },
+          "mutation_type": "delete",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        }
+      ]
+    },
+    "pair_count": 16,
+    "per_field_queries": [
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-00"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 0,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-00"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 0,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-00"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 0,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-00@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 0,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-00@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 0,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-00@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 0,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-00@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 0,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-00@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 0,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-00@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 0,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-01"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 1,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-01"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 1,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-01"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 1,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-01@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 1,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-01@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 1,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-01@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 1,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-01@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 1,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-01@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 1,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-01@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 1,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-02"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 2,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-02"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 2,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-02"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 2,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-02@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 2,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-02@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 2,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-02@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 2,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-02@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 2,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-02@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 2,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-02@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 2,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-03"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 3,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-03"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 3,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-03"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 3,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-03@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 3,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-03@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 3,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-03@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 3,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-03@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 3,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-03@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 3,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-03@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 3,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-04"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 4,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-04"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 4,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-04"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 4,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-04@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 4,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-04@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 4,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-04@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 4,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-04@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 4,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-04@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 4,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-04@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 4,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-05"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 5,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-05"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 5,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-05"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 5,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-05@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 5,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-05@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 5,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-05@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 5,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-05@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 5,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-05@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 5,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-05@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 5,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-06"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 6,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-06"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 6,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-06"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 6,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-06@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 6,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-06@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 6,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-06@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 6,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-06@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 6,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-06@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 6,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-06@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 6,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-07"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 7,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-07"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 7,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-07"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 7,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-07@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 7,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-07@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 7,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-07@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 7,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-07@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 7,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-07@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 7,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-07@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 7,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-08"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 8,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-08"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 8,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-08"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 8,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-08@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 8,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-08@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 8,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-08@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 8,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-08@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 8,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-08@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 8,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-08@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 8,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-09"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 9,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-09"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 9,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-09"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 9,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-09@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 9,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-09@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 9,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-09@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 9,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-09@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 9,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-09@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 9,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-09@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 9,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-10"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 10,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-10"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 10,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-10"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 10,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-10@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 10,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-10@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 10,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-10@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 10,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-10@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 10,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-10@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 10,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-10@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 10,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-11"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 11,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-11"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 11,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-11"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 11,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-11@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 11,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-11@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 11,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-11@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 11,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-11@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 11,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-11@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 11,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-11@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 11,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-12"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 12,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-12"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 12,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-12"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 12,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-12@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 12,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-12@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 12,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-12@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 12,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-12@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 12,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-12@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 12,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-12@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 12,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-13"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 13,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-13"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 13,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-13"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 13,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-13@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 13,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-13@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 13,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-13@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 13,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-13@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 13,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-13@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 13,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-13@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 13,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-14"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 14,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-14"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 14,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-14"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 14,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-14@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 14,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-14@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 14,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-14@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 14,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-14@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 14,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-14@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 14,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-14@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 14,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "user-15"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "id",
+        "pair": 15,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "user-15"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "email",
+        "pair": 15,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-15"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        "field": "name",
+        "pair": 15,
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "old-15@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 15,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "old-15@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 15,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-15@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 15,
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashKey": "new-15@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "id",
+        "pair": 15,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "email"
+          ],
+          "filter": {
+            "HashKey": "new-15@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "email",
+        "pair": 15,
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-15@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        "field": "name",
+        "pair": 15,
+        "role": "new_peer"
+      }
+    ],
+    "public_response_limit": "The mixed response omits erase mutation IDs and per-item clocks. Classify each source from the updated email field alone; a lower Delete can remove untouched old source fields without winning email. Preserve all full projections and every outcome.",
+    "query_batch": {
+      "queries": [
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-00"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-00@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-00@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-01"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-01@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-01@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-02"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-02@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-02@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-03"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-03@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-03@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-04"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-04@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-04@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-05"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-05@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-05@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-06"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-06@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-06@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-07"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-07@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-07@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-08"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-08@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-08@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-09"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-09@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-09@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-10"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-10@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-10@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-11"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-11@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-11@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-12"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-12@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-12@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-13"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-13@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-13@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-14"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-14@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-14@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-15"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "old-15@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        },
+        {
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "new-15@generated.invalid"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityByEmail"
+        }
+      ]
+    },
+    "schema_declarations": [
+      {
+        "isolated_copy": true,
+        "schema": {
+          "descriptive_name": "DeleteAuthorityById",
+          "field_descriptions": {
+            "email": "Delete authority shared email",
+            "id": "Delete authority shared id",
+            "name": "Delete authority shared name"
+          },
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "key": {
+            "hash_field": "id"
+          },
+          "name": "DeleteAuthorityById",
+          "schema_type": "Hash",
+          "source": "system_seed"
+        }
+      },
+      {
+        "isolated_copy": true,
+        "schema": {
+          "descriptive_name": "DeleteAuthorityByEmail",
+          "field_descriptions": {
+            "email": "Delete authority shared email",
+            "id": "Delete authority shared id",
+            "name": "Delete authority shared name"
+          },
+          "fields": [
+            "id",
+            "email",
+            "name"
+          ],
+          "key": {
+            "hash_field": "email"
+          },
+          "name": "DeleteAuthorityByEmail",
+          "schema_type": "Hash",
+          "source": "system_seed"
+        }
+      }
+    ],
+    "seed_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-00@generated.invalid",
+            "id": "user-00",
+            "name": "initial-00"
+          },
+          "key_value": {
+            "hash": "user-00"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-00@generated.invalid",
+            "id": "user-00",
+            "name": "initial-00"
+          },
+          "key_value": {
+            "hash": "old-00@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-01@generated.invalid",
+            "id": "user-01",
+            "name": "initial-01"
+          },
+          "key_value": {
+            "hash": "user-01"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-01@generated.invalid",
+            "id": "user-01",
+            "name": "initial-01"
+          },
+          "key_value": {
+            "hash": "old-01@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-02@generated.invalid",
+            "id": "user-02",
+            "name": "initial-02"
+          },
+          "key_value": {
+            "hash": "user-02"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-02@generated.invalid",
+            "id": "user-02",
+            "name": "initial-02"
+          },
+          "key_value": {
+            "hash": "old-02@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-03@generated.invalid",
+            "id": "user-03",
+            "name": "initial-03"
+          },
+          "key_value": {
+            "hash": "user-03"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-03@generated.invalid",
+            "id": "user-03",
+            "name": "initial-03"
+          },
+          "key_value": {
+            "hash": "old-03@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-04@generated.invalid",
+            "id": "user-04",
+            "name": "initial-04"
+          },
+          "key_value": {
+            "hash": "user-04"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-04@generated.invalid",
+            "id": "user-04",
+            "name": "initial-04"
+          },
+          "key_value": {
+            "hash": "old-04@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-05@generated.invalid",
+            "id": "user-05",
+            "name": "initial-05"
+          },
+          "key_value": {
+            "hash": "user-05"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-05@generated.invalid",
+            "id": "user-05",
+            "name": "initial-05"
+          },
+          "key_value": {
+            "hash": "old-05@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-06@generated.invalid",
+            "id": "user-06",
+            "name": "initial-06"
+          },
+          "key_value": {
+            "hash": "user-06"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-06@generated.invalid",
+            "id": "user-06",
+            "name": "initial-06"
+          },
+          "key_value": {
+            "hash": "old-06@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-07@generated.invalid",
+            "id": "user-07",
+            "name": "initial-07"
+          },
+          "key_value": {
+            "hash": "user-07"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-07@generated.invalid",
+            "id": "user-07",
+            "name": "initial-07"
+          },
+          "key_value": {
+            "hash": "old-07@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-08@generated.invalid",
+            "id": "user-08",
+            "name": "initial-08"
+          },
+          "key_value": {
+            "hash": "user-08"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-08@generated.invalid",
+            "id": "user-08",
+            "name": "initial-08"
+          },
+          "key_value": {
+            "hash": "old-08@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-09@generated.invalid",
+            "id": "user-09",
+            "name": "initial-09"
+          },
+          "key_value": {
+            "hash": "user-09"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-09@generated.invalid",
+            "id": "user-09",
+            "name": "initial-09"
+          },
+          "key_value": {
+            "hash": "old-09@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-10@generated.invalid",
+            "id": "user-10",
+            "name": "initial-10"
+          },
+          "key_value": {
+            "hash": "user-10"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-10@generated.invalid",
+            "id": "user-10",
+            "name": "initial-10"
+          },
+          "key_value": {
+            "hash": "old-10@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-11@generated.invalid",
+            "id": "user-11",
+            "name": "initial-11"
+          },
+          "key_value": {
+            "hash": "user-11"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-11@generated.invalid",
+            "id": "user-11",
+            "name": "initial-11"
+          },
+          "key_value": {
+            "hash": "old-11@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-12@generated.invalid",
+            "id": "user-12",
+            "name": "initial-12"
+          },
+          "key_value": {
+            "hash": "user-12"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-12@generated.invalid",
+            "id": "user-12",
+            "name": "initial-12"
+          },
+          "key_value": {
+            "hash": "old-12@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-13@generated.invalid",
+            "id": "user-13",
+            "name": "initial-13"
+          },
+          "key_value": {
+            "hash": "user-13"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-13@generated.invalid",
+            "id": "user-13",
+            "name": "initial-13"
+          },
+          "key_value": {
+            "hash": "old-13@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-14@generated.invalid",
+            "id": "user-14",
+            "name": "initial-14"
+          },
+          "key_value": {
+            "hash": "user-14"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-14@generated.invalid",
+            "id": "user-14",
+            "name": "initial-14"
+          },
+          "key_value": {
+            "hash": "old-14@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-15@generated.invalid",
+            "id": "user-15",
+            "name": "initial-15"
+          },
+          "key_value": {
+            "hash": "user-15"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityById",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "email": "old-15@generated.invalid",
+            "id": "user-15",
+            "name": "initial-15"
+          },
+          "key_value": {
+            "hash": "old-15@generated.invalid"
+          },
+          "mutation_type": "create",
+          "schema": "DeleteAuthorityByEmail",
+          "type": "mutation"
+        }
+      ]
+    },
+    "updated_source_query_batch": {
+      "queries": [
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-00"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-01"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-02"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-03"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-04"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-05"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-06"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-07"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-08"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-09"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-10"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-11"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-12"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-13"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-14"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        },
+        {
+          "fields": [
+            "email",
+            "name"
+          ],
+          "filter": {
+            "HashKey": "user-15"
+          },
+          "limit": 1,
+          "schema_name": "DeleteAuthorityById"
+        }
+      ]
+    }
+  },
+  "query_batch_maximum": 32,
+  "range_protein": {
+    "compact_request": {
+      "hash": "generated-bucket",
+      "range": "record-001",
+      "schema": "CompactedDeleteByBucket"
+    },
+    "later_delete_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "expected": {
+            "field": "status",
+            "type": "value",
+            "value": "new-status"
+          },
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "generated-bucket",
+            "range": "record-001"
+          },
+          "must_exist": true,
+          "mutation_type": "delete",
+          "schema": "CompactedDeleteByBucket",
+          "type": "mutation"
+        }
+      ]
+    },
+    "missing_must_exist_delete_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "generated-bucket",
+            "range": "record-001"
+          },
+          "must_exist": true,
+          "mutation_type": "delete",
+          "schema": "CompactedDeleteByBucket",
+          "type": "mutation"
+        }
+      ]
+    },
+    "move_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "name": "updated",
+            "status": "new-status"
+          },
+          "key_value": {
+            "hash": "generated-bucket",
+            "range": "record-001"
+          },
+          "mutation_type": "update",
+          "schema": "CompactedDeleteByBucket",
+          "type": "mutation"
+        }
+      ]
+    },
+    "per_field_queries": [
+      {
+        "body": {
+          "fields": [
+            "bucket"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-bucket",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByBucket"
+        },
+        "field": "bucket",
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-bucket",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByBucket"
+        },
+        "field": "id",
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "status"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-bucket",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByBucket"
+        },
+        "field": "status",
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-bucket",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByBucket"
+        },
+        "field": "name",
+        "role": "source"
+      },
+      {
+        "body": {
+          "fields": [
+            "bucket"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "old-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        },
+        "field": "bucket",
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "old-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        },
+        "field": "id",
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "status"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "old-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        },
+        "field": "status",
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "old-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        },
+        "field": "name",
+        "role": "old_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "bucket"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "new-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        },
+        "field": "bucket",
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "id"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "new-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        },
+        "field": "id",
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "status"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "new-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        },
+        "field": "status",
+        "role": "new_peer"
+      },
+      {
+        "body": {
+          "fields": [
+            "name"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "new-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        },
+        "field": "name",
+        "role": "new_peer"
+      }
+    ],
+    "query_batch": {
+      "queries": [
+        {
+          "fields": [
+            "bucket",
+            "id",
+            "status",
+            "name"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-bucket",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByBucket"
+        },
+        {
+          "fields": [
+            "bucket",
+            "id",
+            "status",
+            "name"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "old-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        },
+        {
+          "fields": [
+            "bucket",
+            "id",
+            "status",
+            "name"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "new-status",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        }
+      ]
+    },
+    "schema_declarations": [
+      {
+        "isolated_copy": true,
+        "schema": {
+          "descriptive_name": "CompactedDeleteByBucket",
+          "field_descriptions": {
+            "bucket": "Compacted delete shared bucket",
+            "id": "Compacted delete shared id",
+            "name": "Compacted delete shared name",
+            "status": "Compacted delete shared status"
+          },
+          "fields": [
+            "bucket",
+            "id",
+            "status",
+            "name"
+          ],
+          "key": {
+            "hash_field": "bucket",
+            "range_field": "id"
+          },
+          "name": "CompactedDeleteByBucket",
+          "schema_type": "HashRange",
+          "source": "system_seed"
+        }
+      },
+      {
+        "isolated_copy": true,
+        "schema": {
+          "descriptive_name": "CompactedDeleteByStatus",
+          "field_descriptions": {
+            "bucket": "Compacted delete shared bucket",
+            "id": "Compacted delete shared id",
+            "name": "Compacted delete shared name",
+            "status": "Compacted delete shared status"
+          },
+          "fields": [
+            "bucket",
+            "id",
+            "status",
+            "name"
+          ],
+          "key": {
+            "hash_field": "status",
+            "range_field": "id"
+          },
+          "name": "CompactedDeleteByStatus",
+          "schema_type": "HashRange",
+          "source": "system_seed"
+        }
+      }
+    ],
+    "seed_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "bucket": "generated-bucket",
+            "id": "record-001",
+            "name": "initial",
+            "status": "old-status"
+          },
+          "key_value": {
+            "hash": "generated-bucket",
+            "range": "record-001"
+          },
+          "mutation_type": "create",
+          "schema": "CompactedDeleteByBucket",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "bucket": "generated-bucket",
+            "id": "record-001",
+            "name": "initial",
+            "status": "old-status"
+          },
+          "key_value": {
+            "hash": "old-status",
+            "range": "record-001"
+          },
+          "mutation_type": "create",
+          "schema": "CompactedDeleteByStatus",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "bucket": "generated-bucket",
+            "id": "record-keep",
+            "name": "unchanged",
+            "status": "keep-status"
+          },
+          "key_value": {
+            "hash": "generated-bucket",
+            "range": "record-keep"
+          },
+          "mutation_type": "create",
+          "schema": "CompactedDeleteByBucket",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "bucket": "generated-bucket",
+            "id": "record-keep",
+            "name": "unchanged",
+            "status": "keep-status"
+          },
+          "key_value": {
+            "hash": "keep-status",
+            "range": "record-keep"
+          },
+          "mutation_type": "create",
+          "schema": "CompactedDeleteByStatus",
+          "type": "mutation"
+        }
+      ]
+    },
+    "sentinel_query_batch": {
+      "queries": [
+        {
+          "fields": [
+            "bucket",
+            "id",
+            "status",
+            "name"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-bucket",
+              "range": "record-keep"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByBucket"
+        },
+        {
+          "fields": [
+            "bucket",
+            "id",
+            "status",
+            "name"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "keep-status",
+              "range": "record-keep"
+            }
+          },
+          "limit": 1,
+          "schema_name": "CompactedDeleteByStatus"
+        }
+      ]
+    },
+    "stale_expectation_delete_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "expected": {
+            "field": "status",
+            "type": "value",
+            "value": "old-status"
+          },
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "generated-bucket",
+            "range": "record-001"
+          },
+          "mutation_type": "delete",
+          "schema": "CompactedDeleteByBucket",
+          "type": "mutation"
+        }
+      ]
+    }
+  },
+  "read": {
+    "compact_request": {
+      "hash": "generated-authority",
+      "range": "record-001",
+      "schema": "RecordAuthorityHashRange"
+    },
+    "queries_after_update": [
+      {
+        "body": {
+          "fields": [
+            "bucket",
+            "id",
+            "title",
+            "body",
+            "score",
+            "optional"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-authority",
+              "range": "record-001"
+            }
+          },
+          "limit": 8,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "exact-current"
+      },
+      {
+        "body": {
+          "fields": [
+            "bucket",
+            "id",
+            "title",
+            "body",
+            "score"
+          ],
+          "filter": {
+            "HashRangeRange": {
+              "end": "record-004",
+              "hash": "generated-authority",
+              "start": "record-001"
+            }
+          },
+          "limit": 8,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "bounded-current"
+      },
+      {
+        "body": {
+          "fields": [
+            "optional"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-authority",
+              "range": "record-001"
+            }
+          },
+          "limit": 8,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "exact-added-projection"
+      },
+      {
+        "body": {
+          "fields": [
+            "title",
+            "optional"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-authority",
+              "range": "record-001"
+            }
+          },
+          "limit": 8,
+          "schema_name": "RecordAuthorityHashRange",
+          "where": [
+            {
+              "eq": {
+                "field": "optional",
+                "value": "added"
+              }
+            }
+          ]
+        },
+        "label": "exact-added-predicate"
+      },
+      {
+        "body": {
+          "fields": [
+            "title"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-authority",
+              "range": "record-001"
+            }
+          },
+          "limit": 8,
+          "schema_name": "RecordAuthorityHashRange",
+          "where": [
+            {
+              "eq": {
+                "field": "optional",
+                "value": "missing"
+              }
+            }
+          ]
+        },
+        "label": "exact-rejected-predicate"
+      },
+      {
+        "body": {
+          "fields": [
+            "title",
+            "optional"
+          ],
+          "filter": {
+            "HashRangeRange": {
+              "end": "record-004",
+              "hash": "generated-authority",
+              "start": "record-001"
+            }
+          },
+          "limit": 8,
+          "schema_name": "RecordAuthorityHashRange",
+          "where": [
+            {
+              "eq": {
+                "field": "optional",
+                "value": "added"
+              }
+            }
+          ]
+        },
+        "label": "range-added-predicate"
+      },
+      {
+        "body": {
+          "fields": [
+            "title"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-authority",
+              "range": "record-001"
+            }
+          },
+          "limit": 8,
+          "predicate_limit": 0,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "exact-predicate-zero"
+      },
+      {
+        "body": {
+          "fields": [
+            "title"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-authority",
+              "range": "record-001"
+            }
+          },
+          "limit": 0,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "exact-window-zero"
+      },
+      {
+        "body": {
+          "fields": [
+            "title",
+            "optional"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-authority",
+              "range": "record-001"
+            }
+          },
+          "limit": 8,
+          "predicate_limit": 1,
+          "schema_name": "RecordAuthorityHashRange",
+          "where": [
+            {
+              "eq": {
+                "field": "optional",
+                "value": "added"
+              }
+            }
+          ]
+        },
+        "label": "exact-predicate-one"
+      },
+      {
+        "body": {
+          "fields": [
+            "title",
+            "score"
+          ],
+          "filter": {
+            "HashRangeRange": {
+              "end": "record-004",
+              "hash": "generated-authority",
+              "start": "record-001"
+            }
+          },
+          "limit": 8,
+          "order_by": {
+            "field": "score",
+            "order": "asc"
+          },
+          "predicate_limit": 1,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "range-sort-ascending-one"
+      },
+      {
+        "body": {
+          "fields": [
+            "title",
+            "score"
+          ],
+          "filter": {
+            "HashRangeRange": {
+              "end": "record-004",
+              "hash": "generated-authority",
+              "start": "record-001"
+            }
+          },
+          "limit": 8,
+          "order_by": {
+            "field": "score",
+            "order": "desc"
+          },
+          "predicate_limit": 1,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "range-sort-descending-one"
+      },
+      {
+        "body": {
+          "fields": [
+            "title",
+            "score"
+          ],
+          "filter": {
+            "HashRangeRange": {
+              "end": "record-004",
+              "hash": "generated-authority",
+              "start": "record-001"
+            }
+          },
+          "limit": 8,
+          "schema_name": "RecordAuthorityHashRange",
+          "value_filters": [
+            {
+              "GreaterThan": {
+                "field": "score",
+                "value": 25.0
+              }
+            }
+          ]
+        },
+        "label": "range-numeric-filter"
+      },
+      {
+        "body": {
+          "fields": [
+            "title"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-authority",
+              "range": "record-001"
+            }
+          },
+          "limit": 1,
+          "offset": 1,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "exact-window-after-only-row"
+      }
+    ],
+    "queries_before_update": [
+      {
+        "body": {
+          "fields": [
+            "bucket",
+            "id",
+            "title",
+            "body",
+            "score"
+          ],
+          "filter": {
+            "HashRangeKey": {
+              "hash": "generated-authority",
+              "range": "record-001"
+            }
+          },
+          "limit": 8,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "exact-current"
+      },
+      {
+        "body": {
+          "fields": [
+            "bucket",
+            "id",
+            "title",
+            "body",
+            "score"
+          ],
+          "filter": {
+            "HashRangeRange": {
+              "end": "record-004",
+              "hash": "generated-authority",
+              "start": "record-001"
+            }
+          },
+          "limit": 8,
+          "schema_name": "RecordAuthorityHashRange"
+        },
+        "label": "bounded-current"
+      }
+    ],
+    "schema_declaration": {
+      "isolated_copy": true,
+      "schema": {
+        "descriptive_name": "RecordAuthorityHashRange",
+        "field_descriptions": {
+          "body": "Record authority independent body",
+          "bucket": "Record authority independent bucket",
+          "id": "Record authority independent id",
+          "optional": "Record authority independent optional",
+          "score": "Record authority independent score",
+          "title": "Record authority independent title"
+        },
+        "fields": [
+          "bucket",
+          "id",
+          "title",
+          "body",
+          "score",
+          "optional"
+        ],
+        "key": {
+          "hash_field": "bucket",
+          "range_field": "id"
+        },
+        "name": "RecordAuthorityHashRange",
+        "schema_type": "HashRange",
+        "source": "system_seed"
+      }
+    },
+    "seed_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "body": "body-1",
+            "bucket": "generated-authority",
+            "id": "record-001",
+            "score": 10,
+            "title": "title-1"
+          },
+          "key_value": {
+            "hash": "generated-authority",
+            "range": "record-001"
+          },
+          "mutation_type": "create",
+          "schema": "RecordAuthorityHashRange",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "body": "body-2",
+            "bucket": "generated-authority",
+            "id": "record-002",
+            "score": 20,
+            "title": "title-2"
+          },
+          "key_value": {
+            "hash": "generated-authority",
+            "range": "record-002"
+          },
+          "mutation_type": "create",
+          "schema": "RecordAuthorityHashRange",
+          "type": "mutation"
+        },
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "body": "body-3",
+            "bucket": "generated-authority",
+            "id": "record-003",
+            "score": 30,
+            "title": "title-3"
+          },
+          "key_value": {
+            "hash": "generated-authority",
+            "range": "record-003"
+          },
+          "mutation_type": "create",
+          "schema": "RecordAuthorityHashRange",
+          "type": "mutation"
+        }
+      ]
+    },
+    "update_batch": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "fields_and_values": {
+            "optional": "added",
+            "score": 40,
+            "title": "title-1-updated"
+          },
+          "key_value": {
+            "hash": "generated-authority",
+            "range": "record-001"
+          },
+          "mutation_type": "update",
+          "schema": "RecordAuthorityHashRange",
+          "type": "mutation"
+        }
+      ]
+    }
+  },
+  "routes": {
+    "compact": "/api/db/compact-record",
+    "declare": "/api/schemas/seed-system",
+    "flush": "/api/db/flush",
+    "mutations": "/api/mutations/batch",
+    "queries": "/api/queries/batch"
+  },
+  "scope": "Ordinary generated product API request bodies. No executable driver, test suite, fixture harness, existing home, or benchmark.",
+  "version": 1
+}

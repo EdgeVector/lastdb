@@ -1,0 +1,25 @@
+{
+  "complete": true,
+  "original_result_preserved": true,
+  "product_operations_added": 0,
+  "raw_receipts_sha256": "75a4f55b7a4504b3f8b3d42bc15a43a8fb39ee3de606340fbfd8b11ba79baec0",
+  "refusals": [
+    {
+      "error": "unknown_fields",
+      "http_status": 400,
+      "label": "reserved-mutation-field-0",
+      "not_writable": true,
+      "request_id": "temperature-ba0721f40eb746ef948b253602ce7e6f-field-cutover-completion-3",
+      "submitted_field_identified": true
+    },
+    {
+      "error": "unknown_fields",
+      "http_status": 400,
+      "label": "reserved-mutation-field-1",
+      "not_writable": true,
+      "request_id": "temperature-ba0721f40eb746ef948b253602ce7e6f-field-cutover-completion-4",
+      "submitted_field_identified": true
+    }
+  ],
+  "scope": "The existing public writable-field guard explicitly rejects each removed internal name before the deeper reserved-name guard."
+}

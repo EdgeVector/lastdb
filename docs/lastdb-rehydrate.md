@@ -30,6 +30,8 @@ A query assembles a record from those fields in the selected storage scope.
 Exact reads and range reads use the same query controls and each field's own atom metadata.
 There is no separate whole-record value or record-compaction write route.
 Native file packing combines the disk work without a second logical value representation.
+When a Hash write omits its declared key field, preparation supplies that field from the lookup key.
+This keeps the record available to field conditions without a separate membership source.
 
 ## Range keys
 

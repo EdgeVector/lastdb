@@ -17,12 +17,15 @@ Native file packing, batch reads, batch writes, field sharing, proteins, and the
 A cold full-record read fetches its field values through native batch reads.
 A warm read uses the same logical field values in the core.
 No second logical value format or conversion route remains.
+Hash writes also supply an omitted declared key field from the lookup key in the same field batch.
+Field conditions can therefore find a record whose caller supplies only the key and payload.
 
 Both user Delete forms check the original caller's conditions before peer expansion.
 Current field atoms supply peer keys and conditional-delete values.
 Derived peers do not inherit the caller's expected-value or must-exist requirement.
 Each affected schema retains its cleanup steps. Search receives the deletion after the full disk commit.
 Only the original caller's mutation IDs return.
+Conditions read the named field directly, even when Delete has no payload or Update does not change that field.
 
 Fixed read, operation, and byte limits return an explicit refusal.
 The native write scope retains a typed fixed-limit failure until it discards all private work.
@@ -72,3 +75,21 @@ A separate source review finds that repeated record compaction can restore older
 Those results motivate removal of the second logical representation. That source is not accepted for merge.
 All four result trees remain in `interim-seal.json`, including the failed case.
 Supported cleanup removes their three stopped synthetic homes. All 133 sealed files retain their original size and hash.
+
+Per-field source `c3ff5c91` passes 54 controlled query checks and the schema/field refusals.
+The omitted Hash key checks pass after create, update, and reopen.
+The fixed Hash cohort contains 11 winning Deletes and five surviving Updates.
+Its shared atom identities and 144 field absences after the later Deletes pass, including normal reopen.
+The HashRange key move and reverse peer update also pass.
+
+That source then fails the correct conditional Delete: its condition reader reports a present field as absent.
+The reader restores only payload fields, while Delete has no payload.
+The final correction reads the named condition field through the existing current-field reader.
+Only `cas_current_state.rs` changes between these product candidates.
+The final release repeats the affected Hash and HashRange conditional operations on fresh synthetic data.
+The 54 query checks and fixed Hash cohort retain their original source labels; they are not reported as new-release runs.
+
+Four linked read/cutover procedures contain response-format assumptions that stop them with `complete=false`.
+Their existing responses receive explicit offline checks and same-home continuations; no original outcome changes.
+All six result trees remain in `per-field-attempt-seal.json`, including the actual conditional-delete failure.
+Supported cleanup removes three stopped synthetic homes. All 206 sealed files retain their original size and hash.
