@@ -47,6 +47,9 @@ Internal current-field reads select each tip once, then fetch the selected atom 
 Writes, reads, and related deletion keys use one conversion for text, numeric, and Boolean coordinates.
 Cold Hash counts and value reads use the same exact tip reader.
 That reader keeps the caller's hash and the selected atom location together.
+Keyed reads keep the caller's key form through counts and response metadata.
+They do not reinterpret a caller key as another key's disk encoding.
+Only physical page and sample reads recover keys from their stored form.
 Hash reads trust the supplied key. A HashRange field-value check uses only the declared hash field that established the keys.
 Projection fallback establishes its own keys. Range punctuation has no special meaning.
 Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.
@@ -78,6 +81,8 @@ The native write boundary precedes the membership and molecule-liveness guards.
 
 The private disk queue owns prepared bytes and completion work until flush.
 Ordinary reads cannot query that queue.
+The prepared disk commit owns its disk-space reservation directly.
+A failed commit retains that reservation; the sealed queue retains its pending request owners.
 The native journal supports recovery of stored writes. It does not replace the current core state.
 Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.
 An internal file change that lacks a complete logical translation finishes on disk and clears affected core records before success.
@@ -113,6 +118,8 @@ The factory takes no inactive cloud callback or worker-delay inputs.
 The logical constructor rejects an older physical store before it opens the logical namespaces.
 An existing native home can reopen. An empty home can initialize directly.
 A nonempty older-format home receives an explicit refusal. No boot migration or automatic conversion runs.
+The configuration reader also refuses obsolete type tags and invalid path values.
+It does not convert an older configuration or discard its cloud or engine settings.
 
 Cloud sync stays disabled for this optimization round. Startup and runtime activation must refuse it before side effects.
 The local capture router remains. No cloud engine attaches to it during this cutover.

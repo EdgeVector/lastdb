@@ -23,6 +23,7 @@ impl HashRangeQueryProcessor {
         received_from_namespaces: &[String],
     ) -> Result<CokeyPrimaryPage, SchemaError> {
         let mut primary_name = Self::cokey_primary_field(schema, selected);
+        let key_form = Self::primary_key_form(filter.as_ref());
 
         // --- 1. Primary: current resolve under filter / namespaces ---
         // The primary establishes the page of keys; secondaries only fill those
@@ -38,15 +39,15 @@ impl HashRangeQueryProcessor {
                 received_from_namespaces,
             )
             .await?;
-        // The walk hands back storage-form keys. Rename the page here, at the one
-        // boundary that holds the mapping, so the rest of the query — and the
-        // caller — only ever sees API form. Two reasons it has to happen here and
-        // not per-consumer: secondaries blind again, so they must be fanned out on
-        // API keys or every one of them misses; and the primary's key becomes the
-        // response's `key.hash`, so a storage-form key that escapes is a key the
-        // caller cannot point-read back.
-        let (mut primary_vals, mut page_keys, mut key_sources) =
-            self.rename_page_to_api_keys(schema, &primary_name, primary_vals, key_sources);
+        // Keyed reads already echo caller hashes. Only page/sample walks return
+        // physical hashes that require value-based recovery at this boundary.
+        let (mut primary_vals, mut page_keys, mut key_sources) = self.rename_page_to_api_keys(
+            schema,
+            &primary_name,
+            key_form,
+            primary_vals,
+            key_sources,
+        );
 
         // Shared-molecule multi-key (graph-edge planes): one molecule holds
         // tips for both key layouts. HashKey(slug) therefore lists every tip
@@ -86,7 +87,7 @@ impl HashRangeQueryProcessor {
                 )
                 .await?;
             primary_name = fallback.to_string();
-            self.rename_page_to_api_keys(schema, &primary_name, values, sources)
+            self.rename_page_to_api_keys(schema, &primary_name, key_form, values, sources)
         } else {
             (primary_vals, page_keys, key_sources)
         };

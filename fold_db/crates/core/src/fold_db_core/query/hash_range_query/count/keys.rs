@@ -2,17 +2,15 @@ use super::*;
 
 impl HashRangeQueryProcessor {
     /// Union the live keys of every counted field, in the node's own namespace
-    /// and every received-from namespace. Also returns the molecule and storage
-    /// identity of the declared hash key field.
+    /// and every received-from namespace. Keyed readers already return API keys;
+    /// the atom store resolves competing physical spellings before this point.
     pub(super) async fn gather_count_keys(
         &self,
         schema: &mut Schema,
         count_field_names: &[String],
-        key_hash_field: Option<&str>,
         filter: Option<&HashRangeFilter>,
         received_from_namespaces: &[String],
-    ) -> Result<(std::collections::HashSet<KeyValue>, Option<String>), SchemaError> {
-        let mut key_field_molecule: Option<String> = None;
+    ) -> Result<std::collections::HashSet<KeyValue>, SchemaError> {
         let mut keys: std::collections::HashSet<KeyValue> = std::collections::HashSet::new();
         for field_name in count_field_names {
             if !schema.runtime_fields.contains_key(field_name) {
@@ -25,10 +23,6 @@ impl HashRangeQueryProcessor {
                 .runtime_fields
                 .get_mut(field_name)
                 .expect("count field checked");
-            if key_hash_field == Some(field_name.as_str()) {
-                key_field_molecule = field.common().molecule_uuid().cloned();
-            }
-
             // Cheap count: enumerate molecule keys + filter `KeyMetadata.tombstoned`
             // without fetching atom bodies. The tombstone gate is applied on the
             // returned metadata inside `live_field_keys_flag_only` — passing
@@ -45,7 +39,7 @@ impl HashRangeQueryProcessor {
                 keys.extend(shared);
             }
         }
-        Ok((keys, key_field_molecule))
+        Ok(keys)
     }
 
     /// Fall back to the sibling key spine when the preferred one is empty.

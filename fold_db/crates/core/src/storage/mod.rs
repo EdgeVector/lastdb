@@ -1,29 +1,27 @@
-//! Local storage layer: traits, backends, and optional wrappers.
+//! Native local storage, typed helpers, and physical maintenance adapters.
 //!
 //! ## Architecture
 //!
 //! ```text
 //! Domain (db_operations, factory, …)
+//!         │  TypedKvStore / KvStore / NamespacedStore
+//!         ▼
+//! MutationLogCaptureNamespacedStore (local capture router)
 //!         │
 //!         ▼
-//! ┌───────────────────┐
-//! │  traits::         │  KvStore + NamespacedStore  (backend-agnostic)
-//! │  TypedKvStore     │  typed JSON helpers on KvStore
-//! └─────────┬─────────┘
-//!           │ implemented by
-//!           ▼
-//!      laststore::
-//!      (product)
-//!           │
-//!           ▼ optional wrappers
-//!  encrypting_*  (at-rest AES-GCM; migration dual-read)
-//!
-//! Cloud multi-device export is **not** a KvStore decorator. Store-level
-//! capture lives under `crate::sync::capture` (cold path).
+//! EncryptingNamespacedStore (at-rest encryption)
+//!         │
+//!         ▼
+//! disk_pack::PackNamespacedStore (native packed files)
 //! ```
 //!
-//! **Last Store only:** Sled was removed after the Mini cutover. Product and
-//! test code use [`LastStoreNamespacedStore`] or [`InMemoryNamespacedStore`].
+//! Cloud multi-device export is **not** a KvStore decorator. Store-level
+//! capture lives under `crate::sync::capture`. Native cloud activation remains
+//! disabled; no cloud engine attaches to the normal local router.
+//!
+//! [`LastStoreNamespacedStore`] remains available to explicit physical format
+//! maintenance and restore tools. Normal logical constructors use the native
+//! packed engine and refuse older nonempty formats without migration.
 
 pub mod config;
 pub mod disk_pack;

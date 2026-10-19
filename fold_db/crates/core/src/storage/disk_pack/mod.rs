@@ -6,12 +6,12 @@ use crate::resident::PersistLaneMetrics;
 use laststore::disk_pack::home::{
     DiskHome, HomeBuilder, HomeDescriptor, HomeJournal, HomeMutation,
 };
+use laststore::disk_pack::maintenance::SpaceReservation;
 use laststore::disk_pack::{Current, ReadBudget};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-mod admission;
 mod backup;
 mod kv;
 pub(crate) mod logical_paths;
@@ -52,11 +52,9 @@ pub struct PackRuntime {
     persist_metrics: Arc<PersistLaneMetrics>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     schema_keys: schema_keys::SchemaKeys,
-    published: AtomicU64,
     failed: AtomicBool,
     fresh_empty: AtomicBool,
-    failed_write: Mutex<Option<Arc<admission::WriteProtection>>>,
-    failed_requests: Mutex<Vec<Arc<transaction::PendingBatch>>>,
+    failed_write: Mutex<Option<SpaceReservation>>,
     space_policy: laststore::disk_pack::maintenance::SpacePolicy,
 }
 
@@ -176,7 +174,6 @@ impl PackNamespacedStore {
         let journal = home.journal().map_err(map)?;
         let read_lease = journal.read_lease();
         let current = journal.current().clone();
-        let frontier = current.frontier;
         let metrics = Arc::new(PersistLaneMetrics::new());
         Ok(Self {
             runtime: Arc::new(PackRuntime {
@@ -196,11 +193,9 @@ impl PackNamespacedStore {
                 persist_metrics: metrics,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 schema_keys: schema_keys::SchemaKeys::new(),
-                published: AtomicU64::new(frontier),
                 failed: AtomicBool::new(false),
                 fresh_empty: AtomicBool::new(false),
                 failed_write: Mutex::new(None),
-                failed_requests: Mutex::new(Vec::new()),
                 space_policy,
             }),
         })

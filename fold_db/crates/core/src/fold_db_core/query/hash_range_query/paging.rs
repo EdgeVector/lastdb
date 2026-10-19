@@ -3,7 +3,29 @@
 use super::*;
 use crate::schema::types::key_value::scalar_key_coordinate;
 
+/// Keyed reads echo caller hashes. Only physical page/sample walks need recovery.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum PrimaryKeyForm {
+    Api,
+    Storage,
+}
+
 impl HashRangeQueryProcessor {
+    pub(super) fn primary_key_form(filter: Option<&HashRangeFilter>) -> PrimaryKeyForm {
+        match filter {
+            Some(
+                HashRangeFilter::HashKey(_)
+                | HashRangeFilter::HashRangeKey { .. }
+                | HashRangeFilter::HashRangeKeys(_)
+                | HashRangeFilter::HashRangePrefix { .. }
+                | HashRangeFilter::HashRangeRange { .. },
+            ) => PrimaryKeyForm::Api,
+            // Unsupported selectors are refused before this boundary. The
+            // remaining producers are None, Page, PageAfter and SampleN.
+            _ => PrimaryKeyForm::Storage,
+        }
+    }
+
     /// Recover API-form page keys from a **storage-form** primary walk.
     ///
     /// A paged / unfiltered walk returns each key in storage form. Under
@@ -78,7 +100,7 @@ impl HashRangeQueryProcessor {
         recovered
     }
 
-    /// Rename a resolved primary page from storage-form keys to API-form.
+    /// Keep keyed results in API form; recover physical page/sample hashes.
     ///
     /// This is the single place the two key spaces meet. Everything downstream —
     /// the secondary fan-out, the two-pass predicate path, and the `key.hash` the
@@ -103,6 +125,7 @@ impl HashRangeQueryProcessor {
         &self,
         schema: &Schema,
         primary_name: &str,
+        key_form: PrimaryKeyForm,
         primary_vals: HashMap<KeyValue, FieldValue>,
         key_sources: HashMap<KeyValue, KeySource>,
     ) -> (
@@ -115,17 +138,19 @@ impl HashRangeQueryProcessor {
         let blinded =
             self.db_ops.atoms().key_codec().encoding() != crate::atom::HashKeyEncoding::Plain;
 
-        let api_keys = self.recover_api_page_keys(schema, primary_name, &primary_vals);
+        let api_keys = match key_form {
+            PrimaryKeyForm::Api => HashMap::new(),
+            PrimaryKeyForm::Storage => {
+                self.recover_api_page_keys(schema, primary_name, &primary_vals)
+            }
+        };
         if api_keys.is_empty() {
             let page_keys: Vec<KeyValue> = primary_vals.keys().cloned().collect();
-            // Nothing recovered. On a plain home that is the normal, correct
-            // case. On a blinded home it means the walk's storage-form keys
-            // escape as-is — the `Milestone`-shaped sibling-layout read, where
-            // the declared key field has no atoms and the plan falls back to a
-            // projected field, so `recover_api_page_keys` cannot run at all.
-            // Those keys are HMAC tokens wearing a plaintext key's shape.
+            // Keyed readers preserve the supplied API coordinates independently
+            // of field payloads. An unrecovered physical walk cannot certify its
+            // hashes on a blinded home, including a projection fallback.
             let emitted = Self::countable_keys(&page_keys);
-            if blinded {
+            if blinded && key_form == PrimaryKeyForm::Storage {
                 crate::db_operations::note_page_key_forms(0, emitted);
             } else {
                 crate::db_operations::note_page_key_forms(emitted, 0);

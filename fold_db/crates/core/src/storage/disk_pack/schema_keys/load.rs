@@ -150,9 +150,9 @@ impl PackRuntime {
             )
             .await;
             let result = result.unwrap_or_else(|_| {
-                Err(SchemaError::InvalidData(
-                    "schema key load time limit".into(),
-                ))
+                Err(SchemaError::ReadResourceLimit {
+                    detail: "schema key load time limit".into(),
+                })
             });
             if let Err(error) = result {
                 runtime.fail_key_load(&entry, &domain, &error);
@@ -361,9 +361,10 @@ impl PackRuntime {
         {
             return;
         }
-        let resource = error.to_string().contains("resource limit")
-            || error.to_string().contains("allowance")
-            || error.to_string().contains("time limit");
+        let resource = matches!(
+            error,
+            SchemaError::ReadResourceLimit { .. } | SchemaError::WriteResourceLimit { .. }
+        );
         let phase = if resource {
             Phase::DiskOnly
         } else {
