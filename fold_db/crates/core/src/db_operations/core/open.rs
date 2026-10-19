@@ -37,7 +37,21 @@ struct CoreNamespaces {
 struct AtomNamespaces {
     main: Arc<TypedKvStore<dyn KvStore>>,
     schema_index: Arc<TypedKvStore<dyn KvStore>>,
-    keep_small: Arc<dyn KvStore>,
+    keep_small: Arc<TypedKvStore<dyn KvStore>>,
+}
+
+impl AtomNamespaces {
+    fn new(
+        main: Arc<dyn KvStore>,
+        schema_index: Arc<dyn KvStore>,
+        keep_small: Arc<dyn KvStore>,
+    ) -> Self {
+        Self {
+            main: Arc::new(TypedKvStore::new(main)),
+            schema_index: Arc::new(TypedKvStore::new(schema_index)),
+            keep_small: Arc::new(TypedKvStore::new(keep_small)),
+        }
+    }
 }
 
 impl CoreNamespaces {
@@ -176,7 +190,6 @@ impl DbOperations {
         } = CoreNamespaces::open(&store).await?;
 
         // Wrap KvStores in TypedKvStore adapters
-        let main_store = Arc::new(TypedKvStore::new(main_kv));
         let metadata_typed = Arc::new(TypedKvStore::new(metadata_kv));
         let schema_states_store = Arc::new(TypedKvStore::new(schema_states_kv));
         let schemas_store = Arc::new(TypedKvStore::new(schemas_kv));
@@ -185,7 +198,6 @@ impl DbOperations {
         let public_keys_typed = Arc::new(TypedKvStore::new(public_keys_kv));
         let idempotency_typed = Arc::new(TypedKvStore::new(idempotency_kv));
         let superseded_by_store = Arc::new(TypedKvStore::new(superseded_by_kv));
-        let schema_index_store = Arc::new(TypedKvStore::new(schema_index_kv));
 
         // Domain stores
         let schema_store = {
@@ -208,11 +220,7 @@ impl DbOperations {
         );
         let atom_store = Self::open_atom_store(
             &store,
-            AtomNamespaces {
-                main: main_store,
-                schema_index: schema_index_store,
-                keep_small: keep_small_kv,
-            },
+            AtomNamespaces::new(main_kv, schema_index_kv, keep_small_kv),
             atom_content_key,
             hash_key_codec,
             &molecule_keys,
@@ -268,7 +276,7 @@ impl DbOperations {
         )
         .with_namespaced_store(Arc::clone(store))
         .with_molecule_keys(molecule_keys.clone())
-        .with_keep_small_persist(Arc::new(TypedKvStore::new(namespaces.keep_small)))
+        .with_keep_small_persist(namespaces.keep_small)
         .resolve_boot_encoding()
         .await?;
         Self::initialize_fresh_native_refs(store, &atom_store).await?;
