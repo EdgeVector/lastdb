@@ -27,6 +27,8 @@ Current writes create no atom history or history reverse references.
 Private replacement and conflict records remain until their current references reach disk.
 Explicit physical cleanup commands can remove existing history files.
 A failed read cannot enter the model as a confirmed missing record.
+One shared query check refuses old-value and recursive-depth controls for reads and counts.
+The request decoder retains those names for an explicit refusal. Current field readers do not accept those controls.
 
 Each field keeps its current atom in its molecule.
 A query assembles a record from those fields in the selected storage scope.
@@ -60,6 +62,10 @@ Unselected schemas and refused loads use the bounded disk selector.
 4. Publish the complete core change, then send the permitted ack.
 5. Flush the prepared bytes through the one native disk queue.
 
+The private preparation step transfers its schema, atoms, and related changes into the disk stage.
+That transfer does not copy those prepared payloads into a second job.
+Native after-commit work sends the Search change after the disk commit.
+
 The private disk queue owns prepared bytes and completion work until flush.
 Ordinary reads cannot query that queue.
 The native journal supports recovery of stored writes. It does not replace the current core state.
@@ -71,7 +77,12 @@ The worker checks the caller's conditions before it prepares any deletion.
 The current field atoms supply the values for those checks and related keys.
 Source and related deletions enter one disk commit, including each schema's cleanup work.
 Search receives the deletion after that commit.
+Both Delete forms remove tips and keep shared atom bodies. The `must_exist` option checks the caller's key before removal.
+Delete crosses Hash and HashRange layouts only for complete records with the same field names and canonical field identities.
+Partial membership records keep their separate deletion boundary.
 The explicit Purge route retains its separate destructive rules.
+Both Purge paths check shared references after removal of the target tips.
+A failed reference check stops publication before atom removal.
 An invalid peer-key value receives an explicit refusal before any deletion starts.
 That fixed input error does not retain a write for an endless storage retry.
 

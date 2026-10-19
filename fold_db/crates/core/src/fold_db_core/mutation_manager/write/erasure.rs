@@ -170,7 +170,7 @@ impl MutationManager {
     }
 
     /// Proteins that any molecule of `source_schema` belongs to.
-    async fn proteins_of_schema_molecules(
+    pub(in crate::fold_db_core::mutation_manager) async fn proteins_of_schema_molecules(
         &self,
         source_schema: &crate::schema::Schema,
         storage_prefix: Option<&str>,

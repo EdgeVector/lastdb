@@ -15,10 +15,9 @@ impl FieldVariant {
         &mut self,
         db_ops: &Arc<DbOperations>,
         filter: Option<HashRangeFilter>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<Vec<KeyedAtomMatch>, SchemaError> {
-        self.require_supported_read(filter.as_ref(), as_of.is_some())?;
+        self.require_supported_read(filter.as_ref())?;
         captured_field_read(
             db_ops,
             self.collect_matches_captured(db_ops, filter, include_tombstones)

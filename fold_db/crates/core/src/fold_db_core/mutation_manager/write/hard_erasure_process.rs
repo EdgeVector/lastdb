@@ -53,8 +53,7 @@ impl MutationManager {
                 })?;
             // Live Delete does not reclaim atoms. It must not wait on (or
             // advance) the compliance purge's reverse-edge history upgrade.
-            let atom_ref_cutover = options.verb
-                != super::super::super::purge::HardEraseVerb::Delete
+            let atom_ref_cutover = !options.verb.is_delete()
                 && super::super::super::purge::atom_ref_cutover_ready(
                     &self.db_ops,
                     &schema_for_index,
@@ -90,19 +89,14 @@ impl MutationManager {
         let keys: Vec<crate::schema::types::KeyValue> =
             chunk.iter().map(|m| m.key_value.clone()).collect();
 
-        // Live `Delete` (Skip): converge disk to the resident
-        // tombstone already applied at apply time. No atom
-        // reachability walk and no exclusive schema barrier — the
-        // persist lane's slot order is enough (invariant 4,
-        // design-lastdb-delete-converge-then-reclaim). `Purge` and
-        // `DeleteMustExist` are untouched below: compliance erasure
-        // still wants the full atom sweep and the loud not-found
-        // contract this converge path does not attempt.
+        // Both user Delete forms converge tips after their caller conditions
+        // pass. Neither reclaims bodies that other protein members can share.
+        // Explicit Purge retains its separate atom-reachability erasure.
         let caller = chunk
             .iter()
             .find_map(|m| m.erase_caller)
             .unwrap_or("mutation-pipeline");
-        let outcome = if verb == super::super::super::purge::HardEraseVerb::Delete {
+        let outcome = if verb.is_delete() {
             self.converge_delete_chunk(schema_name, chunk, options.storage_prefix)
                 .await?
         } else if atom_ref_cutover {

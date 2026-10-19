@@ -130,11 +130,9 @@ impl HashRangeQueryProcessor {
     fn require_supported_query(
         schema: &Schema,
         filter: Option<&HashRangeFilter>,
-        historical: bool,
     ) -> Result<(), SchemaError> {
         crate::schema::require_logical_layout(&schema.schema_type)?;
-        crate::schema::require_logical_filter(filter)?;
-        crate::schema::require_current_read(historical)
+        crate::schema::require_logical_filter(filter)
     }
 
     async fn current_query_scope<T>(

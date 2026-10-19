@@ -1,0 +1,288 @@
+{
+  "base_manifest": "docs/proofs/core-quality-round3-20261018/final-identity.json",
+  "base_manifest_sha256": "9f757e03862a5d435b7bcc55ea723df4f873fce71f41b209cd826e6a15a8bcb4",
+  "changed_or_new_product_inputs": {
+    "fold_db/crates/core/src/atom/atom_def.rs": {
+      "bytes": 6398,
+      "sha256": "fdce9055fc162d18fe2f9f939a0e108443a467021df5e79d70d62b4babf1d8d8"
+    },
+    "fold_db/crates/core/src/atom/molecule_hash_range/construct.rs": {
+      "bytes": 5955,
+      "sha256": "35cfd9fc616a9f6043377a8f1fd8f5be450e84d20c7bf385b1be87792dfb4901"
+    },
+    "fold_db/crates/core/src/atom/molecule_hash_range/import.rs": {
+      "bytes": 7275,
+      "sha256": "6931ff46dec9b3b797798315bd50fca08f3c38fd34c4e972db4fa2c9c17db122"
+    },
+    "fold_db/crates/core/src/atom/molecule_hash_range/mod.rs": {
+      "bytes": 3359,
+      "sha256": "d6c20f8364f842dbc3431e8f175ac933cad0c30ddd646cb94c425c5093017d2c"
+    },
+    "fold_db/crates/core/src/atom/molecule_hash_range/ops.rs": {
+      "bytes": 8996,
+      "sha256": "b200fc040888a4405fe247ee13459f0e48de6e8aaefebc63ac97b02c819708dc"
+    },
+    "fold_db/crates/core/src/db_operations/admin_db/report_tip_history.rs": {
+      "bytes": 7314,
+      "sha256": "9e2d07b481d9ab050a0aba376dfd81c19c84022837b74460b1843efe8cb241fd"
+    },
+    "fold_db/crates/core/src/db_operations/atom_store/atom_ref_edges/edge_keys.rs": {
+      "bytes": 14229,
+      "sha256": "4ba872de73d90ac15c299dbc9658fb3c4f1de7279a06c0c1e65eda4721123e6f"
+    },
+    "fold_db/crates/core/src/db_operations/atom_store/molecules/store/generation_activation.rs": {
+      "bytes": 6297,
+      "sha256": "791d9d6e5c2ea4eca0bf95c2655c124ddc40e1eee648d2497005e201df27f2c6"
+    },
+    "fold_db/crates/core/src/db_operations/atom_store/molecules/store/items.rs": {
+      "bytes": 10024,
+      "sha256": "711111335520333995eedbc670aa00214f880154c75d8d001c17867e0940079b"
+    },
+    "fold_db/crates/core/src/db_operations/atom_store/tip_version_backrefs.rs": {
+      "bytes": 10672,
+      "sha256": "7db8aa5d9e2509104d14e55efc92967582dcbe42e2d60ef4d3fe5b0a79e243bc"
+    },
+    "fold_db/crates/core/src/fold_db_core/factory/local.rs": {
+      "bytes": 2692,
+      "sha256": "1189b48e35953fe503adab363d345c09443383716907e6a05ba2747623dd0a28"
+    },
+    "fold_db/crates/core/src/fold_db_core/factory/mod.rs": {
+      "bytes": 3250,
+      "sha256": "b8936dc1a6d4324a06e8ba22b2c7e2b8e006ffce61dd263628b6c2f387cead2c"
+    },
+    "fold_db/crates/core/src/fold_db_core/fold_db.rs": {
+      "bytes": 4118,
+      "sha256": "e9170142df15e0db2e9846b041e5c5f17ceb289bd4c8f2bc8468f8f652cf0394"
+    },
+    "fold_db/crates/core/src/fold_db_core/fold_db/hashrange_key_repair.rs": {
+      "bytes": 7949,
+      "sha256": "fc0d511ec4400326c1905fcf195eeeafd4ffb2a5d67db5fe797cd0468a432d9a"
+    },
+    "fold_db/crates/core/src/fold_db_core/fold_db/init.rs": {
+      "bytes": 11010,
+      "sha256": "e1ee6cb450351b770c597b3ac6f16857c3cdfc58a6f8d84f461aeebf8f494514"
+    },
+    "fold_db/crates/core/src/fold_db_core/fold_db/init_boot.rs": {
+      "bytes": 6360,
+      "sha256": "058cbb361b4ead40f500920eaf4f361396cbc09e8c777b19076e5aeb1334ba9d"
+    },
+    "fold_db/crates/core/src/fold_db_core/fold_db/lifecycle.rs": {
+      "bytes": 12217,
+      "sha256": "6ba15ad474a310306effe70962fcd3b34a99bc883426e9d3548eef5711a7cc1d"
+    },
+    "fold_db/crates/core/src/fold_db_core/mod.rs": {
+      "bytes": 1671,
+      "sha256": "990678a05029b57987e74379535eeec8fabaa3cc719d87ae776dfb53ec6fffe2"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/mod.rs": {
+      "bytes": 24962,
+      "sha256": "d755916f1f657ae036a00473af622f4ff1b5dc9278e203fbf1617816ea932193"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/apply.rs": {
+      "bytes": 10293,
+      "sha256": "34f2e31ff59e56e84e6ea588531ca5dd4a20df831d8d49ce650764c6287c286d"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/batch_rebase.rs": {
+      "bytes": 10362,
+      "sha256": "c06bac2a96b45ee82904e925882a041f57ee1bc1418a834636289476570a6471"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist.rs": {
+      "bytes": 13379,
+      "sha256": "d946a1342bc989e2af599402b1895a20dee0aeea8ddef8633d064ffcbbbd50ae"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/deferred_job.rs": {
+      "bytes": 8540,
+      "sha256": "028824c6eaf8560b65990b86f3aa3f96fe740cd140f140ee9f906768002a9a71"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/locks.rs": {
+      "bytes": 6271,
+      "sha256": "ca8462b0bc9f5763506b166805730ec6a197defb2ae4bcce245375a6fdbe9bae"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/native.rs": {
+      "bytes": 7649,
+      "sha256": "97b1722eb3788b3b9fbb37a9678c6f50dd20b2eb8feb8d46f7c81c3fcc17f316"
+    },
+    "fold_db/crates/core/src/fold_db_core/purge/mod.rs": {
+      "bytes": 14107,
+      "sha256": "a60712c2e139c7833c97c275c7ff5de6b71dcccd002d3755f27560c140f40384"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query.rs": {
+      "bytes": 6956,
+      "sha256": "513da2c54de02023591271420e7b903f47c67ce379b2deb29cde6d97310f4dec"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/count.rs": {
+      "bytes": 16441,
+      "sha256": "8e4c3a253e9f2efd1a45e0c2e81b025dff489c3279a458a5352678c10f16bcef"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/fields.rs": {
+      "bytes": 6269,
+      "sha256": "fe7dd720e3e77f6dc897915ee18c754cdb6b59acb9a91ef5e5cb53ea82c274cf"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/filter.rs": {
+      "bytes": 5773,
+      "sha256": "ba307ef6513f947d235e492d84f8b89d31d092eb5ab7e71a62b599b308f9b598"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/predicates.rs": {
+      "bytes": 2060,
+      "sha256": "be087d5e5b990cde1983484fa70fcc30512ebb3a5c9e2ca928795a8c5361fc78"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/resolve.rs": {
+      "bytes": 10045,
+      "sha256": "f027113639cc178ea5d71a576faedf3286388955152acc0fabdf7646c6b4771b"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/shares.rs": {
+      "bytes": 4607,
+      "sha256": "aef92dafda378941db77146cf352f03e588d045027b1cfb22b33102df305c315"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/query_executor.rs": {
+      "bytes": 11719,
+      "sha256": "6124de7dd30596ebeb89adfd574ad24116e1593c78a265c48e66074aae3ee344"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/query_executor/run.rs": {
+      "bytes": 3350,
+      "sha256": "2a95241146dda35e86770298e880855cfa048224f431eff66883e53a57c53fc4"
+    },
+    "fold_db/crates/core/src/fold_db_core/sync_coordinator.rs": {
+      "bytes": 7465,
+      "sha256": "f5dfbc4e3e7c222f3313c9915a1771967511ecf2d53ab49bff472d2f05aea66a"
+    },
+    "fold_db/crates/core/src/protein/ops.rs": {
+      "bytes": 11640,
+      "sha256": "61aecfd10ef9a80c1d88be83853df7f5e623020d87ac8b67b440703c40b92f3e"
+    },
+    "fold_db/crates/core/src/resident/core_set/keys.rs": {
+      "bytes": 1468,
+      "sha256": "48ba950b9b51354889b3ab2bdb670d60a08fa47d59c65a4025873c65cd752cd2"
+    },
+    "fold_db/crates/core/src/resident/core_set/memory.rs": {
+      "bytes": 11515,
+      "sha256": "adeefb21fddc96e92ab7f33628eefcd8616794f3bfb154082c089039c37b505e"
+    },
+    "fold_db/crates/core/src/schema/logical_rules.rs": {
+      "bytes": 2099,
+      "sha256": "0da3087bd0ced3d18553718d3102458c17c3fb1e34f3a055ddff8fbb30ab8406"
+    },
+    "fold_db/crates/core/src/schema/mod.rs": {
+      "bytes": 2308,
+      "sha256": "887bc290f4e34dbf5930b02e250f9de43dc0a23d7284de97b1a64f1b3df8ffa6"
+    },
+    "fold_db/crates/core/src/schema/types/field/variant/read.rs": {
+      "bytes": 2765,
+      "sha256": "1251a198cb1ddfecf6cbba648a54e9d1d964f0abdbed9a6c118cbee01e667c79"
+    },
+    "fold_db/crates/core/src/schema/types/field/variant/read/collect.rs": {
+      "bytes": 10374,
+      "sha256": "93b18c9a2a821e887d754133d0ef5201915897c07ce61cf8b5f6fc55c2af950e"
+    },
+    "fold_db/crates/core/src/schema/types/field/variant/read/refresh.rs": {
+      "bytes": 2008,
+      "sha256": "74e312e15d73e6fa521788529218c0de7c76239cd3c5823c38e9cf24a8b86970"
+    },
+    "fold_db/crates/core/src/schema/types/field/variant/read/resolve.rs": {
+      "bytes": 9329,
+      "sha256": "123f7fb18e42a33d60c1c45a1220fd1bbb148f10e5da787e236d904a6ee3cb00"
+    },
+    "fold_db/crates/core/src/schema/types/operations/mod.rs": {
+      "bytes": 14758,
+      "sha256": "e51092e7b4bc9f192a932041112701657ba7e344c05cd5baa39dec8632d90eb4"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/logical_paths/source.rs": {
+      "bytes": 9785,
+      "sha256": "a9a9ec2a6a068bbd1e80a32f1a112feaffe648399612f08477c5f8541dbe0f3b"
+    },
+    "lastdb_node/src/exec/db_maintenance/tips.rs": {
+      "bytes": 11768,
+      "sha256": "ce15ac0e9f8401fab6e4a24dec52f7d32aa9009d0bc1db54051671840a9ba782"
+    },
+    "lastdb_node/src/host.rs": {
+      "bytes": 25473,
+      "sha256": "e6d35f489c62e21b178065004b3cc9bcbd57b4fc0d7e72c1be4df20d42a8c87d"
+    },
+    "lastdb_node/src/host/boot.rs": {
+      "bytes": 6095,
+      "sha256": "cc92b7ba54ac803de96910492ea1b18174a199fe939001fdf0aca4b3ab05e776"
+    }
+  },
+  "reconstructed_source_manifest_sha256": "685efc12bff54e33bd98e4da435a66c0a36b9fd83bf5675d0a690eebd9060a3d",
+  "reconstruction": "Verify base hash; copy base source_files, remove listed inputs, then update changed_or_new_product_inputs. Add that map to source_manifest_metadata. Serialize sort_keys=True, indent=2, plus one final newline. These bytes equal the sealed local source-inputs.json exactly.",
+  "removed_product_inputs": [
+    "fold_db/crates/core/src/fold_db_core/tip_history_drain.rs"
+  ],
+  "source_commit": "a619a7e34a58a6878afd4897545fb7cd00326061",
+  "source_input_count": 1877,
+  "source_manifest_metadata": {
+    "base_commit": "e52106cc788d60dd4452420b1081ad9e31d258fc",
+    "build_command": [
+      "scripts/ci/with-fold-host-cargo-lock.sh",
+      "--timeout",
+      "600",
+      "--",
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "lastdb_node",
+      "--bin",
+      "lastdbd"
+    ],
+    "host_settings": {
+      "environment": {
+        "AR": null,
+        "CARGO_BUILD_JOBS": null,
+        "CARGO_BUILD_TARGET": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_INCREMENTAL": null,
+        "CARGO_TARGET_DIR": null,
+        "CC": null,
+        "CFLAGS": null,
+        "CXX": null,
+        "CXXFLAGS": null,
+        "LDFLAGS": null,
+        "MACOSX_DEPLOYMENT_TARGET": null,
+        "RUSTC": null,
+        "RUSTC_WORKSPACE_WRAPPER": null,
+        "RUSTC_WRAPPER": null,
+        "RUSTFLAGS": null,
+        "RUSTUP_TOOLCHAIN": null,
+        "RUST_MIN_STACK": null,
+        "SCCACHE_DISABLE": null,
+        "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+      },
+      "external_config_inputs": {
+        "/Users/tomtang/.cargo/config.toml": {
+          "bytes": 1804,
+          "sha256": "7d77c98e55bcb03544522c0538660d8dae49682d0cd625416b78fe26427ff751"
+        },
+        "/Users/tomtang/.rustup/settings.toml": {
+          "bytes": 638,
+          "sha256": "c6eadecb58fb52813b4875a490207964f9096a507d35d195e3de2f85ade7a61c"
+        }
+      },
+      "machine": "arm64",
+      "memory_bytes": 38654705664,
+      "processor": "Apple M4 Max",
+      "system": "macOS-26.5.2-arm64-arm-64bit",
+      "tools": {
+        "cargo": {
+          "path": "/Users/tomtang/.cargo/bin/cargo",
+          "realpath": "/Users/tomtang/.cargo/bin/rustup",
+          "version": "cargo 1.96.1 (356927216 2026-06-26)\nrelease: 1.96.1\ncommit-hash: 356927216a2d746168cf76e5e88cc3f4b58e029d\ncommit-date: 2026-06-26\nhost: aarch64-apple-darwin\nlibgit2: 1.9.2 (sys:0.20.4 vendored)\nlibcurl: 8.7.1 (sys:0.4.87+curl-8.19.0 system ssl:(SecureTransport) LibreSSL/3.3.6)\nssl: OpenSSL 3.5.4 30 Sep 2025\nos: Mac OS 26.5.2 [64-bit]"
+        },
+        "rustc": {
+          "path": "/Users/tomtang/.cargo/bin/rustc",
+          "realpath": "/Users/tomtang/.cargo/bin/rustup",
+          "version": "rustc 1.96.1 (31fca3adb 2026-06-26)\nbinary: rustc\ncommit-hash: 31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd\ncommit-date: 2026-06-26\nhost: aarch64-apple-darwin\nrelease: 1.96.1\nLLVM version: 22.1.2"
+        }
+      }
+    },
+    "removed_inputs": [
+      "fold_db/crates/core/src/fold_db_core/tip_history_drain.rs"
+    ],
+    "scope": "One final normal release and ordinary product operations. No benchmark comparison.",
+    "source_commit": "a619a7e34a58a6878afd4897545fb7cd00326061",
+    "source_input_count": 1877,
+    "source_inventory_sha256": "ff5ec799c635d79dab0087d6dc96cda506f8ffc80cbc76018e31afc150be7610",
+    "state": "sources_frozen_binary_pending"
+  }
+}

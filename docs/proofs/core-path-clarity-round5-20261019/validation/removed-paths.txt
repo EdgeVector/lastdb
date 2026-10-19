@@ -1,0 +1,2 @@
+Current field-reader and processor internals contain no historical parameters or old guard references.
+Private native staging has no zero-only commit_id inputs or alternate Search delivery branch.

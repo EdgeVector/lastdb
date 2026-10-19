@@ -99,12 +99,7 @@ impl HashRangeQueryProcessor {
         sources: &mut HashMap<KeyValue, KeySource>,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         let mut merged = field
-            .resolve_value(
-                &self.db_ops,
-                Some(full_span_page()),
-                None,
-                include_tombstones,
-            )
+            .resolve_value(&self.db_ops, Some(full_span_page()), include_tombstones)
             .await?;
         for k in merged.keys() {
             sources.insert(k.clone(), own_prefix.clone());
@@ -175,13 +170,7 @@ impl HashRangeQueryProcessor {
         sources: &mut HashMap<KeyValue, KeySource>,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         let mut own = field
-            .resolve_value_windowed(
-                &self.db_ops,
-                filter.clone(),
-                window,
-                None,
-                include_tombstones,
-            )
+            .resolve_value_windowed(&self.db_ops, filter.clone(), window, include_tombstones)
             .await?;
         for k in own.keys() {
             sources.insert(k.clone(), own_prefix.clone());

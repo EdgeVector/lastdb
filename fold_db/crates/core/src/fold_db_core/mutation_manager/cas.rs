@@ -52,6 +52,20 @@ fn protein_delete_key_value(
 /// `(schema name, hash key field, optional range key field)`.
 type ProteinDeletePeer = (String, String, Option<String>);
 
+/// Cross-layout deletion needs a complete record alias, not a partial
+/// membership projection. Key resolution also requires the same field names.
+fn same_complete_fields(left: &Schema, right: &Schema) -> bool {
+    !left.runtime_fields.is_empty()
+        && left.runtime_fields.len() == right.runtime_fields.len()
+        && left.runtime_fields.keys().all(|name| {
+            let Some(identity) = left.field_hashes.get(name).filter(|hash| !hash.is_empty()) else {
+                return false;
+            };
+            right.runtime_fields.contains_key(name)
+                && right.field_hashes.get(name) == Some(identity)
+        })
+}
+
 /// Sibling schemas whose key fields are declared on the source schema and
 /// whose fields share a sibling molecule. Sorted by schema name.
 fn protein_delete_peers(
@@ -70,14 +84,11 @@ fn protein_delete_peers(
         .filter_map(|(name, schema)| {
             let key = schema.key.as_ref()?;
             let hash_field = key.hash_field.as_ref()?.clone();
-            // A sibling must address rows of the same shape. A
-            // HashRange membership row and a Hash-keyed record can
-            // share a record protein (BoardCards copies Card and
-            // Milestone payload fields), but deleting one membership
-            // row must not delete the record it names. Measured on a
-            // CoW copy of the primary 2026-09-24: a BoardCards delete
-            // expanded to Milestone(slug) and Card(slug) deletes.
-            if key.range_field.is_some() != source_is_range {
+            // A partial membership can share payload without owning its
+            // entity. Only complete canonical record aliases may propagate
+            // Delete between Hash and HashRange layouts.
+            if key.range_field.is_some() != source_is_range && !same_complete_fields(source, schema)
+            {
                 return None;
             }
             // A sibling key must be a declared source field. The
@@ -196,22 +207,15 @@ impl MutationManager {
         &self,
         source: &Schema,
     ) -> Result<HashSet<String>, SchemaError> {
-        let store = self.db_ops.atoms();
-        let source_molecules: HashSet<String> = source
+        let source_molecules: HashSet<&str> = source
             .runtime_fields
             .values()
-            .filter_map(|field| field.common().molecule_uuid().cloned())
+            .filter_map(|field| field.common().molecule_uuid().map(String::as_str))
             .collect();
         let mut sibling_molecules = HashSet::new();
-        for molecule_uuid in &source_molecules {
-            let Some(protein_uuid) = store.protein_of_molecule(molecule_uuid).await? else {
-                continue;
-            };
-            let Some(protein) = store.protein_get(&protein_uuid).await? else {
-                continue;
-            };
+        for protein in self.proteins_of_schema_molecules(source, None).await? {
             for member in protein.members {
-                if !source_molecules.contains(&member.molecule_uuid) {
+                if !source_molecules.contains(member.molecule_uuid.as_str()) {
                     sibling_molecules.insert(member.molecule_uuid);
                 }
             }

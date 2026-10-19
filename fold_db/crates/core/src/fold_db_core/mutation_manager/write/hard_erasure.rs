@@ -102,7 +102,7 @@ impl MutationManager {
             return Ok(PurgeEnqueue::Spared(spared, job.erasures));
         }
 
-        let delete_publication = if verb == super::super::super::purge::HardEraseVerb::Delete {
+        let delete_publication = if verb.is_delete() {
             Some(
                 self.prepare_delete_publication(&schema, &job.erasures)
                     .await?,
@@ -222,31 +222,30 @@ impl MutationManager {
         // slot. The persist worker only commits. A one-record complement
         // walk on the worker froze LastgitCiStatus for ~328 s and 503'd
         // every merge writer (2026-09-04).
-        // Plain Delete only converges tips. It never needs the atom-ref
-        // manifest or its history upgrade before the resident tombstone.
-        let atom_ref_cutover = if verb == super::super::super::purge::HardEraseVerb::Delete {
+        // Both Delete forms only converge tips. Their preconditions do not
+        // require the physical Purge's atom-ref manifest or history upgrade.
+        let atom_ref_cutover = if verb.is_delete() {
             false
         } else {
             super::super::super::purge::atom_ref_cutover_ready(&self.db_ops, &schema).await?
         };
-        let guarded_complement_retained =
-            if verb != super::super::super::purge::HardEraseVerb::Delete && !atom_ref_cutover {
-                let keys: Vec<crate::schema::types::KeyValue> = schema_erasures
-                    .iter()
-                    .map(|mutation| mutation.key_value.clone())
-                    .collect();
-                Some(
-                    super::super::super::purge::plan_guarded_complement_retained(
-                        &self.db_ops,
-                        &self.schema_manager,
-                        schema_name,
-                        &keys,
-                    )
-                    .await?,
+        let guarded_complement_retained = if !verb.is_delete() && !atom_ref_cutover {
+            let keys: Vec<crate::schema::types::KeyValue> = schema_erasures
+                .iter()
+                .map(|mutation| mutation.key_value.clone())
+                .collect();
+            Some(
+                super::super::super::purge::plan_guarded_complement_retained(
+                    &self.db_ops,
+                    &self.schema_manager,
+                    schema_name,
+                    &keys,
                 )
-            } else {
-                None
-            };
+                .await?,
+            )
+        } else {
+            None
+        };
         let purge_bytes = serialized_purge_bytes
             .saturating_add(estimate_retained_atom_set_bytes(
                 guarded_complement_retained.as_ref(),

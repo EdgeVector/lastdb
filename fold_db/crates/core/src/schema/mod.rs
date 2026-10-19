@@ -42,7 +42,9 @@ pub use field_hash_coherence::{
 };
 pub use field_mapper::FieldMapperService;
 pub use interpreter::SchemaInterpreter;
-pub use logical_rules::{require_current_read, require_logical_filter, require_logical_layout};
+pub use logical_rules::{
+    require_logical_filter, require_logical_layout, require_logical_query_controls,
+};
 pub use manifest_retention::{
     min_manifest_ttl_seconds, ManifestRetention, ManifestRetentionOutcome, ManifestRetentionPlan,
     ManifestRetentionStatus, RetentionPolicyInReach, RetentionReach, RetentionSharing,

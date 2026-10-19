@@ -22,16 +22,11 @@ impl MutationManager {
         self.validate_key_field_payloads(&mutations)?;
         self.reject_internal_only_mutations(&mutations)?;
 
-        // Hard erasure (compliance Purge + user Delete) has destructive
-        // semantics that diverge from the rest of the pipeline: it writes
-        // nothing into the molecule tip path. Peel both verbs out here so
-        // the standard write pipeline only sees Create/Update. Three peels:
-        // Purge/Refuse and Delete+must_exist/Refuse still reach
-        // `purge_records_bulk` (molecule entries + atom history +
-        // embeddings); plain Delete/Skip converges only the tip
-        // (`converge_delete_tips` — molecule entries + `tv:` chain, atom
-        // reclaim deferred to a later janitor). On replay all three are
-        // Skip (see [`WriteOrigin`]).
+        // Separate tip removal and physical Purge from Create/Update atom
+        // creation. Both user Delete forms converge tips without reclaiming
+        // shared bodies; must_exist adds only a caller precondition. Purge
+        // retains its physical atom erasure. Replay uses Skip for every peel
+        // because it repeats an earlier accepted request (see WriteOrigin).
         let (purges, deletes, mutations) =
             super::super::super::purge::split_off_hard_erasures(mutations);
         let (must_exist_deletes, deletes): (Vec<_>, Vec<_>) = deletes

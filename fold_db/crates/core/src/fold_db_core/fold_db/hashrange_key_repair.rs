@@ -189,7 +189,7 @@ impl FoldDB {
                     ))
                 })?;
         let members: HashSet<KeyValue> = member_field
-            .collect_matches(&self.db_ops, filter.clone(), None, false)
+            .collect_matches(&self.db_ops, filter.clone(), false)
             .await?
             .into_iter()
             .map(|matched| matched.0)
@@ -207,7 +207,7 @@ impl FoldDB {
                     ))
                 })?;
         let hash_keys = hash_key_field
-            .collect_matches(&self.db_ops, filter, None, false)
+            .collect_matches(&self.db_ops, filter, false)
             .await?
             .into_iter()
             .map(|matched| matched.0)

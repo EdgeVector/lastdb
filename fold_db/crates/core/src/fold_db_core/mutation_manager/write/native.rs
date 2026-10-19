@@ -93,7 +93,7 @@ impl MutationManager {
                 request
                     .runtime
                     .record_read_stage("conditions-done", mutations.len());
-                let mut deltas = self
+                let deltas = self
                     .prepare_grouped_deltas(
                         mutations,
                         hashes,
@@ -105,11 +105,11 @@ impl MutationManager {
                 request
                     .runtime
                     .record_read_stage("private-prepare-done", deltas.len());
-                self.commit_native_deltas(&mut deltas, &request.runtime)
-                    .await?;
+                let delta_count = deltas.len();
+                self.commit_native_deltas(deltas, &request.runtime).await?;
                 request
                     .runtime
-                    .record_read_stage("stored-stages-done", deltas.len());
+                    .record_read_stage("stored-stages-done", delta_count);
                 self.reserve_native_core_memory(&request.runtime)?;
                 Ok::<_, SchemaError>(NativeCommit {
                     already_seen_ids,
@@ -128,16 +128,17 @@ impl MutationManager {
 
     pub(super) async fn commit_native_deltas(
         &self,
-        deltas: &mut [PreparedSchemaDelta],
+        deltas: Vec<PreparedSchemaDelta>,
         runtime: &Arc<PackRuntime>,
     ) -> Result<(), SchemaError> {
         let mut heads = super::super::molecules::batch_rebase::BatchSlotHeads::default();
-        for delta in deltas {
-            let modified_fields = self.rebase_delta_for_publish(delta, &mut heads);
-            let mut job = private_job(delta, delta.schema.clone(), modified_fields);
+        for mut delta in deltas {
+            let modified_fields = self.rebase_delta_for_publish(&mut delta, &mut heads);
+            heads.record(&delta);
+            let pending_persist_task = delta.pending_persist_task.take();
+            let mut job = into_native_job(delta, modified_fields);
             self.stage_native_job(&mut job).await?;
             self.stage_native_paths(&job, runtime).await?;
-            heads.record(delta);
             runtime.record_read_stage("logical-paths-done", job.modified_fields.len());
             if let Some(batch) = job.search_batch.take() {
                 let inbox = self.search_outbox_inbox.clone();
@@ -153,40 +154,43 @@ impl MutationManager {
                     Ok(())
                 })?;
             }
-            transaction::retain(runtime, delta.pending_persist_task.take())?;
+            transaction::retain(runtime, pending_persist_task)?;
         }
         Ok(())
     }
 }
 
-fn private_job(
-    delta: &PreparedSchemaDelta,
-    schema: crate::schema::types::Schema,
+fn into_native_job(
+    delta: PreparedSchemaDelta,
     modified_fields: super::super::helpers::ModifiedFieldKeys,
 ) -> DeferredPersistJob {
+    let storage_prefix = delta
+        .schema
+        .runtime_fields
+        .values()
+        .find_map(|field| field.common().storage_prefix())
+        .map(str::to_string);
+    let retention_hash_partitions = delta
+        .tracks_retention_hash_partitions
+        .then(|| delta.mutation_key_values.clone());
+    let retention_write = delta.tracks_retention_age.then(|| {
+        (
+            delta.mutation_key_values,
+            crate::clock::unix_millis() / 1000,
+        )
+    });
     DeferredPersistJob {
-        deferred_atoms: delta.deferred_atoms.clone(),
-        storage_prefix: schema
-            .runtime_fields
-            .values()
-            .find_map(|field| field.common().storage_prefix())
-            .map(str::to_string),
-        search_batch: delta.search_batch.clone(),
-        share_prefixes: delta.share_prefixes.clone(),
-        schema,
+        deferred_atoms: delta.deferred_atoms,
+        storage_prefix,
+        search_batch: delta.search_batch,
+        share_prefixes: delta.share_prefixes,
+        schema: delta.schema,
         modified_fields,
-        idempotency_entries: delta.idempotency_entries.clone(),
-        retention_write: delta.tracks_retention_age.then(|| {
-            (
-                delta.mutation_key_values.clone(),
-                crate::clock::unix_millis() / 1000,
-            )
-        }),
-        retention_hash_partitions: delta
-            .tracks_retention_hash_partitions
-            .then(|| delta.mutation_key_values.clone()),
-        schema_name: delta.schema_name.clone(),
-        sibling_updates: delta.sibling_updates.clone(),
-        sibling_moves: delta.sibling_moves.clone(),
+        idempotency_entries: delta.idempotency_entries,
+        retention_write,
+        retention_hash_partitions,
+        schema_name: delta.schema_name,
+        sibling_updates: delta.sibling_updates,
+        sibling_moves: delta.sibling_moves,
     }
 }

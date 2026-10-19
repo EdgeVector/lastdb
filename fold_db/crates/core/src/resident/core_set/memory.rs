@@ -170,7 +170,15 @@ impl CoreMemory {
             value,
             sources,
         } = definition;
-        let sources = sources.as_ref().clone();
+        self.install(key, value, sources.as_ref().clone());
+    }
+
+    fn install(
+        &mut self,
+        key: MemoryKey,
+        value: Arc<dyn Any + Send + Sync>,
+        sources: Vec<CoreMemorySource>,
+    ) {
         self.remove(&key);
         for source in &sources {
             self.sources
@@ -245,23 +253,7 @@ impl CoreMemory {
             _charge: charge,
         });
         if retained {
-            self.remove(&key);
-            for source in &sources {
-                self.sources
-                    .entry(source.clone())
-                    .or_default()
-                    .insert(key.clone());
-            }
-            self.clock = self.clock.wrapping_add(1);
-            self.order.insert(self.clock, key.clone());
-            self.entries.insert(
-                key,
-                Entry {
-                    value: value.clone(),
-                    sources,
-                    tick: self.clock,
-                },
-            );
+            self.install(key, value.clone(), sources);
         } else {
             self.refused = self.refused.saturating_add(1);
         }

@@ -29,11 +29,16 @@ impl CoreWarmSet {
     }
 
     pub(crate) fn detach_keys(&mut self, scope: Option<&str>, molecule: &str) {
-        if let Some(model) = self.molecules.get_mut(&MoleculeKey {
+        let key = MoleculeKey {
             scope: scope.map(str::to_owned),
             molecule: molecule.to_owned(),
-        }) {
+        };
+        let empty = self.molecules.get_mut(&key).is_some_and(|model| {
             model.detach_core_keys();
+            model.is_empty() && model.core_keys().is_none()
+        });
+        if empty {
+            self.molecules.remove(&key);
         }
     }
 }
