@@ -503,6 +503,8 @@ The queue keeps only the exact work that disk or cloud delivery still needs.
 
 ## Capacity and purge
 
+Proposal (2026-10-19, not implemented): [the warm set byte limit design](lastdb-warm-set-byte-limit-design.md) replaces the path count below with a byte limit.
+
 The logical cap is 10,000 paths.
 The least recently used list names those paths and stores no values.
 Purge skips held paths and unflushed write paths, including required atom data.
