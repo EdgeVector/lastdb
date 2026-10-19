@@ -52,6 +52,9 @@ That reader keeps the caller's hash and the selected atom location together.
 Keyed reads keep the caller's key form through counts and response metadata.
 They do not reinterpret a caller key as another key's disk encoding.
 Only physical page and sample reads recover keys from their stored form.
+Reads and writes use the exact molecule identity from the schema.
+Normal reads and deletes do not try another UUID spelling or create another preloaded key set for it.
+Only explicit dropped-schema physical cleanup can enumerate historical UUID spellings.
 Narrowed reads carry the range form explicitly. Exact caller ranges receive no second decode.
 Hash reads trust the supplied key. A HashRange field-value check uses only the declared hash field that established the keys.
 Projection fallback establishes its own keys. Range punctuation has no special meaning.

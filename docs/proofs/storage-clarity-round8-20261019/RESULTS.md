@@ -9,10 +9,11 @@ This review found inconsistent key selection and an old destructive startup rule
 - Valid empty hashes keep their complete preloaded key set during initial load and later writes.
 - Schema key lists use one captured read, molecule-specific encryption keys, bounded pages, and batch value reads. Membership precedes the result limit.
 - Empty and whitespace list hashes retain their exact values. The list command also preserves them in requests and continuation commands.
-- Unrecoverable blinded schema keys receive an explicit refusal. A filtered Hash list uses the supplied hash.
+- An unfiltered blinded Hash list refuses an unrecoverable hash. A filtered Hash list uses the supplied hash. HashRange lists exclude foreign-layout candidates.
 - Value reads, counts, and schema key lists share one resolved-schema state check. A blocked schema receives the same refusal.
 - Startup namespace errors propagate. Encryption checks refuse unreadable data without deleting shared records.
 - The old backend-specific skip and plaintext-duplicate cleanup are removed from normal reads and startup.
+- Normal reads and Delete use one exact molecule UUID. Old UUID-spelling probes and their duplicate complete-key domains are removed.
 
 ## Conceptual result
 
@@ -28,11 +29,11 @@ Independent source reviews found no remaining blocker in the changed query, memo
 
 The final source includes accepted main `adbec20cdbf39b3fc397be5f34c3cec5e0e280cc`, which adds the warm-set byte gauge. The integration has no conflicting files. The gauge reports charges without a new enforced memory cap.
 
-The integrated workspace compiler and lint checks, separate compiler lane, normal release build, format check, size checks, and added-allow check pass. Final source `1b1b3205cfd894f9bb8583ecdf0ef55f2bf839b5` has 1,882 verified product inputs. The release SHA256 is `1f6444fc47590cabd0561f8fbb8e5bc1d326a235be25587e21114bede2f4143a`.
+The earlier integrated source `1b1b3205cfd894f9bb8583ecdf0ef55f2bf839b5` passes workspace and separate-lane compiler checks, format, size, added-allow checks, and the normal release build. Its release SHA256 is `1f6444fc47590cabd0561f8fbb8e5bc1d326a235be25587e21114bede2f4143a`. Final exact-UUID source `f852a2189f61c0f169b1dba2825ebb0e011638b9` has 1,882 frozen product inputs. Its checks remain in progress.
 
 ## Operational checks
 
-The frozen V5 API procedure is in progress. It uses fresh owned synthetic homes and unchanged existing helpers. No test suite or new executable exercise helper forms part of this review.
+The V5 baseline completes 181 observations: 99 pass and 82 fail against the saved expected results. The first candidate stops after its second observation. Its key-set status shows two entries for one molecule because of the legacy UUID alias path. The exact-UUID correction retains the same V5 requests and expected results. Its compiler, release, and final API checks remain in progress. It uses fresh owned synthetic homes and unchanged existing helpers. No test suite or new executable exercise helper forms part of this review.
 
 The old executable remains tied to source `122072ed51e20a1f67ad4915c0efcb9a2ffc1551`. Its 1,877 product inputs match accepted main `ea01331f7aa318c8748a6f41fa95e0b4eddf3b3a`. The old and updated programs receive the same saved requests and literal expected results.
 
