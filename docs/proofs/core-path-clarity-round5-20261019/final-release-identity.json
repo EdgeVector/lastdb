@@ -1,0 +1,45 @@
+{
+  "binary": "target/release/lastdbd",
+  "binary_sha256": "144e38bf6596ce70486f95b75581e16024f9bf881563f6fa5a14a1d2bba60b99",
+  "discovery_equal_before_and_after_build": true,
+  "first_attempt_sealed_files_verified_unchanged": 13,
+  "host_settings_unchanged": true,
+  "normal_build": {
+    "command": [
+      "scripts/ci/with-fold-host-cargo-lock.sh",
+      "--timeout",
+      "600",
+      "--",
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "lastdb_node",
+      "--bin",
+      "lastdbd"
+    ],
+    "exit_code": 0,
+    "log": "validation/release-build-final.txt",
+    "log_sha256": "7cb969f0fadedf7c77c40d85ad3cf9cb6574f8ec8945c9642ad7f438ba7b281f"
+  },
+  "prior_failed_release_identity": {
+    "file": "release-identity.json",
+    "sha256": "e1d49477897262da647cdd9618401d0597e58cdf796ac3207b78487e31422f28"
+  },
+  "scope": "Final fixed ordinary release; exact source and host settings match before and after the normal release build. Initial failed release/proof remains immutable. Product calls wait for root independent verification. No benchmark comparison.",
+  "source_commit": "f9a5dc7b188a3e493c6c4a21834b71d083344c19",
+  "source_files_unchanged_after_build": true,
+  "source_git_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "f9a5dc7b188a3e493c6c4a21834b71d083344c19",
+    "source_files_checked": 1877,
+    "source_mismatches": []
+  },
+  "source_input_count": 1877,
+  "source_inventory_sha256": "8239a83fa1198e35d50ccc1d9a525f9f1bcda3abe2120c9f60f0805747e5a9d4",
+  "source_manifest": "final-source-inputs.json",
+  "source_manifest_sha256": "6c7d95ca4a8a16326a380f4efac7a1398136a898f8c8249977592e2597ea3f1c",
+  "state": "release_verified",
+  "verified_utc": "2026-10-19T12:10:53.831673+00:00"
+}

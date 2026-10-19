@@ -1,0 +1,119 @@
+{
+  "all_owned_pids_absent": true,
+  "all_strict_zero_file_calls_match": true,
+  "binary_sha256": "144e38bf6596ce70486f95b75581e16024f9bf881563f6fa5a14a1d2bba60b99",
+  "complete": true,
+  "explicit_history_depth_refusals": 12,
+  "guarded_purge_environment": {
+    "LASTDB_BARRIERLESS_PURGE": "off"
+  },
+  "guarded_purge_query_items": 12,
+  "initial_failure": {
+    "complete": false,
+    "receipt_directory": "ordinary-product",
+    "root_already_reclaimed_with_review": true,
+    "sealed_files_verified_unchanged": 13
+  },
+  "missing_target_delete_refusal": {
+    "exact_public_refusal_match": true,
+    "http_status": 400,
+    "owner_text": "Invalid data: Delete target not found: schema 'Round4ProteinById', key hash='protein-001' \u2014 refusing to silently no-op (must_exist)",
+    "request_id": "temperature-3d42f8812cef41d0a55e950bca13e6cb-completion-133"
+  },
+  "normal_exit_codes": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "normal_node_sessions": 8,
+  "omitted_null_controls": 8,
+  "ordinary_concurrent_rounds": 3,
+  "owned_creator_node_pids": [
+    46277,
+    46281,
+    46555,
+    46556,
+    46557,
+    46640,
+    46641,
+    46644,
+    46646
+  ],
+  "protein_query_items_including_missing_refusal_state_checks": 34,
+  "query_control_items": 20,
+  "raw_receipts_sha256": "fc5a6656e0db73b321938e91a8cacc2802e5e6aac5f52bc1ae5495ac81822029",
+  "receipt_directory": "docs/proofs/core-path-clarity-round5-20261019/ordinary-completion",
+  "refused_query_storage_costs": [
+    {
+      "label": "hash-read-as-of",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hash-read-depth-zero",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hash-read-depth-one",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hash-count-as-of",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hash-count-depth-zero",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hash-count-depth-one",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hashrange-read-as-of",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hashrange-read-depth-zero",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hashrange-read-depth-one",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hashrange-count-as-of",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hashrange-count-depth-zero",
+      "read_operations": 0,
+      "requested_keys": 0
+    },
+    {
+      "label": "hashrange-count-depth-one",
+      "read_operations": 0,
+      "requested_keys": 0
+    }
+  ],
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.q38vbian",
+  "scope": "Ordinary fresh synthetic API correctness evidence. Client concurrency permits complete old/new batches; no internal instruction-level interleave proof. No benchmark or maximum-throughput comparison.",
+  "source_commit": "f9a5dc7b188a3e493c6c4a21834b71d083344c19",
+  "strict_zero_file_read_calls": 29,
+  "successful_forced_count_controls": 4,
+  "unchanged_write_cohort_read_calls": 74
+}

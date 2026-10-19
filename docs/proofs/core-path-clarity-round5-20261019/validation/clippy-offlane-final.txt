@@ -1,0 +1,2 @@
+host_cargo_lock=held pid=43192 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s

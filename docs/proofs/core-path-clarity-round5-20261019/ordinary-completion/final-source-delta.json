@@ -1,0 +1,23 @@
+{
+  "added": [],
+  "changed": [
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/purge_job.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/batch_inner.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/erasure.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/hard_erasure.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/hard_erasure_process.rs",
+    "fold_db/crates/core/src/fold_db_core/purge/guarded_prepare.rs",
+    "fold_db/crates/core/src/fold_db_core/purge/guarded_steps.rs",
+    "fold_db/crates/core/src/fold_db_core/purge/mod.rs"
+  ],
+  "final_input_count": 1877,
+  "final_manifest_sha256": "6c7d95ca4a8a16326a380f4efac7a1398136a898f8c8249977592e2597ea3f1c",
+  "final_source_commit": "f9a5dc7b188a3e493c6c4a21834b71d083344c19",
+  "initial_input_count": 1877,
+  "initial_manifest_sha256": "685efc12bff54e33bd98e4da435a66c0a36b9fd83bf5675d0a690eebd9060a3d",
+  "initial_source_commit": "a619a7e34a58a6878afd4897545fb7cd00326061",
+  "removed": [],
+  "scope": "Exact product input bytes. Sealed first-attempt product failure remains separate.",
+  "unchanged_count": 1868
+}
