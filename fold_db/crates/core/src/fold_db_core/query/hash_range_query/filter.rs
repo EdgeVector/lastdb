@@ -124,15 +124,8 @@ impl HashRangeQueryProcessor {
         // it is given — so it must be handed API form or it misses on every field
         // and the whole filtered query comes back empty on a blinded home. Pass A
         // already returns API form, so the keys carry straight through.
-        self.query_exact_keys(
-            schema,
-            fields,
-            &kept_keys,
-            &pass_a.key_sources,
-            include_tombstones,
-            request_concurrency,
-        )
-        .await
+        self.query_exact_keys(schema, fields, &kept_keys, &pass_a.key_sources, &options)
+            .await
     }
 
     fn select_condition_keys(

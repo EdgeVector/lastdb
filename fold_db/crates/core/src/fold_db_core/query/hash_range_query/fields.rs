@@ -134,10 +134,9 @@ impl HashRangeQueryProcessor {
         fields: &[String],
         page_keys: &[KeyValue],
         key_sources: &HashMap<KeyValue, KeySource>,
-        include_tombstones: bool,
-        request_concurrency: Option<usize>,
+        options: &FieldQueryOptions<'_>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let selected = Self::exact_key_selected_fields(schema, fields);
+        let selected = Self::exact_key_selected_fields(schema, fields, options.order_by);
         let mut result: HashMap<String, HashMap<KeyValue, FieldValue>> = selected
             .iter()
             .map(|field| (field.clone(), HashMap::new()))
@@ -152,17 +151,21 @@ impl HashRangeQueryProcessor {
                 selected,
                 page_keys,
                 key_sources,
-                include_tombstones,
-                request_concurrency,
+                options.include_tombstones,
+                options.secondary_concurrency,
             )
             .await?;
-        self.fill_cokey_secondaries(schema, pending, include_tombstones, &mut result)
+        self.fill_cokey_secondaries(schema, pending, options.include_tombstones, &mut result)
             .await?;
         Ok(result)
     }
 
-    /// Fields pass B hydrates: the projection, plus the key field for identity.
-    fn exact_key_selected_fields(schema: &Schema, fields: &[String]) -> Vec<String> {
+    /// Pass B retains key and sort helpers without changing candidate discovery.
+    fn exact_key_selected_fields(
+        schema: &Schema,
+        fields: &[String],
+        order_by: Option<&QueryOrderBy>,
+    ) -> Vec<String> {
         let mut selected: Vec<String> = if fields.is_empty() {
             schema.runtime_field_names()
         } else {
@@ -184,6 +187,14 @@ impl HashRangeQueryProcessor {
                 && !selected.iter().any(|field| field == key_field)
             {
                 selected.push(key_field.clone());
+            }
+        }
+        // The host orders its formatted rows after the core returns its field
+        // maps. Keep this captured value internally, then let its formatter
+        // remove the helper from the public projection and metadata.
+        if let Some(order_by) = order_by {
+            if !selected.contains(&order_by.field) {
+                selected.push(order_by.field.clone());
             }
         }
         selected

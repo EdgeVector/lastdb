@@ -83,6 +83,8 @@ impl QueryExecutor {
     ///
     /// Local access control is consent-only. Fields are no longer filtered by
     /// trust tiers, capability quotas, or payment gates.
+    /// The internal field map can include key and ordering helpers. Response
+    /// formatters remove an unprojected ordering helper after the final sort.
     pub async fn query_with_access(
         &self,
         query: Query,
@@ -138,24 +140,19 @@ impl QueryExecutor {
         .await
     }
 
-    /// Count the **live** (non-tombstone) rows a list query over
-    /// `query.schema_name` / `query.fields` would return — the exact
-    /// `total_count` for the paginated [`HashRangeFilter::Page`] path.
-    ///
-    /// Counts from the molecule key index + `KeyMetadata.tombstoned` flag
-    /// (no atom body loads). See
+    /// Count live keys for the same supported keyed query and projection.
+    /// Uses molecule keys and tombstone flags; mapped HashRange layouts can
+    /// also require the declared hash-field values to distinguish their keys.
+    /// See
     /// [`HashRangeQueryProcessor::count_rows`](super::hash_range_query::HashRangeQueryProcessor::count_rows).
     ///
     /// Returns `Ok(None)` for a missing schema or field-dependent controls, so
     /// the caller uses the regular captured query and counts its selected keys.
     ///
-    /// A **key-restricted** `query.filter` scopes the count to the rows that
-    /// filter selects, so a keyed read's `total_count` describes its partition.
-    /// Any other filter shape is ignored and the whole live row set is counted:
-    /// `Page` / `PageAfter` bound how many rows come back rather than which
-    /// ones exist, so counting under one would report the page size as the
-    /// total. Conditions, value ordering, predicate limits and tombstone reads
-    /// decline this key-only route rather than report an unfiltered count.
+    /// The required key filter scopes `total_count` to the requested keys.
+    /// Unsupported layouts and filters receive the same refusal as reads.
+    /// Conditions, value ordering, predicate limits and tombstone reads decline
+    /// this route rather than report an unfiltered count.
     pub async fn count_query_rows(
         &self,
         query: &Query,

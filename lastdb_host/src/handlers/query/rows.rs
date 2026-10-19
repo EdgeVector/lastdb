@@ -87,13 +87,13 @@ pub(in crate::handlers) async fn execute_query_rows_with_unresolved<H: HostNode>
 /// matched row, which is what the value-filtered and two-pass shapes need.
 pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
     host: &H,
-    mut query: Query,
+    query: Query,
     window: Option<KeyWindow>,
     ctx: &AccessContext,
 ) -> Result<(Vec<Value>, RowDrops), HostError> {
     let sort_order = query.sort_order.clone();
     let order_by = query.order_by.clone();
-    let sort_helper = add_sort_helper(&mut query);
+    let sort_helper = unprojected_sort_field(&query);
 
     // Scope the tally to this request. Atom hydration happens inside
     // `query_with_access`, so the scope has to wrap that call and nothing
@@ -242,15 +242,13 @@ pub(in crate::handlers) fn format_rows(
     results
 }
 
-/// Preserve an unprojected sort value until the response's final ordering.
-fn add_sort_helper(query: &mut Query) -> Option<String> {
+/// The core retains this sort value without changing projection key discovery.
+fn unprojected_sort_field(query: &Query) -> Option<String> {
     let field = &query.order_by.as_ref()?.field;
     if query.fields.is_empty() || query.fields.contains(field) {
         return None;
     }
-    let field = field.clone();
-    query.fields.push(field.clone());
-    Some(field)
+    Some(field.clone())
 }
 
 pub(in crate::handlers) fn compare_json_values(

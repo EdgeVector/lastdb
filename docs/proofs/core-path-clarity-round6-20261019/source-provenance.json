@@ -13,11 +13,11 @@
     "--bin",
     "lastdbd"
   ],
-  "build_state": "Pending root Clippy/offlane approval; no build by this agent.",
+  "build_state": "Superseded unused build. No product calls, synthetic homes or node sessions. See superseded-release.json; the next final source needs a separate accepted build identity.",
   "committed_discovery_equal": true,
   "committed_git_blobs": {
     "method": "git cat-file --batch of explicit frozen paths",
-    "source_commit": "0046266b6761060f849b60d25a59c5758418e9e5",
+    "source_commit": "3cf7b857b945c598608dc41d12cf21fc1a709483",
     "source_files_checked": 1876,
     "source_mismatches": []
   },
@@ -105,8 +105,8 @@
         "sha256": "52aa7e1648f0dc743d49efefabb3ca5605e47455b4fac6a2e80e43ad910fcc0d"
       },
       "lastdb_host/src/handlers/query/rows.rs": {
-        "bytes": 10516,
-        "sha256": "5d52957beeda303600191c0024ea7575623b996bb5a3d0b5775514ba66fdfb62"
+        "bytes": 10424,
+        "sha256": "31ece00bacdc85f40209411a9c1b586138bf01b05a9c95a19210cb13c09d0d9b"
       }
     },
     "removed": [
@@ -184,13 +184,28 @@
     "source_input_count": 1877,
     "source_inventory_sha256": "8239a83fa1198e35d50ccc1d9a525f9f1bcda3abe2120c9f60f0805747e5a9d4"
   },
+  "release_identity": {
+    "binary_sha256": "31c4a8cb3b5d276b287662a6040cd701bcd521a2ea7cf4e955481bd0c1506880",
+    "path": "release-identity.json",
+    "sha256": "0e7d881a8a50596cfc2d63d7c2eeae0c8ba2cc748615e9c77b2474aadf266ee1"
+  },
   "snapshot_local_path": "docs/proofs/core-path-clarity-round6-20261019/source-inputs.json",
-  "snapshot_policy": "The full snapshot is local and ignored. Reconstruct source_files from the tracked Round5 reference, then remove listed paths and replace/add listed identities.",
-  "snapshot_sha256_before_build": "53b36dc56745ce4faddf51a4c90c411b57f50be38d5c746ec79be21bd390731e",
-  "source_commit": "0046266b6761060f849b60d25a59c5758418e9e5",
+  "snapshot_policy": "The full snapshot stays local and ignored. Reconstruct source_files from the tracked Round5 reference; remove listed paths and replace/add listed identities.",
+  "snapshot_sha256_before_build": "05dd982d9309f35367a7d923c8ff813250c2f09dbeb9f20031734e51b17ac462",
+  "source_commit": "3cf7b857b945c598608dc41d12cf21fc1a709483",
   "source_input_count": 1876,
-  "source_inventory_sha256": "abb08c0183383f6ef714efee22b407a68cd93dcfee20701be749240f549f9b13",
-  "source_tree": "3138167961ce91fce1bb536520df1ba3b5fb6e2f",
+  "source_inventory_sha256": "c8d251cde9764fcee754fe8da4705064c6b72823324034de0f52523713861442",
+  "source_tree": "a0f255c6ace285b948173aa6b4626a0973cddd5d",
+  "superseded_prebuild_capture": {
+    "role": "Superseded pre-build capture only. No accepted release or product operation used this capture. Only the final 3cf7b857 source supplies this round release.",
+    "source_commit": "0046266b6761060f849b60d25a59c5758418e9e5",
+    "source_inventory_sha256": "abb08c0183383f6ef714efee22b407a68cd93dcfee20701be749240f549f9b13",
+    "source_manifest_sha256": "53b36dc56745ce4faddf51a4c90c411b57f50be38d5c746ec79be21bd390731e"
+  },
+  "superseded_release": {
+    "path": "superseded-release.json",
+    "sha256": "e5a868fbf4d2609966edf6e59a9e55cc9dd2b14022a7f548f3c3864864dbc74d"
+  },
   "two_pass_capture_equal": true,
   "version": 1
 }
