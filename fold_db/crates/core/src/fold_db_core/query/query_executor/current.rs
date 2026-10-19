@@ -7,10 +7,11 @@ impl QueryExecutor {
         window: Option<KeyWindow>,
         access_context: Option<&AccessContext>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        crate::storage::disk_pack::logical_paths::field::query_scope(
-            query.as_of.is_none(),
-            self.query_current(query, window, access_context),
-        )
+        crate::storage::disk_pack::logical_paths::field::query_scope(self.query_current(
+            query,
+            window,
+            access_context,
+        ))
         .await
     }
 

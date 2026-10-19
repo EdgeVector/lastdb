@@ -43,15 +43,11 @@ pub(super) fn admit(
     let path = binding
         .path(scope, molecule, key, &selected.entry.atom_uuid)
         .core();
-    let expected =
-        atom_key_codec::storage_key(encoding, partition.as_ref(), &selected.entry.atom_uuid);
-    let expected = crate::schema::types::field::build_storage_key(scope, &expected);
     let view = runtime.view.read().expect("tip admission captured view");
     if view.revision != context.revision {
         return Ok(());
     }
     let mut core = runtime.core.lock().expect("tip admission core model");
-    let previous = core.source_coordinates(&path);
     let Ok(preserved) = core.admit_tip(
         &path,
         CoreWarmTip {
@@ -62,8 +58,11 @@ pub(super) fn admit(
         return Ok(());
     };
     let body = if preserved {
-        body_sources(previous, &selected.entry.atom_uuid)?
+        body_sources(core.source_coordinates(&path), &selected.entry.atom_uuid)?
     } else {
+        let expected =
+            atom_key_codec::storage_key(encoding, partition.as_ref(), &selected.entry.atom_uuid);
+        let expected = crate::schema::types::field::build_storage_key(scope, &expected);
         super::super::kv::coordinates("main", expected.as_bytes()).to_vec()
     };
     // An existing full value keeps its actual copy, including protein siblings.

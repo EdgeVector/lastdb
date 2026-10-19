@@ -176,6 +176,13 @@ fn collect_molecule_gate(out: &mut Vec<GaugeContractEntry>, m: &MoleculeGateHeal
 fn collect_resident(out: &mut Vec<GaugeContractEntry>, r: &ResidentHealth) {
     push_gauge(
         out,
+        "resident.resident_tip_only_keys",
+        &r.resident_tip_only_keys,
+    );
+    push_gauge(out, "resident.warm_lookup_hits", &r.warm_lookup_hits);
+    push_gauge(out, "resident.warm_lookup_misses", &r.warm_lookup_misses);
+    push_gauge(
+        out,
         "resident.deferred_persist_completed",
         &r.deferred_persist_completed,
     );

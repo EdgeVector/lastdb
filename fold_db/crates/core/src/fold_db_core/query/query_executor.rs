@@ -161,14 +161,9 @@ impl QueryExecutor {
         query: &Query,
         access_context: &AccessContext,
     ) -> Result<Option<usize>, SchemaError> {
-        let scope =
-            crate::storage::disk_pack::PackReadScope::for_store(&self.db_ops.namespaced_store())
-                .await?;
+        let scope = self.db_ops.read_scope().await?;
         let future = Box::pin(self.count_query_rows_scoped(query, access_context));
-        match scope {
-            Some(scope) => scope.run_result(future).await,
-            None => future.await,
-        }
+        scope.run_result(future).await
     }
 
     async fn count_query_rows_scoped(
@@ -208,18 +203,9 @@ impl QueryExecutor {
                         schema.name
                     )));
                 }
-                crate::schema::require_native_logical_layout(
-                    self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-                    &schema.schema_type,
-                )?;
-                crate::schema::require_native_logical_filter(
-                    self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-                    query.filter.as_ref(),
-                )?;
-                crate::schema::require_native_current_read(
-                    self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-                    query.as_of.is_some(),
-                )?;
+                crate::schema::require_logical_layout(&schema.schema_type)?;
+                crate::schema::require_logical_filter(query.filter.as_ref())?;
+                crate::schema::require_current_read(query.as_of.is_some())?;
                 self.db_ops
                     .molecule_keys()
                     .load_schema(&schema)
@@ -294,13 +280,8 @@ impl QueryExecutor {
         window: Option<KeyWindow>,
         access_context: Option<&AccessContext>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let scope =
-            crate::storage::disk_pack::PackReadScope::for_store(&self.db_ops.namespaced_store())
-                .await?;
+        let scope = self.db_ops.read_scope().await?;
         let future = Box::pin(self.query_internal_scoped(query, window, access_context));
-        match scope {
-            Some(scope) => scope.run_result(future).await,
-            None => future.await,
-        }
+        scope.run_result(future).await
     }
 }

@@ -90,18 +90,14 @@ pub(super) async fn execute_query_batch_route(
         };
         async move { (index, execute_query_route(&item, ctx, host).await) }
     });
-    let store = host.fold_db().db_ops().namespaced_store();
-    let scope = match fold_db::storage::disk_pack::PackReadScope::for_store(&store).await {
+    let scope = match host.fold_db().db_ops().read_scope().await {
         Ok(scope) => scope,
         Err(error) => return error_response(503, &error.to_string(), ctx),
     };
     let future = futures::stream::iter(items)
         .buffer_unordered(QUERY_BATCH_CONCURRENCY)
         .collect();
-    let finished: Vec<(usize, UdsResponse)> = match scope {
-        Some(scope) => scope.run_shared(future).await,
-        None => future.await,
-    };
+    let finished: Vec<(usize, UdsResponse)> = scope.run_shared(future).await;
 
     let results = query_batch_results(finished);
     render(

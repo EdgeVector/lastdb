@@ -202,7 +202,7 @@ pub(crate) async fn execute_catalog_schema_sync(
     route: &str,
     declare: DirectDeclareProposal,
 ) -> UdsResponse {
-    if let Some(response) = super::native_layout::sync_admission_error(ctx, host, &declare) {
+    if let Some(response) = super::logical_admission::sync_admission_error(ctx, &declare) {
         return response;
     }
 
@@ -372,7 +372,7 @@ pub(crate) async fn execute_catalog_schema_check(
     host: &Host,
     declare: DirectDeclareProposal,
 ) -> UdsResponse {
-    if let Some(response) = native_layout_error(ctx, host, &declare.catalog_schema) {
+    if let Some(response) = logical_layout_error(ctx, &declare.catalog_schema) {
         return response;
     }
     let plan = match plan_catalog_schema_for_direct_declare(host, &declare).await {

@@ -29,20 +29,17 @@ pub mod protein;
 /// One molecule per keyed record (envelope compact / dual-read / dual-write).
 pub mod record_molecule;
 pub use protein::{Protein, ProteinFoldJob, ProteinMember, PROTEIN_SCHEMA_MARKER};
-/// Resident graph — T0 primary working set (resolve / rehydrate / apply).
-/// Product law: memory → disk → cloud; full ladder fidelity
-/// (`concepts-lastdb-rehydrate`).
+/// Core logical memory, record retention, and background persist work.
 pub mod resident;
 pub use resident::{
-    PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneOccupancy,
-    PersistLanePressure, PersistLaneSet, PersistReservation, PersistSlotRevision, ResidentKind,
-    ResidentMetrics,
+    PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneMetrics,
+    PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistReservation,
 };
-/// Pure continuous-backup drain planner (no network; always compiled for tests).
+/// Pure continuous-backup drain planner (no network).
 pub mod backup_drain_plan;
 /// Age-based durability health, evaluated with no sync engine running.
 pub mod backup_durability;
-/// Sealed-chunk backup progress math (no network; always compiled for tests).
+/// Sealed-chunk backup progress math (no network).
 pub mod backup_progress;
 pub mod benchmark_database;
 pub mod canonical;

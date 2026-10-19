@@ -49,7 +49,7 @@ impl FieldVariant {
         as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
-        self.require_native_read(db_ops, filter.as_ref(), as_of.is_some())?;
+        self.require_supported_read(filter.as_ref(), as_of.is_some())?;
         captured_field_read(
             db_ops,
             self.resolve_value_windowed_captured(db_ops, filter, window, include_tombstones)

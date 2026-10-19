@@ -19,7 +19,7 @@ impl MutationManager {
         let mut schema = snapshot
             .schema
             .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
-        crate::schema::require_native_logical_layout(true, &schema.schema_type)?;
+        crate::schema::require_logical_layout(&schema.schema_type)?;
         apply_storage_prefix_to_schema(&mut schema, storage_prefix);
         schema.ensure_record_molecule_runtime_field();
         crate::record_molecule::fold_mutations_to_record_envelope(

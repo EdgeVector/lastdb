@@ -283,7 +283,7 @@ pub(super) async fn execute_seed_system_schema_route(
         );
     }
 
-    if let Some(response) = native_layout_error(ctx, host, &request.schema) {
+    if let Some(response) = logical_layout_error(ctx, &request.schema) {
         return response;
     }
     let schema_name = request.schema.name.clone();

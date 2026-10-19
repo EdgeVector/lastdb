@@ -10,16 +10,9 @@ mod receivers;
 pub(crate) async fn preload_receiver_controls(
     ops: &crate::db_operations::DbOperations,
 ) -> crate::storage::error::StorageResult<()> {
-    use crate::storage::disk_pack::PackReadScope;
     use futures::FutureExt;
 
-    let store = ops.namespaced_store();
-    if store.disk_pack_runtime().is_none() {
-        return Ok(());
-    }
-    let Some(scope) = PackReadScope::for_store(&store).await? else {
-        return Ok(());
-    };
+    let scope = ops.read_scope().await?;
     scope
         .run_result(
             async {

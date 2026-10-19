@@ -2,7 +2,7 @@
 
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
-use crate::resident::ResidentMetrics;
+use crate::resident::PersistLaneMetrics;
 use laststore::disk_pack::home::{
     DiskHome, HomeBuilder, HomeDescriptor, HomeJournal, HomeMutation,
 };
@@ -49,7 +49,7 @@ pub struct PackRuntime {
     flush_notify: tokio::sync::Notify,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
-    resident_metrics: Arc<ResidentMetrics>,
+    persist_metrics: Arc<PersistLaneMetrics>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     schema_keys: schema_keys::SchemaKeys,
     published: AtomicU64,
@@ -177,7 +177,7 @@ impl PackNamespacedStore {
         let read_lease = journal.read_lease();
         let current = journal.current().clone();
         let frontier = current.frontier;
-        let metrics = Arc::new(ResidentMetrics::new());
+        let metrics = Arc::new(PersistLaneMetrics::new());
         Ok(Self {
             runtime: Arc::new(PackRuntime {
                 home,
@@ -193,7 +193,7 @@ impl PackNamespacedStore {
                 flush_notify: tokio::sync::Notify::new(),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
-                resident_metrics: metrics,
+                persist_metrics: metrics,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 schema_keys: schema_keys::SchemaKeys::new(),
                 published: AtomicU64::new(frontier),
@@ -209,8 +209,8 @@ impl PackNamespacedStore {
 
 impl PackRuntime {
     /// Share one process counter owner with DbOperations and its background work.
-    pub(crate) fn resident_metrics(&self) -> Arc<ResidentMetrics> {
-        Arc::clone(&self.resident_metrics)
+    pub(crate) fn persist_metrics(&self) -> Arc<PersistLaneMetrics> {
+        Arc::clone(&self.persist_metrics)
     }
 }
 

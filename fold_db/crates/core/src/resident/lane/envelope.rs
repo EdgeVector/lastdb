@@ -4,19 +4,6 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 
-/// Slot identity and exact resident/durable revisions carried on an envelope.
-///
-/// The lane waits for `durable_revision`, writes the complete envelope, and
-/// then advances the slot to `resident_revision`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PersistSlotRevision {
-    pub molecule_uuid: String,
-    pub disk_hash: String,
-    pub disk_range: String,
-    pub resident_revision: u64,
-    pub durable_revision: u64,
-}
-
 /// Lane identity: one FIFO per schema instance.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PersistLaneKey {
@@ -33,16 +20,15 @@ impl PersistLaneKey {
     }
 }
 
-/// Immutable persist envelope — one acknowledged mutation batch.
+/// Background work with reserved queue capacity and completion waiters.
 ///
-/// `payload` is the mutation batch (atoms, tips, key-set changes, schema
-/// metadata, mutation/delete events, search-index events, idempotency
-/// result). Optional `completion` and `after_release` run only after the
+/// The current logical engine uses these lanes for purge work. Its accepted
+/// value changes belong to the core model and the native disk queue.
+/// Optional `completion` and `after_release` run only after the
 /// lane drops this envelope's byte charge. A send from inside `write_batch`
 /// wakes the next reserve while the charge is still held.
 pub struct PersistEnvelope<T> {
     pub commit_id: u64,
-    pub slot_revisions: Vec<PersistSlotRevision>,
     pub bytes: u64,
     pub enqueued_at: Instant,
     pub completion: Option<tokio::sync::oneshot::Sender<()>>,
@@ -96,7 +82,6 @@ impl<T> PersistEnvelope<T> {
     pub fn new(payload: T, bytes: u64) -> Self {
         Self {
             commit_id: 0,
-            slot_revisions: Vec::new(),
             bytes,
             enqueued_at: Instant::now(),
             completion: None,
@@ -118,7 +103,7 @@ pub(super) fn notify_released<T>(envelopes: Vec<PersistEnvelope<T>>) {
     }
 }
 
-/// Why [`PersistLaneSet::enqueue`] refused an envelope.
+/// Why [`PersistLaneSet::reserve`] refused queue capacity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PersistLaneFull {
     Entries,

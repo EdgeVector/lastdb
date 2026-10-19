@@ -27,11 +27,8 @@ impl HashRangeQueryProcessor {
         let Some(mol_uuid) = field.common().molecule_uuid().cloned() else {
             return Ok(());
         };
-        let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
-            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-            schema,
-            fname,
-        )?;
+        let binding =
+            crate::storage::disk_pack::logical_paths::field::FieldScope::new(schema, fname)?;
         let context = SecondaryFieldContext {
             field,
             name: fname,

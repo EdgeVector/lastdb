@@ -34,7 +34,7 @@ impl HashRangeQueryProcessor {
         fields: &[String],
         filter: Option<&HashRangeFilter>,
     ) -> Result<usize, SchemaError> {
-        self.require_supported_query(schema, filter, false)?;
+        Self::require_supported_query(schema, filter, false)?;
         self.current_query_scope(self.count_rows_captured(schema, fields, filter).boxed())
             .await
     }
@@ -196,11 +196,8 @@ impl HashRangeQueryProcessor {
             .cloned()
             .collect();
 
-        let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
-            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-            schema,
-            field_name,
-        )?;
+        let binding =
+            crate::storage::disk_pack::logical_paths::field::FieldScope::new(schema, field_name)?;
         let vals = binding
             .run(async {
                 let mut vals = HashMap::new();

@@ -20,18 +20,9 @@ impl QueryExecutor {
                 schema.name
             )));
         }
-        crate::schema::require_native_logical_layout(
-            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-            &schema.schema_type,
-        )?;
-        crate::schema::require_native_logical_filter(
-            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-            query.filter.as_ref(),
-        )?;
-        crate::schema::require_native_current_read(
-            self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-            query.as_of.is_some(),
-        )?;
+        crate::schema::require_logical_layout(&schema.schema_type)?;
+        crate::schema::require_logical_filter(query.filter.as_ref())?;
+        crate::schema::require_current_read(query.as_of.is_some())?;
 
         self.db_ops
             .molecule_keys()

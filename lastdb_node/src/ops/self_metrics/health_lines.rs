@@ -177,29 +177,11 @@ pub(super) fn file_blob_status_line(f: &FileBlobHealth) -> Option<String> {
     ))
 }
 
-/// Native values have dedicated core counters. These counters describe only
-/// queued background purge work, not a second logical value store.
+/// Queued background purge work is separate from the logical warm set.
 pub(super) fn resident_status_line(r: &ResidentHealth) -> String {
-    let deferred = match (
-        r.deferred_persist_completed.value,
-        r.deferred_persist_us.value,
-    ) {
-        (Availability::Measured(completed), Availability::Measured(total_us)) => format!(
-            "completion samples={completed} total_us={total_us} avg_us={} ({})",
-            total_us.checked_div(completed).unwrap_or(0),
-            r.deferred_persist_completed.window.qualifier(),
-        ),
-        _ => "completion samples unavailable".to_string(),
-    };
     format!(
-        "Background purge work: enqueued/flushed/failed={}/{}/{} \
-         lanes depth/age_ms/fail={}/{}/{} {deferred}",
-        r.persist_enqueued,
-        r.persist_flushed,
-        r.deferred_persist_failed,
-        r.persist_lane_depth,
-        r.persist_lane_oldest_age_ms,
-        r.persist_lane_failures,
+        "Background purge work: lanes depth/age_ms/fail={}/{}/{}",
+        r.persist_lane_depth, r.persist_lane_oldest_age_ms, r.persist_lane_failures,
     )
 }
 

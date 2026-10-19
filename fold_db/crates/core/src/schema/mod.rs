@@ -27,8 +27,8 @@ pub mod field_hash_coherence;
 pub mod field_mapper;
 
 pub mod interpreter;
+mod logical_rules;
 pub mod manifest_retention;
-mod native_layout;
 pub mod persistence;
 pub mod schema_types;
 pub mod types;
@@ -43,13 +43,11 @@ pub use field_hash_coherence::{
 };
 pub use field_mapper::FieldMapperService;
 pub use interpreter::SchemaInterpreter;
+pub use logical_rules::{require_current_read, require_logical_filter, require_logical_layout};
 pub use manifest_retention::{
     min_manifest_ttl_seconds, ManifestRetention, ManifestRetentionOutcome, ManifestRetentionPlan,
     ManifestRetentionStatus, RetentionPolicyInReach, RetentionReach, RetentionSharing,
     MAX_MANIFEST_TTL_SECONDS, MIN_MANIFEST_TTL_ENV, MIN_MANIFEST_TTL_SECONDS,
-};
-pub use native_layout::{
-    require_native_current_read, require_native_logical_filter, require_native_logical_layout,
 };
 pub use schema_types::{
     RetentionSource, SchemaListEntry, SchemaNameClaim, SchemaRetentionPolicy, SchemaState,

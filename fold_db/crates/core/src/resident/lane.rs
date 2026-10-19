@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use tokio::sync::Notify;
 
-use super::metrics::ResidentMetrics;
+use super::metrics::PersistLaneMetrics;
 
 mod counters;
 mod envelope;
@@ -70,9 +70,9 @@ impl PersistLaneAgeTracker {
         &self,
         key: &PersistLaneKey,
         oldest: Option<Instant>,
-        graph_metrics: Option<&ResidentMetrics>,
+        shared_metrics: Option<&PersistLaneMetrics>,
     ) {
-        let Some(graph_metrics) = graph_metrics else {
+        let Some(shared_metrics) = shared_metrics else {
             return;
         };
         let mut oldest_by_lane = self
@@ -90,7 +90,7 @@ impl PersistLaneAgeTracker {
         let oldest = oldest_by_lane.values().copied().min();
         // Publish while the tracker lock is held. This keeps a slower, older
         // transition from overwriting a newer aggregate value.
-        graph_metrics.set_persist_lane_oldest_enqueued_at(oldest);
+        shared_metrics.set_oldest_enqueued_at(oldest);
     }
 }
 
@@ -101,7 +101,7 @@ impl PersistLaneAgeTracker {
 pub struct PersistReservation<T: Send + 'static> {
     lane: Arc<LaneRuntime<T>>,
     metrics: Arc<PersistLaneCounters>,
-    graph_metrics: Option<Arc<ResidentMetrics>>,
+    shared_metrics: Option<Arc<PersistLaneMetrics>>,
     age_tracker: Arc<PersistLaneAgeTracker>,
     bytes: u64,
     armed: bool,
@@ -126,7 +126,7 @@ pub struct PersistLaneSet<T: Send + 'static> {
     group_commit_max: usize,
     writer: Arc<dyn PersistLaneWriter<T>>,
     metrics: Arc<PersistLaneCounters>,
-    graph_metrics: Option<Arc<ResidentMetrics>>,
+    shared_metrics: Option<Arc<PersistLaneMetrics>>,
     age_tracker: Arc<PersistLaneAgeTracker>,
     stopped: AtomicBool,
     /// Base cooldown of the quarantine breaker (see [`breaker_cooldown`]).
@@ -138,7 +138,7 @@ impl<T: Send + 'static> PersistLaneSet<T> {
         max_entries: usize,
         max_bytes: u64,
         writer: Arc<dyn PersistLaneWriter<T>>,
-        graph_metrics: Option<Arc<ResidentMetrics>>,
+        shared_metrics: Option<Arc<PersistLaneMetrics>>,
     ) -> Self {
         Self {
             admission: RwLock::new(()),
@@ -148,7 +148,7 @@ impl<T: Send + 'static> PersistLaneSet<T> {
             group_commit_max: 16,
             writer,
             metrics: Arc::new(PersistLaneCounters::default()),
-            graph_metrics,
+            shared_metrics,
             age_tracker: Arc::new(PersistLaneAgeTracker::default()),
             stopped: AtomicBool::new(false),
             breaker_cooldown: breaker_cooldown_from_env(),
@@ -173,7 +173,7 @@ impl<T: Send + 'static> PersistLaneSet<T> {
             group_commit_max: 1,
             writer: Arc::new(Noop),
             metrics: Arc::new(PersistLaneCounters::default()),
-            graph_metrics: None,
+            shared_metrics: None,
             age_tracker: Arc::new(PersistLaneAgeTracker::default()),
             stopped: AtomicBool::new(true),
             breaker_cooldown: BREAKER_COOLDOWN_DEFAULT,
@@ -223,61 +223,11 @@ impl<T: Send + 'static> PersistLaneSet<T> {
         Ok(PersistReservation {
             lane,
             metrics: Arc::clone(&self.metrics),
-            graph_metrics: self.graph_metrics.clone(),
+            shared_metrics: self.shared_metrics.clone(),
             age_tracker: Arc::clone(&self.age_tracker),
             bytes,
             armed: true,
         })
-    }
-
-    /// Reserve a commit id and enqueue `envelope` on `key`'s FIFO.
-    ///
-    /// Returns the assigned `commit_id`. A refusal returns the envelope. A
-    /// caller must not bypass an unhealthy lane because later same-schema work
-    /// cannot pass its retained head.
-    pub fn enqueue(
-        &self,
-        key: PersistLaneKey,
-        mut envelope: PersistEnvelope<T>,
-    ) -> Result<u64, (PersistLaneFull, PersistEnvelope<T>)> {
-        let admission = self.admission.read().expect("persist lane admission");
-        if self.stopped.load(Ordering::Acquire) {
-            return Err((PersistLaneFull::Entries, envelope));
-        }
-        let lane = self.lane_for(key);
-        let commit_id = {
-            let mut fifo = lane.fifo.lock().expect("persist lane fifo");
-            if fifo.unhealthy {
-                self.metrics.record_refuse_unhealthy();
-                return Err((PersistLaneFull::Unhealthy, envelope));
-            }
-            if self.entries_full(&fifo) {
-                self.metrics.record_refuse_entries();
-                return Err((PersistLaneFull::Entries, envelope));
-            }
-            if self.bytes_full(&fifo, envelope.bytes) {
-                self.metrics.record_refuse_bytes();
-                return Err((PersistLaneFull::Bytes, envelope));
-            }
-            let commit_id = fifo.next_commit_id;
-            fifo.next_commit_id = fifo.next_commit_id.saturating_add(1);
-            envelope.commit_id = commit_id;
-            fifo.bytes = fifo.bytes.saturating_add(envelope.bytes);
-            fifo.queue.push_back(envelope);
-            self.metrics.depth.fetch_add(1, Ordering::Relaxed);
-            if let Some(gm) = &self.graph_metrics {
-                gm.record_persist_lane_enqueue();
-            }
-            self.age_tracker.publish(
-                &lane.key,
-                fifo_oldest_enqueued_at(&fifo),
-                self.graph_metrics.as_deref(),
-            );
-            commit_id
-        };
-        drop(admission);
-        lane.notify.notify_one();
-        Ok(commit_id)
     }
 
     /// Signal workers to drain and exit. Idempotent.
@@ -391,7 +341,7 @@ impl<T: Send + 'static> PersistLaneSet<T> {
         let worker_lane = Arc::clone(&runtime);
         let writer = Arc::clone(&self.writer);
         let metrics = Arc::clone(&self.metrics);
-        let graph_metrics = self.graph_metrics.clone();
+        let shared_metrics = self.shared_metrics.clone();
         let age_tracker = Arc::clone(&self.age_tracker);
         let group_commit_max = self.group_commit_max;
         let breaker_cooldown = self.breaker_cooldown;
@@ -401,7 +351,7 @@ impl<T: Send + 'static> PersistLaneSet<T> {
                 worker_lane,
                 writer,
                 metrics,
-                graph_metrics,
+                shared_metrics,
                 age_tracker,
                 group_commit_max,
                 breaker_cooldown,
@@ -436,13 +386,13 @@ impl<T: Send + 'static> PersistReservation<T> {
             fifo.bytes = fifo.bytes.saturating_add(envelope.bytes);
             fifo.queue.push_back(envelope);
             self.metrics.depth.fetch_add(1, Ordering::Relaxed);
-            if let Some(gm) = &self.graph_metrics {
-                gm.record_persist_lane_enqueue();
+            if let Some(shared) = &self.shared_metrics {
+                shared.record_enqueue();
             }
             self.age_tracker.publish(
                 &self.lane.key,
                 fifo_oldest_enqueued_at(&fifo),
-                self.graph_metrics.as_deref(),
+                self.shared_metrics.as_deref(),
             );
             commit_id
         };
@@ -479,7 +429,7 @@ impl<T: Send + 'static> Drop for PersistLaneSet<T> {
                 handle.abort();
             }
             self.age_tracker
-                .publish(&lane.key, None, self.graph_metrics.as_deref());
+                .publish(&lane.key, None, self.shared_metrics.as_deref());
         }
     }
 }

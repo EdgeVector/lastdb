@@ -72,7 +72,7 @@ impl MutationManager {
                     });
                 } else {
                     tracing::warn!(error = %error, "terminal persist-lane purge target absent");
-                    self.db_ops.resident_metrics().record_persist_lane_failure();
+                    self.db_ops.persist_metrics().record_failure();
                 }
                 Ok(())
             }

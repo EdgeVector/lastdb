@@ -33,6 +33,27 @@ struct CoreNamespaces {
     keep_small_kv: Arc<dyn KvStore>,
 }
 
+/// The namespace handles required to construct the atom store.
+struct AtomNamespaces {
+    main: Arc<TypedKvStore<dyn KvStore>>,
+    schema_index: Arc<TypedKvStore<dyn KvStore>>,
+    keep_small: Arc<TypedKvStore<dyn KvStore>>,
+}
+
+impl AtomNamespaces {
+    fn new(
+        main: Arc<dyn KvStore>,
+        schema_index: Arc<dyn KvStore>,
+        keep_small: Arc<dyn KvStore>,
+    ) -> Self {
+        Self {
+            main: Arc::new(TypedKvStore::new(main)),
+            schema_index: Arc::new(TypedKvStore::new(schema_index)),
+            keep_small: Arc::new(TypedKvStore::new(keep_small)),
+        }
+    }
+}
+
 impl CoreNamespaces {
     async fn open(store: &Arc<dyn NamespacedStore>) -> Result<Self, crate::storage::StorageError> {
         let main_kv = store.open_namespace("main").await?;
@@ -143,12 +164,13 @@ impl DbOperations {
         molecule_wrap_key: Option<[u8; 32]>,
         admit_meter_trust: bool,
     ) -> Result<Self, crate::storage::StorageError> {
-        if store.disk_pack_runtime().is_none() {
-            return Err(crate::storage::StorageError::ConfigurationError(
+        let runtime = store.disk_pack_runtime().ok_or_else(|| {
+            crate::storage::StorageError::ConfigurationError(
                 "LastDB logical operations require native packed storage; old engines are unsupported"
                     .into(),
-            ));
-        }
+            )
+        })?;
+        let persist_metrics = runtime.persist_metrics();
         let CoreNamespaces {
             main_kv,
             metadata_kv,
@@ -168,7 +190,6 @@ impl DbOperations {
         } = CoreNamespaces::open(&store).await?;
 
         // Wrap KvStores in TypedKvStore adapters
-        let main_store = Arc::new(TypedKvStore::new(main_kv));
         let metadata_typed = Arc::new(TypedKvStore::new(metadata_kv));
         let schema_states_store = Arc::new(TypedKvStore::new(schema_states_kv));
         let schemas_store = Arc::new(TypedKvStore::new(schemas_kv));
@@ -177,7 +198,6 @@ impl DbOperations {
         let public_keys_typed = Arc::new(TypedKvStore::new(public_keys_kv));
         let idempotency_typed = Arc::new(TypedKvStore::new(idempotency_kv));
         let superseded_by_store = Arc::new(TypedKvStore::new(superseded_by_kv));
-        let schema_index_store = Arc::new(TypedKvStore::new(schema_index_kv));
 
         // Domain stores
         let schema_store = {
@@ -198,11 +218,9 @@ impl DbOperations {
             molecule_wrap_key,
             store.disk_pack_runtime(),
         );
-        let (atom_store, resident_metrics) = Self::open_atom_store(
+        let atom_store = Self::open_atom_store(
             &store,
-            main_store,
-            schema_index_store,
-            keep_small_kv,
+            AtomNamespaces::new(main_kv, schema_index_kv, keep_small_kv),
             atom_content_key,
             hash_key_codec,
             &molecule_keys,
@@ -227,7 +245,7 @@ impl DbOperations {
             attribution_ledger,
             change_feed,
             lineage_index,
-            resident_metrics,
+            persist_metrics,
             unresolved_atom_skips: Arc::new(AtomicU64::new(0)),
             unresolved_atom_identities: Arc::new(Mutex::new(HashSet::new())),
             unresolved_identities_capped: Arc::new(AtomicBool::new(false)),
@@ -237,40 +255,28 @@ impl DbOperations {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn open_atom_store(
         store: &Arc<dyn NamespacedStore>,
-        main_store: Arc<TypedKvStore<dyn KvStore>>,
-        schema_index_store: Arc<TypedKvStore<dyn KvStore>>,
-        keep_small_kv: Arc<dyn KvStore>,
+        namespaces: AtomNamespaces,
         atom_content_key: Option<[u8; 32]>,
         hash_key_codec: crate::atom::MoleculeKeyCodec,
         molecule_keys: &MoleculeKeyStore,
         db_catalog: &DbCatalogStore,
         admit_meter_trust: bool,
-    ) -> Result<(AtomStore, Arc<crate::resident::ResidentMetrics>), crate::storage::StorageError>
-    {
+    ) -> Result<AtomStore, crate::storage::StorageError> {
         // Resolve the atom body key encoding against the home, not just the
         // environment, and refuse to serve a flat view of a migrated home.
         // Every construction path funnels through here, so this is the one
         // place a boot can pick the wrong addressing.
-        let resident_metrics = store
-            .disk_pack_runtime()
-            .ok_or_else(|| {
-                crate::storage::StorageError::ConfigurationError(
-                    "logical atom construction requires native packed storage".into(),
-                )
-            })?
-            .resident_metrics();
         let atom_store = AtomStore::new_with_content_and_hash_key_codec(
-            main_store,
-            schema_index_store,
+            namespaces.main,
+            namespaces.schema_index,
             atom_content_key,
             hash_key_codec,
         )
         .with_namespaced_store(Arc::clone(store))
         .with_molecule_keys(molecule_keys.clone())
-        .with_keep_small_persist(Arc::new(TypedKvStore::new(keep_small_kv)))
+        .with_keep_small_persist(namespaces.keep_small)
         .resolve_boot_encoding()
         .await?;
         Self::initialize_fresh_native_refs(store, &atom_store).await?;
@@ -304,7 +310,7 @@ impl DbOperations {
                 );
             }
         }
-        Ok((atom_store, resident_metrics))
+        Ok(atom_store)
     }
 
     async fn initialize_fresh_native_refs(
