@@ -108,10 +108,9 @@ type SecondaryPending = (
     Option<crate::atom::AtomPartition>,
 );
 
-/// A resolved page. Every `KeyValue` in here is **API-form**: the rename in
-/// [`HashRangeQueryProcessor::rename_page_to_api_keys`] happens once, on the
-/// primary, before anything else sees the page — so callers, secondaries and
-/// the emitted response all agree on one key space.
+/// A resolved page. Keyed reads preserve API coordinates. Physical page/sample
+/// walks recover hashes at `rename_page_to_api_keys` when their values verify
+/// the mapping; any unrecovered physical hashes retain an opaque wire label.
 struct CokeyRows {
     fields: HashMap<String, HashMap<KeyValue, FieldValue>>,
     page_keys: Vec<KeyValue>,

@@ -1,0 +1,16 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4/program-candidate-lastdbd",
+  "binary_sha256": "563aa1ba49440f76e43e7c478b439bbd8e07b0b6cdf868888e908f7b8b482a1b",
+  "concrete_input_sha256": "3704314b9034dc44d8bd88e88297bbbcd58718f69386360933957de53bc19523",
+  "creator_pid": 99405,
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4/b/h",
+  "log_offset": 10421,
+  "no_new_logical_writes": true,
+  "node_directory": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4/b",
+  "receipt_offset": 38250,
+  "release_identity_sha256": "7913b7ef1236e31a4b3705b6993b26edd46d1b0f8aa12552cdf4f54873cd00da",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4",
+  "run_id": "85720afa43ff471881bd3be9372e4aec",
+  "same_baseline_home_without_copy": true,
+  "source_commit": "3de98eff48d662cd8a8c631b953400aa35c03d99"
+}

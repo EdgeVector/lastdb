@@ -32,19 +32,10 @@ impl MutationManager {
         let (must_exist_deletes, deletes): (Vec<_>, Vec<_>) = deletes
             .into_iter()
             .partition(|mutation| mutation.must_exist == Some(true));
-        let (force_hard_durable, deletes_wait_for_durable) =
-            self.erasure_durability(&purges, &must_exist_deletes, &deletes, origin);
-        let all_hard_erasures_durable = deletes.is_empty() || deletes_wait_for_durable;
         // Mixed batch: any Purge/Delete riding with create/update becomes a
-        // later envelope on the same schema lane. A request-origin Purge or
-        // must-exist Delete waits for that envelope so its loud missing-target
-        // error reaches the requester. Replay uses Skip.
-        // A pure Skip Delete on a live request also peels: stamp the resident
-        // tombstone overlay, ack, and let the lane hard-erase. Measured on
-        // the primary 2026-08-20: kanban deleteRecord is a pure Delete batch
-        // and paid `purge_plan` on the HTTP 200 (110 calls, 0 records purged,
-        // avg 1.8s, max 70s). Replay still erases inline so a captured intent
-        // is fully applied before the download cursor advances.
+        // later envelope on the same schema lane. All erasures wait for disk
+        // completion before success. Purge and must-exist Delete preserve
+        // loud missing-target errors for requests; replay uses Skip.
         let mixed = !mutations.is_empty()
             && (!purges.is_empty() || !deletes.is_empty() || !must_exist_deletes.is_empty());
         if mixed {
@@ -58,7 +49,6 @@ impl MutationManager {
                     },
                     storage_prefix,
                     origin,
-                    force_hard_durable,
                     author_clock_barrier,
                 )
                 .await;
@@ -72,7 +62,6 @@ impl MutationManager {
                 },
                 storage_prefix,
                 origin,
-                deletes_wait_for_durable,
                 author_clock_barrier.clone(),
             )
             .await?;
@@ -80,40 +69,11 @@ impl MutationManager {
         self.commit_remaining_after_erasures(
             mutations,
             hard_ids,
-            all_hard_erasures_durable,
             storage_prefix,
             origin,
             author_clock_barrier,
         )
         .await
-    }
-
-    fn erasure_durability(
-        &self,
-        purges: &[Mutation],
-        must_exist_deletes: &[Mutation],
-        deletes: &[Mutation],
-        origin: WriteOrigin,
-    ) -> (bool, bool) {
-        // Native queries read disk and accepted batches, not resident tombstones.
-        // Wait for the native lane's complete stored deletion before its reply.
-        let native = self.native_erasure_requires_durable();
-        let forced = native
-            || purges
-                .iter()
-                .chain(must_exist_deletes)
-                .chain(deletes)
-                .any(|mutation| mutation.synchronous == Some(true));
-        let wait = native
-            || !matches!(origin, WriteOrigin::Request)
-            || deletes
-                .iter()
-                .any(|mutation| mutation.synchronous == Some(true));
-        (forced, wait)
-    }
-
-    fn native_erasure_requires_durable(&self) -> bool {
-        self.db_ops.namespaced_store().disk_pack_runtime().is_some()
     }
 
     /// Account the erased ids, then run any remaining create/update mutations
@@ -122,7 +82,6 @@ impl MutationManager {
         &self,
         mutations: Vec<Mutation>,
         mut hard_ids: Vec<String>,
-        all_hard_erasures_durable: bool,
         storage_prefix: Option<&str>,
         origin: WriteOrigin,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
@@ -144,9 +103,7 @@ impl MutationManager {
                 erased,
             );
             let mut receipt = ResidentCommitReceipt::from_ids(hard_ids, hard_operations);
-            if all_hard_erasures_durable {
-                receipt.durability = ResidentDurability::Durable;
-            }
+            receipt.durability = ResidentDurability::Durable;
             return Ok(receipt);
         }
         // Process the remaining mutations through the standard pipeline,
@@ -224,7 +181,6 @@ impl MutationManager {
         peels: HardErasurePeels,
         storage_prefix: Option<&str>,
         origin: WriteOrigin,
-        force_hard_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let HardErasurePeels {
@@ -246,8 +202,6 @@ impl MutationManager {
                 author_clock_barrier.clone(),
             )
             .await?;
-        let wait_for_durable =
-            receipt.durability == ResidentDurability::Durable || force_hard_durable;
         // The erasure ids are deliberately NOT appended to the mixed
         // batch's id list — that was already true before the receipt
         // existed and callers depend on it. Their COUNTS still belong to
@@ -277,8 +231,6 @@ impl MutationManager {
                     storage_prefix,
                     missing,
                     verb,
-                    wait_for_durable
-                        || missing == super::super::super::purge::PurgeMissingPolicy::Refuse,
                     author_clock_barrier.clone(),
                 )
                 .await?;
@@ -288,12 +240,17 @@ impl MutationManager {
             deleted: erased,
             ..Default::default()
         });
-        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
-            // Every erase can be spared. Cover the earlier writes explicitly
-            // before upgrading the whole mixed request's durability receipt.
-            runtime.flush_native().await?;
-            receipt.durability = ResidentDurability::Durable;
-        }
+        // Every erase can be spared. Cover the earlier writes explicitly
+        // before upgrading the whole mixed request's durability receipt.
+        let runtime = self
+            .db_ops
+            .namespaced_store()
+            .disk_pack_runtime()
+            .ok_or_else(|| {
+                SchemaError::InvalidData("logical writes require native disk storage".into())
+            })?;
+        runtime.flush_native().await?;
+        receipt.durability = ResidentDurability::Durable;
         crate::request_phases::add_counter(
             crate::request_phases::RequestCounter::ResidentOperations,
             erased,
@@ -308,7 +265,6 @@ impl MutationManager {
         peels: HardErasurePeels,
         storage_prefix: Option<&str>,
         origin: WriteOrigin,
-        deletes_wait_for_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<Vec<String>, SchemaError> {
         let HardErasurePeels {
@@ -324,7 +280,6 @@ impl MutationManager {
                     storage_prefix,
                     origin.missing_policy_for_loud_erasure(),
                     super::super::super::purge::HardEraseVerb::Purge,
-                    true,
                     author_clock_barrier.clone(),
                 )
                 .await?,
@@ -337,31 +292,22 @@ impl MutationManager {
                     storage_prefix,
                     origin.missing_policy_for_loud_erasure(),
                     super::super::super::purge::HardEraseVerb::DeleteMustExist,
-                    true,
                     author_clock_barrier.clone(),
                 )
                 .await?,
             );
         }
         if !deletes.is_empty() {
-            let ids: Vec<String> = deletes.iter().map(|m| m.uuid.clone()).collect();
-            let returned = self
-                .enqueue_hard_erasures_on_lanes(
+            hard_ids.extend(
+                self.enqueue_hard_erasures_on_lanes(
                     deletes,
                     storage_prefix,
                     super::super::super::purge::PurgeMissingPolicy::Skip,
                     super::super::super::purge::HardEraseVerb::Delete,
-                    deletes_wait_for_durable,
                     author_clock_barrier,
                 )
-                .await?;
-            // A waiting enqueue returns the ids it erased; a fire-and-forget
-            // one reports the submitted ids.
-            hard_ids.extend(if deletes_wait_for_durable {
-                returned
-            } else {
-                ids
-            });
+                .await?,
+            );
         }
         Ok(hard_ids)
     }

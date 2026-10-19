@@ -4,7 +4,7 @@ pub(super) struct PreparedCommit {
     operations: Vec<HomeMutation>,
     batch_bytes: u64,
     reservation: laststore::disk_pack::home::MutationReservation,
-    pub(super) protection: Arc<admission::WriteProtection>,
+    space: SpaceReservation,
     accepted_ms: u64,
 }
 
@@ -169,12 +169,11 @@ impl PackRuntime {
         let space = writer
             .reserve_space(reservation.quote().physical_bytes(), &self.space_policy)
             .map_err(map)?;
-        let protection = Arc::new(admission::WriteProtection::reserve(space));
         Ok(PreparedCommit {
             operations,
             batch_bytes,
             reservation,
-            protection,
+            space,
             accepted_ms,
         })
     }
@@ -198,7 +197,7 @@ impl PackRuntime {
             operations,
             batch_bytes: _,
             reservation,
-            protection,
+            space,
             accepted_ms,
         } = prepared;
         // A direct durable publication consumes its bodies below. Keep only
@@ -223,12 +222,12 @@ impl PackRuntime {
             Ok(publication) => publication,
             Err(error) => {
                 self.failed.store(true, Ordering::Release);
-                *self.failed_write.lock().expect("native failed write owner") = Some(protection);
+                *self.failed_write.lock().expect("native failed write owner") = Some(space);
                 return Err(map(error));
             }
         };
         self.install_committed(publication.current, hidden_changes, &key_changes, requests)?;
-        protection.release_space();
+        drop(space);
         self.failed.store(false, Ordering::Release);
         Ok(())
     }

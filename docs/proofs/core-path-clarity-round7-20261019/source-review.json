@@ -1,0 +1,81 @@
+{
+  "reviewer": "review_disk_round7",
+  "review_kind": "source-only independent cross-review",
+  "source_commit": "3de98eff48d662cd8a8c631b953400aa35c03d99",
+  "source_tree": "ed353dcd32e86f53d23bda6110cb11bd387c598f",
+  "comparison_base": "8c4fa18aa760f85f4687f36069daa4eb9a840518",
+  "source_worktree_changes_at_review": [],
+  "result": "no blocker found in the reviewed scope",
+  "findings": [],
+  "invariants": [
+    {
+      "area": "erasure completion ownership",
+      "sources": [
+        "fold_db/crates/core/src/fold_db_core/mutation_manager/write/hard_erasure.rs",
+        "fold_db/crates/core/src/fold_db_core/mutation_manager/write/erase_guards.rs",
+        "fold_db/crates/core/src/fold_db_core/mutation_manager/write/batch_inner.rs",
+        "fold_db/crates/core/src/fold_db_core/mutation_manager/aggregate/repair.rs"
+      ],
+      "trace": "The wait_for_durable option has no remaining mutation-manager reference. Every queued envelope creates a oneshot, stores Some(sender), and returns a mandatory receiver through PurgeEnqueue::Queued. The checked wrapper returns Some(receiver) for every queued envelope. Its only None return follows removal of all spared targets. The lane enqueuer awaits every returned receiver and propagates both channel closure and completion.result errors. Aggregate repair previously passed true and still awaits that same path."
+    },
+    {
+      "area": "erasure clocks, cutoffs, and worker failure",
+      "sources": [
+        "fold_db/crates/core/src/fold_db_core/mutation_manager/write/erase_guards.rs",
+        "fold_db/crates/core/src/fold_db_core/mutation_manager/write/hard_erasure.rs",
+        "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/lane_writer.rs",
+        "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/purge_job.rs",
+        "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/protein_delete.rs"
+      ],
+      "trace": "The lane reservation and molecule guards still precede cutoff checks and enqueue. Cutoff comparisons, missing-target policies, and author-clock assignment remain unchanged. The lane still waits for the author clock before dispatch. Terminal results still enter pending_completion and reach the sender only after lane byte release. Retry and quarantine behavior remain unchanged. PurgeEnvelope retains optional completion fields because preparation and inline peer deletion create jobs without a channel, and the release step takes each sender once. Mixed batches retain their explicit native flush, including the all-spared case."
+    },
+    {
+      "area": "keyed and physical key forms",
+      "sources": [
+        "fold_db/crates/core/src/schema/logical_rules.rs",
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/paging.rs",
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/cokey_primary.rs",
+        "fold_db/crates/core/src/db_operations/atom_store/filter/load/one_d/exact.rs",
+        "fold_db/crates/core/src/db_operations/atom_store/filter/load/hash_range.rs",
+        "fold_db/crates/core/src/db_operations/atom_store/filter/load/hash_range_pages.rs",
+        "fold_db/crates/core/src/schema/types/field/variant/read/collect.rs",
+        "fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs"
+      ],
+      "trace": "The logical guard rejects standalone ranges and patterns. HashKey, HashRangeKey, HashRangeKeys, HashRangePrefix, and HashRangeRange retain the caller hash in their narrowed producers; exact and batch reads retain supplied ranges, and collect_matches decodes OPE ranges. Warm exact reads construct API CorePaths. These five selectors therefore bypass value-based hash recovery. None, Page, PageAfter, and SampleN retain physical key recovery and opaque-key accounting. The removed one-dimensional Hash scan arm had no caller: both former call sites supplied the Range slot."
+    },
+    {
+      "area": "count membership",
+      "sources": [
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/count.rs",
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/count/keys.rs"
+      ],
+      "trace": "Count gathers the already resolved API keys from the same field readers. The removed second hash transformation could mistake a distinct valid API hash for an encoded twin. The HashSet still removes identical logical keys. Named-spine authority, one selected fallback field, namespace union, tombstone checks, and named-layout value checks remain unchanged. The count caller contract excludes physical page bounds."
+    },
+    {
+      "area": "preload error classification",
+      "sources": [
+        "fold_db/crates/core/src/storage/disk_pack/schema_keys/load.rs",
+        "fold_db/crates/core/src/storage/disk_pack/schema_keys.rs",
+        "fold_db/crates/core/src/db_operations/atom_store/molecules/generation/slots.rs",
+        "fold_db/crates/core/src/schema/types/errors/storage.rs"
+      ],
+      "trace": "Timeout now produces ReadResourceLimit. Key-budget errors already use that typed error, StorageError conversion preserves typed limits, and generation-pointer reads now preserve read/write limits. fail_key_load selects DiskOnly for those types and Failed for other errors. Both outcomes detach the partial domain, clear pending deltas, preserve the error reason, and notify waiters. This removes wording-dependent fallback without admitting incomplete keys."
+    },
+    {
+      "area": "direct disk reservation lifetime",
+      "sources": [
+        "fold_db/crates/core/src/storage/disk_pack/mod.rs",
+        "fold_db/crates/core/src/storage/disk_pack/write.rs",
+        "fold_db/crates/core/src/storage/disk_pack/queue.rs",
+        "vendor/laststore/src/disk_pack/maintenance/space.rs"
+      ],
+      "trace": "PreparedCommit owns SpaceReservation directly. Replacement space is acquired before the earlier prepared owner drops. Success releases the charge at the former release_space point. Journal failure moves it to failed_write; subsequent admission refuses a failed writer, so the new lifetime comment correctly states retention until runtime drop. Both queue failure branches leave the sealed requests vector intact. Only complete success clears that vector; removal of failed_requests does not remove PendingBatch ownership."
+    }
+  ],
+  "limits": [
+    "This receipt records source inspection and reference searches only.",
+    "The reviewer performed no build, compiler, test, benchmark, product API, primary-home, archive, or cloud operation.",
+    "No runtime correctness, performance, memory-cap, or release-binary equivalence claim follows from this review.",
+    "The final erasure review covers the frozen commit above. The prior route/count/paging/preload review was rechecked against that same committed source."
+  ]
+}

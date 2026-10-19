@@ -1,0 +1,1469 @@
+{
+  "all_nodes_stop_normally": true,
+  "all_run_processes_exit_unforced": true,
+  "node_sessions": 8,
+  "runs": [
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "bcc42c62ba15c5403d411f181386daac5122858f2a616c6227e529f50100bb4e"
+        },
+        "inputs.json": {
+          "bytes": 832,
+          "sha256": "ba5b9eab1eef543a1cd247eedd1a6e88fdbc2e353cc0d8f881facd087c7a22ed"
+        },
+        "node.log": {
+          "bytes": 14535,
+          "sha256": "9f96724c75686504d49a52682a8cb4c53f70c5e9bd6d3c04cd150398b6190e82"
+        },
+        "receipts.jsonl": {
+          "bytes": 71718,
+          "sha256": "bd00a032f9dc0e93020f8a435633597eda7f54d8d02dc22edf0c7c9e140ab13f"
+        },
+        "result.json": {
+          "bytes": 546,
+          "sha256": "e9fee9d827711a273a3db44f3ba8228e4eab4c79f6aff6a0cd41ceec75015c60"
+        },
+        "retained-root.json": {
+          "bytes": 201,
+          "sha256": "dd2a4aca4e7e275652353fb9be1e47b33880134a298b543cd9cd5d3e39cb1af2"
+        }
+      },
+      "node_sessions": 3,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-path-clarity-round7-20261019/narrow-combined",
+      "result": {
+        "all_owned_nodes_stopped_normally": true,
+        "baseline_contract_pass": false,
+        "baseline_observations": 8,
+        "candidate_contract_pass": true,
+        "candidate_observations": 8,
+        "evidence_collection_complete": true,
+        "node_sessions": 3,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4",
+        "scope": "Baseline contract failures remain failures. Candidate observations use identical requests and expectations. This cumulative receipt set supports one exact-root cleanup review, not a combined acceptance result."
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "Supported exact-root cleanup after independent root review.",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "d01172e0098e8ee883b778c0dda51b90758756f037765fd74c36bf914d67ff89"
+        },
+        "hidden-order-extension-inputs.json": {
+          "bytes": 1414,
+          "sha256": "8dea44e30f7ce40138716f9bf2e66e42b8300beeab725bb901041f30883527fc"
+        },
+        "inputs.json": {
+          "bytes": 1588,
+          "sha256": "0ca8a400e2231de425a5d786b62dafb8cf070233f7cc8aa8b8457e2dec1e3dd6"
+        },
+        "node.log": {
+          "bytes": 40549,
+          "sha256": "6e903b366b1cf7ed789aae164b311bdb6c1cb51ebcfd254c9bbf1f22cc2fb56f"
+        },
+        "operation-identity.json": {
+          "bytes": 2550,
+          "sha256": "99401e1df11b10180aafd23cf729440dc507ce393d73ece466f8ab51873c3e78"
+        },
+        "operation-inputs.json": {
+          "bytes": 42852,
+          "sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835"
+        },
+        "receipts.jsonl": {
+          "bytes": 9429194,
+          "sha256": "e3708c31e9248fe81e25bf32329c2c87c5f7f7c769877c7d599d33b6aeecaa67"
+        },
+        "result.json": {
+          "bytes": 39577,
+          "sha256": "981df59c75c3b5bae2aa92b3ef322c81ac6bd9ffcce233543787e264087d65df"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "84bf2f1f39d9235a0dd09b4fe3eb45a6c5e7f91c4e35386a020f85fbb9af693a"
+        },
+        "summary.json": {
+          "bytes": 139,
+          "sha256": "a1f0a658e6810d376e1026046e261304a7b9d9f4a37e88486faa4dbe779db626"
+        }
+      },
+      "node_sessions": 5,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-path-clarity-round7-20261019/standard-candidate",
+      "result": {
+        "all_owned_nodes_stopped_normally": true,
+        "binary_sha256": "563aa1ba49440f76e43e7c478b439bbd8e07b0b6cdf868888e908f7b8b482a1b",
+        "checked_items": [
+          {
+            "expected_record_ids": [
+              "IntegerHash"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-hash-exact",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerHash"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-hash-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerHash"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-hash-typed-eq",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-hash-missing",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerRange0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-range-exact-0",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-range-exact-1",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerRange0",
+              "IntegerRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-range-group",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerRange0",
+              "IntegerRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-range-group-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerRange0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-range-exact-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerRange0",
+              "IntegerRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-range-bounded",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerRange0",
+              "IntegerRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-range-typed-eq",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanHash"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-hash-exact",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanHash"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-hash-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanHash"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-hash-typed-eq",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-hash-missing",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanRange0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-range-exact-0",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-129",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-range-exact-1",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanRange0",
+              "BooleanRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-range-group",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanRange0",
+              "BooleanRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-range-group-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanRange0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-range-exact-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanRange0",
+              "BooleanRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-range-bounded",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanRange0",
+              "BooleanRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-range-typed-eq",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "HashPayload"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "hash-payload-exact",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "HashPayload"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "hash-payload-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "HashPayload"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "hash-payload-body-eq",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "hash-payload-address-not-body",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-exact-0",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-exact-1",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-group",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-group-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-exact-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-bounded",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-130",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-payload-eq",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-payload-order-limit",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-absent-numeric-helper",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-absent-predicate-helper",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-absent-order-helper",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "ProjectionAll0",
+              "ProjectionAll1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-all-fields",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "ProjectionAll0",
+              "ProjectionAll1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-all-fields-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-exact-0",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-exact-1",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-group",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-group-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-exact-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-bounded",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-payload-eq",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-payload-order-limit",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-absent-numeric-helper",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-131",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-absent-predicate-helper",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-absent-order-helper",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "ProjectionAll0",
+              "ProjectionAll1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-all-fields",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "ProjectionAll0",
+              "ProjectionAll1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-all-fields-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-explicit-empty-key-field",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-explicit-empty-key-field-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditiona",
+              "Conditionb"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-numeric-hidden",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "ConditionScorea",
+              "ConditionScoreb"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-numeric-projected",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-exact-a",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditionb"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-exact-b",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-exact-d",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditiond",
+              "Conditionc",
+              "Conditiona",
+              "Conditionb"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-order-asc",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditionb",
+              "Conditiona",
+              "Conditionc",
+              "Conditiond"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-order-desc",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditionc"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-filter-order-limit",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 400,
+            "failures": [],
+            "label": "condition-unknown-field",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 400
+          },
+          {
+            "expected_record_ids": [
+              "Conditiona",
+              "Conditionb",
+              "Conditionc",
+              "Conditiond"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-omitted",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-132",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditiona",
+              "Conditionb",
+              "Conditionc",
+              "Conditiond"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-null",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditiona",
+              "Conditionb",
+              "Conditionc",
+              "Conditiond"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-empty",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditiona",
+              "Conditionc"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-present",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditionb",
+              "Conditiond"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-absent",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditiona"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-eq",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditiond"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-eq-null",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-zero-limit",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditiona",
+              "Conditionb",
+              "Conditionc",
+              "Conditiond"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-forced-count",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Tieb",
+              "Tiez"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-tie-asc",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Tieb",
+              "Tiez"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-tie-desc",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "main-static",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-133",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "empty-key-only-baseline",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "hidden-sort-extension",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-134",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "empty-key-only-hidden-order",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "hidden-sort-extension",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-134",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Round6ProteinByState-target-001"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByState-target-001",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "typed-protein-before-purge",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-136",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Round6ProteinByOwner-target-001"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByOwner-target-001",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "typed-protein-before-purge",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-136",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Round6ProteinByState-keep-001"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByState-keep-001",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "typed-protein-before-purge",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-136",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Round6ProteinByOwner-keep-001"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByOwner-keep-001",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "typed-protein-before-purge",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-136",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByState-target-001",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "typed-protein-after-purge",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-138",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByOwner-target-001",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "typed-protein-after-purge",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-138",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Round6ProteinByState-keep-001"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByState-keep-001",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "typed-protein-after-purge",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-138",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Round6ProteinByOwner-keep-001"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByOwner-keep-001",
+            "normal_reopen_identity_check": false,
+            "pass": true,
+            "phase": "typed-protein-after-purge",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-138",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerHash"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-hash-count",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanHash"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-hash-count",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "IntegerRange0",
+              "IntegerRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Integer-range-group-count",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "BooleanRange0",
+              "BooleanRange1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Boolean-range-group-count",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "HashPayload"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "hash-payload-count",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionAbsent-group-count",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-explicit-empty-key-field-count",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Projection0",
+              "Projection1"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProjectionEmpty-absent-numeric-helper",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditionc"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-filter-order-limit",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditionb",
+              "Conditiona",
+              "Conditionc",
+              "Conditiond"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-order-desc",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Tieb",
+              "Tiez"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-tie-asc",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Conditiond"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "condition-eq-null",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "main-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-142",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByState-target-001",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "typed-protein-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-143",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByOwner-target-001",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "typed-protein-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-143",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Round6ProteinByState-keep-001"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByState-keep-001",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "typed-protein-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-143",
+            "status": 200
+          },
+          {
+            "expected_record_ids": [
+              "Round6ProteinByOwner-keep-001"
+            ],
+            "expected_status": 200,
+            "failures": [],
+            "label": "Round6ProteinByOwner-keep-001",
+            "normal_reopen_identity_check": true,
+            "pass": true,
+            "phase": "typed-protein-normal-reopen",
+            "request_id": "temperature-9eb7edaf5e8543b08a2ddb76193f9e59-round7candidate-143",
+            "status": 200
+          }
+        ],
+        "cohort_read_calls_checked": 74,
+        "cohort_strict_zero_file_calls": 29,
+        "complete": true,
+        "creator_pid": 15183,
+        "error": null,
+        "finished_utc": "2026-10-19T17:32:19.852789+00:00",
+        "last_phase": "complete",
+        "no_benchmark_comparison": true,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565",
+        "source_commit": "3de98eff48d662cd8a8c631b953400aa35c03d99",
+        "static_expected_refusal_items": 1,
+        "static_query_items_checked": 100,
+        "static_success_items": 99
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565"
+      }
+    }
+  ],
+  "scope": "Expected failed value gates remain failed. Startup exit1 is recorded separately from normal stops. This seal does not establish cleanup safety or change acceptance."
+}

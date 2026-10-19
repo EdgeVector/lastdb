@@ -372,7 +372,6 @@ impl MutationManager {
                 storage_prefix,
                 crate::fold_db_core::purge::PurgeMissingPolicy::Skip,
                 crate::fold_db_core::purge::HardEraseVerb::Purge,
-                true,
                 None,
             )
             .await?;

@@ -1,0 +1,513 @@
+{
+  "all_owned_nodes_stopped_normally": true,
+  "binary_sha256": "563aa1ba49440f76e43e7c478b439bbd8e07b0b6cdf868888e908f7b8b482a1b",
+  "contract_pass": true,
+  "creator_pid": 99405,
+  "error": null,
+  "finished_utc": "2026-10-19T17:29:58.374327+00:00",
+  "no_benchmark_comparison": true,
+  "no_new_logical_writes": true,
+  "node_starts": 1,
+  "node_stops": 1,
+  "observations": [
+    {
+      "contract_pass": true,
+      "failures": [],
+      "label": "two-known-api-hashes",
+      "phase": "candidate-normal-reopen",
+      "request_id": "temperature-85720afa43ff471881bd3be9372e4aec-candidate-same-home-3",
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "api",
+        "limit": 8,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "D0hYq7O4heZCxuVIPOqwcA",
+              "payload": "payload-b"
+            },
+            "key": {
+              "hash": "D0hYq7O4heZCxuVIPOqwcA",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "ff06b85560fcdfc0bb7f5ff8c06d4854184a93c9c916119ce40e5addcc792a04",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "molecule_version": 2,
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "a8337b1d84614e2544d9d4ed1130a1561c31ec50de9630c9f45077493b7f90ba",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          },
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "round7-address-a",
+              "payload": "payload-a"
+            },
+            "key": {
+              "hash": "round7-address-a",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "f6f610775697e2bed7830e9a2d91d90fc21da7a6f613d633c74975ed9642de23",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "molecule_version": 2,
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "b39cc6eb657e0cc9879950f1ec57211942d2b263f3dfd139b0aec402db5c8609",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 2,
+        "tombstoned_rows": 0,
+        "total_count": null,
+        "unresolved_rows": 0,
+        "user_hash": "b79d9d7ff0192de847ea83dcfcf894af"
+      },
+      "status": 200
+    },
+    {
+      "contract_pass": true,
+      "failures": [],
+      "label": "two-known-api-hashes-count",
+      "phase": "candidate-normal-reopen",
+      "request_id": "temperature-85720afa43ff471881bd3be9372e4aec-candidate-same-home-3",
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "api",
+        "limit": 8,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "D0hYq7O4heZCxuVIPOqwcA",
+              "payload": "payload-b"
+            },
+            "key": {
+              "hash": "D0hYq7O4heZCxuVIPOqwcA",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "ff06b85560fcdfc0bb7f5ff8c06d4854184a93c9c916119ce40e5addcc792a04",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "a8337b1d84614e2544d9d4ed1130a1561c31ec50de9630c9f45077493b7f90ba",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          },
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "round7-address-a",
+              "payload": "payload-a"
+            },
+            "key": {
+              "hash": "round7-address-a",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "f6f610775697e2bed7830e9a2d91d90fc21da7a6f613d633c74975ed9642de23",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "b39cc6eb657e0cc9879950f1ec57211942d2b263f3dfd139b0aec402db5c8609",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 2,
+        "tombstoned_rows": 0,
+        "total_count": 2,
+        "unresolved_rows": 0,
+        "user_hash": "b79d9d7ff0192de847ea83dcfcf894af"
+      },
+      "status": 200
+    },
+    {
+      "contract_pass": true,
+      "failures": [],
+      "label": "a-exact-count",
+      "phase": "candidate-normal-reopen",
+      "request_id": "temperature-85720afa43ff471881bd3be9372e4aec-candidate-same-home-3",
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "api",
+        "limit": 8,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "round7-address-a",
+              "payload": "payload-a"
+            },
+            "key": {
+              "hash": "round7-address-a",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "f6f610775697e2bed7830e9a2d91d90fc21da7a6f613d633c74975ed9642de23",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "b39cc6eb657e0cc9879950f1ec57211942d2b263f3dfd139b0aec402db5c8609",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 1,
+        "tombstoned_rows": 0,
+        "total_count": 1,
+        "unresolved_rows": 0,
+        "user_hash": "b79d9d7ff0192de847ea83dcfcf894af"
+      },
+      "status": 200
+    },
+    {
+      "contract_pass": true,
+      "failures": [],
+      "label": "b-exact-count",
+      "phase": "candidate-normal-reopen",
+      "request_id": "temperature-85720afa43ff471881bd3be9372e4aec-candidate-same-home-3",
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "api",
+        "limit": 8,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "D0hYq7O4heZCxuVIPOqwcA",
+              "payload": "payload-b"
+            },
+            "key": {
+              "hash": "D0hYq7O4heZCxuVIPOqwcA",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "ff06b85560fcdfc0bb7f5ff8c06d4854184a93c9c916119ce40e5addcc792a04",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "a8337b1d84614e2544d9d4ed1130a1561c31ec50de9630c9f45077493b7f90ba",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 1,
+        "tombstoned_rows": 0,
+        "total_count": 1,
+        "unresolved_rows": 0,
+        "user_hash": "b79d9d7ff0192de847ea83dcfcf894af"
+      },
+      "status": 200
+    },
+    {
+      "contract_pass": true,
+      "failures": [],
+      "label": "two-known-api-hashes",
+      "phase": "candidate-repeat",
+      "request_id": "temperature-85720afa43ff471881bd3be9372e4aec-candidate-same-home-4",
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "api",
+        "limit": 8,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "D0hYq7O4heZCxuVIPOqwcA",
+              "payload": "payload-b"
+            },
+            "key": {
+              "hash": "D0hYq7O4heZCxuVIPOqwcA",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "ff06b85560fcdfc0bb7f5ff8c06d4854184a93c9c916119ce40e5addcc792a04",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "a8337b1d84614e2544d9d4ed1130a1561c31ec50de9630c9f45077493b7f90ba",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          },
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "round7-address-a",
+              "payload": "payload-a"
+            },
+            "key": {
+              "hash": "round7-address-a",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "f6f610775697e2bed7830e9a2d91d90fc21da7a6f613d633c74975ed9642de23",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "b39cc6eb657e0cc9879950f1ec57211942d2b263f3dfd139b0aec402db5c8609",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 2,
+        "tombstoned_rows": 0,
+        "total_count": null,
+        "unresolved_rows": 0,
+        "user_hash": "b79d9d7ff0192de847ea83dcfcf894af"
+      },
+      "status": 200
+    },
+    {
+      "contract_pass": true,
+      "failures": [],
+      "label": "two-known-api-hashes-count",
+      "phase": "candidate-repeat",
+      "request_id": "temperature-85720afa43ff471881bd3be9372e4aec-candidate-same-home-4",
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "api",
+        "limit": 8,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "D0hYq7O4heZCxuVIPOqwcA",
+              "payload": "payload-b"
+            },
+            "key": {
+              "hash": "D0hYq7O4heZCxuVIPOqwcA",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "ff06b85560fcdfc0bb7f5ff8c06d4854184a93c9c916119ce40e5addcc792a04",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "a8337b1d84614e2544d9d4ed1130a1561c31ec50de9630c9f45077493b7f90ba",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          },
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "round7-address-a",
+              "payload": "payload-a"
+            },
+            "key": {
+              "hash": "round7-address-a",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "f6f610775697e2bed7830e9a2d91d90fc21da7a6f613d633c74975ed9642de23",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "b39cc6eb657e0cc9879950f1ec57211942d2b263f3dfd139b0aec402db5c8609",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 2,
+        "tombstoned_rows": 0,
+        "total_count": 2,
+        "unresolved_rows": 0,
+        "user_hash": "b79d9d7ff0192de847ea83dcfcf894af"
+      },
+      "status": 200
+    },
+    {
+      "contract_pass": true,
+      "failures": [],
+      "label": "a-exact-count",
+      "phase": "candidate-repeat",
+      "request_id": "temperature-85720afa43ff471881bd3be9372e4aec-candidate-same-home-4",
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "api",
+        "limit": 8,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "round7-address-a",
+              "payload": "payload-a"
+            },
+            "key": {
+              "hash": "round7-address-a",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "f6f610775697e2bed7830e9a2d91d90fc21da7a6f613d633c74975ed9642de23",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "b39cc6eb657e0cc9879950f1ec57211942d2b263f3dfd139b0aec402db5c8609",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 1,
+        "tombstoned_rows": 0,
+        "total_count": 1,
+        "unresolved_rows": 0,
+        "user_hash": "b79d9d7ff0192de847ea83dcfcf894af"
+      },
+      "status": 200
+    },
+    {
+      "contract_pass": true,
+      "failures": [],
+      "label": "b-exact-count",
+      "phase": "candidate-repeat",
+      "request_id": "temperature-85720afa43ff471881bd3be9372e4aec-candidate-same-home-4",
+      "response": {
+        "conflict_flags": "unknown",
+        "has_more": false,
+        "key_form": "api",
+        "limit": 8,
+        "next_cursor": null,
+        "offset": 0,
+        "ok": true,
+        "results": [
+          {
+            "author_pub_key": null,
+            "fields": {
+              "id": "D0hYq7O4heZCxuVIPOqwcA",
+              "payload": "payload-b"
+            },
+            "key": {
+              "hash": "D0hYq7O4heZCxuVIPOqwcA",
+              "range": null
+            },
+            "metadata": {
+              "id": {
+                "atom_uuid": "ff06b85560fcdfc0bb7f5ff8c06d4854184a93c9c916119ce40e5addcc792a04",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "dDmmi3F1B-OOJ4-Y05nHfFhKcMQ6izX31HH_JznALjs",
+                "source_file_name": null
+              },
+              "payload": {
+                "atom_uuid": "a8337b1d84614e2544d9d4ed1130a1561c31ec50de9630c9f45077493b7f90ba",
+                "has_conflicts": "unknown",
+                "molecule_uuid": "nNWvIXdiD7CX483788hvwigfUMIzALvzDkP_URw_wOU",
+                "source_file_name": null
+              }
+            }
+          }
+        ],
+        "returned_count": 1,
+        "tombstoned_rows": 0,
+        "total_count": 1,
+        "unresolved_rows": 0,
+        "user_hash": "b79d9d7ff0192de847ea83dcfcf894af"
+      },
+      "status": 200
+    }
+  ],
+  "operation_completed_normally": true,
+  "retained_for_independent_cleanup": true,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.14hbnru4",
+  "same_baseline_home_without_copy": true,
+  "source_commit": "3de98eff48d662cd8a8c631b953400aa35c03d99"
+}

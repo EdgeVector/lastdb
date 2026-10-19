@@ -122,11 +122,10 @@ impl AtomStore {
                 if p.is_empty() {
                     return Ok(None);
                 }
-                self.scan_per_key_1d_range(
+                self.scan_per_key_range_slot(
                     molecule_uuid,
                     p,
                     &FilterUtils::create_prefix_end(p),
-                    OneDSlot::Range,
                     storage_prefix,
                 )
                 .await?
@@ -135,14 +134,8 @@ impl AtomStore {
                 if start >= end {
                     Vec::new()
                 } else {
-                    self.scan_per_key_1d_range(
-                        molecule_uuid,
-                        start,
-                        end,
-                        OneDSlot::Range,
-                        storage_prefix,
-                    )
-                    .await?
+                    self.scan_per_key_range_slot(molecule_uuid, start, end, storage_prefix)
+                        .await?
                 }
             }
             _ => return Ok(None),
@@ -154,24 +147,9 @@ impl AtomStore {
     /// collection. `after` is an **exclusive storage-form** `(hash, range)`
     /// cursor; `None` starts at the head.
     ///
-    /// The two slots need different remedies because their key shapes differ in
-    /// where the partition separator lands:
-    ///
-    /// - **Range-only** records are `mk:{M}:\0{range}` — the separator sits
-    ///   directly after the empty hash segment, so a molecule's whole
-    ///   range-only key space is a SINGLE partition, already in `range` order.
-    ///   Scanning `mk:{M}:\0` instead of `mk:{M}:` returns identical rows from
-    ///   one partition's groups rather than all of them. No index involved.
-    ///
-    /// - **Hash-only** records are `mk:{M}:{esc(hash)}\0` — one partition *per
-    ///   hash*, so a molecule-wide listing genuinely spans every partition and
-    ///   no choice of `mk:` prefix can prune it. These are answered from the
-    ///   derived `mhr:` index, which is pinned to one partition (`mhr:{M}\0`)
-    ///   and is already maintained per-record by both write paths. For a
-    ///   hash-only molecule every record's range is empty, so the index's
-    ///   `(range, hash)` order collapses to plain `hash` order — the Page order
-    ///   this path wants. The authoritative `mk:` records are then point-read
-    ///   for just that page, which is what the 2-D path already does.
+    /// Range-only records share the empty hash and permit one bounded ordered
+    /// read. Hash-only inspection pages read the authoritative `mk:` prefixes
+    /// in encoded hash order. They use no separate page index.
     async fn load_1d_page_window(
         &self,
         target: OneDPageTarget<'_>,
@@ -300,84 +278,45 @@ impl AtomStore {
         Ok(None)
     }
 
-    /// Range-scan a 1-D slot under the unified key layout.
-    /// Segment bounds are API-form. Under migrating encodings, scans the primary
-    /// (blind/OPE) bound space first, then plain fallback when empty.
-    pub(crate) async fn scan_per_key_1d_range(
+    /// Range-scan the range-only slot under the unified key layout.
+    /// Bounds use API form. Try each supported physical bound encoding in
+    /// order and return the first nonempty range.
+    async fn scan_per_key_range_slot(
         &self,
         molecule_uuid: &str,
         start_seg: &str,
         end_seg: &str,
-        slot: OneDSlot,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        match slot {
-            OneDSlot::Hash => {
-                // Blinded HashKeys are not order-preserving for plaintext; dual-read
-                // still tries primary then plain bound encodings for migrate.
-                let start_cands = self
-                    .key_codec_for_molecule(molecule_uuid)
-                    .storage_hash_read_candidates(molecule_uuid, start_seg)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                let end_cands = self
-                    .key_codec_for_molecule(molecule_uuid)
-                    .storage_hash_read_candidates(molecule_uuid, end_seg)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                // Pair primary-with-primary, then plain-with-plain (same candidate index).
-                let n = start_cands.len().min(end_cands.len());
-                let mut out = Vec::new();
-                for i in 0..n {
-                    let start = molecule_key_codec::hash_range_record_key(
-                        molecule_uuid,
-                        &start_cands[i],
-                        EMPTY_KEY_COMPONENT,
-                    );
-                    let end = molecule_key_codec::hash_range_record_key(
-                        molecule_uuid,
-                        &end_cands[i],
-                        EMPTY_KEY_COMPONENT,
-                    );
-                    out = self
-                        .scan_per_key_range(&start, &end, storage_prefix)
-                        .await?;
-                    if !out.is_empty() {
-                        break;
-                    }
-                }
-                Ok(out)
-            }
-            OneDSlot::Range => {
-                let start_cands = self
-                    .key_codec_for_molecule(molecule_uuid)
-                    .storage_range_read_candidates(molecule_uuid, start_seg)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                let end_cands = self
-                    .key_codec_for_molecule(molecule_uuid)
-                    .storage_range_read_candidates(molecule_uuid, end_seg)
-                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                let n = start_cands.len().min(end_cands.len());
-                let mut out = Vec::new();
-                for i in 0..n {
-                    let start = molecule_key_codec::hash_range_record_key(
-                        molecule_uuid,
-                        EMPTY_KEY_COMPONENT,
-                        &start_cands[i],
-                    );
-                    let end = molecule_key_codec::hash_range_record_key(
-                        molecule_uuid,
-                        EMPTY_KEY_COMPONENT,
-                        &end_cands[i],
-                    );
-                    out = self
-                        .scan_per_key_range(&start, &end, storage_prefix)
-                        .await?;
-                    if !out.is_empty() {
-                        break;
-                    }
-                }
-                Ok(out)
+        let start_cands = self
+            .key_codec_for_molecule(molecule_uuid)
+            .storage_range_read_candidates(molecule_uuid, start_seg)
+            .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+        let end_cands = self
+            .key_codec_for_molecule(molecule_uuid)
+            .storage_range_read_candidates(molecule_uuid, end_seg)
+            .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+        let n = start_cands.len().min(end_cands.len());
+        let mut out = Vec::new();
+        for i in 0..n {
+            let start = molecule_key_codec::hash_range_record_key(
+                molecule_uuid,
+                EMPTY_KEY_COMPONENT,
+                &start_cands[i],
+            );
+            let end = molecule_key_codec::hash_range_record_key(
+                molecule_uuid,
+                EMPTY_KEY_COMPONENT,
+                &end_cands[i],
+            );
+            out = self
+                .scan_per_key_range(&start, &end, storage_prefix)
+                .await?;
+            if !out.is_empty() {
+                break;
             }
         }
+        Ok(out)
     }
 
     /// Decode scanned unified `mk:` keys into 1-D hash-only or range-only records.

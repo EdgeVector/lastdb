@@ -12,10 +12,13 @@ impl AtomStore {
         );
         self.molecule_control_from_memory(&key)
             .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
+            .map_err(|error| match error {
+                SchemaError::ReadResourceLimit { .. } | SchemaError::WriteResourceLimit { .. } => {
+                    error
+                }
+                error => SchemaError::InvalidData(format!(
                     "read generation pointer for molecule {molecule_uuid}: {error}"
-                ))
+                )),
             })
     }
 
