@@ -295,6 +295,34 @@ The gauge now charges source links (`link_charge`) and slot entries (`slot_charg
 Next step outside the stages: shrink the bookkeeping. Store each slot key and source key once, refer to them by small ids, and use small lists in place of many small hash sets.
 At 10,000 paths the bookkeeping is about 100 MB, while the small-record data is about 1 MB.
 
+## Bookkeeping shrink result (2026-10-19)
+
+The change (proof: `docs/proofs/warm-set-intern-keys-20261019/RESULTS.md`):
+
+- The slot table stores each slot key once. Paths, owner lists, and source links use a 32-bit slot id.
+- The source table stores each source key once, in a packed form. Each lowercase hex run of 16 or more characters becomes raw bytes. Both sides of a source link hold only ids.
+- One `Arc<CorePath>` serves the path map, the recency map, and the owner list.
+- The gauge constants match the new layout (`PATH_BASE`, `SLOT_BASE`, `LINK_BASE`, `SOURCE_BASE`, `SLOT_KEY_COPIES`).
+
+Result for 8,200 extra paths, with the same A/B method:
+
+| Shape | Allocator growth per path, before | After | Gauge ratio, after |
+|---|---|---|---|
+| small (3,000 × 200 B) | 11.4 KB | 4.2 KB | 1.040 |
+| medium (3,000 × 8 KB) | 14.2 KB | 6.9 KB | 1.064 |
+
+The goal was about 1–2 KB for each path. About 4.2 KB is left:
+
+| Part | Per path |
+|---|---|
+| Packed source keys and their index | about 1.3 KB |
+| Molecule tip and key metadata | about 0.74 KB |
+| The owned copy of the tip of a clean read | about 0.64 KB |
+| The path and its strings | about 0.64 KB |
+| Slot and source table entries | about 0.8 KB |
+
+Each part needs its own change. Source keys need a shared prefix table or keys that the core derives from the slot. The owned copy of the tip is what a call that holds the slot keeps, so a change to it changes hold behavior.
+
 ## Later step
 
 The same reservation type can carry the definition cache (16 MiB), the complete keys (128 MiB), and the write metadata (16 MiB).

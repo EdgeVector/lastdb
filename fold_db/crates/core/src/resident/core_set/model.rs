@@ -127,8 +127,7 @@ impl CoreWarmSet {
     ) -> Vec<Arc<dyn std::any::Any + Send + Sync>> {
         paths
             .iter()
-            .filter_map(|path| self.owned_slots.get(&path.slot()))
-            .cloned()
+            .filter_map(|path| self.slots.get(self.slot_of(path)?)?.owned.clone())
             .map(|slot| slot as Arc<dyn std::any::Any + Send + Sync>)
             .collect()
     }
@@ -172,7 +171,9 @@ impl CoreWarmSet {
             None => self.admit_absent(path, sequence),
         };
         debug_assert!(result.is_ok(), "prepared and held core path");
-        self.owned_slots.insert(path.slot(), value);
+        if let Some(slot) = self.slot_of(path).and_then(|id| self.slots.get_mut(id)) {
+            slot.owned = Some(value);
+        }
     }
 
     pub(crate) fn model_stats(&self) -> CoreModelStats {
@@ -185,13 +186,15 @@ impl CoreWarmSet {
                 .map(|value| value.charged_bytes)
                 .sum::<usize>()
             + self
-                .owned_slots
-                .values()
+                .slots
+                .iter()
+                .filter_map(|(_, slot)| slot.owned.as_ref())
                 .map(|slot| slot.charged_bytes)
                 .sum::<usize>();
         let current_owners: HashMap<_, _> = self
-            .owned_slots
-            .values()
+            .slots
+            .iter()
+            .filter_map(|(_, slot)| slot.owned.as_ref())
             .filter_map(|slot| {
                 slot.owner
                     .as_ref()
@@ -249,7 +252,7 @@ impl CoreWarmSet {
     }
 }
 
-fn capacity() -> CoreCapacity {
+pub(super) fn capacity() -> CoreCapacity {
     CoreCapacity {
         detail: "immutable core model metadata allowance refused the publication",
     }

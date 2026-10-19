@@ -28,7 +28,7 @@ pub(super) fn covered(
                     .contains(&(collection.as_str(), key.as_str()))
             }) && !coverage.slots.contains(&(
                 molecule.scope.as_deref(),
-                molecule.molecule.as_str(),
+                &molecule.molecule,
                 hash.as_str(),
                 range.as_str(),
             )) {

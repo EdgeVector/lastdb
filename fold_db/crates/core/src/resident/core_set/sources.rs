@@ -10,17 +10,12 @@ impl CoreWarmSet {
     pub(crate) fn paths_for_sources(&self, changes: &[(String, String)]) -> Vec<CorePath> {
         changes
             .iter()
-            .flat_map(|(collection, key)| {
-                self.source_slots
-                    .get(&SourceKey {
-                        collection: collection.clone(),
-                        key: key.clone(),
-                    })
-                    .into_iter()
-                    .flatten()
-                    .flat_map(|slot| self.slot_owners.get(slot).into_iter().flatten())
-            })
-            .cloned()
+            .filter_map(|(collection, key)| self.sources.find(collection, key))
+            .filter_map(|source| self.sources.get(source))
+            .flat_map(|source| source.slots.iter())
+            .filter_map(|slot| self.slots.get(slot))
+            .flat_map(|slot| slot.owners.iter())
+            .map(|path| path.as_ref().clone())
             .collect::<HashSet<_>>()
             .into_iter()
             .collect()
@@ -28,7 +23,9 @@ impl CoreWarmSet {
 
     /// Replace source edges after the normal resolver confirms a retained value.
     pub(crate) fn clear_sources(&mut self, path: &CorePath) {
-        self.forget_slot_sources(&path.slot());
+        if let Some(id) = self.slot_of(path) {
+            self.forget_slot_sources(id);
+        }
     }
 
     /// Check the complete replacement before removing any certified source edge.
@@ -58,36 +55,41 @@ impl CoreWarmSet {
 
     /// Bounded source coordinates contain no additional tip or atom values.
     pub(crate) fn source_coordinates(&self, path: &CorePath) -> Vec<(String, String)> {
-        self.slot_sources
-            .get(&path.slot())
+        self.slot_of(path)
+            .and_then(|id| self.slots.get(id))
             .into_iter()
-            .flatten()
-            .map(|source| (source.collection.clone(), source.key.clone()))
+            .flat_map(|slot| slot.sources.iter())
+            .map(|source| self.sources.coordinates(*source))
             .collect()
     }
 
     /// Source edges belong to the shared slot and leave with its last path.
     /// Removing one schema alias cannot remove another alias's protection.
     pub(crate) fn link_source(&mut self, path: &CorePath, collection: &str, key: &str) -> bool {
-        if !self.paths.contains_key(path) {
+        let Some(id) = self.paths.get(path).map(|state| state.slot) else {
             return false;
-        }
-        let slot = path.slot();
-        let source = SourceKey {
-            collection: collection.to_string(),
-            key: key.to_string(),
         };
-        let charge = link_charge(&slot, &source);
-        let sources = self.slot_sources.entry(slot.clone()).or_default();
-        if sources.contains(&source) {
-            return true;
+        let slot = self.slots.get(id).expect("warm core slot");
+        if let Some(source) = self.sources.find(collection, key) {
+            if slot.sources.contains(&source) {
+                return true;
+            }
         }
-        if sources.len() >= MAX_SLOT_SOURCES {
+        if slot.sources.len() >= MAX_SLOT_SOURCES {
             return false;
         }
-        sources.insert(source.clone());
-        self.source_slots.entry(source).or_default().insert(slot);
-        self.charge_link(charge);
+        let (source, created) = self.sources.intern(collection, key, id);
+        if created {
+            self.charge_source(self.sources.packed_len(source));
+        } else {
+            self.sources.link(source, id);
+        }
+        self.slots
+            .get_mut(id)
+            .expect("warm core slot")
+            .sources
+            .push(source);
+        self.charge_link(link_charge());
         true
     }
 
@@ -97,55 +99,49 @@ impl CoreWarmSet {
         self.memory.invalidate(changes);
         let slots: HashSet<_> = changes
             .iter()
-            .flat_map(|(collection, key)| {
-                self.source_slots
-                    .get(&SourceKey {
-                        collection: collection.clone(),
-                        key: key.clone(),
-                    })
-                    .into_iter()
-                    .flatten()
-                    .cloned()
-            })
+            .filter_map(|(collection, key)| self.sources.find(collection, key))
+            .filter_map(|source| self.sources.get(source))
+            .flat_map(|source| source.slots.iter())
             .collect();
         for slot in slots {
-            self.invalidate_slot_key(&slot);
+            self.invalidate_slot_key(slot);
         }
     }
 
     /// A direct typed writer can invalidate without a physical source spelling.
     pub(crate) fn invalidate_slot(&mut self, path: &CorePath) {
-        self.invalidate_slot_key(&path.slot());
+        if let Some(id) = self.slot_of(path) {
+            self.invalidate_slot_key(id);
+        }
     }
 
     /// Conservative guard for an untyped write whose logical slot is unknown.
     /// The caller publishes that write and this invalidation under one boundary.
     pub(crate) fn invalidate_molecule(&mut self, scope: Option<&str>, molecule: &str) {
         let slots: Vec<_> = self
-            .slot_owners
-            .keys()
-            .filter(|slot| {
-                slot.molecule.scope.as_deref() == scope && slot.molecule.molecule == molecule
+            .slots
+            .iter()
+            .filter(|(_, slot)| {
+                slot.key.molecule.scope.as_deref() == scope
+                    && slot.key.molecule.molecule.as_ref() == molecule
             })
-            .cloned()
+            .map(|(id, _)| id)
             .collect();
         for slot in slots {
-            self.invalidate_slot_key(&slot);
+            self.invalidate_slot_key(slot);
         }
     }
 
-    pub(super) fn invalidate_slot_key(&mut self, slot: &SlotKey) {
-        let owners: Vec<_> = self
-            .slot_owners
-            .get(slot)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
-        self.forget_slot_sources(slot);
-        self.forget_slot_value(slot);
+    /// The id may already have left with an alias's last owner; that is a no-op.
+    pub(super) fn invalidate_slot_key(&mut self, id: tables::SlotId) {
+        let Some(slot) = self.slots.get(id) else {
+            return;
+        };
+        let owners: Vec<_> = slot.owners.iter().cloned().collect();
+        self.forget_slot_sources(id);
+        self.forget_slot_value(id);
         for path in owners {
-            let forget = if let Some(state) = self.paths.get_mut(&path) {
+            let forget = if let Some(state) = self.paths.get_mut(path.as_ref()) {
                 state.known = false;
                 state.absent = false;
                 state.tip_authorized = false;
@@ -159,19 +155,15 @@ impl CoreWarmSet {
         }
     }
 
-    pub(super) fn forget_slot_sources(&mut self, slot: &SlotKey) {
-        let Some(sources) = self.slot_sources.remove(slot) else {
+    pub(super) fn forget_slot_sources(&mut self, id: tables::SlotId) {
+        let Some(slot) = self.slots.get_mut(id) else {
             return;
         };
-        let released = sources.iter().map(|source| link_charge(slot, source)).sum();
-        self.release_links(released);
+        let sources = std::mem::take(&mut slot.sources);
+        self.release_links(sources.len() * link_charge());
         for source in sources {
-            let empty = self.source_slots.get_mut(&source).is_some_and(|slots| {
-                slots.remove(slot);
-                slots.is_empty()
-            });
-            if empty {
-                self.source_slots.remove(&source);
+            if let Some(packed_len) = self.sources.unlink(source, id) {
+                self.release_source(packed_len);
             }
         }
     }

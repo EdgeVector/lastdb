@@ -4,7 +4,7 @@
 //! atom stays charged while any holder keeps it, including a running call that
 //! outlived the path's purge. A dead entry leaves the gauge at the next sweep.
 
-use super::charge::{atom_charge, path_charge, slot_charge};
+use super::charge::{atom_charge, path_charge, slot_charge, source_charge};
 use super::*;
 
 /// Sweep dead atom entries after this many new tracks, to bound the map.
@@ -38,7 +38,7 @@ pub struct CoreWarmByteStats {
     pub atom_bytes: usize,
     /// Per-slot map entries and key copies.
     pub slot_bytes: usize,
-    /// Source links (the invalidation index).
+    /// Source links and interned source keys (the invalidation index).
     pub link_bytes: usize,
     /// Atom allocations that only a running call keeps.
     pub held_bytes: usize,
@@ -86,14 +86,29 @@ impl CoreWarmSet {
     }
 
     /// Charge a slot when its first owner path arrives.
-    pub(super) fn charge_slot(&mut self, slot: &SlotKey) {
-        self.bytes.slot_bytes += slot_charge(slot);
-        self.bytes.note_peak();
+    pub(super) fn charge_slot(&mut self, id: tables::SlotId) {
+        if let Some(slot) = self.slots.get(id) {
+            self.bytes.slot_bytes += slot_charge(&slot.key);
+            self.bytes.note_peak();
+        }
     }
 
     /// Release a slot when its last owner path leaves.
-    pub(super) fn release_slot(&mut self, slot: &SlotKey) {
-        self.bytes.slot_bytes -= slot_charge(slot);
+    pub(super) fn release_slot(&mut self, id: tables::SlotId) {
+        if let Some(slot) = self.slots.get(id) {
+            self.bytes.slot_bytes -= slot_charge(&slot.key);
+        }
+    }
+
+    /// Charge an interned source key when its first link arrives.
+    pub(super) fn charge_source(&mut self, packed_len: usize) {
+        self.bytes.link_bytes += source_charge(packed_len);
+        self.bytes.note_peak();
+    }
+
+    /// Release an interned source key when its last link leaves.
+    pub(super) fn release_source(&mut self, packed_len: usize) {
+        self.bytes.link_bytes -= source_charge(packed_len);
     }
 
     pub(super) fn charge_link(&mut self, charge: usize) {
@@ -136,11 +151,11 @@ impl CoreWarmSet {
     pub(crate) fn byte_stats(&mut self) -> CoreWarmByteStats {
         self.bytes.sweep();
         let mut owned = HashSet::new();
-        for shared in self.slot_atoms.values() {
-            owned.insert(Arc::as_ptr(&shared.value) as usize);
-        }
-        for slot in self.owned_slots.values() {
-            if let Some(value) = &slot.value {
+        for (_, slot) in self.slots.iter() {
+            if let Some(shared) = &slot.atom {
+                owned.insert(Arc::as_ptr(&shared.value) as usize);
+            }
+            if let Some(value) = slot.owned.as_ref().and_then(|owned| owned.value.as_ref()) {
                 owned.insert(Arc::as_ptr(&value.atom) as usize);
             }
         }
@@ -170,14 +185,15 @@ impl CoreWarmSet {
     fn dirty_bytes(&self) -> usize {
         let mut atoms = HashSet::new();
         let mut bytes = 0;
-        for (path, state) in &self.paths {
+        for state in self.paths.values() {
             if state.dirty.is_none() {
                 continue;
             }
             bytes += state.charge;
             let atom = self
-                .owned_slots
-                .get(&path.slot())
+                .slots
+                .get(state.slot)
+                .and_then(|slot| slot.owned.as_ref())
                 .and_then(|slot| slot.value.as_ref())
                 .map(|value| Arc::as_ptr(&value.atom) as usize);
             if let Some(key) = atom.filter(|key| atoms.insert(*key)) {
