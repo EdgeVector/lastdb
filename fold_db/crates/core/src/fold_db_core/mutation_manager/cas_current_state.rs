@@ -1,6 +1,6 @@
 //! Reads of the current head and fixed-field row state for CAS and aggregates.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use crate::schema::types::{AggregateWinner, Mutation};
 use crate::schema::SchemaError;
@@ -120,7 +120,8 @@ impl MutationManager {
 
     /// Point-read a fixed field set and its latest source-order winner.
     ///
-    /// The winner comes from the same hydrated tips as the returned values.
+    /// Select each tip once, then batch-load their bodies at the same scope.
+    /// The winner comes from the same selected tips as the returned values.
     /// AggregateSet uses it to distinguish an exact replay from a newer
     /// byte-identical mutation that the molecule layer would keep as a no-op.
     pub(super) async fn read_current_row_fields_with_winner(
@@ -129,53 +130,55 @@ impl MutationManager {
         fields: &[String],
         storage_prefix: Option<&str>,
     ) -> Result<(CurrentRowFields, Option<AggregateWinner>), SchemaError> {
-        let mut schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
+        let schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
         let key_value = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
-        let mut changed_keys: HashMap<
-            String,
-            std::collections::HashSet<crate::db_operations::ChangedKey>,
-        > = HashMap::new();
-        for field in fields {
-            let schema_field = schema.runtime_fields.get(field).ok_or_else(|| {
-                SchemaError::InvalidField(format!(
-                    "point read names field '{field}' absent from schema '{}'",
-                    mutation.schema_name
-                ))
-            })?;
-            if let Some(changed) = schema_field.changed_key_for(&key_value) {
-                changed_keys
-                    .entry(field.clone())
-                    .or_default()
-                    .insert(changed);
+        let selected = futures::future::try_join_all(fields.iter().map(|field| {
+            let schema_field = schema.runtime_fields.get(field);
+            let key_value = &key_value;
+            async move {
+                let schema_field = schema_field.ok_or_else(|| {
+                    SchemaError::InvalidField(format!(
+                        "point read names field '{field}' absent from schema '{}'",
+                        mutation.schema_name
+                    ))
+                })?;
+                let entry = self
+                    .point_read_field_entry(
+                        &mutation.schema_name,
+                        field,
+                        schema_field,
+                        key_value,
+                        storage_prefix,
+                    )
+                    .await?;
+                Ok::<_, SchemaError>((field, entry, schema_field.partition_hint(key_value)))
             }
+        }))
+        .await?;
+        let selected: Vec<_> = selected
+            .into_iter()
+            .filter_map(|(field, entry, hint)| entry.map(|entry| (field, entry, hint)))
+            .collect();
+        if selected.is_empty() {
+            return Ok((CurrentRowFields::Absent, None));
         }
-        self.restore_missing_molecules(&mut schema, &changed_keys)
+        let slots: Vec<_> = selected
+            .iter()
+            .map(|(_, entry, hint)| (entry.atom_uuid.as_str(), hint.clone()))
+            .collect();
+        let atoms = self
+            .db_ops
+            .atoms()
+            .get_atoms_located(&slots, storage_prefix)
             .await?;
-
+        if atoms.len() != selected.len() {
+            return Err(SchemaError::StorageRead {
+                detail: "point-read atom count differs from selected field count".into(),
+            });
+        }
         let mut values = BTreeMap::new();
-        let mut saw_tip = false;
         let mut latest_winner: Option<AggregateWinner> = None;
-        for field in fields {
-            let schema_field = schema.runtime_fields.get(field).ok_or_else(|| {
-                SchemaError::InvalidField(format!(
-                    "point read names field '{field}' absent from schema '{}'",
-                    mutation.schema_name
-                ))
-            })?;
-            let Some(entry) = self
-                .point_read_field_entry(
-                    &mutation.schema_name,
-                    field,
-                    schema_field,
-                    &key_value,
-                    storage_prefix,
-                )
-                .await?
-            else {
-                continue;
-            };
-            let uuid = entry.atom_uuid.clone();
-            saw_tip = true;
+        for ((field, entry, _), atom) in selected.into_iter().zip(atoms) {
             let winner = AggregateWinner {
                 logical_counter: entry.logical_counter,
                 written_at: entry.written_at,
@@ -187,17 +190,15 @@ impl MutationManager {
                 None => latest_winner = Some(winner),
                 _ => {}
             }
-            let hint = schema_field.partition_hint(&key_value);
-            let content = self
-                .read_atom_content(&uuid, hint.as_ref(), storage_prefix)
-                .await?;
-            let content = match content {
-                Some(content) if !crate::atom::is_tombstone_value(&content) => content,
+            let content = match atom {
+                Some(atom) if !crate::atom::is_tombstone_value(atom.content()) => {
+                    atom.content().clone()
+                }
                 _ => {
                     return Ok((
                         CurrentRowFields::Corrupt {
                             field: field.clone(),
-                            atom_uuid: uuid,
+                            atom_uuid: entry.atom_uuid,
                         },
                         None,
                     ));
@@ -205,15 +206,11 @@ impl MutationManager {
             };
             values.insert(field.clone(), content);
         }
-        if saw_tip {
-            Ok((CurrentRowFields::Present(values), latest_winner))
-        } else {
-            Ok((CurrentRowFields::Absent, None))
-        }
+        Ok((CurrentRowFields::Present(values), latest_winner))
     }
 
     /// Load the current selected tip of one field through the core storage
-    /// reader, with the schema's field entry as a fallback when none is returned.
+    /// reader. Schema metadata does not carry record values.
     /// `None` means the key is tombstoned or has no tip.
     async fn point_read_field_entry(
         &self,
@@ -238,7 +235,7 @@ impl MutationManager {
                 ))
             })?;
         let changed = std::collections::HashSet::from([changed_key.clone()]);
-        let durable_entry = self
+        Ok(self
             .db_ops
             .atoms()
             .load_molecule_for_write(&molecule_uuid, storage_prefix, &changed)
@@ -247,7 +244,6 @@ impl MutationManager {
                 molecule
                     .get_atom_entry(changed_key.disk_hash(), changed_key.disk_range())
                     .cloned()
-            });
-        Ok(durable_entry.or_else(|| schema_field.atom_entry_at_key(key_value).cloned()))
+            }))
     }
 }
