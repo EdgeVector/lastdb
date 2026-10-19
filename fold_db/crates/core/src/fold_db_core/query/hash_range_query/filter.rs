@@ -107,12 +107,15 @@ impl HashRangeQueryProcessor {
         let pass_a = self
             .query_cokey_with_sources(
                 schema,
-                &scan_fields,
-                pass_a_filter,
-                None,
-                include_tombstones,
-                &received_from_namespaces,
-                request_concurrency,
+                CokeySelection {
+                    fields: &scan_fields,
+                    key_fields: Some(fields),
+                    filter: pass_a_filter,
+                    window: None,
+                    include_tombstones,
+                    received_from_namespaces: &received_from_namespaces,
+                    request_concurrency,
+                },
             )
             .await?;
         let kept_keys = self.select_condition_keys(&pass_a, &options);
@@ -172,12 +175,15 @@ impl HashRangeQueryProcessor {
         let received = self.collect_received_from_namespaces().await?;
         self.query_cokey(
             schema,
-            fields,
-            filter,
-            window,
-            include_tombstones,
-            &received,
-            request_concurrency,
+            CokeySelection {
+                fields,
+                key_fields: None,
+                filter,
+                window,
+                include_tombstones,
+                received_from_namespaces: &received,
+                request_concurrency,
+            },
         )
         .await
     }

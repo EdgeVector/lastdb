@@ -351,15 +351,7 @@ impl HashRangeQueryProcessor {
     /// rows, matching `query_cokey_with_sources`.
     fn count_fallback_field(schema: &Schema, fields: &[String]) -> Option<String> {
         let primary = Self::count_field_names(schema, fields).into_iter().next()?;
-        if fields.iter().any(|field| field == &primary) {
-            return None;
-        }
-        fields
-            .iter()
-            .find(|field| {
-                field.as_str() != primary.as_str()
-                    && schema.runtime_fields.contains_key(field.as_str())
-            })
-            .cloned()
+        let selected = Self::cokey_selected_fields(schema, fields);
+        Self::cokey_fallback_field(&selected, &primary).map(ToString::to_string)
     }
 }

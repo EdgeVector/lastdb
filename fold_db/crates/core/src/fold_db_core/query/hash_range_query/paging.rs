@@ -219,7 +219,7 @@ impl HashRangeQueryProcessor {
         ) {
             return None;
         }
-        if schema.key.as_ref()?.hash_field.as_deref() != primary_name {
+        if primary_name != Some(schema.key.as_ref()?.hash_field.as_deref()?) {
             return None;
         }
         match filter? {
@@ -272,5 +272,17 @@ impl HashRangeQueryProcessor {
             }
         }
         selected[0].clone()
+    }
+
+    /// One selected non-primary field can supply keys when the spine is empty.
+    /// Both reads and counts pass normalized fields, including `fields: []`.
+    pub(super) fn cokey_fallback_field<'a>(
+        selected: &'a [String],
+        primary: &str,
+    ) -> Option<&'a str> {
+        selected
+            .iter()
+            .find(|field| field.as_str() != primary)
+            .map(String::as_str)
     }
 }
