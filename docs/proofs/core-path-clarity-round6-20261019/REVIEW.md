@@ -81,3 +81,13 @@ The correction uses the existing exact batch reader for Hash selectors and remov
 The final compiler boundary remains three direct `fn` to `BoxFuture` scope wrappers and one boxed lane dispatch. There is no recursion-limit override or nested experimental box.
 
 Result: no unresolved blocker in this independent source review. This review used source and saved failure receipts; it did not run product calls. The fresh product result remains pending at this review. `RESULTS.md` records that separate outcome.
+
+## Independent main integration review at 3dfcf8d6
+
+Main advanced to `fadd60ab` during finalization. PR 221 removed the unused protein fold queue and its boot prefix read. The clean merge produced source `3dfcf8d658a7f9d8efdd55cc0635c0322e0ef88f`.
+
+The independent interaction review found no blocker. The incoming change removes the unused queue methods and imports from `protein/ops.rs`. The public member-add wrapper, private member body, shared membership gate, and schema lock order remain intact. Current shared-field writes retain their existing same-request route.
+
+The removed queue type, processor, prefix constant, and counter methods have no active Rust references. The remaining physical prefix classifications serve disk administration. The report field stays at zero for installed clients. It does not represent another write authority.
+
+This integration review used source only. The required workspace and additional Clippy checks passed on the combined source. `RESULTS.md` records the separate release and product outcome for that source.

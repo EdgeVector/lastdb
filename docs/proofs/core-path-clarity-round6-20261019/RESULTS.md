@@ -2,7 +2,7 @@
 
 **Final product completion: passed on fresh synthetic data.**
 
-Final source: `7ce1056b71877534b30bb58a51891ecc0b1ca42a`.
+Final source: `3dfcf8d658a7f9d8efdd55cc0635c0322e0ef88f`.
 
 ## Motivation and changes
 
@@ -34,7 +34,9 @@ The cold Hash loader found the stored tip but compared its encoded hash with the
 
 The required workspace and additional Clippy checks passed for the final source. Format, file size, function size, and added-lint-exemption checks also passed. Three boxed entry futures and one boxed lane dispatch retain the compiler's required type boundaries. They add no recursion-limit override or lint exemption. No tests ran.
 
-The normal release build passed. Its executable SHA-256 is `44cbb843110030779eb38d2c75c5620f30043c4b0e4971fe6c010d2d79081196`. All 1,876 captured build inputs match the reviewed source. The compact source receipt reconstructs this inventory from the retained Round 5 inventory.
+The normal release build passed. Its executable SHA-256 is `efe05898cfd8f3a5c6ca233e78adfb5575ab86f2c650db3f280f3dcb1a6b9f1b`. All 1,876 captured build inputs match the reviewed source. The compact source receipt reconstructs this inventory from the retained Round 5 inventory.
+
+Main advanced during finalization. PR 221 removed the unused protein fold queue and its boot prefix read. The clean merge retained our membership gate, schema lock order, and current shared-field write route. The report field stays at zero for installed clients. Full workspace and additional Clippy checks passed again on the combined source. The final release and product exercise also use that combined source.
 
 The final ordinary API exercise passed:
 
@@ -44,9 +46,9 @@ The final ordinary API exercise passed:
 - A normal stop and reopen retained the values, counts, and atom identities. All three formerly failed cold Hash counts passed.
 - Explicit Purge removed the target through both protein keys. The unrelated record remained correct before and after reopen.
 
-The original operation inputs, hidden-sort extension, and nine existing helpers remained unchanged across the attempts. No executable exercise helper was added. `current-product/result.json` records the final result; `current-seal.json` records hashes for its nine evidence files. Both earlier failed results remain separate and unchanged. All five final node sessions stopped normally without force.
+The original operation inputs, hidden-sort extension, and nine existing helpers remained unchanged across the attempts. No executable exercise helper was added. `merged-product/result.json` records the final result; `merged-seal.json` records hashes for its nine evidence files. Both earlier failed results and the successful premerge result remain separate and unchanged. All five final node sessions stopped normally without force.
 
-All three owned synthetic homes are removed through the supported exact-home cleanup. Independent reviews checked ownership, stopped processes, open files, sockets, and preserved evidence before each cleanup. All 27 sealed evidence files remain unchanged.
+All four owned synthetic homes are removed through the supported exact-home cleanup. Independent reviews checked ownership, stopped processes, open files, sockets, and preserved evidence before each cleanup. All 36 sealed evidence files remain unchanged.
 
 Raw core field maps can include key and sort helpers; response formatters remove the unprojected sort helper. `FieldQueryOptions` replaces the processor's long positional argument list. Schema write methods return boxed futures with the same awaited result. These changes affect Rust signatures. The wire query format stays the same.
 
