@@ -60,3 +60,24 @@ Result: no unresolved blocker in the final independent binder review. This follo
 The membership scope and the schema write/delete scopes return boxed futures. The lane dispatch also uses one boxed future. These four boundaries keep the compiler's type depth within its limit. Each call uses one box at its boundary; there is no nested box. They preserve the native transaction and lock order.
 
 The required workspace Clippy check passes with these boundaries. The receipt is `validation/clippy-workspace-final-layout.txt` (exit 0). The saved failure without the lane box explains why that boundary remains. This compiler check does not establish the product result.
+
+## Independent cold Hash follow-up at 7ce1056b
+
+Reviewed source: `7ce1056b71877534b30bb58a51891ecc0b1ca42a`.
+
+The saved `c20b11e9` operation passed the checks before normal stop. After normal reopen, three Hash count guards returned 409. The other nine HashRange queries returned correct results. Full workspace Clippy and the additional non-test lint checks pass for the corrected source.
+
+The cold Hash loader found the stored tip but kept its encoded hash. The next filter compared that hash with the caller's API hash and found no key. The stored tips remained intact; this was a comparison failure. The warm path bypassed that loader, which explains the earlier pass. HashRange used API coordinates and retained its correct result.
+
+The correction uses the existing exact batch reader for Hash selectors and removes the old `scan_1d_hash_slot` path. It adds no cache or count-only route. The independent source review confirms these rules:
+
+- The loader keeps the caller's API hash and the canonical empty range.
+- The exact reader records the actual winning physical tip before API projection. Later field projection preserves that selected atom location.
+- The full entry, field metadata, writer metadata, and namespace scope remain unchanged.
+- Captured writes, Delete barriers, and the existing tombstone checks still determine visibility.
+- The selected-tip identity treats an absent range and an empty range equally. Hash projection therefore finds the same selected tip and file location.
+- Range and page paths remain unchanged.
+
+The final compiler boundary remains three direct `fn` to `BoxFuture` scope wrappers and one boxed lane dispatch. There is no recursion-limit override or nested experimental box.
+
+Result: no unresolved blocker in this independent source review. This review used source and saved failure receipts; it did not run product calls. The fresh product result remains pending at this review. `RESULTS.md` records that separate outcome.

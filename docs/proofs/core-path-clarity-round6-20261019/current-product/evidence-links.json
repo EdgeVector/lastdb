@@ -1,0 +1,29 @@
+{
+  "canonical_evidence": {
+    "docs/proofs/core-path-clarity-round6-20261019/current-release-identity.json": {
+      "bytes": 4668,
+      "sha256": "6c65ac2f3c2577caf4a90d119a42c98a6538b7ad57cb5d6c4b452df00f6c9fe3"
+    },
+    "docs/proofs/core-path-clarity-round6-20261019/current-source-inputs/source-inputs.json": {
+      "bytes": 340764,
+      "sha256": "0fa4d791547d9938848df0958b66dee595c4a43eb0599ba003d91fbc1ccfaeae"
+    },
+    "docs/proofs/core-path-clarity-round6-20261019/hidden-order-extension-identity.json": {
+      "bytes": 450,
+      "sha256": "2a73f4d446a7b73ed8940a41afdcf6e7e79db4684a7ebff5f6fe9ee10ca4b0da"
+    },
+    "docs/proofs/core-path-clarity-round6-20261019/hidden-order-extension-inputs.json": {
+      "bytes": 1414,
+      "sha256": "8dea44e30f7ce40138716f9bf2e66e42b8300beeab725bb901041f30883527fc"
+    },
+    "docs/proofs/core-path-clarity-round6-20261019/operation-helper-identity.json": {
+      "bytes": 1932,
+      "sha256": "35267be9f19bfa25be1b1e3da5779ce2cda1fd8c4f9890b83ee0fdbed4536222"
+    },
+    "docs/proofs/core-path-clarity-round6-20261019/operation-inputs.json": {
+      "bytes": 42852,
+      "sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835"
+    }
+  },
+  "scope": "Hashes link the complete current run to unchanged exact requests/helpers and current source+binary identity. No duplicate static input or full source inventory is copied. Both earlier failed runs stay separate and unchanged."
+}

@@ -1,0 +1,69 @@
+{
+  "all_owned_nodes_stopped_normally": true,
+  "binary_sha256": "44cbb843110030779eb38d2c75c5620f30043c4b0e4971fe6c010d2d79081196",
+  "cohort_read_calls_checked": 74,
+  "cohort_strict_zero_file_calls": 29,
+  "complete": true,
+  "creator_pid": 23859,
+  "error": null,
+  "hidden_order_extension_sha256": "8dea44e30f7ce40138716f9bf2e66e42b8300beeab725bb901041f30883527fc",
+  "last_phase": "complete",
+  "normal_node_stops": [
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 23865,
+      "variant": "round6current"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 24734,
+      "variant": "round6current"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 24735,
+      "variant": "round6current"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 25133,
+      "variant": "round6current"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 25897,
+      "variant": "round6current"
+    }
+  ],
+  "operation_input_sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835",
+  "release_identity_sha256": "6c65ac2f3c2577caf4a90d119a42c98a6538b7ad57cb5d6c4b452df00f6c9fe3",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.4vus5ve_",
+  "scope": "Ordinary fresh synthetic API evidence only. Identical unchanged inputs and helpers; both previous failed results stay separate. No benchmark or deterministic internal capture claim. Raw receipts preserve every request and outcome.",
+  "source_commit": "7ce1056b71877534b30bb58a51891ecc0b1ca42a",
+  "static_expected_refusal_items": 1,
+  "static_phase_counts": {
+    "hidden-sort-extension": 2,
+    "main-normal-reopen": 12,
+    "main-static-queries": 74,
+    "typed-protein-after-purge": 4,
+    "typed-protein-before-purge": 4,
+    "typed-protein-normal-reopen": 4
+  },
+  "static_query_items_checked": 100,
+  "static_success_items": 99
+}
