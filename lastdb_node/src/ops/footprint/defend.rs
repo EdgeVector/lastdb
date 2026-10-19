@@ -1,8 +1,8 @@
 //! The measured-footprint defence tick, split into its phases.
 //!
 //! [`defend_measured_footprint`] reads like the tick: sample the host, purge
-//! the allocator, refresh the governor snapshot, move the warm budget, run the
-//! stepwise eviction pass, then record the result. Each phase is a function
+//! the allocator, refresh the governor snapshot, purge clean logical records,
+//! then record the result. Each phase is a function
 //! here so the order stays visible and each phase owns one lock scope.
 
 #[path = "defend/pass.rs"]
@@ -17,7 +17,6 @@ use super::*;
 struct PressureLines {
     pressure_high: bool,
     pressure_target: u64,
-    pressure_hard: u64,
     evict_target_bytes: u64,
     state_hard_bytes: u64,
 }
@@ -29,7 +28,6 @@ impl PressureLines {
         Self {
             pressure_high,
             pressure_target,
-            pressure_hard,
             evict_target_bytes: if pressure_high {
                 pressure_target
             } else {
