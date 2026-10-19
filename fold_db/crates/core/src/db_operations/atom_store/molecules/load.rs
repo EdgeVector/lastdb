@@ -168,8 +168,8 @@ impl AtomStore {
         let mut slots = Vec::with_capacity(changed.len());
         let mut groups = Vec::with_capacity(changed.len());
         for ck in changed {
-            let api_hash = ck.disk_hash();
-            let api_range = ck.disk_range();
+            let api_hash = ck.hash_or_empty();
+            let api_range = ck.range_or_empty();
             let storage_hash = self.storage_hash(molecule_uuid, api_hash)?;
             let storage_range = self.storage_range(molecule_uuid, api_range)?;
             let key = molecule_key_codec::hash_range_record_key(

@@ -108,7 +108,7 @@ impl MutationManager {
         let mut groups = vec![Vec::new(); slots.len()];
         for ((molecule, hash, range), position) in slots {
             groups[position] = atoms
-                .key_codec_for_molecule(&molecule)
+                .key_codec_for_molecule(&molecule)?
                 .api_hash_range_record_keys_for_read(&molecule, &hash, &range)
                 .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
         }
@@ -250,7 +250,7 @@ fn move_requests(
                 ) else {
                     continue;
                 };
-                let Some(source_key) = field.disk_slot_for_key(&input.keys[idx]) else {
+                let Some(source_key) = field.slot_coordinates(&input.keys[idx]) else {
                     continue;
                 };
                 if requests.len() >= 10_000 {
@@ -310,7 +310,7 @@ fn association_slots(
         .filter_map(|field| {
             Some((
                 field.common().molecule_uuid()?.clone(),
-                field.disk_slot_for_key(&input.keys[idx])?,
+                field.slot_coordinates(&input.keys[idx])?,
             ))
         })
         .map(|(molecule, (hash, range))| slot_index(slots, (molecule, hash, range)))
@@ -372,8 +372,8 @@ fn update_index(updates: &[SiblingUpdate], origins: &[SiblingOrigin]) -> UpdateI
                     origin.source.0,
                     origin.source.1.clone(),
                     molecule.clone(),
-                    key.disk_hash().to_owned(),
-                    key.disk_range().to_owned(),
+                    key.hash_or_empty().to_owned(),
+                    key.range_or_empty().to_owned(),
                 ),
                 position,
             );

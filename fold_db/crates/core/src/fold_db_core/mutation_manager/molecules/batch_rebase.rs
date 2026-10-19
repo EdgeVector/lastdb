@@ -57,7 +57,7 @@ impl BatchSlotHeads {
                 continue;
             };
             for key in changed {
-                let (hash, range) = (key.disk_hash(), key.disk_range());
+                let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
                 let Some(head) = self
                     .0
                     .get(&(uuid.clone(), hash.to_string(), range.to_string()))
@@ -80,7 +80,7 @@ impl BatchSlotHeads {
         let Some(uuid) = field.common().molecule_uuid().cloned() else {
             return;
         };
-        let Some((hash, range)) = field.disk_slot_for_key(key) else {
+        let Some((hash, range)) = field.slot_coordinates(key) else {
             return;
         };
         if let Some(head) = self.0.get(&(uuid.clone(), hash.clone(), range.clone())) {
@@ -130,7 +130,7 @@ impl BatchSlotHeads {
     }
 
     fn record_slot(&mut self, uuid: &str, data: &MoleculeHashRange, key: &ChangedKey) {
-        let (hash, range) = (key.disk_hash(), key.disk_range());
+        let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
         if let Some(head) = SlotHead::at(data, hash, range) {
             self.0.insert(
                 (uuid.to_string(), hash.to_string(), range.to_string()),
@@ -191,7 +191,7 @@ fn winning_sources(
             let uuid = field.common().molecule_uuid()?;
             let source = (*idx, uuid.clone(), atom.uuid().to_string());
             let accepted = accepted.get(&source)?;
-            let (hash, range) = field.disk_slot_for_key(&delta.mutation_key_values[*idx])?;
+            let (hash, range) = field.slot_coordinates(&delta.mutation_key_values[*idx])?;
             let head = SlotHead::at(field.molecule.as_ref()?, &hash, &range)?;
             (head.entry.lww_key() == accepted.lww_key()).then_some((source, head))
         })
@@ -241,7 +241,7 @@ impl MutationManager {
             }
             let mut rebased = empty_molecule(&uuid, data.version());
             for key in &changed {
-                let (hash, range) = (key.disk_hash(), key.disk_range());
+                let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
                 let slot = (uuid.clone(), hash.to_string(), range.to_string());
                 let base = heads.0.get(&slot).cloned().or_else(|| {
                     origin
@@ -262,7 +262,7 @@ impl MutationManager {
     }
 
     fn apply_sibling_source(data: &mut MoleculeHashRange, key: &ChangedKey, source: &SlotHead) {
-        let (hash, range) = (key.disk_hash(), key.disk_range());
+        let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
         let entry = &source.entry;
         let accepted = data.set_atom_uuid_from_values_imported_with_author(
             hash.to_string(),

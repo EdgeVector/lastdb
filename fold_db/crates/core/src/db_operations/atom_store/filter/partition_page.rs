@@ -21,7 +21,6 @@ type TipRows = BTreeMap<String, TipSlots>;
 struct TipLane {
     prefix: String,
     lane: String,
-    index: usize,
 }
 
 /// Paging state shared by the rounds of `scan_hash_tip_window`.
@@ -73,48 +72,33 @@ fn codec_err(e: impl std::fmt::Display) -> SchemaError {
     SchemaError::InvalidData(format!("partition page codec: {e}"))
 }
 
-/// Build the ordered streams. The first OPE word has a fixed high 24 bits for
-/// each key and molecule. Each six-hex-digit prefix is one independently
-/// ordered stream, including the fallback key during key rotation. A rare
-/// first-word PRF collision cannot certify a single stream: return `None`.
+/// Each current molecule has one fixed OPE key. Its first encoded word
+/// identifies the ordered nonempty range stream; empty ranges stay separate.
 fn hash_tip_lanes(
     codec: &molecule_key_codec::MoleculeKeyCodec,
     prefixes: &[String],
-) -> Result<Option<Vec<TipLane>>, SchemaError> {
-    let mut lanes = Vec::new();
-    for prefix in prefixes {
-        let uid = molecule_key_codec::molecule_uuid_from_storage_key(prefix)
-            .expect("codec molecule prefix");
-        if codec.range_encoding().writes_ope() {
-            let candidates = codec
-                .storage_range_read_candidates(uid, "\0")
-                .map_err(codec_err)?;
-            let mut seen = std::collections::HashSet::new();
-            for (index, candidate) in candidates.into_iter().enumerate() {
-                let family = &candidate[..6];
-                if !seen.insert(family.to_owned()) {
-                    return Ok(None);
-                }
-                lanes.push(TipLane {
-                    prefix: prefix.clone(),
-                    lane: format!("{prefix}{family}"),
-                    index,
-                });
-            }
-        } else {
-            lanes.push(TipLane {
+) -> Result<Vec<TipLane>, SchemaError> {
+    prefixes
+        .iter()
+        .map(|prefix| {
+            let lane = if codec.range_encoding().writes_ope() {
+                let uid = molecule_key_codec::molecule_uuid_from_storage_key(prefix)
+                    .expect("codec molecule prefix");
+                let first = codec.storage_range(uid, "\0").map_err(codec_err)?;
+                format!("{prefix}{}", &first[..6])
+            } else {
+                prefix.clone()
+            };
+            Ok(TipLane {
                 prefix: prefix.clone(),
-                lane: prefix.clone(),
-                index: 0,
-            });
-        }
-    }
-    Ok(Some(lanes))
+                lane,
+            })
+        })
+        .collect()
 }
 
 impl AtomStore {
     /// Select a HashKey page from ordered encrypted-key streams.
-    /// Current encryption-key candidates win ties within the exact molecule.
     pub(crate) async fn scan_hash_tip_window(
         &self,
         molecule: &str,
@@ -129,7 +113,7 @@ impl AtomStore {
         {
             return Ok(Some(rows));
         }
-        let codec = self.key_codec_for_molecule(molecule);
+        let codec = self.key_codec_for_molecule(molecule)?;
         let prefixes = codec
             .api_hash_range_scan_prefixes_for_read(molecule, hash)
             .map_err(codec_err)?;
@@ -145,9 +129,7 @@ impl AtomStore {
         // pages without repeatedly decoding them, while bounding offset walks
         // and large internal callers to at most 1,024 tips per stream.
         let batch_limit = limit.clamp(128, 1024);
-        let Some(lanes) = hash_tip_lanes(&codec, &prefixes)? else {
-            return Ok(None);
-        };
+        let lanes = hash_tip_lanes(&codec, &prefixes)?;
         let mut page = TipPageCursor {
             skip,
             after,
@@ -222,8 +204,8 @@ impl AtomStore {
             .filter(|range| !range.is_empty() || !writes_ope)
             .map(|range| {
                 codec
-                    .storage_range_read_candidates(uid, range)
-                    .map(|ranges| format!("{}{}", lane.prefix, ranges[lane.index]))
+                    .storage_range(uid, range)
+                    .map(|range| format!("{}{range}", lane.prefix))
             })
             .transpose()
             .map_err(codec_err)?;

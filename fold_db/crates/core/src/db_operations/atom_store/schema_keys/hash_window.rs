@@ -46,7 +46,7 @@ impl AtomStore {
         let Some(runtime) = self.schema_keys_runtime() else {
             return Ok(None);
         };
-        let codec = self.key_codec_for_molecule(molecule);
+        let codec = self.key_codec_for_molecule(molecule)?;
         let Some(lanes) = self.ready_hash_lanes(&runtime, molecule, api_hash, scope, &codec)?
         else {
             return Ok(None);

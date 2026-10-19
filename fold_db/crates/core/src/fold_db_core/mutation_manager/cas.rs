@@ -10,9 +10,9 @@ use super::MutationManager;
 
 /// Integrity-aware result for an exact fixed-field row read.
 ///
-/// Aggregate rows must distinguish a row with no tips from a row whose tips
-/// exist but whose bodies cannot resolve. Treating both as an empty map can
-/// apply the same contribution twice and certify a corrupt summary.
+/// Missing selected bodies return an error. Tombstone-only fields are absent;
+/// live fields mixed with tombstones are corrupt for aggregate reconstruction.
+/// A corrupt aggregate must not be treated as an empty prior contribution.
 #[derive(Debug)]
 pub(super) enum CurrentRowFields {
     Absent,
@@ -211,7 +211,7 @@ impl MutationManager {
             .filter_map(|field| field.common().molecule_uuid().map(String::as_str))
             .collect();
         let mut sibling_molecules = HashSet::new();
-        for protein in self.proteins_of_schema_molecules(source, None).await? {
+        for protein in self.proteins_of_schema_molecules(source).await? {
             for member in protein.members {
                 if !source_molecules.contains(member.molecule_uuid.as_str()) {
                     sibling_molecules.insert(member.molecule_uuid);
@@ -258,7 +258,7 @@ impl MutationManager {
                 expanded.push(mutation);
                 return Ok(());
             }
-            CurrentRowFields::Corrupt { .. } => return Err(SchemaError::MissingLocalAtom),
+            CurrentRowFields::Corrupt { .. } => return Err(SchemaError::MissingSelectedAtom),
         };
         overlay_caller_key(&mut values, &source, &mutation);
 
@@ -279,12 +279,11 @@ impl MutationManager {
         mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<Mutation>, SchemaError> {
-        // An org replica owns its catalog membership separately. This local
-        // open-set path must not manufacture a peer delete inside that prefix.
-        if storage_prefix.is_some()
-            || !mutations
-                .iter()
-                .any(|mutation| matches!(mutation.mutation_type, MutationType::Delete))
+        // Global protein definitions select peers. Their row reads and derived
+        // deletes stay in this batch's data scope; no catalog entry is added.
+        if !mutations
+            .iter()
+            .any(|mutation| matches!(mutation.mutation_type, MutationType::Delete))
         {
             return Ok(mutations);
         }

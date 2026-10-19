@@ -57,7 +57,7 @@ impl MutationManager {
             // data_share) goes through last-writer-wins in the molecule and
             // may legitimately lose to a newer tip, so it is exempt here.
             if mutation.imported_written_at.is_none() && mutation.provenance.is_none() {
-                let written = super::super::helpers::current_atom_uuid(schema_field, key_value);
+                let written = schema_field.current_atom_uuid(key_value);
                 debug_assert_eq!(
                     written.as_deref(),
                     Some(atom.uuid()),
@@ -137,9 +137,7 @@ impl MutationManager {
         let eligible =
             eligible_protein_atoms(schema, schema_mutations, mutation_key_values, atom_results);
         let member_uuids = super::protein_key_fields::member_ids(schema);
-        let metadata =
-            load_protein_fold_metadata(store, &member_uuids, schema_storage_prefix(schema, None))
-                .await?;
+        let metadata = load_protein_fold_metadata(store, &member_uuids).await?;
         if metadata.0.values().all(Option::is_none) {
             return Ok((Vec::new(), Vec::new(), Vec::new()));
         }

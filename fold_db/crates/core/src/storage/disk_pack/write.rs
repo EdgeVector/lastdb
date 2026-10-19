@@ -8,7 +8,7 @@ pub(super) struct PreparedCommit {
     accepted_ms: u64,
 }
 
-/// New operations and replacement quota; the accepted prefix stays in the queue.
+/// New operations and added space; the accepted prefix stays in the queue.
 pub(super) struct PreparedAppend {
     incoming: PreparedCommit,
 }
@@ -29,11 +29,15 @@ impl PreparedAppend {
         Ok(())
     }
 
-    /// Capacity and complete replacement quota precede visible publication.
+    /// Reserved capacity and added space precede visible publication.
     pub(super) fn finish(mut self, previous: Option<PreparedCommit>) -> PreparedCommit {
         if let Some(mut previous) = previous {
             previous.operations.append(&mut self.incoming.operations);
             self.incoming.operations = std::mem::take(&mut previous.operations);
+            // The write gate retains this exact prefix during preparation.
+            // Transfer both quotas without changing their ledger totals.
+            self.incoming.space.absorb(previous.space);
+            self.incoming.reservation.absorb(previous.reservation);
         }
         self.incoming
     }
@@ -166,9 +170,14 @@ impl PackRuntime {
             None => writer.reserve_mutation(&operations),
         }
         .map_err(map)?;
-        let space = writer
-            .reserve_space(reservation.quote().physical_bytes(), &self.space_policy)
-            .map_err(map)?;
+        let physical_bytes = reservation.quote().physical_bytes();
+        let space = match previous {
+            Some(previous) => previous
+                .space
+                .reserve_extension(&self.space_policy, physical_bytes),
+            None => writer.reserve_space(physical_bytes, &self.space_policy),
+        }
+        .map_err(map)?;
         Ok(PreparedCommit {
             operations,
             batch_bytes,

@@ -97,7 +97,7 @@ pub(in crate::fold_db_core) fn validate_storage_slot_purge_targets(
                 target.field_name
             )));
         }
-        if field.disk_slot_for_key(&target.storage_key).is_none() {
+        if field.slot_coordinates(&target.storage_key).is_none() {
             return Err(SchemaError::InvalidData(format!(
                 "Storage-slot purge target has the wrong key shape for field '{}' in schema '{schema_name}'",
                 target.field_name

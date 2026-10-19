@@ -223,7 +223,7 @@ impl AtomStore {
             let api_range = match api_range_for_response {
                 Some(api) => api.to_string(),
                 None if self
-                    .key_codec_for_molecule(molecule_uuid)
+                    .key_codec_for_molecule(molecule_uuid)?
                     .range_encoding()
                     .writes_ope() =>
                 {

@@ -52,7 +52,7 @@ pub(crate) fn collect_core_live_atom_uuids(
     let codecs: Vec<_> = bindings
         .iter()
         .map(|(_, molecule)| db_ops.atoms().key_codec_for_molecule(molecule))
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     runtime.current_core_atom_uuids(&bindings, |index, hash, range| {
         let Some(targets) = &excluded[index] else {
             return Ok(true);

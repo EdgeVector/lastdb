@@ -71,7 +71,7 @@ impl HashRangeQueryProcessor {
         let mut slots = Vec::with_capacity(keys.len());
         let mut kv_for_slots = Vec::with_capacity(keys.len());
         for kv in keys {
-            if let Some(slot) = context.field.disk_slot_for_key(kv) {
+            if let Some(slot) = context.field.slot_coordinates(kv) {
                 slots.push(slot);
                 kv_for_slots.push(kv.clone());
             }
@@ -110,7 +110,7 @@ impl HashRangeQueryProcessor {
                 let candidates = self
                     .db_ops
                     .atoms()
-                    .key_codec_for_molecule(context.molecule)
+                    .key_codec_for_molecule(context.molecule)?
                     .api_hash_range_record_keys_for_read(context.molecule, h, r)
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
                 self.db_ops.atoms().note_missing_query_key(
@@ -171,7 +171,7 @@ impl HashRangeQueryProcessor {
         }
         let pairs: Vec<_> = keys
             .iter()
-            .filter_map(|key| context.field.disk_slot_for_key(key))
+            .filter_map(|key| context.field.slot_coordinates(key))
             .collect();
         let filter = HashRangeFilter::HashRangeKeys(pairs);
         let Some(matches) = crate::storage::disk_pack::logical_paths::core_filter::matches(
@@ -190,7 +190,7 @@ impl HashRangeQueryProcessor {
             .map(|(key, atom, meta, writer, partition)| (key, (atom, meta, writer, partition)))
             .collect();
         for key in keys {
-            let Some((hash, range)) = context.field.disk_slot_for_key(key) else {
+            let Some((hash, range)) = context.field.slot_coordinates(key) else {
                 continue;
             };
             let selected =

@@ -178,7 +178,7 @@ impl MutationManager {
                 writer_id: source.author_clock_writer_id.clone(),
                 mutation_uuid: source.uuid.clone(),
             };
-            let target_key = KeyValue::from_storage_key(&guard.target_key);
+            let target_key = KeyValue::from_storage_key(&guard.target_key)?;
             let lock_key = Self::aggregate_target_lock_key(
                 storage_prefix,
                 &guard.target_schema_name,
@@ -273,7 +273,7 @@ impl MutationManager {
                         serde_json::Value::String(token),
                     ),
                 ]),
-                KeyValue::from_storage_key(&guard.target_key),
+                KeyValue::from_storage_key(&guard.target_key)?,
                 pub_key,
                 MutationType::Update,
             );

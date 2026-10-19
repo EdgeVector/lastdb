@@ -7,20 +7,14 @@ use super::{
 use crate::atom::TipAuthor;
 
 impl AtomStore {
-    /// Resolve distinct member backrefs with one storage batch.
-    pub(crate) async fn protein_of_molecules_in_scope(
+    /// Resolve global molecule membership definitions with one storage batch.
+    pub(crate) async fn protein_of_molecules(
         &self,
         molecule_uuids: &[String],
-        storage_prefix: Option<&str>,
     ) -> Result<Vec<Option<String>>, SchemaError> {
         let keys: Vec<String> = molecule_uuids
             .iter()
-            .map(|uuid| {
-                crate::schema::types::field::build_storage_key(
-                    storage_prefix,
-                    &member_backref_key(uuid),
-                )
-            })
+            .map(|uuid| member_backref_key(uuid))
             .collect();
         self.raw()
             .get_items(&keys)
@@ -28,20 +22,14 @@ impl AtomStore {
             .map_err(|e| SchemaError::InvalidData(format!("read molprot batch: {e}")))
     }
 
-    /// Load distinct protein records with one storage batch.
-    pub(crate) async fn protein_get_many_in_scope(
+    /// Load global protein definitions with one storage batch.
+    pub(crate) async fn protein_get_many(
         &self,
         protein_uuids: &[String],
-        storage_prefix: Option<&str>,
     ) -> Result<Vec<Option<Protein>>, SchemaError> {
         let keys: Vec<String> = protein_uuids
             .iter()
-            .map(|uuid| {
-                crate::schema::types::field::build_storage_key(
-                    storage_prefix,
-                    &protein_record_key(uuid),
-                )
-            })
+            .map(|uuid| protein_record_key(uuid))
             .collect();
         self.raw()
             .get_items(&keys)

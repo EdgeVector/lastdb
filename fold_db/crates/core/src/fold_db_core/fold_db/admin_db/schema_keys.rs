@@ -1,12 +1,13 @@
 //! Schema-facing key pages use one captured schema, key, and body boundary.
 
 use super::*;
+use crate::db_operations::SchemaRecordKeysRequest;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::logical_paths::field;
 use std::sync::Arc;
 
 impl FoldDB {
-    /// Return API keys for this schema's live records, with a physical-key cursor.
+    /// Return a personal schema's live API keys, with a physical-key cursor.
     pub async fn list_schema_record_keys(
         &self,
         requested: &str,
@@ -15,31 +16,70 @@ impl FoldDB {
         cursor: Option<&str>,
         hash_filter: Option<&str>,
     ) -> Result<SchemaRecordKeysReport, FoldDbError> {
+        self.list_schema_record_keys_read(
+            SchemaRecordKeysRequest {
+                requested,
+                schema_id,
+                limit,
+                cursor,
+                hash_filter,
+            },
+            None,
+        )
+        .await
+    }
+
+    /// Resolve the caller's database membership within the same captured read.
+    pub async fn list_schema_record_keys_with_access(
+        &self,
+        request: SchemaRecordKeysRequest<'_>,
+        access: &AccessContext,
+    ) -> Result<SchemaRecordKeysReport, FoldDbError> {
+        self.list_schema_record_keys_read(request, Some(access))
+            .await
+    }
+
+    async fn list_schema_record_keys_read(
+        &self,
+        request: SchemaRecordKeysRequest<'_>,
+        access: Option<&AccessContext>,
+    ) -> Result<SchemaRecordKeysReport, FoldDbError> {
         let scope = self
             .db_ops()
             .read_scope()
             .await
             .map_err(SchemaError::from)?;
         scope
-            .run_result(self.list_schema_record_keys_captured(
-                requested,
-                schema_id,
-                limit,
-                cursor,
-                hash_filter,
-            ))
+            .run_result(self.list_schema_record_keys_captured(request, access))
             .await
             .map_err(FoldDbError::Schema)
     }
 
     async fn list_schema_record_keys_captured(
         &self,
-        requested: &str,
-        schema_id: &str,
-        limit: usize,
-        cursor: Option<&str>,
-        hash_filter: Option<&str>,
+        request: SchemaRecordKeysRequest<'_>,
+        access: Option<&AccessContext>,
     ) -> Result<SchemaRecordKeysReport, SchemaError> {
+        let SchemaRecordKeysRequest {
+            requested,
+            schema_id,
+            limit,
+            cursor,
+            hash_filter,
+        } = request;
+        let storage_prefix = match access {
+            Some(access) => {
+                self.db_ops()
+                    .db_catalog()
+                    .resolve_storage_prefix(
+                        access.db_locator.as_deref(),
+                        schema_id,
+                        access.storage_prefix.as_deref(),
+                    )
+                    .await?
+            }
+            None => None,
+        };
         let mut schema = self
             .schema_manager()
             .get_schema_following_supersession_for_read(schema_id)
@@ -48,6 +88,11 @@ impl FoldDB {
         self.schema_manager()
             .require_queryable_schema(&schema.name)?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
+        for field in schema.runtime_fields.values_mut() {
+            field
+                .common_mut()
+                .set_storage_prefix(storage_prefix.clone());
+        }
         let hash_field = schema
             .key
             .as_ref()
@@ -89,6 +134,7 @@ impl FoldDB {
                 cursor,
                 hash_filter,
                 named_layout,
+                storage_prefix.as_deref(),
             ),
         ))
         .await?;

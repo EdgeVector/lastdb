@@ -160,7 +160,7 @@ impl JournalWriter {
 
     /// Reserve checked dimensions without retaining or copying the body.
     pub fn reserve_quote(&self, quote: super::JournalQuote) -> Result<super::JournalReservation> {
-        self.reserve_quote_at(quote, Instant::now())
+        self.reserve_quote_at(quote, Instant::now(), None)
     }
 
     pub(in crate::disk_pack) fn reserve_quote_extension(
@@ -169,13 +169,14 @@ impl JournalWriter {
         quote: super::JournalQuote,
     ) -> Result<super::JournalReservation> {
         previous.validate(&self.admission, previous.quote())?;
-        self.reserve_quote_at(quote, previous.created())
+        self.reserve_quote_at(quote, previous.created(), Some(previous))
     }
 
     fn reserve_quote_at(
         &self,
         quote: super::JournalQuote,
         created: Instant,
+        previous: Option<&super::JournalReservation>,
     ) -> Result<super::JournalReservation> {
         self.check_admission()?;
         if quote.operations() > self.current.batch_operation_limit() {
@@ -189,6 +190,7 @@ impl JournalWriter {
             self.tail.last_batch - (self.tail.first_batch - 1),
             self.suffix_oldest,
             created,
+            previous,
         )
     }
 

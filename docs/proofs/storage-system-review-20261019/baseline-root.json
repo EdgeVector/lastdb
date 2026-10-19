@@ -1,0 +1,27 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pmd62yh2/program-before-lastdbd",
+  "binary_bytes": 68112480,
+  "binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+  "device": 16777231,
+  "inode": 1469634084,
+  "marker": {
+    "creator_pid": 48982,
+    "device": 16777231,
+    "inode": 1469634084,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "marker_mode": "0o600",
+  "marker_sha256": "f59c8000eefb72a92c702d3ace01f5807647c7276b919b4a879149eb94d1d5bc",
+  "mode": "0o700",
+  "no_node_directory": true,
+  "node_sessions": 0,
+  "owner_uid": 501,
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pmd62yh2",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pmd62yh2",
+  "scope": "Fresh owned marked executable-only root; no node or data home yet.",
+  "source_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "source_identity": "baseline-release-identity.json",
+  "source_identity_sha256": "6b19cd535bf1b07fa95c41a4e5099ef20ff296f1f84ae0b7559016d262b089a0"
+}

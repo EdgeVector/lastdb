@@ -1,4 +1,4 @@
-//! Resolve canonical schema-field aliases for one exact storage scope.
+//! Global schema definitions supply aliases for scoped logical record paths.
 
 use super::*;
 
@@ -6,23 +6,23 @@ impl MutationManager {
     pub(super) async fn path_bindings(
         &self,
         schema: &crate::schema::types::Schema,
-        scope: Option<&str>,
         molecule: &str,
     ) -> Result<Option<Vec<Binding>>, SchemaError> {
         let mut bindings = schema_bindings(schema, molecule)?;
         let edges = self
             .db_ops
             .atoms()
-            .molecule_ref_edges_for_molecule(molecule, scope)
+            .molecule_ref_edges_for_molecule(molecule, None)
             .await?;
         if !edges.complete {
             return Ok(None);
         }
-        if edges
-            .edges
-            .iter()
-            .any(|edge| !matches!(edge.edge_type.as_str(), "schema-field" | "protein-member"))
-        {
+        if edges.edges.iter().any(|edge| {
+            !matches!(
+                edge.edge_type.as_str(),
+                "schema-field" | "protein-member" | "database-catalog-field"
+            )
+        }) {
             return Ok(None);
         }
         let sources = edges

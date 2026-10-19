@@ -105,7 +105,7 @@ impl AtomStore {
         // Warm an existing per-molecule bundle without minting one. A missing
         // bundle is a legacy molecule and correctly falls back to node keys.
         self.load_molecule_key_bundle(molecule).await?;
-        let codec = self.key_codec_for_molecule(molecule);
+        let codec = self.key_codec_for_molecule(molecule)?;
         let prefixes = codec
             .api_hash_range_scan_prefixes_for_read(molecule, api_hash)
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?;

@@ -38,7 +38,7 @@ impl MutationManager {
         ctx: &ApplyCtx<'_>,
         raw_current: Option<&AggregateGuard>,
         raw_pending: Option<&AggregateGuard>,
-    ) -> Vec<String> {
+    ) -> Result<Vec<String>, SchemaError> {
         let prefix = ctx.storage_prefix;
         let mut keys = vec![Self::aggregate_target_lock_key(
             prefix,
@@ -51,17 +51,17 @@ impl MutationManager {
             keys.push(Self::aggregate_target_lock_key(
                 prefix,
                 &current.target_schema_name,
-                &KeyValue::from_storage_key(&current.target_key),
+                &KeyValue::from_storage_key(&current.target_key)?,
             ));
         }
         if let Some(pending) = raw_pending {
             keys.push(Self::aggregate_target_lock_key(
                 prefix,
                 &pending.target_schema_name,
-                &KeyValue::from_storage_key(&pending.target_key),
+                &KeyValue::from_storage_key(&pending.target_key)?,
             ));
         }
-        keys
+        Ok(keys)
     }
 
     /// Reconcile pending reservations, then the committed guards and owner.

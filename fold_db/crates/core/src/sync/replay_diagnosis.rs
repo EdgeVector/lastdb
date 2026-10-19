@@ -52,7 +52,8 @@ pub enum ReplayCause {
     StorageFull,
     ReadResourceLimit,
     WriteResourceLimit,
-    MissingLocalAtom,
+    #[serde(rename = "missing_local_atom")]
+    MissingSelectedAtom,
     StorageRead,
     PersistQueueFull,
     CaptureQueueFull,
@@ -127,7 +128,7 @@ impl From<SchemaError> for MutationIntentReplayError {
             SchemaError::StorageFull { .. } => ReplayCause::StorageFull,
             SchemaError::ReadResourceLimit { .. } => ReplayCause::ReadResourceLimit,
             SchemaError::WriteResourceLimit { .. } => ReplayCause::WriteResourceLimit,
-            SchemaError::MissingLocalAtom => ReplayCause::MissingLocalAtom,
+            SchemaError::MissingSelectedAtom => ReplayCause::MissingSelectedAtom,
             SchemaError::StorageRead { .. } => ReplayCause::StorageRead,
             SchemaError::PersistQueueFull { .. } => ReplayCause::PersistQueueFull,
             SchemaError::CaptureQueueFull { .. } => ReplayCause::CaptureQueueFull,

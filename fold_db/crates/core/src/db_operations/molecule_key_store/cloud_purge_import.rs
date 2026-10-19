@@ -76,7 +76,7 @@ impl MoleculeKeyStore {
         self.entries.inner().batch_put(puts).await?;
         self.entries.inner().flush().await?;
         for (molecule, bundle) in imported {
-            self.remember(&molecule, bundle);
+            self.remember(&molecule, bundle)?;
         }
         Ok(())
     }
@@ -160,7 +160,7 @@ impl MoleculeKeyStore {
         self.entries.inner().batch_put(puts).await?;
         self.entries.inner().flush().await?;
         for (molecule, bundle, _) in imported {
-            self.remember(&molecule, bundle);
+            self.remember(&molecule, bundle)?;
         }
         Ok(molecules.len())
     }

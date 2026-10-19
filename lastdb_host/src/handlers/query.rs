@@ -123,11 +123,18 @@ async fn execute_query_scoped<H: HostNode>(
                 .to_string(),
         ));
     }
+    if cursor.is_some()
+        && (!can_push_down_key_restricted(&query)
+            || matches!(query.sort_order, Some(SortOrder::Desc)))
+    {
+        return Err(HostError::new(
+            400,
+            "Query cursors require ascending keyed reads without field conditions or value ordering; use an offset for this query".to_string(),
+        ));
+    }
 
     let limit = clamp_request_limit(limit);
     let offset = offset.unwrap_or(0);
-    let cursor = usable_cursor(cursor, query.sort_order.as_ref());
-
     let run = plan::QueryRun {
         host,
         ctx,

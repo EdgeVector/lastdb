@@ -8,10 +8,10 @@ use crate::schema::types::key_value::KeyValue;
 use super::{FieldKind, FieldVariant};
 
 impl FieldVariant {
-    /// Disk `(hash, range)` components for a public [`KeyValue`] under this
-    /// field's key shape — used by co-key secondary fan-out.
+    /// Select this field's slot components without an encoding change.
+    /// API coordinates stay API coordinates; stored coordinates stay stored.
     #[must_use]
-    pub(crate) fn disk_slot_for_key(&self, kv: &KeyValue) -> Option<(String, String)> {
+    pub(crate) fn slot_coordinates(&self, kv: &KeyValue) -> Option<(String, String)> {
         match self.kind {
             FieldKind::Single => Some((String::new(), String::new())),
             FieldKind::Hash => kv.hash.clone().map(|h| (h, String::new())),
@@ -168,14 +168,13 @@ impl FieldVariant {
                 hash: None,
                 range: None,
             }),
-            FieldKind::Hash => Some(ChangedKey::hash(key_value.hash.clone().unwrap_or_default())),
-            FieldKind::Range => Some(ChangedKey::range(
-                key_value.range.clone().unwrap_or_default(),
-            )),
-            FieldKind::HashRange => Some(ChangedKey::hash_range(
-                key_value.hash.clone().unwrap_or_default(),
-                key_value.range.clone().unwrap_or_default(),
-            )),
+            FieldKind::Hash => key_value.hash.clone().map(ChangedKey::hash),
+            FieldKind::Range => key_value.range.clone().map(ChangedKey::range),
+            FieldKind::HashRange => key_value
+                .hash
+                .clone()
+                .zip(key_value.range.clone())
+                .map(|(hash, range)| ChangedKey::hash_range(hash, range)),
         }
     }
 }

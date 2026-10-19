@@ -176,8 +176,8 @@ impl AtomStore {
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         let mut records = Vec::with_capacity(changed.len());
         for ck in changed {
-            let api_hash = ck.disk_hash();
-            let api_range = ck.disk_range();
+            let api_hash = ck.hash_or_empty();
+            let api_range = ck.range_or_empty();
             if let Some(entry) = data.get_atom_entry(api_hash, api_range) {
                 let storage_hash = self.storage_hash(molecule_uuid, api_hash)?;
                 let storage_range = self.storage_range(molecule_uuid, api_range)?;

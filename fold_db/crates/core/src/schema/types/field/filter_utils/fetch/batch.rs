@@ -12,7 +12,6 @@ pub(crate) struct FieldAtomBatch {
 
 pub(crate) async fn fetch_field_atom_batches(
     db_ops: &Arc<DbOperations>,
-    schema: &str,
     prefix: Option<&str>,
     batches: &[FieldAtomBatch],
 ) -> Result<Vec<HashMap<KeyValue, FieldValue>>, SchemaError> {
@@ -53,21 +52,6 @@ pub(crate) async fn fetch_field_atom_batches(
     let atoms = crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &slots, prefix).await?;
     for ((index, entry), atom) in misses.into_iter().zip(atoms) {
         let batch = &batches[index];
-        let Some(atom) = atom else {
-            handle_unresolved_atom(
-                db_ops,
-                prefix,
-                batch.molecule.as_deref(),
-                Some(schema),
-                Some(&batch.name),
-                &UnresolvedMatch {
-                    key: &entry.0,
-                    atom_uuid: &entry.1,
-                    partition: entry.4.as_ref(),
-                },
-            );
-            continue;
-        };
         let value = field_value_from_atom(&atom, entry.1.clone(), entry.2.clone(), entry.3.clone());
         batch
             .binding

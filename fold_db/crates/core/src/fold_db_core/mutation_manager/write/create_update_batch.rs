@@ -96,7 +96,7 @@ impl MutationManager {
         // stale derived writes from polluting atoms. User mutations
         // (`Provenance::User` or `None`) are untouched.
         for mutation in mutations {
-            validate_derived_provenance(mutation, &self.schema_manager)?;
+            validate_derived_provenance(mutation)?;
         }
 
         self.reject_blocked_mutation_targets(mutations)?;

@@ -2,11 +2,17 @@
 
 use std::collections::BTreeMap;
 
+use crate::atom::{AtomEntry, AtomPartition};
 use crate::schema::types::{AggregateWinner, Mutation};
 use crate::schema::SchemaError;
 
 use super::cas::CurrentRowFields;
 use super::MutationManager;
+
+struct CurrentFieldTip {
+    entry: AtomEntry,
+    partition: AtomPartition,
+}
 
 impl MutationManager {
     /// Read the current head at `mutation.key_value` for `field`: its head atom
@@ -35,9 +41,7 @@ impl MutationManager {
             )));
         };
 
-        let hint = schema_field.partition_hint(&key_value);
-
-        let Some(entry) = self
+        let Some(tip) = self
             .point_read_field_entry(
                 &mutation.schema_name,
                 field,
@@ -49,25 +53,23 @@ impl MutationManager {
         else {
             return Ok((None, None));
         };
-        let uuid = entry.atom_uuid;
-
-        // `key_value` is API-form, so this hint can be wrong under a blinded
-        // HashKey encoding; that costs one point read and the flat/locator
-        // fallback still returns the right atom.
-        let content = self
-            .read_atom_content(&uuid, hint.as_ref(), storage_prefix)
-            .await?;
+        let uuid = tip.entry.atom_uuid;
+        let atom = crate::db_operations::tip_atoms::get_atoms_for_tips(
+            &self.db_ops,
+            &[(uuid.as_str(), Some(tip.partition))],
+            storage_prefix,
+        )
+        .await?
+        .pop()
+        .ok_or(SchemaError::MissingSelectedAtom)?;
 
         // A tombstoned head reads as absent — a deleted record has no live
         // value to compare against.
-        if content
-            .as_ref()
-            .is_some_and(crate::atom::is_tombstone_value)
-        {
+        if crate::atom::is_tombstone_value(atom.content()) {
             return Ok((None, None));
         }
 
-        Ok((Some(uuid), content))
+        Ok((Some(uuid), Some(atom.content().clone())))
     }
 
     fn load_schema_for_point_read(
@@ -86,21 +88,6 @@ impl MutationManager {
         };
         super::helpers::apply_storage_prefix_to_schema(&mut schema, storage_prefix);
         Ok(schema)
-    }
-
-    /// Resident atom body when present, else a storage point read.
-    async fn read_atom_content(
-        &self,
-        uuid: &str,
-        hint: Option<&crate::atom::AtomPartition>,
-        storage_prefix: Option<&str>,
-    ) -> Result<Option<serde_json::Value>, SchemaError> {
-        Ok(self
-            .db_ops
-            .atoms()
-            .get_atom_by_uuid_in_partition(uuid, hint, storage_prefix)
-            .await?
-            .map(|atom| atom.content().clone()))
     }
 
     /// Point-read a fixed field set from one exact row.
@@ -142,7 +129,7 @@ impl MutationManager {
                         mutation.schema_name
                     ))
                 })?;
-                let entry = self
+                let tip = self
                     .point_read_field_entry(
                         &mutation.schema_name,
                         field,
@@ -151,26 +138,27 @@ impl MutationManager {
                         storage_prefix,
                     )
                     .await?;
-                Ok::<_, SchemaError>((field, entry, schema_field.partition_hint(key_value)))
+                Ok::<_, SchemaError>((field, tip))
             }
         }))
         .await?;
         let selected: Vec<_> = selected
             .into_iter()
-            .filter_map(|(field, entry, hint)| entry.map(|entry| (field, entry, hint)))
+            .filter_map(|(field, tip)| tip.map(|tip| (field, tip)))
             .collect();
         if selected.is_empty() {
             return Ok((CurrentRowFields::Absent, None));
         }
         let slots: Vec<_> = selected
             .iter()
-            .map(|(_, entry, hint)| (entry.atom_uuid.as_str(), hint.clone()))
+            .map(|(_, tip)| (tip.entry.atom_uuid.as_str(), Some(tip.partition.clone())))
             .collect();
-        let atoms = self
-            .db_ops
-            .atoms()
-            .get_atoms_located(&slots, storage_prefix)
-            .await?;
+        let atoms = crate::db_operations::tip_atoms::get_atoms_for_tips(
+            &self.db_ops,
+            &slots,
+            storage_prefix,
+        )
+        .await?;
         if atoms.len() != selected.len() {
             return Err(SchemaError::StorageRead {
                 detail: "point-read atom count differs from selected field count".into(),
@@ -178,7 +166,16 @@ impl MutationManager {
         }
         let mut values = BTreeMap::new();
         let mut latest_winner: Option<AggregateWinner> = None;
-        for ((field, entry, _), atom) in selected.into_iter().zip(atoms) {
+        let mut tombstone = None;
+        for ((field, tip), atom) in selected.into_iter().zip(atoms) {
+            let entry = tip.entry;
+            if crate::atom::is_tombstone_value(atom.content()) {
+                tombstone.get_or_insert_with(|| CurrentRowFields::Corrupt {
+                    field: field.clone(),
+                    atom_uuid: entry.atom_uuid,
+                });
+                continue;
+            }
             let winner = AggregateWinner {
                 logical_counter: entry.logical_counter,
                 written_at: entry.written_at,
@@ -190,21 +187,13 @@ impl MutationManager {
                 None => latest_winner = Some(winner),
                 _ => {}
             }
-            let content = match atom {
-                Some(atom) if !crate::atom::is_tombstone_value(atom.content()) => {
-                    atom.content().clone()
-                }
-                _ => {
-                    return Ok((
-                        CurrentRowFields::Corrupt {
-                            field: field.clone(),
-                            atom_uuid: entry.atom_uuid,
-                        },
-                        None,
-                    ));
-                }
-            };
-            values.insert(field.clone(), content);
+            values.insert(field.clone(), atom.content().clone());
+        }
+        if values.is_empty() {
+            return Ok((CurrentRowFields::Absent, None));
+        }
+        if let Some(tombstone) = tombstone {
+            return Ok((tombstone, None));
         }
         Ok((CurrentRowFields::Present(values), latest_winner))
     }
@@ -219,7 +208,7 @@ impl MutationManager {
         schema_field: &crate::schema::types::field::FieldVariant,
         key_value: &crate::schema::types::KeyValue,
         storage_prefix: Option<&str>,
-    ) -> Result<Option<crate::atom::AtomEntry>, SchemaError> {
+    ) -> Result<Option<CurrentFieldTip>, SchemaError> {
         let changed_key = schema_field.changed_key_for(key_value).ok_or_else(|| {
             SchemaError::InvalidData(format!(
                 "point read cannot resolve field '{field}' key in schema '{schema_name}'"
@@ -234,16 +223,27 @@ impl MutationManager {
                     "point read field '{schema_name}.{field}' has no molecule identity"
                 ))
             })?;
-        let changed = std::collections::HashSet::from([changed_key.clone()]);
-        Ok(self
+        let key = crate::schema::types::KeyValue::new(changed_key.hash, changed_key.range);
+        let Some((base, record)) = self
             .db_ops
             .atoms()
-            .load_molecule_for_write(&molecule_uuid, storage_prefix, &changed)
+            .load_query_tip_records(storage_prefix, &molecule_uuid, &[key])
             .await?
-            .and_then(|molecule| {
-                molecule
-                    .get_atom_entry(changed_key.disk_hash(), changed_key.disk_range())
-                    .cloned()
-            }))
+            .pop()
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        if record.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
+            return Ok(None);
+        }
+        let partition =
+            AtomPartition::from_record_key(&base).ok_or_else(|| SchemaError::StorageRead {
+                detail: "selected current field tip has no physical location".into(),
+            })?;
+        Ok(Some(CurrentFieldTip {
+            entry: record.entry,
+            partition,
+        }))
     }
 }

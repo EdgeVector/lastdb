@@ -211,7 +211,7 @@ impl AtomStore {
             ..
         } = target;
         let prefixes = self
-            .key_codec_for_molecule(molecule_uuid)
+            .key_codec_for_molecule(molecule_uuid)?
             .molecule_record_prefixes_for_read(molecule_uuid);
         let scanned = self
             .scan_per_key_prefixes(&prefixes, storage_prefix)
@@ -250,11 +250,11 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Option<(String, PerKeyRecord)>, SchemaError> {
         let hash_cands = self
-            .key_codec_for_molecule(molecule_uuid)
+            .key_codec_for_molecule(molecule_uuid)?
             .storage_hash_read_candidates(molecule_uuid, hash)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
         let range_cands = self
-            .key_codec_for_molecule(molecule_uuid)
+            .key_codec_for_molecule(molecule_uuid)?
             .storage_range_read_candidates(molecule_uuid, range)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
         for sh in &hash_cands {
@@ -279,11 +279,11 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         let start_cands = self
-            .key_codec_for_molecule(molecule_uuid)
+            .key_codec_for_molecule(molecule_uuid)?
             .storage_range_read_candidates(molecule_uuid, start_seg)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
         let end_cands = self
-            .key_codec_for_molecule(molecule_uuid)
+            .key_codec_for_molecule(molecule_uuid)?
             .storage_range_read_candidates(molecule_uuid, end_seg)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
         let n = start_cands.len().min(end_cands.len());

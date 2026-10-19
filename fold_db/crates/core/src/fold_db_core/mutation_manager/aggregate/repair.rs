@@ -412,7 +412,7 @@ impl MutationManager {
         }
         let member =
             AggregateMemberRecord::from_fields(fields).map_err(SchemaError::InvalidData)?;
-        let member_source_key = KeyValue::from_storage_key(&member.source_key);
+        let member_source_key = KeyValue::from_storage_key(&member.source_key)?;
         // The source schema was verified HashRange, so the key must carry a range.
         let source_key_shape_matches = member_source_key.range.is_some();
         let canonical_member_key = member_source_key.clone();

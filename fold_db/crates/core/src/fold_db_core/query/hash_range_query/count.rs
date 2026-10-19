@@ -126,8 +126,6 @@ impl HashRangeQueryProcessor {
                             .filter(|(key, _, _, _, _)| keys.contains(key)),
                         field.common().storage_prefix(),
                         field.common().molecule_uuid().map(String::as_str),
-                        Some(schema.name.as_str()),
-                        Some(field_name),
                     )
                     .await?,
                 );
@@ -146,8 +144,6 @@ impl HashRangeQueryProcessor {
                             .filter(|(key, _, _, _, _)| keys.contains(key)),
                             Some(namespace.as_str()),
                             field.common().molecule_uuid().map(String::as_str),
-                            Some(schema.name.as_str()),
-                            Some(field_name),
                         )
                         .await?,
                     );

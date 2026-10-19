@@ -301,7 +301,7 @@ impl AtomStore {
         molecule_uuid: &str,
         api_hash: &str,
     ) -> Result<String, crate::schema::SchemaError> {
-        self.key_codec_for_molecule(molecule_uuid)
+        self.key_codec_for_molecule(molecule_uuid)?
             .storage_hash(molecule_uuid, api_hash)
             .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))
     }
@@ -312,7 +312,7 @@ impl AtomStore {
         molecule_uuid: &str,
         api_range: &str,
     ) -> Result<String, crate::schema::SchemaError> {
-        self.key_codec_for_molecule(molecule_uuid)
+        self.key_codec_for_molecule(molecule_uuid)?
             .storage_range(molecule_uuid, api_range)
             .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))
     }
@@ -320,18 +320,14 @@ impl AtomStore {
     pub(crate) fn key_codec_for_molecule(
         &self,
         molecule_uuid: &str,
-    ) -> crate::atom::MoleculeKeyCodec {
+    ) -> Result<crate::atom::MoleculeKeyCodec, crate::schema::SchemaError> {
         let Some(store) = self.molecule_keys.as_ref() else {
-            return self.key_codec.clone();
+            return Ok(self.key_codec.clone());
         };
-        let cache = store.cache();
-        let guard = cache
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        guard.get(molecule_uuid).map_or_else(
+        Ok(store.cached_bundle(molecule_uuid)?.as_ref().map_or_else(
             || self.key_codec.clone(),
             |bundle| bundle.key_codec(&self.key_codec),
-        )
+        ))
     }
 
     /// Access the underlying typed KV store. Crate-internal helper for

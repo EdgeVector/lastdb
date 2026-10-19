@@ -1,85 +1,20 @@
-//! Per-molecule write dedupe — drop field writes whose value is already the
-//! molecule's current tip.
+//! Optional per-field skip of writes whose atom identity matches the current tip.
 //!
-//! ## Why
+//! This runs after exact tips load and before logical preparation. Removing an
+//! atom result also removes its tip and related-molecule work. Mutation IDs,
+//! idempotency records, and Search delivery still describe the original request.
 //!
-//! One logical record is one molecule per field (Schema → Molecule → Atom), so
-//! write cost scales with the number of fields **sent**, not the number
-//! **changed**. Measured on the live primary against `BoardCards_hashrange_v1`
-//! (24 fields), 2026-07-31:
-//!
-//! | update | ms | share |
-//! |---|---|---|
-//! | 24 fields, all changed | 5376 | 100% |
-//! | 24 fields sent, **2** changed | 4695 | **87%** |
-//! | 4 fields sent, 2 changed | 1197 | 22% |
-//!
-//! Twenty-two of those twenty-four values were byte-identical to what was
-//! already stored and the node still paid for them: a tip advance, a durable
-//! molecule store, a protein sibling fold, and a `tv:` history node — per
-//! unchanged field.
-//!
-//! The node already short-circuits the case where the **whole** mutation is a
-//! repeat (`cas::filter_idempotent_mutations`, 140 ms — a 38x skip), but that
-//! gate is content-hash-on-the-whole-mutation by construction: change one field
-//! of twenty-four and the hash misses, and every field pays full freight. This
-//! module makes that same "the stored value is already what you're asking for"
-//! judgement **per molecule** instead of per mutation.
-//!
-//! ## What it does
-//!
-//! After molecule heads are restored (so tips are readable) and before the
-//! in-memory apply, drop every prepared atom write whose content-addressed atom
-//! uuid already equals the current tip at that key. Dropping the entry removes
-//! it from the apply loop *and* the sibling fold — both iterate `atom_results`
-//! — and it never reaches `modified_fields`, so the persist step does not write
-//! that molecule either.
-//!
-//! Nothing else shrinks: mutation ids, idempotency records and secondary-index
-//! updates all key off the untouched mutation list, so a fully-deduped write is
-//! still acknowledged, still recorded as seen, and still re-indexed.
-//!
-//! ## Why it is opt-in (`LASTDB_WRITE_DEDUPE`)
-//!
-//! Skipping the tip advance means the slot keeps the `written_at` of the last
-//! write that actually **changed** the value. Cross-device conflict resolution
-//! is per-slot last-writer-wins on the author-clock key
-//! `(written_at, logical_counter, device_id, mutation_uuid, atom_uuid)`
-//! (`sync::engine::replay::records`), so this changes one observable behaviour:
-//!
-//! > Device A sets `V` at t1. Device C sets `W` at t2 > t1. Device A re-sends
-//! > the identical `V` at t3 > t2.
-//! >
-//! > Today A's no-op re-send refreshes the slot to t3 and `V` beats `W`.
-//! > With dedupe the slot stays at t1 and `W` — the only real change — wins.
-//!
-//! The dedupe outcome is arguably the more defensible rule (a write that
-//! changed nothing should not win a conflict against one that did), but it is a
-//! convergence-semantics change and not one to flip on unattended. Default off;
-//! `LASTDB_WRITE_DEDUPE=1` enables. See
-//! `brain get lastdb-unchanged-value-skip-is-whole-record-not-per-molecule`.
-//!
-//! ## What is never deduped
-//!
-//! [`mutation_is_dedupe_eligible`] holds back every mutation whose write
-//! carries meaning beyond its value:
-//!
-//! - **`provenance` / `imported_written_at` / `imported_version`** — inbound
-//!   `data_share` replay. The molecule's canonical bytes include the *signed*
-//!   `written_at`; skipping the write would drop the original author's
-//!   attribution and leave the signature unverifiable at rest.
-//! - **`Delete`** — tombstones interact with the purge reachability snapshot
-//!   and the Create→Delete→Create resurrect path. Not worth the blast radius
-//!   for a verb that is not on the hot path.
-//! - **`expected` (CAS)** — a CAS precondition is a statement about *when* to
-//!   apply. A caller that passed a precondition and got success is entitled to
-//!   assume a commit happened.
+//! The option is off by default. An unchanged field then retains its previous
+//! tip time rather than advancing its conflict order. Writes with provenance,
+//! imported clocks, or a compare condition always retain their tip updates.
+//! Repeated writes to the same physical slot within a batch also stay in order;
+//! comparing each one with the pre-batch tip could otherwise discard the final
+//! value in an A -> B -> A sequence. Delete uses its separate tip-removal route.
 
 use crate::atom::Atom;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 
-use super::helpers::current_atom_uuid;
 use super::MutationManager;
 
 /// Env: enable per-molecule write dedupe. Off unless truthy.
@@ -135,7 +70,7 @@ impl MutationManager {
         // because it equals the baseline before B applies.
         let slot_for = |idx: usize, name: &str| {
             let field = schema.runtime_fields.get(name)?;
-            let (hash, range) = field.disk_slot_for_key(mutation_key_values.get(idx)?)?;
+            let (hash, range) = field.slot_coordinates(mutation_key_values.get(idx)?)?;
             Some((field.common().molecule_uuid()?.clone(), hash, range))
         };
         let mut slot_counts = std::collections::HashMap::new();
@@ -168,7 +103,7 @@ impl MutationManager {
                 // Atom uuids are content-addressed over
                 // `(schema_name, content, source_file_name, metadata)`, so uuid
                 // equality here IS value equality — no separate compare.
-                let unchanged = current_atom_uuid(field, key_value).as_deref() == Some(atom.uuid());
+                let unchanged = field.current_atom_uuid(key_value).as_deref() == Some(atom.uuid());
                 if unchanged {
                     tracing::trace!(
                         target: "write_dedupe",

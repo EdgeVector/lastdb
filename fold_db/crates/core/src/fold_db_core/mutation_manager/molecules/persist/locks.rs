@@ -60,8 +60,8 @@ impl MutationManager {
                     .map(|ck| {
                         Self::molecule_persist_lock_key(
                             uuid,
-                            Some(ck.disk_hash()),
-                            Some(ck.disk_range()),
+                            Some(ck.hash_or_empty()),
+                            Some(ck.range_or_empty()),
                             None,
                         )
                     })

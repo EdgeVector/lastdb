@@ -242,28 +242,11 @@ pub async fn import_slice_via_mutations(
 
     let writer_pubkey = writer_pubkey.into();
 
-    blob_cas::put_blobs_in_ops(db.db_ops(), &payload.blobs).await?;
-
     let atoms: HashMap<&str, &Value> = payload
         .atoms
         .iter()
         .map(|a| (a.atom_ref.as_str(), &a.value))
         .collect();
-
-    for schema in &payload.schemas {
-        let json = serde_json::to_string(&schema.definition).map_err(FoldDbError::from)?;
-        let exists = db
-            .schema_manager()
-            .get_schema_following_supersession(&schema.schema_name)
-            .await?
-            .is_some();
-        if !exists {
-            db.load_schema_from_json(&json).await?;
-            db.schema_manager()
-                .set_schema_state(&schema.schema_name, SchemaState::Available)
-                .await?;
-        }
-    }
 
     let mut records: BTreeMap<(String, String), BTreeMap<String, Value>> = BTreeMap::new();
     for mol in &payload.molecules {
@@ -282,7 +265,7 @@ pub async fn import_slice_via_mutations(
     let mut written = 0usize;
     let mut mutations = Vec::new();
     for ((schema_name, record_key), fields) in records {
-        let key = KeyValue::from_storage_key(&record_key);
+        let key = KeyValue::from_storage_key(&record_key)?;
         mutations.push(Mutation::new(
             schema_name,
             fields.into_iter().collect(),
@@ -291,6 +274,23 @@ pub async fn import_slice_via_mutations(
             MutationType::Create,
         ));
         written += 1;
+    }
+
+    blob_cas::put_blobs_in_ops(db.db_ops(), &payload.blobs).await?;
+
+    for schema in &payload.schemas {
+        let json = serde_json::to_string(&schema.definition).map_err(FoldDbError::from)?;
+        let exists = db
+            .schema_manager()
+            .get_schema_following_supersession(&schema.schema_name)
+            .await?
+            .is_some();
+        if !exists {
+            db.load_schema_from_json(&json).await?;
+            db.schema_manager()
+                .set_schema_state(&schema.schema_name, SchemaState::Available)
+                .await?;
+        }
     }
 
     if !mutations.is_empty() {
