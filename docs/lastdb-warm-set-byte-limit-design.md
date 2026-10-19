@@ -17,7 +17,7 @@ Limit the warm set by bytes, not by a record count.
 - Each path pays a fixed cost. Each atom object pays its own calculated memory size.
 - A shared atom pays one time. Its charge stays until the last holder drops it.
 - The purge removes the least recently used clean paths until the new charge fits.
-- When the charge does not fit, a read returns the value without admitting it. A full warm set never causes a read error.
+- A new read always enters the warm set. When the warm set is full, the purge removes the least recently used clean records to make room (Tom, 2026-10-19).
 - Unflushed writes use at most a fixed share of the limit. Above that share, a write goes to disk before its ack, which is the current fallback.
 - Status reports the charged bytes next to the measured process memory, so an error in the estimate is visible.
 
@@ -57,7 +57,7 @@ Facts this design depends on:
 
 - One byte limit for the warm set: paths, tips, metadata, and atom objects.
 - A charge that is accurate to a small, bounded error and rounded up.
-- No read error because the warm set is full.
+- Every read enters the warm set. No read error because the warm set is full.
 - No change to the write ack rule, the flush delay, or durability.
 - Status that shows the charge, the measured memory, and the difference.
 
@@ -151,20 +151,22 @@ This step needs only the key strings, so the size is known.
 `admit` calculates the atom charge and reserves it, through `make_room`.
 
 - If the atom object is already in memory (same UUID and equal value, `link_atom`), no new charge is made.
-- If the reservation succeeds, the atom enters, as today.
-- If the reservation fails, the path stays as a tip only (`admit_tip`). The read returns the fetched value to the caller from the call's own copy.
-  The next read of that record fetches the body from disk again.
+- Otherwise the purge removes least recently used clean records until the charge fits. Then the atom enters.
+- The atom always enters. There is no tip-only fallback and no read that skips the warm set.
 
-### Large atoms
+No large-atom rule is needed. An atom body is at most 1 MiB (`ABSOLUTE_MAX_ATOM_CONTENT_BYTES`), which is a small part of the limit.
 
-An atom with a charge above `LARGE_ATOM_FRACTION` × limit never enters the warm set.
-Start value: 1/16, which is 16 MiB at a 256 MiB limit.
-Today an atom body is at most 1 MiB (`ABSOLUTE_MAX_ATOM_CONTENT_BYTES`), so this rule matters only when the limit is set small.
+### When the purge cannot make enough room
 
-### When even the path charge does not fit
+The purge can remove only records that no call holds and that are flushed.
+The dirty share keeps unflushed writes at or under 25% of the limit. So the purge fails only when running calls hold most of the rest.
 
-If `make_room` cannot free enough bytes for the path charge (every path is held or dirty), the read does not reserve the path.
-It answers from the disk fetch, as `memory_uncached` does for the definition cache today.
+In that case the new record still enters, and the charge goes above the limit:
+
+- The amount over the limit is at most the bytes that running calls hold. Those bytes are in use, so the charge stays honest.
+- Each later admission runs the purge first. When the calls end, their records become clean and the purge can remove them, so the charge returns under the limit.
+- Status counts each admission over the limit and the highest charge (`warm_over_limit_admissions`, `warm_peak_bytes`).
+
 This replaces the current error "all core warm path slots are held or unflushed".
 
 ## Purge
@@ -174,7 +176,7 @@ This replaces the current error "all core warm path slots are held or unflushed"
 1. Try the reservation. If it succeeds, stop.
 2. Take the least recently used path from `order` that is not in the request, has `holds == 0`, and is not dirty.
 3. Drop the path. This drops its path reservation, and it can drop the last `Arc` of its atom.
-4. Go to step 1. Stop after `PURGE_ATTEMPTS` paths (start value: 64) or when no candidate remains, and refuse.
+4. Go to step 1. Stop when the charge fits or when no candidate remains. If no candidate remains, the record enters over the limit (see "When the purge cannot make enough room").
 
 The purge measures what it freed from the budget itself, not from a nominal size.
 This handles shared atoms correctly: a path whose atom another path still uses frees only its path charge.
@@ -212,9 +214,8 @@ Add these fields to the native core status (`storage/disk_pack/view.rs`, `CoreWa
 | `warm_dirty_bytes` | The charge of unflushed writes |
 | `warm_dirty_limit_bytes` | The dirty share limit |
 | `warm_paths` | The number of paths (the old count, kept for reading) |
-| `warm_refused_atoms` | Atoms not admitted because the charge did not fit |
-| `warm_refused_large` | Atoms not admitted because of the large-atom rule |
-| `warm_uncached_reads` | Reads answered without a path reservation |
+| `warm_over_limit_admissions` | Admissions that entered with the charge above the limit |
+| `warm_purged_bytes` | Bytes that the purge freed since start |
 
 The self-metrics sampler already records the process footprint. Its log line adds `warm_used_bytes` next to the footprint.
 The ratio of the two is the check on the estimate.
@@ -239,13 +240,13 @@ This is a measurement, not a test. No test suite is written.
 | File | Change |
 |---|---|
 | `resident/key_cap.rs` | Replace the record cap with `CoreWarmBudget`, `LASTDB_CORE_WARM_BYTES`, and the boot parse |
-| `resident/core_set.rs` | `PathState` owns the path reservation. `SharedAtom`, `CoreWarmSlot`, and `CoreWarmSelection` carry `Arc<WarmCharge>`. New counters for held, dirty, refused, uncached |
+| `resident/core_set.rs` | `PathState` owns the path reservation. `SharedAtom`, `CoreWarmSlot`, and `CoreWarmSelection` carry `Arc<WarmCharge>`. New counters for held, dirty, over-limit admissions, purged bytes |
 | `resident/core_set/model.rs`, `model/prepare.rs` | Written values take their charge from the dirty share, not from `DeferReservation` |
 | `resident/core_set/charge.rs` (new) | `path_charge`, `atom_charge`, `json_heap_bytes`, the constants, the rounding |
 | `resident/core_set/lifecycle.rs` | `make_room` by bytes. `complete_flush` moves dirty charges |
-| `resident/core_set/admission.rs` | Two-step admission. Tip-only fallback when the atom does not fit. Large-atom rule |
-| `storage/disk_pack/read/core_holds.rs` | On a path refusal, answer uncached instead of an error |
-| `storage/disk_pack/logical_paths/read.rs` | Pass the atom charge. Use the tip-only result |
+| `resident/core_set/admission.rs` | Two-step admission. Purge first, then always admit. Over-limit admission when no candidate remains |
+| `storage/disk_pack/read/core_holds.rs` | A path reservation no longer fails on capacity |
+| `storage/disk_pack/logical_paths/read.rs` | Calculate the atom charge before the core lock. Pass it to `admit` |
 | `storage/disk_pack/logical_paths/protection.rs` | Check the dirty share before publication |
 | `storage/disk_pack/view.rs` and `lastdb_node/src/ops/self_metrics/` | New status fields and the log line |
 | `memory_budget/process_budget.rs` | Use `warm_limit_bytes` in place of the 2 GiB reserve input |
@@ -260,8 +261,8 @@ Each stage is one PR. The proof for each stage is the live signal named here, no
    Proof: status on a synthetic home shows `warm_used_bytes`, and the ratio to the footprint growth is inside 0.9 to 1.3.
 2. **Calibrate.** Set the constants from the synthetic fills (see "Calibration").
    Proof: the ratio is inside 1.0 to 1.1 for the three shapes.
-3. **Enforce bytes for reads.** Switch `make_room` to bytes. Add the tip-only and uncached fallbacks. Remove the count limit.
-   Proof: a fill above the limit on a synthetic home keeps `warm_used_bytes` at or under `warm_limit_bytes`, with zero read errors.
+3. **Enforce bytes for reads.** Switch `make_room` to bytes. Every read enters, and the purge makes room. Remove the count limit.
+   Proof: a fill above the limit on a synthetic home keeps `warm_used_bytes` at or under `warm_limit_bytes` when no call holds records, with zero read errors.
 4. **Dirty share.** Add the dirty counter and the write check.
    Proof: a synthetic write burst keeps `warm_dirty_bytes` at or under its limit. Writes above the share finish on disk, and every write gets its ack.
 5. **Process budget.** Replace the 2 GiB reserve input with `warm_limit_bytes`.
@@ -278,9 +279,10 @@ This design does not do that, so that each step stays small.
 | Risk | Effect | Control |
 |---|---|---|
 | The constants are wrong | The charge is too low, and memory grows past the limit | Round up, `SAFETY_FACTOR`, status ratio, calibration stage before enforcement |
-| The walk costs time on large atoms | Slower admission of large values | One walk for each admission, the same order as the encoded length today. The large-atom rule limits the worst case |
+| The walk costs time on large atoms | Slower admission of large values | One walk for each admission, the same order as the encoded length today. An atom body is at most 1 MiB |
 | A small limit | More disk reads, lower hit rate | Report the hit rate with the byte fields. Change the limit from measurement |
-| Held atoms go above the limit | The charge can pass the limit while long calls run | The charge stays honest (held atoms stay charged). New admissions stop until the calls end. `warm_held_bytes` shows it |
+| Held records go above the limit | The charge can pass the limit while long calls run | The overshoot is at most the bytes that calls hold. The purge brings the charge back when the calls end. `warm_held_bytes` and `warm_over_limit_admissions` show it |
+| One large call | One call can read up to 256 MiB (`ReadBudget`). With a 256 MiB limit, one call can push out every other record | This is the least recently used rule working as designed. Set the limit above the per-call read budget, or lower that budget |
 | A write burst | Writes above the share go to disk first and have a slower ack | This is the current fallback. `warm_dirty_bytes` shows it |
 | One lock | The walk runs under the core lock if it is placed in `admit` | Calculate the charge before the lock is taken. `admit` only reserves it |
 
@@ -291,4 +293,4 @@ This design does not do that, so that each step stays small.
 - **D3. The count limit.** Recommendation: remove it. The path charge covers the map growth that a count would protect. Alternative: keep `LASTDB_RESIDENT_KEY_CAP` as an optional lower limit, off by default.
 - **D4. Dirty share.** Recommendation: 25% of the limit, above which a write goes to disk before its ack. Written values move from the deferred write allowance to the warm budget.
   Alternative: keep written values in the deferred write allowance, as today, and charge only read-admitted values to the warm budget. That keeps two pools for the same kind of object.
-- **D5. A full warm set on a read.** Recommendation: answer from disk without admission (no error). The current rule returns an error.
+- **D5. A full warm set on a read.** DECIDED (Tom, 2026-10-19): every new read enters the warm set. The purge removes least recently used clean records to make room. If held and unflushed records leave no room, the record enters over the limit, and the purge corrects it after the calls end.
