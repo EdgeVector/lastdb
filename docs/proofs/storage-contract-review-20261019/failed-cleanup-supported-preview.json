@@ -1,0 +1,18 @@
+{
+  "actual_reclaim_executed": false,
+  "command": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73",
+    "--exact-home",
+    "--dry-run"
+  ],
+  "kind": "supported exact preview for failed product attempt",
+  "returncode": 0,
+  "reviewed_at_utc": "2026-10-19T22:44:00.767669+00:00",
+  "root_still_exists": true,
+  "stderr": "",
+  "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73 (released exact synthetic seed)\n",
+  "validation_status": "FAILED: named Purge503; unforced runtime exit1; not a normal successful session."
+}

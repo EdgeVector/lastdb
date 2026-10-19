@@ -1,0 +1,20 @@
+{
+  "binary_sha256": "e59db226ac5eea1cdef524dffaf48ad8c07302b377529e3e087a31e4e41a592b",
+  "complete": true,
+  "error": null,
+  "failed_observations": 0,
+  "observations": [
+    {
+      "label": "existing-cohort",
+      "passed": true,
+      "read_observations": 74,
+      "strict_zero_file_checks": 29
+    }
+  ],
+  "passed_observations": 1,
+  "performance_claim": false,
+  "plan_sha256": "63ab1e74287b40dde2c201cd54d33b372295d5ecac7b5dd0a0384e0cb4c1ab03",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.yjsspwd4",
+  "source_head": "7d57939888b39f7651331c81f6aa9346d25995bd",
+  "variant": "cohort"
+}
