@@ -60,7 +60,7 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
     match action {
         DbCommand::Inspect(action) => db_inspect_command(&home, &socket, action),
         DbCommand::Reclaim(action) => db_reclaim_command(&socket, action),
-        DbCommand::Tips(action) => db_tips_command(&socket, action),
+        DbCommand::Tips(action) => db_tips_command(&socket, &action),
         DbCommand::Repair(action) => db_repair_command(&socket, action),
         DbCommand::Seal(action) => db_seal_command(&socket, action),
         DbCommand::Blob(action) => db_blob_command(&socket, action),

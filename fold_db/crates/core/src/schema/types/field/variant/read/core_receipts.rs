@@ -52,7 +52,7 @@ impl FieldVariant {
                 )
             });
             crate::storage::disk_pack::logical_paths::core_read::note_tip(
-                runtime.clone(),
+                runtime,
                 scope,
                 molecule,
                 api_key,

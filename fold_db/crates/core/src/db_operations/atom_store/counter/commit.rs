@@ -76,7 +76,7 @@ pub(crate) struct TipCommit {
 
 impl TipCommit {
     /// Fold the result of a later planner call of the same request into this one.
-    pub(crate) fn absorb(&mut self, other: TipCommit) {
+    pub(crate) fn absorb(&mut self, other: Self) {
         self.created.extend(other.created);
         self.deleted.extend(other.deleted);
         self.counter_events += other.counter_events;

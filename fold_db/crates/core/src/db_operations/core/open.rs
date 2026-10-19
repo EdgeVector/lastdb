@@ -262,9 +262,7 @@ impl DbOperations {
         )
         .with_namespaced_store(Arc::clone(store))
         .with_molecule_keys(molecule_keys.clone())
-        .with_keep_small_persist(namespaces.keep_small)
-        .prepare_boot()
-        .await?;
+        .with_keep_small_persist(namespaces.keep_small);
         Self::initialize_fresh_native_refs(store, &atom_store).await?;
         // Fail-closed meter TRUST, not fail-closed availability. #2186 refused
         // boot on any hydrate error; on 2026-09-25 that made every new build

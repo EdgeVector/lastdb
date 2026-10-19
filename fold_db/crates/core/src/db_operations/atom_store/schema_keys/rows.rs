@@ -109,13 +109,8 @@ impl AtomStore {
     ) -> Result<bool, SchemaError> {
         use crate::storage::disk_pack::logical_paths::core_read;
         let runtime = self.schema_keys_runtime();
-        let Some(selected) = core_read::selected_tip(
-            runtime.clone(),
-            scope,
-            molecule,
-            api_key,
-            &record.entry.atom_uuid,
-        )?
+        let Some(selected) =
+            core_read::selected_tip(runtime, scope, molecule, api_key, &record.entry.atom_uuid)?
         else {
             return Ok(false);
         };

@@ -23,7 +23,6 @@
 
 mod atoms;
 mod blob_ref_edges;
-mod boot;
 mod catalog_bindings;
 mod codec;
 mod conflict_record;

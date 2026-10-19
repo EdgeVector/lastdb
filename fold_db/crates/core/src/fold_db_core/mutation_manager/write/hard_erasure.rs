@@ -88,9 +88,13 @@ impl MutationManager {
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<tokio::sync::oneshot::Receiver<super::super::molecules::PurgeCompletion>, SchemaError>
     {
-        let (schema, mut job, purge_bytes) = self
-            .prepare_schema_purge_job(&schema_name, schema_erasures, storage_prefix, missing, verb)
-            .await?;
+        let (schema, mut job, purge_bytes) = self.prepare_schema_purge_job(
+            &schema_name,
+            schema_erasures,
+            storage_prefix,
+            missing,
+            verb,
+        )?;
         let lane_key =
             crate::resident::PersistLaneKey::new(storage_prefix.unwrap_or(""), schema_name.clone());
         let reservation = self
@@ -131,7 +135,7 @@ impl MutationManager {
     }
 
     /// Prepare one schema's cleanup facts without an enqueue or a lane wait.
-    pub(in crate::fold_db_core::mutation_manager) async fn prepare_schema_purge_job(
+    pub(in crate::fold_db_core::mutation_manager) fn prepare_schema_purge_job(
         &self,
         schema_name: &str,
         erasures: Vec<Mutation>,

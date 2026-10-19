@@ -41,7 +41,6 @@ impl MutationManager {
                     crate::fold_db_core::purge::PurgeMissingPolicy::Skip,
                     job.verb,
                 )
-                .await
                 .map_err(PurgeAttemptError::Retry)?;
             self.attempt_purge_stages(&mut current).await?;
             self.stage_purge_core_paths(&current, runtime)

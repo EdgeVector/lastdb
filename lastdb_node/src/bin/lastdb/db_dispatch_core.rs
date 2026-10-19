@@ -88,9 +88,9 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
     }
 }
 
-/// Dispatch the tip-history retention, drain and migration verbs.
-pub(super) fn db_tips_command(socket: &Path, action: DbTipsCommand) -> Result<(), String> {
-    match action {
+/// Dispatch the tip migration and photo blob verbs.
+pub(super) fn db_tips_command(socket: &Path, action: &DbTipsCommand) -> Result<(), String> {
+    match *action {
         DbTipsCommand::MigrateThinTips { execute, json } => {
             db_migrate_thin_tips(socket, execute, json)
         }

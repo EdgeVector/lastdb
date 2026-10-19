@@ -67,17 +67,10 @@ impl FoldDB {
         if let Some(router) = self.mutation_log_capture.clone() {
             engine.set_photograph_mutation_router(router).await;
         }
-        let restore_db_ops = Arc::clone(&self.db_ops);
-        let restore_barrier: crate::sync::engine::PhotographCutBarrier = Arc::new(move || {
-            let restore_db_ops = Arc::clone(&restore_db_ops);
-            Box::pin(async move {
-                restore_db_ops
-                    .atoms()
-                    .refresh_after_restore()
-                    .await
-                    .map_err(|error| error.to_string())
-            })
-        });
+        // A restored home needs no refresh of the atom counters: they travel
+        // with their bodies in the photograph.
+        let restore_barrier: crate::sync::engine::PhotographCutBarrier =
+            Arc::new(move || Box::pin(async move { Ok(()) }));
         engine.set_photograph_restore_barrier(restore_barrier).await;
         if self.preserve_retired_restore_intents {
             engine
