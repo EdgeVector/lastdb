@@ -1,0 +1,17 @@
+{
+  "binary_sha256": "09bb592cc26a331d346d88a7dc48f25653f9538c476d1f83f36bbbb67beb172d",
+  "compact_source_provenance_reconstructed": true,
+  "helper_count": 9,
+  "helpers_and_static_inputs_match": true,
+  "host_settings_match": true,
+  "no_product_operations_at_review": true,
+  "source_commit": "b5b0018e64c2ad01931a684ad75a37237bc27f17",
+  "source_git_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "b5b0018e64c2ad01931a684ad75a37237bc27f17",
+    "source_files_checked": 1876,
+    "source_mismatches": []
+  },
+  "source_input_count": 1876,
+  "source_inventory_sha256": "885ad52a10b6782a5da78af7c82c427754d583deabe387c362bfca19173d4749"
+}

@@ -62,6 +62,16 @@ impl AtomStore {
         protein_uuid: &str,
         member: ProteinMember,
     ) -> Result<Protein, SchemaError> {
+        self.with_protein_membership(self.protein_add_member_in_scope(protein_uuid, member))
+            .await
+    }
+
+    /// The caller holds `with_protein_membership` across selection and both binds.
+    pub(crate) async fn protein_add_member_in_scope(
+        &self,
+        protein_uuid: &str,
+        member: ProteinMember,
+    ) -> Result<Protein, SchemaError> {
         if member.molecule_uuid.is_empty() {
             return Err(SchemaError::InvalidData(
                 "protein member molecule_uuid must be non-empty".into(),

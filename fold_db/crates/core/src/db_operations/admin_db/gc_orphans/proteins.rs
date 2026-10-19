@@ -14,6 +14,15 @@ impl AtomStore {
         dry_run: bool,
         storage_prefix: Option<&str>,
     ) -> Result<ProteinGcReport, SchemaError> {
+        self.with_protein_membership(self.gc_orphan_proteins_in_scope(dry_run, storage_prefix))
+            .await
+    }
+
+    async fn gc_orphan_proteins_in_scope(
+        &self,
+        dry_run: bool,
+        storage_prefix: Option<&str>,
+    ) -> Result<ProteinGcReport, SchemaError> {
         let backref_prefix = build_storage_key(storage_prefix, MEMBER_BACKREF_PREFIX);
         let backref_rows = self
             .raw()

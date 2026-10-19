@@ -62,6 +62,7 @@ impl AtomStore {
             schema_index_store,
             namespaced_store: None,
             retired_intent_retention_gate: Arc::default(),
+            protein_membership_gate: Arc::default(),
             content_key,
             atom_content_binary: crate::atom::atom_content_binary_enabled(),
             key_codec,

@@ -1,0 +1,56 @@
+{
+  "all_owned_nodes_stopped_normally": true,
+  "binary_sha256": "09bb592cc26a331d346d88a7dc48f25653f9538c476d1f83f36bbbb67beb172d",
+  "cohort_read_calls_checked": 74,
+  "cohort_strict_zero_file_calls": 29,
+  "complete": false,
+  "creator_pid": 27760,
+  "error": "RuntimeError: Wrong projected values Round6ProjectionAbsent-exact-0: {\"author_pub_key\":null,\"fields\":{\"id\":\"member#001#item\"},\"key\":{\"hash\":\"projected-group\",\"range\":\"member#001#item\"},\"metadata\":{\"id\":{\"atom_uuid\":\"bc9004240c77b011af110f99897c2b3fd01584951f6abbf984bfc37aa3b84d40\",\"has_conflicts\":\"unknown\",\"molecule_uuid\":\"8dBVF6lsdWP95_hemVS7LXftHzVoVqv5ahh0jBgiVRM\",\"source_file_name\":null}}}",
+  "hidden_order_extension_sha256": "8dea44e30f7ce40138716f9bf2e66e42b8300beeab725bb901041f30883527fc",
+  "last_phase": "main-static-queries",
+  "normal_node_stops": [
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 27802,
+      "variant": "round6"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 29438,
+      "variant": "round6"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 29445,
+      "variant": "round6"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 29446,
+      "variant": "round6"
+    }
+  ],
+  "operation_input_sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835",
+  "release_identity_sha256": "90ff412f17ccb2839a61f87f97edf0e797c26d1825d4200678de3a8853a214fb",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zspijre0",
+  "scope": "Ordinary fresh synthetic API evidence only. No benchmark or deterministic internal capture claim. Raw receipts preserve every request and outcome; no source/helper edits.",
+  "source_commit": "b5b0018e64c2ad01931a684ad75a37237bc27f17",
+  "static_expected_refusal_items": 0,
+  "static_phase_counts": {
+    "main-static-queries": 26
+  },
+  "static_query_items_checked": 26,
+  "static_success_items": 26
+}

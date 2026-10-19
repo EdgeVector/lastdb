@@ -70,6 +70,9 @@ Unselected schemas and refused loads use the bounded disk selector.
 The private preparation step transfers its schema, atoms, and related changes into the disk stage.
 That transfer does not copy those prepared payloads into a second job.
 Native after-commit work sends the Search change after the disk commit.
+Related molecule definitions share one protected metadata change.
+Concurrent schema declarations cannot create competing proteins for the same unbound molecule.
+The native write boundary precedes the membership and molecule-liveness guards.
 
 The private disk queue owns prepared bytes and completion work until flush.
 Ordinary reads cannot query that queue.

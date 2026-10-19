@@ -1,0 +1,118 @@
+{
+  "all_nodes_stop_normally": true,
+  "all_run_processes_exit_unforced": true,
+  "node_sessions": 4,
+  "runs": [
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "83b5183917f1d44b1a038fb65d19f73ee6e6f429fecf70ece619db8894b7f022"
+        },
+        "evidence-links.json": {
+          "bytes": 1437,
+          "sha256": "8a61c0df9774f6d22de730a6653669e30ff2e98589fdf6dbeb3c985e50dc835c"
+        },
+        "inputs.json": {
+          "bytes": 1579,
+          "sha256": "8d1a43ad255779fef1cdeb052161fffc595acbe93fb0d38c15c01b2d165933ca"
+        },
+        "node.log": {
+          "bytes": 35262,
+          "sha256": "f9bcb314f455593deae097afd44cbb17112482281ab34c3a9bc2de12f31d1496"
+        },
+        "operation-context.json": {
+          "bytes": 1668,
+          "sha256": "c95ec5d3fc34eaa3ec86fc5a262c78c74e9d85eb85b91cff246438a2487d0e5b"
+        },
+        "receipts.jsonl": {
+          "bytes": 9231606,
+          "sha256": "75ce40800836d4a06be7c5bf1be6b5d68139c8bd427361ac708252c428a13deb"
+        },
+        "result.json": {
+          "bytes": 2260,
+          "sha256": "4f87c3dc9626ead251df58aa1a1260b388bbe48ea0d88c576bb2e8f3b7597e3c"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "870e3150a0f81487dc5e66b9cee6f5aaf40941d5b94101c93d94a75a6fcde156"
+        },
+        "summary.json": {
+          "bytes": 579,
+          "sha256": "bdb7f4c97a2c42b241ff893415a4da525f0bef1930156c04eb9d331cc464ff76"
+        }
+      },
+      "node_sessions": 4,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-path-clarity-round6-20261019/ordinary-product",
+      "result": {
+        "all_owned_nodes_stopped_normally": true,
+        "binary_sha256": "09bb592cc26a331d346d88a7dc48f25653f9538c476d1f83f36bbbb67beb172d",
+        "cohort_read_calls_checked": 74,
+        "cohort_strict_zero_file_calls": 29,
+        "complete": false,
+        "creator_pid": 27760,
+        "error": "RuntimeError: Wrong projected values Round6ProjectionAbsent-exact-0: {\"author_pub_key\":null,\"fields\":{\"id\":\"member#001#item\"},\"key\":{\"hash\":\"projected-group\",\"range\":\"member#001#item\"},\"metadata\":{\"id\":{\"atom_uuid\":\"bc9004240c77b011af110f99897c2b3fd01584951f6abbf984bfc37aa3b84d40\",\"has_conflicts\":\"unknown\",\"molecule_uuid\":\"8dBVF6lsdWP95_hemVS7LXftHzVoVqv5ahh0jBgiVRM\",\"source_file_name\":null}}}",
+        "hidden_order_extension_sha256": "8dea44e30f7ce40138716f9bf2e66e42b8300beeab725bb901041f30883527fc",
+        "last_phase": "main-static-queries",
+        "normal_node_stops": [
+          {
+            "diagnostics": "off",
+            "exit_code": 0,
+            "forced_kill": false,
+            "operation": "owned-node-stop",
+            "pid": 27802,
+            "variant": "round6"
+          },
+          {
+            "diagnostics": "off",
+            "exit_code": 0,
+            "forced_kill": false,
+            "operation": "owned-node-stop",
+            "pid": 29438,
+            "variant": "round6"
+          },
+          {
+            "diagnostics": "off",
+            "exit_code": 0,
+            "forced_kill": false,
+            "operation": "owned-node-stop",
+            "pid": 29445,
+            "variant": "round6"
+          },
+          {
+            "diagnostics": "off",
+            "exit_code": 0,
+            "forced_kill": false,
+            "operation": "owned-node-stop",
+            "pid": 29446,
+            "variant": "round6"
+          }
+        ],
+        "operation_input_sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835",
+        "release_identity_sha256": "90ff412f17ccb2839a61f87f97edf0e797c26d1825d4200678de3a8853a214fb",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zspijre0",
+        "scope": "Ordinary fresh synthetic API evidence only. No benchmark or deterministic internal capture claim. Raw receipts preserve every request and outcome; no source/helper edits.",
+        "source_commit": "b5b0018e64c2ad01931a684ad75a37237bc27f17",
+        "static_expected_refusal_items": 0,
+        "static_phase_counts": {
+          "main-static-queries": 26
+        },
+        "static_query_items_checked": 26,
+        "static_success_items": 26
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zspijre0"
+      }
+    }
+  ],
+  "scope": "Expected failed value gates remain failed. Startup exit1 is recorded separately from normal stops. This seal does not establish cleanup safety or change acceptance."
+}

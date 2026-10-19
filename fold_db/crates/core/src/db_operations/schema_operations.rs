@@ -44,6 +44,18 @@ impl DbOperations {
         schema_name: &str,
         schema: &Schema,
     ) -> Result<(), SchemaError> {
+        crate::storage::disk_pack::transaction::scope(
+            self.namespaced_store().disk_pack_runtime(),
+            self.store_schema_in_scope(schema_name, schema),
+        )
+        .await
+    }
+
+    async fn store_schema_in_scope(
+        &self,
+        schema_name: &str,
+        schema: &Schema,
+    ) -> Result<(), SchemaError> {
         schema
             .validate_field_names()
             .map_err(SchemaError::InvalidData)?;
@@ -171,6 +183,14 @@ impl DbOperations {
     }
 
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
+        crate::storage::disk_pack::transaction::scope(
+            self.namespaced_store().disk_pack_runtime(),
+            self.drop_schema_in_scope(schema_name),
+        )
+        .await
+    }
+
+    async fn drop_schema_in_scope(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let old = self.schemas().get_schema(schema_name).await?;
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
             schema_molecule_ref_edges(schema_name, existing)

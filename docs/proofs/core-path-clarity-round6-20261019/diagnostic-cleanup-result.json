@@ -1,0 +1,25 @@
+{
+  "complete": true,
+  "outcomes": [
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-path-clarity-round6-20261019/ordinary-product",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zspijre0",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zspijre0",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zspijre0 (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zspijre0",
+      "startup_gate_refusal": false
+    }
+  ],
+  "scope": "Exact supported reclaim only. The startup refusal is not described as a normal session."
+}

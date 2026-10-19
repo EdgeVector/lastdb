@@ -296,6 +296,26 @@ pub async fn bind_cross_key_field_protein(
     target_mol: &str,
     target_layout: &KeyLayoutFingerprint,
 ) -> Result<Option<String>, SchemaError> {
+    store
+        .with_protein_membership(bind_cross_key_field_protein_in_scope(
+            store,
+            field_hash,
+            source_mol,
+            source_layout,
+            target_mol,
+            target_layout,
+        ))
+        .await
+}
+
+async fn bind_cross_key_field_protein_in_scope(
+    store: &AtomStore,
+    field_hash: &str,
+    source_mol: &str,
+    source_layout: &KeyLayoutFingerprint,
+    target_mol: &str,
+    target_layout: &KeyLayoutFingerprint,
+) -> Result<Option<String>, SchemaError> {
     let src_hf = source_layout
         .hash_field
         .as_deref()
@@ -308,8 +328,10 @@ pub async fn bind_cross_key_field_protein(
         return Ok(None);
     }
 
-    let bound_src = store.protein_of_molecule(source_mol).await?;
-    let bound_tgt = store.protein_of_molecule(target_mol).await?;
+    let bindings = store
+        .protein_of_molecules_in_scope(&[source_mol.to_string(), target_mol.to_string()], None)
+        .await?;
+    let (bound_src, bound_tgt) = (bindings[0].clone(), bindings[1].clone());
     let protein_uuid = match (bound_src, bound_tgt) {
         (Some(a), Some(b)) if a == b => {
             // Both already on the same protein. Confirm the membership is the
@@ -335,13 +357,13 @@ pub async fn bind_cross_key_field_protein(
     };
 
     store
-        .protein_add_member(
+        .protein_add_member_in_scope(
             &protein_uuid,
             ProteinMember::new(source_mol, src_hf, source_layout.range_field.clone()),
         )
         .await?;
     store
-        .protein_add_member(
+        .protein_add_member_in_scope(
             &protein_uuid,
             ProteinMember::new(target_mol, tgt_hf, target_layout.range_field.clone()),
         )
