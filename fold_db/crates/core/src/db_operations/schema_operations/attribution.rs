@@ -45,14 +45,13 @@ impl DbOperations {
 
         let ledger = self.attribution();
         let meters = self.atoms().keep_small();
-        let pending_protein_folds = meters.pending_protein_folds();
         let mut report = SchemaRootAttributionReport {
             schemas_read: schemas.len() as u64,
             molecule_roots: 0,
             root_paths_written: 0,
-            size_complete: meters.all_counter_domains_complete() && pending_protein_folds == 0,
+            size_complete: meters.all_counter_domains_complete(),
             missing_molecule_counters: 0,
-            pending_protein_folds,
+            pending_protein_folds: 0,
             logical_value_bytes: 0,
             structure_bytes: 0,
             retained_history_bytes: 0,

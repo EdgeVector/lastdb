@@ -46,7 +46,6 @@ impl KeepSmallMeters {
                 .lock()
                 .map(|m| m.clone())
                 .unwrap_or_default(),
-            pending_protein_folds: self.pending_protein_folds(),
             // Stamped by the persist path: only the shutdown flush writes
             // `Some(true)`.
             clean_stop: None,
@@ -127,8 +126,6 @@ impl KeepSmallMeters {
         *molecule_schema = snap.molecule_schema;
         drop(molecule_schema);
 
-        self.pending_protein_folds
-            .store(snap.pending_protein_folds, Ordering::Relaxed);
         self.molecule_counters_complete.store(
             snap.molecule_counters_complete && snap.molecule_counter_sources_complete,
             Ordering::Relaxed,

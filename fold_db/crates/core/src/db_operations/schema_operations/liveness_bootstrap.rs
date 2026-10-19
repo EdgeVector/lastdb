@@ -123,7 +123,6 @@ impl DbOperations {
                 key_bytes,
                 molecule_schema,
             },
-            self.atoms().keep_small().pending_protein_folds(),
         );
         // Trust becomes visible only after the complete candidate reaches the
         // durable meter plane. The commit holds the persist lock across put,

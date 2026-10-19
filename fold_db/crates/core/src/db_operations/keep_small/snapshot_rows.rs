@@ -26,8 +26,6 @@ pub struct KeepSmallSnapshot {
     pub molecule_key_bytes: HashMap<String, u64>,
     #[serde(default)]
     pub molecule_schema: HashMap<String, String>,
-    #[serde(default)]
-    pub pending_protein_folds: u64,
     /// `Some(true)` only when the shutdown flush wrote this snapshot and no
     /// process has booted on the home since. Every other writer — the
     /// debounced persist, an initial hard-erase baseline or bootstrap flush, and the

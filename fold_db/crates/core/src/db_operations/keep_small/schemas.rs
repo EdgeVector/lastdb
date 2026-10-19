@@ -1,24 +1,8 @@
-//! Per-schema meters, churn report, dirty-shard tracking and pending protein folds.
+//! Per-schema meters, churn report, and dirty-shard tracking.
 
 use super::*;
 
 impl KeepSmallMeters {
-    pub fn set_pending_protein_folds(&self, count: u64) {
-        self.pending_protein_folds.store(count, Ordering::Relaxed);
-    }
-
-    pub fn complete_pending_protein_fold(&self) {
-        let current = self.pending_protein_folds.load(Ordering::Relaxed);
-        if current > 0 {
-            self.pending_protein_folds.fetch_sub(1, Ordering::Relaxed);
-        }
-    }
-
-    #[must_use]
-    pub fn pending_protein_folds(&self) -> u64 {
-        self.pending_protein_folds.load(Ordering::Relaxed)
-    }
-
     #[must_use]
     pub fn schema_meters(&self) -> Vec<SchemaMeter> {
         let mut rows: Vec<SchemaMeter> = self

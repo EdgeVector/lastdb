@@ -54,6 +54,9 @@ pub struct SchemaCurrentStorageReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub incomplete_reason: Option<String>,
     pub counter_epoch: u64,
+    /// Retired: the protein fold queue is removed. Always 0. Kept so
+    /// installed clients can still parse this report.
+    #[serde(default)]
     pub pending_protein_folds: u64,
     pub declared_molecule_count: u64,
     pub missing_molecule_counters: u64,

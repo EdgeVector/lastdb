@@ -1,4 +1,4 @@
-//! Storage key layout for protein records, member back-refs, and fold jobs.
+//! Storage key layout for protein records and member back-refs.
 
 /// Durable protein record: `protein:{uuid}` → [`super::Protein`].
 pub const PROTEIN_RECORD_PREFIX: &str = "protein:";
@@ -15,6 +15,3 @@ pub const MEMBER_BACKREF_PREFIX: &str = "molprot:";
 pub fn member_backref_key(molecule_uuid: &str) -> String {
     format!("{MEMBER_BACKREF_PREFIX}{molecule_uuid}")
 }
-
-/// Prefix scan for pending fold jobs.
-pub const PROTEIN_FOLD_JOB_PREFIX: &str = "pfq:";

@@ -106,7 +106,6 @@ pub(super) fn collect_home_app_attribution(
 
     let meters = host.db.db_ops().atoms().keep_small();
     let counters_complete = meters.molecule_counters_complete();
-    let pending_protein_folds = meters.pending_protein_folds();
     let schema_manager = host.db.schema_manager();
     let mut unresolved = Vec::new();
     let entries = if let Ok(entries) = schema_manager.get_schema_list_entries_with_states() {
@@ -151,13 +150,7 @@ pub(super) fn collect_home_app_attribution(
             molecules,
         });
     }
-    build_inclusive_app_attribution(
-        &bindings,
-        counters_complete,
-        pending_protein_folds,
-        unresolved,
-        chrono::Utc::now(),
-    )
+    build_inclusive_app_attribution(&bindings, counters_complete, unresolved, chrono::Utc::now())
 }
 
 /// `POST /api/storage/home/reconcile` — one bounded filesystem page.

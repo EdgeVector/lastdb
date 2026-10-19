@@ -184,7 +184,6 @@ pub struct KeepSmallMeters {
     /// [`Self::install_molecule_counter_bootstrap`], the same repair a
     /// hydrate miss takes.
     stale_after_unclean_stop: AtomicBool,
-    pending_protein_folds: AtomicU64,
     trust: Mutex<MeterTrustPayload>,
     /// Schemas whose durable shard is behind the live projection.
     dirty_schemas: Mutex<HashSet<String>>,
@@ -207,7 +206,6 @@ impl Default for KeepSmallMeters {
             molecule_schema: Mutex::new(HashMap::new()),
             hydrate_missed: AtomicBool::new(false),
             stale_after_unclean_stop: AtomicBool::new(false),
-            pending_protein_folds: AtomicU64::new(0),
             trust: Mutex::new(MeterTrustPayload::trusted()),
             dirty_schemas: Mutex::new(HashSet::new()),
         }
