@@ -50,7 +50,41 @@ The primary database and its archive remain untouched. No migration code forms p
 
 ## Validation
 
-Final source, build, ordinary API checks, and cleanup results follow before acceptance.
+The final product source is `7e457dabd819f1d56467e233148a5b13e98c081a`.
+The normal release binary has SHA-256 `1b79500275f732f15b6405bd0d46d63fe853362790dcd76934cead37651b1c6c`.
+`build-identity-cas.json` verifies all 1,878 product inputs against the committed source.
+The workspace Clippy checks, the separate embedding-package Clippy checks, the release build, and the format check pass.
+The final source gates cover file and function size, new lint exceptions, whitespace, write routes, app registration, and build artifacts.
+
+| Ordinary product checks | Source | Result |
+|---|---|---|
+| Exact and range conditions, limits, offsets, field order, projections, metadata, and reopen | `c3ff5c91` | 54 query items pass. |
+| Obsolete schema options, reserved field names, removed API, and omitted Hash key | `c3ff5c91` | Explicit refusals and current values pass, including reopen. |
+| One fixed 16-record Hash protein cohort | `c3ff5c91` | 11 Deletes win; five Updates survive. Later Deletes remove all 144 known fields, including reopen. |
+| Conditional Hash Update with its expected field outside the payload | `7e457dab` | Six query items pass, including reopen. |
+| HashRange key move, reverse protein update, conditional Delete, and missing-target refusal | `7e457dab` | 107 query items pass, including reopen. |
+
+Only the condition-field reader changes between those two product sources.
+`cas-source-delta.json` verifies the other 1,877 product inputs remain unchanged.
+The earlier query and fixed-cohort receipts retain their actual source labels.
+The final release repeats both affected conditional operations with fresh synthetic data.
+No cohort is repeated to obtain a preferred outcome.
+
+The final HashRange case confirms the current source and peer share the same field atoms.
+A stale expected value receives HTTP 409 and leaves the records unchanged.
+The correct expected value with `must_exist` deletes the source and its current peer.
+All 12 known source, old-peer, and new-peer fields remain absent after reopen. Unrelated records stay unchanged.
+A second `must_exist` Delete receives an explicit HTTP 400 refusal.
+The response reports the local commit and unavailable cloud capture separately; cloud remains disabled.
+
+Repeated controlled warm reads perform zero file reads after the update and after reopen.
+These small-data file counts are operational evidence, not a new throughput benchmark or a cold-disk speed claim.
+`product-results.json` provides the source-labeled result index. `final-api-root-review.json` records the independent receipt review.
+Both final synthetic homes exit normally and receive supported cleanup.
+The independent ownership review checks the exact roots, process exits, sockets, and open files before cleanup.
+All 67 final sealed files retain their original size and hash after cleanup.
+All ten owned synthetic homes from this review are reclaimed.
+
 The original request inputs remain in `operation-inputs.json`; each later procedure records its exact changes separately.
 Git stores that canonical input once. Exact generated copies stay local and unchanged for receipt seals.
 `input-deduplication.json` identifies those copies and their recovery bytes.

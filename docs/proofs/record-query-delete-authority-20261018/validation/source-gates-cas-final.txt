@@ -1,0 +1,51 @@
+Frozen source: 7e457dabd819f1d56467e233148a5b13e98c081a
+Comparison base: origin/main (9260acca6308b99655057d5c6d4d1add98f3ae14)
+All listed checks passed. No product source changed after the frozen commit.
+Non-test checks only; no Cargo command, product API call, test, or cleanup ran.
+
+python3 scripts/lints/lint-diff-file-size.py --base origin/main --head 7e457dabd819f1d56467e233148a5b13e98c081a
+Exit: 0
+File size check passed (254 changed file(s) examined).
+
+python3 scripts/lints/lint-diff-fn-size.py --base origin/main --head 7e457dabd819f1d56467e233148a5b13e98c081a
+Exit: 0
+Function size check passed.
+
+python3 scripts/lints/lint-diff-new-allows.py --base origin/main --head 7e457dabd819f1d56467e233148a5b13e98c081a
+Exit: 0
+allow check passed: 0 added, 3 removed
+
+git diff --check origin/main...7e457dabd819f1d56467e233148a5b13e98c081a
+Exit: 0
+(no output)
+
+bash scripts/lints/lint-no-write-path-syncing-store.sh
+Exit: 0
+lint-no-write-path-syncing-store: ok
+
+bash scripts/lints/lint-app-registry-shelf.sh
+Exit: 0
+(no output)
+
+bash scripts/lints/lint-no-build-artifacts.sh --tree 7e457dabd819f1d56467e233148a5b13e98c081a
+Exit: 0
+(no output)
+
+bash scripts/lints/lint-no-build-artifacts.sh --range origin/main..7e457dabd819f1d56467e233148a5b13e98c081a
+Exit: 0
+(no output)
+
+git diff --exit-code 7e457dabd819f1d56467e233148a5b13e98c081a -- . ':(exclude)docs/proofs/**'
+Exit: 0
+(no output)
+
+Additional source freeze checks:
+git rev-parse HEAD origin/main
+7e457dabd819f1d56467e233148a5b13e98c081a
+9260acca6308b99655057d5c6d4d1add98f3ae14
+git diff --name-only 7e457dabd819f1d56467e233148a5b13e98c081a -- . ':(exclude)docs/proofs/**'
+Exit: 0; no changed product files.
+git ls-files --others --exclude-standard -- . ':(exclude)docs/proofs/**'
+Exit: 0; no untracked product files.
+git diff --check
+Exit: 0; no whitespace errors in the working tree.

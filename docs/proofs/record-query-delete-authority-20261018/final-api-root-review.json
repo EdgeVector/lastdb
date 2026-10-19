@@ -1,0 +1,16 @@
+{
+  "complete": true,
+  "reviewer": "root",
+  "method": "Independent offline reading of preserved request/response pairs; no repeated API calls.",
+  "hash_query_items": 6,
+  "hash_expected_id_outside_payload": true,
+  "hashrange_query_items": 107,
+  "shared_current_atom_checks": 16,
+  "stale_delete_status": 409,
+  "current_conditional_delete_count": 1,
+  "missing_must_exist_status": 400,
+  "source_old_new_fields_absent_after_delete_and_reopen": true,
+  "unrelated_records_unchanged": true,
+  "cloud_capture_unavailable_as_expected": true,
+  "source_commit": "7e457dabd819f1d56467e233148a5b13e98c081a"
+}

@@ -1,0 +1,44 @@
+{
+  "complete": true,
+  "outcomes": [
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/record-query-delete-authority-20261018/final-hash-cas",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.gyqj4oko",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.gyqj4oko",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.gyqj4oko (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.gyqj4oko",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/record-query-delete-authority-20261018/final-range-cas",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.nrjffd2a",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.nrjffd2a",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.nrjffd2a (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.nrjffd2a",
+      "startup_gate_refusal": false
+    }
+  ],
+  "scope": "Exact supported reclaim only. The startup refusal is not described as a normal session."
+}
