@@ -1,0 +1,31 @@
+host_cargo_lock=held pid=84551 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
+    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)
+   Compiling lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)
+error[E0433]: cannot find `DeclarativeSchemaType` in `types`
+   --> fold_db/crates/core/src/fold_db_core/query/hash_range_query/paging.rs:218:35
+    |
+218 |             crate::schema::types::DeclarativeSchemaType::HashRange
+    |                                   ^^^^^^^^^^^^^^^^^^^^^ could not find `DeclarativeSchemaType` in `types`
+
+error[E0308]: mismatched types
+   --> fold_db/crates/core/src/fold_db_core/query/hash_range_query/cokey.rs:119:17
+    |
+118 |             .collect_cokey_secondary_pending(
+    |              ------------------------------- arguments to this method are incorrect
+119 |                 schema,
+    |                 ^^^^^^ types differ in mutability
+    |
+    = note: expected mutable reference `&mut schema::types::declarative_schemas::DeclarativeSchemaDefinition`
+                       found reference `&schema::types::declarative_schemas::DeclarativeSchemaDefinition`
+note: method defined here
+   --> fold_db/crates/core/src/fold_db_core/query/hash_range_query/cokey_secondary.rs:22:25
+    |
+ 22 |     pub(super) async fn collect_cokey_secondary_pending(
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 23 |         &self,
+ 24 |         schema: &mut Schema,
+    |         -------------------
+
+Some errors have detailed explanations: E0308, E0433.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `fold_db` (lib) due to 2 previous errors

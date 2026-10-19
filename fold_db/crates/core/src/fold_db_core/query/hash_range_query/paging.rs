@@ -215,7 +215,7 @@ impl HashRangeQueryProcessor {
         // layouts need the extra field-value disambiguation below.
         if !matches!(
             schema.schema_type,
-            crate::schema::types::DeclarativeSchemaType::HashRange
+            crate::schema::types::schema::DeclarativeSchemaType::HashRange
         ) {
             return None;
         }

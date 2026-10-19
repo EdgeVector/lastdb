@@ -325,25 +325,11 @@ impl HashRangeQueryProcessor {
     /// the number of rows in the table, is not counting rows. Mirroring the
     /// read's primary keeps `total_count` and `has_more` describing one row set.
     fn count_field_names(schema: &Schema, fields: &[String]) -> Vec<String> {
-        let key_field_name = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
-            .filter(|field_name| schema.runtime_fields.contains_key(*field_name));
-
-        if let Some(key_field_name) = key_field_name {
-            return vec![key_field_name.clone()];
+        let selected = Self::cokey_selected_fields(schema, fields);
+        if selected.is_empty() {
+            return Vec::new();
         }
-
-        // No key field to count by. Take the read's primary — its first
-        // selected field — not the union of all of them.
-        if let Some(primary) = fields.first() {
-            return vec![primary.clone()];
-        }
-
-        // Unprojected AND keyless: there is no primary to mirror, so the whole
-        // live row set is the honest answer.
-        schema.runtime_field_names()
+        vec![Self::cokey_primary_field(schema, &selected)]
     }
 
     /// Projection fallback for a multi-key sibling whose own key field has no

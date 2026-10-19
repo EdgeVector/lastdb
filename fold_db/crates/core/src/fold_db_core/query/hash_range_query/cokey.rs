@@ -86,7 +86,7 @@ impl HashRangeQueryProcessor {
     /// Projected fields use only the keys and source namespaces already chosen.
     async fn fill_cokey_projection(
         &self,
-        schema: &Schema,
+        schema: &mut Schema,
         selected: &[String],
         primary_name: &str,
         rows: &mut CokeyRows,
