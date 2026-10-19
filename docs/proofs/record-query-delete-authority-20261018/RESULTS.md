@@ -52,6 +52,8 @@ The primary database and its archive remain untouched. No migration code forms p
 
 Final source, build, ordinary API checks, and cleanup results follow before acceptance.
 The original request inputs remain in `operation-inputs.json`; each later procedure records its exact changes separately.
+Git stores that canonical input once. Exact generated copies stay local and unchanged for receipt seals.
+`input-deduplication.json` identifies those copies and their recovery bytes.
 No tests, coverage commands, primary operations, or existing-home loads run.
 
 ## Preserved earlier results
