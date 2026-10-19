@@ -86,6 +86,8 @@ Query cursors support ascending keyed reads without field conditions or value or
 Other query forms use offsets. A supplied unsupported cursor receives an explicit refusal.
 An optional schema count reports `null` when the count fails or is unavailable.
 Only a successful count can establish zero records and `has_data: false`.
+The schema-definition list uses the owner context. Its optional counts describe the owner's personal database.
+Named database record queries and key lists use their requested database scope.
 
 ## Range keys
 
