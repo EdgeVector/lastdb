@@ -2,6 +2,8 @@ Native shared-key cleanup could leave an old key after its lookup value cleared,
 
 This change uses one current-association proof for related-key removal and one declared-key membership rule for query selection. Create/update groups prepare from the current private state immediately before their stage. Repeated canonical keys start the next stage; independent keys remain batched. The native transaction retains complete reservation and publication boundaries.
 
+The single-publication rule covers create/update batches. Mixed requests publish the create/update batch first. A later Delete or Purge can fail after those writes publish.
+
 Administrative pages recover usable API keys, establish a complete bounded set, and then select the page. Samples stop after enough valid records. Ordinary paged range reads retain body batches of at most 1,024 records. The memory sampler also removes a retired trim call and captures native counts after pressure relief.
 
 Validation:

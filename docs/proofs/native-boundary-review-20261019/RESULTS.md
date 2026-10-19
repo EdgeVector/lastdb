@@ -11,6 +11,8 @@ The changes use the current core model and native disk format.
   Each schema prepares from the current private state immediately before its stage.
   A repeated canonical key starts the next stage.
   Independent keys remain batched, and the complete create/update batch publishes once.
+  Mixed requests publish the create/update batch first.
+  A later Delete or Purge can fail after those writes publish.
 - Shared molecules could expose another key layout through reads, counts, pages, or samples.
   One membership rule now checks both declared key fields before the result limit.
   Administrative pages recover usable keys and establish a complete bounded set before the page slice.
