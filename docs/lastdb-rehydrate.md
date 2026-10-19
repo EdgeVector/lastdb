@@ -30,6 +30,7 @@ Queries resolve that record in the selected key's storage scope before field con
 Exact reads and range reads use the same field values and metadata rule.
 The record contains no per-field source, writer, or time, so those details remain unknown in its field results.
 A partial record preserves field values that it does not contain.
+Only the internal compaction read can use field values without the current record.
 
 ## Range keys
 

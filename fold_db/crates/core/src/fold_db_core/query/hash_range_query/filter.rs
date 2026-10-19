@@ -19,78 +19,28 @@ struct PredicateSelection<'a> {
 }
 
 impl HashRangeQueryProcessor {
-    /// Single current co-key query path for all filters, field counts and share
-    /// namespaces. A supplied `as_of` is rejected before resolution.
-    pub async fn query_with_filter(
+    /// Read field molecules to construct a complete document during compaction.
+    /// Ordinary queries must resolve the current document before selection.
+    pub(crate) async fn query_fields_for_compaction(
         &self,
         schema: &mut Schema,
         fields: &[String],
-        filter: Option<HashRangeFilter>,
-        as_of: Option<DateTime<Utc>>,
-        include_tombstones: bool,
+        filter: HashRangeFilter,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        self.query_with_filter_windowed(schema, fields, filter, None, as_of, include_tombstones)
-            .await
-    }
-
-    /// [`Self::query_with_filter`], bounded to one page of the matched keys.
-    ///
-    /// `window` is `(offset, limit)` over the [`KeyValue::cmp_page_order`]
-    /// enumeration of the keys `filter` matched, applied before any atom body
-    /// is loaded. Callers pass it only for a key-restricted filter — one that
-    /// selects a key set rather than bounding a scan — because `Page` and
-    /// `PageAfter` already carry their own bounds and windowing them twice
-    /// would page a page.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the window rides alongside the filter it bounds; bundling them into a struct would only move the argument list"
-    )]
-    pub async fn query_with_filter_windowed(
-        &self,
-        schema: &mut Schema,
-        fields: &[String],
-        filter: Option<HashRangeFilter>,
-        window: Option<KeyWindow>,
-        as_of: Option<DateTime<Utc>>,
-        include_tombstones: bool,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        self.query_with_filter_windowed_override(
-            schema,
-            fields,
-            filter,
-            window,
-            as_of,
-            include_tombstones,
-            None,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn query_with_filter_windowed_override(
-        &self,
-        schema: &mut Schema,
-        fields: &[String],
-        filter: Option<HashRangeFilter>,
-        window: Option<KeyWindow>,
-        as_of: Option<DateTime<Utc>>,
-        include_tombstones: bool,
-        request_concurrency: Option<usize>,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        Self::require_supported_query(schema, filter.as_ref(), as_of.is_some())?;
+        Self::require_supported_query(schema, Some(&filter), false)?;
         let query = QuerySelection {
             schema,
             fields,
-            filter,
-            window,
-            include_tombstones,
-            request_concurrency,
+            filter: Some(filter),
+            window: None,
+            include_tombstones: false,
+            request_concurrency: None,
         };
-        self.current_query_scope(self.filtered_query_captured(query).boxed())
+        self.current_query_scope(self.raw_fields_captured(query).boxed())
             .await
     }
 
-    async fn filtered_query_captured(
+    async fn raw_fields_captured(
         &self,
         query: QuerySelection<'_>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {

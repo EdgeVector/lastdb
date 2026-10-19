@@ -183,7 +183,7 @@ async fn compact_one_key(
     };
     let processor = HashRangeQueryProcessor::new(Arc::clone(db.db_ops()));
     let zipped = processor
-        .query_with_filter(&mut schema, declared, Some(filter), None, false)
+        .query_fields_for_compaction(&mut schema, declared, filter)
         .await?;
 
     let api_key = KeyValue::new(Some(api_hash.clone()), Some(api_range.clone()));
