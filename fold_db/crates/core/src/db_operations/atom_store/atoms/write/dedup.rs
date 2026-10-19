@@ -14,20 +14,14 @@ impl AtomStore {
     /// uuid-only locator that could select another partition or scope.
     pub(super) async fn native_atom_batch(
         &self,
-        atoms: &[(Atom, Option<crate::atom::AtomPartition>)],
+        atoms: &[SealedAtom],
         storage_prefix: Option<&str>,
     ) -> Result<NativeAtomBatch, SchemaError> {
-        let encoding = self.atom_key_encoding();
         let mut existing = HashMap::new();
         let mut seen = HashSet::new();
         let keys: Vec<String> = atoms
             .iter()
-            .map(|(atom, partition)| {
-                build_storage_key(
-                    storage_prefix,
-                    &atom_key_codec::storage_key(encoding, partition.as_ref(), atom.uuid()),
-                )
-            })
+            .map(|(atom, _)| build_storage_key(storage_prefix, &atom_key_codec::body_key(atom.uuid())))
             .filter(|key| seen.insert(key.clone()))
             .collect();
         if self
@@ -54,11 +48,8 @@ impl AtomStore {
         seen.clear();
         let blob_refs = atoms
             .iter()
-            .filter_map(|(atom, partition)| {
-                let key = build_storage_key(
-                    storage_prefix,
-                    &atom_key_codec::storage_key(encoding, partition.as_ref(), atom.uuid()),
-                );
+            .filter_map(|(atom, _)| {
+                let key = build_storage_key(storage_prefix, &atom_key_codec::body_key(atom.uuid()));
                 seen.insert(key.clone())
                     .then(|| existing.get(&key).unwrap_or(atom))
             })

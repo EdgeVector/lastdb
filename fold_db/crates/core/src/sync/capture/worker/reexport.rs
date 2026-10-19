@@ -184,10 +184,6 @@ impl SyncEngine {
         self.compaction.maybe_compact_capture_reexport_plane().await;
     }
 
-    pub(crate) async fn maybe_compact_locator_plane(&self) {
-        self.compaction.maybe_compact_locator_plane().await;
-    }
-
     pub(crate) async fn maybe_compact_residual_capture_free_planes(&self) {
         self.compaction
             .maybe_compact_residual_capture_free_planes()

@@ -43,18 +43,16 @@ impl AtomStore {
             .list_keys_with_prefix(&scan_prefix)
             .await
             .map_err(|e| SchemaError::InvalidData(format!("list schema atom markers: {e}")))?;
-        // Markers name UUIDs. The ordinary locator path finds a body in its
-        // actual location; it must not assume a flat physical copy exists.
+        // Markers name UUIDs. A body is one point read of its key.
         let uuids: Vec<String> = keys
             .into_iter()
             .map(|key| {
                 crate::db_operations::atom_store::helpers::strip_record_prefix(&key, &scan_prefix)
             })
             .collect();
-        let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> =
-            uuids.iter().map(|uuid| (uuid.as_str(), None)).collect();
+        let slots: Vec<&str> = uuids.iter().map(String::as_str).collect();
         Ok(self
-            .get_atoms_located(&slots, storage_prefix)
+            .get_atoms(&slots, storage_prefix)
             .await
             .map_err(|e| SchemaError::InvalidData(format!("fetch schema atoms: {e}")))?
             .into_iter()

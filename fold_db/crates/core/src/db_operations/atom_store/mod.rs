@@ -25,6 +25,7 @@ pub(crate) mod atom_ref_edges;
 mod atom_ref_gc;
 mod atoms;
 mod blob_ref_edges;
+mod boot;
 mod codec;
 mod conflict_record;
 mod construct;
@@ -35,7 +36,6 @@ mod fresh_home_edges;
 mod hard_erase_journal;
 mod helpers;
 mod keep_small;
-mod key_encoding;
 mod locks;
 mod molecule_ref_edges;
 mod molecules;
@@ -162,9 +162,6 @@ pub struct AtomStore {
     key_codec: crate::atom::MoleculeKeyCodec,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.
     molecule_keys: Option<crate::db_operations::MoleculeKeyStore>,
-    /// Atom body storage-key encoding (default [`crate::atom::AtomKeyEncoding::Flat`];
-    /// see `design-lastdb-atom-key-partition-locality`).
-    atom_keys_partition_prefixed: Arc<AtomicBool>,
     /// Cache successful marker checks by storage prefix. Completion markers
     /// are immutable during one process lifetime after read cutover.
     atom_ref_v2_read_ready: Arc<std::sync::Mutex<std::collections::HashSet<Option<String>>>>,

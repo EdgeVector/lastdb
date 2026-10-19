@@ -1,6 +1,6 @@
 //! Atom CRUD, mutation-event history, and schema-index listing.
 
-use crate::atom::{atom_key_codec, atom_locator_codec, molecule_key_codec};
+use crate::atom::{atom_key_codec, molecule_key_codec};
 use crate::atom::{Atom, MutationEvent};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
@@ -52,7 +52,6 @@ fn batch_write_error(what: &str, error: crate::storage::StorageError) -> SchemaE
 
 mod events;
 mod history;
-mod locator_memory;
 mod maintenance;
 mod read;
 mod schema_index;

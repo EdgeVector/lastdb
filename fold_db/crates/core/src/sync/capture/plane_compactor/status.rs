@@ -49,15 +49,6 @@ impl PlaneCompactor {
             self.tips_compact_min_overhang_bytes.load(Ordering::Relaxed),
             self.tips_compact_max_bytes.load(Ordering::Relaxed),
         );
-        super::super::fill_overhang_status(
-            &mut planes,
-            LOCATOR_NAMESPACE,
-            usage(LOCATOR_NAMESPACE),
-            self.locator_compact_min_overhang_bps
-                .load(Ordering::Relaxed),
-            0,
-            0,
-        );
         planes
     }
 

@@ -67,9 +67,6 @@ impl AtomStore {
             atom_content_binary: crate::atom::atom_content_binary_enabled(),
             key_codec,
             molecule_keys: None,
-            atom_keys_partition_prefixed: Arc::new(AtomicBool::new(
-                crate::atom::AtomKeyEncoding::from_env_or_default().writes_partition_prefix(),
-            )),
             atom_ref_v2_read_ready: Arc::default(),
             molecule_commit_locks: Arc::default(),
             tip_commit_locks: Arc::default(),

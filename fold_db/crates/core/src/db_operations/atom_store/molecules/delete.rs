@@ -28,75 +28,26 @@ struct SlotRemovalPlan {
 }
 
 impl AtomStore {
-    /// Remove EXACTLY the named slots from a per-key molecule, leaving every
-    /// other slot's row untouched.
+    /// Remove EXACTLY the named slots from per-key molecules in **one**
+    /// durable delete and **one** durable header put, leaving every other
+    /// slot's row untouched.
     ///
-    /// `removed_slots` are **storage-form** `(hash, range)` pairs — the segments
-    /// the molecule itself is keyed by, which is what
-    /// `per_key_storage_records` emits under
-    /// [`MoleculeKeyDomain::Storage`](super::super::MoleculeKeyDomain). `data`
-    /// is the molecule **after** the removal; only its header
-    /// (`version`/`updated_at`) is read.
+    /// `removed_slots` are **storage-form** `(hash, range)` pairs: the segments
+    /// the molecule is keyed by. `data` is the molecule **after** the removal;
+    /// only its header (`version`/`updated_at`) is read.
     ///
-    /// # Why this exists
-    ///
-    /// The only removal primitive used to be
-    /// `delete_per_key_molecule` followed by a full rewrite, and both
-    /// halves are O(molecule cardinality). That is the right cost for retiring
-    /// a molecule and a catastrophic one for retiring a *slot*: measured on the
-    /// primary 2026-08-09, purging ONE record from a 24-field schema whose
-    /// field molecules hold ~19.2k keys apiece rewrote ~347.7k `mk:` rows and
-    /// grew the `tips` plane by ~442 MiB — for one record. The store grew only
-    /// while a purge ran and was flat otherwise, so the reclaim path was the
-    /// growth path. Card
-    /// `lastdb-purge-rewrites-the-whole-molecule-to-remove-one-key`.
-    ///
-    /// This is the removal counterpart to
-    /// [`Self::store_molecule_changed_keys`], which had already made the
-    /// *upsert* path O(touched keys) and explicitly left removal to the caller.
-    ///
-    /// # What is deliberately NOT touched
-    ///
-    /// The `mord:`/`moc:` order log. `MoleculeHashRange::remove_atom_uuid` does
-    /// not prune `update_order` — it only bumps `version`/`updated_at` — so the
-    /// full rewrite this replaces wrote the order log back **unchanged**.
-    /// Leaving it alone is therefore the identical end state, and it keeps the
-    /// `moc:{M} >= count(mk:{M}:…)` invariant `db order-log-audit` is defined
-    /// against: removing `mk:` rows can only widen that margin, never invert it.
-    ///
-    /// # Ordering
-    ///
-    /// Rows are deleted BEFORE the header is bumped. A crash between the two
-    /// leaves the erasure durable and only the header version behind, which
-    /// self-heals on the next write to the molecule and cannot resurrect a
-    /// removed row: `load_molecule_per_key` scans the `mk:` range, so a slot
-    /// with no row is absent whatever the header says. Erasure durability
-    /// outranks header freshness for a compliance verb. This is strictly more
-    /// crash-safe than the delete-everything-then-rewrite path it replaces,
-    /// where the same window loses the whole molecule.
-    pub(crate) async fn remove_molecule_keys(
-        &self,
-        molecule_uuid: &str,
-        data: &MoleculeData,
-        removed_slots: &[(String, String)],
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        self.remove_molecules_keys_batch(&[(molecule_uuid, data, removed_slots, storage_prefix)])
-            .await
-    }
-
-    /// Remove named slots from many per-key molecules in **one** durable
-    /// delete and **one** durable header put.
-    ///
-    /// Purge of a multi-field schema (BoardCards has 24 fields) used to call
-    /// [`Self::remove_molecule_keys`] once per field: each call paid its own
-    /// `batch_delete` + header `batch_put_items`. Measured on the primary
+    /// Purge of a multi-field schema (BoardCards has 24 fields) used to pay one
+    /// `batch_delete` + header put per field. Measured on the primary
     /// 2026-08-17, that exclusive `purge_commit` hold averaged ~8.6 s for a
-    /// single-record purge while `records_purged=1` — the per-field durable
-    /// round trips were pure overhead once the slot lists were already in
-    /// hand. The end state is identical: every named `mk:`
-    /// key is gone and each molecule header is bumped to the post-removal
+    /// single-record purge. The end state is identical: every named `mk:` key
+    /// is gone and each molecule header is bumped to the post-removal
     /// `version`/`updated_at`.
+    ///
+    /// The `mord:`/`moc:` order log stays as it is. Removing `mk:` rows can
+    /// only widen the `moc:{M} >= count(mk:{M}:…)` margin that
+    /// `db order-log-audit` checks, never invert it. Rows are deleted before
+    /// the header is bumped, so a crash leaves the erasure durable and only the
+    /// header version behind.
     ///
     /// Empty `removed_slots` entries are skipped. An all-empty batch is a
     /// no-op (no store call).

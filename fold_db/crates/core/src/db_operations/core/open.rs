@@ -277,7 +277,7 @@ impl DbOperations {
         .with_namespaced_store(Arc::clone(store))
         .with_molecule_keys(molecule_keys.clone())
         .with_keep_small_persist(namespaces.keep_small)
-        .resolve_boot_encoding()
+        .prepare_boot()
         .await?;
         Self::initialize_fresh_native_refs(store, &atom_store).await?;
         atom_store

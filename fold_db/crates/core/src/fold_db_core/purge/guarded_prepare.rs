@@ -133,14 +133,13 @@ pub(super) struct GuardedErasure {
 }
 
 /// Collect every storage key the final batch delete removes.
-pub(super) async fn collect_keys_to_delete(
-    db_ops: &Arc<DbOperations>,
+pub(super) fn collect_keys_to_delete(
     schema_name: &str,
     inputs: &GuardedRemovalInputs<'_>,
     tip_version_backref_keys: Vec<Vec<u8>>,
     atoms_to_delete: &[String],
     acct: &mut PurgeCommitAccounting,
-) -> Result<Vec<Vec<u8>>, SchemaError> {
+) -> Vec<Vec<u8>> {
     let mut keys_to_delete: Vec<Vec<u8>> =
         if inputs.reachability == PurgeReachability::GuardedComplement {
             let mut keys: Vec<Vec<u8>> = inputs
@@ -155,12 +154,12 @@ pub(super) async fn collect_keys_to_delete(
             Vec::new()
         };
     let key_set_start = std::time::Instant::now();
-    push_atom_storage_keys(db_ops, schema_name, atoms_to_delete, &mut keys_to_delete).await?;
+    push_atom_storage_keys(schema_name, atoms_to_delete, &mut keys_to_delete);
     acct.record(
         crate::request_phases::RequestPhase::PurgeDelete,
         key_set_start.elapsed(),
     );
-    Ok(keys_to_delete)
+    keys_to_delete
 }
 
 /// Resolve the targets and remove the molecule rows. Nothing after this point
@@ -225,14 +224,12 @@ pub(super) async fn prepare_guarded_erasure(
     let (file_pointer_atoms_purged, live_head_debits) =
         account_blob_and_live_head_debits(db_ops, &atoms_to_delete, &live_head_atoms, acct).await?;
     let keys_to_delete = collect_keys_to_delete(
-        db_ops,
         schema_name,
         inputs,
         tip_version_backref_keys,
         &atoms_to_delete,
         acct,
-    )
-    .await?;
+    );
     let report = BulkPurgeReport {
         records_purged,
         history_rows_deleted: inputs.history_keys.len(),

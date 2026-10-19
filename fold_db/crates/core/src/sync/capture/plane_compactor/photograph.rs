@@ -144,20 +144,6 @@ impl PlaneCompactor {
                 });
             }
         }
-        let locator_bps = self
-            .locator_compact_min_overhang_bps
-            .load(Ordering::Relaxed);
-        if locator_bps != 0 {
-            if let Some(usage) = self.store.collection_disk_usage(LOCATOR_NAMESPACE) {
-                if overhang_ratio_met(&usage, locator_bps) {
-                    dirty.push(PhotographDirtyPlane {
-                        name: LOCATOR_NAMESPACE,
-                        usage,
-                        kind: PhotographPlaneKind::Locator,
-                    });
-                }
-            }
-        }
         dirty
     }
 
@@ -197,13 +183,6 @@ impl PlaneCompactor {
                     let now_s = crate::clock::unix_secs().max(1);
                     trigger.last_probe_unix_s.store(now_s, Ordering::Relaxed);
                 }
-            }
-            PhotographPlaneKind::Locator => {
-                self.compact_named_capture_free_plane(LOCATOR_NAMESPACE, plane.usage)
-                    .await;
-                let now_s = crate::clock::unix_secs().max(1);
-                self.locator_last_probe_unix_s
-                    .store(now_s, Ordering::Relaxed);
             }
         }
     }

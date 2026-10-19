@@ -28,10 +28,10 @@
 
 use super::worker::{
     automatic_large_plane_pauses_cloud, compact_footprint_spike_estimate, compact_lacks_headroom,
-    overhang_bps, overhang_ratio_met, overhang_trigger_met, photograph_compact_budget_exhausted,
+    overhang_bps, overhang_trigger_met, photograph_compact_budget_exhausted,
     raise_plane_floor, ChurnPlaneTrigger, PhotographDirtyPlane, PhotographPlaneKind,
     ATOMS_NAMESPACE, CAPTURE_REEXPORT_NAMESPACE, LARGE_CAPTURED_SELF_COMPACT_PLANES,
-    LOCATOR_NAMESPACE, ORDER_LOG_NAMESPACE, TIPS_NAMESPACE,
+    ORDER_LOG_NAMESPACE, TIPS_NAMESPACE,
 };
 use super::{ResidualPlaneTrigger, RESIDUAL_SELF_COMPACT_PLANES};
 use crate::storage::traits::NamespacedStore;
@@ -74,17 +74,6 @@ pub(crate) struct PlaneCompactor {
     /// Minimum seconds between size probes of the marker plane, read once from
     /// `LASTDB_CAPTURE_REEXPORT_COMPACT_PROBE_INTERVAL_SECS`.
     pub(crate) capture_reexport_probe_interval_s: AtomicU64,
-    /// Unix seconds of the last on-disk size probe of the `atom_locators`
-    /// plane, rate limiting the stat walk in
-    /// [`SyncEngine::maybe_compact_locator_plane`]; `0` means never.
-    pub(crate) locator_last_probe_unix_s: AtomicU64,
-    /// Proportional filesystem allocation overhang that triggers locator
-    /// compaction, read once from
-    /// `LASTDB_ATOM_LOCATORS_COMPACT_MIN_OVERHANG_BPS` at construction.
-    pub(crate) locator_compact_min_overhang_bps: AtomicU64,
-    /// Minimum seconds between size probes of the locator plane, read once
-    /// from `LASTDB_ATOM_LOCATORS_COMPACT_PROBE_INTERVAL_SECS`.
-    pub(crate) locator_probe_interval_s: AtomicU64,
     /// Rate limit and proportional filesystem-overhang trigger for the large
     /// captured-but-physical-compact-neutral `tips` plane.
     pub(crate) tips_last_probe_unix_s: AtomicU64,
@@ -234,11 +223,6 @@ impl PlaneCompactor {
             capture_reexport_probe_interval_s: AtomicU64::new(
                 super::capture_reexport_probe_interval_s(),
             ),
-            locator_last_probe_unix_s: AtomicU64::new(0),
-            locator_compact_min_overhang_bps: AtomicU64::new(
-                super::locator_compact_min_overhang_bps(),
-            ),
-            locator_probe_interval_s: AtomicU64::new(super::locator_probe_interval_s()),
             tips_last_probe_unix_s: AtomicU64::new(0),
             tips_compact_min_overhang_bytes: AtomicU64::new(
                 super::tips_compact_min_overhang_bytes(),
@@ -313,7 +297,6 @@ impl PlaneCompactor {
     pub(crate) async fn run_all_sweeps(&self) {
         self.maybe_photograph_aligned_compact_if_dirty().await;
         self.maybe_compact_capture_reexport_plane().await;
-        self.maybe_compact_locator_plane().await;
         self.maybe_compact_tips_plane().await;
         self.maybe_compact_large_captured_planes().await;
         self.maybe_compact_residual_capture_free_planes().await;
@@ -389,7 +372,7 @@ impl PlaneCompactor {
 
 pub(crate) mod cloud_off_restore;
 mod large;
-mod locator;
+mod residual;
 mod photograph;
 mod reexport;
 mod status;

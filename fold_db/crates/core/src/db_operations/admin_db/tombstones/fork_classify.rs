@@ -65,9 +65,9 @@ impl AtomStore {
     ) -> Result<HashMap<String, Vec<LegacyKeyForkCandidate>>, SchemaError> {
         let atom_slots: Vec<_> = forked
             .iter()
-            .map(|(_, twin)| (twin.entry.atom_uuid.as_str(), None))
+            .map(|(_, twin)| twin.entry.atom_uuid.as_str())
             .collect();
-        let atoms = self.get_atoms_located(&atom_slots, storage_prefix).await?;
+        let atoms = self.get_atoms(&atom_slots, storage_prefix).await?;
         let mut eligible: HashMap<String, Vec<LegacyKeyForkCandidate>> = HashMap::new();
         for ((candidate, _), atom) in forked.into_iter().zip(atoms) {
             let stat = per_molecule
@@ -126,9 +126,9 @@ impl AtomStore {
             .collect();
         let atom_slots: Vec<_> = present
             .iter()
-            .map(|(_, twin)| (twin.entry.atom_uuid.as_str(), None))
+            .map(|(_, twin)| twin.entry.atom_uuid.as_str())
             .collect();
-        let atoms = self.get_atoms_located(&atom_slots, storage_prefix).await?;
+        let atoms = self.get_atoms(&atom_slots, storage_prefix).await?;
         let mut delete = Vec::new();
         let mut bytes = 0u64;
         for ((candidate, _), atom) in present.into_iter().zip(atoms) {

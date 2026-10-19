@@ -1,7 +1,7 @@
 //! Certified current tips share the logical path budget without atom values.
 
 use super::*;
-use crate::atom::{atom_key_codec, AtomKeyEncoding, AtomPartition};
+use crate::atom::atom_key_codec;
 use crate::resident::CoreWarmTip;
 use crate::schema::types::key_value::KeyValue;
 use crate::storage::disk_pack::read::ReadContext;
@@ -11,7 +11,6 @@ pub(super) fn admit(
     scope: Option<&str>,
     molecule: &str,
     key: &KeyValue,
-    encoding: AtomKeyEncoding,
     selected: &core_read::SelectedTip,
 ) -> StorageResult<()> {
     let Some((runtime, binding)) = runtime.zip(field::FieldScope::current()) else {
@@ -28,13 +27,6 @@ pub(super) fn admit(
         .as_ref()
         .is_none_or(|winner| !sources.contains(winner))
     {
-        return Ok(());
-    }
-    let partition = selected
-        .partition
-        .as_deref()
-        .and_then(AtomPartition::from_prefix);
-    if encoding.writes_partition_prefix() && partition.is_none() {
         return Ok(());
     }
     let Some(context) = ReadContext::captured(&runtime) else {
@@ -60,9 +52,10 @@ pub(super) fn admit(
     let body = if preserved {
         body_sources(core.source_coordinates(&path), &selected.entry.atom_uuid)?
     } else {
-        let expected =
-            atom_key_codec::storage_key(encoding, partition.as_ref(), &selected.entry.atom_uuid);
-        let expected = crate::schema::types::field::build_storage_key(scope, &expected);
+        let expected = crate::schema::types::field::build_storage_key(
+            scope,
+            &atom_key_codec::body_key(&selected.entry.atom_uuid),
+        );
         super::super::kv::coordinates("main", expected.as_bytes()).to_vec()
     };
     // An existing full value keeps its actual copy, including protein siblings.

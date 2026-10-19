@@ -199,19 +199,11 @@ impl AtomStore {
         };
         report.atoms_deleted += 1;
         report.bytes_freed_approx += k.len() as u64 + v.len() as u64;
-        // A locator must not outlive the body it points at, or the
-        // uuid-only read path keeps resolving to a key that is now empty.
-        // Queued unconditionally: deleting an absent key is a no-op, so
-        // this is also correct for a flat body that never had one.
         if !ctx.dry_run {
             // Source removal precedes derived edge removal. LastStore
             // preserves batch order and uses one durability barrier.
             pending.push(key.to_string());
             pending.extend(blob_edges);
-            pending.push(build_storage_key(
-                ctx.storage_prefix,
-                &crate::atom::atom_locator_codec::locator_key(uuid),
-            ));
         }
         Ok(())
     }

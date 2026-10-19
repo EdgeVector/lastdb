@@ -41,7 +41,6 @@ pub(crate) fn capture_reexport_probe_interval_s() -> u64 {
     )
 }
 
-pub(crate) const LOCATOR_NAMESPACE: &str = crate::atom::atom_locator_codec::LOCATOR_COLLECTION;
 pub(crate) const TIPS_NAMESPACE: &str = "tips";
 pub(crate) const ATOMS_NAMESPACE: &str = "atoms";
 pub(crate) const ORDER_LOG_NAMESPACE: &str = "field_update_order_log";
@@ -124,7 +123,6 @@ pub(crate) enum PhotographPlaneKind {
     Tips,
     LargeCaptured,
     Residual,
-    Locator,
 }
 
 pub(crate) struct PhotographDirtyPlane {
@@ -233,7 +231,7 @@ pub(crate) fn overhang_trigger_met(
     overhang_ratio_met(usage, min_overhang_bps)
 }
 
-/// Ratio half of the trigger. Locators still fire on ratio alone.
+/// Ratio half of the trigger.
 pub(crate) fn overhang_ratio_met(
     usage: &crate::storage::traits::CollectionDiskUsage,
     min_overhang_bps: u64,

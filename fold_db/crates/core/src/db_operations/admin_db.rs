@@ -104,8 +104,6 @@ impl<'a> GcAtomsProgress<'a> {
     }
 }
 
-mod report_dangling_tips;
-pub use report_dangling_tips::*;
 mod report_gc;
 pub use report_gc::*;
 mod report_gc_automatic;
@@ -114,15 +112,10 @@ mod report_tip_history;
 pub use report_tip_history::*;
 mod report_inventory;
 pub use report_inventory::*;
-mod report_locator_probe;
-pub use report_locator_probe::*;
 mod report_molecule_keys;
 pub use report_molecule_keys::*;
 mod report_order_log;
 pub use report_order_log::*;
-mod report_rekey;
-pub use report_rekey::*;
-mod dangling_tips;
 mod gc_atoms_delete;
 mod gc_atoms_delete_steps;
 mod gc_atoms_probe;
@@ -135,23 +128,10 @@ mod inventory_key_classes;
 mod inventory_molecule_keys;
 mod inventory_tip_format;
 mod order_log;
-mod rekey;
 mod superseded_retention;
 mod tip_chain_prune;
 mod tip_history_drain;
 mod tombstones;
-
-/// Strip an optional storage prefix from a full storage key, returning the base
-/// key (`mk:…`, `atom:…`, …). `None` when the key is outside that scope.
-fn strip_storage_prefix<'a>(storage_prefix: Option<&str>, full_key: &'a str) -> Option<&'a str> {
-    match storage_prefix {
-        None => Some(full_key),
-        Some(p) => {
-            let with_sep = format!("{p}:");
-            full_key.strip_prefix(&with_sep)
-        }
-    }
-}
 
 /// Has the `mk:` head moved since the planning scan observed it?
 ///

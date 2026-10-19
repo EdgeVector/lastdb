@@ -11,19 +11,12 @@ mod batch;
 pub(crate) use batch::{fetch_field_atom_batches, FieldAtomBatch};
 
 /// One filtered match, carried from tip scan to body hydrate:
-/// `(key, atom_uuid, key_metadata, writer_pubkey, partition_hint)`.
-///
-/// The partition hint is optional and is derived from the **storage-form**
-/// slot (before any OPE range remapping). When present, body hydrate uses
-/// [`crate::db_operations::atom_store::AtomStore::get_atoms_located`] so a
-/// partition-prefixed body resolves in one bounded batch without a locator
-/// hop. A wrong or absent hint is only a slower read, never a wrong answer.
+/// `(key, atom_uuid, key_metadata, writer_pubkey)`.
 pub type KeyedAtomMatch = (
     KeyValue,
     String,
     Option<crate::atom::KeyMetadata>,
     Option<String>,
-    Option<crate::atom::AtomPartition>,
 );
 
 /// Resolve atom UUID matches into concrete FieldValue map under an optional
@@ -52,11 +45,7 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
             molecule_uuid,
             &crate::storage::disk_pack::logical_paths::field::AtomSelection {
                 entry: &entry,
-                primary: db_ops.atoms().primary_atom_key(
-                    &entry.1,
-                    entry.4.as_ref(),
-                    storage_prefix,
-                ),
+                primary: db_ops.atoms().body_storage_key(&entry.1, storage_prefix),
             },
         )? {
             resolved_values.insert(entry.0, value);
@@ -64,16 +53,14 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
             misses.push(entry);
         }
     }
-    let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = misses
+    let uuids: Vec<&str> = misses
         .iter()
-        .map(|(_, atom_uuid, _, _, partition)| (atom_uuid.as_str(), partition.clone()))
+        .map(|(_, atom_uuid, _, _)| atom_uuid.as_str())
         .collect();
     let atoms =
-        crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &slots, storage_prefix).await?;
+        crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &uuids, storage_prefix).await?;
 
-    for ((key, atom_uuid, key_meta, writer_pubkey, partition), atom) in
-        misses.into_iter().zip(atoms)
-    {
+    for ((key, atom_uuid, key_meta, writer_pubkey), atom) in misses.into_iter().zip(atoms) {
         if let Some(atom) = atom {
             let value = field_value_from_atom(&atom, atom_uuid, key_meta, writer_pubkey);
             crate::storage::disk_pack::logical_paths::field::admit(
@@ -82,14 +69,12 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
                 molecule_uuid,
                 &key,
                 &value,
-                partition.as_ref(),
             )?;
             resolved_values.insert(key, value);
         } else {
             let miss = UnresolvedMatch {
                 key: &key,
                 atom_uuid: &atom_uuid,
-                partition: partition.as_ref(),
             };
             handle_unresolved_atom(db_ops, storage_prefix, molecule_uuid, schema, field, &miss);
         }
@@ -149,7 +134,6 @@ pub(crate) fn field_value_from_atom(
 struct UnresolvedMatch<'a> {
     key: &'a KeyValue,
     atom_uuid: &'a str,
-    partition: Option<&'a crate::atom::AtomPartition>,
 }
 
 /// Skip a match whose atom body is missing (the caller drops the row).
@@ -161,11 +145,7 @@ fn handle_unresolved_atom(
     field: Option<&str>,
     miss: &UnresolvedMatch<'_>,
 ) {
-    let UnresolvedMatch {
-        key,
-        atom_uuid,
-        partition,
-    } = miss;
+    let UnresolvedMatch { key, atom_uuid } = miss;
     if storage_prefix.is_some() {
         // Intentional filter (not a bug-skip): the function-level
         // doc comment on the fetch function explains that org-scoped reads must
@@ -193,7 +173,6 @@ fn handle_unresolved_atom(
             molecule_uuid,
             schema,
             field,
-            atom_partition: *partition,
             tip_storage_key: None,
         },
     );

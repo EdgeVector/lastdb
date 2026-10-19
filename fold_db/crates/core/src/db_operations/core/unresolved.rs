@@ -58,8 +58,7 @@ pub struct UnresolvedAtomIdentity {
     pub storage_namespace: Option<String>,
     /// Exact storage-form tip key when the caller retained it.
     pub tip_storage_key: Option<String>,
-    /// First body key attempted under the current atom key encoding.
-    /// Null when a partition-prefixed body has no proven partition.
+    /// The body key that the read tried.
     pub atom_storage_key: Option<String>,
 }
 
@@ -72,7 +71,6 @@ pub(crate) struct UnresolvedAtomContext<'a> {
     pub molecule_uuid: Option<&'a str>,
     pub schema: Option<&'a str>,
     pub field: Option<&'a str>,
-    pub atom_partition: Option<&'a crate::atom::AtomPartition>,
     pub tip_storage_key: Option<&'a str>,
 }
 
@@ -192,7 +190,6 @@ impl DbOperations {
             molecule_uuid,
             schema,
             field,
-            atom_partition,
             tip_storage_key,
         } = context;
         self.unresolved_atom_skips.fetch_add(1, Ordering::Relaxed);
@@ -206,12 +203,7 @@ impl DbOperations {
                 }
             }
         }
-        let atom_storage_key = match (self.atoms().atom_key_encoding(), atom_partition) {
-            (crate::atom::AtomKeyEncoding::PartitionPrefix, None) => None,
-            (encoding, partition) => Some(crate::atom::atom_key_codec::storage_key(
-                encoding, partition, atom_uuid,
-            )),
-        };
+        let atom_storage_key = Some(crate::atom::atom_key_codec::body_key(atom_uuid));
         if let Ok(mut details) = self.unresolved_atom_details.lock() {
             let identity_key = (
                 atom_uuid.to_string(),

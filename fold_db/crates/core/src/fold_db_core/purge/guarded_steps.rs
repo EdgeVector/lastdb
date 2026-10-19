@@ -264,39 +264,20 @@ pub(super) async fn account_blob_and_live_head_debits(
     Ok((file_pointer_atoms_purged, live_head_debits))
 }
 
-/// Append the per-atom storage keys (flat, partition-prefix, locator, schema
-/// index) to `keys_to_delete`.
-pub(super) async fn push_atom_storage_keys(
-    db_ops: &Arc<DbOperations>,
+/// Append the per-atom storage keys (body and schema index) to `keys_to_delete`.
+pub(super) fn push_atom_storage_keys(
     schema_name: &str,
     atoms_to_delete: &[String],
     keys_to_delete: &mut Vec<Vec<u8>>,
-) -> Result<(), SchemaError> {
-    let atom_key_encoding = db_ops.atoms().atom_key_encoding();
+) {
     for uuid in atoms_to_delete {
-        keys_to_delete.push(
-            build_storage_key(None, &crate::atom::atom_key_codec::flat_key(uuid)).into_bytes(),
-        );
-        if atom_key_encoding.writes_partition_prefix() {
-            if let Some(partition) = db_ops.atoms().lookup_atom_partition(uuid, None).await? {
-                let key = crate::atom::atom_key_codec::storage_key(
-                    crate::atom::AtomKeyEncoding::PartitionPrefix,
-                    Some(&partition),
-                    uuid,
-                );
-                keys_to_delete.push(build_storage_key(None, &key).into_bytes());
-            }
-        }
-        keys_to_delete.push(
-            build_storage_key(None, &crate::atom::atom_locator_codec::locator_key(uuid))
-                .into_bytes(),
-        );
+        keys_to_delete
+            .push(build_storage_key(None, &crate::atom::atom_key_codec::body_key(uuid)).into_bytes());
         keys_to_delete.push(
             crate::db_operations::atom_store::AtomStore::schema_index_key(None, schema_name, uuid)
                 .into_bytes(),
         );
     }
-    Ok(())
 }
 
 /// Store, reload, and flush the schema after the destructive writes.

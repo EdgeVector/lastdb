@@ -35,8 +35,6 @@ impl MutationManager {
             )));
         };
 
-        let hint = schema_field.partition_hint(&key_value);
-
         let Some(entry) = self
             .point_read_field_entry(
                 &mutation.schema_name,
@@ -51,12 +49,7 @@ impl MutationManager {
         };
         let uuid = entry.atom_uuid;
 
-        // `key_value` is API-form, so this hint can be wrong under a blinded
-        // HashKey encoding; that costs one point read and the flat/locator
-        // fallback still returns the right atom.
-        let content = self
-            .read_atom_content(&uuid, hint.as_ref(), storage_prefix)
-            .await?;
+        let content = self.read_atom_content(&uuid, storage_prefix).await?;
 
         // A tombstoned head reads as absent — a deleted record has no live
         // value to compare against.
@@ -92,13 +85,12 @@ impl MutationManager {
     async fn read_atom_content(
         &self,
         uuid: &str,
-        hint: Option<&crate::atom::AtomPartition>,
         storage_prefix: Option<&str>,
     ) -> Result<Option<serde_json::Value>, SchemaError> {
         Ok(self
             .db_ops
             .atoms()
-            .get_atom_by_uuid_in_partition(uuid, hint, storage_prefix)
+            .get_atom_by_uuid(uuid, storage_prefix)
             .await?
             .map(|atom| atom.content().clone()))
     }
@@ -151,26 +143,22 @@ impl MutationManager {
                         storage_prefix,
                     )
                     .await?;
-                Ok::<_, SchemaError>((field, entry, schema_field.partition_hint(key_value)))
+                Ok::<_, SchemaError>((field, entry))
             }
         }))
         .await?;
         let selected: Vec<_> = selected
             .into_iter()
-            .filter_map(|(field, entry, hint)| entry.map(|entry| (field, entry, hint)))
+            .filter_map(|(field, entry)| entry.map(|entry| (field, entry)))
             .collect();
         if selected.is_empty() {
             return Ok((CurrentRowFields::Absent, None));
         }
-        let slots: Vec<_> = selected
+        let uuids: Vec<&str> = selected
             .iter()
-            .map(|(_, entry, hint)| (entry.atom_uuid.as_str(), hint.clone()))
+            .map(|(_, entry)| entry.atom_uuid.as_str())
             .collect();
-        let atoms = self
-            .db_ops
-            .atoms()
-            .get_atoms_located(&slots, storage_prefix)
-            .await?;
+        let atoms = self.db_ops.atoms().get_atoms(&uuids, storage_prefix).await?;
         if atoms.len() != selected.len() {
             return Err(SchemaError::StorageRead {
                 detail: "point-read atom count differs from selected field count".into(),
@@ -178,7 +166,7 @@ impl MutationManager {
         }
         let mut values = BTreeMap::new();
         let mut latest_winner: Option<AggregateWinner> = None;
-        for ((field, entry, _), atom) in selected.into_iter().zip(atoms) {
+        for ((field, entry), atom) in selected.into_iter().zip(atoms) {
             let winner = AggregateWinner {
                 logical_counter: entry.logical_counter,
                 written_at: entry.written_at,

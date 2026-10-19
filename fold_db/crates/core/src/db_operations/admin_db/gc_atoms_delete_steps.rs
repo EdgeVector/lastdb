@@ -203,12 +203,8 @@ impl AtomStore {
                 AtomDeleteLedgerEntry::gc_atoms("automatic-gc-atoms", probe_started_at),
             )
             .await?;
-        let mut delete_keys = Vec::with_capacity(validated.len() * 2);
+        let mut delete_keys = Vec::with_capacity(validated.len());
         for (candidate, blob_keys) in validated {
-            delete_keys.push(build_storage_key(
-                storage_prefix,
-                &crate::atom::atom_locator_codec::locator_key(&candidate.uuid),
-            ));
             delete_keys.push(String::from_utf8_lossy(&candidate.key).into_owned());
             // The atom body source leaves before its derived blob edges.
             delete_keys.extend(blob_keys.iter().cloned());

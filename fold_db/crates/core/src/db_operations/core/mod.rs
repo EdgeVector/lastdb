@@ -147,20 +147,6 @@ impl DbOperations {
             })
     }
 
-    /// Override the atom body key encoding for the whole node.
-    ///
-    /// Production reads the encoding from the environment once, when the atom
-    /// store is constructed, so a running node never straddles two encodings.
-    /// This seam exists so a caller that owns the whole `DbOperations` — the
-    /// migration driver, and the tests that prove the read paths under
-    /// [`crate::atom::AtomKeyEncoding::PartitionPrefix`] — can name the
-    /// encoding explicitly instead of mutating process-global state.
-    #[must_use]
-    pub fn with_atom_key_encoding(mut self, encoding: crate::atom::AtomKeyEncoding) -> Self {
-        self.atom_store = self.atom_store.with_atom_key_encoding(encoding);
-        self
-    }
-
     /// Access the system public-key domain store.
     pub fn public_keys(&self) -> &PublicKeyStore {
         &self.public_key_store

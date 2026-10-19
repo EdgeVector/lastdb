@@ -1,6 +1,6 @@
 //! Selected-tip atom reads use the typed core model and captured disk root.
 
-use crate::atom::{Atom, AtomPartition};
+use crate::atom::Atom;
 use crate::db_operations::DbOperations;
 use crate::schema::types::SchemaError;
 use std::sync::Arc;
@@ -20,12 +20,12 @@ fn require_tip_atoms(
 /// Load selected bodies in one batch and reject unresolved personal tips.
 pub async fn get_atoms_for_tips(
     db_ops: &Arc<DbOperations>,
-    slots: &[(&str, Option<AtomPartition>)],
+    uuids: &[&str],
     storage_prefix: Option<&str>,
 ) -> Result<Vec<Option<Atom>>, SchemaError> {
     let atoms = db_ops
         .atoms()
-        .get_atoms_located(slots, storage_prefix)
+        .get_atoms(uuids, storage_prefix)
         .await
         .map_err(SchemaError::read_failure)?;
     require_tip_atoms(atoms, storage_prefix)

@@ -14,7 +14,7 @@
 //! walk.
 
 use super::AtomStore;
-use crate::atom::{atom_key_codec, atom_locator_codec, AtomKeyEncoding};
+use crate::atom::atom_key_codec;
 use crate::clock::unix_nanos;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
@@ -22,7 +22,6 @@ use crate::storage::laststore::CollectionCompactReport;
 use crate::storage::KvMutation;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 

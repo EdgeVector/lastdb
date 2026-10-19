@@ -96,7 +96,10 @@ impl MutationManager {
     ) -> Result<Option<Vec<LogicalPathRecord>>, SchemaError> {
         let mut records = Vec::new();
         for tip in tips {
-            let (atom_key, _) = self.path_atom_target(tip, scope)?;
+            let atom_key = self
+                .db_ops
+                .atoms()
+                .body_storage_key(&tip.entry.atom_uuid, scope);
             let certified = &atoms[&atom_key];
             let atom = &certified.atom;
             let sources = self.path_sources(tip, scope, &certified.key)?;

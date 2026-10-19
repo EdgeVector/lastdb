@@ -142,16 +142,9 @@ impl FieldVariant {
                     &key,
                     &rec.entry.atom_uuid,
                 )?;
-                let partition =
-                    crate::atom::AtomPartition::from_record_key(&tip_key).or_else(|| {
-                        Some(crate::atom::AtomPartition::for_slot(
-                            molecule_uuid,
-                            key.hash.as_deref().unwrap_or(""),
-                        ))
-                    });
                 let writer =
                     (!rec.entry.writer_pubkey.is_empty()).then_some(rec.entry.writer_pubkey);
-                Ok((key, rec.entry.atom_uuid, rec.meta, writer, partition))
+                Ok((key, rec.entry.atom_uuid, rec.meta, writer))
             })
             .collect::<Result<Vec<_>, SchemaError>>()?;
         let mut resolved =

@@ -12,17 +12,15 @@ pub(super) struct AtomBatchRows {
 
 impl AtomStore {
     /// Encode every atom of a batch into its durable rows: the body (plus an
-    /// optional locator and gc marker), the schema-index marker, the blob
+    /// optional gc marker), the schema-index marker, the blob
     /// reference edges, and the keep-small accounting entries.
     pub(super) async fn build_atom_batch_rows(
         &self,
-        atoms: &[(Atom, Option<crate::atom::AtomPartition>)],
+        atoms: &[SealedAtom],
         storage_prefix: Option<&str>,
         automatic_gc_generation: u64,
         existing: &HashMap<String, Atom>,
     ) -> Result<AtomBatchRows, SchemaError> {
-        let encoding = self.atom_key_encoding();
-
         // Deduplicate by key - atoms with same content have same UUID.
         // Canonical atoms stay in `main`; the schema-keyed marker is derived
         // and lives in the separate local-only `schema_index` namespace so
@@ -34,10 +32,9 @@ impl AtomStore {
         let mut atom_items: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
         let mut index_items: Vec<(String, Value)> = Vec::new();
         let mut keep_small_puts: Vec<(String, String, u64, u64, bool)> = Vec::new();
-        for (atom, partition) in atoms {
+        for (atom, seal_molecule) in atoms {
             crate::atom::enforce_atom_content_limit(atom.source_schema_name(), atom.content())?;
-            let base_key = atom_key_codec::storage_key(encoding, partition.as_ref(), atom.uuid());
-            let key = build_storage_key(storage_prefix, &base_key);
+            let key = build_storage_key(storage_prefix, &atom_key_codec::body_key(atom.uuid()));
             if !seen_keys.insert(key.clone()) {
                 continue; // Skip duplicate keys
             }
@@ -47,9 +44,7 @@ impl AtomStore {
                 storage_prefix,
                 &schema_index_codec::record_key(atom.source_schema_name(), atom.uuid()),
             );
-            let bundle_molecule = storage_prefix
-                .and(partition.as_ref())
-                .and_then(crate::atom::AtomPartition::molecule_uuid);
+            let bundle_molecule = storage_prefix.and(seal_molecule.as_deref());
             if stored.is_none() {
                 let value = self.encode_atom_bytes(atom, bundle_molecule).await?;
                 atom_items.push((key.into_bytes(), value));
@@ -76,22 +71,6 @@ impl AtomStore {
             )?;
             index_items.push((index_key, Value::Bool(true)));
 
-            // Only a body that actually landed at a prefixed key needs a
-            // locator; a flat body is already where the uuid-only path looks.
-            if let Some(partition) = partition
-                .as_ref()
-                .filter(|_| encoding.writes_partition_prefix())
-            {
-                let locator_key = build_storage_key(
-                    storage_prefix,
-                    &atom_locator_codec::locator_key(atom.uuid()),
-                );
-                let locator_value = serde_json::to_vec(&atom_locator_codec::encode_value(
-                    partition,
-                ))
-                .map_err(|e| SchemaError::InvalidData(format!("serialize atom locator: {e}")))?;
-                atom_items.push((locator_key.into_bytes(), locator_value));
-            }
             if automatic_gc_generation > 0 && seen_gc_markers.insert(atom.uuid().to_string()) {
                 let marker_key =
                     Self::automatic_gc_atoms_reference_marker_key(storage_prefix, atom.uuid());

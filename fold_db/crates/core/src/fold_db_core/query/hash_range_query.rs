@@ -97,7 +97,7 @@ fn full_span_page() -> HashRangeFilter {
 type KeySource = Option<String>;
 
 /// Secondary pending atom resolve:
-/// `(field, key, uuid, meta, writer, atom prefix, partition_hint)`.
+/// `(field, key, uuid, meta, writer, atom prefix)`.
 type SecondaryPending = (
     String,
     KeyValue,
@@ -105,7 +105,6 @@ type SecondaryPending = (
     Option<crate::atom::KeyMetadata>,
     Option<String>,
     Option<String>,
-    Option<crate::atom::AtomPartition>,
 );
 
 /// A resolved page. Every `KeyValue` in here is **API-form**: the rename in

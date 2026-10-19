@@ -211,7 +211,7 @@ impl MutationManager {
         // history references; a failed write leaves the replay cursor in place.
         self.db_ops
             .atoms()
-            .batch_store_atoms_located_borrowed(&located, storage_prefix)
+            .batch_store_atoms_borrowed(&located, storage_prefix)
             .await?;
         self.db_ops
             .atoms()

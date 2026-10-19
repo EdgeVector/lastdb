@@ -191,7 +191,7 @@ impl HashRangeQueryProcessor {
                         self.live_field_matches_flag_only(field, None, filter)
                             .await?
                             .into_iter()
-                            .filter(|(key, _, _, _, _)| keys.contains(key)),
+                            .filter(|(key, _, _, _)| keys.contains(key)),
                         field.common().storage_prefix(),
                         field.common().molecule_uuid().map(String::as_str),
                         Some(schema.name.as_str()),
@@ -211,7 +211,7 @@ impl HashRangeQueryProcessor {
                             )
                             .await?
                             .into_iter()
-                            .filter(|(key, _, _, _, _)| keys.contains(key)),
+                            .filter(|(key, _, _, _)| keys.contains(key)),
                             Some(namespace.as_str()),
                             field.common().molecule_uuid().map(String::as_str),
                             Some(schema.name.as_str()),
@@ -252,7 +252,7 @@ impl HashRangeQueryProcessor {
             .live_field_matches_flag_only(field, namespace, filter)
             .await?
             .into_iter()
-            .map(|(kv, _, _, _, _)| kv)
+            .map(|(kv, _, _, _)| kv)
             .collect())
     }
 
@@ -298,7 +298,7 @@ impl HashRangeQueryProcessor {
         // costs nothing extra and uses the same signal the read does.
         Ok(matches
             .into_iter()
-            .filter(|(_, _, key_meta, _, _)| !key_meta.as_ref().is_some_and(|meta| meta.tombstoned))
+            .filter(|(_, _, key_meta, _)| !key_meta.as_ref().is_some_and(|meta| meta.tombstoned))
             .collect())
     }
 

@@ -44,11 +44,11 @@ impl AtomStore {
         if pending.is_empty() {
             return Ok(());
         }
-        let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = pending
+        let slots: Vec<&str> = pending
             .iter()
-            .map(|(_, _, rec)| (rec.entry.atom_uuid.as_str(), None))
+            .map(|(_, _, rec)| rec.entry.atom_uuid.as_str())
             .collect();
-        let atoms = self.get_atoms_located(&slots, storage_prefix).await?;
+        let atoms = self.get_atoms(&slots, storage_prefix).await?;
         report.audit.atoms_fetched += atoms.len() as u64;
 
         for ((key, molecule, mut rec), atom) in std::mem::take(pending).into_iter().zip(atoms) {

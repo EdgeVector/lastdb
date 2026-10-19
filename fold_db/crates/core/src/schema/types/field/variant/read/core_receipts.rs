@@ -8,16 +8,16 @@ impl FieldVariant {
         db_ops: &Arc<DbOperations>,
         storage_key: &KeyValue,
         api_key: &KeyValue,
-    ) -> Result<Option<crate::atom::AtomPartition>, SchemaError> {
+    ) -> Result<(), SchemaError> {
         let runtime = db_ops.namespaced_store().disk_pack_runtime();
         if !crate::storage::disk_pack::read_snapshot_active(runtime.clone()) {
-            return Ok(None);
+            return Ok(());
         }
         let Some(molecule) = self.common().molecule_uuid() else {
-            return Ok(None);
+            return Ok(());
         };
         let Some(entry) = self.atom_entry_at_key(storage_key) else {
-            return Ok(None);
+            return Ok(());
         };
         let scope = self.common().storage_prefix();
         let metadata = self.key_metadata_at_key(storage_key);
@@ -40,15 +40,7 @@ impl FieldVariant {
         {
             // Complete candidate sources already exist. A location-only receipt
             // cannot gain direct authority from reconstructed candidates either.
-            return Ok(
-                crate::storage::disk_pack::logical_paths::core_read::selected_partition(
-                    runtime,
-                    scope,
-                    molecule,
-                    api_key,
-                    &entry.atom_uuid,
-                )?,
-            );
+            return Ok(());
         }
         if !matching {
             let source = self.disk_slot_for_key(storage_key).map(|(hash, range)| {
@@ -69,16 +61,7 @@ impl FieldVariant {
                 source.as_deref(),
             )?;
         }
-        Self::note_query_tip_candidates(db_ops, scope, molecule, api_key, &entry.atom_uuid)?;
-        Ok(
-            crate::storage::disk_pack::logical_paths::core_read::selected_partition(
-                runtime,
-                scope,
-                molecule,
-                api_key,
-                &entry.atom_uuid,
-            )?,
-        )
+        Self::note_query_tip_candidates(db_ops, scope, molecule, api_key, &entry.atom_uuid)
     }
 
     pub(super) fn note_query_tip_candidates(
@@ -118,7 +101,6 @@ impl FieldVariant {
             api_key,
             atom_uuid,
             &candidates,
-            db_ops.atoms().atom_key_encoding(),
         )?;
         Ok(())
     }

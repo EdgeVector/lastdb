@@ -117,20 +117,18 @@ fn captured_matches(
         {
             continue;
         }
-        let Some(body) = source::body_location_from_coordinates(
+        if !source::body_present_in_coordinates(
             &context.core_model.source_coordinates(path),
             &value.entry.atom_uuid,
-        )?
-        else {
+        )? {
             return Ok(None);
-        };
+        }
         let writer = (!value.entry.writer_pubkey.is_empty()).then_some(value.entry.writer_pubkey);
         matches.push((
             key.clone(),
             value.entry.atom_uuid,
             value.metadata,
             writer,
-            body.partition,
         ));
     }
     Ok(Some(matches))
@@ -191,16 +189,15 @@ fn current_matches(
         {
             continue;
         }
-        let Some(body) = source::body_location(&core, path, &value.entry.atom_uuid)? else {
+        if !source::body_present(&core, path, &value.entry.atom_uuid)? {
             return Ok(None);
-        };
+        }
         let writer = (!value.entry.writer_pubkey.is_empty()).then_some(value.entry.writer_pubkey);
         matches.push((
             key.clone(),
             value.entry.atom_uuid,
             value.metadata,
             writer,
-            body.partition,
         ));
     }
     Ok(Some(matches))

@@ -21,8 +21,7 @@ pub(crate) use plane_compactor::PlaneCompactor;
 pub(crate) use worker::{
     atoms_compact_max_bytes, atoms_compact_min_overhang_bps, atoms_compact_min_overhang_bytes,
     capture_reexport_compact_max_plane_bytes, capture_reexport_probe_interval_s,
-    fill_overhang_status, large_captured_plane_probe_interval_s, locator_compact_min_overhang_bps,
-    locator_probe_interval_s, order_log_compact_max_bytes, order_log_compact_min_overhang_bps,
+    fill_overhang_status, large_captured_plane_probe_interval_s, order_log_compact_max_bytes, order_log_compact_min_overhang_bps,
     order_log_compact_min_overhang_bytes, photograph_aligned_compact_budget_secs,
     photograph_aligned_compact_interval_s, tips_compact_max_bytes, tips_compact_min_overhang_bps,
     tips_compact_min_overhang_bytes, tips_compact_probe_interval_s, ResidualPlaneTrigger,

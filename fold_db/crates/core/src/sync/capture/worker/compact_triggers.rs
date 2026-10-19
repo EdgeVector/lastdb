@@ -183,34 +183,6 @@ impl ResidualPlaneTrigger {
     }
 }
 
-/// Minimum filesystem allocation overhang for `atom_locators`, in basis points
-/// of allocated bytes.
-///
-/// Unlike marker planes, `atom_locators` has a material live set: measured on
-/// Tom's primary 2026-08-18 at 584,246 rows / 151 MiB after compaction. A flat
-/// cap must either sit dangerously close to that changing live set or take
-/// longer than a normal daemon session to fire. The filesystem already exposes
-/// the residue directly as allocated bytes held past apparent record length, so
-/// use the same proportional trigger as `tips`. At the default 15%, the measured
-/// 11.8 MiB/hour churn reaches the trigger in roughly two hours.
-///
-/// Set `LASTDB_ATOM_LOCATORS_COMPACT_MIN_OVERHANG_BPS=0` to disable unattended
-/// compaction and hand reclaim back to
-/// `lastdb db compact --collection atom_locators --execute`.
-pub(crate) fn locator_compact_min_overhang_bps() -> u64 {
-    env_flag::var_or("LASTDB_ATOM_LOCATORS_COMPACT_MIN_OVERHANG_BPS", 1_500)
-}
-
-/// Minimum seconds between on-disk size probes of the locator plane.
-///
-/// An hour rather than the marker plane's five minutes: the locator plane
-/// changes at the rate atoms are re-addressed, not at the rate writes are
-/// captured, and its compaction rewrites millions of live rows rather than a
-/// handful. Override with `LASTDB_ATOM_LOCATORS_COMPACT_PROBE_INTERVAL_SECS`.
-pub(crate) fn locator_probe_interval_s() -> u64 {
-    env_flag::var_or("LASTDB_ATOM_LOCATORS_COMPACT_PROBE_INTERVAL_SECS", 3600u64)
-}
-
 /// The four atomics that make a churn plane's size trigger, borrowed for one
 /// probe. Everything else about the trigger is identical across planes, so this
 /// is the whole per-plane surface.

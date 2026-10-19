@@ -1,8 +1,7 @@
 //! Owner-facing DB admin: inventory + history clear + atom GC + photo blob migrate.
 
 use crate::db_operations::{
-    AtomDeleteLedgerEntry, AtomGcReport, AtomPartitionRekeyOptions, AtomPartitionRekeyReport,
-    DanglingTipRepairOptions, DanglingTipRepairReport, DbInventory, DroppedSchemaReapCursor,
+    AtomDeleteLedgerEntry, AtomGcReport, DbInventory, DroppedSchemaReapCursor,
     HistoryClearReport, LegacyKeyForkAudit, LegacyRefBlobPurgeReport, OrderLogAudit,
     ProteinGcReport, SchemaCurrentStorageReport, SchemaLogicalStorageReport,
     SchemaLogicalStorageRow, SchemaRecordKey, SchemaRecordKeysReport, SchemaStorageReport,

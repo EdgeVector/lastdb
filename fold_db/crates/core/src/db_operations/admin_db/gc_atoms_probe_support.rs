@@ -65,9 +65,7 @@ impl AtomStore {
     }
 
     pub(crate) fn atom_uuid_from_body_key(key: &str) -> Option<&str> {
-        let rest = crate::kind_partition::rest_of(key, "atom")?;
-        let uuid = crate::atom::atom_key_codec::uuid_of_suffix(rest);
-        (!uuid.is_empty()).then_some(uuid)
+        crate::atom::atom_key_codec::uuid_of(key)
     }
 
     pub(super) fn automatic_gc_atoms_probe_result(

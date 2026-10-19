@@ -62,7 +62,6 @@ impl AtomStore {
             api_key,
             &record.entry.atom_uuid,
             &candidates,
-            self.atom_key_encoding(),
         )?;
         Ok(())
     }
@@ -96,7 +95,6 @@ impl AtomStore {
             api_key,
             &record.entry.atom_uuid,
             candidates,
-            self.atom_key_encoding(),
         )?;
         Ok(())
     }
@@ -127,15 +125,7 @@ impl AtomStore {
         {
             return Ok(false);
         }
-        Ok(!self.atom_key_encoding().writes_partition_prefix()
-            || core_read::selected_partition(
-                runtime,
-                scope,
-                molecule,
-                api_key,
-                &record.entry.atom_uuid,
-            )?
-            .is_some())
+        Ok(true)
     }
 
     /// Location-only rows can reuse bodies without direct-tip authority.
@@ -148,10 +138,8 @@ impl AtomStore {
         base: &str,
     ) -> Result<(), SchemaError> {
         let runtime = self.schema_keys_runtime();
-        let required = self.atom_key_encoding().writes_partition_prefix()
-            && crate::storage::disk_pack::read_snapshot_active(runtime.clone());
         let key = crate::schema::types::field::build_storage_key(scope, base);
-        let retained = crate::storage::disk_pack::logical_paths::core_read::note_winning_tip(
+        crate::storage::disk_pack::logical_paths::core_read::note_winning_tip(
             runtime,
             scope,
             molecule,
@@ -160,11 +148,6 @@ impl AtomStore {
             record.meta.as_ref(),
             &key,
         )?;
-        if required && !retained {
-            return Err(SchemaError::ReadResourceLimit {
-                detail: "native query cannot retain its selected atom location".into(),
-            });
-        }
         Ok(())
     }
 

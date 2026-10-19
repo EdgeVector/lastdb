@@ -105,11 +105,11 @@ impl AtomStore {
         if pending.is_empty() {
             return Ok(());
         }
-        let atom_slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = pending
+        let atom_slots: Vec<&str> = pending
             .iter()
-            .map(|(_, _, record)| (record.entry.atom_uuid.as_str(), None))
+            .map(|(_, _, record)| record.entry.atom_uuid.as_str())
             .collect();
-        let atoms = self.get_atoms_located(&atom_slots, storage_prefix).await?;
+        let atoms = self.get_atoms(&atom_slots, storage_prefix).await?;
         scan.atoms_fetched += atoms.len() as u64;
         for ((base_key, molecule, record), atom) in std::mem::take(pending).into_iter().zip(atoms) {
             let Some(atom) = atom else {

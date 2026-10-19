@@ -6,7 +6,7 @@ struct PreparedAtomPhase {
     mutation_key_values: Vec<crate::schema::types::KeyValue>,
     atom_results: Vec<(usize, String, crate::atom::Atom)>,
     original_atom_results: Vec<(usize, String, crate::atom::Atom)>,
-    deferred_atoms: Option<Vec<(crate::atom::Atom, Option<crate::atom::AtomPartition>)>>,
+    deferred_atoms: Option<Vec<(crate::atom::Atom, Option<String>)>>,
     changed_keys: HashMap<String, HashSet<crate::db_operations::ChangedKey>>,
 }
 

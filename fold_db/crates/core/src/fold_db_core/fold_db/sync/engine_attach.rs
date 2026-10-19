@@ -75,7 +75,7 @@ impl FoldDB {
             Box::pin(async move {
                 restore_db_ops
                     .atoms()
-                    .refresh_boot_encoding_after_restore()
+                    .refresh_after_restore()
                     .await
                     .map_err(|error| error.to_string())
             })

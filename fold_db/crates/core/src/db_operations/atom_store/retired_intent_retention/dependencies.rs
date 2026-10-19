@@ -1,7 +1,7 @@
 //! Batched native dependency reads. Corrupt-present data never means absent.
 
 use super::*;
-use crate::atom::{atom_key_codec, atom_locator_codec, Atom, AtomKeyEncoding};
+use crate::atom::{atom_key_codec, Atom};
 use crate::schema::types::field::build_storage_key;
 
 impl AtomStore {
@@ -34,18 +34,18 @@ impl AtomStore {
         Ok(())
     }
 
-    /// Same exact flat/locator addressing as the native reader, with strict presence.
+    /// Same exact body addressing as the native reader, with strict presence.
     async fn read_retired_atoms(
         &self,
         ids: &[&str],
         prefix: Option<&str>,
     ) -> Result<Vec<Option<Atom>>, SchemaError> {
         let main = self.raw().inner();
-        let flat_keys: Vec<Vec<u8>> = ids
+        let keys: Vec<Vec<u8>> = ids
             .iter()
-            .map(|id| build_storage_key(prefix, &atom_key_codec::flat_key(id)).into_bytes())
+            .map(|id| build_storage_key(prefix, &atom_key_codec::body_key(id)).into_bytes())
             .collect();
-        let raw = storage::read_many(main.as_ref(), &flat_keys).await?;
+        let raw = storage::read_many(main.as_ref(), &keys).await?;
         let mut out = Vec::with_capacity(ids.len());
         for bytes in raw {
             out.push(match bytes {
@@ -56,54 +56,6 @@ impl AtomStore {
                 ),
                 None => None,
             });
-        }
-        if !self.atom_key_encoding().writes_partition_prefix() {
-            return Ok(out);
-        }
-        let missing: Vec<usize> = out
-            .iter()
-            .enumerate()
-            .filter_map(|(i, atom)| atom.is_none().then_some(i))
-            .collect();
-        let locator_keys: Vec<Vec<u8>> = missing
-            .iter()
-            .map(|&i| {
-                build_storage_key(prefix, &atom_locator_codec::locator_key(ids[i])).into_bytes()
-            })
-            .collect();
-        let locators = storage::read_many(main.as_ref(), &locator_keys).await?;
-        let mut located = Vec::new();
-        let mut keys = Vec::new();
-        for (&i, raw) in missing.iter().zip(locators) {
-            let Some(raw) = raw else {
-                continue;
-            };
-            let value = serde_json::from_slice(&raw)
-                .map_err(|_| refused("retired intent atom locator is unreadable"))?;
-            let partition = atom_locator_codec::decode_value(&value)
-                .ok_or_else(|| refused("retired intent atom locator is malformed"))?;
-            located.push(i);
-            keys.push(
-                build_storage_key(
-                    prefix,
-                    &atom_key_codec::storage_key(
-                        AtomKeyEncoding::PartitionPrefix,
-                        Some(&partition),
-                        ids[i],
-                    ),
-                )
-                .into_bytes(),
-            );
-        }
-        let bodies = storage::read_many(main.as_ref(), &keys).await?;
-        for (i, raw) in located.into_iter().zip(bodies) {
-            if let Some(raw) = raw {
-                out[i] = Some(
-                    self.decode_atom_bytes(&raw)
-                        .await
-                        .map_err(|_| refused("retired intent atom body is unreadable"))?,
-                );
-            }
         }
         Ok(out)
     }

@@ -1,6 +1,5 @@
 mod atom_def;
 pub mod atom_key_codec;
-pub mod atom_locator_codec;
 pub mod content_at_rest;
 pub(crate) mod delete_barrier;
 pub mod file_pointer;
@@ -19,7 +18,6 @@ pub mod size_limit;
 pub mod tombstone;
 
 pub use atom_def::Atom;
-pub use atom_key_codec::{AtomKeyEncoding, AtomKeyEncodingMarker, AtomPartition};
 pub use content_at_rest::{
     atom_content_binary_enabled, atom_row_header, open_atom_binary_row, open_atom_json,
     open_content_value, parse_atom_binary_row, seal_atom_binary_row, seal_atom_json,

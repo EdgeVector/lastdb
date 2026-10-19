@@ -21,14 +21,17 @@ pub struct HomeGroupWriter<'a> {
 
 impl HomeBuilder {
     /// Create an empty LastDB home fenced against writers that omit record-R
-    /// reverse edges. Generic conversion never grants this derived authority:
-    /// opaque imported completeness bytes can originate from an older writer.
+    /// reverse edges, and against writers that use another atom record layout.
+    /// Generic conversion never grants this derived authority: opaque imported
+    /// completeness bytes and atoms can originate from an older writer, and
+    /// they sit at older atom keys.
     pub fn create_empty_with_schema_record_refs(
         root: &Path,
         descriptor: HomeDescriptor,
     ) -> Result<Current> {
         let mut builder = Self::create(root, descriptor, 0)?;
-        builder.inner.required_features |= crate::disk_pack::FEATURE_SCHEMA_RECORD_REFS;
+        builder.inner.required_features |=
+            crate::disk_pack::FEATURE_SCHEMA_RECORD_REFS | crate::disk_pack::FEATURE_ATOM_RECORDS;
         builder.finish()
     }
 

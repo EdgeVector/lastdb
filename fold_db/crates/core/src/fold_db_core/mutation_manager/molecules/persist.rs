@@ -12,7 +12,7 @@ use super::super::MutationManager;
 
 /// Prepared molecule effects staged within one complete native transaction.
 pub(crate) struct DeferredPersistJob {
-    pub deferred_atoms: Option<Vec<(crate::atom::Atom, Option<crate::atom::AtomPartition>)>>,
+    pub deferred_atoms: Option<Vec<(crate::atom::Atom, Option<String>)>>,
     pub storage_prefix: Option<String>,
     pub search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
     pub share_prefixes: Vec<String>,

@@ -36,11 +36,8 @@ pub(super) async fn current_storage_slot_targets<'a>(
             Some((target, current.entry.atom_uuid))
         })
         .collect();
-    let located: Vec<_> = candidates
-        .iter()
-        .map(|(_, uuid)| (uuid.as_str(), None))
-        .collect();
-    let atoms = db_ops.atoms().get_atoms_located(&located, None).await?;
+    let uuids: Vec<&str> = candidates.iter().map(|(_, uuid)| uuid.as_str()).collect();
+    let atoms = db_ops.atoms().get_atoms(&uuids, None).await?;
     Ok(candidates
         .into_iter()
         .zip(atoms)

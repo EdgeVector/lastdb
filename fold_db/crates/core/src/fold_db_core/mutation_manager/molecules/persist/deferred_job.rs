@@ -43,7 +43,7 @@ impl MutationManager {
         // after the tip phase covers an atom that no tip took.
         self.db_ops
             .atoms()
-            .batch_store_atoms_located_tip_follows(located, job.storage_prefix.as_deref())
+            .batch_store_atoms_tip_follows(located, job.storage_prefix.as_deref())
             .await
             .map_err(|error| {
                 tracing::error!(
@@ -58,7 +58,7 @@ impl MutationManager {
             for share_prefix in &job.share_prefixes {
                 self.db_ops
                     .atoms()
-                    .batch_store_atoms_located_borrowed(located, Some(share_prefix))
+                    .batch_store_atoms_borrowed(located, Some(share_prefix))
                     .await?;
             }
         }

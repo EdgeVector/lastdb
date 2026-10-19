@@ -213,13 +213,11 @@ async fn proof_atom_store(
         store.open_namespace("schema_index")
     )
     .map_err(storage_error)?;
-    // Exact flat reads then exact locator reads cover both supported layouts,
-    // without the boot resolver's optional marker write or prefix census.
+    // Exact body reads need no boot resolver work.
     Ok(super::super::AtomStore::new_with_content_key(
         Arc::new(TypedKvStore::new(main)),
         Arc::new(TypedKvStore::new(index)),
         Some(*key),
     )
-    .with_namespaced_store(Arc::clone(store))
-    .with_atom_key_encoding(crate::atom::AtomKeyEncoding::PartitionPrefix))
+    .with_namespaced_store(Arc::clone(store)))
 }
