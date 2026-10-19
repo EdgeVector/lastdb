@@ -1,0 +1,126 @@
+{
+  "binary": {
+    "bytes": 67836816,
+    "description": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd: Mach-O 64-bit executable arm64",
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "sha256": "cdbabbee5b79238469d805226c60b9092e4fdebf9b9d98ebc92d86aae50f2a4c"
+  },
+  "build_command": [
+    "scripts/ci/with-fold-host-cargo-lock.sh",
+    "--timeout",
+    "600",
+    "--",
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd"
+  ],
+  "checks": {
+    "HEAD_matches_manifest_and_compact_identity": true,
+    "binary_arm64_macho": true,
+    "binary_regular_executable": true,
+    "binary_sha256_matches": true,
+    "binary_size_matches": true,
+    "build_log_success": true,
+    "compact_base_digest_matches": true,
+    "compact_delta_exact": true,
+    "compact_reconstructed_digest_matches": true,
+    "compact_reconstruction_exact": true,
+    "compact_removals_exact": true,
+    "current_plan_matches_independent_request_review": true,
+    "default_feature_fingerprint": true,
+    "final_verification_passed": true,
+    "full_manifest_digest_matches_compact": true,
+    "inventory_digest_matches": true,
+    "locked_release_default_command": true,
+    "manifest_stable_during_review": true,
+    "offlane_lint_log_success": true,
+    "plan_stable_during_review": true,
+    "release_state_verified": true,
+    "source_count_matches": true,
+    "workspace_lint_log_success": true
+  },
+  "external_build_config_mismatches": [],
+  "head": "fca23b6ff69613adc42d683dd95e071c861c61f7",
+  "helpers": {
+    "compared_to": [
+      "current worktree",
+      "fca23b6ff69613adc42d683dd95e071c861c61f7",
+      "27a31c2812b5481b801ff76032b9cc712f6a2cfb"
+    ],
+    "count": 11,
+    "identity_sha256": "bb5663d2542105647ec5b9e2fa3b1dc534ca0dc6518e5a2fa39773fa0c90ae00",
+    "mismatches": []
+  },
+  "limits": [
+    "The build log records the host lock and successful optimized completion; the full command flags come from the source manifest record.",
+    "This identity review does not prove database behavior. Ordinary operation receipts remain a separate check.",
+    "The manifest includes repository inputs and Cargo.lock. It does not copy external registry dependency source bytes."
+  ],
+  "logs": {
+    "offlane-clippy.log": {
+      "bytes": 175,
+      "error_lines": [],
+      "finished_dev": true,
+      "finished_release": false,
+      "host_lock_recorded": true,
+      "sha256": "a2d405bd38d483ac545c43dc59d30048a75efc945919cacdec40ebc634d1a6cd"
+    },
+    "release-build.log": {
+      "bytes": 796,
+      "error_lines": [],
+      "finished_dev": false,
+      "finished_release": true,
+      "host_lock_recorded": true,
+      "sha256": "675c3a59ea9047eaf93fbad50a3e1c2813547733296798f076a13b367bfcca1a"
+    },
+    "workspace-clippy-verified.log": {
+      "bytes": 1001,
+      "error_lines": [],
+      "finished_dev": true,
+      "finished_release": false,
+      "host_lock_recorded": true,
+      "sha256": "8ceb2fe660f94565e03fcc3951a88f13acd6a406185317351fc353f1b4c175b3"
+    }
+  },
+  "ordinary_requests": {
+    "count": 31,
+    "independent_request_review_sha256": "4102c9102674aaaeea7c40fa83107d0a86729d7e3dc8edc36037569029a35fbe",
+    "query_count_including_batch_members": 51,
+    "request_review": "pass",
+    "sha256": "7ff2143aa6eb37a7b9155681380d1ce6da58f6c69fab77d8e76b88979e2f7944"
+  },
+  "prior_records": "The earlier source audits remain unchanged. Superseded prebuild source identities are not runtime failures.",
+  "release_features": [
+    {
+      "features": "[\"default\", \"purging-allocator\", \"sentry-telemetry\"]",
+      "mtime_ns": 1792452785057859503,
+      "path": "target/release/.fingerprint/lastdb_node-2751ebd72ffc795b/bin-lastdbd.json",
+      "rustflags": [],
+      "sha256": "6ffb67bc834139710ecd5720f4e49dc15213a6558ba28e64bde0a1512905d6d3"
+    }
+  ],
+  "result": "pass",
+  "reviewed_utc": "2026-10-19T23:34:34.274569+00:00",
+  "scope": "Independent accepted release identity review. No product edit, node, build, test, or helper execution.",
+  "source": {
+    "before_identity_sha256": "c4bd1e51c7bfe4382c0daea4692b1d74964bff02447d837914a71f34d6c26f6b",
+    "bytes": 13833686,
+    "compact_identity_sha256": "d4d7c884d4e2d047d2a6c68484312ef34b2431637b98cef14d093b68b36529aa",
+    "delta_inputs": 30,
+    "discovery_gaps": [],
+    "full_manifest": "docs/proofs/native-boundary-review-20261019/built-source-inputs/release-source.json",
+    "full_manifest_sha256": "47bbeb8a1a5eb856c7db5ee632a465fe00d8b102a3bf6811540e04b39c8d6dbc",
+    "git_blob_mismatches": [],
+    "inputs": 1890,
+    "inventory_sha256": "02914c01e00c130d67bfed8fc00ae5f67b2c49077d70c3bbb198031b20be587b",
+    "missing_git_blobs": [],
+    "unexpected_inputs": [],
+    "worktree_mismatches": []
+  },
+  "version": 1
+}
