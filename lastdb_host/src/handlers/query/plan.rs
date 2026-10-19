@@ -125,22 +125,11 @@ impl<H: HostNode> QueryRun<'_, H> {
     ) -> Result<Option<Value>, HostError> {
         let (host, ctx) = (self.host, self.ctx);
         let (limit, offset) = (self.limit, self.offset);
-        let cursor = self.cursor.clone();
         let mut query = query.clone();
         // Unfiltered "list all", no value filters → paginated push-down: count rows
         // cheaply for an exact `total_count`, then fetch ONLY the requested page.
         // `count == None` ⇒ a view (or unknown schema): fall through.
         if let Some(total) = count_rows(host, &query, ctx).await? {
-            if let Some(after) = cursor.clone() {
-                query.filter = Some(HashRangeFilter::PageAfter {
-                    after,
-                    limit: limit.saturating_add(1),
-                });
-                let _permit = acquire_read_permit(host, Lane::for_read_rows(total)).await?;
-                let (page, drops) = execute_query_rows_with_unresolved(host, query, ctx).await?;
-                return Ok(Some(cursor_payload(page, Some(total), limit, 0, drops)));
-            }
-
             // Full-enumeration consistency: a client listing the WHOLE set
             // (offset 0, limit at the ceiling — fkanban list/search) materializes
             // it in ONE snapshot so a concurrent insert can't shift page
@@ -172,21 +161,15 @@ impl<H: HostNode> QueryRun<'_, H> {
                 )));
             }
 
-            return self.offset_paged_with_cursor(query, total).await.map(Some);
+            return self.offset_paged(query, total).await.map(Some);
         }
         Ok(None)
     }
 
-    /// The offset-paged push-down: fetch the page, and stamp a cursor on THIS
-    /// shape only (never for descending order).
-    async fn offset_paged_with_cursor(
-        &self,
-        mut query: Query,
-        total: usize,
-    ) -> Result<Value, HostError> {
+    /// Cross-hash administrative pages continue by offset, without a key cursor.
+    async fn offset_paged(&self, mut query: Query, total: usize) -> Result<Value, HostError> {
         let (host, ctx) = (self.host, self.ctx);
         let (limit, offset) = (self.limit, self.offset);
-        let sort_order_for_cursor = query.sort_order.clone();
         query.filter = Some(page_filter_for(
             query.sort_order.as_ref(),
             total,
@@ -202,40 +185,14 @@ impl<H: HostNode> QueryRun<'_, H> {
             .saturating_add(page.len())
             .saturating_add(drops.total());
         let has_more = consumed < total;
-        // Stamp a cursor on THIS shape, and only this one.
-        //
-        // `page_payload`'s contract is "no cursor from an offset-paged
-        // shape", written after a key-restricted read advertised a cursor it
-        // would then ignore on the way back in. That reasoning does not
-        // reach here: this is the unfiltered `can_push_down` branch, and the
-        // cursor arm a few lines above (`PageAfter`, same branch, same
-        // `query.filter.is_none()` precondition) is exactly where an
-        // incoming cursor IS consumed. So this shape both honours a cursor
-        // and — until now — refused to hand one out, which left a whole-set
-        // drain with no exactly-once option at all: offset addresses the
-        // index's key space while the caller advances by rows delivered, and
-        // any row dropped between the two makes the next window overlap the
-        // last. `PageAfter` filters strictly past the caller's last row in
-        // both the storage window and the in-memory apply, so it cannot
-        // repeat or skip regardless of how many rows drop.
-        //
-        // Measured on the primary's `Papercut` partition, 2026-08-09: a
-        // limit-500 offset drain served 1037 rows containing 606 distinct,
-        // page 2 adding 92 new rows out of 446.
-        //
-        // Descending is deliberately excluded, and by the same rule that
-        // motivated the original prohibition: `usable_cursor` drops a
-        // descending caller's cursor on the way in, and `format_rows` has
-        // already reversed the page, so `page.last()` names the *smallest*
-        // row while `PageAfter` walks strictly upward. Advertising one there
-        // would be advertising a cursor this shape will not honour.
-        let next_cursor = match sort_order_for_cursor {
-            Some(SortOrder::Desc) => None,
-            _ => next_cursor_for(&page, has_more),
-        };
-        let mut payload = page_payload(page, Some(total), limit, offset, has_more, drops);
-        payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
-        Ok(payload)
+        Ok(page_payload(
+            page,
+            Some(total),
+            limit,
+            offset,
+            has_more,
+            drops,
+        ))
     }
 
     /// Fallback / filtered / value-filtered path.
@@ -255,7 +212,7 @@ impl<H: HostNode> QueryRun<'_, H> {
         }
 
         // Value-filtered / view fallback: cardinality is unknown up front (no cheap
-        // count). A full-cap Page/PageAfter materialization (injected INTERNAL_FETCH_CAP
+        // count). A full-cap Page materialization (injected INTERNAL_FETCH_CAP
         // or an equivalent caller limit) can walk up to 10k rows — admit as Bulk so it
         // cannot monopolise the interactive reservation. Smaller bounded pages stay
         // Interactive.

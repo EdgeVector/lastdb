@@ -13,6 +13,7 @@ use super::{FieldKind, FieldValue, FieldVariant};
 mod collect;
 mod core_model;
 mod core_receipts;
+mod named_window;
 mod refresh;
 mod resolve;
 mod resolve_scan;

@@ -4,7 +4,8 @@ use crate::atom::{molecule_key_codec, AtomEntry, KeyMetadata, MoleculeHashRange}
 use crate::schema::SchemaError;
 
 use super::super::types::{
-    FilterLayout, MoleculeData, MoleculeHeader, OneDSlot, PerKeyRecord, EMPTY_KEY_COMPONENT,
+    FilterLayout, MoleculeData, MoleculeHeader, MoleculeRangeForm, OneDSlot, PerKeyRecord,
+    EMPTY_KEY_COMPONENT,
 };
 use super::super::AtomStore;
 use super::PageFill;
@@ -30,14 +31,28 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         filter: &crate::schema::types::field::HashRangeFilter,
         include_tombstones: bool,
-    ) -> Result<Option<MoleculeData>, SchemaError> {
+    ) -> Result<Option<(MoleculeData, MoleculeRangeForm)>, SchemaError> {
         let fill = if include_tombstones {
             PageFill::StoredRows
         } else {
             PageFill::LiveRows
         };
-        self.load_filtered_molecule_filled(molecule_uuid, layout, storage_prefix, filter, fill)
-            .await
+        let data = self
+            .load_filtered_molecule_filled(molecule_uuid, layout, storage_prefix, filter, fill)
+            .await?;
+        // These composite producers echo exact API pairs. Every other producer
+        // leaves ranges in storage form. Never infer the form from their bytes.
+        let ranges = if layout == FilterLayout::Composite
+            && matches!(
+                filter,
+                crate::schema::types::field::HashRangeFilter::HashRangeKey { .. }
+                    | crate::schema::types::field::HashRangeFilter::HashRangeKeys(_)
+            ) {
+            MoleculeRangeForm::Api
+        } else {
+            MoleculeRangeForm::Storage
+        };
+        Ok(data.map(|data| (data, ranges)))
     }
 
     /// [`Self::load_filtered_molecule`], with the caller stating whether a page

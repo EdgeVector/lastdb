@@ -116,6 +116,13 @@ async fn execute_query_scoped<H: HostNode>(
             "expected_total_count requires a keyed query with no post-key filters".to_string(),
         ));
     }
+    if cursor.is_some() && !is_key_restricted_filter(query.filter.as_ref()) {
+        return Err(HostError::new(
+            400,
+            "Cross-hash query cursors are unsupported; use an offset or query one hash with a cursor"
+                .to_string(),
+        ));
+    }
 
     let limit = clamp_request_limit(limit);
     let offset = offset.unwrap_or(0);

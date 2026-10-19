@@ -21,7 +21,7 @@ impl HashRangeQueryProcessor {
                 | HashRangeFilter::HashRangeRange { .. },
             ) => PrimaryKeyForm::Api,
             // Unsupported selectors are refused before this boundary. The
-            // remaining producers are None, Page, PageAfter and SampleN.
+            // remaining producers are None, Page and SampleN.
             _ => PrimaryKeyForm::Storage,
         }
     }
@@ -259,25 +259,6 @@ impl HashRangeQueryProcessor {
 
     pub(super) fn field_value_is_hash(fv: &FieldValue, hash: &str) -> bool {
         scalar_key_coordinate(&fv.value).as_deref() == Some(hash)
-    }
-
-    pub(super) fn retain_named_layout_primary(
-        schema: &Schema,
-        primary_name: &str,
-        filter: &Option<HashRangeFilter>,
-        primary_vals: &mut HashMap<KeyValue, FieldValue>,
-        page_keys: &mut Vec<KeyValue>,
-        key_sources: &mut HashMap<KeyValue, KeySource>,
-    ) {
-        let Some(wanted) = Self::named_layout_hash(schema, Some(primary_name), filter.as_ref())
-        else {
-            return;
-        };
-        // Only an actual named hash-field spine can disambiguate mapped
-        // HashRange layouts by its values. Range punctuation has no meaning.
-        primary_vals.retain(|_, fv| Self::field_value_is_hash(fv, wanted));
-        page_keys.retain(|k| primary_vals.contains_key(k));
-        key_sources.retain(|k, _| primary_vals.contains_key(k));
     }
 
     /// Primary field for co-key: the schema key field whenever one exists,

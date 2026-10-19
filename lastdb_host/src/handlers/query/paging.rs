@@ -4,14 +4,8 @@ use super::*;
 
 /// The `has_more`-carrying page shape both sockets serve, before the envelope.
 ///
-/// `next_cursor` is always `null` here. Only [`cursor_payload`] — the
-/// `PageAfter` push-down, the one shape whose next request actually consumes a
-/// cursor — stamps a real one. Emitting a cursor from an offset-paged shape is
-/// what produced the non-terminating drain: `execute_query` only reads the
-/// caller's cursor inside the `can_push_down` branch (`query.filter.is_none()`),
-/// so a key-restricted read (`HashKey(..)`, i.e. every product read) advertised
-/// a cursor, ignored it on the way back in, re-served page 1, and any client
-/// preferring the cursor over the offset looped until its own row ceiling.
+/// `next_cursor` is always `null` for offset pages. Keyed query pages use
+/// [`cursor_payload`], whose continuation uses the same API-coordinate window.
 pub(in crate::handlers) fn page_payload(
     page: Vec<Value>,
     total_count: Option<usize>,
@@ -87,7 +81,7 @@ pub(in crate::handlers) fn cursor_payload(
     }
     // Derive the cursor from the truncated page: it has to name the last row the
     // caller actually received, not the `limit + 1`th probe row, or the next
-    // `PageAfter` skips a row.
+    // continuation skips a row.
     let next_cursor = next_cursor_for(&page, has_more);
     let mut payload = page_payload(page, total_count, limit, offset, has_more, drops);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);

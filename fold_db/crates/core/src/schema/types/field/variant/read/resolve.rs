@@ -223,7 +223,7 @@ impl FieldVariant {
         .await
     }
 
-    /// Stamp molecule uuid/version/writer onto a resolved field map.
+    /// Stamp molecule identity; keyed fields retain each selected tip's writer.
     pub(crate) fn stamp_molecule_meta(&self, resolved: &mut HashMap<KeyValue, FieldValue>) {
         let mol_uuid = self.common().molecule_uuid().cloned();
         let mol_version = self.molecule_version();

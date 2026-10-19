@@ -1,10 +1,12 @@
 //! Existing filters borrow the actual warm molecule for fully known exact keys.
 use super::*;
+use crate::resident::CoreWarmTip;
 use crate::schema::types::field::{
     apply_keyed_filter, FieldKind, HashRangeFilter, KeyedAtomMatch, KeyedFilterMode,
 };
 use crate::schema::types::key_value::KeyValue;
 use crate::storage::disk_pack::read::ReadContext;
+use laststore::disk_pack::home::HomeRead;
 
 pub(crate) fn matches(
     runtime: Option<Arc<PackRuntime>>,
@@ -93,10 +95,10 @@ fn captured_matches(
             .with_molecule(projection.scope, projection.molecule, |model| {
                 apply_keyed_filter(model, Some(projection.filter.clone()), mode)
             });
+    let mut call = crate::read_receipts::lock(&context.call);
     let mut matches = Vec::new();
     for ((key, path), value) in keys.iter().zip(paths).zip(values) {
         if value.is_absent() {
-            let mut call = crate::read_receipts::lock(&context.call);
             context.account_memory_record(
                 &mut call,
                 key.hash.as_ref().map_or(0, String::len)
@@ -109,6 +111,7 @@ fn captured_matches(
         let Some(value) = value.into_tip() else {
             return Ok(None);
         };
+        account_tip(context, &mut call, key, &value)?;
         if filtered
             .as_ref()
             .is_none_or(|filtered| !filtered.matches.contains_key(key))
@@ -180,6 +183,7 @@ fn current_matches(
         let Some(value) = value.into_tip() else {
             return Ok(None);
         };
+        account_tip(context, &mut call, key, &value)?;
         if filtered
             .as_ref()
             .is_none_or(|filtered| !filtered.matches.contains_key(key))
@@ -204,6 +208,21 @@ fn current_matches(
         ));
     }
     Ok(Some(matches))
+}
+
+/// Examined positive tips consume the call budget even when visibility rejects
+/// them before a body fetch. Full values charge their bodies separately.
+fn account_tip(
+    context: &ReadContext,
+    call: &mut HomeRead,
+    key: &KeyValue,
+    tip: &CoreWarmTip,
+) -> StorageResult<()> {
+    context.account_memory_record(
+        call,
+        key.hash.as_ref().map_or(0, String::len) + key.range.as_ref().map_or(0, String::len),
+        body::encoded_len(&(&tip.entry, &tip.metadata))?,
+    )
 }
 
 fn exact_keys(kind: FieldKind, filter: &HashRangeFilter) -> Option<Vec<KeyValue>> {

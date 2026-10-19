@@ -81,7 +81,7 @@ pub use types::MoleculeData;
 pub(crate) use types::MoleculeHeader;
 pub(crate) use types::{
     ChangedKey, FilterLayout, MoleculeGenerationDelete, MoleculeGenerationPointer,
-    MoleculeGenerationSlot, OneDSlot, PerKeyRecord,
+    MoleculeGenerationSlot, MoleculeRangeForm, OneDSlot, PerKeyRecord,
 };
 
 use crate::{
