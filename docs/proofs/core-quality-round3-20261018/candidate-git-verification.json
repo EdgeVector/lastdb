@@ -1,0 +1,12 @@
+{
+  "binary_sha256": "4e6a2aa9df6c71ebf4474618ea89557c54cd20d51a337ee61bbbf0f97ca5a732",
+  "method": "git cat-file --batch of explicit frozen paths",
+  "scope": "Exact committed product source bytes. Proof documents and later result-only commits are outside this product inventory.",
+  "source_commit": "894c459d1e235aa928973fc6f479182acf459ef3",
+  "source_files_checked": 1878,
+  "source_identity": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-quality-round3-20261018/candidate-identity.json",
+  "source_identity_sha256": "25c1a0a5c008426e67f22f3709fd7a99e0c3cada01e3ae38333a69d305b1da0d",
+  "source_inventory_sha256": "c40f3b627d37ae5173b4b950f916505b905bfc7c102707d8efa2732e865ff7dc",
+  "source_mismatches": [],
+  "source_tree": "1609148ba989b1779e36ee2895377d29eed16baa"
+}

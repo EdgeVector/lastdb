@@ -34,6 +34,8 @@ When a Hash write omits its declared key field, preparation supplies that field 
 This keeps the record available to field conditions without a separate membership source.
 Internal current-field reads select each tip once, then fetch the selected atom bodies in one batch.
 Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.
+A shared key that becomes usable also receives the unchanged fields through their existing atoms.
+The absence of an old key does not skip those fields. Only a confirmed old association permits its removal.
 
 ## Range keys
 
