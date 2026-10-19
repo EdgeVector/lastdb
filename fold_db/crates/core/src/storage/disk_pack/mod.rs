@@ -54,6 +54,7 @@ pub struct PackRuntime {
     schema_keys: schema_keys::SchemaKeys,
     failed: AtomicBool,
     fresh_empty: AtomicBool,
+    // Failed journal publication retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
     space_policy: laststore::disk_pack::maintenance::SpacePolicy,
 }

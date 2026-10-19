@@ -7,8 +7,8 @@ type ResidentSlot = (String, String, String);
 
 /// What one try to queue a purge envelope did.
 pub(super) enum PurgeEnqueue {
-    /// Queued. The receiver is set when the caller waits for durability.
-    Queued(Option<tokio::sync::oneshot::Receiver<super::super::molecules::PurgeCompletion>>),
+    /// Queued. The caller waits for this envelope's durable completion.
+    Queued(tokio::sync::oneshot::Receiver<super::super::molecules::PurgeCompletion>),
     /// Nothing queued: these keys of the batch have a tip at or after the
     /// cutoff of their erase. The erasures come back unchanged.
     Spared(HashSet<usize>, Vec<Mutation>),
@@ -37,6 +37,7 @@ impl MutationManager {
 
     /// Queue the purge envelope of one schema. A key that the write-time guard
     /// spares leaves the batch, and the batch is planned again without it.
+    /// `None` means every target was spared; every queued job has a receiver.
     pub(super) async fn enqueue_schema_purge_checked(
         &self,
         schema_name: String,
@@ -46,7 +47,6 @@ impl MutationManager {
             super::super::super::purge::PurgeMissingPolicy,
             super::super::super::purge::HardEraseVerb,
         ),
-        wait_for_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<
         Option<tokio::sync::oneshot::Receiver<super::super::molecules::PurgeCompletion>>,
@@ -59,12 +59,11 @@ impl MutationManager {
                     erasures,
                     storage_prefix,
                     (missing, verb),
-                    wait_for_durable,
                     author_clock_barrier.clone(),
                 )
                 .await?;
             let (spared, all) = match queued {
-                PurgeEnqueue::Queued(receiver) => return Ok(receiver),
+                PurgeEnqueue::Queued(receiver) => return Ok(Some(receiver)),
                 PurgeEnqueue::Spared(spared, all) => (spared, all),
             };
             // A key with a tip at or after the cutoff was rewritten after the
@@ -107,11 +106,10 @@ impl MutationManager {
     /// Indexes into `erasures` of the keys that have a tip written at or after
     /// the cutoff of their own mutation (`erase_tips_before_nanos`).
     ///
-    /// The caller holds the molecule write locks of every slot. No writer can
-    /// acknowledge a write to these slots until it releases them, so the
-    /// resident tip is complete and nothing can change between this read and
-    /// the resident tombstones. A rewrite that was acknowledged and not yet in
-    /// the write-time index shows here, because the tip carries its own clock.
+    /// The caller holds every target molecule's write lock while it compares
+    /// current tip clocks with the mutation cutoffs. A tip at or after its
+    /// cutoff spares that mutation before the complete native deletion enters
+    /// the lane. No resident tombstone overlay participates in this check.
     pub(super) async fn erasures_rewritten_since_cutoff(
         &self,
         schema: &crate::schema::Schema,

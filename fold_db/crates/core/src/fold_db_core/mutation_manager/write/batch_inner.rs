@@ -231,7 +231,6 @@ impl MutationManager {
                     storage_prefix,
                     missing,
                     verb,
-                    true,
                     author_clock_barrier.clone(),
                 )
                 .await?;
@@ -281,7 +280,6 @@ impl MutationManager {
                     storage_prefix,
                     origin.missing_policy_for_loud_erasure(),
                     super::super::super::purge::HardEraseVerb::Purge,
-                    true,
                     author_clock_barrier.clone(),
                 )
                 .await?,
@@ -294,7 +292,6 @@ impl MutationManager {
                     storage_prefix,
                     origin.missing_policy_for_loud_erasure(),
                     super::super::super::purge::HardEraseVerb::DeleteMustExist,
-                    true,
                     author_clock_barrier.clone(),
                 )
                 .await?,
@@ -307,7 +304,6 @@ impl MutationManager {
                     storage_prefix,
                     super::super::super::purge::PurgeMissingPolicy::Skip,
                     super::super::super::purge::HardEraseVerb::Delete,
-                    true,
                     author_clock_barrier,
                 )
                 .await?,
