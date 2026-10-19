@@ -82,15 +82,19 @@ fn plan_new(
     add: u64,
     body: Option<&BodyOffer<'_>>,
 ) -> Result<AtomPlan, PlanError> {
-    if let Some(body) = body {
-        return Ok(AtomPlan::Create(AtomCounter::new(add, body.blobs.to_vec())));
-    }
     if before.body_without_counter {
-        // A body with no counter breaks the invariant before this batch. Keep
-        // the body, count the new references, and mark the counter.
-        let mut counter = AtomCounter::new(add, Vec::new());
+        // A body with no counter breaks the invariant before this batch. This
+        // test comes first: an offered body must not turn the batch into a
+        // fresh create, because the holders that the lost counter counted are
+        // unknown. Keep the stored body, count only the new references, and
+        // mark the counter, so no later removal can reach zero and delete.
+        let blobs = body.map_or_else(Vec::new, |body| body.blobs.to_vec());
+        let mut counter = AtomCounter::new(add, blobs);
         counter.suspect = true;
         return Ok(AtomPlan::Suspect(counter, SuspectKind::CounterAbsent));
+    }
+    if let Some(body) = body {
+        return Ok(AtomPlan::Create(AtomCounter::new(add, body.blobs.to_vec())));
     }
     Err(PlanError::NoBody)
 }
