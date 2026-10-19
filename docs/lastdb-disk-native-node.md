@@ -30,6 +30,7 @@ Native status exposes the actual accepted and completed sequences, pending batch
 `core_warm_tip_only_paths` counts retained positive paths whose values are not in memory.
 Normal status uses these same core counts for its logical-record count, holds, dirty records, and purge total.
 Its tip-only count and warm lookup counters also come from the core.
+Normal status returns a saved sample, normally refreshed every 60 seconds; native status returns the current counters.
 The separate background purge counters describe queued work, without another value store.
 
 The default flush delay is 500 ms. Native admission requires a configured delay from 1 to 500 ms.

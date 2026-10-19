@@ -65,6 +65,7 @@ Raw physical format tools and vendor code do not provide an alternate logical en
 
 The core owns the logical values and their record measurements.
 Status reads those measurements from the native runtime.
+Normal status returns a saved sample, normally refreshed every 60 seconds; native status returns the current counters.
 `PersistLaneMetrics` measures background purge work; it holds no logical values.
 Historical status fields remain at the wire boundary for installed clients.
 The native sampler does not maintain their retired graph and loader counters.

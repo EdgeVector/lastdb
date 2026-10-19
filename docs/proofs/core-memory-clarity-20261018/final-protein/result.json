@@ -1,0 +1,1 @@
+{"benchmark_result":false,"complete":true,"error":null,"operation_counts":{"clarity-driver-scope":1,"core-owned-protein-complete":1,"core-owned-queue-drained":2,"core-owned-read":14,"core-owned-write":4,"default-native-format":2,"flush":2,"native-status":6,"owned-node-start":2,"owned-node-stop":2,"request":30},"role":"candidate","workflow":"protein"}
