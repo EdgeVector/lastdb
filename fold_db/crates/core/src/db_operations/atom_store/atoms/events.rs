@@ -37,8 +37,11 @@ impl AtomStore {
             ));
             keys.push(key);
         }
+        // Replay calls this outside a write request. The planner needs one
+        // native scope, so the history rows, the references and the bodies
+        // commit as one batch. Inside an open scope the call joins that scope.
         let commit = self
-            .commit_tip_changes(TipChangeSet {
+            .in_write_scope(self.commit_tip_changes(TipChangeSet {
                 scope: storage_prefix,
                 tips: Vec::new(),
                 bodies,
@@ -46,7 +49,7 @@ impl AtomStore {
                 records,
                 rows,
                 deletes: Vec::new(),
-            })
+            }))
             .await?;
         self.account_stored_bodies(bodies, &commit);
         for key in keys {
