@@ -1,0 +1,42 @@
+host_cargo_lock=held pid=89533 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
+    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)
+   Compiling lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)
+    Checking lastdb_uds v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_uds)
+    Checking lastdb_identity v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_identity)
+    Checking generate_schema_org_classifications v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/scripts/generate_schema_org_classifications)
+    Checking lastdb_host v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_host)
+error: called `map(<f>).unwrap_or_else(<g>)` on an `Option` value
+   --> lastdb_host/src/handlers/query/rows.rs:204:23
+    |
+204 |           let primary = order_by
+    |  _______________________^
+205 | |             .map(|order_by| {
+206 | |                 let af = a
+207 | |                     .get("fields")
+...   |
+221 | |             });
+    | |______________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#map_unwrap_or
+    = note: requested on the command line with `-D clippy::map-unwrap-or`
+help: try
+    |
+204 ~         let primary = order_by.map_or_else(|| {
+205 +                 let a_range = a["key"]["range"].as_str().unwrap_or("");
+206 +                 let b_range = b["key"]["range"].as_str().unwrap_or("");
+207 +                 match sort_order {
+208 +                     Some(SortOrder::Desc) => b_range.cmp(a_range),
+209 +                     _ => a_range.cmp(b_range),
+210 +                 }
+211 +             }, |order_by| {
+212 +                 let af = a
+213 +                     .get("fields")
+214 +                     .and_then(|fields| fields.get(&order_by.field));
+215 +                 let bf = b
+216 +                     .get("fields")
+217 +                     .and_then(|fields| fields.get(&order_by.field));
+218 +                 compare_json_values(af, bf, order_by.order.as_ref())
+219 ~             });
+    |
+
+error: could not compile `lastdb_host` (lib) due to 1 previous error

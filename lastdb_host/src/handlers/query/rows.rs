@@ -201,8 +201,8 @@ pub(in crate::handlers) fn format_rows(
     // always-ascending tiebreaker (opaque content hash — reversing it is churn).
     let sort_started = std::time::Instant::now();
     results.sort_by(|a, b| {
-        let primary = order_by
-            .map(|order_by| {
+        let primary = match order_by {
+            Some(order_by) => {
                 let af = a
                     .get("fields")
                     .and_then(|fields| fields.get(&order_by.field));
@@ -210,15 +210,16 @@ pub(in crate::handlers) fn format_rows(
                     .get("fields")
                     .and_then(|fields| fields.get(&order_by.field));
                 compare_json_values(af, bf, order_by.order.as_ref())
-            })
-            .unwrap_or_else(|| {
+            }
+            None => {
                 let a_range = a["key"]["range"].as_str().unwrap_or("");
                 let b_range = b["key"]["range"].as_str().unwrap_or("");
                 match sort_order {
                     Some(SortOrder::Desc) => b_range.cmp(a_range),
                     _ => a_range.cmp(b_range),
                 }
-            });
+            }
+        };
         primary
             .then_with(|| {
                 let a_range = a["key"]["range"].as_str().unwrap_or("");
