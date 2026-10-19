@@ -1,0 +1,42 @@
+{
+  "files": {
+    "docs/proofs/core-clarity-20261018/default_node.py": {
+      "bytes": 2682,
+      "sha256": "dbccdb86e1a712cdf69a82fbfe0dedcea6d82ac05659b8c7a5950b04eb55df1b"
+    },
+    "docs/proofs/core-memory-state-20261018/api.py": {
+      "bytes": 7337,
+      "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+    },
+    "docs/proofs/core-owned-writes-20261018/cleanup_sealed_runs.py": {
+      "bytes": 7234,
+      "sha256": "179dd195f365c462a4ee1dfb6066074590c1b2cce43f3248fdddab843fee3520"
+    },
+    "docs/proofs/core-owned-writes-20261018/cohorts.py": {
+      "bytes": 5570,
+      "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+    },
+    "docs/proofs/core-owned-writes-20261018/logical.py": {
+      "bytes": 8763,
+      "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+    },
+    "docs/proofs/core-owned-writes-20261018/seal_runs.py": {
+      "bytes": 3556,
+      "sha256": "41c5dc821ba6b352fd543fe3898efbab1b2df5ef13520db505e39f4b6c995234"
+    },
+    "docs/proofs/graph-first-20261017/drivers/ownership.py": {
+      "bytes": 794,
+      "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+    },
+    "docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+      "bytes": 19493,
+      "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+    },
+    "docs/proofs/schema-preload-product-20261017/measure.py": {
+      "bytes": 23399,
+      "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+    }
+  },
+  "plan_sha256": "63ab1e74287b40dde2c201cd54d33b372295d5ecac7b5dd0a0384e0cb4c1ab03",
+  "scope": "Existing unchanged operational helpers; no new executable checker or test harness."
+}

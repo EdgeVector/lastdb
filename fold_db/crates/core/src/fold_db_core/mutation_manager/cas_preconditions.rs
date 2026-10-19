@@ -9,9 +9,9 @@ use super::MutationManager;
 
 impl MutationManager {
     /// Verify each supplied CAS mutation against the current
-    /// head. The caller must exclude writes through comparison and publication:
-    /// requests hold their CAS locks, and the Delete worker holds the native
-    /// write gate. Return the first [`SchemaError::CasConflict`] before this
+    /// head. The caller holds the native write gate through comparison and
+    /// publication for request writes and both erasure verbs. Return the first
+    /// [`SchemaError::CasConflict`] before this
     /// phase publishes. A mixed request has separate update and delete phases;
     /// this helper does not make the whole mixed request atomic.
     pub(super) async fn check_cas_preconditions(
@@ -43,8 +43,7 @@ impl MutationManager {
     /// Refuse every `must_exist: true` update whose key carries no live value
     /// in this schema yet.
     ///
-    /// Must run while the batch holds the relevant locks (see
-    /// [`Self::acquire_cas_locks`]), for the same reason CAS does. Returns the
+    /// Must run inside the batch's native write gate, like CAS. Returns the
     /// first missing target — the whole batch is rejected, matching the
     /// all-or-nothing contract `check_cas_preconditions` already applies.
     ///

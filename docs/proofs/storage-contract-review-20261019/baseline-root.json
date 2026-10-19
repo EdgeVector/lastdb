@@ -1,0 +1,18 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.sdh1yb1q/program-before-lastdbd",
+  "binary_sha256": "aaf0a32ae7098847d0d9de1755cc78e1facaff1a384ddb663187526a79de971c",
+  "marker": {
+    "creator_pid": 91223,
+    "device": 16777231,
+    "inode": 1470124254,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "node_sessions": 0,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.sdh1yb1q",
+  "scope": "Accepted executable only. No primary, archive, existing home, or node.",
+  "source_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "source_identity": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-contract-review-20261019/before-identity.json",
+  "source_identity_sha256": "9400a6cb478cbbc230659dd64f21571c955824afbb5bf065d37c472daaac4faf"
+}

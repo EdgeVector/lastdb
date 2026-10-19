@@ -17,12 +17,8 @@ impl MutationManager {
                 "Delete peer resolution requires a complete native write scope".into(),
             )));
         }
-        // Only the caller's keys carry expected/must-exist requirements. The
-        // exclusive native gate supplies the same-node comparison boundary;
-        // taking request CAS locks here would invert the request lock order.
-        self.check_cas_preconditions(&job.erasures, job.storage_prefix.as_deref())
-            .await
-            .map_err(PurgeAttemptError::Rejected)?;
+        // Caller conditions pass at the shared erasure entry point. Only the
+        // caller's keys carry the must-exist requirement; peers are idempotent.
         self.validate_purge_job_targets(job).await?;
         let ids = job
             .erasures

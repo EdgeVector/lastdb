@@ -98,22 +98,14 @@ pub const FOOTPRINT_LATCH_RECOVERY_HOLD_SECS: u64 = 120;
 /// the warm set until the footprint falls under [`FOOTPRINT_EVICT_TARGET_BYTES`].
 pub const FOOTPRINT_EVICT_SOFT_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 
-/// Hard line for measured-footprint defence. A sticky-footprint cooldown may
-/// release the warm floor below this line, but never at or above it.
+/// Hard line for measured process-memory defence.
 pub const FOOTPRINT_EVICT_HARD_BYTES: u64 = 12 * 1024 * 1024 * 1024;
 
 /// Target physical footprint after an eviction pass.
 pub const FOOTPRINT_EVICT_TARGET_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
-/// Implied-multiplier line an eviction pass must also clear (alongside
-/// [`FOOTPRINT_EVICT_TARGET_BYTES`]) before stepwise eviction stops. Footprint
-/// alone can sit under the target while the charge/measured ratio is still
-/// climbing (uncounted per-handle overhead outpacing the charged budget); both
-/// conditions must hold or the trim stops too early.
-pub const FOOTPRINT_EVICT_STOP_MULTIPLIER: f64 = 1.3;
-
 /// Bound on stepwise eviction passes per [`crate`] measured-footprint defense
-/// call. Each pass drops one LRU warm group and re-measures; this caps
+/// call. Each pass purges clean logical records and re-measures; this caps
 /// worst-case work per sampler tick so a pathological footprint cannot loop
 /// the sampler thread indefinitely.
 pub const FOOTPRINT_EVICT_MAX_STEPS: u32 = 12;
@@ -121,27 +113,12 @@ pub const FOOTPRINT_EVICT_MAX_STEPS: u32 = 12;
 /// Capture `vmmap -summary` when measured footprint crosses this line.
 pub const FOOTPRINT_VMMAP_CAPTURE_BYTES: u64 = 12 * 1024 * 1024 * 1024;
 
-/// Floor on the effective warm-set budget while the footprint is over the
-/// soft line. The configured budget is never raised to this floor.
-pub const EFFECTIVE_WARM_FLOOR_BYTES: u64 = 1024 * 1024 * 1024;
-
-/// One sampler tick's warm-budget recovery while pressure is clear and the
-/// purge predicate passed. The configured env stays the maximum input.
-/// Recovery stops at [`EFFECTIVE_WARM_CLEAR_CAP_BYTES`].
-pub const EFFECTIVE_WARM_GROW_STEP_BYTES: u64 = 256 * 1024 * 1024;
-
-/// Ceiling on grow-back once pressure is clear and the purge predicate passed.
-/// `min(configured, this)` is the cap. The configured env is not itself the
-/// value `fits` climbs back to.
-pub const EFFECTIVE_WARM_CLEAR_CAP_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-
 /// Footprint stop while host pressure is high, before the RAM percent.
 /// The tick applies `min(this, 15% of RAM)`.
 pub const PRESSURE_FOOTPRINT_TARGET_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 /// Hard line while host pressure is high, before the RAM percent.
-/// The tick applies `min(this, 20% of RAM)`. Also the grow permission: the
-/// 12 GiB backstop does not authorize grow-back.
+/// The tick applies `min(this, 20% of RAM)`.
 pub const PRESSURE_FOOTPRINT_HARD_BYTES: u64 = 6 * 1024 * 1024 * 1024;
 
 /// Share of RAM that caps [`PRESSURE_FOOTPRINT_TARGET_BYTES`].

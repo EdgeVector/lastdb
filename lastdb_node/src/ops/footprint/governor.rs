@@ -75,8 +75,6 @@ pub(super) struct FootprintGovernorState {
     pub(super) swap_used_bytes: u64,
     pub(super) compressor_bytes: u64,
     pub(super) ram_bytes: u64,
-    /// False until a purge has been scored. A clear host does not grow before that.
-    pub(super) purge_ok: bool,
     pub(super) purge_failed: bool,
     /// Last purge ran while requests were in flight. Score it on a later quiet tick.
     pub(super) purge_awaiting_collect: bool,
@@ -87,11 +85,19 @@ pub(super) struct FootprintGovernorState {
 /// Result of one shed pass.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ShedReport {
+    /// Accepted writes reached the disk barrier. Retained memory owners can remain.
     pub deferred_idle: bool,
+    /// Retired physical-group field; native relief removes logical records.
     pub groups_evicted: u64,
+    pub logical_records_purged: u64,
     pub warm_bytes_before: u64,
     pub warm_bytes_after: u64,
+    /// No byte admission budget is enforced during the stage-one measurement.
     pub effective_warm_bytes: u64,
+    pub target_warm_bytes: u64,
+    pub target_met: bool,
+    pub native_memory: Option<fold_db::storage::disk_pack::NativeMemoryStatus>,
+    pub error: Option<String>,
     pub malloc_bytes_released: u64,
     pub phys_footprint_bytes: Option<u64>,
 }
@@ -208,7 +214,6 @@ pub(super) fn record_purge_score(state: &mut FootprintGovernorState, measured: u
     let net = fold_db::memory_budget::footprint_net_bytes(measured, crate::allocator::occupancy());
     let ok = fold_db::memory_budget::purge_slack_ok(measured, net);
     let became_failed = !ok && !state.purge_failed;
-    state.purge_ok = ok;
     state.purge_failed = !ok;
     state.purge_awaiting_collect = false;
     state.snapshot.purge_failed = !ok;

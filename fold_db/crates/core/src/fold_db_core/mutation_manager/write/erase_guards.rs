@@ -29,6 +29,7 @@ impl MutationManager {
                 db_ops: &self.db_ops,
                 schema_manager: &self.schema_manager,
                 schema_name,
+                storage_prefix: None,
             },
             keys,
         )

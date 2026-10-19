@@ -45,7 +45,7 @@ impl CoreWarmSet {
     pub(crate) fn admit(
         &mut self,
         path: &CorePath,
-        value: CoreWarmSlot,
+        mut value: CoreWarmSlot,
         dirty_sequence: Option<u64>,
     ) -> Result<(), CoreCapacity> {
         if value.entry.atom_uuid != value.atom.uuid() {
@@ -54,6 +54,8 @@ impl CoreWarmSet {
             });
         }
         self.ensure_path(path)?;
+        let slot = path.slot();
+        self.share_model_atom(&slot.molecule, &mut value);
         self.track_atom(&value.atom);
         let owned = self
             .owned_slots
@@ -67,7 +69,6 @@ impl CoreWarmSet {
             })
             .cloned()
             .unwrap_or_else(|| model::CoreModelSlot::clean(Some(value.clone())));
-        let slot = path.slot();
         let previous = self
             .molecules
             .get(&slot.molecule)

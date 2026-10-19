@@ -4,7 +4,7 @@ use crate::schema::types::field::{HashRangeFilter, HashRangeFilterResult, SAMPLE
 use crate::schema::types::key_value::KeyValue;
 use std::collections::HashMap;
 
-use super::{FilterUtils, DEFAULT_UNFILTERED_PAGE_LIMIT};
+use super::DEFAULT_UNFILTERED_PAGE_LIMIT;
 
 fn insert_range(m: &mut HashMap<KeyValue, String>, key: String, uuid: String) {
     m.insert(KeyValue::new(None, Some(key)), uuid);
@@ -154,10 +154,7 @@ fn range_atoms_in_range(
 
 /// `(key, atom_uuid)` pairs of a [`MoleculeRange`] whose key starts with `prefix`.
 ///
-/// An empty `prefix` matches every key, and is handled directly: the
-/// `start..create_prefix_end()` range trick cannot express "match every key"
-/// (no string upper bound is greater than all strings), so feeding it an
-/// empty prefix would wrongly return only the empty-string key.
+/// Prefix selection has no synthetic upper bound, including maximum scalars.
 fn range_atoms_with_prefix(
     m: &crate::atom::MoleculeHashRange,
     prefix: &str,
@@ -165,5 +162,16 @@ fn range_atoms_with_prefix(
     if prefix.is_empty() {
         return range_all_atoms(m);
     }
-    range_atoms_in_range(m, prefix, &FilterUtils::create_prefix_end(prefix))
+    m.atom_entries_for_hash("")
+        .map(|range_map| {
+            range_map
+                .range::<str, _>((
+                    std::ops::Bound::Included(prefix),
+                    std::ops::Bound::Unbounded,
+                ))
+                .take_while(|(range, _)| range.starts_with(prefix))
+                .map(|(range, entry)| (range.clone(), entry.atom_uuid.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
 }

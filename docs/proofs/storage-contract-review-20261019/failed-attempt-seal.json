@@ -1,0 +1,32 @@
+{
+  "expected_failure_preserved": true,
+  "files": {
+    ".synthetic-seed-owner.json": {
+      "bytes": 123,
+      "sha256": "8e13424b56e6ba698620eff29dcdf025fd306c58cb226a7e485b65bbb73cebea"
+    },
+    "inputs.json": {
+      "bytes": 2173,
+      "sha256": "2367ce79fce73a0d79249b3189ccf797a057030d7a60efdff4cf997290dda549"
+    },
+    "node.log": {
+      "bytes": 75756,
+      "sha256": "81c84dbe751390dd01a2e6ae98ddb03a4c885b69044bd55653a6538bdb4a6c5d"
+    },
+    "receipts.jsonl": {
+      "bytes": 73200,
+      "sha256": "1282d1237cace22cb6504ce5c29daae17bd7988c3468f17e4fe04499baf005ec"
+    },
+    "result.json": {
+      "bytes": 688,
+      "sha256": "8eb3b64d7c7dbeaabfd897b313c4e1e19bd17ef47cbc9a53179fae3da5ba3ed6"
+    },
+    "retained-root.json": {
+      "bytes": 196,
+      "sha256": "216ef121ef4796dfb2a5ea4c821c48dc4c458589ef7c9d3657ec9b50753230ba"
+    }
+  },
+  "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-contract-review-20261019/ordinary-ope-v1",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73",
+  "scope": "Failed product attempt only; not accepted validation."
+}

@@ -1,4 +1,4 @@
-//! Protein member-delete expansion and the shared exact-row read result type. CAS locks, preconditions, current-state reads and idempotency live in the sibling `cas_*` modules.
+//! Protein member-delete expansion and the shared exact-row read result type. Preconditions, current-state reads and idempotency live in the sibling `cas_*` modules.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 

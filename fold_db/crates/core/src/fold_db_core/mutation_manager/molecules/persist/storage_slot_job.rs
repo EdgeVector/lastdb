@@ -135,6 +135,7 @@ impl MutationManager {
                         db_ops: &self.db_ops,
                         schema_manager: &self.schema_manager,
                         schema_name: &job.schema_name,
+                        storage_prefix: None,
                     },
                     chunk,
                     crate::fold_db_core::purge::PurgeMissingPolicy::Skip,

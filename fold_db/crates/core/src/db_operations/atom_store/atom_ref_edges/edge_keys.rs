@@ -249,10 +249,9 @@ impl AtomStore {
 
     /// Return whether the compact reverse-edge plane contains a live reference.
     ///
-    /// A present compact edge is authoritative immediately. Absence is
-    /// authoritative after the global completion markers, or when the legacy
-    /// v1 plane has no remaining live rows. An incomplete home that still has
-    /// v1 rows returns an error so purge retains the candidate atom.
+    /// A present scoped edge keeps the atom immediately. Absence authorizes
+    /// removal only after the home-wide completion proof. A missing proof
+    /// returns an error; an older reference plane cannot grant this authority.
     pub(crate) async fn has_any_active_atom_refs(
         &self,
         atom_content_sha256: &str,
@@ -264,32 +263,22 @@ impl AtomStore {
         {
             return Ok(true);
         }
-        if self.atom_ref_v2_reads_ready(storage_prefix).await? {
+        if self.atom_ref_v2_reads_ready().await? {
             return Ok(false);
         }
-        match self.atom_ref_v1_keys_remain().await {
-            Ok(false) => Ok(false),
-            Ok(true) | Err(_) => Err(SchemaError::InvalidData(
-                "compact atom reverse-edge absence requires exact global completion markers"
-                    .to_string(),
-            )),
-        }
+        Err(SchemaError::InvalidData(
+            "compact atom reverse-edge absence requires exact global completion markers"
+                .to_string(),
+        ))
     }
 
     /// Check the immutable global v2 read gate with two bounded point reads.
-    pub async fn atom_ref_v2_reads_ready(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Result<bool, SchemaError> {
-        let cache_key = storage_prefix.map(str::to_string);
-        if self
-            .atom_ref_v2_read_ready
-            .lock()
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("lock compact atom read gate: {error}"))
-            })?
-            .contains(&cache_key)
-        {
+    /// Data prefixes never select a different proof: fresh startup stamps the
+    /// home once, and all current writers maintain references in every scope.
+    pub async fn atom_ref_v2_reads_ready(&self) -> Result<bool, SchemaError> {
+        if *self.atom_ref_v2_read_ready.lock().map_err(|error| {
+            SchemaError::InvalidData(format!("lock compact atom read gate: {error}"))
+        })? {
             return Ok(true);
         }
         let markers = [
@@ -303,7 +292,6 @@ impl AtomStore {
             ),
         ];
         for (key, label) in markers {
-            let key = build_storage_key(storage_prefix, key);
             let Some(value) =
                 self.main_store
                     .inner()
@@ -325,12 +313,9 @@ impl AtomStore {
                 )));
             }
         }
-        self.atom_ref_v2_read_ready
-            .lock()
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("lock compact atom read gate: {error}"))
-            })?
-            .insert(cache_key);
+        *self.atom_ref_v2_read_ready.lock().map_err(|error| {
+            SchemaError::InvalidData(format!("lock compact atom read gate: {error}"))
+        })? = true;
         Ok(true)
     }
 
@@ -380,7 +365,7 @@ impl AtomStore {
         let edges = self
             .active_atom_ref_edges_for_atom(atom_uuid, storage_prefix)
             .await?;
-        let complete = self.atom_ref_v2_reads_ready(storage_prefix).await?;
+        let complete = self.atom_ref_v2_reads_ready().await?;
         Ok(AtomRefEdgeLookup { complete, edges })
     }
 }

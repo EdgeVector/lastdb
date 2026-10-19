@@ -32,7 +32,7 @@ impl AtomStore {
         let pass_started_at = Utc::now().to_rfc3339();
 
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
+        let mk_end = FilterUtils::create_prefix_end(&mk_prefix)?;
         let mut report = TipHistoryDrainReport {
             dry_run,
             pass_started_at,

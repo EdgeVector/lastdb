@@ -84,12 +84,9 @@ pub(crate) use types::{
     MoleculeGenerationSlot, MoleculeRangeForm, OneDSlot, PerKeyRecord,
 };
 
-use crate::{
-    schema::types::field::build_storage_key,
-    storage::{
-        traits::{KvStore, NamespacedStore},
-        TypedKvStore,
-    },
+use crate::storage::{
+    traits::{KvStore, NamespacedStore},
+    TypedKvStore,
 };
 use std::{
     collections::HashSet,
@@ -105,8 +102,6 @@ use super::keep_small::{
     KeepSmallHardEraseDebit, KeepSmallHardEraseTotals, KeepSmallMeters, KeepSmallSchemaShard,
     MeterDomainTrust, MeterTrustPayload,
 };
-
-use helpers::schema_index_codec;
 
 async fn lock_target_stripes(
     locks: &[Arc<tokio::sync::Mutex<()>>],
@@ -165,9 +160,9 @@ pub struct AtomStore {
     /// Atom body storage-key encoding (default [`crate::atom::AtomKeyEncoding::Flat`];
     /// see `design-lastdb-atom-key-partition-locality`).
     atom_keys_partition_prefixed: Arc<AtomicBool>,
-    /// Cache successful marker checks by storage prefix. Completion markers
-    /// are immutable during one process lifetime after read cutover.
-    atom_ref_v2_read_ready: Arc<std::sync::Mutex<std::collections::HashSet<Option<String>>>>,
+    /// One home-wide completion proof covers every exact data scope. Restore
+    /// revokes the fresh-home proof and clears this successful-read cache.
+    atom_ref_v2_read_ready: Arc<std::sync::Mutex<bool>>,
     /// Per-molecule commit guards: the SHORT critical section that makes
     /// (read `moc:` → build items → commit batch) atomic for one molecule.
     ///
@@ -341,19 +336,5 @@ impl AtomStore {
     pub async fn flush(&self) -> Result<(), crate::storage::StorageError> {
         self.main_store.inner().flush().await?;
         self.schema_index_store.inner().flush().await
-    }
-
-    /// Storage key of a **legacy** `schemaidx:` record for `(schema, atom_uuid)`.
-    /// Kept so hard-removal (`purge_record`) can still delete leftover index
-    /// copies written by older binaries.
-    pub(crate) fn schema_index_key(
-        storage_prefix: Option<&str>,
-        schema_name: &str,
-        atom_uuid: &str,
-    ) -> String {
-        build_storage_key(
-            storage_prefix,
-            &schema_index_codec::record_key(schema_name, atom_uuid),
-        )
     }
 }

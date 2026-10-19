@@ -132,7 +132,7 @@ impl AtomStore {
         candidate: &GcAtomsDeleteCandidate,
         tally: &mut GcAtomsRevalidationTally,
     ) -> Result<Option<Vec<String>>, SchemaError> {
-        if !self.atom_ref_v2_reads_ready(storage_prefix).await? {
+        if !self.atom_ref_v2_reads_ready().await? {
             tally.reads_not_ready += 1;
             return Ok(None);
         }

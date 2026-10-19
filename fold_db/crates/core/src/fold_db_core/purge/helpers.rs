@@ -327,20 +327,6 @@ pub(crate) fn atom_ref_edges_keep_core_live(uuid: &str, core_live: &HashSet<Stri
     core_live.contains(uuid)
 }
 
-/// Load an atom for hard-erase accounting. A storage error must fail the
-/// verb: skipping it still leaves `uuid` in `atoms_to_delete`.
-pub(crate) fn atom_load_for_hard_erase(
-    loaded: Result<Option<crate::atom::Atom>, SchemaError>,
-    uuid: &str,
-) -> Result<Option<crate::atom::Atom>, SchemaError> {
-    match loaded {
-        Ok(atom) => Ok(atom),
-        Err(error) => Err(SchemaError::InvalidData(format!(
-            "Failed to load atom {uuid} before hard-delete: {error}"
-        ))),
-    }
-}
-
 /// Human-readable rendering of a KeyValue for log/error messages.
 pub(crate) fn describe_key(kv: &KeyValue) -> String {
     match (&kv.hash, &kv.range) {

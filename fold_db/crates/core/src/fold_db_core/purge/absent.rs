@@ -10,11 +10,7 @@ pub(in crate::fold_db_core) async fn absent_purge_targets(
     scope: PurgeScope<'_>,
     keys: &[KeyValue],
 ) -> Result<Vec<KeyValue>, SchemaError> {
-    let PurgeScope {
-        db_ops,
-        schema_manager,
-        schema_name,
-    } = scope;
+    let PurgeScope { db_ops, .. } = scope;
     let mut seen = HashSet::new();
     let keys: Vec<KeyValue> = keys
         .iter()
@@ -24,11 +20,7 @@ pub(in crate::fold_db_core) async fn absent_purge_targets(
     if keys.is_empty() {
         return Ok(Vec::new());
     }
-    let mut schema = schema_manager
-        .get_schema_metadata(schema_name)?
-        .ok_or_else(|| {
-            SchemaError::InvalidData(format!("Schema '{schema_name}' not found for purge"))
-        })?;
+    let mut schema = scope.schema()?;
     refresh_runtime_field_molecules_for_purge_keys(db_ops, &mut schema, &keys).await?;
     let trace = collect_purge_trace(db_ops, &schema, &keys).await?;
     Ok(keys

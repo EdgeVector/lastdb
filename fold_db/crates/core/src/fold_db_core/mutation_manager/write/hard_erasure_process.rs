@@ -4,29 +4,10 @@ use super::hard_erasure::group_mutations_by_schema;
 use super::*;
 
 impl MutationManager {
-    /// Dispatch hard-erasure mutations (`Purge` or `Delete`) through the
-    /// destructive purge path, **grouped by schema** — one pass per schema,
-    /// not one per mutation.
-    ///
-    /// This loop used to run `purge_record` per mutation, justified by "purge
-    /// is rare and there's no batching benefit from grouping by schema". The
-    /// first half was an observation about how the compliance verb was called;
-    /// the second was a claim about the code, and it was false. `purge_record`
-    /// redoes the whole schema's work — molecule reload, a full mutation-event
-    /// read per field, and a tip-chain walk over *every per-key record* — for
-    /// each record it removes. Grouping turns `O(N·F·R)` into `O(F·R)`; see
-    /// [`purge_records_bulk`](super::super::super::purge::purge_records_bulk) for the
-    /// full argument and for which guards had to be re-derived over the batch.
-    ///
-    /// Ids are returned in the caller's submitted order, which grouping makes
-    /// explicit rather than incidental.
-    ///
-    /// # Barrier chunking
-    ///
-    /// The exclusive purge barrier covers snapshot-to-delete for content-
-    /// addressed atoms. We cap each guarded critical section at
-    /// [`PURGE_BARRIER_CHUNK`] keys and release it between chunks. This bounds
-    /// one hold and lets another guarded purge use the same schema barrier.
+    /// Process bounded chunks of one schema in the selected database scope.
+    /// Delete removes tips only; Purge also reclaims unreferenced atom bodies.
+    /// A complete reference proof selects exact-edge erasure. Otherwise the
+    /// schema purge barrier protects the conservative complement check.
     pub(in crate::fold_db_core::mutation_manager) async fn process_hard_erasures_durable(
         &self,
         erasures: Vec<Mutation>,
@@ -42,7 +23,7 @@ impl MutationManager {
                 .expect("schema_order entries were sourced from by_schema keys");
 
             // Load definitions once for the physical Purge cutover check.
-            let schema_for_purge = self
+            let mut schema_for_purge = self
                 .schema_manager
                 .get_schema_metadata(&schema_name)?
                 .ok_or_else(|| {
@@ -50,6 +31,7 @@ impl MutationManager {
                         "Schema '{schema_name}' not found for erasure processing"
                     ))
                 })?;
+            apply_storage_prefix_to_schema(&mut schema_for_purge, options.storage_prefix);
             // Live Delete does not reclaim atoms. It must not wait on (or
             // advance) the compliance purge's reverse-edge history upgrade.
             let atom_ref_cutover = !options.verb.is_delete()
@@ -184,6 +166,7 @@ impl MutationManager {
                 db_ops: &self.db_ops,
                 schema_manager: &self.schema_manager,
                 schema_name,
+                storage_prefix: options.storage_prefix,
             },
             keys,
             options.missing,
@@ -215,11 +198,9 @@ impl MutationManager {
         options: &HardErasureOptions<'_>,
         caller: &'static str,
     ) -> Result<(HardErasureReport, std::time::Duration), SchemaError> {
-        // LEGACY-SUNSET: class=residue; remove this ordinary-purge
-        // fallback after the open cutover records a clean real-data
-        // atom-ref audit, every molecule manifest is complete after
-        // one restart, and the supported Mini floor includes aref:v1.
-        // Keep `purge_storage_slots_guarded` for explicit migrations.
+        // An unavailable complete reference proof requires the conservative
+        // path. This safety fallback does not select an older disk engine or
+        // convert stored data. Final reverse-reference checks still apply.
         let barrier = self.schema_purge_barrier(schema_name);
         let acquire_start = std::time::Instant::now();
         let _purge_guard = barrier.write_owned().await;
@@ -235,6 +216,7 @@ impl MutationManager {
                 db_ops: &self.db_ops,
                 schema_manager: &self.schema_manager,
                 schema_name,
+                storage_prefix: options.storage_prefix,
             },
             keys,
             options.missing,

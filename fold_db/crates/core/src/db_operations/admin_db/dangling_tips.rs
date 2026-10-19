@@ -146,7 +146,7 @@ impl AtomStore {
         use crate::schema::types::field::FilterUtils;
 
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
+        let mk_end = FilterUtils::create_prefix_end(&mk_prefix)?;
         // A `key_window` narrows the walk to one sub-range of `mk:`; a `scope`
         // narrows it to one prefix range per scoped molecule (and hash);
         // without either the one window IS `mk:`, so every path shares the
@@ -274,13 +274,13 @@ impl AtomStore {
         }
         prefixes.sort();
         prefixes.dedup();
-        Ok(prefixes
+        prefixes
             .into_iter()
             .map(|start| {
-                let end = FilterUtils::create_prefix_end(&start);
-                (start, end)
+                let end = FilterUtils::create_prefix_end(&start)?;
+                Ok((start, end))
             })
-            .collect())
+            .collect()
     }
 }
 

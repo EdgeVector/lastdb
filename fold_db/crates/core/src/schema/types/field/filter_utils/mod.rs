@@ -50,38 +50,27 @@ pub fn apply_keyed_filter(
 pub struct FilterUtils;
 
 impl FilterUtils {
-    /// Creates a prefix end boundary for efficient range queries
-    /// This is used for BTree range operations to find all keys with a given prefix
-    pub fn create_prefix_end(prefix: &str) -> String {
+    /// Return the finite exclusive upper bound for a physical prefix.
+    ///
+    /// Maximum trailing scalars carry into the preceding scalar. An empty or
+    /// all-maximum prefix has no finite upper bound and receives a refusal.
+    /// User prefixes should use prefix selection or include the physical
+    /// namespace before this conversion.
+    pub fn create_prefix_end(prefix: &str) -> Result<String, crate::schema::SchemaError> {
         let mut prefix_end = prefix.to_string();
-        if let Some(last_char) = prefix_end.chars().last() {
-            // Skip the surrogate range (U+D800..=U+DFFF): those code points
-            // are not valid Rust scalar values, so `char::from_u32(0xD800)`
-            // returns `None`. The previous NUL-terminated fallback produced
-            // a bound `"…\u{D7FF}\0"` that strictly precedes any
-            // `"…\u{D7FF}<x>"` in byte order, silently dropping every key
-            // continuing past the boundary. Hopping to U+E000 — the next
-            // valid scalar — yields a correct half-open upper bound.
+        while let Some(last_char) = prefix_end.pop() {
             let next_cp = match last_char as u32 + 1 {
                 0xD800 => 0xE000,
                 n => n,
             };
             if let Some(next_char) = char::from_u32(next_cp) {
-                prefix_end.pop();
                 prefix_end.push(next_char);
-            } else {
-                // If we can't increment the last character, append a null character
-                prefix_end.push('\0');
+                return Ok(prefix_end);
             }
-        } else {
-            // Empty prefix: there is no string upper bound greater than every
-            // string, so the `start..end` range trick cannot express "match
-            // every key". Callers that mean "all keys" must special-case the
-            // empty prefix before calling here — `"\0"` yields the half-open
-            // range `"".."\0"`, which matches only the empty-string key.
-            prefix_end = "\0".to_string();
         }
-        prefix_end
+        Err(crate::schema::SchemaError::InvalidData(
+            "the prefix has no finite upper bound; select by prefix instead".into(),
+        ))
     }
 }
 

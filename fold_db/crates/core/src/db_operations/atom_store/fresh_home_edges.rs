@@ -98,10 +98,9 @@ impl AtomStore {
             self.main_store.inner().batch_mutate(removals).await?;
             self.main_store.inner().flush().await?;
         }
-        self.atom_ref_v2_read_ready
-            .lock()
-            .map_err(|error| StorageError::BackendError(format!("lock atom read gate: {error}")))?
-            .clear();
+        *self.atom_ref_v2_read_ready.lock().map_err(|error| {
+            StorageError::BackendError(format!("lock atom read gate: {error}"))
+        })? = false;
         Ok(())
     }
 
@@ -118,7 +117,8 @@ impl AtomStore {
                 return Ok(false);
             }
         }
-        let edge_end = FilterUtils::create_prefix_end(FRESH_HOME_EDGE_PLANE);
+        let edge_end = FilterUtils::create_prefix_end(FRESH_HOME_EDGE_PLANE)
+            .map_err(|error| StorageError::InvalidOperation(error.to_string()))?;
         self.plane_proven_empty(FRESH_HOME_EDGE_PLANE, &edge_end)
             .await
     }

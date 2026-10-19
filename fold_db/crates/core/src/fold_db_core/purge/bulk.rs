@@ -1,74 +1,17 @@
-//! Moved verbatim out of the parent module; see the parent for context.
-// lint:file-size-ok verbatim move; the one oversized function is separate split work
+//! Scoped target planning for the explicit atom-erasure operation.
 
 use super::*;
 
-/// Hard-remove every trace of `keys` from ONE schema, in a single pass. See the
-/// module-level docstring for the erasure contract.
+/// Remove the requested keys from one schema in one database scope.
 ///
-/// Returns `Err(SchemaError::InvalidData)` when:
-/// - the schema is unknown
-/// - a key's shape doesn't match the schema type (Hash schema with no hash,
-///   Range with no range, HashRange missing either)
-/// - any target doesn't exist (no molecule entry AND no history rows match it,
-///   across every field of the schema) — checked for the whole batch **before**
-///   anything is mutated, so a batch naming a missing key changes nothing
+/// Resolve the schema once, load the selected tips, and prove all required
+/// targets exist before the destructive stage. The target trace and exact
+/// encoded slots keep every later operation in the same scope.
 ///
-/// # Why this is batched
-///
-/// The per-record predecessor (`purge_record`, removed in the same change that
-/// added this) was correct and quadratic. Its work splits into what is
-/// genuinely per-record — a key's own live head, its own `tv:` chain, its own
-/// molecule entry — and what is per-*schema* but was redone for every record:
-///
-/// - `refresh_runtime_field_molecules` — reloads every molecule of the schema
-/// - `get_mutation_events(mol_uuid, None)` — reads **all** events per field
-/// - the sibling-chain guard — walks the tip chain of **every per-key record of
-///   every field**
-/// - re-persisting molecules, `store_schema`, `load_schema_internal`, `flush`
-///
-/// With `R` records in the schema and `F` fields, one purge is `O(F·R)`, so
-/// purging `N` of them one at a time is `O(N·F·R)`. Draining the node's own
-/// telemetry plane (`N = R ≈ 74k`, `F = 39`) is ~10^11 chain walks — which is
-/// the real reason 47.6% of the tip plane has no shipped path that can reclaim
-/// it, and why "just call the prune" never finished rather than merely being
-/// slow. Hoisting the per-schema work out of the loop makes the batch `O(F·R)`
-/// total: the same cost as a **single** purge.
-///
-/// # The comment this replaces
-///
-/// `process_hard_erasures` said: *"One pass per mutation — purge is rare and there's
-/// no batching benefit from grouping by schema."* That was true while purge was
-/// only the compliance verb, answering one subject-erasure request at a time.
-/// It stopped being true the moment purge became the only primitive that can
-/// shrink a plane, and the rationale outlived the fact by long enough that the
-/// cost was read as inherent. Both halves were wrong: the benefit is not merely
-/// present, it is the difference between `O(N·F·R)` and `O(F·R)`.
-///
-/// # What is NOT relaxed
-///
-/// Every guard the per-record path had holds here, computed once over the whole
-/// batch instead of once per record:
-///
-/// - the live-head guard, evaluated **after** all targets are removed;
-/// - the history guard, over events belonging to keys outside the batch;
-/// - the chain guard, over the complement of the **entire** target set
-///   ([`collect_retained_chain_atoms`] — the one guard whose meaning changes
-///   with batch size, and the only way to get this wrong in a direction that
-///   deletes a live atom);
-/// - the write-ahead delete-ledger row, before anything is destroyed;
-/// - resident (T0) eviction *after* the durable rows are gone;
-/// - the loud not-found error, still evaluated **before** any mutation.
-///
-/// A batch of one is not a special case in this code — it is this code with
-/// `keys.len() == 1`, and it keeps the single-record path's exact error wording
-/// and delete-ledger row so nothing operator-facing changed when `purge_record`
-/// went away. Every existing purge test (erasure, concurrency, delete-ledger)
-/// reaches this function through `process_hard_erasures` and pins that.
-///
-/// Callers select the reachability proof explicitly. The guarded complement
-/// mode requires the schema purge barrier. The exact-edge mode runs in the
-/// persist lane after its molecule manifests report replay-complete.
+/// Both reachability modes check current shared references after target tip
+/// removal. A failed or incomplete final reference check prevents publication.
+/// The guarded-complement mode can retain extra atoms when a complete reverse
+/// reference proof is unavailable. Its caller holds the schema purge barrier.
 pub(in crate::fold_db_core) async fn purge_records_bulk(
     scope: PurgeScope<'_>,
     keys: &[KeyValue],
@@ -79,19 +22,15 @@ pub(in crate::fold_db_core) async fn purge_records_bulk(
 ) -> Result<BulkPurgeReport, SchemaError> {
     let PurgeScope {
         db_ops,
-        schema_manager,
         schema_name,
+        ..
     } = scope;
     let reachability = mode.reachability;
     if keys.is_empty() {
         return Ok(BulkPurgeReport::empty());
     }
 
-    let mut schema = schema_manager
-        .get_schema_metadata(schema_name)?
-        .ok_or_else(|| {
-            SchemaError::InvalidData(format!("Schema '{schema_name}' not found for purge"))
-        })?;
+    let mut schema = scope.schema()?;
 
     for key in keys {
         validate_purge_key_shape(&schema, schema_name, key)?;
@@ -261,21 +200,16 @@ pub(super) async fn collect_purge_trace(
             continue;
         };
 
-        // ONCE per field, not once per record — this read is the bulk of what
-        // made the per-record path quadratic. It is also an unprunable prefix
-        // walk (see `crate::atom::legacy_history_memo`), so on a current store,
-        // where it can only ever return nothing, the memo is what keeps it from
-        // sweeping the collection on every purge.
+        // Read existing physical conflict/history references once per field.
+        // Ordinary logical writes do not create atom-version history.
         let storage_prefix = field.common().storage_prefix();
         let events = db_ops
             .atoms()
             .get_mutation_event_rows(&mol_uuid, storage_prefix)
             .await?;
         for (event_key, ev) in &events {
-            // Linear over targets, but only for stores that still carry legacy
-            // `history:` rows: the production write path retired them when the
-            // `tv:` chain replaced them, so `events` is empty on any current
-            // store and this loop does not run at all.
+            // Physical conflict records can retain source atoms. Match them
+            // against the exact target set before body-reachability checks.
             let matched = keys
                 .iter()
                 .position(|k| field_key_matches_value(&ev.field_key, k));
@@ -340,21 +274,19 @@ pub(super) async fn collect_purge_trace(
 /// changed. The lane records a successful check and replays all later durable
 /// attempts with `Skip`, which makes a partial storage failure idempotent.
 pub(in crate::fold_db_core) async fn validate_purge_targets_present(
-    db_ops: &Arc<DbOperations>,
-    schema_manager: &Arc<SchemaCore>,
-    schema_name: &str,
+    scope: PurgeScope<'_>,
     keys: &[KeyValue],
     verb: HardEraseVerb,
 ) -> Result<PurgeTargetPresence, SchemaError> {
     if keys.is_empty() {
         return Ok(PurgeTargetPresence::Present);
     }
-
-    let mut schema = schema_manager
-        .get_schema_metadata(schema_name)?
-        .ok_or_else(|| {
-            SchemaError::InvalidData(format!("Schema '{schema_name}' not found for purge"))
-        })?;
+    let PurgeScope {
+        db_ops,
+        schema_name,
+        ..
+    } = scope;
+    let mut schema = scope.schema()?;
     for key in keys {
         validate_purge_key_shape(&schema, schema_name, key)?;
     }
@@ -393,38 +325,27 @@ pub(in crate::fold_db_core) async fn validate_purge_targets_present(
     }
 }
 
-/// Walk retained chains **without** the exclusive schema barrier and **without**
-/// occupying the persist lane.
-///
-/// The persist worker used to run this walk under `schema_purge_barrier` while
-/// holding the head of the schema FIFO. A one-record purge then occupied the
-/// lane for ~328 s, `reserved_bytes` froze, and every later writer on that
-/// schema got `503 persist_queue_full kind=entries`. Planning here (TTL /
-/// request thread) lets the lane drain during the walk. The persist envelope
-/// only commits.
+/// Prepare conservative retained atoms before this work occupies a purge lane.
+/// The later native transaction still checks current shared references before
+/// it can remove atom bodies. Planning does not replace that final proof.
 pub(in crate::fold_db_core) async fn plan_guarded_complement_retained(
-    db_ops: &Arc<DbOperations>,
-    schema_manager: &Arc<SchemaCore>,
-    schema_name: &str,
+    scope: PurgeScope<'_>,
     keys: &[KeyValue],
 ) -> Result<HashSet<String>, SchemaError> {
     if keys.is_empty() {
         return Ok(HashSet::new());
     }
-    let mut schema = schema_manager
-        .get_schema_metadata(schema_name)?
-        .ok_or_else(|| {
-            SchemaError::InvalidData(format!(
-                "Schema '{schema_name}' not found for purge retain-plan"
-            ))
-        })?;
+    let PurgeScope {
+        db_ops,
+        schema_name,
+        ..
+    } = scope;
+    let mut schema = scope.schema()?;
     for key in keys {
         validate_purge_key_shape(&schema, schema_name, key)?;
     }
-    // This walk runs on the request thread, before the lane slot is reserved,
-    // so none of it sits inside the exclusive hold that `PurgeCommit` is the
-    // residual of. Each step records the phase the destructive path records
-    // for the same work; otherwise ~30% of a purge request was in no phase.
+    // Preparation precedes lane admission. Record its work separately from
+    // the final exclusive destructive stage.
     let materialize_start = std::time::Instant::now();
     let materialized = refresh_runtime_field_molecules(db_ops, &mut schema).await;
     crate::request_phases::add_phase(

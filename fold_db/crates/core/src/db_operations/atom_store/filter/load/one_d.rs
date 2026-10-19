@@ -125,7 +125,7 @@ impl AtomStore {
                 self.scan_per_key_range_slot(
                     molecule_uuid,
                     p,
-                    &FilterUtils::create_prefix_end(p),
+                    &FilterUtils::create_prefix_end(p)?,
                     storage_prefix,
                 )
                 .await?

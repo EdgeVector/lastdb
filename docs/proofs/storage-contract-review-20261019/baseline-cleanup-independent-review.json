@@ -1,0 +1,56 @@
+{
+  "actual_reclaim_executed": false,
+  "all_checks_pass": true,
+  "binary_sha256": "aaf0a32ae7098847d0d9de1755cc78e1facaff1a384ddb663187526a79de971c",
+  "binary_stat": {
+    "bytes": 68205840,
+    "mode": "0o755",
+    "uid": 501
+  },
+  "checks": {
+    "binary_exact_parent": true,
+    "binary_hash_matches": true,
+    "binary_regular_not_symlink": true,
+    "creator_pid_gone": true,
+    "exact_two_owned_files": true,
+    "file_uids_match": true,
+    "identity_receipt_hash_matches": true,
+    "marker_contents_match": true,
+    "marker_regular_not_symlink": true,
+    "no_owned_root_open_files": true,
+    "no_recorded_node_sessions": true,
+    "root_device_matches": true,
+    "root_directory_not_symlink": true,
+    "root_exact_realpath": true,
+    "root_inode_matches": true,
+    "root_private_mode": true,
+    "root_uid_matches": true
+  },
+  "creator_process": {
+    "returncode": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "kind": "independent executable-only baseline cleanup review",
+  "lsof": {
+    "returncode": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "marker_stat": {
+    "mode": "0o600",
+    "uid": 501
+  },
+  "ready_for_exact_reclaim": true,
+  "reviewed_at_utc": "2026-10-19T22:36:34.769295+00:00",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.sdh1yb1q",
+  "root_realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.sdh1yb1q",
+  "root_stat": {
+    "device": 16777231,
+    "inode": 1470124254,
+    "mode": "0o700",
+    "uid": 501
+  },
+  "supported_preview_receipt": "baseline-cleanup-supported-preview.json",
+  "supported_preview_sha256": "1647cc3dd1511654fa7c3e3156af02f77b4c587c31942a366edfb26dc9cce5ea"
+}

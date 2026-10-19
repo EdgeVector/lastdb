@@ -49,7 +49,14 @@ impl MutationManager {
     }
 
     pub(super) fn aggregate_named_lock(&self, key: String) -> Arc<tokio::sync::Mutex<()>> {
-        let mut locks = self.cas_locks.lock().expect("aggregate locks poisoned");
+        let mut locks = self
+            .aggregate_locks
+            .lock()
+            .expect("aggregate locks poisoned");
+        // A waiter owns its Arc before the map lock releases. Only a lock
+        // without holders or waiters can disappear; the next call drops idle
+        // keys rather than retaining one for every aggregate ever addressed.
+        locks.retain(|_, lock| Arc::strong_count(lock) > 1);
         Arc::clone(locks.entry(key).or_default())
     }
 

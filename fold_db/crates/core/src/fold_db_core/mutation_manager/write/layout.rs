@@ -4,6 +4,25 @@ use super::*;
 use std::collections::BTreeMap;
 
 impl MutationManager {
+    /// Source batches own distinct mutation identities. Derived Delete peers
+    /// retain their source identity and validate only their keys and layouts.
+    pub(in crate::fold_db_core::mutation_manager) fn validate_mutation_batch(
+        &self,
+        mutations: &[Mutation],
+    ) -> Result<(), SchemaError> {
+        let mut identities = HashSet::new();
+        for mutation in mutations {
+            if !identities.insert(&mutation.uuid) {
+                return Err(SchemaError::InvalidData(format!(
+                    "mutation batch repeats identity '{}'",
+                    mutation.uuid
+                )));
+            }
+        }
+        self.validate_mutation_keys_and_layouts(mutations)?;
+        self.validate_key_field_payloads(mutations)
+    }
+
     pub(in crate::fold_db_core::mutation_manager) fn validate_mutation_keys_and_layouts(
         &self,
         mutations: &[Mutation],
