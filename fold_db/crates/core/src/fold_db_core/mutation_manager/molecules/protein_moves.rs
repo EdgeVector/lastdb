@@ -1,4 +1,4 @@
-//! A protein move retains values and retires only its captured old association.
+//! A new protein key retains values and retires only a captured old association.
 
 use super::super::MutationManager;
 use super::prepared::{SiblingMove, SiblingOrigin, SiblingUpdate, SourceId};
@@ -24,12 +24,11 @@ struct MoveRequest {
     index: usize,
     source_molecule: String,
     molecule: String,
-    old: KeyValue,
+    old: Option<(KeyValue, usize)>,
     new: KeyValue,
     trigger: SourceId,
     value: Option<String>,
     source_slot: usize,
-    old_slot: usize,
     new_slot: usize,
     association_slots: Vec<usize>,
 }
@@ -66,7 +65,12 @@ impl MutationManager {
             };
             let updated =
                 self.ensure_moved_value(&request, source, &state, updates, origins, &mut index);
-            let Some(old) = state.records[request.old_slot].as_ref() else {
+            // A previously absent peer key still needs the unchanged source
+            // values. Only a captured old association can also be retired.
+            let Some((old_key, old_slot)) = request.old else {
+                continue;
+            };
+            let Some(old) = state.records[old_slot].as_ref() else {
                 continue;
             };
             // An equal body alone does not establish which record owns a
@@ -85,7 +89,7 @@ impl MutationManager {
             movements.push(SiblingMove {
                 source: origins[updated].source.clone(),
                 molecule_uuid: request.molecule,
-                old_key: request.old,
+                old_key,
                 new_key: request.new,
                 expected_old: old.clone(),
             });
@@ -224,13 +228,11 @@ fn move_requests(
                 continue;
             };
             for member in &protein.members {
-                let Some(old) = member.tip_coords_from_fields(before) else {
-                    continue;
-                };
+                let old = member.tip_coords_from_fields(before);
                 let Some(new) = member.tip_coords_from_fields(after) else {
                     continue;
                 };
-                if old == new {
+                if old.as_ref() == Some(&new) {
                     continue;
                 }
                 let entry_layout = input.schema.key.as_ref().is_some_and(|layout| {
@@ -257,25 +259,22 @@ fn move_requests(
                     ));
                 }
                 let source_slot = slot_index(slots, (source.clone(), source_key.0, source_key.1));
-                let old_slot = slot_index(
-                    slots,
-                    (member.molecule_uuid.clone(), old.0.clone(), old.1.clone()),
-                );
+                let old = old.map(|old| {
+                    let slot = slot_index(
+                        slots,
+                        (member.molecule_uuid.clone(), old.0.clone(), old.1.clone()),
+                    );
+                    (pair_key(old), slot)
+                });
                 let new_slot = slot_index(
                     slots,
                     (member.molecule_uuid.clone(), new.0.clone(), new.1.clone()),
                 );
-                let association_slots = std::iter::once(&member.hash_field)
-                    .chain(member.range_field.as_ref())
-                    .filter_map(|name| input.schema.runtime_fields.get(name))
-                    .filter_map(|field| {
-                        Some((
-                            field.common().molecule_uuid()?.clone(),
-                            field.disk_slot_for_key(&input.keys[idx])?,
-                        ))
-                    })
-                    .map(|(molecule, (hash, range))| slot_index(slots, (molecule, hash, range)))
-                    .collect();
+                let association_slots = if old.is_some() {
+                    association_slots(input, member, idx, slots)
+                } else {
+                    Vec::new()
+                };
                 let value = input
                     .eligible
                     .iter()
@@ -285,12 +284,11 @@ fn move_requests(
                     index: idx,
                     source_molecule: source.clone(),
                     molecule: member.molecule_uuid.clone(),
-                    old: pair_key(old),
+                    old,
                     new: pair_key(new),
                     trigger,
                     value,
                     source_slot,
-                    old_slot,
                     new_slot,
                     association_slots,
                 });
@@ -298,6 +296,25 @@ fn move_requests(
         }
     }
     Ok(requests)
+}
+
+fn association_slots(
+    input: &ProteinMoveInput<'_>,
+    member: &crate::protein::ProteinMember,
+    idx: usize,
+    slots: &mut BTreeMap<Slot, usize>,
+) -> Vec<usize> {
+    std::iter::once(&member.hash_field)
+        .chain(member.range_field.as_ref())
+        .filter_map(|name| input.schema.runtime_fields.get(name))
+        .filter_map(|field| {
+            Some((
+                field.common().molecule_uuid()?.clone(),
+                field.disk_slot_for_key(&input.keys[idx])?,
+            ))
+        })
+        .map(|(molecule, (hash, range))| slot_index(slots, (molecule, hash, range)))
+        .collect()
 }
 
 fn move_trigger(

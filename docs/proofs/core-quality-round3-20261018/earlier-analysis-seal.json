@@ -1,0 +1,108 @@
+{
+  "candidate_binary_sha256": "4e6a2aa9df6c71ebf4474618ea89557c54cd20d51a337ee61bbbf0f97ca5a732",
+  "candidate_commit": "894c459d1e235aa928973fc6f479182acf459ef3",
+  "files": {
+    "BENCHMARK-PLAN.md": {
+      "bytes": 6558,
+      "sha256": "af45a3c69acb6bd8992cc79658c42b16b81310df77c9ac86cd70dcf6c96dfd3a"
+    },
+    "baseline-identity.json": {
+      "bytes": 336366,
+      "sha256": "1a892716f9829b25954b0c4fe7a036114de38a6581a443aebbdeb5811ffb8e57"
+    },
+    "baseline-root.json": {
+      "bytes": 943,
+      "sha256": "7e05271703bfad8072f1c8fb2b1c55f06d13699b0be324fcbb69d3cdfcb2cdf1"
+    },
+    "benchmark-run.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "benchmark-run.stdout": {
+      "bytes": 1534,
+      "sha256": "4c1bf1ad6338acf99c3a04b3f2cd4964f94f4d1eb457724aecb0a9e40d40c1d6"
+    },
+    "benchmark/TABLES.md": {
+      "bytes": 6244,
+      "sha256": "a1d575ec62ffd749e9fae819adea82e3bdbde5e048845d46d2268d5a6fed0686"
+    },
+    "benchmark/WRITE-FRONTIERS.md": {
+      "bytes": 2288,
+      "sha256": "e96b4cf1ad7437e105c901de703d222f3d006de8c48bd8328e37415723b761ce"
+    },
+    "benchmark/api.py": {
+      "bytes": 7337,
+      "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+    },
+    "benchmark/comparison-unaccepted-historical-metadata.json": {
+      "bytes": 809794,
+      "sha256": "4ac72d99490293a77c6cd9d9fd21de05d02bd42d6076223725ac82c536c2c1e3"
+    },
+    "benchmark/comparison.json": {
+      "bytes": 810878,
+      "sha256": "ecb5f9757ad371dd6a97714090a51dfbd5ceb5dfad3037040b2976de0bf46771"
+    },
+    "benchmark/driver.py": {
+      "bytes": 6378,
+      "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+    },
+    "benchmark/durable-seed-observations.json": {
+      "bytes": 19273,
+      "sha256": "be30dd2e667e9248facd7a1baf62b963d9c37233ff46fac360e17772c1240be7"
+    },
+    "benchmark/paired-tables.json": {
+      "bytes": 871479,
+      "sha256": "b3cfa08cd2607ab296ed0f050ebd14bfb053f3a946d01fdfdee25532d392ef82"
+    },
+    "benchmark/run-inputs.json": {
+      "bytes": 2179,
+      "sha256": "1475dc640fe5fe19f843e832604af92f5e3463d7d197e8df05e5f0313db224f5"
+    },
+    "benchmark/run-order.json": {
+      "bytes": 12760,
+      "sha256": "9729ff9302f703dd09665b69f1ed8dc6652e98da7ea859b1d39032a803272e75"
+    },
+    "benchmark/workload.py": {
+      "bytes": 7441,
+      "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+    },
+    "benchmark/write-frontiers.json": {
+      "bytes": 339537,
+      "sha256": "f479ab52f57eb7c7367f2abed003a8b3dcbed5408b50d7dc133b56e3d1aa29c9"
+    },
+    "candidate-identity.json": {
+      "bytes": 358641,
+      "sha256": "25c1a0a5c008426e67f22f3709fd7a99e0c3cada01e3ae38333a69d305b1da0d"
+    },
+    "candidate-root.json": {
+      "bytes": 944,
+      "sha256": "b56ae0a55c18116257a586186b03c1c3951ecfdf8e67bb27be84906caef6995c"
+    },
+    "measurement-seal.json": {
+      "bytes": 47302,
+      "sha256": "178290668b77d29bb375dbf5fe5669c228a1aa4c08b521e80b66fd5f9f0ba21e"
+    },
+    "ordinary-nullable.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ordinary-nullable.stdout": {
+      "bytes": 1267,
+      "sha256": "364d6e0c042b8b652a97da9507b32505c3fe695e61e8b81d41aa2669166252c5"
+    },
+    "ordinary-operation-inputs.json": {
+      "bytes": 82637,
+      "sha256": "8b7340301f18254bcfb06d82a1f329f298b84ab96e44fa6d1e68c7769c476002"
+    },
+    "ordinary-paired.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ordinary-paired.stdout": {
+      "bytes": 1103,
+      "sha256": "4b30eea6b161e7b54b8548054c2aebaebeb6100d684b0ffb06b1bdae01183f60"
+    }
+  },
+  "reference_commit": "8c0531e6ca032bbc1e5b11379792c3a120f170a6",
+  "scope": "Earlier candidate measurements stay source-specific. Matrix and paired ordinary cases passed. Nullable workflow remains incomplete after a missing unchanged id on a newly addressable peer. Final product source and measurements will be separate."
+}

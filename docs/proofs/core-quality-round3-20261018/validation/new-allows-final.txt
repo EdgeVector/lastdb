@@ -1,0 +1,5 @@
+Source: 8c2b0eb89bc140cd453fb80ee5637b378c0513cb
+Base: origin/main (8c0531e6ca032bbc1e5b11379792c3a120f170a6)
+Command: python3 scripts/lints/lint-diff-new-allows.py --base origin/main --head 8c2b0eb89bc140cd453fb80ee5637b378c0513cb
+Exit: 0
+allow check passed: 0 added, 0 removed

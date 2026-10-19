@@ -1,0 +1,171 @@
+{
+  "checked_utc": "2026-10-19T04:30:19.070657+00:00",
+  "device": 16777231,
+  "documented_startup_gate_refusal": false,
+  "inode": 1466718477,
+  "known_socket_paths_remaining": [],
+  "marker": {
+    "creator_pid": 81010,
+    "device": 16777231,
+    "inode": 1466718477,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "normal_stops": [
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 81040,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 82653,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 82725,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 82859,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 82996,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83132,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83320,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83504,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83537,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83565,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83566,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83574,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83580,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83584,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83585,
+      "variant": "before-off-r1"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 83639,
+      "variant": "before-off-r1"
+    }
+  ],
+  "open_file_check": {
+    "command": [
+      "lsof",
+      "-Fpn",
+      "+D",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9_romuj9"
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "owner_uid": 501,
+  "process_check": {
+    "command": [
+      "ps",
+      "-p",
+      "81040,82653,82725,82859,82996,83132,83320,83504,83537,83565,83566,83574,83580,83584,83585,83639",
+      "-o",
+      "pid=,command="
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9_romuj9",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9_romuj9"
+}

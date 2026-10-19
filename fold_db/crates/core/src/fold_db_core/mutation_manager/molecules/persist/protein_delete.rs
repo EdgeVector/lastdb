@@ -61,6 +61,9 @@ impl MutationManager {
             .expand_protein_member_deletes(job.erasures.clone(), scope)
             .await
             .map_err(target_error)?;
+        // This pass also handles scoped HashRange peers and can reach an
+        // extra peer through fields declared only on a first-pass sibling.
+        // Purge uses it separately. Neither pass changes the source clock.
         let erasures = self
             .expand_protein_hashrange_erasures(erasures, scope)
             .await
@@ -96,9 +99,9 @@ impl MutationManager {
 
 fn target_error(error: SchemaError) -> PurgeAttemptError {
     match error {
-        SchemaError::ReadResourceLimit { .. } | SchemaError::WriteResourceLimit { .. } => {
-            PurgeAttemptError::Rejected(error)
-        }
+        SchemaError::ReadResourceLimit { .. }
+        | SchemaError::WriteResourceLimit { .. }
+        | SchemaError::InvalidField(_) => PurgeAttemptError::Rejected(error),
         error => PurgeAttemptError::Retry(error),
     }
 }

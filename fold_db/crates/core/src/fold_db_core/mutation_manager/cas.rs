@@ -39,7 +39,9 @@ fn protein_delete_key_value(
         return Ok(Some(value.to_string()));
     }
     if value.is_null() || value.is_array() || value.is_object() {
-        return Err(SchemaError::InvalidData(format!(
+        // A stable key-value refusal must finish the Delete request rather
+        // than retain its durable envelope for a storage retry.
+        return Err(SchemaError::InvalidField(format!(
             "protein delete key field '{field}' for sibling schema '{schema_name}' must be a scalar"
         )));
     }
@@ -174,7 +176,7 @@ fn push_peer_deletes(
         peer.schema_name = schema_name;
         peer.key_value = KeyValue::new(Some(hash), range);
         // A source must-exist check applies only to the caller's key.
-        // Protein fold is eventual, so a peer can already be absent.
+        // A peer can already be absent, so derived cleanup stays idempotent.
         peer.expected = None;
         peer.must_exist = None;
         if expanded.len() >= 10_000 {

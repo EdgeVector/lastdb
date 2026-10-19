@@ -73,3 +73,15 @@
 !/docs/proofs/core-memory-state-20261018/current-source-v4.json
 /docs/proofs/*/disk-component/**/read*.json
 /docs/proofs/*/disk-component/**/range*.json
+
+# Round 3 retains exact samples, concise tables, seals, and recovery provenance.
+# Full generated status summaries remain unchanged in the local proof tree.
+/docs/proofs/core-quality-round3-20261018/benchmark/comparison-unaccepted-historical-metadata.json
+/docs/proofs/core-quality-round3-20261018/benchmark/comparison.json
+/docs/proofs/core-quality-round3-20261018/benchmark/paired-tables.json
+/docs/proofs/core-quality-round3-20261018/benchmark/write-frontiers.json
+/docs/proofs/core-quality-round3-20261018/benchmark-final/comparison-unaccepted-historical-metadata.json
+/docs/proofs/core-quality-round3-20261018/benchmark-final/comparison.json
+/docs/proofs/core-quality-round3-20261018/benchmark-final/paired-tables.json
+/docs/proofs/core-quality-round3-20261018/benchmark-final/write-frontiers.json
+/docs/proofs/core-quality-round3-20261018/ordinary-*/ordinary-operation-inputs.json

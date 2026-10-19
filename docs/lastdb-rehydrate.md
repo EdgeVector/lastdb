@@ -32,6 +32,10 @@ There is no separate whole-record value or record-compaction write route.
 Native file packing combines the disk work without a second logical value representation.
 When a Hash write omits its declared key field, preparation supplies that field from the lookup key.
 This keeps the record available to field conditions without a separate membership source.
+Internal current-field reads select each tip once, then fetch the selected atom bodies in one batch.
+Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.
+A shared key that becomes usable also receives the unchanged fields through their existing atoms.
+The absence of an old key does not skip those fields. Only a confirmed old association permits its removal.
 
 ## Range keys
 
@@ -61,6 +65,8 @@ The current field atoms supply the values for those checks and related keys.
 Source and related deletions enter one disk commit, including each schema's cleanup work.
 Search receives the deletion after that commit.
 The explicit Purge route retains its separate destructive rules.
+An invalid peer-key value receives an explicit refusal before any deletion starts.
+That fixed input error does not retain a write for an endless storage retry.
 
 A fixed operation or byte limit refuses the whole prepared request before publication.
 A read limit also returns a refusal. Neither refusal causes an endless delete retry.

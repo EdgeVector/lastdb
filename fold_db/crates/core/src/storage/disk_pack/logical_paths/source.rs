@@ -78,7 +78,15 @@ impl AtomFacts {
     pub(super) fn source(&self) -> (&str, &str) {
         (&self.source.collection, &self.source.key)
     }
+}
 
+#[derive(Clone)]
+struct SourceKey {
+    collection: String,
+    key: String,
+}
+
+impl SourceKey {
     fn primary(&self, requested: &str) -> bool {
         let Some(first) = crate::kind_partition::read_forms(requested)
             .into_iter()
@@ -89,9 +97,8 @@ impl AtomFacts {
         crate::storage::laststore::native_routing::read_candidates(first.as_bytes())
             .into_iter()
             .next()
-            == Some(self.source.collection.as_str())
-            && crate::storage::laststore::native_routing::encode(first.as_bytes())
-                == self.source.key
+            == Some(self.collection.as_str())
+            && crate::storage::laststore::native_routing::encode(first.as_bytes()) == self.key
     }
 }
 
@@ -103,13 +110,27 @@ pub(in crate::storage::disk_pack) struct Sources {
     bytes: usize,
 }
 
-#[derive(Clone)]
-struct SourceKey {
-    collection: String,
-    key: String,
-}
-
 impl Sources {
+    /// Optional receipts copy a body only after its source and allowance pass.
+    fn retain_atom(
+        &mut self,
+        requested: &str,
+        source: SourceKey,
+        bytes: usize,
+        create: impl FnOnce() -> Arc<Atom>,
+    ) {
+        if source.primary(requested) && self.room(bytes) {
+            self.atoms.insert(
+                requested.to_owned(),
+                AtomFacts {
+                    source,
+                    atom: create(),
+                    bytes,
+                },
+            );
+        }
+    }
+
     fn room(&mut self, bytes: usize) -> bool {
         let entries = self.reads.len() + self.atoms.len() + self.scoped.len();
         let Some(total) = self
@@ -210,14 +231,7 @@ pub(crate) fn note_atom(
         + source.collection.len()
         + source.key.len()
         + super::body::encoded_len(atom)?;
-    let facts = AtomFacts {
-        source,
-        atom: Arc::new(atom.clone()),
-        bytes,
-    };
-    if facts.primary(requested) && sources.room(bytes) {
-        sources.atoms.insert(requested.to_owned(), facts);
-    }
+    sources.retain_atom(requested, source, bytes, || Arc::new(atom.clone()));
     Ok(())
 }
 
