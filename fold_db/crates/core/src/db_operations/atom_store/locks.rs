@@ -1,6 +1,7 @@
 //! Molecule, tip, atom-ref, and delete-barrier locks plus GC protection.
 
 use super::*;
+use futures::FutureExt;
 
 impl AtomStore {
     /// Keep protein selection, membership changes, and orphan checks together.
@@ -9,16 +10,20 @@ impl AtomStore {
     /// the clone-shared gate also serializes physical stores without that scope.
     pub(crate) async fn with_protein_membership<T>(
         &self,
-        work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>>,
+        work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send,
     ) -> Result<T, crate::schema::SchemaError> {
         let runtime = self
             .namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
-        crate::storage::disk_pack::transaction::scope(runtime, async {
-            let _membership = self.protein_membership_gate.lock().await;
-            work.await
-        })
+        crate::storage::disk_pack::transaction::scope(
+            runtime,
+            async {
+                let _membership = self.protein_membership_gate.lock().await;
+                work.await
+            }
+            .boxed(),
+        )
         .await
     }
 

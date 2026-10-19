@@ -29,3 +29,28 @@ The one-field fallback is intentional. An empty preferred key field permits one 
 The reviewed routes use the canonical per-field model: schema, field, molecule, atom, then file. The optional whole-record compaction path is absent. Native file packing remains a disk responsibility; it does not introduce a second logical record representation.
 
 This review did not run tests, builds, or product operations. It did not access the primary, the archive, or cloud data.
+
+## Independent binder follow-up at 003f2d58
+
+Reviewed source: `003f2d5840197426c4c339d59e2159bea0154356`.
+
+The later product operation at `b5b0018e` failed its first sparse peer check, `Round6ProjectionAbsent-exact-0`. The saved response contained the correct key and `id`, but no expected `payload`. The other five peer reads in the same batch showed the same omission. These requests had no numeric conditions or field ordering. The initial source review above did not cover concurrent protein creation.
+
+The saved node log recorded non-fatal protein binding failures during concurrent schema declarations. The old binder read each molecule's protein reference, chose or created a protein, then added the two members through separate writes. Concurrent binders could choose different proteins and leave shared fields on separate proteins. The writer then updated only the members of its selected protein. The matching field definitions made the expected payload valid; this was not a weaker projection contract.
+
+The seven-file correction preserves one membership authority:
+
+- `AtomStore` clones share one membership gate. The automatic binder, public member addition, and orphan-protein cleanup use this gate.
+- Native preparation precedes the membership gate. Molecule liveness locks follow the membership gate.
+- The binder reads both references in one batch. It chooses the protein and adds both members inside the same native transaction.
+- The binder calls the private member-add body, so it does not take its own membership gate twice.
+- `DbOperations::store_schema` and `drop_schema` enter the native transaction before their molecule liveness locks. This removes the opposite lock order.
+- Nested schema and raw writes reuse the existing private transaction. A new outer transaction captures the current root after native preparation.
+
+The native preparation gate remains held until queue acceptance, after the inner membership and liveness guards leave scope. A failure discards the binder's staged members, protein body, and references together. An enclosing older read cannot supply the transaction's comparison state.
+
+Orphan-protein cleanup now captures candidates and stages their removal inside the same boundary. An oversized cleanup can refuse the whole operation at the existing limits. It does not partially commit its chunks. Public protein creation alone still creates an empty protein until a member is added.
+
+Distinct existing proteins remain distinct. The change adds no repair, migration, or backfill for a prior split. The next product operation uses a fresh synthetic home.
+
+Result: no unresolved blocker in the final independent binder review. This follow-up used source and saved failure receipts only. It did not run tests, builds, or product calls. A separate operation against the corrected release must establish the final product result.

@@ -5,6 +5,7 @@
 use super::core::DbOperations;
 use crate::db_operations::atom_store::MoleculeRefEdge;
 use crate::schema::{Schema, SchemaError, SchemaNameClaim, SchemaRetentionPolicy, SchemaState};
+use futures::FutureExt;
 use std::collections::HashMap;
 
 mod attribution;
@@ -46,7 +47,7 @@ impl DbOperations {
     ) -> Result<(), SchemaError> {
         crate::storage::disk_pack::transaction::scope(
             self.namespaced_store().disk_pack_runtime(),
-            self.store_schema_in_scope(schema_name, schema),
+            self.store_schema_in_scope(schema_name, schema).boxed(),
         )
         .await
     }
@@ -185,7 +186,7 @@ impl DbOperations {
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
         crate::storage::disk_pack::transaction::scope(
             self.namespaced_store().disk_pack_runtime(),
-            self.drop_schema_in_scope(schema_name),
+            self.drop_schema_in_scope(schema_name).boxed(),
         )
         .await
     }
